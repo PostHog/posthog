@@ -70,6 +70,7 @@ from products.tasks.backend.constants import (
     PR_STATES as PR_STATES,  # re-exported for presentation
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
     SERVER_OWNED_RESUME_STATE_KEYS,
+    SUBSCRIPTION_PLAN_NAMES as SUBSCRIPTION_PLAN_NAMES,  # re-exported for presentation
     TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
     TASK_ANALYSIS_FEATURE_FLAG,
     TASK_SESSION_MAX_SIZE_BYTES,
@@ -4000,7 +4001,7 @@ def signal_task_run_user_message(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    for adapter, plan_name in (("claude", "Claude plan"), ("codex", "ChatGPT plan")):
+    for adapter, plan_name in SUBSCRIPTION_PLAN_NAMES.items():
         if (run.state or {}).get(f"{adapter}_model_access") == "own-subscription" and (run.state or {}).get(
             f"{adapter}_subscription_user_id"
         ) != actor_user_id:

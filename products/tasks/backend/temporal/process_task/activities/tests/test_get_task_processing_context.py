@@ -47,14 +47,17 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     _is_pr_babysit_snapshot_enabled,
     _is_rtk_enabled,
     _is_sandbox_event_ingest_enabled,
-    _resolve_claude_model_access,
-    _resolve_codex_model_access,
     _resolve_modal_vm_sandbox,
     _resolve_sandbox_backend,
+    _resolve_subscription_model_access,
     get_task_processing_context,
 )
 from products.tasks.backend.temporal.process_task.utils import get_actor_distinct_id
 
+FEATURE_ENABLED_TARGET = (
+    "products.tasks.backend.temporal.process_task.activities."
+    "get_task_processing_context.posthoganalytics.feature_enabled"
+)
 VM_FLAG_PAYLOAD_TARGET = "products.tasks.backend.constants.posthoganalytics.get_feature_flag_payload"
 BENJAMIN_PAYLOAD_TARGET = (
     "products.tasks.backend.temporal.process_task.activities."
@@ -928,21 +931,36 @@ class TestGetTaskProcessingContextActivity:
                 is False
             )
 
+    SUBSCRIPTION_CASES = [
+        ("claude", CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG, "Claude plan", None),
+        ("codex", CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG, "ChatGPT plan", "codex"),
+    ]
+
+    @pytest.mark.parametrize("adapter,flag_key,plan_name,runtime_adapter", SUBSCRIPTION_CASES)
     @pytest.mark.parametrize(
-        "flag_value, state, expected",
+        "requested,expected",
         [
-            (True, {"claude_model_access": "own-subscription"}, "own-subscription"),
-            (True, {"claude_model_access": "posthog-gateway"}, "posthog-gateway"),
-            (True, {}, "posthog-gateway"),
+            ("own-subscription", "own-subscription"),
+            ("posthog-gateway", "posthog-gateway"),
+            (None, "posthog-gateway"),
         ],
     )
-    def test_claude_model_access_requires_state_ask_and_flag(self, flag_value, state, expected):
+    def test_subscription_model_access_requires_state_ask_and_flag(
+        self, adapter, flag_key, plan_name, runtime_adapter, requested, expected
+    ):
+        state: dict = {}
+        if requested is not None:
+            state[f"{adapter}_model_access"] = requested
+        if requested == "own-subscription" and runtime_adapter is not None:
+            state["runtime_adapter"] = runtime_adapter
+
         with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            return_value=flag_value,
+            FEATURE_ENABLED_TARGET,
+            return_value=True,
         ) as feature_enabled_mock:
             assert (
-                _resolve_claude_model_access(
+                _resolve_subscription_model_access(
+                    adapter=adapter,
                     task_runtime=Task.Runtime.ACP,
                     distinct_id="distinct-id",
                     organization_id="organization-id",
@@ -952,9 +970,9 @@ class TestGetTaskProcessingContextActivity:
                 == expected
             )
 
-        if state.get("claude_model_access") == "own-subscription":
+        if requested == "own-subscription":
             feature_enabled_mock.assert_called_once_with(
-                CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+                flag_key,
                 distinct_id="distinct-id",
                 groups={"organization": "organization-id"},
                 group_properties={"organization": {"id": "organization-id"}},
@@ -964,100 +982,53 @@ class TestGetTaskProcessingContextActivity:
         else:
             feature_enabled_mock.assert_not_called()
 
+    @pytest.mark.parametrize("adapter,flag_key,plan_name,runtime_adapter", SUBSCRIPTION_CASES)
     @pytest.mark.parametrize("flag_value", [False, None, RuntimeError("flag service failed")])
-    def test_claude_model_access_never_changes_requested_billing(self, flag_value: object) -> None:
+    def test_subscription_model_access_never_changes_requested_billing(
+        self, adapter: str, flag_key: str, plan_name: str, runtime_adapter: str | None, flag_value: object
+    ) -> None:
+        state = {f"{adapter}_model_access": "own-subscription"}
+        if runtime_adapter is not None:
+            state["runtime_adapter"] = runtime_adapter
+
         with (
             patch(
-                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+                FEATURE_ENABLED_TARGET,
                 return_value=flag_value,
                 side_effect=flag_value if isinstance(flag_value, Exception) else None,
             ),
-            pytest.raises(ProcessTaskFatalError, match="Using your Claude plan for cloud tasks is unavailable"),
+            pytest.raises(ProcessTaskFatalError, match=f"Using your {plan_name} for cloud tasks is unavailable"),
         ):
-            _resolve_claude_model_access(
+            _resolve_subscription_model_access(
+                adapter=adapter,
                 task_runtime=Task.Runtime.ACP,
                 distinct_id="distinct-id",
                 organization_id="organization-id",
                 run_id="run-id",
-                state={"claude_model_access": "own-subscription"},
-            )
-
-    @pytest.mark.parametrize("task_runtime,adapter", [(Task.Runtime.ACP, "codex"), (Task.Runtime.PI, None)])
-    def test_claude_subscription_rejects_other_adapters(self, task_runtime: str, adapter: str | None) -> None:
-        with pytest.raises(ProcessTaskFatalError, match="requires the Claude runtime"):
-            _resolve_claude_model_access(
-                task_runtime=task_runtime,
-                distinct_id="distinct-id",
-                organization_id="organization-id",
-                run_id="run-id",
-                state={"claude_model_access": "own-subscription", "runtime_adapter": adapter},
+                state=state,
             )
 
     @pytest.mark.parametrize(
-        "flag_value, state, expected",
+        "adapter,runtime_name,task_runtime,runtime_adapter",
         [
-            (True, {"codex_model_access": "own-subscription", "runtime_adapter": "codex"}, "own-subscription"),
-            (True, {"codex_model_access": "posthog-gateway"}, "posthog-gateway"),
-            (True, {}, "posthog-gateway"),
+            ("claude", "Claude", Task.Runtime.ACP, "codex"),
+            ("claude", "Claude", Task.Runtime.PI, None),
+            ("codex", "Codex", Task.Runtime.ACP, "claude"),
+            ("codex", "Codex", Task.Runtime.ACP, None),
+            ("codex", "Codex", Task.Runtime.PI, "codex"),
         ],
     )
-    def test_codex_model_access_requires_state_ask_and_flag(self, flag_value, state, expected):
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            return_value=flag_value,
-        ) as feature_enabled_mock:
-            assert (
-                _resolve_codex_model_access(
-                    task_runtime=Task.Runtime.ACP,
-                    distinct_id="distinct-id",
-                    organization_id="organization-id",
-                    run_id="run-id",
-                    state=state,
-                )
-                == expected
-            )
-
-        if state.get("codex_model_access") == "own-subscription":
-            feature_enabled_mock.assert_called_once_with(
-                CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
-                distinct_id="distinct-id",
-                groups={"organization": "organization-id"},
-                group_properties={"organization": {"id": "organization-id"}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        else:
-            feature_enabled_mock.assert_not_called()
-
-    @pytest.mark.parametrize("flag_value", [False, None, RuntimeError("flag service failed")])
-    def test_codex_model_access_never_changes_requested_billing(self, flag_value: object) -> None:
-        with (
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-                return_value=flag_value,
-                side_effect=flag_value if isinstance(flag_value, Exception) else None,
-            ),
-            pytest.raises(ProcessTaskFatalError, match="Using your ChatGPT plan for cloud tasks is unavailable"),
-        ):
-            _resolve_codex_model_access(
-                task_runtime=Task.Runtime.ACP,
-                distinct_id="distinct-id",
-                organization_id="organization-id",
-                run_id="run-id",
-                state={"codex_model_access": "own-subscription", "runtime_adapter": "codex"},
-            )
-
-    @pytest.mark.parametrize(
-        "task_runtime,adapter", [(Task.Runtime.ACP, "claude"), (Task.Runtime.ACP, None), (Task.Runtime.PI, "codex")]
-    )
-    def test_codex_subscription_rejects_other_adapters(self, task_runtime: str, adapter: str | None) -> None:
-        with pytest.raises(ProcessTaskFatalError, match="requires the Codex runtime"):
-            _resolve_codex_model_access(
+    def test_subscription_rejects_other_adapters(
+        self, adapter: str, runtime_name: str, task_runtime: str, runtime_adapter: str | None
+    ) -> None:
+        with pytest.raises(ProcessTaskFatalError, match=f"requires the {runtime_name} runtime"):
+            _resolve_subscription_model_access(
+                adapter=adapter,
                 task_runtime=task_runtime,
                 distinct_id="distinct-id",
                 organization_id="organization-id",
                 run_id="run-id",
-                state={"codex_model_access": "own-subscription", "runtime_adapter": adapter},
+                state={f"{adapter}_model_access": "own-subscription", "runtime_adapter": runtime_adapter},
             )
 
     @pytest.mark.parametrize("launched_value", [True, False])

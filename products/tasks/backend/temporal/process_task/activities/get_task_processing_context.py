@@ -10,6 +10,7 @@ from django.core.exceptions import ObjectDoesNotExist
 import posthoganalytics
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
@@ -34,6 +35,7 @@ from products.tasks.backend.constants import (
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
     SANDBOX_ROTATION_FEATURE_FLAG,
     STORE_SKILLS_STATE_KEY,
+    SUBSCRIPTION_PLAN_NAMES,
     get_vm_sandbox_flag_payload,
     is_same_run_resume_state,
     vm_sandbox_allowed_origin_products,
@@ -458,19 +460,27 @@ def _is_rtk_enabled(
     return True
 
 
-_SUBSCRIPTION_ADAPTERS: dict[str, dict[str, str]] = {
-    "claude": {
-        "flag": CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
-        "plan_name": "Claude plan",
-        "runtime_name": "Claude",
-        "settings_name": "Claude subscription settings",
-    },
-    "codex": {
-        "flag": CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
-        "plan_name": "ChatGPT plan",
-        "runtime_name": "Codex",
-        "settings_name": "ChatGPT subscription settings",
-    },
+@frozen
+class _SubscriptionAdapter:
+    flag: str
+    runtime_name: str
+    settings_name: str
+    allowed_runtime_adapters: tuple[str | None, ...]
+
+
+_SUBSCRIPTION_ADAPTERS: dict[str, _SubscriptionAdapter] = {
+    "claude": _SubscriptionAdapter(
+        flag=CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+        runtime_name="Claude",
+        settings_name="Claude subscription settings",
+        allowed_runtime_adapters=(None, "claude"),
+    ),
+    "codex": _SubscriptionAdapter(
+        flag=CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+        runtime_name="Codex",
+        settings_name="ChatGPT subscription settings",
+        allowed_runtime_adapters=("codex",),
+    ),
 }
 
 
@@ -483,23 +493,22 @@ def _resolve_subscription_model_access(
     run_id: str,
     state: dict | None = None,
 ) -> Literal["posthog-gateway", "own-subscription"]:
-    spec = _SUBSCRIPTION_ADAPTERS[adapter]
     if (state or {}).get(f"{adapter}_model_access") != "own-subscription":
         return "posthog-gateway"
-    allowed_adapters = (None, "claude") if adapter == "claude" else ("codex",)
-    if task_runtime != Task.Runtime.ACP or (state or {}).get("runtime_adapter") not in allowed_adapters:
+    spec = _SUBSCRIPTION_ADAPTERS[adapter]
+    plan_name = SUBSCRIPTION_PLAN_NAMES[adapter]
+    if task_runtime != Task.Runtime.ACP or (state or {}).get("runtime_adapter") not in spec.allowed_runtime_adapters:
         raise ProcessTaskFatalError(
-            f"Your {spec['plan_name']} requires the {spec['runtime_name']} runtime. "
-            f"Select {spec['runtime_name']} and try again.",
+            f"Your {plan_name} requires the {spec.runtime_name} runtime. Select {spec.runtime_name} and try again.",
             {"run_id": run_id},
-            cause=ValueError(f"Subscription requested for a non-{spec['runtime_name']} runtime"),
+            cause=ValueError(f"Subscription requested for a non-{spec.runtime_name} runtime"),
             capture=False,
         )
     try:
         enabled = bool(
             distinct_id
             and posthoganalytics.feature_enabled(
-                spec["flag"],
+                spec.flag,
                 distinct_id=distinct_id,
                 groups={"organization": organization_id},
                 group_properties={"organization": {"id": organization_id}},
@@ -512,49 +521,13 @@ def _resolve_subscription_model_access(
         enabled = False
     if not enabled:
         raise ProcessTaskFatalError(
-            f"Using your {spec['plan_name']} for cloud tasks is unavailable. Try again later, "
-            f'or open {spec["settings_name"]} and turn off "Cloud tasks" to use PostHog credits.',
+            f"Using your {plan_name} for cloud tasks is unavailable. Try again later, "
+            f'or open {spec.settings_name} and turn off "Cloud tasks" to use PostHog credits.',
             {"run_id": run_id},
-            cause=ValueError(f"{spec['plan_name']} rollout unavailable"),
+            cause=ValueError(f"{plan_name} rollout unavailable"),
             capture=False,
         )
     return "own-subscription"
-
-
-def _resolve_claude_model_access(
-    *,
-    task_runtime: str,
-    distinct_id: str | None,
-    organization_id: str,
-    run_id: str,
-    state: dict | None = None,
-) -> Literal["posthog-gateway", "own-subscription"]:
-    return _resolve_subscription_model_access(
-        adapter="claude",
-        task_runtime=task_runtime,
-        distinct_id=distinct_id,
-        organization_id=organization_id,
-        run_id=run_id,
-        state=state,
-    )
-
-
-def _resolve_codex_model_access(
-    *,
-    task_runtime: str,
-    distinct_id: str | None,
-    organization_id: str,
-    run_id: str,
-    state: dict | None = None,
-) -> Literal["posthog-gateway", "own-subscription"]:
-    return _resolve_subscription_model_access(
-        adapter="codex",
-        task_runtime=task_runtime,
-        distinct_id=distinct_id,
-        organization_id=organization_id,
-        run_id=run_id,
-        state=state,
-    )
 
 
 def _is_benjamin_enabled(
@@ -1323,20 +1296,17 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             team.all_users_with_access().filter(id=subscription_owner_id).values_list("distinct_id", flat=True).first()
         )
 
-    claude_model_access = _resolve_claude_model_access(
-        task_runtime=task.runtime,
-        distinct_id=subscription_distinct_id("claude"),
-        organization_id=organization_id,
-        run_id=run_id,
-        state=state,
-    )
-    codex_model_access = _resolve_codex_model_access(
-        task_runtime=task.runtime,
-        distinct_id=subscription_distinct_id("codex"),
-        organization_id=organization_id,
-        run_id=run_id,
-        state=state,
-    )
+    claude_model_access, codex_model_access = [
+        _resolve_subscription_model_access(
+            adapter=adapter,
+            task_runtime=task.runtime,
+            distinct_id=subscription_distinct_id(adapter),
+            organization_id=organization_id,
+            run_id=run_id,
+            state=state,
+        )
+        for adapter in ("claude", "codex")
+    ]
     pi_persistent_streaming = task.runtime == Task.Runtime.PI and not is_slack_interaction_state(state)
     sandbox_event_ingest_override = state.get("sandbox_event_ingest_enabled")
     if "own-subscription" in (claude_model_access, codex_model_access) or (

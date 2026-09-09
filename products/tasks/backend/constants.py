@@ -223,6 +223,9 @@ RTK_DISABLED_FEATURE_FLAG = "tasks-rtk-disabled"
 BENJAMIN_FEATURE_FLAG = "task-cloud-run-benjamin-plus"
 CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG = "posthog-code-claude-own-subscription-cloud"
 CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG = "posthog-code-codex-own-subscription-cloud"
+# The plan name a person reads when a subscription run is refused. Every layer that gates,
+# refuses, or explains one of these runs takes the name from here.
+SUBSCRIPTION_PLAN_NAMES: dict[str, str] = {"claude": "Claude plan", "codex": "ChatGPT plan"}
 # Gates whether long-running process_task runs continue-as-new to bound history/replay cost.
 CONTINUE_AS_NEW_FEATURE_FLAG = "tasks-cloud-run-continue-as-new"
 PR_BABYSIT_SNAPSHOT_FEATURE_FLAG = "tasks-pr-babysit-snapshot"

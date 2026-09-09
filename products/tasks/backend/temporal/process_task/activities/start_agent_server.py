@@ -21,6 +21,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.constants import SUBSCRIPTION_PLAN_NAMES
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
     ProcessTaskError,
@@ -586,40 +587,31 @@ def _invoke_start_agent_server(
         )
 
 
-def _subscription_health_kwargs(ctx: TaskProcessingContext) -> dict[str, str]:
-    """The sandbox waits for a token from Desktop, so health takes longer."""
-    return {
-        f"{adapter}_model_access": "own-subscription"
+_SUBSCRIPTION_CLI_FLAGS = {"claude": "--claudeSubscription", "codex": "--codexSubscription"}
+
+
+def _own_subscription_adapters(ctx: TaskProcessingContext) -> list[str]:
+    return [
+        adapter
         for adapter, access in (("claude", ctx.claude_model_access), ("codex", ctx.codex_model_access))
         if access == "own-subscription"
-    }
+    ]
+
+
+def _subscription_health_kwargs(ctx: TaskProcessingContext) -> dict[str, str]:
+    """The sandbox waits for a token from Desktop, so health takes longer."""
+    return {f"{adapter}_model_access": "own-subscription" for adapter in _own_subscription_adapters(ctx)}
 
 
 def _enforce_subscription_support(sandbox: SandboxBase, ctx: TaskProcessingContext) -> None:
-    for access, flag, plan_name, setting_name in (
-        (
-            ctx.claude_model_access,
-            "--claudeSubscription",
-            "Claude plan",
-            "Use your Claude plan for cloud tasks",
-        ),
-        (
-            ctx.codex_model_access,
-            "--codexSubscription",
-            "ChatGPT plan",
-            "Use your ChatGPT plan for cloud tasks",
-        ),
-    ):
-        if access != "own-subscription":
-            continue
-        result = sandbox.execute(
-            f"grep -q -- {flag} /scripts/node_modules/.bin/agent-server",
-            timeout_seconds=10,
-        )
+    for adapter in _own_subscription_adapters(ctx):
+        plan_name = SUBSCRIPTION_PLAN_NAMES[adapter]
+        flag = _SUBSCRIPTION_CLI_FLAGS[adapter]
+        result = sandbox.execute(f"grep -q -- {flag} /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
         if result.exit_code != 0:
             raise ProcessTaskFatalError(
                 f"This sandbox build cannot use your {plan_name} yet. Start a new task. "
-                f'To use PostHog credits instead, turn off "{setting_name}".',
+                f'To use PostHog credits instead, turn off "Use your {plan_name} for cloud tasks".',
                 {"task_id": ctx.task_id, "run_id": ctx.run_id},
                 cause=RuntimeError(f"agent-server lacks {flag}"),
                 capture=False,

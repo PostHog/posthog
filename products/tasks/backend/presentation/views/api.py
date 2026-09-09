@@ -1548,7 +1548,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         run = tasks_facade.get_task_run_detail(run_id, task_id, self.team_id)
         if run is None:
             raise NotFound()
-        for adapter, plan_name in (("claude", "Claude plan"), ("codex", "ChatGPT plan")):
+        for adapter, plan_name in tasks_facade.SUBSCRIPTION_PLAN_NAMES.items():
             if (
                 run.state.get(f"{adapter}_model_access") == "own-subscription"
                 and run.state.get(f"{adapter}_subscription_user_id") != self._user_id()
@@ -2836,7 +2836,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             owner_ids = (
                 {
                     run.state.get(f"{adapter}_subscription_user_id")
-                    for adapter in ("claude", "codex")
+                    for adapter in tasks_facade.SUBSCRIPTION_PLAN_NAMES
                     if run.state.get(f"{adapter}_model_access") == "own-subscription"
                 }
                 if run is not None

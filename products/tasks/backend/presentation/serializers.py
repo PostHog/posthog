@@ -93,17 +93,30 @@ def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
     return task_runtime == tasks_facade.TaskRuntime.PI
 
 
-SUBSCRIPTION_ACCESS_FIELDS = {
-    "claude_model_access": "Claude plan",
-    "codex_model_access": "ChatGPT plan",
-}
+def _model_access_field(runtime: str, token_name: str) -> serializers.ChoiceField:
+    return serializers.ChoiceField(
+        choices=["posthog-gateway", "own-subscription"],
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            f"How the {runtime} runtime pays for model use. 'own-subscription' makes the sandbox "
+            f"request {token_name} from the creating PostHog Desktop at run start; the token is "
+            "sent in flight and never stored on PostHog servers. If omitted or null, resumed runs "
+            "keep their billing choice and new runs use the PostHog gateway."
+        ),
+    )
+
+
+def _subscription_access_fields() -> list[tuple[str, str]]:
+    return [(f"{adapter}_model_access", plan) for adapter, plan in tasks_facade.SUBSCRIPTION_PLAN_NAMES.items()]
 
 
 def _validate_subscription_caller(attrs: dict[str, Any], context: dict[str, Any]) -> None:
     request = context.get("request")
     if request is None:
         return
-    for field, plan_name in SUBSCRIPTION_ACCESS_FIELDS.items():
+    for field, plan_name in _subscription_access_fields():
         access = attrs.get(field)
         if access is None and (run_id := attrs.get("resume_from_run_id")):
             view = context.get("view")
@@ -3223,30 +3236,8 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
             "for this run."
         ),
     )
-    claude_model_access = serializers.ChoiceField(
-        choices=["posthog-gateway", "own-subscription"],
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text=(
-            "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox "
-            "request a Claude token from the creating PostHog Desktop at run start; the token is "
-            "sent in flight and never stored on PostHog servers. If omitted or null, resumed runs "
-            "keep their billing choice and new runs use the PostHog gateway."
-        ),
-    )
-    codex_model_access = serializers.ChoiceField(
-        choices=["posthog-gateway", "own-subscription"],
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text=(
-            "How the Codex runtime pays for model use. 'own-subscription' makes the sandbox "
-            "request a ChatGPT access token from the creating PostHog Desktop at run start; the "
-            "token is sent in flight and never stored on PostHog servers. If omitted or null, "
-            "resumed runs keep their billing choice and new runs use the PostHog gateway."
-        ),
-    )
+    claude_model_access = _model_access_field("Claude", "a Claude token")
+    codex_model_access = _model_access_field("Codex", "a ChatGPT access token")
 
     def validate(self, attrs):
         _validate_subscription_caller(attrs, self.context)
@@ -3261,7 +3252,7 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
         pending_user_message = attrs.get("pending_user_message")
         pending_user_artifact_ids = attrs.get("pending_user_artifact_ids") or []
         if _is_pi_task_run_request(self.context):
-            for field, plan_name in SUBSCRIPTION_ACCESS_FIELDS.items():
+            for field, plan_name in _subscription_access_fields():
                 if attrs.get(field) == "own-subscription":
                     errors[field] = f"Pi tasks cannot use a {plan_name}."
         if pending_user_message is not None:
@@ -3443,30 +3434,8 @@ class TaskRunBootstrapCreateRequestSerializer(
             "for this run."
         ),
     )
-    claude_model_access = serializers.ChoiceField(
-        choices=["posthog-gateway", "own-subscription"],
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text=(
-            "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox "
-            "request a Claude token from the creating PostHog Desktop at run start; the token is "
-            "sent in flight and never stored on PostHog servers. If omitted or null, resumed runs "
-            "keep their billing choice and new runs use the PostHog gateway."
-        ),
-    )
-    codex_model_access = serializers.ChoiceField(
-        choices=["posthog-gateway", "own-subscription"],
-        required=False,
-        allow_null=True,
-        default=None,
-        help_text=(
-            "How the Codex runtime pays for model use. 'own-subscription' makes the sandbox "
-            "request a ChatGPT access token from the creating PostHog Desktop at run start; the "
-            "token is sent in flight and never stored on PostHog servers. If omitted or null, "
-            "resumed runs keep their billing choice and new runs use the PostHog gateway."
-        ),
-    )
+    claude_model_access = _model_access_field("Claude", "a Claude token")
+    codex_model_access = _model_access_field("Codex", "a ChatGPT access token")
 
     def validate(self, attrs):
         _validate_subscription_caller(attrs, self.context)
@@ -3477,7 +3446,7 @@ class TaskRunBootstrapCreateRequestSerializer(
         runtime_adapter = attrs.get("runtime_adapter")
         is_pi_task = _is_pi_task_run_request(self.context)
         if is_pi_task:
-            for field, plan_name in SUBSCRIPTION_ACCESS_FIELDS.items():
+            for field, plan_name in _subscription_access_fields():
                 if attrs.get(field) == "own-subscription":
                     errors[field] = f"Pi tasks cannot use a {plan_name}."
             pi_incompatible_fields = ("runtime_adapter", "context_window", "fast_mode", "initial_permission_mode")
