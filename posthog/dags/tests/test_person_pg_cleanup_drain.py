@@ -432,3 +432,21 @@ def _pg_error(pgcode: str | None) -> psycopg2.Error:
 )
 def test_is_retryable_pg_error(exc, expected):
     assert is_retryable_pg_error(exc) is expected
+
+
+@pytest.mark.django_db
+def test_pauses_after_every_request_by_pause_ms_plus_latency(cluster: ClickhouseCluster, persons_database, monkeypatch):
+    # The pause is the drain's only throttle on the persons writer. Removing it, or applying it
+    # per page instead of per request, would turn a bounded background job into a burst.
+    fake = get_active_fake()
+    uuids = [seed_tombstoned(fake, TEAM_A, person_id) for person_id in range(1, 4)]
+    queue(persons_database, [(TEAM_A, uuid, SWEEP_1) for uuid in uuids])
+    pauses: list[float] = []
+    monkeypatch.setattr(drain, "_pause", pauses.append)
+
+    result = run_job(cluster, rpc_batch_size=1, pause_ms=250, latency_multiplier=2.0)
+
+    totals = totals_of(result)
+    assert len(pauses) == totals.rpc_calls == 3
+    assert all(pause >= 0.25 for pause in pauses), pauses
+    assert [round(pause - 0.25, 6) for pause in pauses] == [round(2.0 * rpc, 6) for rpc in totals.rpc_seconds]
