@@ -57,6 +57,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     invalidate_resume_snapshot,
     launch_agent_server,
     mark_repo_ready,
+    materialize_context_layer_in_sandbox,
     post_permission_delivery_failure_notice,
     prepare_sandbox_for_repository,
     read_sandbox_logs,
@@ -2775,6 +2776,73 @@ class TestProcessTaskWorkflowUnit:
         await workflow._get_sandbox_for_repository()
 
         assert calls == ["clone:posthog/posthog", "clone:posthog/code", "ready"]
+
+    async def test_overlap_runs_launch_and_context_layer_under_the_clone(self, monkeypatch):
+        # Guards the regression where the deferred launch and the repo-independent context-layer
+        # mount ran serially before/after the clone instead of under it. The launch here blocks
+        # until the clone has started, so a serial (launch-before-clone) order would deadlock.
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(
+            github_integration_id=123,
+            state={"repositories": ["posthog/posthog"]},
+        )
+        workflow._context.overlap_clone_boot_enabled = True
+        prepared = PrepareSandboxForRepositoryOutput(
+            sandbox_name="sandbox-name",
+            repository="posthog/posthog",
+            github_token="ghs_token",
+            branch=None,
+            environment_variables={"POSTHOG_CONTEXT_LAYER_PATH": "/opt/context"},
+            snapshot_id=None,
+            snapshot_external_id=None,
+            used_snapshot=False,
+            should_create_snapshot=True,
+            shallow_clone=True,
+            image_source="base_image",
+            image_source_label="published sandbox base image",
+        )
+        created = CreateSandboxForRepositoryOutput(
+            sandbox_id="sandbox-123",
+            sandbox_url="https://sandbox.example",
+            connect_token="connect-token",
+        )
+        clone_started = asyncio.Event()
+        calls: list[str] = []
+
+        async def fake_execute_activity(activity_fn: Any, *args: Any, **kwargs: Any) -> Any:
+            if activity_fn is prepare_sandbox_for_repository:
+                return prepared
+            if activity_fn is create_sandbox_for_repository:
+                return created
+            if activity_fn is launch_agent_server:
+                await clone_started.wait()
+                calls.append("launch")
+                return StartAgentServerOutput(sandbox_url=created.sandbox_url)
+            if activity_fn is clone_repository_in_sandbox:
+                clone_started.set()
+                calls.append("clone")
+                return None
+            if activity_fn is materialize_context_layer_in_sandbox:
+                calls.append("context")
+                return None
+            if activity_fn is mark_repo_ready:
+                calls.append("ready")
+                return None
+            if activity_fn is emit_progress_activity:
+                return None
+            raise AssertionError(f"Unexpected activity call: {activity_fn}")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _: True)
+
+        result = await workflow._get_sandbox_for_repository()
+
+        assert result.agent_server_launched is True
+        # Launch resolved without deadlock, so it ran under the clone rather than before it.
+        assert calls.index("clone") < calls.index("launch")
+        # Context layer materialized (concurrently), and the barrier releases last.
+        assert "context" in calls
+        assert calls[-1] == "ready"
 
     @pytest.mark.parametrize(
         "custom_image_name, expected_image_source, expected_image_source_label",

@@ -491,6 +491,13 @@ class SandboxBase(ABC):
         )
         return result.exit_code == 0
 
+    def agent_server_supports_repo_ready_file(self) -> bool:
+        """Newer agent-server binaries block only the session-create phase on --repoReadyFile and
+        boot/warm the gateway concurrently; a stale local overlay may ignore the flag. Probe before
+        dropping the belt-and-braces bash wait wrapper, so an unsupported binary keeps waiting."""
+        result = self.execute("grep -q repoReadyFile /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
+        return result.exit_code == 0
+
     def agent_server_supports_pi_runtime(self) -> bool:
         result = self.execute(
             "grep -q POSTHOG_AGENT_RUNTIME /scripts/node_modules/.bin/agent-server",
