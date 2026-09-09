@@ -1,5 +1,39 @@
 # Troubleshooting
 
+## Claude session initialization timeout
+
+`Session initialization timed out after 30000ms` means that Claude did not finish SDK initialization before the startup deadline.
+The message does not identify the blocked operation. Repository startup hooks and MCP connections can run during initialization.
+
+Check the `agent:ClaudeAcpAgent` scope in the desktop logs for CLI stderr.
+The `agent:AcpConnection:ClaudeInitialization` scope records startup phases and the structured `Session initialization failed` entry.
+Desktop logs are stored in `~/.posthog-code/logs/main.log` (`logs-dev/main.log` for development builds).
+Match the task and run IDs before using those diagnostics to change authentication, MCP connections, or startup hooks.
+The adapter uses the existing desktop logger. It does not enable verbose SDK logging or change the startup timeout.
+
+### Capture SDK diagnostics on macOS
+
+If the debug directory is empty or the application log has no Claude diagnostics, enable SDK logging for one launch:
+
+1. Quit PostHog completely with **Command-Q**. An existing application process will not receive the new environment variable.
+2. Run this command in Terminal:
+
+   ```sh
+   DEBUG_CLAUDE_AGENT_SDK=1 /Applications/PostHog.app/Contents/MacOS/PostHog > "$HOME/Desktop/posthog-startup.log" 2>&1
+   ```
+
+3. Reproduce the timeout once, then quit PostHog.
+4. Check `posthog-startup.log` on the Desktop. Collect the file identified by `Claude CLI debug log` and its `path` field.
+   Also collect the file identified by `SDK debug logs:` if present.
+
+The CLI file contains internal startup diagnostics. The SDK file can contain only process launch and protocol messages:
+the SDK does not select a CLI debug file automatically when Desktop uses its custom process launcher.
+With SDK debugging enabled, Desktop supplies an explicit CLI debug file in a private temporary directory and logs its path.
+An explicit `debugFile` SDK option takes precedence. Normal launches do not enable this file capture.
+Use the printed paths instead of assuming a debug directory or session filename.
+These logs can contain prompts and tool output. Share them only through a private support channel, not in a public issue or pull request.
+Launch PostHog normally afterward to stop this temporary debug capture. Delete the captured files when they are no longer needed.
+
 ## Black screen during development
 
 If the app launches but renders a blank/black screen, it's almost always a stale Vite cache.

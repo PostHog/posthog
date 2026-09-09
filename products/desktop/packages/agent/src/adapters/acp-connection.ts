@@ -162,6 +162,7 @@ function createClaudeConnection(config: AcpConnectionConfig): AcpConnection {
     agent = new ClaudeAcpAgent(client, {
       ...config.processCallbacks,
       startupLogger: logger.child("ClaudeInitialization"),
+      logger: config.logger?.child("ClaudeAcpAgent"),
       onStructuredOutput: config.onStructuredOutput,
       posthogApiConfig: resolveEnricherApiConfig(config),
       gatewayEnv: config.claudeGatewayEnv,

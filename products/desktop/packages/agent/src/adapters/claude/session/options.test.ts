@@ -50,6 +50,58 @@ function makeParams() {
 }
 
 describe("buildSessionOptions", () => {
+  describe("CLI debug capture", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it.each([undefined, "0", "1", "true"])(
+      "captures CLI diagnostics only when SDK debugging is enabled (%s)",
+      (debug) => {
+        vi.stubEnv("DEBUG_CLAUDE_AGENT_SDK", debug);
+        const params = { ...makeParams(), onProcessSpawned: vi.fn() };
+        const log = vi.spyOn(params.logger, "info");
+        const options = buildSessionOptions(params);
+        const enabled = debug === "1" || debug === "true";
+
+        try {
+          expect(Boolean(options.debugFile)).toBe(enabled);
+          if (enabled) {
+            if (!options.debugFile)
+              throw new Error("CLI debug file is missing");
+            expect(log).toHaveBeenCalledWith("Claude CLI debug log", {
+              sessionId: params.sessionId,
+              path: options.debugFile,
+            });
+            expect(path.isAbsolute(options.debugFile)).toBe(true);
+            if (process.platform !== "win32") {
+              expect(
+                fs.statSync(path.dirname(options.debugFile)).mode & 0o777,
+              ).toBe(0o700);
+            }
+          }
+        } finally {
+          if (options.debugFile) {
+            fs.rmSync(path.dirname(options.debugFile), {
+              recursive: true,
+              force: true,
+            });
+          }
+        }
+      },
+    );
+
+    it("preserves an explicit CLI debug file", () => {
+      vi.stubEnv("DEBUG_CLAUDE_AGENT_SDK", "1");
+      const debugFile = path.join(os.tmpdir(), "explicit-claude-debug.log");
+      const options = buildSessionOptions({
+        ...makeParams(),
+        userProvidedOptions: { debugFile },
+      });
+      expect(options.debugFile).toBe(debugFile);
+    });
+  });
+
   it("replaces unprocessable Read images before model delivery", async () => {
     const options = buildSessionOptions(makeParams());
     const hooks = (options.hooks?.PostToolUse ?? []).flatMap(
