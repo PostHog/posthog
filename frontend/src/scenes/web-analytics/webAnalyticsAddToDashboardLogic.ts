@@ -129,6 +129,12 @@ export const webAnalyticsAddToDashboardLogic = kea<webAnalyticsAddToDashboardLog
 
     listeners(({ actions, values }) => ({
         addTileToDashboard: ({ tileId, tabId }) => {
+            // Only one save runs at a time. This logic holds a single saved insight, so a second
+            // save would rebind the open picker to the other tile's insight.
+            if (values.savedInsightLoading) {
+                return
+            }
+
             const source = getNewInsightSourceFactory(values.combinedTiles)(tileId, tabId)
             if (!source) {
                 return

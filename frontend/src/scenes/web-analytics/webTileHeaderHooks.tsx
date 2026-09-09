@@ -196,10 +196,18 @@ export function useWebTileAddToDashboard({
         return undefined
     }
 
+    const isSavingThisTile = savingTileKey === webTileKey(tileId, tabId)
+    const accessControlReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Insight,
+        AccessControlLevel.Editor
+    )
+
     return {
         onClick: () => addTileToDashboard(tileId, tabId),
-        loading: savingTileKey === webTileKey(tileId, tabId),
+        loading: isSavingThisTile,
+        // The logic saves one tile at a time, so the other buttons say why they wait.
         disabledReason:
-            getAccessControlDisabledReason(AccessControlResourceType.Insight, AccessControlLevel.Editor) ?? undefined,
+            accessControlReason ??
+            (savingTileKey && !isSavingThisTile ? 'Wait for the other tile to finish saving' : undefined),
     }
 }

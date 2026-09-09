@@ -69,6 +69,33 @@ describe('webAnalyticsAddToDashboardLogic', () => {
         expect(createSpy).toHaveBeenCalledTimes(1)
     })
 
+    // Regression: a click on a second tile used to start a second save, and whichever response
+    // landed last rebound the already open picker to the other tile's insight.
+    it('ignores a click on another tile while a save is in flight', async () => {
+        let resolveCreate: (insight: unknown) => void = () => {}
+        createSpy.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveCreate = resolve
+                })
+        )
+
+        logic.actions.addTileToDashboard(TileId.PATHS, 'PATH')
+        await expectLogic(logic).toDispatchActions(['saveTileAsInsight'])
+        expect(logic.values.savedInsightLoading).toBe(true)
+
+        await expectLogic(logic, () => {
+            logic.actions.addTileToDashboard(TileId.SOURCES, 'CHANNEL')
+        }).toNotHaveDispatchedActions(['saveTileAsInsight'])
+
+        resolveCreate({ id: 1, short_id: 'abc123', name: 'saved', query: {} })
+        await expectLogic(logic)
+            .toDispatchActions(['saveTileAsInsightSuccess', 'openAddToDashboardModal'])
+            .toMatchValues({ savingTileKey: null, isAddToDashboardModalOpen: true })
+
+        expect(createSpy).toHaveBeenCalledTimes(1)
+    })
+
     it('keeps the picker closed when the save fails', async () => {
         createSpy.mockRejectedValue(new Error('nope'))
 
