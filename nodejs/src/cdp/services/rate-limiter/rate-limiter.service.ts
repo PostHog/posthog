@@ -46,12 +46,13 @@ const claimLatency = new Histogram({
 // monotonic clock — NTP drift between workers can't over- or under-refill
 // the bucket on this code path.
 //
-// Returns {granted, retryAfterMs}. A full denial with ARGV[5] > 0 also advances
+// Returns {granted, retryAfterMs, reserved}. A full denial with ARGV[5] > 0 also advances
 // the bucket's `resv` slot cursor by requested/refill and returns the caller's
 // distance to that slot, so each denied caller parks for a distinct time instead
 // of every caller re-claiming against the same next token. The cursor never
 // advances past the horizon; callers beyond it get the horizon back and
-// re-contend when they wake.
+// re-contend when they wake. `reserved` is 1 only when the cursor moved, which is
+// what tells a caller its slot is exclusive and needs no spreading.
 const CLAIM_UP_TO_LUA = `
 local key = KEYS[1]
 local requested = tonumber(ARGV[1])
@@ -101,7 +102,7 @@ redis.call('hset', key, 'ts', now, 'pool', tokensAfter)
 redis.call('expire', key, ttlSeconds)
 
 if granted > 0 or reserveOnDenyMaxMs <= 0 or refillPerSecond <= 0 then
-    return {granted, 0}
+    return {granted, 0, 0}
 end
 
 local slotMs = (requested / refillPerSecond) * 1000
@@ -111,10 +112,10 @@ if rawResv ~= false and tonumber(rawResv) > now then
 end
 local slotAt = base + slotMs
 if slotAt - now > reserveOnDenyMaxMs then
-    return {0, reserveOnDenyMaxMs}
+    return {0, reserveOnDenyMaxMs, 0}
 end
 redis.call('hset', key, 'resv', slotAt)
-return {0, math.ceil(slotAt - now)}
+return {0, math.ceil(slotAt - now), 1}
 `
 
 // Atomic all-or-nothing claim across two buckets. Same refill math as CLAIM_UP_TO_LUA per bucket,
@@ -252,18 +253,24 @@ export class RateLimiterService {
      * so a backlog deeper than the horizon re-contends there instead of reserving
      * unboundedly far out. The slot is a place in line, not a guarantee — the wake
      * must still claim. `retryAfterMs` is null on grants and on error-path denials.
+     *
+     * `reserved` says whether the cursor actually moved. It is false past the horizon
+     * and on error-path denials, where every caller gets the same answer back and must
+     * spread its own wake. Only a reserved slot is the caller's alone, and only then is
+     * the returned distance exactly one slot behind the caller in front — so only then
+     * can the caller park on it unchanged.
      */
     public async claimOrReserve(
         req: ClaimRequest,
         reserveOnDenyMs: number
-    ): Promise<{ granted: number; retryAfterMs: number | null }> {
+    ): Promise<{ granted: number; retryAfterMs: number | null; reserved: boolean }> {
         return await this.evalClaim(req, reserveOnDenyMs)
     }
 
     private async evalClaim(
         req: ClaimRequest,
         reserveOnDenyMs: number
-    ): Promise<{ granted: number; retryAfterMs: number | null }> {
+    ): Promise<{ granted: number; retryAfterMs: number | null; reserved: boolean }> {
         const endTimer = claimLatency.startTimer({ limiter: this.config.name })
         const ttlSeconds = req.ttlSeconds ?? 3600
         try {
@@ -284,14 +291,14 @@ export class RateLimiterService {
                     )
             )
 
-            const [granted, retryAfterMs] = Array.isArray(result) ? result.map(Number) : [NaN, NaN]
+            const [granted, retryAfterMs, reserved] = Array.isArray(result) ? result.map(Number) : [NaN, NaN, 0]
             if (!Number.isFinite(granted) || granted < 0) {
                 logger.warn('🪙', `RateLimiterService(${this.config.name}) returned invalid grant`, {
                     key: req.key,
                     raw: result,
                 })
                 claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
-                return { granted: 0, retryAfterMs: null }
+                return { granted: 0, retryAfterMs: null, reserved: false }
             }
 
             const outcome = granted === 0 ? 'denied' : granted < req.requested ? 'granted_partial' : 'granted_full'
@@ -299,6 +306,7 @@ export class RateLimiterService {
             return {
                 granted,
                 retryAfterMs: Number.isFinite(retryAfterMs) && retryAfterMs > 0 ? retryAfterMs : null,
+                reserved: reserved === 1,
             }
         } catch (err) {
             logger.warn('🪙', `RateLimiterService(${this.config.name}) claim threw`, {
@@ -306,7 +314,7 @@ export class RateLimiterService {
                 error: String(err),
             })
             claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
-            return { granted: 0, retryAfterMs: null }
+            return { granted: 0, retryAfterMs: null, reserved: false }
         } finally {
             endTimer()
         }

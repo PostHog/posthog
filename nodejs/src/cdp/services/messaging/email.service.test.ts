@@ -476,7 +476,7 @@ describe('EmailService', () => {
             let limitedSendSpy: jest.SpyInstance
 
             beforeEach(() => {
-                claimOrReserve = jest.fn().mockResolvedValue({ granted: 1, retryAfterMs: null })
+                claimOrReserve = jest.fn().mockResolvedValue({ granted: 1, retryAfterMs: null, reserved: false })
                 limitedService = new EmailService(
                     {
                         sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -504,16 +504,29 @@ describe('EmailService', () => {
             })
 
             it.each([
-                // A reserved slot parks the send at the slot plus at most 250ms of spread.
-                ['at the reserved slot', 5000, 5000, 5250],
-                // No reserved slot (error-path denial) falls back to the clamped token
+                // A reserved slot is exclusive and already spaced one token interval behind the
+                // slot in front of it, so the send parks on it exactly. Adding any spread here
+                // shortens the gap to the send in front whenever the spread shrinks, and the wake
+                // then finds the bucket short and parks again behind the whole queue.
+                ['exactly at the reserved slot', 5000, true, 5000, 5000],
+                // Past the horizon nothing is reserved and every caller is handed the same wake
+                // time, so those wakes get up to 250ms of spread to break up the herd.
+                [
+                    'with spread when re-contending at the horizon',
+                    60 * 60 * 1000,
+                    false,
+                    60 * 60 * 1000,
+                    60 * 60 * 1000 + 249,
+                ],
+                // No horizon at all (error-path denial) falls back to the clamped token
                 // interval: 120/minute refills every 500ms, clamped to [1s, 2s] jittered.
-                ['on the clamped token interval when no slot was reserved', null, 1000, 2000],
-            ])('reschedules a denied send %s', async (_name, retryAfterMs, minDelayMs, maxDelayMs) => {
-                claimOrReserve.mockResolvedValue({ granted: 0, retryAfterMs })
+                ['on the clamped token interval when the limiter could not reserve', null, false, 1000, 2000],
+            ])('reschedules a denied send %s', async (_name, retryAfterMs, reserved, minDelayMs, maxDelayMs) => {
+                claimOrReserve.mockResolvedValue({ granted: 0, retryAfterMs, reserved })
 
                 const before = Date.now()
                 const result = await limitedService.executeSendEmail(invocation)
+                const after = Date.now()
 
                 expect(limitedSendSpy).not.toHaveBeenCalled()
                 expect(result.error).toBeUndefined()
@@ -522,11 +535,36 @@ describe('EmailService', () => {
                 // The reschedule must carry the email payload forward: without queueParameters the
                 // retry has nothing to send and the throttled email is dropped rather than delayed.
                 expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
+                // Bracketed against both ends of the call, so the bounds hold the delay itself
+                // and not the time the call took.
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
                 expect(scheduledMs).toBeGreaterThanOrEqual(before + minDelayMs)
-                expect(scheduledMs).toBeLessThan(before + maxDelayMs + 1000)
+                expect(scheduledMs).toBeLessThanOrEqual(after + maxDelayMs)
                 // No business metric on a pacing delay — the eventual send produces email_sent.
                 expect(result.metrics ?? []).toEqual([])
+            })
+
+            it('parks consecutive denials on their exact reserved slots', async () => {
+                // 30/minute is the capacity-1 regime: burst capacity is ~1s of budget, so the
+                // bucket banks nothing beyond one token. The limiter hands out slots one token
+                // interval (2s) apart, and that spacing only survives if every send parks on its
+                // own slot untouched. Move one wake earlier and it finds the bucket a fraction of
+                // a token short, is denied again, and re-reserves behind the whole backlog.
+                invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 30, period: 'minute' } }
+                const slotMs = 2000
+
+                for (let i = 1; i <= 3; i++) {
+                    claimOrReserve.mockResolvedValue({ granted: 0, retryAfterMs: i * slotMs, reserved: true })
+
+                    const before = Date.now()
+                    const denied = await limitedService.executeSendEmail(invocation)
+                    const after = Date.now()
+
+                    expect(denied.finished).toBe(false)
+                    const parkedAt = denied.invocation.queueScheduledAt!.toMillis()
+                    expect(parkedAt).toBeGreaterThanOrEqual(before + i * slotMs)
+                    expect(parkedAt).toBeLessThanOrEqual(after + i * slotMs)
+                }
             })
 
             it('claims one token scoped to the workflow and sends when granted', async () => {

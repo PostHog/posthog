@@ -139,14 +139,24 @@ const emailReservedParkMs = new Histogram({
     buckets: [1_000, 5_000, 15_000, 60_000, 300_000, 900_000, 1_800_000, 3_600_000],
 })
 
-function pickReservedRetryDelayMs(retryAfterMs: number | null, refillPerSecond: number): number {
-    // A reserved slot is exclusive, so it needs no contention jitter; the small additive
-    // spread only de-syncs callers that were capped at the same horizon. Falls back to the
-    // clamped token interval when the limiter could not reserve (an error-path denial).
+function pickReservedRetryDelayMs(retryAfterMs: number | null, refillPerSecond: number, reserved: boolean): number {
+    // A denial with no horizon means the limiter itself failed, not that the bucket was empty.
+    // Fall back to the clamped token interval.
     if (retryAfterMs === null) {
         return pickTokenBucketRetryDelayMs(refillPerSecond)
     }
-    return Math.max(retryAfterMs, CAP_RETRY_MIN_MS) + Math.floor(Math.random() * 250)
+    const parkMs = Math.max(retryAfterMs, CAP_RETRY_MIN_MS)
+    // A reserved slot is exclusive and sits exactly one token interval behind the slot in front
+    // of it, so it must be parked on unchanged. Spreading it would move a wake earlier whenever
+    // the spread shrank, the bucket would then be a fraction of a token short (burst capacity is
+    // about one second of budget, so it banks no surplus to cover the gap), and the send would be
+    // denied again and re-reserve behind every slot taken since.
+    if (reserved) {
+        return parkMs
+    }
+    // Past the horizon the limiter reserves nothing and hands every caller the same wake time,
+    // so these callers spread themselves or they re-contend as one herd.
+    return parkMs + Math.floor(Math.random() * 250)
 }
 
 const teamEmailCapDelayedTotal = new Counter({
@@ -463,7 +473,7 @@ export class EmailService {
                     // send. Mirrors the fetch-retry (`result.invocation.queueParameters = params`) and
                     // queue-routing paths, which re-attach the same way.
                     result.invocation.queueParameters = params
-                    const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, refillPerSecond)
+                    const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, refillPerSecond, claim.reserved)
                     emailReservedParkMs.labels('workflow-email').observe(retryDelayMs)
                     result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
                     addLog(

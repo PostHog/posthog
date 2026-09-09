@@ -282,7 +282,7 @@ describe('RateLimiterService', () => {
 
         it('grants normally without reserving a slot', async () => {
             const claim = await limiter.claimOrReserve(req, 60_000)
-            expect(claim).toEqual({ granted: 1, retryAfterMs: null })
+            expect(claim).toEqual({ granted: 1, retryAfterMs: null, reserved: false })
         })
 
         it('hands successive denials distinct, later slots', async () => {
@@ -302,6 +302,9 @@ describe('RateLimiterService', () => {
             expect(second.retryAfterMs!).toBeGreaterThan(first.retryAfterMs!)
             expect(third.retryAfterMs!).toBeGreaterThan(second.retryAfterMs!)
             expect(third.retryAfterMs!).toBeLessThanOrEqual(1_500)
+            // Each of these slots is the caller's alone, which is what lets the caller park on
+            // it as given instead of spreading its wake and closing the gap to the caller ahead.
+            expect([first.reserved, second.reserved, third.reserved]).toEqual([true, true, true])
         })
 
         it('stops advancing the cursor at the horizon', async () => {
@@ -319,6 +322,9 @@ describe('RateLimiterService', () => {
             expect(first.retryAfterMs).toBeLessThanOrEqual(1_000)
             expect(second.retryAfterMs).toBe(1_000)
             expect(third.retryAfterMs).toBe(1_000)
+            // Only the first held a slot. The other two share one wake time, so they report
+            // `reserved: false` and the caller knows to spread them itself.
+            expect([first.reserved, second.reserved, third.reserved]).toEqual([true, false, false])
         })
     })
 })
