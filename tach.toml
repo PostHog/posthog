@@ -173,6 +173,21 @@ depends_on = [
 ]
 layer = "modules"
 
+# alerts — external consumers go through the facade: facade.contracts for the
+# destination and delivery types, facade.destinations for destination configuration and
+# dispatch, facade.email for alert mail, facade.lifecycle for the shared state machine,
+# facade.scheduling for the scheduling math, facade.delivery_slo for delivery SLOs, and
+# facade.api for the insight-alert reads and writes.
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
+]
+from = [
+    "products.alerts",
+]
+
 [[modules]]
 path = "products.analytics_platform"
 depends_on = [
@@ -1283,6 +1298,25 @@ expose = [
 ]
 from = [
     "products.access_control",
+]
+
+# Legacy leaks — core still runs the insight-alert pipeline itself: the alert check tasks
+# under posthog/tasks/alerts/, the Temporal workflows under posthog/temporal/alerts/ and
+# posthog/temporal/ai/anomaly_investigation/, and the PostHog AI product-analytics preset
+# reach the alert models, the insight evaluation, the insight lifecycle adapter, the
+# investigation episode reader and the Max tool directly. The exit is moving that pipeline
+# into the product; the block drains as it moves, and keeps backend:contract-check off
+# until it is empty.
+[[interfaces]]
+expose = [
+    "backend\\.evaluation.*",
+    "backend\\.insight_alert_state_machine.*",
+    "backend\\.investigation_episode.*",
+    "backend\\.max_tools.*",
+    "backend\\.models.*",
+]
+from = [
+    "products.alerts",
 ]
 
 # Legacy leaks — core (posthog/ee), customer_analytics, reminders and signals still

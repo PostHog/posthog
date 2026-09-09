@@ -108,7 +108,7 @@ rules:
           confidence: HIGH
       paths:
           include:
-              - '/products/alerts/backend/api/alert.py'
+              - '/products/alerts/backend/presentation/views/alert.py'
               - '/products/alerts/backend/facade/api.py'
               - '/products/alerts/backend/max_tools.py'
               - '/products/alerts/backend/models/alert.py'
@@ -116,6 +116,6 @@ rules:
               - '/posthog/temporal/alerts/**/*.py'
               - '/.semgrep/rules/security/tests/insight-alert-state-must-go-through-state-machine.py'
           exclude:
-              - '/products/alerts/backend/api/test/**'
+              - '/products/alerts/backend/tests/**'
               - '/products/alerts/backend/**/test_*.py'
               - '/posthog/tasks/alerts/test/**'

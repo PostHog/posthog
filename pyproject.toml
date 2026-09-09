@@ -804,8 +804,6 @@ allow_indirect_imports = true
 ignore_imports = [
     # TODO: existing violations — move the presentation-shaped code out of the facade, or the
     # facade-shaped code out of presentation, and drop the line
-    "products.alerts.backend.facade.api -> products.alerts.backend.presentation.views.alert",
-    "products.alerts.backend.facade.api -> products.alerts.backend.presentation.views.alert_schedule_restriction",
     "products.managed_warehouse.backend.facade.api -> products.managed_warehouse.backend.presentation.views",
     "products.stamphog.backend.facade.webhooks -> products.stamphog.backend.presentation.webhooks",
     "products.tasks.backend.facade.api -> products.tasks.backend.presentation.serializers",
