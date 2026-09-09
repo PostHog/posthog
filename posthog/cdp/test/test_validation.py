@@ -548,10 +548,18 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         [
             ("plain_address", "a@b.com", {"email": "a@b.com"}),
             ("templated_address", "{person.properties.email}", {"email": "{person.properties.email}"}),
+            ("padded_address", "  a@b.com  ", {"email": "a@b.com"}),
+            ("padded_address_in_an_object", {"email": " a@b.com "}, {"email": "a@b.com"}),
+            (
+                "padded_address_keeps_the_name",
+                {"email": " a@b.com ", "name": "Ada"},
+                {"email": "a@b.com", "name": "Ada"},
+            ),
         ]
     )
-    def test_native_email_coerces_a_string_recipient_to_an_object(self, _name, to_value, expected):
+    def test_native_email_normalizes_the_recipient_before_storing_it(self, _name, to_value, expected):
         # The runtime reads to.email, so a string recipient saved cleanly and then failed every send.
+        # The opt-out lookup matches the address exactly, so padding would miss a recorded opt-out.
         inputs_schema = [{"key": "email", "type": "native_email", "required": True}]
         value = {"from": {"integrationId": 1}, "to": to_value, "subject": "hi", "text": "hi"}
 
@@ -559,9 +567,16 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
         assert validated["email"]["value"]["to"] == expected
 
-    def test_native_email_rejects_a_recipient_object_without_an_address(self):
+    @parameterized.expand(
+        [
+            ("object_without_an_address", {"name": "Ada"}),
+            ("whitespace_only_string", "   "),
+            ("whitespace_only_address", {"email": "   "}),
+        ]
+    )
+    def test_native_email_rejects_a_recipient_with_no_usable_address(self, _name, to_value):
         inputs_schema = [{"key": "email", "type": "native_email", "required": True}]
-        value = {"from": {"integrationId": 1}, "to": {"name": "Ada"}, "subject": "hi", "text": "hi"}
+        value = {"from": {"integrationId": 1}, "to": to_value, "subject": "hi", "text": "hi"}
 
         with pytest.raises(ValidationError) as ctx:
             validate_inputs(inputs_schema, {"email": {"value": value}})

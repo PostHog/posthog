@@ -688,8 +688,10 @@ class InputsItemSerializer(serializers.Serializer):
                 to_value = value.get("to")
                 if isinstance(to_value, str):
                     to_value = {"email": to_value}
-                    value = {**value, "to": to_value}
-                    attrs["value"] = value
+                # The opt-out lookup matches the stored address exactly, while the opt-out write
+                # path trims it, so padding here would miss an opt-out the recipient made.
+                if isinstance(to_value, dict) and isinstance(to_value.get("email"), str):
+                    to_value = {**to_value, "email": to_value["email"].strip()}
                 if not isinstance(to_value, dict) or not to_value.get("email"):
                     raise serializers.ValidationError(
                         {"input": "Expected 'to' to be an object with an 'email' address, like {'email': ...}."}
@@ -704,6 +706,8 @@ class InputsItemSerializer(serializers.Serializer):
                     raise serializers.ValidationError(
                         {"input": f"Expected string {label} for {', '.join(wrong_types)}."}
                     )
+                value = {**value, "to": to_value}
+                attrs["value"] = value
 
             # Templated sender overrides on the `from` object. Non-string values would only
             # surface as a send-time failure in the runtime's schema parse, so reject them here.
