@@ -74,8 +74,9 @@ def scout_costs(*, team_id: int, window_days: int) -> ScoutCosts:
         team_id=team_id, created_at__gte=window_start
     ).values_list("skill_name", "task_run_id", "emitted_report_ids", "edited_report_ids"):
         task_run_ids_by_skill[skill_name].append(str(task_run_id))
-        report_ids_by_skill[skill_name].update(str(report_id) for report_id in (emitted_report_ids or []))
-        report_ids_by_skill[skill_name].update(str(report_id) for report_id in (edited_report_ids or []))
+        report_ids_by_skill[skill_name].update(
+            str(report_id) for report_id in [*(emitted_report_ids or []), *(edited_report_ids or [])]
+        )
 
     if not task_run_ids_by_skill:
         return ScoutCosts(window_days=window_days, scouts=[], available=True)
@@ -93,35 +94,21 @@ def scout_costs(*, team_id: int, window_days: int) -> ScoutCosts:
     except TaskTokenUsageUnavailable:
         return ScoutCosts(window_days=window_days, scouts=[], available=False)
 
-    costs = ScoutCosts(
-        window_days=window_days,
-        scouts=[
-            _scout_cost(
+    scouts = []
+    for skill_name, task_run_ids in sorted(task_run_ids_by_skill.items()):
+        priced = [
+            spend_by_task_run_id[task_run_id] for task_run_id in task_run_ids if task_run_id in spend_by_task_run_id
+        ]
+        scouts.append(
+            ScoutCost(
                 skill_name=skill_name,
-                task_run_ids=task_run_ids,
-                report_ids=report_ids_by_skill[skill_name],
-                spend_by_task_run_id=spend_by_task_run_id,
+                spend_usd=sum(priced, Decimal(0)),
+                run_count=len(task_run_ids),
+                priced_run_count=len(priced),
+                reports_touched=len(report_ids_by_skill[skill_name]),
             )
-            for skill_name, task_run_ids in sorted(task_run_ids_by_skill.items())
-        ],
-        available=True,
-    )
+        )
+
+    costs = ScoutCosts(window_days=window_days, scouts=scouts, available=True)
     cache.set(cache_key, costs, timeout=SCOUT_COSTS_CACHE_TIMEOUT_SECONDS)
     return costs
-
-
-def _scout_cost(
-    *,
-    skill_name: str,
-    task_run_ids: list[str],
-    report_ids: set[str],
-    spend_by_task_run_id: dict[str, Decimal],
-) -> ScoutCost:
-    priced = [spend_by_task_run_id[task_run_id] for task_run_id in task_run_ids if task_run_id in spend_by_task_run_id]
-    return ScoutCost(
-        skill_name=skill_name,
-        spend_usd=sum(priced, Decimal(0)),
-        run_count=len(task_run_ids),
-        priced_run_count=len(priced),
-        reports_touched=len(report_ids),
-    )
