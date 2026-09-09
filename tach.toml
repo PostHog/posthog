@@ -915,6 +915,7 @@ layer = "modules"
 path = "products.canvas"
 depends_on = [
     "posthog",
+    "ee",
     # Sandbox provisioning (via the tasks facade) and the Channel FK canvases file into.
     "products.tasks",
     # The annotations.create action verb (via the annotations facade).

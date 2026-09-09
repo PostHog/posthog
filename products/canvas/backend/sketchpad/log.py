@@ -10,8 +10,10 @@ from rest_framework.exceptions import APIException
 from posthog.dataclasses import frozen
 from posthog.models.user import User
 
+from products.canvas.backend import sketchpad_stream
 from products.canvas.backend.facade.enums import SketchpadRecordKind
 from products.canvas.backend.models import Sketchpad, SketchpadCompileJob, SketchpadOp, SketchpadRecord
+from products.canvas.backend.sketchpad.presentation.serializers import sketchpad_actor_person
 from products.canvas.backend.sketchpad.records import (
     JsonObject,
     JsonValue,
@@ -91,6 +93,10 @@ def append_ops(
             hydrate_ops(appended)
             _compact_history(locked)
             locked.save(update_fields=["head_seq", "updated_at"])
+            team_id = locked.team_id
+            sketchpad_key = str(locked.pk)
+            events = [_op_event(row, user) for row in appended]
+            transaction.on_commit(lambda: sketchpad_stream.publish_ops(team_id, sketchpad_key, events))
     sketchpad.head_seq = locked.head_seq
     return SketchpadAppendResult(results=results, replayed=list(replayed.values()), head_seq=locked.head_seq)
 
@@ -171,3 +177,17 @@ def _remove_unused_sources(sketchpad: Sketchpad) -> None:
     for refs in compile_refs:
         used.update(ref for ref in refs if isinstance(ref, str))
     records.filter(kind=SketchpadRecordKind.SOURCE).exclude(key__in=used).delete()
+
+
+def _op_event(row: SketchpadOp, user: User | None) -> dict[str, Any]:
+    return {
+        "seq": row.seq,
+        "op_id": row.op_id,
+        "actor": {
+            "kind": row.actor_kind,
+            **sketchpad_actor_person(user, row.actor_user_id),
+            "task_id": str(row.actor_task_id) if row.actor_task_id else None,
+        },
+        "created_at": row.created_at.isoformat(),
+        "op": row.op,
+    }

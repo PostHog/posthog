@@ -1,13 +1,18 @@
-from typing import Any
+from collections.abc import AsyncGenerator
+from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.db import connection
+from django.http import StreamingHttpResponse
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
+
+from posthog.sync import database_sync_to_async
 
 from products.canvas.backend.models import Sketchpad, SketchpadOp, SketchpadRecord
 from products.canvas.backend.presentation.sketchpad.serializers import SketchpadAppendOpsSerializer
@@ -331,3 +336,44 @@ class TestSketchpadValidationEndpoint(APIBaseTest):
         assert sketchpad.head_seq == 0
         assert not SketchpadRecord.objects.for_team(self.team.id).filter(sketchpad=sketchpad).exists()
         assert not SketchpadOp.objects.for_team(self.team.id).filter(sketchpad=sketchpad).exists()
+
+    @parameterized.expand([("deleted",), ("private",)])
+    def test_open_stream_stops_after_access_changes(self, change: str) -> None:
+        channel = Channel.objects.for_team(self.team.id).create(team_id=self.team.id, name="general")
+        private_channel = Channel.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name="personal",
+            channel_type=Channel.ChannelType.PERSONAL,
+            created_by=self._create_user("sketchpad-owner@example.com"),
+        )
+        sketchpad = Sketchpad.objects.for_team(self.team.id).create(
+            team_id=self.team.id, channel=channel, name="Test sketchpad"
+        )
+        client = AsyncMock()
+        client.xrevrange.return_value = []
+        client.xread.return_value = [(b"ops", [(b"1-0", {b"data": b'{"type":"op","seq":1}'})])]
+        update_board = database_sync_to_async(Sketchpad.objects.for_team(self.team.id).filter(pk=sketchpad.pk).update)
+
+        with (
+            patch("products.canvas.backend.sketchpad.presentation.views.SERVER_GATEWAY_INTERFACE", "ASGI"),
+            patch("products.canvas.backend.sketchpad_stream.redis_module.get_async_client", return_value=client),
+        ):
+            response = cast(
+                StreamingHttpResponse,
+                self.client.get(f"/api/projects/{self.team.id}/sketchpads/{sketchpad.id}/stream/"),
+            )
+            assert response.status_code == 200
+
+            async def read() -> None:
+                frames = response.streaming_content
+                assert isinstance(frames, AsyncGenerator)
+                try:
+                    assert b"event: op" in await anext(frames)
+                    updates = {"deleted": True} if change == "deleted" else {"channel_id": private_channel.pk}
+                    await update_board(**updates)
+                    with self.assertRaises(StopAsyncIteration):
+                        await anext(frames)
+                finally:
+                    await frames.aclose()
+
+            async_to_sync(read)()

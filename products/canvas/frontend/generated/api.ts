@@ -65,6 +65,7 @@ import type {
     SketchpadCompiledResponseApi,
     SketchpadCreateApi,
     SketchpadOpsPageApi,
+    SketchpadPresenceApi,
     SketchpadsListParams,
     SketchpadsOpsRetrieveParams,
 } from './api.schemas'
@@ -1017,5 +1018,44 @@ export const sketchpadsOpsAppend = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sketchpadAppendOpsApi),
+    })
+}
+
+export const getSketchpadsPresenceCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sketchpads/${id}/presence/`
+}
+
+/**
+ * Team, channel, and sandbox visibility rules shared by every canvas-like resource.
+ */
+export const sketchpadsPresenceCreate = async (
+    projectId: string,
+    id: string,
+    sketchpadPresenceApi: SketchpadPresenceApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSketchpadsPresenceCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sketchpadPresenceApi),
+    })
+}
+
+export const getSketchpadsStreamRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sketchpads/${id}/stream/`
+}
+
+/**
+ * Team, channel, and sandbox visibility rules shared by every canvas-like resource.
+ */
+export const sketchpadsStreamRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<string> => {
+    return apiMutator<string>(getSketchpadsStreamRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }

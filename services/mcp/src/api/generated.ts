@@ -80468,6 +80468,26 @@ export namespace Schemas {
       head_seq: number;
     }
 
+    export interface SketchpadCaret {
+      /**
+         * The shared state key the caller writes in.
+         * @maxLength 128
+         */
+      key: string;
+      /**
+         * Entry id where the selection starts, or null.
+         * @maxLength 64
+         * @nullable
+         */
+      anchor?: string | null;
+      /**
+         * Entry id where the caret sits, or null.
+         * @maxLength 64
+         * @nullable
+         */
+      focus?: string | null;
+    }
+
     export interface SketchpadCompile {
       /**
          * Source hashes from this sketchpad. Missing results are still being compiled.
@@ -80507,6 +80527,13 @@ export namespace Schemas {
       name: string;
       /** Id of the space the sketchpad belongs to. */
       channel_id: string;
+    }
+
+    export interface SketchpadCursor {
+      /** Horizontal position in sketchpad world units. */
+      x: number;
+      /** Vertical position in sketchpad world units. */
+      y: number;
     }
 
     export type SketchpadReadOperation = {
@@ -80693,6 +80720,42 @@ export namespace Schemas {
       history_snapshot: SketchpadSnapshot;
       /** Fragment source text keyed by SHA-256, once per page. */
       readonly source_versions: SketchpadOpsPageSourceVersions;
+    }
+
+    export interface SketchpadViewport {
+      /** Horizontal pan offset in screen pixels. */
+      x: number;
+      /** Vertical pan offset in screen pixels. */
+      y: number;
+      /**
+         * Zoom factor, where 1 means one world unit per pixel.
+         * @minimum 0.01
+         * @maximum 64
+         */
+      zoom: number;
+    }
+
+    export interface SketchpadPresence {
+      /**
+         * Id of the caller's sketchpad tab, so other clients can skip their own pings.
+         * @maxLength 200
+         */
+      client_id: string;
+      /** Pointer position in sketchpad world units, or null when the pointer left the sketchpad. */
+      cursor?: SketchpadCursor | null;
+      /** The caller's pan and zoom, or null to send none. */
+      viewport?: SketchpadViewport | null;
+      /**
+         * Ids of the fragments the caller has selected, at most 50.
+         * @maxItems 50
+         * @items.maxLength 64
+         */
+      selected_ids?: string[];
+      /**
+         * Where the caller writes, at most 4 fields at a time.
+         * @maxItems 4
+         */
+      carets?: SketchpadCaret[];
     }
 
     export interface SlackChannel {

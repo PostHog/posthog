@@ -1697,3 +1697,82 @@ export const SketchpadsOpsAppendBody = /* @__PURE__ */ zod.object({
         })
         .describe('Who is making the change.'),
 })
+
+/**
+ * Team, channel, and sandbox visibility rules shared by every canvas-like resource.
+ */
+export const sketchpadsPresenceCreateBodyClientIdMax = 200
+
+export const sketchpadsPresenceCreateBodyViewportOneZoomMin = 0.01
+export const sketchpadsPresenceCreateBodyViewportOneZoomMax = 64
+
+export const sketchpadsPresenceCreateBodySelectedIdsItemMax = 64
+
+export const sketchpadsPresenceCreateBodySelectedIdsMax = 50
+
+export const sketchpadsPresenceCreateBodyCaretsItemKeyMax = 128
+
+export const sketchpadsPresenceCreateBodyCaretsItemAnchorMax = 64
+
+export const sketchpadsPresenceCreateBodyCaretsItemFocusMax = 64
+
+export const sketchpadsPresenceCreateBodyCaretsMax = 4
+
+export const SketchpadsPresenceCreateBody = /* @__PURE__ */ zod.object({
+    client_id: zod
+        .string()
+        .max(sketchpadsPresenceCreateBodyClientIdMax)
+        .describe("Id of the caller's sketchpad tab, so other clients can skip their own pings."),
+    cursor: zod
+        .union([
+            zod.object({
+                x: zod.number().describe('Horizontal position in sketchpad world units.'),
+                y: zod.number().describe('Vertical position in sketchpad world units.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Pointer position in sketchpad world units, or null when the pointer left the sketchpad.'),
+    viewport: zod
+        .union([
+            zod.object({
+                x: zod.number().describe('Horizontal pan offset in screen pixels.'),
+                y: zod.number().describe('Vertical pan offset in screen pixels.'),
+                zoom: zod
+                    .number()
+                    .min(sketchpadsPresenceCreateBodyViewportOneZoomMin)
+                    .max(sketchpadsPresenceCreateBodyViewportOneZoomMax)
+                    .describe('Zoom factor, where 1 means one world unit per pixel.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe("The caller's pan and zoom, or null to send none."),
+    selected_ids: zod
+        .array(zod.string().max(sketchpadsPresenceCreateBodySelectedIdsItemMax))
+        .max(sketchpadsPresenceCreateBodySelectedIdsMax)
+        .optional()
+        .describe('Ids of the fragments the caller has selected, at most 50.'),
+    carets: zod
+        .array(
+            zod.object({
+                key: zod
+                    .string()
+                    .max(sketchpadsPresenceCreateBodyCaretsItemKeyMax)
+                    .describe('The shared state key the caller writes in.'),
+                anchor: zod
+                    .string()
+                    .max(sketchpadsPresenceCreateBodyCaretsItemAnchorMax)
+                    .nullish()
+                    .describe('Entry id where the selection starts, or null.'),
+                focus: zod
+                    .string()
+                    .max(sketchpadsPresenceCreateBodyCaretsItemFocusMax)
+                    .nullish()
+                    .describe('Entry id where the caret sits, or null.'),
+            })
+        )
+        .max(sketchpadsPresenceCreateBodyCaretsMax)
+        .optional()
+        .describe('Where the caller writes, at most 4 fields at a time.'),
+})
