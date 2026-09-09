@@ -18,7 +18,7 @@ from django.utils import timezone
 
 import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import WorkflowAlreadyStartedError, is_cancelled_exception
 from temporalio.workflow import ParentClosePolicy
 
 from posthog.dataclasses import frozen
@@ -322,7 +322,12 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
             if tick.action == TickAction.FINISHED:
                 return
             finished = await self._dispatch_batch(inputs, tick)
-        except Exception:
+        except Exception as error:
+            # A cancel reaches the workflow as a cancelled activity, which is not a tick that
+            # failed. Let it end the run instead of logging it and counting it against the
+            # failure budget.
+            if is_cancelled_exception(error):
+                raise
             await self._handle_failed_tick(inputs)
             return
         if finished:

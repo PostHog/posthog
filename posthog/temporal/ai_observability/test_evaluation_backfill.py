@@ -1,6 +1,6 @@
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -10,7 +10,7 @@ from django.test import override_settings
 
 from asgiref.sync import async_to_sync
 from temporalio.common import WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import ActivityError, CancelledError, WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy
 
 from posthog.models import Organization, Team
@@ -225,6 +225,32 @@ class TestEvaluationBackfillWorkflow:
         continue_as_new.assert_called_once_with(
             EvaluationBackfillInputs(backfill_id="B", team_id=42, consecutive_failures=1)
         )
+
+    @pytest.mark.asyncio
+    async def test_a_cancelled_activity_ends_the_run_instead_of_counting_as_a_failure(self) -> None:
+        # Cancelling a backfill cancels its in-flight activity, which must not read as a tick
+        # that failed: the run would log an error and spend one of its five failures.
+        mocks = _BackfillMocks(
+            activity_results={
+                prepare_evaluation_backfill_tick_activity: _tick(),
+                find_evaluation_backfill_candidates_activity: ActivityError(
+                    "activity cancelled",
+                    scheduled_event_id=1,
+                    started_event_id=2,
+                    identity="test",
+                    activity_type="find",
+                    activity_id="1",
+                    retry_state=None,
+                ),
+            }
+        )
+        cause = CancelledError("cancelled")
+        cast(ActivityError, mocks.activity_results[find_evaluation_backfill_candidates_activity]).__cause__ = cause
+
+        with pytest.raises(ActivityError):
+            await _run(mocks)
+
+        assert fail_evaluation_backfill_activity not in _called(mocks)
 
     @pytest.mark.asyncio
     async def test_repeated_failures_cancel_the_backfill_instead_of_looping_forever(self) -> None:
