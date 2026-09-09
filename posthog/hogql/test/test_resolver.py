@@ -42,6 +42,20 @@ from posthog.hogql.visitor import clone_expr
 
 
 class TestPersonUpdatePropertyResolution(SimpleTestCase):
+    def setUp(self) -> None:
+        self.context = HogQLContext(
+            database=Database(),
+            team_id=1,
+            enable_select_queries=True,
+            use_new_events_schema=False,
+            restricted_properties=set(),
+            apply_events_retention_floor=False,
+        )
+
+    def _print(self, query: str) -> str:
+        with patch("posthog.hogql.transforms.property_types.load_property_metadata", return_value=PropertyMetadata()):
+            return prepare_and_print_ast(parse_select(query), self.context, "clickhouse")[0]
+
     @parameterized.expand(
         [
             (update, query.format(update=update), table_alias)
@@ -53,30 +67,70 @@ class TestPersonUpdatePropertyResolution(SimpleTestCase):
                 ("SELECT e.properties.{update}.email FROM events e", "e"),
                 ("SELECT properties.{update}.email FROM events poe", "poe"),
                 ("SELECT properties AS p, p.{update}.email FROM events", "events"),
-                ("SELECT properties.{update} AS p, p.email FROM events", "events"),
-                ("SELECT properties.{update} AS p, p['email'] FROM events", "events"),
-                ("SELECT properties.{update} AS poe, properties.{update}.email FROM events", "events"),
-                ("SELECT e.properties.{update} AS p, p.email FROM events e", "e"),
                 ("SELECT e.c.{update}.email FROM events AS e(a, b, c)", "e"),
                 ("SELECT e.properties.{update}.email FROM events AS e(a, b)", "e"),
             )
         ]
     )
     def test_nested_reads_use_person_snapshot(self, update: str, query: str, table_alias: str) -> None:
-        context = HogQLContext(
-            database=Database(),
-            team_id=1,
-            enable_select_queries=True,
-            use_new_events_schema=False,
-            restricted_properties=set(),
-            apply_events_retention_floor=False,
-        )
-        with patch("posthog.hogql.transforms.property_types.load_property_metadata", return_value=PropertyMetadata()):
-            sql, _ = prepare_and_print_ast(parse_select(query), context, "clickhouse")
-
+        sql = self._print(query)
         self.assertRegex(sql, rf"JSONExtractRaw\({table_alias}\.person_properties, %\(hogql_val_\d+\)s\)")
-        assert "email" in context.values.values()
+        assert "email" in self.context.values.values()
         assert " JOIN " not in sql
+
+    @parameterized.expand(
+        [
+            (query.format(update=update),)
+            for update in ("$set", "$set_once", "$unset")
+            for query in (
+                "SELECT properties.{update} FROM events",
+                "SELECT properties['{update}'] FROM events",
+                "SELECT e.properties.{update} FROM events AS e",
+                "SELECT properties.{update} AS p, p.email FROM events",
+                "SELECT properties.{update} AS p, p['email'] FROM events",
+                "SELECT p.{update}.email FROM (SELECT properties AS p FROM events)",
+                "SELECT JSONExtractRaw(properties, '{update}') FROM events",
+                "SELECT JSONHas(properties, '{update}', 'email') FROM events",
+                "SELECT JSON_VALUE(properties, '$.\"{update}\".email') FROM events",
+                "SELECT event FROM events WHERE properties.{update} IS NOT NULL",
+            )
+        ]
+        + [
+            ("SELECT properties.$unset.email FROM events",),
+            ("SELECT properties['$unset'][1] FROM events",),
+            ("SELECT p.$set.email FROM (SELECT properties AS p FROM events UNION ALL SELECT properties FROM events)",),
+            ("WITH updates AS (SELECT properties AS p FROM events) SELECT p.$set.email FROM updates",),
+            ("SELECT JSONExtractRaw(toString(properties), '$set') FROM events",),
+            ("SELECT JSONExtractRaw(CAST(properties AS String), '$set') FROM events",),
+            ("SELECT JSONExtractRaw(p, '$unset') FROM (SELECT properties AS p FROM events)",),
+            ("SELECT JSON_VALUE(properties, '$.\"$unset\"[0]') FROM events",),
+            ("WITH '$set' AS key SELECT JSONExtractRaw(properties, key) FROM events",),
+            ("SELECT properties AS p, JSONExtractRaw(p, '$set') FROM events",),
+            ("WITH '$set' AS first, first AS key SELECT JSONExtractRaw(properties, key) FROM events",),
+            (
+                "SELECT p.$set.email FROM (SELECT properties AS p FROM events UNION ALL "
+                "(SELECT properties FROM events UNION ALL SELECT properties FROM events))",
+            ),
+        ]
+    )
+    def test_raw_update_payload_reads_fail(self, query: str) -> None:
+        with self.assertRaisesRegex(QueryError, "Reading the raw .* event payload is not supported"):
+            self._print(query)
+
+    @parameterized.expand(
+        [
+            ("SELECT properties FROM events",),
+            ("SELECT properties.email FROM events",),
+            ("SELECT properties.metadata.$set FROM events",),
+            ("SELECT properties.$set FROM persons",),
+            ("SELECT JSONExtractRaw(properties, 'email') FROM events",),
+            ("SELECT JSON_VALUE(properties, '$.\"$set.metadata\"') FROM events",),
+            ("SELECT p.email FROM (SELECT properties AS p FROM events)",),
+            ("SELECT email FROM (SELECT properties.$set.email AS email FROM events)",),
+        ]
+    )
+    def test_ordinary_properties_remain_readable(self, query: str) -> None:
+        assert self._print(query)
 
 
 class TestResolver(BaseTest):
@@ -134,17 +188,6 @@ class TestResolver(BaseTest):
         expr = self._select("SELECT event, e.timestamp FROM events e WHERE e.event = 'test'")
         expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(expr) == self.snapshot
-
-    @parameterized.expand([("$set",), ("$set_once",)])
-    def test_does_not_rewrite_complete_event_person_update_property(self, update_property: str) -> None:
-        sql, _ = prepare_and_print_ast(
-            self._select(f"SELECT properties.{update_property} FROM events"),
-            self.context,
-            "clickhouse",
-        )
-
-        assert "events.properties" in sql
-        assert "person_properties" not in sql
 
     def test_does_not_rewrite_person_table_update_property(self) -> None:
         sql, _ = prepare_and_print_ast(
