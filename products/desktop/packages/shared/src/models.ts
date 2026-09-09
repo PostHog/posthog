@@ -19,6 +19,22 @@ export function defaultEligibleModel(
  */
 const RESTRICTED_MODEL_META_KEY = "posthog.code/restrictedModel";
 
+/**
+ * ACP SessionConfigSelectOption `_meta` key for a model outside the gateway
+ * catalog. Picker code uses this explicit mark as the only unpriced case.
+ */
+const CUSTOM_MODEL_META_KEY = "posthog.code/customModel";
+
+export function customModelMeta(): Record<string, unknown> {
+  return { [CUSTOM_MODEL_META_KEY]: true };
+}
+
+export function isCustomModelOption(
+  meta: Record<string, unknown> | null | undefined,
+): boolean {
+  return meta?.[CUSTOM_MODEL_META_KEY] === true;
+}
+
 export function restrictedModelMeta(): Record<string, unknown> {
   return { [RESTRICTED_MODEL_META_KEY]: true };
 }

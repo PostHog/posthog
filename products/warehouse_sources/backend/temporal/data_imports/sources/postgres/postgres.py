@@ -163,6 +163,23 @@ _MAX_INITIAL_READ_DROP_RETRIES = 5
 _MAX_INITIAL_READ_LOCK_TIMEOUT_RETRIES = 5
 
 
+def new_source_requires_ssl(source_config: Any = None) -> bool:
+    """Return whether a source created now must connect over SSL/TLS.
+
+    A source created now is always past the cutoff date, so only the SSH tunnel opt-out can
+    relax the requirement. Shares that branch with `source_requires_ssl` so the credential
+    check the wizard runs cannot drift from the connection the sync later opens.
+    """
+    if source_config is not None:
+        # Not every source config carries an SSH tunnel (e.g. Snowflake), and the param is typed
+        # `Any` — only the tunnel opt-out can relax the SSL requirement, so its absence means "required".
+        ssh_tunnel = getattr(source_config, "ssh_tunnel", None)
+        if ssh_tunnel is not None and ssh_tunnel.enabled and not ssh_tunnel.require_tls.enabled:
+            return False
+
+    return True
+
+
 def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -> bool:
     """Return whether this source must connect over SSL/TLS.
 
@@ -173,14 +190,7 @@ def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -
     if source.created_at < SSL_REQUIRED_AFTER_DATE:
         return False
 
-    if source_config is not None:
-        # Not every source config carries an SSH tunnel (e.g. Snowflake), and the param is typed
-        # `Any` — only the tunnel opt-out can relax the SSL requirement, so its absence means "required".
-        ssh_tunnel = getattr(source_config, "ssh_tunnel", None)
-        if ssh_tunnel is not None and ssh_tunnel.enabled and not ssh_tunnel.require_tls.enabled:
-            return False
-
-    return True
+    return new_source_requires_ssl(source_config)
 
 
 class SSLRequiredError(Exception):

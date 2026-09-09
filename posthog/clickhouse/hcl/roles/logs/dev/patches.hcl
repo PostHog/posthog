@@ -14,13 +14,11 @@ database "posthog" {
     }
   }
 
-  # dev runs the metrics consumer small: a fraction of prod volume arrives here,
-  # so it waits longer for smaller batches on fewer threads.
-  patch_table "kafka_metrics_avro" {
+  patch_table "kafka_metrics_avro2" {
     engine "kafka" {
       collection           = "warpstream_metrics"
       topic_list           = "clickhouse_metrics"
-      group_name           = "clickhouse-metrics-avro-new"
+      group_name           = "clickhouse-metrics-avro2"
       format               = "Avro"
       num_consumers        = 2
       max_block_size       = 4096

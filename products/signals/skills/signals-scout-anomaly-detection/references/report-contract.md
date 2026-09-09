@@ -139,15 +139,19 @@ A recurrence or escalation of an insight's anomaly you already reported is an **
 report**. Find the live report (the `report:` pointer's `report_id` → `inbox-reports-retrieve`,
 or `inbox-reports-list` by the insight), then:
 
-- **`append_evidence`** with the new observation — additive, audit-friendly, and the right move on any
-  report (even a pipeline-authored one). Build a **fresh notebook** for the new window and link
-  it in the note (one notebook per window — never append a new anomaly to a prior notebook).
+- **`append_evidence`** with the new window's numbers — additive, audit-friendly, and the right move on
+  any report (even a pipeline-authored one). Each item lands in the report's evidence rail as a bound
+  signal, so the report's signal count and weight grow with the recurrence. Build a **fresh notebook**
+  for the new window and link it in the description (one notebook per window — never append a new
+  anomaly to a prior notebook).
+- **`append_note`** for commentary the numbers don't carry — the owning team already knows, or a deploy
+  explains the move. Send it in the same call as the evidence when both apply.
 - **Rewrite `title`/`summary`** only on a report you authored, and only when the framing is
   genuinely stale.
 
 `edit_report` is preflight-gated like `emit_report`, but it **raises** when the scout is gated
 (dry-run `emit=false`, un-approved AI processing, or a disabled source) rather than returning a
-`skipped_reason` — the note is never appended. So if you built a fresh recurrence notebook and
+`skipped_reason` — nothing is appended. So if you built a fresh recurrence notebook and
 the `edit_report` call is blocked (or otherwise doesn't commit), **delete that notebook with
 `notebooks-destroy`** — same orphan-cleanup rule as a non-surfacing author. Equivalently, defer
 building the notebook until the edit is about to commit.
