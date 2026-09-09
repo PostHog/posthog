@@ -418,6 +418,33 @@ describe('FeaturePreviewSceneGate', () => {
         })
     })
 
+    describe('alpha stage (self-serve enrollment)', () => {
+        const ALPHA_FEATURE = {
+            flagKey: BASE_CONFIG.flag,
+            enabled: false,
+            stage: 'alpha',
+            payload: { survey_id: 'survey-1' },
+        }
+
+        test('shows the enrollment toggle even when the feature carries a waitlist survey', () => {
+            setupMocks({ earlyAccessFeatures: [ALPHA_FEATURE], waitlistSurveysEnabled: true })
+
+            render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
+
+            expect(screen.getByRole('switch')).toBeInTheDocument()
+            expect(screen.queryByPlaceholderText('email@yourcompany.com')).not.toBeInTheDocument()
+        })
+
+        test('toggling on enrolls with the alpha stage, which unlocks the flag', async () => {
+            setupMocks({ earlyAccessFeatures: [ALPHA_FEATURE] })
+
+            render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
+            await userEvent.click(screen.getByRole('switch'))
+
+            expect(mockUpdateEarlyAccessFeatureEnrollment).toHaveBeenCalledWith(BASE_CONFIG.flag, true, 'alpha')
+        })
+    })
+
     describe('request access', () => {
         const CONFIG_WITH_SUPPORT: FeaturePreviewGateConfig = {
             ...BASE_CONFIG,
