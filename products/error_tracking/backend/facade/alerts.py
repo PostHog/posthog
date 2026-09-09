@@ -129,6 +129,11 @@ def _slack_workspace_id(destination: ErrorTrackingAlertDestinationModel) -> str 
     return str(team["id"]) if isinstance(team, dict) and team.get("id") else None
 
 
+def issue_environment_id(project_id: int, issue_id: UUID | str) -> int | None:
+    """The environment an issue lives in, when the issue belongs to the project."""
+    return _alerts.issue_environment_id(project_id, issue_id)
+
+
 def list_issue_threads(team_id: int, issue_id: UUID | str) -> list[contracts.ErrorTrackingAlertThread]:
     return [
         contracts.ErrorTrackingAlertThread(
