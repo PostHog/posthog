@@ -50,6 +50,7 @@ import { template as vercelLogDrainTemplate } from './_sources/vercel/vercel_log
 import { template as incomingWebhookTemplate } from './_sources/webhook/incoming_webhook.template'
 import { template as botDetectionTemplate } from './_transformations/bot-detection/bot-detection.template'
 import { template as defaultTransformationTemplate } from './_transformations/default/default.template'
+import { template as downsamplingTemplate } from './_transformations/downsampling/downsampling.template'
 import { template as dropEventsTemplate } from './_transformations/drop-events/drop-events.template'
 import { template as filterPropertiesTemplate } from './_transformations/filter-properties/filter-properties.template'
 import { template as geoipTemplate } from './_transformations/geoip/geoip.template'
@@ -57,8 +58,11 @@ import { template as hashPropertiesTemplate } from './_transformations/hash-prop
 import { template as ipAnonymizationTemplate } from './_transformations/ip-anonymization/ip-anonymization.template'
 import { template as piiHashingTemplate } from './_transformations/pii-hashing/pii-hashing.template'
 import { template as removeNullPropertiesTemplate } from './_transformations/remove-null-properties/remove-null-properties.template'
+import { template as semverFlattenerTemplate } from './_transformations/semver-flattener/semver-flattener.template'
+import { template as timestampParserTemplate } from './_transformations/timestamp-parser/timestamp-parser.template'
 import { template as urlMaskingTemplate } from './_transformations/url-masking/url-masking.template'
 import { template as urlNormalizationTemplate } from './_transformations/url-normalization/url-normalization.template'
+import { template as urlParametersToPropertiesTemplate } from './_transformations/url-parameters-to-properties/url-parameters-to-properties.template'
 import { template as logDefaultTemplate } from './_transformations_log/default/default.template'
 import { template as logDropBySeverityTemplate } from './_transformations_log/drop-by-severity/drop-by-severity.template'
 import { template as logPiiScrubTemplate } from './_transformations_log/pii-scrub/pii-scrub.template'
@@ -122,6 +126,10 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     filterPropertiesTemplate,
     hashPropertiesTemplate,
     urlNormalizationTemplate,
+    semverFlattenerTemplate,
+    timestampParserTemplate,
+    downsamplingTemplate,
+    urlParametersToPropertiesTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_LOG: HogFunctionTemplate[] = [

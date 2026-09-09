@@ -36,6 +36,7 @@ from products.signals.backend.report_generation.repo_activity import (
     rebuild_repository_activity,
     repository_activity_needs_rebuild,
 )
+from products.signals.backend.reviewer_pr_assignment import assign_reviewers_to_pull_request
 from products.signals.backend.scout_harness.inactivity import sweep_inactive_scouts
 from products.signals.backend.scout_harness.slack_delivery import (
     DELIVERABLE_REPORT_STATUSES,
@@ -318,6 +319,22 @@ def send_reviewer_added_slack_notifications(
         source_products=source_products,
         exclude_user_id=exclude_user_id,
     )
+
+
+@shared_task(
+    name="products.signals.backend.tasks.assign_reviewers_on_implementation_pr",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def assign_reviewers_on_implementation_pr(team_id: int, report_id: str, pr_url: str) -> None:
+    """Add a report's opted-in suggested reviewers as GitHub assignees on its implementation PR.
+
+    Runs on a worker because the GitHub calls (integration probe, PR read, assign) must not hold up
+    the claim, sync, or reviewer edit that queued it. Best-effort end to end, so the assigner
+    reports its own failures and this never retries: the next pull request event queues it again.
+    """
+    assign_reviewers_to_pull_request(team_id=team_id, report_id=report_id, pr_url=pr_url)
 
 
 def _capture_refund_sync_event(refund: SignalReportRefund, event: str, extra: dict[str, object]) -> None:

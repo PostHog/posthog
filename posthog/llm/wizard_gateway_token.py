@@ -130,10 +130,9 @@ def wizard_product_node(program: str | None) -> str | None:
     folded into a generic node. Gateway budgets match a node value exactly, so
     folding would report a new program's spend as plain wizard spend and leave the
     program itself with no budget of its own, and the drift would be silent.
-    A refusal is visible in the mint outcome counter, and the endpoint answers it
-    with a 404, the one status the CLI falls back on: a program this deploy has
-    not been told about keeps running on the legacy gateway rather than having
-    its run killed, while still being unable to mint.
+    A refusal ends the run with an upgrade message and shows in the mint outcome
+    counter as `program_unknown`; a new program is registered in the CLI, this
+    setting, and a budget row.
     """
     # isinstance first: the value is caller JSON, and an unhashable one (a list
     # or object) raises on the set membership below, inside a throttle that runs
@@ -164,7 +163,8 @@ class WizardGatewayMintError(Exception):
 
 
 def wizard_gateway_configured() -> bool:
-    """Every one of the four is required; any missing piece answers 404.
+    """Every one of the four is required; any missing piece refuses every mint
+    as `unconfigured`.
 
     The program list is a hard requirement, not a refinement: an empty one
     refuses every program, so without it the deploy would report itself
