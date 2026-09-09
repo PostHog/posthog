@@ -244,11 +244,6 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
             }
         }
 
-        // Add legacy_plugin_config_id for plugins that use legacy storage
-        if (pluginId === 'customerio-plugin') {
-            inputs.legacy_plugin_config_id = { value: pluginConfig.id }
-        }
-
         // Create a HogFunctionType
         return {
             id: `legacy-${pluginConfig.id}`,
