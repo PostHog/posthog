@@ -100,13 +100,10 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
         # Measure the complete due set, not the bounded fan-out batch below.
         # Otherwise a busy scheduler would report 50 forever even when many
         # more alerts are waiting.
-        record_due_insight_alert_metrics(
-            due_alerts_query.only("created_at", "next_check_at"), polled_at
-        )
+        record_due_insight_alert_metrics(due_alerts_query.only("created_at", "next_check_at"), polled_at)
 
         alerts_query = (
-            due_alerts_query
-            .annotate(_interval_order=calculation_interval_order)
+            due_alerts_query.annotate(_interval_order=calculation_interval_order)
             .annotate(
                 _team_rank=Window(
                     expression=RowNumber(),
