@@ -575,7 +575,7 @@ CREATE TABLE posthog.kafka_logs_avro (
   retention_days Nullable(Int32),
   pattern Nullable(String),
   pattern_version Nullable(Int32)
-) ENGINE = Kafka(warpstream_logs) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_format = 'Avro', kafka_group_name = 'clickhouse-logs-avro-new', kafka_num_consumers = 8, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_logs';
+) ENGINE = Kafka(warpstream_logs) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_format = 'Avro', kafka_group_name = 'clickhouse-logs-avro-new', kafka_num_consumers = 1, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_logs';
 CREATE TABLE posthog.kafka_message_assets (
   team_id Int64,
   function_kind LowCardinality(String),
@@ -615,7 +615,7 @@ CREATE TABLE posthog.kafka_metrics_avro (
   instrumentation_scope Nullable(String),
   attributes Map(String, String),
   series_fingerprint Nullable(Int64)
-) ENGINE = Kafka(warpstream_metrics) SETTINGS kafka_format = 'Avro', kafka_group_name = 'clickhouse-metrics-avro-new', kafka_num_consumers = 8, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_metrics';
+) ENGINE = Kafka(warpstream_metrics) SETTINGS kafka_format = 'Avro', kafka_group_name = 'clickhouse-metrics-avro-new', kafka_num_consumers = 1, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_metrics';
 CREATE TABLE posthog.kafka_metrics_avro2 (
   uuid String,
   trace_id String,
@@ -639,7 +639,7 @@ CREATE TABLE posthog.kafka_metrics_avro2 (
   series_fingerprint Nullable(Int64),
   has_labels Nullable(UInt8),
   retention_days Nullable(Int32)
-) ENGINE = Kafka(warpstream_metrics) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_format = 'Avro', kafka_group_name = 'clickhouse-metrics-avro2', kafka_num_consumers = 8, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_metrics';
+) ENGINE = Kafka(warpstream_metrics) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_format = 'Avro', kafka_group_name = 'clickhouse-metrics-avro2', kafka_num_consumers = 1, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_metrics';
 CREATE TABLE posthog.kafka_performance_events (
   uuid UUID,
   session_id String,
@@ -775,7 +775,7 @@ CREATE TABLE posthog.kafka_property_values (
   property_key String,
   property_value String,
   property_count UInt64
-) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_property_values', kafka_num_consumers = 8, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_property_values';
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_property_values', kafka_num_consumers = 1, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_property_values';
 CREATE TABLE posthog.kafka_session_replay_events (
   session_id String,
   team_id Int64,
@@ -919,7 +919,7 @@ CREATE TABLE posthog.kafka_trace_spans_avro (
   links Array(String),
   dropped_links_count Int32,
   status_code Int32
-) ENGINE = Kafka(warpstream_traces) SETTINGS kafka_format = 'Avro', kafka_group_name = 'clickhouse-traces-avro', kafka_num_consumers = 8, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_traces';
+) ENGINE = Kafka(warpstream_traces) SETTINGS kafka_format = 'Avro', kafka_group_name = 'clickhouse-traces-avro', kafka_num_consumers = 1, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_traces';
 CREATE TABLE posthog.kafka_usage_report_events_preagg (
   uuid UUID,
   event String,
