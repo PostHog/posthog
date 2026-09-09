@@ -725,6 +725,21 @@ export const webAnalyticsContentAutopilotProfilesPartialUpdate = async (
     )
 }
 
+export const getWebAnalyticsContentAutopilotProfilesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/${id}/`
+}
+
+export const webAnalyticsContentAutopilotProfilesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWebAnalyticsContentAutopilotProfilesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getWebAnalyticsContentAutopilotProfilesDiscoverUrl = (projectId: string) => {
     return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/discover/`
 }

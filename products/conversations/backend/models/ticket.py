@@ -16,10 +16,11 @@ if TYPE_CHECKING:
 
 class TicketManager(models.Manager):
     def lock_ticket_number_allocation(self, team_id: int) -> None:
-        """Acquire the team-scoped transaction lock for ticket number assignment.
+        """Serialize ticket_number assignment for this team.
 
-        Callers must be inside ``transaction.atomic()`` and acquire this before
-        any other allocation lock.
+        Uses a transaction-scoped advisory lock instead of locking the Team row,
+        so unrelated writers of Team children are not blocked. Callers must be
+        inside ``transaction.atomic()``.
         """
         db_connection = transaction.get_connection(self.db)
         if not db_connection.in_atomic_block:
@@ -32,16 +33,12 @@ class TicketManager(models.Manager):
 
     def create_with_number(self, **kwargs):
         """Create a ticket with the next ticket_number for its team."""
-        from posthog.models import Team
-
         team = kwargs.get("team")
         if not team:
             raise ValueError("team is required")
 
         with transaction.atomic(using=self.db):
             self.lock_ticket_number_allocation(team.id)
-            # nosemgrep: hot-parent-row-select-for-update -- preserves compatibility with Team-lock-only allocators
-            Team.objects.using(self.db).select_for_update().get(id=team.id)
             max_num = self.filter(team=team).aggregate(models.Max("ticket_number"))["ticket_number__max"] or 0
             kwargs["ticket_number"] = max_num + 1
             return self.create(**kwargs)

@@ -477,6 +477,27 @@ The flow, driven from the PostHog Desktop Environments → Cloud tab:
    falling back to the standard base if the image can't be loaded.
    Repo-setup snapshots are skipped for custom-image runs; resume snapshots still apply.
 
+## Continuing after sandbox inactivity
+
+When a sandbox expires, a new user message starts the next turn with the preserved
+conversation and workspace. A prewarmed successor waits for the queued message even
+after activation clears `await_user_message`. The agent restores context and decides
+whether to wait before accepting commands. Message IDs deduplicate retried deliveries.
+
+Explicit recovery of an interrupted run can still continue automatically. Idle
+same-run restores stay idle until a message arrives. Internal recovery instructions
+use hidden content blocks; adapters and transcript rendering omit those blocks from
+user message echoes. Existing unmarked transcript entries are unchanged.
+
+Full filesystem snapshots contain an agent binary. Prewarmed resumes require its
+`prewarmedResumeMessageDriven` capability; the older `prewarmedResumeIdle` capability
+alone is insufficient. An incompatible snapshot uses the existing fresh-agent fallback.
+The check applies to ACP runs, because the capability belongs to the ACP agent server.
+Pi runs keep their snapshot, because the Pi server starts no turn of its own and loads
+its session history from the API.
+Publish the updated agent and rebuild sandbox images before deploying the stricter
+backend capability gate, so the fallback supplies a compatible agent.
+
 ## Local development
 
 To set up sandboxed agents for local development:

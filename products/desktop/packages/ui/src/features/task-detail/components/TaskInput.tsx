@@ -1696,6 +1696,9 @@ export function TaskInput({
                         isDefaultSelection={isDefaultSelection}
                         onResetToDefault={resetToDefault}
                         resetToDefaultDisabled={resetToDefaultDisabled}
+                        onOpenDefaultSettings={() =>
+                          openSettings("task-agent-defaults")
+                        }
                       />
                     )
                   }

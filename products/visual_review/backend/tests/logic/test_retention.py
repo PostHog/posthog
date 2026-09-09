@@ -158,6 +158,20 @@ class TestRetentionSweep:
             == 1
         )
 
+    def test_protected_run_is_repointed_when_the_run_it_names_expires(self, repo, now):
+        latest = self._run(repo, now, age_days=5)
+        expired = self._run(repo, now, age_days=40, superseded_by=latest)
+        # No PR number counts as protected history, so this one keeps its 180
+        # days while the run it names goes at 30.
+        protected = self._run(repo, now, age_days=40, pr_number=None, superseded_by=expired)
+
+        result = retention.sweep_repo(repo, now=now)
+
+        assert result.runs_deleted == 1
+        assert not Run.objects.filter(id=expired.id).exists()
+        protected.refresh_from_db()
+        assert protected.superseded_by_id == latest.id
+
     @pytest.mark.parametrize(
         ("model", "extra_fields"),
         [

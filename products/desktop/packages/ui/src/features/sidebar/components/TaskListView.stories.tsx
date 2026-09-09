@@ -1,7 +1,8 @@
 import type { TaskData } from "@posthog/core/sidebar/sidebarData.types";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { fn } from "storybook/test";
 import { TaskListView } from "./TaskListView";
 
@@ -68,6 +69,15 @@ function StatefulTaskList(args: React.ComponentProps<typeof TaskListView>) {
   );
 }
 
+function ArchivingTaskList(args: React.ComponentProps<typeof TaskListView>) {
+  useEffect(() => {
+    useArchivingTasksStore.getState().startArchiving("task-2");
+    return () => useArchivingTasksStore.getState().stopArchiving("task-2");
+  }, []);
+
+  return <StatefulTaskList {...args} />;
+}
+
 const meta = {
   title: "Sidebar/Task list drag and drop",
   component: TaskListView,
@@ -112,3 +122,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
+
+export const Archiving: Story = {
+  render: (args) => <ArchivingTaskList {...args} />,
+};

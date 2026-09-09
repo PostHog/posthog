@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -32,6 +34,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     is_bot_authorship_fallback,
     is_caller_token_run,
     loop_mcp_installation_allowlist,
+    mcp_exec_skills_env_vars,
     parse_run_state,
     upgrade_run_to_user_authorship,
 )
@@ -356,6 +359,7 @@ class TestGetSandboxMcpConfigs(TestCase):
             ("slack", False, "slack"),
             ("workflow", True, "slack"),
             ("posthog_ai", False, "posthog_ai"),
+            ("eval", False, "eval"),
         ]
     )
     def test_consumer_header_reflects_reply_context(
@@ -519,6 +523,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             ("slack", False, "slack"),
             ("workflow", True, "slack"),
             ("posthog_ai", False, "posthog_ai"),
+            ("eval", False, "eval"),
             ("posthog_code", False, "posthog-code"),
             (None, False, "posthog-code"),
         ]
@@ -1506,3 +1511,29 @@ class TestIsBotAuthorshipFallback(_AuthorshipFixture):
         getattr(self, f"_{case}")()
 
         assert is_bot_authorship_fallback(self.task, str(self.task_run.id), self.task_run.state) is False
+
+
+class TestMcpExecSkillsEnvVars(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("web_phai_flag_on", "posthog_ai", True, True),
+            ("slack_flag_on", "slack", True, True),
+            ("eval_flag_on", "eval", True, True),
+            ("desktop_keeps_bundled_skills_even_with_flag_on", None, True, False),
+            ("web_phai_flag_off", "posthog_ai", False, False),
+        ]
+    )
+    def test_strips_bundled_skills_only_for_learn_capable_runs_with_the_flag_on(
+        self, _name: str, interaction_origin: str | None, flag_enabled: bool, expect_stripped: bool
+    ) -> None:
+        ctx = SimpleNamespace(interaction_origin=interaction_origin, organization_id="org-1", distinct_id="user-1")
+        with patch(
+            "products.tasks.backend.temporal.process_task.utils.is_mcp_exec_skills_enabled", return_value=flag_enabled
+        ) as flag_check:
+            env = mcp_exec_skills_env_vars(ctx)
+
+        assert env == ({"POSTHOG_CODE_DISABLE_BUNDLED_SKILLS": "1"} if expect_stripped else {})
+        if interaction_origin is None:
+            flag_check.assert_not_called()
+        else:
+            flag_check.assert_called_once_with("org-1", "user-1")

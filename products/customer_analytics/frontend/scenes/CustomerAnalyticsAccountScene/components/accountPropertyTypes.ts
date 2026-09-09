@@ -21,6 +21,7 @@ export interface AccountCustomProperty {
     definition: CustomPropertyDefinitionApi
     value: AccountCustomPropertyValue
     provenance: AccountCustomPropertyProvenance
+    editable?: boolean
 }
 
 export interface AccountRelationshipProperty {
