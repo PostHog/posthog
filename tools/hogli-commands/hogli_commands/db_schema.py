@@ -244,9 +244,17 @@ def _product_routed_app_labels() -> list[str]:
     return sorted(label for label in labels if APP_LABEL_RE.fullmatch(label))
 
 
+@dataclass(frozen=True, kw_only=True)
+class MigrationRecord:
+    """One row of django_migrations."""
+
+    app: str
+    name: str
+
+
 def migrations_to_forget(
-    recorded: Iterable[tuple[str, str]], product_app_labels: Iterable[str]
-) -> tuple[tuple[str, str], ...]:
+    recorded: Iterable[MigrationRecord], product_app_labels: Iterable[str]
+) -> tuple[MigrationRecord, ...]:
     """Pick the dump's migration records this database cannot honor.
 
     The dump is taken from a CI database that routes product apps elsewhere, so `migrate` skipped
@@ -271,19 +279,19 @@ def migrations_to_forget(
     """
     routed = set(product_app_labels)
     by_app: dict[str, list[str]] = {}
-    for app, name in recorded:
-        by_app.setdefault(app, []).append(name)
+    for record in recorded:
+        by_app.setdefault(record.app, []).append(record.name)
 
-    forget: list[tuple[str, str]] = []
+    forget: list[MigrationRecord] = []
     for app, recorded_names in sorted(by_app.items()):
         names = sorted(recorded_names)
         if app in routed:
-            forget.extend((app, name) for name in names)
+            forget.extend(MigrationRecord(app=app, name=name) for name in names)
             continue
         addons = next((name for name in names if SQUASH_SCHEMA_ADDONS_NAME_RE.fullmatch(name)), None)
         if addons is None:
             continue
-        forget.extend((app, name) for name in names if name >= addons)
+        forget.extend(MigrationRecord(app=app, name=name) for name in names if name >= addons)
 
     return tuple(forget)
 
@@ -301,12 +309,15 @@ def _forget_product_app_migrations(target_db: str) -> None:
     app_labels = _product_routed_app_labels()
     if not app_labels:
         return
-    recorded = [(row[0], row[1]) for row in _psql_rows(target_db, "SELECT app, name FROM django_migrations;")]
+    recorded = [
+        MigrationRecord(app=row[0], name=row[1])
+        for row in _psql_rows(target_db, "SELECT app, name FROM django_migrations;")
+    ]
     forget = migrations_to_forget(recorded, app_labels)
     if not forget:
         return
 
-    pairs = ", ".join(f"({_sql_string(app)}, {_sql_string(name)})" for app, name in forget)
+    pairs = ", ".join(f"({_sql_string(r.app)}, {_sql_string(r.name)})" for r in forget)
     _psql_write(target_db, f"DELETE FROM django_migrations WHERE (app, name) IN ({pairs});")
 
 
