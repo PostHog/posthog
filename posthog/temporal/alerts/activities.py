@@ -36,6 +36,7 @@ from posthog.tasks.alerts.utils import (
     skip_because_of_weekend,
 )
 from posthog.temporal.alerts.investigation import claim_investigation_slot, decide_investigation
+from posthog.temporal.alerts.metrics import record_due_alert_metrics
 from posthog.temporal.alerts.types import (
     AlertInfo,
     EvaluateAlertActivityInputs,
@@ -89,7 +90,7 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             output_field=IntegerField(),
         )
 
-        alerts = (
+        alerts_query = (
             AlertConfiguration.objects.filter(
                 Q(enabled=True, next_check_at__lte=now) | Q(enabled=True, next_check_at__isnull=True)
             )
@@ -114,8 +115,11 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
                 "team_id",
                 "id",
             )
-            .only("id", "team_id", "calculation_interval", "insight_id")[: inputs.max_alerts_per_run]
+            .only("id", "team_id", "calculation_interval", "insight_id", "next_check_at", "created_at")
+            [: inputs.max_alerts_per_run]
         )
+        alerts = list(alerts_query)
+        record_due_alert_metrics(alerts, datetime.now(UTC))
 
         return [
             AlertInfo(
