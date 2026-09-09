@@ -1147,6 +1147,11 @@ class TaskRunRelayMessageRequestSerializer(serializers.Serializer):
         allow_empty=True,
         help_text="Ordered assistant text blocks. When present, the last non-empty entry is posted instead of text.",
     )
+    trace_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="AI observability trace id of the turn that wrote this answer, when the sandbox reported one.",
+    )
 
 
 class TaskRunArtifactUploadSerializer(serializers.Serializer):
