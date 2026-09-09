@@ -135,6 +135,10 @@ import type { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
 import type { NOTIFIER_SERVICE } from "@posthog/platform/notifier";
 import type { POWER_MANAGER_SERVICE } from "@posthog/platform/power-manager";
 import type { SECURE_STORAGE_SERVICE } from "@posthog/platform/secure-storage";
+import type {
+  SKETCHPAD_FRAME_HOST,
+  SketchpadFrameHost,
+} from "@posthog/platform/sketchpad-frame";
 import type { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
 import type { UPDATER_SERVICE } from "@posthog/platform/updater";
 import type { URL_LAUNCHER_SERVICE } from "@posthog/platform/url-launcher";
@@ -330,6 +334,7 @@ import type {
 
 export interface MainBindings {
   // Platform adapters
+  [SKETCHPAD_FRAME_HOST]: SketchpadFrameHost;
   [URL_LAUNCHER_SERVICE]: ElectronUrlLauncher;
   [STORAGE_PATHS_SERVICE]: ElectronStoragePaths;
   [APP_META_SERVICE]: ElectronAppMeta;

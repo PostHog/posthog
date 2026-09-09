@@ -5,6 +5,12 @@ import {
   ARTIFACT_PREVIEW_DATA_URL_PREFIX,
   ARTIFACT_PREVIEW_PARTITION_PREFIX,
 } from "../../shared/constants";
+import {
+  hardenSketchpadPreferences,
+  isSketchpadGuest,
+  isSketchpadWebview,
+  lockDownSketchpad,
+} from "../sketchpad-session";
 import { logger } from "../utils/logger";
 
 const log = logger.scope("artifact-preview-webview");
@@ -87,6 +93,10 @@ export function setupArtifactPreviewWebviews(window: BrowserWindow): void {
   const preloadPath = path.join(__dirname, "preload.js");
 
   window.webContents.on("will-attach-webview", (event, preferences, params) => {
+    if (isSketchpadWebview(params.src, params.partition)) {
+      hardenSketchpadPreferences(preferences, preloadPath);
+      return;
+    }
     if (!isAllowedArtifactPreview(params.src, params.partition)) {
       event.preventDefault();
       log.warn("Blocked an unsupported webview attachment");
@@ -96,6 +106,10 @@ export function setupArtifactPreviewWebviews(window: BrowserWindow): void {
   });
 
   window.webContents.on("did-attach-webview", (_event, guest) => {
+    if (isSketchpadGuest(guest)) {
+      lockDownSketchpad(guest);
+      return;
+    }
     lockDownArtifactPreview(guest);
   });
 }

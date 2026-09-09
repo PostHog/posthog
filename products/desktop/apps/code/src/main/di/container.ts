@@ -3,6 +3,7 @@ import "reflect-metadata";
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
 import { join } from "node:path";
 import { TypedContainer } from "@inversifyjs/strongly-typed";
+import { setSketchpadDocument } from "@main/protocols/sketchpad-modules";
 import { DEFAULT_GATEWAY_MODEL } from "@posthog/agent/gateway-models";
 import {
   getGatewayUsageUrl,
@@ -82,6 +83,7 @@ import {
 import { oauthModule } from "@posthog/core/oauth/oauth.module";
 import { PROVISIONING_SERVICE } from "@posthog/core/provisioning/identifiers";
 import { ProvisioningService } from "@posthog/core/provisioning/provisioning";
+import { sketchpadCoreModule } from "@posthog/core/sketchpad/sketchpad.module";
 import { SLEEP_SERVICE } from "@posthog/core/sleep/identifiers";
 import { SleepService } from "@posthog/core/sleep/sleep";
 import { UI_AUTH } from "@posthog/core/ui/identifiers";
@@ -118,6 +120,7 @@ import { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
 import { NOTIFIER_SERVICE } from "@posthog/platform/notifier";
 import { POWER_MANAGER_SERVICE } from "@posthog/platform/power-manager";
 import { SECURE_STORAGE_SERVICE } from "@posthog/platform/secure-storage";
+import { SKETCHPAD_FRAME_HOST } from "@posthog/platform/sketchpad-frame";
 import { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
 import { UPDATER_SERVICE } from "@posthog/platform/updater";
 import { URL_LAUNCHER_SERVICE } from "@posthog/platform/url-launcher";
@@ -205,6 +208,7 @@ import { processTrackingModule } from "@posthog/workspace-server/services/proces
 import { releaseFeedModule } from "@posthog/workspace-server/services/release-feed/release-feed.module";
 import { SECURE_STORE_SERVICE } from "@posthog/workspace-server/services/secure-store/identifiers";
 import { shellModule } from "@posthog/workspace-server/services/shell/shell.module";
+import { sketchpadCacheModule } from "@posthog/workspace-server/services/sketchpad-cache/sketchpad-cache.module";
 import { skillsModule } from "@posthog/workspace-server/services/skills/skills.module";
 import { skillsMarketplaceModule } from "@posthog/workspace-server/services/skills-marketplace/skills-marketplace.module";
 import { SPEECH_SYNTHESIZER_SERVICE } from "@posthog/workspace-server/services/speech/identifiers";
@@ -352,6 +356,9 @@ export const container = new TypedContainer<MainBindings>({
   defaultScope: "Singleton",
 });
 
+container.bind(SKETCHPAD_FRAME_HOST).toConstantValue({
+  registerDocument: setSketchpadDocument,
+});
 container.bind(URL_LAUNCHER_SERVICE).to(ElectronUrlLauncher);
 container.bind(STORAGE_PATHS_SERVICE).to(ElectronStoragePaths);
 container.bind(APP_META_SERVICE).to(ElectronAppMeta);
@@ -643,6 +650,7 @@ container.load(skillsModule);
 container.load(skillsMarketplaceModule);
 container.load(releaseFeedModule);
 container.load(localMcpModule);
+container.load(sketchpadCacheModule);
 container.load(mcpRelayModule);
 // Core's cloud-task service executes MCP relay requests through this seam;
 // the workspace relay service satisfies the core executor interface
@@ -820,6 +828,7 @@ container.bind(MAIN_MISSION_CONTROL_SERVICE).to(MissionControlService);
 // live in @posthog/core (bound via canvasCoreModule) and resolve through
 // ctx.container in the host-router routers.
 container.load(canvasCoreModule);
+container.load(sketchpadCoreModule);
 container.load(quickAskCoreModule);
 // Chromium's network stack, not Node's undici: it honors system proxies and
 // VPN routing, which undici intermittently fails against ("fetch failed").

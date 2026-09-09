@@ -10,6 +10,7 @@ import {
 const DEFAULT_CAPABILITIES: HostCapabilities = {
   localWorkspaces: true,
   customCloud: false,
+  vendoredSketchpadModules: false,
 };
 
 /** Read the current host's coarse capabilities. Safe when unbound. */

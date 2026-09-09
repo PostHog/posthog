@@ -291,6 +291,10 @@ After connecting, the app will show projects from your local PostHog instance. I
 
 Clean up `localhost` cookies in your browser, as you probably accumulated too many/large cookies for the server to accept as the request headers.
 
+## Sketchpad compilation
+
+Sketchpad compiles saved fragment code in the local Celery `long_running` worker. Install the compiler dependencies from the repository root with `.codex/with-flox npm ci --prefix products/canvas/packages/canvas_builder`. The worker needs Node. The browser does not compile fragment code.
+
 ## Further reading
 
 - [PostHog OAuth Development Guide](https://github.com/PostHog/posthog/blob/master/docs/published/handbook/engineering/oauth-development-guide.md) — full OAuth spec, scopes, token introspection, and more

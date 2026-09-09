@@ -1,4 +1,9 @@
 import { exposeElectronTRPC } from "@posthog/electron-trpc/main";
+import {
+  SKETCHPAD_FRAME_TO_HOST_CHANNEL,
+  SKETCHPAD_FROM_HOST_FLAG,
+  SKETCHPAD_HOST_TO_FRAME_CHANNEL,
+} from "@posthog/shared";
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { sanitizeArtifactBridgeMessage } from "../shared/artifact-preview-message";
 import {
@@ -28,6 +33,7 @@ import {
   QUICK_ASK_WINDOW_ARG,
   type QuickAskDragStartPayload,
   type QuickAskResizePayload,
+  SKETCHPAD_ARG,
 } from "../shared/constants";
 import { trustedArtifactLink } from "./artifact-preview-link";
 import { parseSessionIdArg } from "./posthog-session-arg";
@@ -61,6 +67,26 @@ function setupArtifactPreviewPreload(): void {
 
   ipcRenderer.on(ARTIFACT_HOST_TO_PREVIEW_CHANNEL, (_event, data: unknown) => {
     window.postMessage(data, "*");
+  });
+}
+
+function setupSketchpadPreload(): void {
+  window.addEventListener("message", (event) => {
+    const data = event.data as Record<string, unknown> | null;
+    if (!data || typeof data !== "object") return;
+    if (data[SKETCHPAD_FROM_HOST_FLAG] === true) return;
+    ipcRenderer.sendToHost(SKETCHPAD_FRAME_TO_HOST_CHANNEL, data);
+  });
+
+  ipcRenderer.on(SKETCHPAD_HOST_TO_FRAME_CHANNEL, (_event, data: unknown) => {
+    if (!data || typeof data !== "object") return;
+    window.postMessage(
+      {
+        ...(data as Record<string, unknown>),
+        [SKETCHPAD_FROM_HOST_FLAG]: true,
+      },
+      "*",
+    );
   });
 }
 
@@ -175,6 +201,8 @@ export function setupPreload(argv: string[]): void {
     });
   } else if (argv.includes(APP_WINDOW_ARG)) {
     setupApplicationPreload(argv);
+  } else if (argv.includes(SKETCHPAD_ARG)) {
+    setupSketchpadPreload();
   } else {
     setupArtifactPreviewPreload();
   }
