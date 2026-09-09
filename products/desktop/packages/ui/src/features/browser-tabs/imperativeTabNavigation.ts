@@ -1,12 +1,107 @@
 import {
   type BrowserTab,
+  openTab as openTabLocal,
   primaryWindow,
   setTabTarget as setTabTargetLocal,
   type TabIdentity,
 } from "@posthog/shared";
 import { getRouterOrNull } from "@posthog/ui/router/routerRef";
+import type { BrowserTabsClient } from "./browserTabsClient";
 import { pushTabHistoryEntry } from "./tabHistory";
-import { applyLocalTransform, persistTabTarget, readMirror } from "./tabsSync";
+import {
+  applyLocalTransform,
+  persistTabTarget,
+  persistWrite,
+  readMirror,
+  reseedMirror,
+} from "./tabsSync";
+
+/**
+ * Synchronous variant of {@link openInNewBrowserTab} for callers whose transient
+ * state (a composer prefill) must land in the same tick as the navigation.
+ * Opens only from the warm mirror; returns null when it hasn't seeded, and the
+ * caller falls back to an in-tab navigation.
+ */
+export function openInNewBrowserTabSync(
+  client: BrowserTabsClient,
+  destination: BrowserTabDestination,
+): string | null {
+  const window = primaryWindow(readMirror());
+  const history = getRouterOrNull()?.history;
+  if (!window || !history) return null;
+  const tabId = crypto.randomUUID();
+  const input = {
+    windowId: window.id,
+    href: destination.href,
+    viewState: destination.title ? { title: destination.title } : null,
+    dashboardId: destination.dashboardId ?? null,
+    taskId: destination.taskId ?? null,
+    channelId: destination.channelId ?? null,
+    channelSection: destination.channelSection ?? null,
+    appView: destination.appView ?? null,
+  };
+  applyLocalTransform(
+    (snapshot) =>
+      openTabLocal(snapshot, { ...input, makeId: () => tabId, now: Date.now })
+        .snapshot,
+  );
+  pushTabHistoryEntry(history, destination.href, tabId);
+  void persistWrite(() => client.openTab({ ...input, tabId }));
+  return tabId;
+}
+
+/**
+ * Opens an inbound destination (a deep link, a notification click) in its own
+ * tab, without disturbing the tab the user is on. Resolves to the new tab's id,
+ * or null when browser tabs have no window to open into (the caller then falls
+ * back to a plain navigation, so the link is never dropped).
+ *
+ * The write follows the strip's local-first contract: apply the shared
+ * `openTab` transform to the mirror synchronously, push the tagged history
+ * entry in the same tick, then persist in the background. The strip's
+ * navigation effect sees the new history entry, treats its tag as a live tab
+ * switch, and focuses it.
+ */
+export async function openInNewBrowserTab(
+  client: BrowserTabsClient,
+  destination: BrowserTabDestination,
+): Promise<string | null> {
+  if (readMirror().windows.length > 0) {
+    return openInNewBrowserTabSync(client, destination);
+  }
+  // The mirror may not have seeded yet (a link that arrives during boot). Pull
+  // the authoritative snapshot once; open only when a window exists afterwards.
+  const server = await reseedMirror();
+  if (primaryWindow(server ?? readMirror())) {
+    return openInNewBrowserTabSync(client, destination);
+  }
+  return null;
+}
+
+/** What an inbound destination resolved to in the tab strip. */
+export type InboundTabResolution = "focused" | "opened" | "unavailable";
+
+/**
+ * Focus the tab that already shows the destination, or open it in a new tab.
+ * Resolves "unavailable" only when browser tabs have no window to open into, so
+ * the caller can fall back to a plain navigation and the link is never dropped.
+ */
+export async function focusOrOpenBrowserTab(
+  client: BrowserTabsClient,
+  destination: BrowserTabDestination,
+): Promise<InboundTabResolution> {
+  if (focusExistingTab(destination)) return "focused";
+  if (readMirror().windows.length > 0) {
+    return (await openInNewBrowserTab(client, destination))
+      ? "opened"
+      : "unavailable";
+  }
+  await reseedMirror();
+  if (focusExistingTab(destination)) return "focused";
+  return (await openInNewBrowserTab(client, destination))
+    ? "opened"
+    : "unavailable";
+}
 
 export interface BrowserTabDestination extends Partial<TabIdentity> {
   href: string;

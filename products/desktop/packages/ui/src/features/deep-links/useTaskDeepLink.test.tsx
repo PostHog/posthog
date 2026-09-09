@@ -81,35 +81,36 @@ describe("useTaskDeepLink", () => {
   // Both entry points (cold-start pending link, warm-start subscription event)
   // run the same routing dispatch: a channel-filed task opens in its /website
   // channel view, otherwise it falls back to /code — and only when the bluebird
-  // flag is on.
+  // flag is on. A deep link opens its own browser tab (`newTab`), focusing one
+  // that already shows the task.
   it.each([
     {
       name: "cold-start unfiled task → /code",
       trigger: "pending" as const,
       enabled: true,
       channel: null,
-      expected: undefined,
+      expected: { newTab: true },
     },
     {
       name: "cold-start channel-filed task → its channel view",
       trigger: "pending" as const,
       enabled: true,
       channel: "chan-1",
-      expected: { channelId: "chan-1" },
+      expected: { channelId: "chan-1", newTab: true },
     },
     {
       name: "cold-start filed task with flag off → /code",
       trigger: "pending" as const,
       enabled: false,
       channel: "chan-1",
-      expected: undefined,
+      expected: { newTab: true },
     },
     {
       name: "warm-start channel-filed task → its channel view",
       trigger: "warm" as const,
       enabled: true,
       channel: "chan-1",
-      expected: { channelId: "chan-1" },
+      expected: { channelId: "chan-1", newTab: true },
     },
   ])("$name", async ({ trigger, enabled, channel, expected }) => {
     bluebirdState.enabled = enabled;

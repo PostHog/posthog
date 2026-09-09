@@ -1,7 +1,16 @@
+import { useService } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { agentsPageActions } from "@posthog/ui/features/agents/agentsPageStore";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
-import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import {
+  BROWSER_TABS_CLIENT,
+  type BrowserTabsClient,
+} from "@posthog/ui/features/browser-tabs/browserTabsClient";
+import { focusOrOpenBrowserTab } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
+import {
+  openSettings,
+  prepareSettingsPage,
+} from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQuery } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
@@ -13,6 +22,8 @@ const log = logger.scope("scout-deep-link");
  * Hook that handles scout detail deep links (`<scheme>://scout/{skillSlug}?finding={id}`,
  * e.g. `posthog-code://…` in production and `posthog-code-dev://…` in local dev)
  * and opens the agent in Settings, expanding the finding when one is supplied.
+ * An inbound link opens its own browser tab (focusing one that already shows
+ * the agent) rather than replacing the tab the user is on.
  *
  * Mirrors `useInboxDeepLink`: drains any link that arrived before the renderer
  * was ready (the main process clears its pending entry on read) and also
@@ -20,6 +31,7 @@ const log = logger.scope("scout-deep-link");
  */
 export function useScoutDeepLink() {
   const trpcReact = useHostTRPC();
+  const tabsClient = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
   const isAuthenticated = useAuthStateValue(
     (s) => s.status === "authenticated",
   );
@@ -34,16 +46,31 @@ export function useScoutDeepLink() {
     }),
   );
 
-  const openScout = useCallback((skillSlug: string, findingId?: string) => {
-    log.info(
-      `Opening scout from deep link: skillSlug=${skillSlug} findingId=${findingId ?? "(none)"}`,
-    );
-    // One navigation carries the whole target: a second call (openSettings
-    // after openAgent) builds its own entry and clears the agent fields the
-    // first one wrote.
-    openSettings("agents");
-    agentsPageActions().openAgent(skillSlug, { findingId });
-  }, []);
+  const openScout = useCallback(
+    (skillSlug: string, findingId?: string) => {
+      log.info(
+        `Opening scout from deep link: skillSlug=${skillSlug} findingId=${findingId ?? "(none)"}`,
+      );
+      // One navigation carries the whole target: a second call (openSettings
+      // after openAgent) builds its own entry and clears the agent fields the
+      // first one wrote.
+      const destination = {
+        href: "/settings/agents",
+        appView: "settings" as const,
+      };
+      void focusOrOpenBrowserTab(tabsClient, destination).then((resolved) => {
+        if (resolved === "unavailable") {
+          openSettings("agents");
+        } else {
+          // openSettings navigates, so it also resets the page store; the tab
+          // path doesn't, and a reused tab would carry stale settings context.
+          prepareSettingsPage();
+        }
+        agentsPageActions().openAgent(skillSlug, { findingId });
+      });
+    },
+    [tabsClient],
+  );
 
   useEffect(() => {
     if (pendingDeepLink.data?.skillSlug) {

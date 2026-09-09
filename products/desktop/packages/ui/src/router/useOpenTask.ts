@@ -2,7 +2,16 @@ import type { EditorContent } from "@posthog/core/message-editor/content";
 import { resolveService, resolveServiceOptional } from "@posthog/di/container";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
-import { navigateBrowserTab } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
+import {
+  BROWSER_TABS_CLIENT,
+  type BrowserTabsClient,
+} from "@posthog/ui/features/browser-tabs/browserTabsClient";
+import {
+  focusExistingTab,
+  navigateBrowserTab,
+  openInNewBrowserTab,
+  openInNewBrowserTabSync,
+} from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import {
   NAVIGATION_TASK_BINDER,
@@ -34,7 +43,16 @@ import * as nav from "./navigationBridge";
  */
 export async function openTask(
   task: Task,
-  opts?: { channelId?: string; tabId?: string | null },
+  opts?: {
+    channelId?: string;
+    tabId?: string | null;
+    /**
+     * Open the task in a new browser tab (an inbound deep link or notification
+     * click) instead of replacing the tab the user is on. A tab already showing
+     * the task is focused instead of duplicated.
+     */
+    newTab?: boolean;
+  },
 ): Promise<void> {
   // Seed the detail cache so the route loader resolves from cache and never
   // fetches — critical for optimistic/local/cloud-pending tasks that the API
@@ -46,14 +64,33 @@ export async function openTask(
   const href = opts?.channelId
     ? `/spaces/${opts.channelId}/tasks/${task.id}`
     : `/tasks/${task.id}`;
+  const destination = {
+    href,
+    title: task.title,
+    taskId: task.id,
+    channelId: opts?.channelId ?? null,
+  };
+
+  if (opts?.newTab) {
+    // A tab already showing the task is focused, not duplicated, and the rest
+    // of the flow (activation analytics, workspace binding) is skipped with it.
+    if (focusExistingTab(destination)) return;
+    const tabsClient =
+      resolveServiceOptional<BrowserTabsClient>(BROWSER_TABS_CLIENT);
+    if (tabsClient) {
+      const opened = await openInNewBrowserTab(tabsClient, destination);
+      if (opened) {
+        await bindTaskWorkspace(task, opts);
+        return;
+      }
+    }
+    // Browser tabs unavailable: fall through to a plain navigation so the task
+    // still opens.
+  }
+
   const navigationResult = navigateBrowserTab(
     opts?.tabId ?? null,
-    {
-      href,
-      title: task.title,
-      taskId: task.id,
-      channelId: opts?.channelId ?? null,
-    },
+    destination,
     () => {
       if (opts?.channelId) {
         nav.navigateToChannelTask(opts.channelId, task.id);
@@ -67,6 +104,13 @@ export async function openTask(
     track(ANALYTICS_EVENTS.TASK_VIEWED, { task_id: task.id });
   }
 
+  await bindTaskWorkspace(task, opts);
+}
+
+async function bindTaskWorkspace(
+  task: Task,
+  opts?: { tabId?: string | null },
+): Promise<void> {
   const result = await resolveServiceOptional<NavigationTaskBinder>(
     NAVIGATION_TASK_BINDER,
   )?.ensureWorkspaceForTask(task);
@@ -122,6 +166,8 @@ export interface TaskInputNavigationOptions {
    * routing through here is what clears any stale prefill.
    */
   channelId?: string;
+  /** Open the composer in a new browser tab (an inbound deep link). */
+  newTab?: boolean;
 }
 
 /**
@@ -136,7 +182,6 @@ export function openTaskInput(
     typeof folderIdOrOptions === "string"
       ? { folderId: folderIdOrOptions }
       : (folderIdOrOptions ?? {});
-
   // The folder prefill counts as transient state: each "+" click must get a
   // fresh requestId so re-picking the same group re-applies the prefill.
   const hasTransientState =
@@ -177,6 +222,15 @@ export function openTaskInput(
     (options.unscoped
       ? null
       : useCurrentChannelStore.getState().currentChannelId);
+  // A deep link that hands the composer a prompt opens it in a new browser
+  // tab, so it can't clobber a draft in the tab the user is on. The composer
+  // keys its draft by tabId, so the new tab starts a fresh one.
+  if (options.newTab) {
+    const tabsClient =
+      resolveServiceOptional<BrowserTabsClient>(BROWSER_TABS_CLIENT);
+    const href = channelId ? `/spaces/${channelId}/new` : "/new";
+    if (tabsClient && openInNewBrowserTabSync(tabsClient, { href })) return;
+  }
   if (channelId) nav.navigateToChannelNewTask(channelId);
   else nav.navigateToNewTask();
 }

@@ -1,9 +1,11 @@
 import type { TabsSnapshot } from "@posthog/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { BrowserTabsClient } from "./browserTabsClient";
 import {
   focusExistingTab,
   getCurrentBrowserTabId,
   navigateBrowserTab,
+  openInNewBrowserTab,
 } from "./imperativeTabNavigation";
 
 const mocks = vi.hoisted(() => ({
@@ -12,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   persistTabTarget: vi.fn(),
   readMirror: vi.fn(),
   setTabTarget: vi.fn(),
+  persistWrite: vi.fn(),
+  reseedMirror: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/router/routerRef", () => ({
@@ -21,6 +25,8 @@ vi.mock("./tabsSync", () => ({
   applyLocalTransform: mocks.applyLocalTransform,
   persistTabTarget: mocks.persistTabTarget,
   readMirror: mocks.readMirror,
+  persistWrite: mocks.persistWrite,
+  reseedMirror: mocks.reseedMirror,
 }));
 vi.mock("@posthog/shared", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@posthog/shared")>();
@@ -36,6 +42,10 @@ const destination = {
   channelSection: null,
   appView: null,
 };
+
+/** Only openTab is on the open path; the rest of the client stays unmocked. */
+const client = (): BrowserTabsClient =>
+  ({ openTab: vi.fn() }) as unknown as BrowserTabsClient;
 
 function snapshot(): TabsSnapshot {
   return {
@@ -83,7 +93,10 @@ function snapshot(): TabsSnapshot {
 }
 
 describe("imperative browser-tab navigation", () => {
-  const history = { location: { state: { tabId: "tab-b" } } };
+  const history = {
+    location: { state: { tabId: "tab-b" as string | undefined } },
+    push: vi.fn(),
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -135,6 +148,53 @@ describe("imperative browser-tab navigation", () => {
 
     expect(navigateBrowserTab(null, destination, fallback)).toBe("active");
     expect(fallback).toHaveBeenCalledOnce();
+  });
+
+  it("opens an inbound destination in its own tab without touching the current one", async () => {
+    const tabId = await openInNewBrowserTab(client(), destination);
+
+    expect(tabId).toEqual(expect.any(String));
+    const mirror = mocks.applyLocalTransform.mock.results[0]
+      ?.value as TabsSnapshot;
+    // Appends to the window without rewriting either existing tab's location.
+    expect(mirror.tabs).toHaveLength(3);
+    expect(mirror.tabs.find((t) => t.id === "tab-a")?.href).toBe("/new");
+    expect(mirror.tabs.find((t) => t.id === "tab-b")?.href).toBe("/inbox");
+    expect(mirror.windows[0].activeTabId).toBe(tabId);
+    // Focus moves through a tagged history entry, so the strip's navigation
+    // effect treats it as a tab switch.
+    expect(history.push).toHaveBeenCalledWith(destination.href, {
+      tabId,
+    });
+    expect(mocks.persistWrite).toHaveBeenCalledOnce();
+  });
+
+  it("does not open when the mirror has no window, then seeds and opens", async () => {
+    mocks.readMirror.mockReturnValue({ windows: [], tabs: [] });
+    const seeded = snapshot();
+    // reseedMirror applies the fetched snapshot to the mirror, which the open
+    // path then reads back (mirrors the real tabsSync behavior).
+    mocks.reseedMirror.mockImplementation(async () => {
+      mocks.readMirror.mockReturnValue(seeded);
+      return seeded;
+    });
+
+    const tabId = await openInNewBrowserTab(client(), destination);
+
+    expect(tabId).toEqual(expect.any(String));
+    expect(mocks.reseedMirror).toHaveBeenCalledOnce();
+    expect(mocks.applyLocalTransform).toHaveBeenCalledOnce();
+  });
+
+  it("reports unavailable when there is no window even after a reseed", async () => {
+    mocks.readMirror.mockReturnValue({ windows: [], tabs: [] });
+    mocks.reseedMirror.mockResolvedValue({ windows: [], tabs: [] });
+
+    await expect(
+      openInNewBrowserTab(client(), destination),
+    ).resolves.toBeNull();
+    expect(mocks.applyLocalTransform).not.toHaveBeenCalled();
+    expect(history.push).not.toHaveBeenCalled();
   });
 });
 
