@@ -92,6 +92,15 @@ export namespace Schemas {
       window?: AIWindowConfig;
     }
 
+    export type AIQueryPlanStatusEnum = typeof AIQueryPlanStatusEnum[keyof typeof AIQueryPlanStatusEnum];
+
+
+    export const AIQueryPlanStatusEnum = {
+      Frozen: 'frozen',
+      NotFrozen: 'not_frozen',
+      PlannerUpdated: 'planner_updated',
+    } as const;
+
     export interface AIReportChart {
       /** Id of the rendered PNG export backing this chart. */
       export_asset_id: number;
@@ -9987,6 +9996,43 @@ export namespace Schemas {
       readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
+    /**
+     * * `slack` - slack
+     */
+    export type ChannelTypeEnum = typeof ChannelTypeEnum[keyof typeof ChannelTypeEnum];
+
+
+    export const ChannelTypeEnum = {
+      Slack: 'slack',
+    } as const;
+
+    export interface AlertCreateDestination {
+      /** Destination type. Slack is the only type this endpoint creates.
+       *
+       * * `slack` - slack */
+      type?: ChannelTypeEnum;
+      /** Integration ID of the Slack workspace to post in. List them with the integrations endpoint. */
+      slack_workspace_id: number;
+      /** Slack channel ID to post in, for example C0123456789. */
+      slack_channel_id: string;
+      /** Channel name shown on the destination, for example product-alerts. */
+      slack_channel_name?: string;
+    }
+
+    export interface AlertDeleteDestination {
+      /**
+         * Destination IDs to delete, as returned when the destination was created.
+         * @minItems 1
+         * @maxItems 100
+         */
+      hog_function_ids: string[];
+    }
+
+    export interface AlertDestinationResponse {
+      /** IDs of the created destination. Pass them to destinations/delete to remove it. */
+      hog_function_ids: string[];
+    }
+
     export interface AlertSimulate {
       /** Numeric insight ID or saved insight short ID to simulate the detector on. */
       insight: number | string;
@@ -17106,16 +17152,6 @@ export namespace Schemas {
     export interface ChannelStarWrite {
       starred: boolean;
     }
-
-    /**
-     * * `slack` - slack
-     */
-    export type ChannelTypeEnum = typeof ChannelTypeEnum[keyof typeof ChannelTypeEnum];
-
-
-    export const ChannelTypeEnum = {
-      Slack: 'slack',
-    } as const;
 
     /**
      * Response shape for a channel's page identity in the wiki.
@@ -58722,6 +58758,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly ai_report_prompt: string | null;
+      /** Query plan state recorded for this delivery: frozen, not_frozen, or planner_updated. Null for older deliveries and non-AI deliveries. */
+      readonly ai_query_plan_status: AIQueryPlanStatusEnum | null;
     }
 
     export interface PaginatedSubscriptionDeliveryList {
@@ -58816,6 +58854,8 @@ export namespace Schemas {
       prompt?: string | null;
       /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
       ai_prompt_config?: AIPromptConfig;
+      /** Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types. */
+      readonly ai_query_plan_status: AIQueryPlanStatusEnum | null;
       /** Delivery channel: email, slack, or teams.
        *
        * * `email` - Email
@@ -68066,6 +68106,8 @@ export namespace Schemas {
       prompt?: string | null;
       /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
       ai_prompt_config?: AIPromptConfig;
+      /** Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types. */
+      readonly ai_query_plan_status?: AIQueryPlanStatusEnum | null;
       /** Delivery channel: email, slack, or teams.
        *
        * * `email` - Email
