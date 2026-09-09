@@ -53,7 +53,12 @@ cleanup_worktree
 # pull the one object in instead of cloning the archive.
 if ! git -C "$REPO_ROOT" cat-file -e "${OLD_REF}^{commit}" 2>/dev/null; then
   log "fetching $OLD_REF from $OLD_FORGE_REMOTE"
-  git -C "$REPO_ROOT" fetch --no-tags "$OLD_FORGE_REMOTE" "$OLD_REF"
+  for attempt in 1 2 3; do
+    git -C "$REPO_ROOT" fetch --no-tags "$OLD_FORGE_REMOTE" "$OLD_REF" && break
+    [ "$attempt" -lt 3 ] || { echo "FAIL: could not fetch $OLD_REF from $OLD_FORGE_REMOTE after $attempt attempts"; exit 1; }
+    log "fetch attempt $attempt failed, retrying"
+    sleep $((attempt * 10))
+  done
 fi
 git -C "$REPO_ROOT" worktree add --force --detach "$WORKTREE" "$OLD_REF"
 trap cleanup_worktree EXIT

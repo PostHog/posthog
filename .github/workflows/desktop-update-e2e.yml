@@ -323,8 +323,9 @@ jobs:
                   retention-days: 7
 
             # This runs nightly, so nobody sees a red run unless it pages.
+            # A manual dispatch is somebody debugging, and they watch the run.
             - name: Notify Slack on update e2e failure
-              if: failure()
+              if: failure() && github.event_name == 'schedule'
               uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.postMessage
