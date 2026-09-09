@@ -1,47 +1,17 @@
-from contextlib import contextmanager
-
-from django.conf import settings
-
 import structlog
 from asgiref.sync import async_to_sync
 
 from posthog.exceptions_capture import capture_exception
-from posthog.redis import get_client
 from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.redis_client import get_redis_client
 
 logger = structlog.get_logger(__name__)
 
 IDEMPOTENCY_KEY_PREFIX = "warehouse_pipelines:processed"
 IDEMPOTENCY_TTL_SECONDS = 72 * 60 * 60  # 3 days (72 hours) same as the topic retention period
-
-
-@contextmanager
-def get_redis_client():
-    """Get a Redis client for the data warehouse Redis instance."""
-    redis_client = None
-    try:
-        if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
-            raise Exception(
-                "Missing env vars for warehouse pipelines: DATA_WAREHOUSE_REDIS_HOST or DATA_WAREHOUSE_REDIS_PORT"
-            )
-
-        redis_client = get_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
-        redis_client.ping()
-    except Exception as e:
-        logger.warning(
-            "Redis unavailable for idempotency check — falling back to delta history scan",
-            error=str(e),
-        )
-        capture_exception(e)
-        redis_client = None
-
-    try:
-        yield redis_client
-    finally:
-        pass
 
 
 def get_idempotency_key(

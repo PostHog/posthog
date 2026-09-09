@@ -1,0 +1,81 @@
+import time
+import threading
+from collections.abc import Generator
+from contextlib import contextmanager
+
+from django.conf import settings
+
+import redis
+import structlog
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.exceptions_capture import capture_exception
+from posthog.redis import get_client
+
+logger = structlog.get_logger(__name__)
+
+# One v3 batch opens the client several times, and each failed connect costs three attempts
+# of REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS. A window several times that burst holds the cost
+# to one report per window per worker, and delays recovery by at most one window. The loader
+# runs batches on parallel threads, so threads already connecting when a window opens still
+# pay their own dead connect; only the first of them reports it.
+CONNECT_FAILURE_COOLDOWN_SECONDS = 30.0
+
+_cooldown_until = 0.0
+_cooldown_lock = threading.Lock()
+
+
+def _open_cooldown() -> bool:
+    """Start a cooldown window and say whether this thread is the first to fail in it."""
+    global _cooldown_until
+
+    now = time.monotonic()
+    with _cooldown_lock:
+        first_failure = now >= _cooldown_until
+        _cooldown_until = now + CONNECT_FAILURE_COOLDOWN_SECONDS
+    return first_failure
+
+
+@retry(
+    retry=retry_if_exception_type((redis.exceptions.ConnectionError, redis.exceptions.TimeoutError)),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=0.1, max=1),
+    reraise=True,
+)
+def _connect_and_ping(redis_client: redis.Redis) -> None:
+    redis_client.ping()
+
+
+@contextmanager
+def get_redis_client(*, bypass_cooldown: bool = False) -> Generator[redis.Redis | None]:
+    """Yield a client for the warehouse Redis instance, or None when it is unreachable.
+
+    Callers that hold the lock run with a single Temporal attempt (see
+    external_data_job.py), so a bare DNS/connection blip has no outer retry and would
+    skip the whole scheduled sync run. Absorb a few quick retries before falling back to
+    the fail-closed/fail-silent behavior every caller relies on.
+
+    Set bypass_cooldown for a one-shot call that leaves state behind when it is skipped.
+    The cooldown is process-wide, so a per-batch call that fails its connect would
+    otherwise suppress the single attempt such a caller makes.
+    """
+    if not bypass_cooldown and time.monotonic() < _cooldown_until:
+        yield None
+        return
+
+    redis_client: redis.Redis | None
+    try:
+        if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
+            raise Exception(
+                "Missing env vars for warehouse pipelines: DATA_WAREHOUSE_REDIS_HOST or DATA_WAREHOUSE_REDIS_PORT"
+            )
+
+        redis_client = get_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
+        _connect_and_ping(redis_client)
+    except Exception as e:
+        logger.exception("warehouse_pipeline_redis_unavailable", error=str(e))
+        if _open_cooldown():
+            capture_exception(e)
+        redis_client = None
+
+    yield redis_client

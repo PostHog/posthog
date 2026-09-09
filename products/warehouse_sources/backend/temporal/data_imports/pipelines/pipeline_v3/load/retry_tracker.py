@@ -6,9 +6,7 @@ from django.db import OperationalError
 
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import (
-    get_redis_client,
-)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.redis_client import get_redis_client
 
 logger = structlog.get_logger(__name__)
 
