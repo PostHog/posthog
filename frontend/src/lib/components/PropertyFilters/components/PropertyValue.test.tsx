@@ -167,7 +167,24 @@ describe('PropertyValue', () => {
             pastedValue: 'foo ',
             expectedArg: 'foo ',
         },
-    ])('$label', async ({ propertyKey, operator, pastedValue, expectedArg }) => {
+        {
+            label: 'preserves surrounding whitespace on a value picked from the suggestion list',
+            propertyKey: 'name',
+            operator: PropertyOperator.Exact,
+            suggestedValue: 'Acme Corp ',
+            expectedArg: ['Acme Corp '],
+        },
+    ])('$label', async ({ propertyKey, operator, pastedValue, suggestedValue, expectedArg }) => {
+        if (suggestedValue) {
+            const values = { results: [{ name: suggestedValue }], refreshing: false }
+            useMocks({
+                get: {
+                    '/api/event/values': values,
+                    '/api/environments/:team/events/values': values,
+                },
+            })
+        }
+
         const onSet = jest.fn()
         render(
             <Provider>
@@ -184,8 +201,14 @@ describe('PropertyValue', () => {
         const user = userEvent.setup()
         const input = screen.getByRole('textbox')
         await user.click(input)
-        await user.paste(pastedValue)
-        await user.keyboard('{Enter}')
+        if (suggestedValue) {
+            // The default matcher trims, so this finds the option by its visible label
+            const option = await screen.findByText(suggestedValue.trim(), undefined, { timeout: 3000 })
+            await user.click(option)
+        } else {
+            await user.paste(pastedValue)
+            await user.keyboard('{Enter}')
+        }
 
         await waitFor(() => {
             expect(onSet).toHaveBeenCalledWith(expectedArg)
