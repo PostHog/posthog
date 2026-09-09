@@ -305,8 +305,13 @@ Operational controls:
 | `posthog_hypercache_sync_duration_seconds` | `result`, `namespace`, `value` | Cache sync timing               |
 | `posthog_remote_config_via_cache`          | `result`                       | Remote config cache performance |
 | `posthog_hypercache_read_repair`           | `result`, `namespace`, `value` | Rust reader repair outcomes     |
+| `flags_flag_definitions_etag_total`        | `result`                       | Rust reader ETag read outcomes  |
 
 Result labels: `hit_redis`, `hit_s3`, `hit_db`, `missing`, `batch_miss`
+
+ETag result labels: `hit` (client ETag matched, 304), `miss` (client sent a stale ETag), `none` (client sent none), `redis_missing` (no ETag stored for the team), `redis_error` (the read itself failed)
+
+`redis_missing` and `redis_error` are the pair that separates an empty cache tier from an unreachable cluster. Keep them apart on dashboards and alerts.
 
 Read repair result labels: `success`, `skipped` (key already existed, repair deferred to it), `error`
 
@@ -328,6 +333,41 @@ redis-cli get "team_token:{api_token}"
 ```
 
 When `FLAGS_REDIS_URL` is set, the local-evaluation flags key is written to the dedicated instance and mirrored to the shared cache, so `redis-cli` returns whichever copy the cluster you point it at holds. The two can disagree. Read the flag-definitions notes under "Dedicated flags Redis" before you act on either copy.
+
+### Elevated S3 read rate on `/flags/definitions`
+
+`HyperCacheElevatedS3ReadRate` and `HyperCacheCriticalS3ReadRate` fire when the reader
+serves `flags_with_cohorts.json` from S3 for too large a share of reads. Redis and the
+cache tier both produce that symptom, so establish which one first.
+
+**1. Separate a cluster fault from an empty tier.** Split `flags_flag_definitions_etag_total`
+by `result`. A rise in `redis_error` points at the cluster; check managed-cache CPU,
+evictions, command latency, and memory before going further. A rise in `redis_missing`
+means Redis answered and holds no entry, which rules the cluster out.
+
+**2. Compare the two clusters for one affected team.** Django writes the dedicated instance
+and mirrors to the shared one, and the reader serves from the shared copy, so the two can
+disagree. Take a team id from the `etag_key` field of a reader log line:
+
+```bash
+# Shared cluster, which the reader serves from
+redis-cli -u "$REDIS_URL" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
+
+# Dedicated cluster, which Django writes first
+redis-cli -u "$FLAGS_REDIS_URL" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
+```
+
+Present on the dedicated cluster and absent on the shared one isolates the fault to the
+mirror rather than to the writer. Absent on both means the entry was never built or has
+aged out; rebuild it with `update_flag_caches` and look at step 3.
+
+**3. Confirm the writer runs.** Check the success and duration signals for the
+flag-definitions refresh and verification tasks. Tasks that run at their normal cadence and
+duration while entries stay missing point back at the mirror, not at a stalled writer.
+
+Mirror failures increment `posthog_hypercache_mirror_failure` and log `HyperCache secondary
+cache op failed`. Neither firing while the shared copy is absent means the mirror is not
+attempting the write at all, rather than attempting it and failing.
 
 ### Check cache source in responses
 
