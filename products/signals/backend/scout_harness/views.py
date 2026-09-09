@@ -77,6 +77,7 @@ from products.signals.backend.scout_harness.run_gates import (
     check_run_in_flight,
     check_spend_gates,
 )
+from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW_DAYS, scout_costs
 from products.signals.backend.scout_harness.serializers import (
     EditReportRequestSerializer,
     EditReportResponseSerializer,
@@ -96,6 +97,8 @@ from products.signals.backend.scout_harness.serializers import (
     RecordStructuredOutputRequestSerializer,
     RecordStructuredOutputResponseSerializer,
     RememberRequestSerializer,
+    ScoutCostsQuerySerializer,
+    ScoutCostsSerializer,
     ScoutEmissionReportLinkSerializer,
     ScoutFleetSyncQuerySerializer,
     ScoutMemberSerializer,
@@ -849,6 +852,48 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 }
             ).data
         )
+
+    @validated_request(
+        query_serializer=ScoutCostsQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ScoutCostsSerializer,
+                description="Model spend and output per scout over the window.",
+            ),
+            403: OpenApiResponse(description="Caller is not PostHog staff."),
+        },
+        summary="Get what each scout spent over a window",
+        description=(
+            "Return what every scout on this project spent on model calls over the last `window_days`, "
+            "with how many runs it started, how many of those had spend attributed, and how many inbox "
+            "reports it filed or added to. Cost per day, per run, and per report are derived from those "
+            "numbers by the caller, so the endpoint stays a fact table and the definitions live in one "
+            "place. Spend is summed from the `$ai_generation` events the runs' sandboxes produced and "
+            "joined to the run rows by task run id, because a team-authored scout's generations all "
+            "carry the same stage tag and so cannot name it. Cached per project for 15 minutes: the "
+            "window's trailing edge moves and the newest runs may still be settling, so this is a "
+            "roughly current number, not a live one. `available` is false where the internal AI "
+            "observability project holding those events can't be read, so an unknown spend never reads "
+            "as zero. Staff-only, same gate as the per-run cost read. Strictly team-scoped."
+        ),
+        operation_id="signals_scout_runs_costs",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="costs",
+        required_scopes=["signal_scout:read"],
+        pagination_class=None,
+    )
+    def costs(self, request: Request, **kwargs) -> Response:
+        if not cast(User, request.user).is_staff:
+            raise exceptions.PermissionDenied("Only PostHog staff can read scout costs.")
+        validated = getattr(request, "validated_query_data", {}) or {}
+        costs = scout_costs(
+            team_id=_canonical_team_id(self),
+            window_days=validated.get("window_days") or SCOUT_COST_WINDOW_DAYS,
+        )
+        return Response(ScoutCostsSerializer(dataclasses.asdict(costs)).data)
 
     @validated_request(
         request_serializer=EmitFindingRequestSerializer,

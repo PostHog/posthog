@@ -17,7 +17,7 @@ import requests
 import structlog
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -177,15 +177,26 @@ def get_local_task_token_cost(*, team_id: int, task_id: UUID, task_created_at: d
     return Decimal(str(value or 0))
 
 
+# A window read asks for every run of one origin product on one team, so its row count is bounded
+# by that team's runs rather than by a requested id list. The cap is far above the busiest fleet's
+# week of runs, and only stops a pathological read from materializing without limit.
+MAX_TASK_RUN_COST_ROWS = 50_000
+
+
 def get_local_task_run_token_costs(
     *,
     team_id: int,
     origin_product: str,
-    task_run_ids: Sequence[UUID],
     generated_after: datetime,
     product: Product,
+    task_run_ids: Sequence[UUID] | None = None,
 ) -> dict[str, Decimal]:
-    """Model spend per task run, for every run in `task_run_ids` that has any attributed to it.
+    """Model spend per task run, for every run that has any attributed to it.
+
+    Pass `task_run_ids` to price a known set of runs. Pass nothing to price every run of
+    `origin_product` this team generated since `generated_after` — the team filter and the time
+    window bound that read, so a caller that would otherwise send tens of thousands of ids does not
+    have to.
 
     Keyed on `task_origin_product` rather than `ai_product`, because `ai_product` names the agent
     that made the generation, not the product the run belongs to: one origin product spans several
@@ -197,9 +208,25 @@ def get_local_task_run_token_costs(
     is unknown, not zero. A run priced in part still reports the sum of what was priced, which is a
     lower bound.
     """
-    if not task_run_ids:
+    if task_run_ids is not None and not task_run_ids:
         return {}
 
+    placeholders: dict[str, ast.Expr] = {
+        "generated_after": ast.Constant(value=generated_after),
+        "origin_product": ast.Constant(value=origin_product),
+        "team_id": ast.Constant(value=str(team_id)),
+        # The group-by yields at most one row per run, but a limit-less select is capped at 100
+        # rows, and both paths can cover more runs than that.
+        "row_limit": ast.Constant(value=len(task_run_ids) if task_run_ids is not None else MAX_TASK_RUN_COST_ROWS),
+        "run_filter": (
+            parse_expr(
+                "in(toString(properties.task_run_id), {task_run_ids})",
+                placeholders={"task_run_ids": ast.Constant(value=[str(run_id) for run_id in task_run_ids])},
+            )
+            if task_run_ids is not None
+            else ast.Constant(value=True)
+        ),
+    }
     query = parse_select(
         """
         SELECT toString(properties.task_run_id) AS task_run_id,
@@ -209,7 +236,7 @@ def get_local_task_run_token_costs(
             AND greaterOrEquals(timestamp, {generated_after})
             AND equals(properties.task_origin_product, {origin_product})
             AND equals(toString(properties.team_id), {team_id})
-            AND in(toString(properties.task_run_id), {task_run_ids})
+            AND {run_filter}
         GROUP BY task_run_id
         LIMIT {row_limit}
         """
@@ -217,15 +244,7 @@ def get_local_task_run_token_costs(
     with tags_context(product=product, feature=Feature.QUERY):
         result = execute_hogql_query(
             query=query,
-            placeholders={
-                "generated_after": ast.Constant(value=generated_after),
-                "origin_product": ast.Constant(value=origin_product),
-                "team_id": ast.Constant(value=str(team_id)),
-                "task_run_ids": ast.Constant(value=[str(task_run_id) for task_run_id in task_run_ids]),
-                # The group-by yields at most one row per requested run, but a limit-less select
-                # is capped at 100 rows, and a caller may ask about more runs than that.
-                "row_limit": ast.Constant(value=len(task_run_ids)),
-            },
+            placeholders=placeholders,
             team=_internal_llm_analytics_team(),
             query_type="TaskRunUsageTokenCost",
         )
