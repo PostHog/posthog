@@ -38,7 +38,7 @@ concurrency:
 
 env:
     # Cache-bust knob. Keep in sync with ci-backend.yml, which saves these caches.
-    SCHEMA_CACHE_EPOCH: v2
+    SCHEMA_CACHE_EPOCH: v3
     # Django SECRET_KEY for cryptographic signing (sessions, CSRF, etc.) - test-only, not used in production
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461b81b72'
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'

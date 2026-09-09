@@ -54,8 +54,9 @@ env:
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so it can't drift
     # between the merge-base (PR) and HEAD (push) key computations below.
-    # ci-e2e-playwright.yml, ci-dagster.yml, ci-mcp.yml and ci-rust-flags-integration.yml restore by the same key; keep their copies in sync when bumping.
-    SCHEMA_CACHE_EPOCH: v2
+    # Other workflows declare their own copy and restore by the same key, so bump
+    # every one together: grep SCHEMA_CACHE_EPOCH across .github/workflows.
+    SCHEMA_CACHE_EPOCH: v3
     # Hypothesis constants cache epoch. Bump to abandon every shared entry at once
     # (key is posthog-hypothesis-constants-<version>-<epoch>-<isoyear>-<isoweek>); used by
     # the Django test shards below.

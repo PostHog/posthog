@@ -169,7 +169,7 @@ jobs:
                   IS_PR: ${{ github.event_name == 'pull_request' }}
                   # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in
                   # ci-backend.yml, which saves these caches on master pushes.
-                  SCHEMA_CACHE_EPOCH: v2
+                  SCHEMA_CACHE_EPOCH: v3
               run: |
                   if [ "$IS_PR" != "true" ]; then
                       # Pushed or dispatched commit is checked out directly: no merge

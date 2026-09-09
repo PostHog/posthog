@@ -33,7 +33,7 @@ permissions:
 
 env:
     # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in ci-backend.yml, which saves these caches on master pushes.
-    SCHEMA_CACHE_EPOCH: v2
+    SCHEMA_CACHE_EPOCH: v3
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 jobs:
