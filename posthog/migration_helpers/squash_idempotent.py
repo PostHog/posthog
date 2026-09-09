@@ -19,6 +19,33 @@ reversible; re-applying forward is idempotent either way.
 from django.db import migrations
 from django.db.models.constraints import BaseConstraint
 
+# Django's introspection.get_table_description() runs two statements, a catalog
+# query and a `SELECT * FROM <table> LIMIT 1`, and maps the second through the
+# first by column name. A concurrent migrate process that commits an ADD COLUMN
+# between them makes that mapping raise KeyError, which aborts the migrate run.
+# The other probes in this module are safe: table_names() is one statement, and
+# get_constraints() merges its two by membership test, never by name lookup.
+_COLUMN_EXISTS_SQL = """
+    SELECT 1
+    FROM pg_attribute a
+    JOIN pg_class c ON a.attrelid = c.oid
+    JOIN pg_namespace n ON c.relnamespace = n.oid
+    WHERE c.relname = %s
+        AND a.attname = %s
+        AND a.attnum > 0
+        AND NOT a.attisdropped
+        AND c.relkind IN ('f', 'm', 'p', 'r', 'v')
+        AND n.nspname NOT IN ('pg_catalog', 'pg_toast')
+        AND pg_catalog.pg_table_is_visible(c.oid)
+    LIMIT 1
+"""
+
+
+def _column_exists(schema_editor, table: str, column: str) -> bool:
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute(_COLUMN_EXISTS_SQL, [table, column])
+        return cursor.fetchone() is not None
+
 
 def _table_constraints(schema_editor, table: str) -> dict:
     with schema_editor.connection.cursor() as cursor:
@@ -37,16 +64,14 @@ class AddFieldIfMissing(migrations.AddField):
             # router-excluded model); probing its absent table would crash first.
             return
         field = model._meta.get_field(self.name)
-        conn = schema_editor.connection
-        with conn.cursor() as cursor:
-            if field.many_to_many:
-                through_table = field.remote_field.through._meta.db_table
+        if field.many_to_many:
+            conn = schema_editor.connection
+            through_table = field.remote_field.through._meta.db_table
+            with conn.cursor() as cursor:
                 if through_table in conn.introspection.table_names(cursor):
                     return
-            else:
-                columns = {c.name for c in conn.introspection.get_table_description(cursor, model._meta.db_table)}
-                if field.column in columns:
-                    return
+        elif _column_exists(schema_editor, model._meta.db_table, field.column):
+            return
         super().database_forwards(app_label, schema_editor, from_state, to_state)
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state):
