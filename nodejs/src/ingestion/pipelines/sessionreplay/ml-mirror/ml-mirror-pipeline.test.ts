@@ -161,6 +161,27 @@ describe('ml-mirror-pipeline', () => {
                             timestamp: now.toMillis(),
                             data: { source: 5, id: 1, text: 'Hello SecretName', isChecked: false },
                         },
+                        {
+                            type: 5,
+                            timestamp: now.plus({ milliseconds: 1 }).toMillis(),
+                            data: {
+                                tag: '$json_ld',
+                                payload: {
+                                    '@context': 'https://schema.org',
+                                    '@type': 'Product',
+                                    name: 'Camera',
+                                    email: 'viewer@example.com',
+                                    offers: {
+                                        '@type': 'Offer',
+                                        price: 100,
+                                        seller: {
+                                            '@type': 'Person',
+                                            name: 'Example Viewer',
+                                        },
+                                    },
+                                },
+                            },
+                        },
                     ],
                 },
             }),
@@ -251,6 +272,21 @@ describe('ml-mirror-pipeline', () => {
         expect(windowId).toBe('window-1')
         // The Input event's text was scrubbed before it reached the recorder.
         expect(event.data.text).toBe('Hello **********')
+        expect(recordedEvents()[1][1].data).toEqual({
+            tag: '$json_ld',
+            payload: {
+                '@context': 'https://schema.org',
+                '@type': 'Product',
+                name: 'Camera',
+                offers: {
+                    '@type': 'Offer',
+                    price: 100,
+                    seller: {
+                        '@type': 'Person',
+                    },
+                },
+            },
+        })
     })
 
     it('drops sessions for a team that did not opt into AI training', async () => {

@@ -119,12 +119,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'A catalog of identified persons and your created cohorts.',
         iconType: 'cohort',
     },
-    [Scene.Comments]: {
-        projectBased: true,
-        name: 'Comments',
-        description: 'Comments allow you to provide context and discussions on various elements in PostHog.',
-        iconType: 'comment',
-    },
     [Scene.CustomerAnalytics]: { projectBased: true, name: 'Customer analytics' },
     [Scene.Dashboard]: {
         projectBased: true,
@@ -323,7 +317,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         onlyUnauthenticated: true,
         layout: 'plain',
     },
-    [Scene.PasswordResetComplete]: { onlyUnauthenticated: true, layout: 'plain' },
+    [Scene.PasswordResetComplete]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.PasswordReset]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.TwoFactorReset]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.VercelConnect]: { allowUnauthenticated: true, layout: 'plain', name: 'Connect to Vercel' },
@@ -646,10 +640,12 @@ export const redirects: Record<
     '/annotations/:id': ({ id }) => urls.annotation(id),
     '/batch_exports/:id': ({ id }) => urls.batchExport(id),
     '/batch_exports': urls.destinations(),
+    // Billing lives at /organization/billing. A bare /billing has no scene, so send it there.
+    // /billing/authorization_status keeps its own scene route, so it must not be caught here.
+    '/billing': urls.organizationBilling(),
     // The scene lives at /code-review (hyphen); catch the old underscore variant, keeping the
     // ?review= / ?reviews_scope= deep links that PR status comments bake in
     '/code_review': (_params, searchParams, hashParams) => combineUrl(urls.codeReview(), searchParams, hashParams).url,
-    '/comments': () => urls.comments(),
     '/dashboards': urls.dashboards(),
     // New dashboards open in a modal on the list page. `/dashboard/new` is a guessed URL,
     // so send it there with the modal open instead of matching `/dashboard/:id`.
@@ -851,7 +847,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
     [urls.annotations()]: [Scene.Annotations, 'annotations'],
     [urls.annotation(':id')]: [Scene.Annotations, 'annotation'],
-    [urls.comments()]: [Scene.DataManagement, 'comments'],
     [urls.variables()]: [Scene.DataManagement, 'variables'],
     [urls.variableEdit(':id')]: [Scene.SqlVariableEdit, 'sqlVariableEdit'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],

@@ -6,17 +6,21 @@ import { inStorybookTestRunner } from 'lib/utils/dom'
 import { runStreamLogic } from '../logics/runStreamLogic'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ThreadItem } from '../types/streamTypes'
+import { groupThreadActivity, type ThreadDisplayItem } from '../utils/groupThreadActivity'
 import { getRandomThinkingMessage } from '../utils/thinkingMessages'
+import { resolveToolCall } from '../utils/toolResolver'
 import { type TurnTrailer, computeTurnTrailers } from '../utils/turnTrailers'
 import { ContextUsageBar } from './ContextUsageBar'
 import { PullRequestCard } from './PullRequestCard'
 import { RunAlertActivity } from './RunAlertActivity'
 import { RunContext } from './RunContext'
+import { ThreadActivityGroup } from './ThreadActivityGroup'
 import { ThreadRow } from './ThreadRow'
+import { lookupToolRenderer } from './tool/toolRegistry'
 import { VirtualizedThread } from './VirtualizedThread'
 
 /** Stable row key — defined at module scope so `getItemKey` never changes identity across renders. */
-function getThreadItemKey(item: ThreadItem): string {
+function getThreadItemKey(item: ThreadDisplayItem): string {
     return item.id
 }
 
@@ -41,7 +45,10 @@ const THREAD_ITEM_HEIGHT_ESTIMATES: Partial<Record<ThreadItem['type'], number>> 
     debug: 30,
 }
 
-function estimateThreadItemHeight(item: ThreadItem): number {
+function estimateThreadItemHeight(item: ThreadDisplayItem): number {
+    if (item.type === 'activity_group') {
+        return 48
+    }
     return THREAD_ITEM_HEIGHT_ESTIMATES[item.type] ?? 56
 }
 
@@ -91,14 +98,26 @@ export function ThreadView({
         toolInvocations,
         isThinking,
         streamPhase,
+        showThinkingIndicator,
         runArtifacts,
         turnComplete,
         currentRunStatus,
         contextUsage,
         runConnectionState,
         logBootstrapLoading,
+        pendingPermissionRequest,
     } = useValues(runStreamLogic)
     const turnCancelled = currentRunStatus === 'cancelled'
+    const displayItems = useMemo(() => {
+        const standaloneToolIds = new Set<string>()
+        for (const [id, invocation] of toolInvocations) {
+            const resolved = resolveToolCall(invocation)
+            if (lookupToolRenderer(resolved.resolvedKey, !!resolved.innerToolName).keepVisible) {
+                standaloneToolIds.add(id)
+            }
+        }
+        return groupThreadActivity(threadItems, standaloneToolIds)
+    }, [threadItems, toolInvocations])
     // The last human message anchors the thread. Reopening a saved conversation lands on it — the last
     // meaningful turn, response below — when at least a viewport of content follows it (otherwise the
     // bottom); a fresh send (a new key) pins the thread to the bottom to follow the streaming response.
@@ -110,9 +129,6 @@ export function ThreadView({
     const turnTrailers = useMemo(
         () => (renderTurnTrailer ? computeTurnTrailers(threadItems) : null),
         [threadItems, renderTurnTrailer]
-    )
-    const hasActiveProgressItem = threadItems.some(
-        (item) => item.type === 'progress' && item.progressSteps?.some((step) => step.status === 'in_progress')
     )
 
     // Header/footer are kept as memoized leaf components with stable element identity so they don't rebuild
@@ -132,12 +148,11 @@ export function ThreadView({
     // The connection banner (reconnecting / connection-failed) owns the footer line when present, so it
     // takes precedence over the thinking indicator (a mid-run reconnect otherwise reads as normal thinking).
     const showConnectionStatus = !!runConnectionState
-    // `provisioning` (conversations/open POST + cold boot before run_started) also shows the indicator,
-    // gated by !hasActiveProgressItem so real `_posthog/progress` boot steps take precedence.
     const showThinking =
-        (streamPhase === 'thinking' || streamPhase === 'provisioning') &&
-        !hasActiveProgressItem &&
-        !showConnectionStatus
+        showThinkingIndicator &&
+        !showConnectionStatus &&
+        !pendingPermissionRequest &&
+        displayItems.at(-1)?.type !== 'activity_group'
     const thinkingPhase = streamPhase === 'provisioning' ? 'provisioning' : 'thinking'
     // Post-turn only: a reconnect refetch can fold in a pr_url mid-run, so gate on !isThinking.
     const pullRequestUrl = !isThinking ? runArtifacts.prUrl : undefined
@@ -172,7 +187,31 @@ export function ThreadView({
     )
 
     const renderItem = useCallback(
-        (item: ThreadItem, index: number): JSX.Element => {
+        (item: ThreadDisplayItem, index: number): JSX.Element => {
+            if (item.type === 'activity_group') {
+                const isLast = index === displayItems.length - 1
+                return (
+                    <VirtualizedThread.Row className={rowClassName}>
+                        <ThreadActivityGroup
+                            group={item}
+                            toolInvocations={toolInvocations}
+                            active={isLast && isThinking}
+                            waitingForInput={isLast && !!pendingPermissionRequest}
+                            cancelled={isLast && (turnCancelled || currentRunStatus === 'failed')}
+                            renderItem={(activity) => (
+                                <ThreadRow
+                                    item={activity}
+                                    isLast={false}
+                                    isThinking={false}
+                                    toolInvocations={toolInvocations}
+                                    turnComplete={turnComplete}
+                                    turnCancelled={turnCancelled}
+                                />
+                            )}
+                        />
+                    </VirtualizedThread.Row>
+                )
+            }
             if (item.type === 'turn_separator' && renderTurnTrailer) {
                 const trailer = turnTrailers?.get(item.id)
                 return (
@@ -185,7 +224,7 @@ export function ThreadView({
                 <VirtualizedThread.Row className={rowClassName}>
                     <ThreadRow
                         item={item}
-                        isLast={index === threadItems.length - 1}
+                        isLast={index === displayItems.length - 1}
                         isThinking={isThinking}
                         toolInvocations={toolInvocations}
                         turnComplete={turnComplete}
@@ -195,7 +234,7 @@ export function ThreadView({
             )
         },
         [
-            threadItems.length,
+            displayItems.length,
             isThinking,
             toolInvocations,
             turnComplete,
@@ -203,12 +242,14 @@ export function ThreadView({
             rowClassName,
             renderTurnTrailer,
             turnTrailers,
+            pendingPermissionRequest,
+            currentRunStatus,
         ]
     )
 
     return (
         <VirtualizedThread.Root
-            items={threadItems}
+            items={displayItems}
             getItemKey={getThreadItemKey}
             estimateItemHeight={estimateThreadItemHeight}
             anchorItemKey={anchorItemKey}

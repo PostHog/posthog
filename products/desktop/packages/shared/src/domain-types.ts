@@ -102,13 +102,24 @@ export interface Task {
 
 export interface TaskSearchResult {
   id: string;
-  kind: "task" | "pull_request" | "artifact" | "channel";
+  kind: "task" | "pull_request" | "artifact" | "channel" | "canvas";
   title: string;
   subtitle: string;
   task_id: string | null;
   task_run_id: string | null;
   channel_id: string | null;
+  created_by?: UserBasic | null;
+  /** What created the containing task, e.g. "slack". */
+  origin_product?: string | null;
+  latest_run?: TaskSearchResultRun | null;
+  updated_at: string;
   metadata: Record<string, unknown>;
+}
+
+export interface TaskSearchResultRun {
+  id: string;
+  status: TaskRunStatus | null;
+  environment: TaskRunEnvironment | null;
 }
 
 /**
@@ -125,7 +136,7 @@ export interface ProvisionedTaskChannels {
 export interface TaskChannel {
   id: string;
   name: string;
-  channel_type: "public" | "personal";
+  channel_type: "public" | "personal" | "private";
   starred: boolean;
   github_integration?: number | null;
   repositories?: string[];
@@ -326,6 +337,7 @@ const storeSkillStubSchema = z.object({
 export type StoreSkillStub = z.infer<typeof storeSkillStubSchema>;
 
 const taskRunStateFields = {
+  ai_agent_name: optionalField(z.string()),
   ai_stage: optionalField(z.string()),
   auto_publish: optionalField(z.boolean()),
   benjamin_version: optionalField(z.string()),
@@ -677,6 +689,14 @@ export type { SignalReportStatus };
 /** Actionability priority from the researched report (actionability judgment artefact). */
 export type SignalReportPriority = "P0" | "P1" | "P2" | "P3" | "P4";
 
+/** Latest known state of a report's implementation PR. */
+export type SignalReportPrState =
+  | "unknown"
+  | "draft"
+  | "open"
+  | "closed"
+  | "merged";
+
 /** Actionability choice from the researched report. */
 export type SignalReportActionability =
   | "immediately_actionable"
@@ -742,6 +762,8 @@ export interface SignalReport {
    * its old PR must not read as reviewable or continuable.
    */
   implementation_pr_merged?: boolean;
+  /** Latest known state of that PR, per the GitHub webhook. */
+  implementation_pr_state?: SignalReportPrState | null;
   /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
   charts?: SignalReportChart[];
   /** The report's PR refund, when one exists (one refund per report, ever). */

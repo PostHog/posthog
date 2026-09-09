@@ -23,6 +23,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.endpoints.backend.models import Endpoint, EndpointVersion
+from products.endpoints.backend.rate_limit import is_endpoint_materialization_ready, set_endpoint_materialization_ready
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -1133,6 +1134,9 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             data_freshness_seconds=3600,
         )
 
+        set_endpoint_materialization_ready(self.team.pk, endpoint.name, True)
+        set_endpoint_materialization_ready(self.team.pk, endpoint.name, True, version=1)
+
         # Update to different data freshness
         updated_data: dict[str, int | None] = {"data_freshness_seconds": 21600}
         response = self.client.patch(
@@ -1140,6 +1144,9 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["data_freshness_seconds"], 21600)
+        # The freshness target is part of the throttle's cached snapshot, so the edit drops it.
+        self.assertIsNone(is_endpoint_materialization_ready(self.team.pk, endpoint.name))
+        self.assertIsNone(is_endpoint_materialization_ready(self.team.pk, endpoint.name, version=1))
 
         endpoint.refresh_from_db()
         version = endpoint.get_version()
@@ -1440,14 +1447,11 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         version = EndpointVersion.objects.get(endpoint__name="clear-bucket", endpoint__team=self.team, version=1)
         assert version.bucket_overrides == {"timestamp": "hour"}
 
-        # Disabling reverts the saved query, whose schedule teardown talks to Temporal —
-        # mock the facade call so the test doesn't require a running Temporal dev server.
-        with mock.patch("products.data_warehouse.backend.facade.api.delete_saved_query_schedule"):
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/endpoints/clear-bucket/",
-                {"is_materialized": False},
-                format="json",
-            )
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/clear-bucket/",
+            {"is_materialized": False},
+            format="json",
+        )
         assert response.status_code == status.HTTP_200_OK, response.json()
 
         # Re-enable without bucket_overrides
@@ -1512,7 +1516,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         assert version.bucket_overrides == {"timestamp": "week"}
 
         # Change bucket_overrides — should trigger an immediate refresh
-        with mock.patch("products.endpoints.backend.logic.crud.trigger_saved_query_schedule") as mock_trigger:
+        with mock.patch("products.endpoints.backend.logic.crud.materialize_saved_query") as mock_trigger:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/endpoints/trigger-bucket/",
                 {"bucket_overrides": {"timestamp": "hour"}},
@@ -1536,9 +1540,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         )
 
         # PATCH with same bucket_overrides — should NOT trigger refresh
-        with mock.patch(
-            "products.data_warehouse.backend.logic.data_load.saved_query_service.trigger_saved_query_schedule"
-        ) as mock_trigger:
+        with mock.patch("products.endpoints.backend.logic.crud.materialize_saved_query") as mock_trigger:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/endpoints/no-trigger-bucket/",
                 {"bucket_overrides": {"timestamp": "hour"}},

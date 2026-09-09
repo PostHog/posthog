@@ -16,7 +16,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { ApiError, shouldReportApiFailure } from 'lib/api-error'
+import { ApiError, isUnavailableEndpointError, shouldReportApiFailure } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { reconcileById } from 'lib/utils/objects'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
@@ -451,9 +451,11 @@ export interface scoutFleetLogicActions {
     }
     startScoutChatTask: (
         chatType: ScoutChatType,
-        taskLabel: string
+        taskLabel: string,
+        suggestionId?: string
     ) => {
         chatType: ScoutChatType
+        suggestionId: string | undefined
         taskLabel: string
     }
     startScoutChatTaskFailure: () => {
@@ -613,9 +615,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         // (which only reads configs) doesn't trigger the paginated runs-window polling.
         startRunsPolling: true,
         stopRunsPolling: true,
-        startScoutChatTask: (chatType: ScoutChatType, taskLabel: string) => ({
+        startScoutChatTask: (chatType: ScoutChatType, taskLabel: string, suggestionId?: string) => ({
             chatType,
             taskLabel,
+            suggestionId,
         }),
         startScoutChatTaskSuccess: true,
         startScoutChatTaskFailure: true,
@@ -786,7 +789,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                             // Recovering here skips the gate `initKea` applies to loader failures, so
                             // reapply it: a refused or unreachable read is expected, but a backend
                             // fault must still reach error tracking instead of reading as success.
-                            if (shouldReportApiFailure(error)) {
+                            // A route the backend does not serve is expected too, because the
+                            // roster ships ahead of its endpoints and shows no number until both
+                            // sides are deployed.
+                            if (shouldReportApiFailure(error) && !isUnavailableEndpointError(error)) {
                                 posthog.captureException(error)
                             }
                             // A full fleet spans several batches, so keep the ones that answered and
@@ -1478,7 +1484,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 actions.deleteScoutFinished(configId)
             }
         },
-        startScoutChatTask: async ({ chatType, taskLabel }) => {
+        startScoutChatTask: async ({ chatType, taskLabel, suggestionId }) => {
             // Task-kickoff, mirroring inboxTaskKickoffLogic: start a cloud task from a fixed
             // template, then navigate to it. Not a live chat.
             // The CTAs carry this as a `disabledReason`; this backstops the paths that don't go
@@ -1488,9 +1494,17 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 actions.startScoutChatTaskFailure()
                 return
             }
+            // `runningChatType` is reactive (for the buttons) and can't tell a fresh submit from a
+            // duplicate, so this non-reactive flag is what stops a second press minting a second
+            // paid task while the first request is in flight.
+            if (cache.chatTaskStarting) {
+                return
+            }
+            cache.chatTaskStarting = true
             captureScoutChatStarted({ chatType, surface: 'fleet_list' })
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
+                cache.chatTaskStarting = false
                 actions.startScoutChatTaskFailure()
                 return
             }
@@ -1498,12 +1512,17 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 // The server owns the prompt template, creates the task repo-less with the
                 // reserved signals_chat origin (which exempts it from the Desktop access gate
                 // on the task run endpoints) and starts its interactive run in one call.
-                const task = await signalsScoutChatTasksCreate(String(teamId), { chat_type: chatType })
+                const task = await signalsScoutChatTasksCreate(String(teamId), {
+                    chat_type: chatType,
+                    suggestion_id: suggestionId,
+                })
                 actions.startScoutChatTaskSuccess()
                 router.actions.push(urls.taskDetail(task.task_id))
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || `Failed to start ${taskLabel}`)
                 actions.startScoutChatTaskFailure()
+            } finally {
+                cache.chatTaskStarting = false
             }
         },
         materializeScoutFleet: sharedListeners.syncScoutFleetIfOwed,

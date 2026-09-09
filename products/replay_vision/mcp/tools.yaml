@@ -166,15 +166,18 @@ tools:
             the query. Scope with `scanner_id` to search one scanner, otherwise every scanner the caller can read is
             searched. Narrow by exact outcome with `verdict` (comma-separated, e.g. `yes,inconclusive`), `tags`
             (comma-separated classifier tags), and `min_score`/`max_score` (scorer bounds), or by time with
-            `date_from`/`date_to` (ISO 8601 or relative like `-7d`). These filter, while `q` ranks. `limit` defaults to
-            20 (max 50). Use `vision-observations-retrieve` for a result's full detail, or `vision-observations-list`
-            for everything observed about one session.
+            `date_from`/`date_to` (ISO 8601, relative like `-7d`, or `now`). These filter, while `q` ranks. `limit`
+            defaults to 20 (max 50). Use `vision-observations-retrieve` for a result's full detail, or
+            `vision-observations-list` for everything observed about one session.
         requires_ai_consent: true
     vision-observations-search-suggestions-retrieve:
         operation: vision_observations_search_suggestions_retrieve
         enabled: false
     vision-observations-search-viewed-create:
         operation: vision_observations_search_viewed_create
+        enabled: false
+    vision-observations-viewed-create:
+        operation: vision_observations_viewed_create
         enabled: false
     vision-quota-retrieve:
         operation: environment_vision_quota_retrieve
@@ -396,6 +399,12 @@ tools:
             (numeric rubric), or `summarizer` (free-text summary, embedded for downstream search). Each scanner returns
             its current configuration, enabled state, sampling settings, `last_swept_at` timestamp, and its credit
             figures (`credits_per_observation`, `estimated_monthly_credits`, `credits_this_month`).
+        param_overrides:
+            enabled:
+                description: >
+                    Filter by enabled state. Accepts `enabled`, `disabled`, a comma-separated list of both, or the
+                    boolean form `true` / `false`. Omit to list every scanner.
+                cast: boolean-string
     vision-scanners-observations-create-task-create:
         operation: vision_scanners_observations_create_task_create
         enabled: false
@@ -482,6 +491,9 @@ tools:
             distributions (`monitor` verdict counts, `classifier` tag rankings, `scorer` score summary and histogram).
             Use it to judge scanner quality and rating coverage, e.g. before generating a prompt suggestion with
             `vision-scanners-prompt-suggestions-generate`.
+    vision-scanners-observations-viewed-create:
+        operation: vision_scanners_observations_viewed_create
+        enabled: false
     vision-scanners-partial-update:
         operation: vision_scanners_partial_update
         enabled: false

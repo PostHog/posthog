@@ -372,11 +372,12 @@ class TaskCommentDetailDTO:
 
 @dataclass(frozen=True)
 class TaskLatestRunSummaryDTO:
-    """The latest-run status/environment pair nested in a task summary response."""
+    """The latest-run state nested in a task summary response."""
 
     id: UUID
     status: str | None
     environment: str | None
+    mode: Literal["interactive", "background"]
 
 
 @dataclass(frozen=True)
@@ -384,7 +385,7 @@ class TaskSummaryDTO:
     """The HTTP summary representation of a task.
 
     Mirrors exactly the fields ``TaskSummarySerializer`` emits. ``latest_run`` carries the
-    most-recent run's ``status`` and ``environment`` (or ``None`` when the task has no runs).
+    most-recent run's status, environment, and mode (or ``None`` when the task has no runs).
     """
 
     id: UUID

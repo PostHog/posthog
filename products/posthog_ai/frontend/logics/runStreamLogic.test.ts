@@ -16,14 +16,13 @@ import type { PermissionRequestFrame, StoredLogEntry } from '../types/wireTypes'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { computeTurnTrailers } from '../utils/turnTrailers'
 import { attachedContextLogic } from './attachedContextLogic'
-import { foregroundStreamLogic } from './foregroundStreamLogic'
 import {
     extractRunArtifacts,
+    foldLogToThread,
     mapHttpStatusToStreamError,
     MAX_CUMULATIVE_RECONNECT_ATTEMPTS,
     MAX_HISTORY_FETCH_ATTEMPTS,
     MAX_SSE_RECONNECT_ATTEMPTS,
-    mergeResourceProducts,
     mergeRunArtifacts,
     parsePermissionRequestFrame,
     reconnectDelayMs,
@@ -41,7 +40,11 @@ jest.mock('products/tasks/frontend/generated/api', () => ({
 }))
 
 function notification(method: string, params: Record<string, unknown>): StoredLogEntry {
-    return { type: 'notification', notification: { method, params } }
+    return {
+        type: 'notification',
+        notification: { method, params },
+        ...(method.startsWith('_posthog/permission_') ? { source_run_id: 'run-1' } : {}),
+    }
 }
 
 function sessionUpdate(update: Record<string, unknown>): StoredLogEntry {
@@ -203,7 +206,9 @@ describe('runStreamLogic', () => {
         MockStream.install()
         projectLogic.mount()
         projectLogic.actions.loadCurrentProjectSuccess({ id: 997 } as any)
-        ;(tasksRunsCommandCreate as jest.Mock).mockReset().mockResolvedValue({ jsonrpc: '2.0' })
+        ;(tasksRunsCommandCreate as jest.Mock)
+            .mockReset()
+            .mockResolvedValue({ jsonrpc: '2.0', result: { resolved: true } })
         logic = runStreamLogic({ streamKey: 'test-conversation', conversationId: 'test-conversation' })
         logic.mount()
     })
@@ -214,6 +219,29 @@ describe('runStreamLogic', () => {
     })
 
     describe('ingestAcpFrame replay', () => {
+        it('omits imported timing and resumes timing on the next native run', () => {
+            const frames = [
+                notification('_posthog/run_started', { imported: true }),
+                sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'imported', status: 'completed' }),
+                notification('_posthog/run_started', {}),
+                sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'native', status: 'in_progress' }),
+                sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'native', status: 'completed' }),
+                sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'missing-start', status: 'completed' }),
+            ]
+            const result = foldLogToThread(
+                frames.map((entry, index) => ({
+                    source: 'replay',
+                    entry: { ...entry, timestamp: new Date((index + 1) * 1000).toISOString() },
+                })),
+                { isResumeRun: true }
+            )
+            expect(result.threadItems.find((item) => item.id === 'imported')?.startedAt).toBeUndefined()
+            expect(result.threadItems.find((item) => item.id === 'native')).toMatchObject({
+                startedAt: 4000,
+                endedAt: 5000,
+            })
+            expect(result.threadItems.find((item) => item.id === 'missing-start')?.startedAt).toBeUndefined()
+        })
         it('folds a stream of StoredLogEntry frames into thread items', async () => {
             const frames: StoredLogEntry[] = [
                 notification('_posthog/run_started', {}),
@@ -237,6 +265,9 @@ describe('runStreamLogic', () => {
                 }),
                 notification('_posthog/turn_complete', {}),
             ]
+            frames.forEach((frame, index) => {
+                frame.timestamp = new Date((index + 1) * 1000).toISOString()
+            })
 
             await expectLogic(logic, () => {
                 frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
@@ -251,6 +282,8 @@ describe('runStreamLogic', () => {
 
             const toolItem = logic.values.threadItems.find((item) => item.type === 'tool_invocation')
             expect(toolItem?.toolCallId).toEqual('t1')
+            expect(toolItem).toMatchObject({ startedAt: 5000, endedAt: 6000 })
+            expect(assistantItem).toMatchObject({ startedAt: 2000, endedAt: 4000 })
 
             const invocation = logic.values.toolInvocations.get('t1')
             expect(invocation?.rawServerName).toEqual('posthog')
@@ -392,6 +425,37 @@ describe('runStreamLogic', () => {
     })
 
     describe('showThinkingIndicator', () => {
+        it.each(['in_progress', 'completed', 'failed'] as const)(
+            'does not repeat the startup loader after a %s progress step',
+            async (status) => {
+                logic.actions.setRunOpening(true)
+                expect(logic.values.showThinkingIndicator).toBe(true)
+
+                await expectLogic(logic, () => {
+                    logic.actions.ingestAcpFrame(
+                        notification('_posthog/progress', {
+                            group: 'setup:run-1',
+                            step: 'sandbox',
+                            status,
+                            label: 'Sandbox setup',
+                        })
+                    )
+                }).toFinishAllListeners()
+
+                expect(logic.values.showThinkingIndicator).toBe(false)
+
+                logic.actions.reset()
+                logic.actions.setRunOpening(true)
+                expect(logic.values.showThinkingIndicator).toBe(true)
+            }
+        )
+
+        it('does not show startup progress after a delivery error', () => {
+            logic.actions.sseOpened()
+            logic.actions.pushErrorItem('Unable to deliver the message')
+            expect(logic.values.showThinkingIndicator).toBe(false)
+        })
+
         const runStartedFrame = notification('_posthog/run_started', {})
         const messageChunk = sessionUpdate({
             sessionUpdate: 'agent_message_chunk',
@@ -972,6 +1036,36 @@ describe('runStreamLogic', () => {
     })
 
     describe('_posthog/user_message rendering', () => {
+        it.each(['live', 'replay'] as const)('omits hidden user content from %s frames', async (source) => {
+            const hidden = { type: 'text', text: 'Internal recovery instruction', _meta: { ui: { hidden: true } } }
+            const visible = { type: 'text', text: 'Use the updated requirements' }
+            const frames = [
+                notification('_posthog/user_message', { content: [hidden] }),
+                sessionUpdate({ sessionUpdate: 'user_message_chunk', content: hidden }),
+                sessionUpdate({ sessionUpdate: 'user_message', content: hidden }),
+            ]
+            await expectLogic(logic, () => {
+                for (const frame of frames) {
+                    logic.actions.ingestAcpFrame(frame, source)
+                }
+            }).toFinishAllListeners()
+            expect(logic.values.threadItems).toEqual([])
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/user_message', { content: [hidden, visible] }),
+                    source
+                )
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'user_message_chunk', content: visible }),
+                    source
+                )
+            }).toFinishAllListeners()
+            expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toEqual([
+                expect.objectContaining({ text: visible.text }),
+            ])
+        })
+
         it('renders a seeded user turn into the thread on bootstrap replay', async () => {
             const frames: StoredLogEntry[] = [
                 notification('_posthog/user_message', { content: 'Why did checkout drop?' }),
@@ -2154,14 +2248,17 @@ describe('runStreamLogic', () => {
             ).toEqual(['history', 'live tail'])
         })
 
-        it('drains the seam by content: a frame in both history and the buffered live tail renders once', async () => {
+        test.each([false, true])('deduplicates history without run markers (resumed=%s)', async (resumed) => {
             // The exact keyless-`agent_message` duplication: the same finalized message is delivered
             // live during the fetch AND persisted in the snapshot. The multiset absorbs the live copy.
             let resolveLogs: (value: unknown) => void = () => {}
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
                 new Promise((resolve) => (resolveLogs = resolve)) as any
             )
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({
+                status: 'in_progress',
+                state: resumed ? { resume_from_run_id: 'ancestor-run' } : {},
+            } as any)
 
             logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()
@@ -2170,7 +2267,7 @@ describe('runStreamLogic', () => {
             const overlap = sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'overlap' } })
             await MockStream.latest().emitMessage(overlap, '9-0')
 
-            resolveLogs([overlap as any])
+            resolveLogs([overlap])
             await flushPromises()
 
             expect(
@@ -2200,7 +2297,7 @@ describe('runStreamLogic', () => {
             await MockStream.latest().emitMessage(repeated, '1-0')
             await MockStream.latest().emitMessage(repeated, '2-0')
 
-            resolveLogs([repeated as any])
+            resolveLogs([repeated])
             await flushPromises()
 
             expect(
@@ -2491,62 +2588,6 @@ describe('runStreamLogic', () => {
         })
     })
 
-    describe('mergeResourceProducts', () => {
-        it('unions by id, preserves first-seen order, and tolerates empty/idless input', () => {
-            const first = mergeResourceProducts([], [{ id: 'product_analytics', label: 'Product analytics' }])
-            expect(first).toEqual([{ id: 'product_analytics', label: 'Product analytics' }])
-
-            const second = mergeResourceProducts(first, [
-                { id: 'product_analytics', label: 'dup' },
-                { id: 'session_replay', label: 'Session replay' },
-                { label: 'no id' },
-                { id: '' },
-            ])
-            expect(second.map((p) => p.id)).toEqual(['product_analytics', 'session_replay'])
-            // First-seen label wins for an id already present.
-            expect(second[0].label).toEqual('Product analytics')
-        })
-    })
-
-    describe('_posthog/resources_used handling', () => {
-        it('unions products into resourcesUsed by id in first-seen order', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.ingestAcpFrame(
-                    notification('_posthog/resources_used', {
-                        products: [
-                            { id: 'product_analytics', label: 'Product analytics' },
-                            { id: 'session_replay', label: 'Session replay' },
-                        ],
-                    })
-                )
-                logic.actions.ingestAcpFrame(
-                    notification('_posthog/resources_used', {
-                        products: [
-                            { id: 'session_replay', label: 'Session replay' },
-                            { id: 'sql', label: 'SQL' },
-                        ],
-                    })
-                )
-            }).toFinishAllListeners()
-
-            expect(logic.values.resourcesUsed.map((p) => p.id)).toEqual(['product_analytics', 'session_replay', 'sql'])
-        })
-
-        it('survives bootstrap replay without double-counting (same frame twice → one entry set)', async () => {
-            const frame = notification('_posthog/resources_used', {
-                products: [{ id: 'product_analytics', label: 'Product analytics' }],
-            })
-            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([frame as any, frame as any])
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
-
-            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
-            await flushPromises()
-
-            // Content-dedup drops the identical replay; the union would dedup by id regardless.
-            expect(logic.values.resourcesUsed.map((p) => p.id)).toEqual(['product_analytics'])
-        })
-    })
-
     describe('_posthog/usage_update handling', () => {
         it('folds the Codex split frames (used + cost, then breakdown) into contextUsage', async () => {
             await expectLogic(logic, () => {
@@ -2761,16 +2802,12 @@ describe('runStreamLogic', () => {
     })
 
     describe('reset clears notification state', () => {
-        it('clears resourcesUsed, contextUsage, and sdkSession on reset', async () => {
+        it('clears contextUsage and sdkSession on reset', async () => {
             await expectLogic(logic, () => {
-                logic.actions.ingestAcpFrame(
-                    notification('_posthog/resources_used', { products: [{ id: 'sql', label: 'SQL' }] })
-                )
                 logic.actions.ingestAcpFrame(notification('_posthog/usage_update', { used: { inputTokens: 1 } }))
                 logic.actions.ingestAcpFrame(notification('_posthog/sdk_session', { adapter: 'codex' }))
             }).toFinishAllListeners()
 
-            expect(logic.values.resourcesUsed).toHaveLength(1)
             expect(logic.values.contextUsage).not.toBeNull()
             expect(logic.values.sdkSession).not.toBeNull()
 
@@ -2778,20 +2815,8 @@ describe('runStreamLogic', () => {
                 logic.actions.reset()
             }).toFinishAllListeners()
 
-            expect(logic.values.resourcesUsed).toEqual([])
             expect(logic.values.contextUsage).toBeNull()
             expect(logic.values.sdkSession).toBeNull()
-        })
-
-        it('keeps resourcesUsed across markTurnComplete (accumulates over the session)', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.ingestAcpFrame(
-                    notification('_posthog/resources_used', { products: [{ id: 'sql', label: 'SQL' }] })
-                )
-                logic.actions.markTurnComplete()
-            }).toFinishAllListeners()
-
-            expect(logic.values.resourcesUsed.map((p) => p.id)).toEqual(['sql'])
         })
     })
 
@@ -2920,6 +2945,14 @@ describe('runStreamLogic', () => {
                 runId: 'run-1',
                 traceId: 'trace-1',
             })
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/permission_request', {
+                    requestId: 'req-1',
+                    toolCall: { toolCallId: 'tool-1', toolName: 'example_tool' },
+                    options: [{ optionId: 'allow_once', name: 'Allow', kind: 'allow_once' }],
+                }),
+                'replay'
+            )
 
             await expectLogic(logic, () => {
                 logic.actions.respondToPermission({
@@ -2928,12 +2961,17 @@ describe('runStreamLogic', () => {
                 })
             }).toFinishAllListeners()
 
-            // "Command the latest run": the reply targets the (task, run) the renderer is streaming.
-            expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
-                jsonrpc: '2.0',
-                method: 'permission_response',
-                params: { requestId: 'req-1', optionId: 'allow_once', customInput: undefined, answers: undefined },
-            })
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
+                '997',
+                'task-1',
+                'run-1',
+                {
+                    jsonrpc: '2.0',
+                    method: 'permission_response',
+                    params: { requestId: 'req-1', optionId: 'allow_once', customInput: undefined, answers: undefined },
+                },
+                { signal: expect.any(AbortSignal) }
+            )
         })
 
         it('cancelRun cancels the streamed run via the tasks relay', async () => {
@@ -3191,18 +3229,17 @@ describe('runStreamLogic', () => {
     })
 
     describe('permission_request ingest', () => {
-        // A destructive exec (`insight-update`) so the default policy prompts (shows a card) rather
-        // than auto-approving — the lifecycle tests below all assume a card appears.
+        // An external MCP request prompts, so the lifecycle tests below can exercise the card.
         const permissionFrame: PermissionRequestFrame = {
             type: 'permission_request',
             requestId: 'req-1',
             toolCall: {
                 toolCallId: 't1',
-                serverName: 'posthog',
-                toolName: 'exec',
-                _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
-                rawInput: { command: 'call insight-update {"id":"abc"}' },
-                title: 'Update insight',
+                serverName: 'other',
+                toolName: 'write',
+                _meta: { claudeCode: { toolName: 'mcp__other__write' } },
+                rawInput: { value: 'new' },
+                title: 'Write data',
                 status: 'pending',
             },
             options: [
@@ -3211,17 +3248,216 @@ describe('runStreamLogic', () => {
             ],
         }
 
+        describe.each([false, true])('approval delivery (automatic=%s)', (automatic) => {
+            const readinessError = { status: 503, code: 'agent_session_not_ready' }
+            const accepted = { jsonrpc: '2.0', result: { resolved: true } }
+            const answers = { 'Which environment?': 'Example environment' }
+            const submit = (): void => {
+                const record = parsePermissionRequestFrame(permissionFrame, 'run-1')!
+                if (automatic) {
+                    logic.actions.autoApprovePermissionRequest(record, 'allow_once')
+                } else {
+                    logic.actions.ingestPermissionRequest(record)
+                    logic.actions.respondToPermission({ requestId: record.requestId, optionId: 'allow_once', answers })
+                }
+            }
+
+            beforeEach(() => {
+                jest.useFakeTimers()
+                jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as never)
+                jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as never)
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            })
+
+            afterEach(() => jest.useRealTimers())
+
+            test('retries readiness rejections with one stable approval until confirmed', async () => {
+                const command = jest.mocked(tasksRunsCommandCreate)
+                let accept!: (value: typeof accepted) => void
+                command
+                    .mockRejectedValueOnce(readinessError)
+                    .mockRejectedValueOnce(readinessError)
+                    .mockRejectedValueOnce(readinessError)
+                    .mockImplementationOnce(
+                        () =>
+                            new Promise((resolve) => {
+                                accept = resolve
+                            })
+                    )
+                submit()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(command).toHaveBeenCalledTimes(1)
+                expect(logic.values.respondingToPermission).toBe(true)
+                if (!automatic) {
+                    expect(logic.values.pendingPermissionRequest?.requestId).toBe('req-1')
+                    logic.actions.respondToPermission({ requestId: 'req-1', optionId: 'reject' })
+                    expect(command).toHaveBeenCalledTimes(1)
+                }
+                await jest.advanceTimersByTimeAsync(250)
+                expect(command).toHaveBeenCalledTimes(2)
+                await jest.advanceTimersByTimeAsync(500)
+                expect(command).toHaveBeenCalledTimes(3)
+                await jest.advanceTimersByTimeAsync(1000)
+                expect(command).toHaveBeenCalledTimes(4)
+                expect(logic.values.resolvedPermissionRequestIds.has('req-1')).toBe(false)
+                accept(accepted)
+                await jest.advanceTimersByTimeAsync(0)
+                expect(logic.values.pendingPermissionRequest).toBeNull()
+                expect(logic.values.respondingToPermission).toBe(false)
+                expect(logic.values.resolvedPermissionRequestIds.has('req-1')).toBe(true)
+                const first = command.mock.calls[0].slice(0, 4)
+                expect(first.slice(0, 3)).toEqual(['997', 'task-1', 'run-1'])
+                for (const call of command.mock.calls) {
+                    expect(call.slice(0, 4)).toEqual(first)
+                }
+            })
+
+            test.each(['exhausted', 'rpc_error', 'transport', 'request_timeout'])(
+                'preserves a manual card after %s and accepts a later manual retry',
+                async (outcome) => {
+                    const command = jest.mocked(tasksRunsCommandCreate)
+                    if (outcome === 'exhausted') {
+                        command.mockRejectedValue(readinessError)
+                    } else if (outcome === 'rpc_error') {
+                        command.mockResolvedValue({
+                            jsonrpc: '2.0',
+                            error: { code: -32000, message: 'No pending permission request found for id: req-1' },
+                        })
+                    } else if (outcome === 'transport') {
+                        command.mockRejectedValue(new TypeError('Network request failed'))
+                    } else {
+                        command.mockImplementation(() => new Promise(() => {}))
+                    }
+                    submit()
+                    await jest.advanceTimersByTimeAsync(10_000)
+                    expect(command).toHaveBeenCalledTimes(outcome === 'exhausted' ? 12 : 1)
+                    expect(logic.values.pendingPermissionRequest?.requestId).toBe('req-1')
+                    expect(logic.values.respondingToPermission).toBe(false)
+                    expect(logic.values.resolvedPermissionRequestIds.has('req-1')).toBe(false)
+                    const failedAttempts = command.mock.calls.length
+                    await jest.advanceTimersByTimeAsync(10_000)
+                    expect(command).toHaveBeenCalledTimes(failedAttempts)
+                    command.mockResolvedValue(accepted)
+                    logic.actions.respondToPermission({ requestId: 'req-1', optionId: 'allow_once', answers })
+                    await jest.advanceTimersByTimeAsync(0)
+                    expect(command.mock.lastCall?.[3].params).toEqual({
+                        requestId: 'req-1',
+                        optionId: 'allow_once',
+                        customInput: undefined,
+                        answers,
+                    })
+                    expect(logic.values.pendingPermissionRequest).toBeNull()
+                }
+            )
+
+            test.each(['replacement', 'terminal', 'resolved', 'unmount', 'reset'])(
+                'cancels an outstanding request on %s and ignores its completion',
+                async (change) => {
+                    const command = jest.mocked(tasksRunsCommandCreate)
+                    let complete!: (value: typeof accepted) => void
+                    command.mockImplementation(
+                        () =>
+                            new Promise((resolve) => {
+                                complete = resolve
+                            })
+                    )
+                    submit()
+                    await jest.advanceTimersByTimeAsync(0)
+                    const signal = command.mock.calls[0][4]?.signal
+                    if (change === 'replacement') {
+                        logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-2' })
+                    } else if (change === 'terminal') {
+                        logic.actions.handleTerminalStatus({ status: 'completed' })
+                    } else if (change === 'resolved') {
+                        logic.actions.ingestAcpFrame(
+                            notification('_posthog/permission_resolved', { requestId: 'req-1' })
+                        )
+                    } else if (change === 'reset') {
+                        logic.actions.reset()
+                    } else {
+                        logic.unmount()
+                        logic.mount()
+                    }
+                    expect(signal?.aborted).toBe(true)
+                    complete(accepted)
+                    await jest.advanceTimersByTimeAsync(20_000)
+                    expect(command).toHaveBeenCalledTimes(1)
+                    expect(logic.values.pendingPermissionRequest).toBeNull()
+                    expect(logic.values.respondingToPermission).toBe(false)
+                    expect(logic.values.resolvedPermissionRequestIds.has('req-1')).toBe(change === 'resolved')
+                }
+            )
+
+            test('drops the card when the target run has already ended', async () => {
+                const command = jest
+                    .mocked(tasksRunsCommandCreate)
+                    .mockRejectedValue({ status: 409, code: 'permission_target_ended' })
+                submit()
+                await jest.advanceTimersByTimeAsync(10_000)
+                expect(command).toHaveBeenCalledTimes(1)
+                expect(logic.values.pendingPermissionRequest).toBeNull()
+                expect(logic.values.respondingToPermission).toBe(false)
+            })
+
+            test('cancels an outstanding request when the streamed run is canceled', async () => {
+                const command = jest.mocked(tasksRunsCommandCreate)
+                let complete!: (value: typeof accepted) => void
+                command
+                    .mockImplementationOnce(
+                        () =>
+                            new Promise((resolve) => {
+                                complete = resolve
+                            })
+                    )
+                    .mockResolvedValue(accepted)
+                submit()
+                await jest.advanceTimersByTimeAsync(0)
+                const signal = command.mock.calls[0][4]?.signal
+                logic.actions.cancelRun()
+                expect(signal?.aborted).toBe(true)
+                complete(accepted)
+                await jest.advanceTimersByTimeAsync(20_000)
+                expect(command.mock.calls.filter((call) => call[3].method === 'permission_response')).toHaveLength(1)
+                expect(logic.values.respondingToPermission).toBe(false)
+                expect(logic.values.resolvedPermissionRequestIds.has('req-1')).toBe(false)
+            })
+
+            test('keeps the delivery alive when a warm run outside this stream is canceled', async () => {
+                const command = jest.mocked(tasksRunsCommandCreate).mockRejectedValue(readinessError)
+                submit()
+                await jest.advanceTimersByTimeAsync(250)
+                logic.actions.cancelRun({ taskId: 'warm-task', runId: 'warm-run' })
+                await jest.advanceTimersByTimeAsync(500)
+                expect(command.mock.calls.filter((call) => call[3].method === 'permission_response')).toHaveLength(3)
+            })
+
+            test('stops readiness retries when another client resolves this permission', async () => {
+                const command = jest.mocked(tasksRunsCommandCreate).mockRejectedValue(readinessError)
+                submit()
+                await jest.advanceTimersByTimeAsync(250)
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/permission_resolved', { requestId: 'different-request' })
+                )
+                await jest.advanceTimersByTimeAsync(500)
+                expect(command).toHaveBeenCalledTimes(3)
+                logic.actions.ingestAcpFrame(notification('_posthog/permission_resolved', { requestId: 'req-1' }))
+                await jest.advanceTimersByTimeAsync(10_000)
+                expect(command).toHaveBeenCalledTimes(3)
+                expect(logic.values.pendingPermissionRequest).toBeNull()
+            })
+        })
+
         it('parses a permission_request frame into a PermissionRequestRecord', () => {
             const record = parsePermissionRequestFrame(permissionFrame)
             expect(record).not.toBeNull()
             expect(record?.requestId).toEqual('req-1')
             expect(record?.toolCallId).toEqual('t1')
-            expect(record?.toolName).toEqual('mcp__posthog__exec')
+            expect(record?.toolName).toEqual('mcp__other__write')
             expect(record?.options.map((o) => o.kind)).toEqual(['allow_once', 'reject'])
-            expect(record?.rawToolCall.rawServerName).toEqual('posthog')
-            expect(record?.rawToolCall.rawToolName).toEqual('exec')
-            expect(record?.rawToolCall.input).toEqual({ command: 'call insight-update {"id":"abc"}' })
-            expect(record?.rawToolCall.meta).toEqual({ claudeCode: { toolName: 'mcp__posthog__exec' } })
+            expect(record?.rawToolCall.rawServerName).toEqual('other')
+            expect(record?.rawToolCall.rawToolName).toEqual('write')
+            expect(record?.rawToolCall.input).toEqual({ value: 'new' })
+            expect(record?.rawToolCall.meta).toEqual({ claudeCode: { toolName: 'mcp__other__write' } })
         })
 
         it('returns null for a frame with no usable options', () => {
@@ -3285,7 +3521,7 @@ describe('runStreamLogic', () => {
             )
         })
 
-        it('auto-approves a non-destructive PostHog exec without showing a card', async () => {
+        it('auto-approves a PostHog MCP operation without showing a card', async () => {
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             // Resolving the proxy stream target mints a token before `openStream`, so the connection
@@ -3298,16 +3534,25 @@ describe('runStreamLogic', () => {
                 requestId: 'req-auto',
                 toolCall: {
                     ...permissionFrame.toolCall,
-                    rawInput: { command: 'call insight-create {"name":"x"}' },
+                    serverName: 'posthog',
+                    toolName: 'exec',
+                    _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
+                    rawInput: { command: 'call insight-update {"id":"abc"}' },
                 },
             })
 
             expect(logic.values.pendingPermissionRequest).toBeNull()
-            expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
-                jsonrpc: '2.0',
-                method: 'permission_response',
-                params: { requestId: 'req-auto', optionId: 'allow_once' },
-            })
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
+                '997',
+                'task-1',
+                'run-1',
+                {
+                    jsonrpc: '2.0',
+                    method: 'permission_response',
+                    params: { requestId: 'req-auto', optionId: 'allow_once' },
+                },
+                { signal: expect.any(AbortSignal) }
+            )
             expect(captureSpy).toHaveBeenCalledWith(
                 'permission_auto_approved',
                 expect.objectContaining({ request_id: 'req-auto', execution_type: 'sandbox' })
@@ -3332,96 +3577,23 @@ describe('runStreamLogic', () => {
             })
 
             expect(logic.values.pendingPermissionRequest).toBeNull()
-            expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
-                jsonrpc: '2.0',
-                method: 'permission_response',
-                params: { requestId: 'req-bash', optionId: 'allow' },
-            })
-        })
-
-        describe('foreground gate for persist tools', () => {
-            // `defaultPermissionDecision` alone auto-approves `dashboard-create` everywhere (it isn't
-            // destructive). The product requirement is that this run must still prompt when it's a
-            // foreground stream (rendered in a surface the user is watching). Proving this needs the
-            // call site (`routePermissionRequest` consulting `foregroundStreamKeys`), not just the
-            // pure `isPersistPromptTool` helper.
-            it('prompts for a persist tool when this run is a foreground stream', async () => {
-                foregroundStreamLogic.actions.setForegroundStream('test-conversation', 'p1')
-                // A second surface watching a different run must not evict ours from the gate — the
-                // old single-slot model regressed exactly this (last write won, ours auto-approved).
-                foregroundStreamLogic.actions.setForegroundStream('other-stream', 'p2')
-                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-                await flushPromises()
-                const source = MockStream.latest()
-
-                await source.emitMessage({
-                    ...permissionFrame,
-                    requestId: 'req-dashboard-fg',
-                    toolCall: {
-                        ...permissionFrame.toolCall,
-                        rawInput: { command: 'call dashboard-create {"name":"New dashboard"}' },
-                    },
-                })
-
-                expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-dashboard-fg')
-                expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
-            })
-
-            it('still auto-approves a persist tool when this run is not a foreground stream', async () => {
-                // No surface has registered this run; the auto-approve path yields one macrotask
-                // (the race re-check) before POSTing, so drain a timer tick too.
-                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-                await flushPromises()
-                const source = MockStream.latest()
-
-                await source.emitMessage({
-                    ...permissionFrame,
-                    requestId: 'req-dashboard-bg',
-                    toolCall: {
-                        ...permissionFrame.toolCall,
-                        rawInput: { command: 'call dashboard-create {"name":"New dashboard"}' },
-                    },
-                })
-                await new Promise((resolve) => setTimeout(resolve, 0))
-
-                expect(logic.values.pendingPermissionRequest).toBeNull()
-                expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
+                '997',
+                'task-1',
+                'run-1',
+                {
                     jsonrpc: '2.0',
                     method: 'permission_response',
-                    params: { requestId: 'req-dashboard-bg', optionId: 'allow_once' },
-                })
-            })
-
-            it('prompts when the foreground registration lands just after the frame (mount race)', async () => {
-                // A live SSE frame can be processed before a mounting surface's registration effect
-                // flushes. After `emitMessage` the auto-approve listener is parked on its one-macrotask
-                // yield; registering now must flip the decision to the card instead of the POST.
-                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-                await flushPromises()
-                const source = MockStream.latest()
-
-                await source.emitMessage({
-                    ...permissionFrame,
-                    requestId: 'req-dashboard-race',
-                    toolCall: {
-                        ...permissionFrame.toolCall,
-                        rawInput: { command: 'call dashboard-create {"name":"New dashboard"}' },
-                    },
-                })
-                foregroundStreamLogic.actions.setForegroundStream('test-conversation', 'p-race')
-                await new Promise((resolve) => setTimeout(resolve, 0))
-
-                expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-dashboard-race')
-                expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
-            })
+                    params: { requestId: 'req-bash', optionId: 'allow' },
+                },
+                { signal: expect.any(AbortSignal) }
+            )
         })
 
         describe('full-auto mode', () => {
-            // A `bypassPermissions` run opted out of tool approvals: a destructive exec sub-tool (which
-            // otherwise always prompts) must auto-approve even on a foreground stream. The mode arrives
-            // only on the session/new meta, so this also guards that seed parsing.
-            it('auto-approves a destructive exec sub-tool once session/new seeds bypassPermissions', async () => {
-                foregroundStreamLogic.actions.setForegroundStream('test-conversation', 'p-full-auto')
+            // A `bypassPermissions` run opts out of tool approvals. The mode arrives only on the
+            // session/new meta, so this also guards that seed parsing.
+            it('auto-approves an external MCP tool once session/new seeds bypassPermissions', async () => {
                 logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
                 await flushPromises()
                 const source = MockStream.latest()
@@ -3434,17 +3606,49 @@ describe('runStreamLogic', () => {
                     requestId: 'req-destructive-fa',
                     toolCall: {
                         ...permissionFrame.toolCall,
-                        rawInput: { command: 'call cdp-functions-partial-update {"id":"abc"}' },
+                        rawInput: { value: 'changed' },
                     },
                 })
                 await new Promise((resolve) => setTimeout(resolve, 0))
 
                 expect(logic.values.pendingPermissionRequest).toBeNull()
-                expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
-                    jsonrpc: '2.0',
-                    method: 'permission_response',
-                    params: { requestId: 'req-destructive-fa', optionId: 'allow_once' },
+                expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
+                    '997',
+                    'task-1',
+                    'run-1',
+                    {
+                        jsonrpc: '2.0',
+                        method: 'permission_response',
+                        params: { requestId: 'req-destructive-fa', optionId: 'allow_once' },
+                    },
+                    { signal: expect.any(AbortSignal) }
+                )
+            })
+
+            it('still surfaces a connected-project operation', async () => {
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
+                const source = MockStream.latest()
+
+                await source.emitMessage(
+                    notification('session/new', { _meta: { permissionMode: 'bypassPermissions' } })
+                )
+                await source.emitMessage({
+                    ...permissionFrame,
+                    requestId: 'req-connected-project',
+                    toolCall: {
+                        ...permissionFrame.toolCall,
+                        serverName: 'posthog',
+                        toolName: 'exec',
+                        _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
+                        rawInput: {
+                            command: 'call posthog-connection-call {"connection_id":"1","tool":"feature-flag-delete"}',
+                        },
+                    },
                 })
+
+                expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-connected-project')
+                expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
             })
 
             it('still surfaces a question in full-auto instead of picking an answer', async () => {
@@ -3484,6 +3688,9 @@ describe('runStreamLogic', () => {
                 requestId: 'req-fail',
                 toolCall: {
                     ...permissionFrame.toolCall,
+                    serverName: 'posthog',
+                    toolName: 'exec',
+                    _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
                     rawInput: { command: 'call insight-create {"name":"x"}' },
                 },
             })
@@ -3500,16 +3707,27 @@ describe('runStreamLogic', () => {
             viewerLogic.mount()
             try {
                 viewerLogic.actions.openSseForRun({ taskId: 'task-7', runId: 'run-7' })
-                viewerLogic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame)!)
+                viewerLogic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame, 'run-7')!)
                 await expectLogic(viewerLogic, () => {
                     viewerLogic.actions.respondToPermission({ requestId: 'req-1', optionId: 'allow_once' })
                 }).toFinishAllListeners()
 
-                expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-7', 'run-7', {
-                    jsonrpc: '2.0',
-                    method: 'permission_response',
-                    params: { requestId: 'req-1', optionId: 'allow_once', customInput: undefined, answers: undefined },
-                })
+                expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
+                    '997',
+                    'task-7',
+                    'run-7',
+                    {
+                        jsonrpc: '2.0',
+                        method: 'permission_response',
+                        params: {
+                            requestId: 'req-1',
+                            optionId: 'allow_once',
+                            customInput: undefined,
+                            answers: undefined,
+                        },
+                    },
+                    { signal: expect.any(AbortSignal) }
+                )
                 const permRequested = captureSpy.mock.calls.find((c) => c[0] === 'permission_requested')
                 expect(permRequested).not.toBeUndefined()
                 if (!permRequested) {
@@ -3525,7 +3743,7 @@ describe('runStreamLogic', () => {
 
         it('clears the pending request and commands the run on respondToPermission', async () => {
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame)!)
+            logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame, 'run-1')!)
 
             await expectLogic(logic, () => {
                 logic.actions.respondToPermission({
@@ -3536,11 +3754,17 @@ describe('runStreamLogic', () => {
 
             expect(logic.values.pendingPermissionRequest).toBeNull()
             expect(logic.values.respondingToPermission).toEqual(false)
-            expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
-                jsonrpc: '2.0',
-                method: 'permission_response',
-                params: { requestId: 'req-1', optionId: 'allow_once', customInput: undefined, answers: undefined },
-            })
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
+                '997',
+                'task-1',
+                'run-1',
+                {
+                    jsonrpc: '2.0',
+                    method: 'permission_response',
+                    params: { requestId: 'req-1', optionId: 'allow_once', customInput: undefined, answers: undefined },
+                },
+                { signal: expect.any(AbortSignal) }
+            )
         })
 
         it('keeps the card pending and surfaces an error when the reply command fails', async () => {
@@ -3548,7 +3772,7 @@ describe('runStreamLogic', () => {
             const exceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
             const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame)!)
+            logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame, 'run-1')!)
 
             await expectLogic(logic, () => {
                 logic.actions.respondToPermission({
@@ -3599,23 +3823,46 @@ describe('runStreamLogic', () => {
             expect(captureSpy).toHaveBeenCalledTimes(1)
         })
 
-        it('re-derives a pending approval from a logged _posthog/permission_request without telemetry', async () => {
-            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
-            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
-                notification('_posthog/permission_request', {
-                    requestId: 'req-1',
-                    toolCall: permissionFrame.toolCall,
-                    options: permissionFrame.options,
-                }) as any,
-            ])
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+        test.each([
+            ['_posthog/sdk_session', 'run-1', true, true],
+            ['_posthog/run_started', 'run-1', true, true],
+            ['_posthog/sdk_session', 'ancestor-run', true, false],
+            ['_posthog/run_started', 'ancestor-run', true, false],
+            [undefined, undefined, true, false],
+            [undefined, undefined, false, true],
+        ] as const)(
+            'restores approvals using run markers (%s, %s, resumed=%s)',
+            async (method, sourceRunId, resumed, actionable) => {
+                const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+                jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                    ...(method
+                        ? [
+                              notification(method, {
+                                  [method === '_posthog/sdk_session' ? 'taskRunId' : 'runId']: sourceRunId,
+                              }),
+                          ]
+                        : []),
+                    notification('_posthog/permission_request', {
+                        requestId: 'req-1',
+                        toolCall: permissionFrame.toolCall,
+                        options: permissionFrame.options,
+                    }),
+                ])
+                jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({
+                    status: 'in_progress',
+                    state: resumed ? { resume_from_run_id: 'ancestor-run' } : {},
+                } as any)
 
-            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
-            await flushPromises()
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
 
-            expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-1')
-            expect(captureSpy).not.toHaveBeenCalled()
-        })
+                expect(logic.values.pendingPermissionRequest?.requestId).toEqual(actionable ? 'req-1' : undefined)
+                expect(captureSpy).not.toHaveBeenCalled()
+                logic.actions.respondToPermission({ requestId: 'req-1', optionId: 'allow_once' })
+                await flushPromises()
+                expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(actionable ? 1 : 0)
+            }
+        )
 
         it('drops a logged permission_request that has a matching permission_resolved entry', async () => {
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
@@ -3635,7 +3882,8 @@ describe('runStreamLogic', () => {
         })
 
         it('clears the pending card when another client resolves the request', async () => {
-            logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame)!)
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame, 'run-1')!)
             expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-1')
 
             await expectLogic(logic, () => {
@@ -3646,7 +3894,7 @@ describe('runStreamLogic', () => {
         })
 
         it('drops the pending card when the run reaches a terminal status, but not before', () => {
-            logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame)!)
+            logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame, 'run-1')!)
 
             logic.actions.handleTerminalStatus({ status: 'queued' })
             expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-1')

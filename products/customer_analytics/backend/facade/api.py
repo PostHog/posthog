@@ -72,6 +72,7 @@ from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.conversations.backend.facade.api import (
     AccountEmailThreadMessage as AccountEmailThreadMessage,
     AccountEmailThreadSummary as AccountEmailThreadSummary,
@@ -95,13 +96,16 @@ from products.customer_analytics.backend.facade.contracts import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
 )
 from products.customer_analytics.backend.facade.email_matching import schedule_email_thread_link_recalculation
+from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 from products.customer_analytics.backend.logic import (
     account_track_rules as _account_track_rules_logic,
     announcements as _announcements_logic,
     channel_summaries as _channel_summaries_logic,
     custom_property_values as _custom_property_values_logic,
+    customer_tasks as _customer_tasks_logic,
     feature_requests as _feature_requests_logic,
     relationships as _relationships_logic,
+    user_customer_analytics_config as _user_customer_analytics_config_logic,
 )
 from products.customer_analytics.backend.logic.account_filters import (
     InvalidAccountFilter,
@@ -137,6 +141,10 @@ from products.customer_analytics.backend.models import (
     Announcement,
     CustomerJourney,
     CustomerProfileConfig,
+    CustomerTask,
+    CustomerTaskActivity,
+    CustomerTaskActivityType,
+    CustomerTaskStatus,
     CustomPropertyDefinition,
     CustomPropertySource,
     CustomPropertySyncRun,
@@ -148,6 +156,7 @@ from products.customer_analytics.backend.models import (
     SyncStatus,
     SyncTrigger,
     TargetType,
+    UserCustomerAnalyticsConfig as UserCustomerAnalyticsConfigModel,
 )
 from products.customer_analytics.backend.models.account import (
     RETIRED_ROLE_KEYS,
@@ -187,7 +196,6 @@ _ACCOUNT_PROPERTY_INPUT_KEY = "properties"
 if TYPE_CHECKING:
     from posthog.models.user import User
 
-    from products.access_control.backend.facade.user_access_control import UserAccessControl
     from products.customer_analytics.backend.models import CustomPropertyValue
     from products.workflows.backend.services.account_audience import AccountAudienceFilters
 
@@ -880,9 +888,9 @@ class CustomPropertyDefinitionConflictError(Exception):
 
 
 class CanonicalCustomPropertyReadOnlyError(Exception):
-    """Raised when an update would change a field PostHog owns on a canonical custom property —
-    its name or display type. Both are what the write path matches on, so a user editing them
-    would silently stop the values from being recorded (→ 400)."""
+    """Canonical names and types identify the properties that PostHog records.
+    Manual API writes must preserve those identifiers and their system-managed values.
+    """
 
 
 class ResourceForbiddenError(Exception):
@@ -1158,6 +1166,40 @@ def delete_customer_profile_config(
     return True
 
 
+# --- UserCustomerAnalyticsConfig ---
+
+
+InvalidPinnedAccountProperties = _user_customer_analytics_config_logic.InvalidPinnedAccountProperties
+
+
+def _to_user_customer_analytics_config(
+    config: UserCustomerAnalyticsConfigModel,
+) -> contracts.UserCustomerAnalyticsConfig:
+    raw_references = config.properties[_user_customer_analytics_config_logic.PINNED_PROPERTIES_KEY]
+    return contracts.UserCustomerAnalyticsConfig(
+        pinned_properties=[
+            contracts.PinnedAccountProperty(kind=reference["kind"], id=UUID(str(reference["id"])))
+            for reference in raw_references
+        ]
+    )
+
+
+def get_user_customer_analytics_config(*, team_id: int, user_id: int) -> contracts.UserCustomerAnalyticsConfig:
+    config = _user_customer_analytics_config_logic.get_or_create_config(team_id=team_id, user_id=user_id)
+    return _to_user_customer_analytics_config(config)
+
+
+def update_user_customer_analytics_config(
+    *, team_id: int, user_id: int, pinned_properties: list[contracts.PinnedAccountProperty]
+) -> contracts.UserCustomerAnalyticsConfig:
+    config = _user_customer_analytics_config_logic.update_pinned_properties(
+        team_id=team_id,
+        user_id=user_id,
+        references=[(AccountPropertyPinKind(reference.kind), reference.id) for reference in pinned_properties],
+    )
+    return _to_user_customer_analytics_config(config)
+
+
 # --- CustomPropertyDefinition ---
 
 
@@ -1255,7 +1297,7 @@ def list_custom_property_definitions(
     ``has_workflow_reference`` is included for every caller. ``references`` carries only workflow
     metadata the caller can read. ``exclude_group_targets`` hides group-target definitions from callers
     without ``group`` read authorization."""
-    queryset = CustomPropertyDefinition.objects.filter(team_id=team_id).select_related("source").order_by("name")
+    queryset = CustomPropertyDefinition.objects.for_team(team_id).select_related("source").order_by("name")
     if exclude_group_targets:
         queryset = queryset.exclude(target_type=TargetType.GROUP.value)
     total_count = queryset.count()
@@ -1282,14 +1324,14 @@ def list_custom_property_definitions(
 
 
 def get_custom_property_definition_target_type(team_id: int, definition_id: str) -> str | None:
-    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    definition = _get_custom_property_definition(team_id, definition_id)
     return definition.target_type if definition is not None else None
 
 
 def get_custom_property_definition(
     team_id: int, definition_id: str, *, user_access_control: "UserAccessControl"
 ) -> contracts.CustomPropertyDefinitionView | None:
-    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    definition = _get_custom_property_definition(team_id, definition_id)
     if definition is None:
         return None
     workflow_references_by_definition_id = _custom_property_references_by_definition_id(
@@ -1330,7 +1372,7 @@ def create_custom_property_definition(
     was_impersonated: bool,
 ) -> contracts.CustomPropertyDefinitionView:
     try:
-        definition = CustomPropertyDefinition.objects.create(
+        definition = CustomPropertyDefinition.objects.for_team(team_id).create(
             team_id=team_id,
             created_by=user,
             name=name,
@@ -1384,11 +1426,11 @@ def update_custom_property_definition(
 ) -> contracts.CustomPropertyDefinitionView | None:
     """Apply ``fields`` (only the keys the caller sent) to a team-scoped definition. Returns the
     updated view, or None when no definition matches the id for this team (→ 404)."""
-    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    definition = _get_custom_property_definition(team_id, definition_id)
     if definition is None:
         return None
     _assert_canonical_fields_unchanged(definition, fields)
-    previous = CustomPropertyDefinition.objects.get(pk=definition.pk)
+    previous = CustomPropertyDefinition.objects.for_team(team_id).get(pk=definition.pk)
     for attr, value in fields.items():
         setattr(definition, attr, value)
     # Re-coerce against the effective display type: a PATCH that only flips the type to a
@@ -1450,7 +1492,7 @@ def delete_custom_property_definition(
     was_impersonated: bool,
 ) -> bool:
     """Delete a team-scoped definition. Returns False when none matched (→ 404)."""
-    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    definition = _get_custom_property_definition(team_id, definition_id)
     if definition is None:
         return False
     _log_activity_swallowing(
@@ -2197,7 +2239,7 @@ def create_custom_property_source(
     column_descriptions: dict | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> contracts.CustomPropertySourceView:
-    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    definition = _get_custom_property_definition(team_id, definition_id)
     if definition is None:
         raise CustomPropertySourceValidationError("Custom property definition not found for this team.")
 
@@ -3566,6 +3608,7 @@ def delete_account_for_view(
         # linger in a Slack destination filter.
         streams = _event_streams_containing_account(account)
         team = account.team
+        _customer_tasks_logic.remove_customer_task_assignee_access_for_account(team=team, account_id=account.id)
         account.delete()
         schedule_email_thread_link_recalculation(team_id)
         for stream in streams:
@@ -4260,6 +4303,13 @@ def _get_team_scoped(model, team_id: int, pk: str | UUID):
         return None
 
 
+def _get_custom_property_definition(team_id: int, definition_id: str | UUID) -> CustomPropertyDefinition | None:
+    try:
+        return CustomPropertyDefinition.objects.for_team(team_id).get(pk=definition_id)
+    except (CustomPropertyDefinition.DoesNotExist, ValidationError, ValueError):
+        return None
+
+
 def _get_object_or_raise(queryset, pk: str, model):
     """Fetch by pk from an already-scoped queryset, raising ``model.DoesNotExist`` for
     absent/malformed ids (the view maps that to 404)."""
@@ -4329,6 +4379,11 @@ def set_custom_property_value(
     *,
     actor: "User | None" = None,
 ) -> contracts.CustomPropertyValue:
+    definition = _get_custom_property_definition(team_id, definition_id)
+    if definition is not None and definition.name in CANONICAL_DISPLAY_TYPE_BY_NAME:
+        raise CanonicalCustomPropertyReadOnlyError(
+            "This custom property is managed by PostHog and can't be edited manually."
+        )
     if _source_backed_definition_ids(team_id, [definition_id]):
         raise CustomPropertyValueSourceManaged(
             "This custom property is managed by a data warehouse source and can't be set manually."
@@ -4342,6 +4397,27 @@ def set_custom_property_value(
         actor=actor,
     )
     return _to_custom_property_value(row)
+
+
+def clear_custom_property_value(
+    team_id: int,
+    account_id: str | UUID,
+    definition_id: str | UUID,
+    *,
+    actor: "User | None" = None,
+) -> None:
+    definition = _get_custom_property_definition(team_id, definition_id)
+    if definition is not None and definition.name in CANONICAL_DISPLAY_TYPE_BY_NAME:
+        raise CanonicalCustomPropertyReadOnlyError(
+            "This custom property is managed by PostHog and can't be edited manually."
+        )
+    if _source_backed_definition_ids(team_id, [definition_id]):
+        raise CustomPropertyValueSourceManaged(
+            "This custom property is managed by a data warehouse source and can't be cleared manually."
+        )
+    _custom_property_values_logic.set_account_custom_properties_by_id(
+        team_id=team_id, account_id=account_id, properties={str(definition_id): None}, actor=actor
+    )
 
 
 def record_last_slack_message_at(*, team_id: int, account_id: str | UUID, timestamp: datetime) -> bool:
@@ -4543,6 +4619,239 @@ def delete_account_relationship(
     except _relationships_logic.AccountRelationshipNotFound:
         return False
     return True
+
+
+def _to_customer_task_user_view(user: "User | None") -> contracts.CustomerTaskUserView | None:
+    if user is None:
+        return None
+    return contracts.CustomerTaskUserView(
+        id=user.id,
+        email=user.email,
+        first_name=user.first_name,
+        last_name=user.last_name,
+    )
+
+
+def _to_customer_task_view(task: CustomerTask, user_access_control: "UserAccessControl") -> contracts.CustomerTaskView:
+    account = (
+        contracts.CustomerTaskAccountView(id=task.account.id, name=task.account.name)
+        if task.account is not None
+        else None
+    )
+    return contracts.CustomerTaskView(
+        id=task.id,
+        account=account,
+        name=task.name,
+        description=task.description,
+        status=task.status,
+        assigned_to=_to_customer_task_user_view(task.assigned_to),
+        due_at=task.due_at,
+        completed_at=task.completed_at,
+        completed_by=_to_customer_task_user_view(task.completed_by),
+        created_by=_to_customer_task_user_view(task.created_by),
+        archived_at=task.archived_at,
+        created_at=task.created_at,
+        updated_at=task.updated_at,
+        can_edit=_customer_tasks_logic.can_edit_customer_task(task, user_access_control),
+        can_restore=_customer_tasks_logic.can_restore_customer_task(task, user_access_control),
+    )
+
+
+def _to_customer_task_change_value(
+    *,
+    field: str,
+    value: object | None,
+    account_context_present: bool,
+    account_context_id: object | None,
+    visible_account_ids: frozenset[str],
+) -> object | None:
+    if field == "account":
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            account_id = value.get("id")
+            account_name = value.get("name")
+            if isinstance(account_id, str) and isinstance(account_name, str):
+                try:
+                    normalized_account_id = str(UUID(account_id))
+                except ValueError:
+                    pass
+                else:
+                    if normalized_account_id in visible_account_ids:
+                        return {"id": account_id, "name": account_name}
+        return {"id": None, "name": "Restricted account"}
+    if not account_context_present:
+        return None
+    if account_context_id is None:
+        return value
+    if isinstance(account_context_id, str):
+        try:
+            normalized_account_id = str(UUID(account_context_id))
+        except ValueError:
+            return None
+        if normalized_account_id in visible_account_ids:
+            return value
+    return None
+
+
+def _to_customer_task_activity_view(
+    activity: CustomerTaskActivity, visible_account_ids: frozenset[str]
+) -> contracts.CustomerTaskActivityView:
+    changes = []
+    for change in activity.changes:
+        if not isinstance(change, dict):
+            continue
+        field = str(change.get("field", ""))
+        changes.append(
+            contracts.CustomerTaskChange(
+                field=field,
+                before=_to_customer_task_change_value(
+                    field=field,
+                    value=change.get("before"),
+                    account_context_present="before_account_id" in change,
+                    account_context_id=change.get("before_account_id"),
+                    visible_account_ids=visible_account_ids,
+                ),
+                after=_to_customer_task_change_value(
+                    field=field,
+                    value=change.get("after"),
+                    account_context_present="after_account_id" in change,
+                    account_context_id=change.get("after_account_id"),
+                    visible_account_ids=visible_account_ids,
+                ),
+            )
+        )
+    return contracts.CustomerTaskActivityView(
+        id=activity.id,
+        activity_type=activity.activity_type,
+        changes=changes,
+        actor=_to_customer_task_user_view(activity.actor),
+        created_at=activity.created_at,
+    )
+
+
+CUSTOMER_TASK_ACTIVITY_TYPE_CHOICES = CustomerTaskActivityType.choices
+CUSTOMER_TASK_STATUS_CHOICES = CustomerTaskStatus.choices
+
+
+def list_customer_tasks(
+    *,
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    filters: contracts.CustomerTaskListFilters,
+    offset: int,
+    limit: int,
+) -> tuple[list[contracts.CustomerTaskView], int]:
+    tasks, count = _customer_tasks_logic.list_customer_tasks(
+        team_id=team_id,
+        user_access_control=user_access_control,
+        filters=filters,
+        offset=offset,
+        limit=limit,
+    )
+    return [_to_customer_task_view(task, user_access_control) for task in tasks], count
+
+
+def get_customer_task(
+    *, team_id: int, task_id: UUID | str, user_access_control: "UserAccessControl"
+) -> contracts.CustomerTaskView | None:
+    task = _customer_tasks_logic.get_customer_task(
+        team_id=team_id,
+        task_id=task_id,
+        user_access_control=user_access_control,
+    )
+    return _to_customer_task_view(task, user_access_control) if task is not None else None
+
+
+def create_customer_task(
+    *,
+    team: Team,
+    input: contracts.CreateCustomerTaskInput,
+    actor: "User | None",
+    user_access_control: "UserAccessControl",
+) -> contracts.CustomerTaskView:
+    task = _customer_tasks_logic.create_customer_task(
+        team=team,
+        input=input,
+        actor=actor,
+        user_access_control=user_access_control,
+    )
+    return _to_customer_task_view(task, user_access_control)
+
+
+def update_customer_task(
+    *,
+    team: Team,
+    task_id: UUID | str,
+    input: contracts.UpdateCustomerTaskInput,
+    actor: "User | None",
+    user_access_control: "UserAccessControl",
+) -> contracts.CustomerTaskView | None:
+    task = _customer_tasks_logic.update_customer_task(
+        team=team,
+        task_id=task_id,
+        input=input,
+        actor=actor,
+        user_access_control=user_access_control,
+    )
+    if task is None:
+        return None
+    fresh_user_access_control = UserAccessControl(user=user_access_control.user, team=team)
+    return _to_customer_task_view(task, fresh_user_access_control)
+
+
+def archive_customer_task(
+    *,
+    team_id: int,
+    task_id: UUID | str,
+    actor: "User | None",
+    user_access_control: "UserAccessControl",
+) -> contracts.CustomerTaskView | None:
+    task = _customer_tasks_logic.archive_customer_task(
+        team_id=team_id,
+        task_id=task_id,
+        actor=actor,
+        user_access_control=user_access_control,
+    )
+    return _to_customer_task_view(task, user_access_control) if task is not None else None
+
+
+def restore_customer_task(
+    *,
+    team_id: int,
+    task_id: UUID | str,
+    actor: "User | None",
+    user_access_control: "UserAccessControl",
+) -> contracts.CustomerTaskView | None:
+    task = _customer_tasks_logic.restore_customer_task(
+        team_id=team_id,
+        task_id=task_id,
+        actor=actor,
+        user_access_control=user_access_control,
+    )
+    return _to_customer_task_view(task, user_access_control) if task is not None else None
+
+
+def list_customer_task_activities(
+    *,
+    team_id: int,
+    task_id: UUID | str,
+    user_access_control: "UserAccessControl",
+    offset: int,
+    limit: int,
+) -> tuple[list[contracts.CustomerTaskActivityView], int] | None:
+    result = _customer_tasks_logic.list_customer_task_activities(
+        team_id=team_id,
+        task_id=task_id,
+        user_access_control=user_access_control,
+        offset=offset,
+        limit=limit,
+    )
+    if result is None:
+        return None
+    return [
+        _to_customer_task_activity_view(activity, result.visible_account_ids) for activity in result.activities
+    ], result.total_count
 
 
 # --- EventStream ---

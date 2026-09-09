@@ -169,15 +169,10 @@ class InvalidTaskOriginError(ValueError):
 
 
 class Channel(TeamScopedRootMixin):
-    """A shared feed of tasks (rendered as "#<name>" in PostHog Desktop). Every task is
-    owned by the channel it was kicked off in. Each user gets one private "personal"
-    channel ("#me") per team, and each team gets a public "general" channel, Slack-style.
-    Listing creates neither; provisioning does. The general channel can't be renamed or
-    deleted."""
-
     class ChannelType(models.TextChoices):
         PUBLIC = "public", "Public"
         PERSONAL = "personal", "Personal"
+        PRIVATE = "private", "Private"
 
     class SystemRole(models.TextChoices):
         """Identifies a channel as one of the two system-provisioned spaces, independent
@@ -193,10 +188,6 @@ class Channel(TeamScopedRootMixin):
 
     @classmethod
     def visible_to_q(cls, user_id: int | None, *, relation: Literal["", "channel", "task__channel"] = "") -> models.Q:
-        """The channel-visibility rule as a queryset filter: a personal channel is
-        visible only to its creator. ``relation`` names the join to ``Channel`` when
-        filtering another model's queryset (e.g. ``"channel"``); empty filters
-        ``Channel`` rows directly."""
         prefix = {"": "", "channel": "channel__", "task__channel": "task__channel__"}[relation]
         visible_q = models.Q(**{f"{prefix}channel_type": cls.ChannelType.PUBLIC})
         if user_id is not None:
@@ -204,6 +195,12 @@ class Channel(TeamScopedRootMixin):
                 **{
                     f"{prefix}channel_type": cls.ChannelType.PERSONAL,
                     f"{prefix}created_by_id": user_id,
+                }
+            )
+            visible_q |= models.Q(
+                **{
+                    f"{prefix}channel_type": cls.ChannelType.PRIVATE,
+                    f"{prefix}memberships__user_id": user_id,
                 }
             )
         return models.Q(**{f"{prefix}deleted": False}) & visible_q
@@ -265,6 +262,22 @@ class Channel(TeamScopedRootMixin):
 
     def __str__(self):
         return f"#{self.name}"
+
+
+class ChannelMembership(TeamScopedRootMixin):
+    # nosemgrep: prefer-uuid7-django-pk -- UUIDv4 matches existing task models.
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    channel = models.ForeignKey("tasks.Channel", on_delete=models.CASCADE, related_name="memberships")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_channel_membership"
+        constraints = [
+            models.UniqueConstraint(fields=["channel", "user"], name="task_channel_membership_unique"),
+        ]
 
 
 @receiver(pre_delete, sender=Integration)
@@ -738,6 +751,8 @@ class Task(DeletedMetaFields, models.Model):
             state: dict = {} if task.runtime == Task.Runtime.PI else {"mode": mode}
             if extra_state:
                 state.update({k: v for k, v in extra_state.items() if k != "mode"})
+            if state.get("claude_model_access") == "own-subscription":
+                state["claude_subscription_user_id"] = acting_user_id or task.created_by_id
             state.setdefault("repositories", task.repositories or ([task.repository] if task.repository else []))
             # A workflow task's later runs must keep the connector allowlist selected by the workflow.
             if task.origin_product == Task.OriginProduct.WORKFLOW and "config_snapshot" not in state:
@@ -910,6 +925,7 @@ class Task(DeletedMetaFields, models.Model):
         hog_flow_id: uuid.UUID | None = None,
         origin_key: str | None = None,
         ai_stage: str | None = None,
+        ai_agent_name: str | None = None,
         sandbox_environment_id: str | None = None,
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
@@ -1106,6 +1122,11 @@ class Task(DeletedMetaFields, models.Model):
         if ai_stage:
             extra_state["ai_stage"] = ai_stage
 
+        # The team-scoped name of the agent this run executes. `ai_stage` is a fleet-wide tag with
+        # bounded cardinality, so callers that run team-authored agents cannot name them there.
+        if ai_agent_name:
+            extra_state["ai_agent_name"] = ai_agent_name
+
         if initial_permission_mode:
             extra_state["initial_permission_mode"] = initial_permission_mode
 
@@ -1256,6 +1277,7 @@ class Task(DeletedMetaFields, models.Model):
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
         ai_stage: str | None = None,
+        ai_agent_name: str | None = None,
         wizard_config: dict | None = None,
         wizard_head_branch: str | None = None,
         self_driving_head_branch: str | None = None,
@@ -1303,6 +1325,7 @@ class Task(DeletedMetaFields, models.Model):
             sandbox_timeout_seconds=sandbox_timeout_seconds,
             inactivity_timeout_seconds=inactivity_timeout_seconds,
             ai_stage=ai_stage,
+            ai_agent_name=ai_agent_name,
             wizard_config=wizard_config,
             wizard_head_branch=wizard_head_branch,
             self_driving_head_branch=self_driving_head_branch,
@@ -3246,6 +3269,7 @@ class TaskSearchDocument(TeamScopedRootMixin, UUIDModel):
         PULL_REQUEST = "pull_request", "Pull request"
         ARTIFACT = "artifact", "Artifact"
         CHANNEL = "channel", "Channel"
+        CANVAS = "canvas", "Canvas"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+", null=True, blank=True)

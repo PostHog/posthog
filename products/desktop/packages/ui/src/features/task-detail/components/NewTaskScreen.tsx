@@ -18,6 +18,8 @@ export function NewTaskScreen() {
   });
   const sessionId = getTaskInputSessionId(tabId);
 
+  if (!tabId) return null;
+
   return (
     <TaskInput
       key={sessionId}
