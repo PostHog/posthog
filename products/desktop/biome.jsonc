@@ -68,6 +68,23 @@
   },
   "overrides": [
     {
+      "includes": ["packages/core/src/sketchpad/frame/sketchpadSdk.js"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "useExhaustiveDependencies": {
+              "level": "error",
+              "options": { "reportUnnecessaryDependencies": false }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/core/src/sketchpad/frame/sketchpadTheme.css"],
+      "linter": { "rules": { "suspicious": { "noUnknownAtRules": "off" } } }
+    },
+    {
       // Main-process code must not import from "electron" directly. Every Electron
       // API goes through a port in @posthog/platform, implemented by an adapter in
       // apps/code/src/main/platform-adapters/. The only files allowed to import

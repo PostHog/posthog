@@ -1,12 +1,4 @@
 import {
-  chartStates,
-  chartTooltip,
-  eventField,
-  labelField,
-  selectClass,
-} from "./chartParts";
-
-export const barChartCode = `import {
   formatCompact,
   hogqlString,
   useDateRange,
@@ -51,7 +43,7 @@ const COMMON_PROPERTIES = [
 ];
 
 const SELECT_CLASS =
-  "${selectClass}";
+  "w-full rounded-(--radius-2) border border-border bg-card px-2 py-1 text-[12px] text-foreground outline-none";
 
 const LIMITS = [5, 8, 10, 20];
 
@@ -62,7 +54,21 @@ function shorten(name) {
   return name.slice(0, 16) + "…";
 }
 
-${chartTooltip("label")}
+function ChartTooltip({ active, payload, label, unit }) {
+  if (!active || !payload || payload.length === 0) {
+    return null;
+  }
+  return (
+    <div className="rounded-(--radius-2) border border-border bg-popover px-2.5 py-1.5 shadow-md">
+      <p className="max-w-56 truncate text-[11px] text-muted-foreground">
+        {label}
+      </p>
+      <p className="font-medium text-[13px] tabular-nums">
+        {Number(payload[0].value).toLocaleString()} {unit}
+      </p>
+    </div>
+  );
+}
 
 export default function BreakdownBarChart({ fragmentId }) {
   const [settings, setSettings] = useFragmentSettings(fragmentId, DEFAULTS);
@@ -108,7 +114,24 @@ export default function BreakdownBarChart({ fragmentId }) {
 
       {open ? (
         <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto">
-          ${eventField}
+          <Field>
+  <FieldLabel>Event</FieldLabel>
+  <select
+    aria-label="Event"
+    value={settings.event}
+    onChange={(change) => setSettings({ event: change.target.value })}
+    className={SELECT_CLASS}
+  >
+    {events.names.indexOf(settings.event) === -1 ? (
+      <option value={settings.event}>{settings.event}</option>
+    ) : null}
+    {events.names.map((name) => (
+      <option key={name} value={name}>
+        {name}
+      </option>
+    ))}
+  </select>
+</Field>
           <div className="flex gap-2">
             <Field className="min-w-0 flex-1">
               <FieldLabel>Break down by</FieldLabel>
@@ -152,11 +175,33 @@ export default function BreakdownBarChart({ fragmentId }) {
               </button>
             ))}
           </div>
-          ${labelField}
+          <Field>
+  <FieldLabel>Label</FieldLabel>
+  <Input
+    value={settings.label}
+    className="h-7 text-[13px]"
+    onChange={(change) => setSettings({ label: change.target.value })}
+  />
+</Field>
         </div>
       ) : (
         <div className="min-h-0 flex-1">
-          ${chartStates}
+          {result.loading ? <Skeleton className="h-full w-full" /> : null}
+{result.error ? (
+  <div className="flex flex-col items-start gap-2">
+    <p className="text-xs text-destructive">This chart did not load.</p>
+    <Button variant="outline" size="sm" onClick={result.retry}>
+      Try again
+    </Button>
+  </div>
+) : null}
+{empty ? (
+  <div className="flex h-full items-center justify-center">
+    <p className="text-[13px] text-muted-foreground">
+      No events in this date range.
+    </p>
+  </div>
+) : null}
           {!result.loading && !result.error && rows.length > 0 ? (
             <ResponsiveContainer height="100%" width="100%">
               <BarChart
@@ -205,4 +250,3 @@ export default function BreakdownBarChart({ fragmentId }) {
     </div>
   );
 }
-`;

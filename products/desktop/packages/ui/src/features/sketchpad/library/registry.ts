@@ -15,20 +15,20 @@ import {
   TextAaIcon,
   TextAlignLeftIcon,
 } from "@phosphor-icons/react";
-import { barChartCode } from "./templates/bar-chart";
+import barChartCode from "./templates/bar-chart.tsx.txt?raw";
 import checklistCode from "./templates/checklist.tsx.txt?raw";
 import dateFrameCode from "./templates/date-frame.tsx.txt?raw";
 import dateRangeCode from "./templates/date-range.tsx.txt?raw";
 import headingCode from "./templates/heading.tsx.txt?raw";
 import insightCode from "./templates/insight.tsx.txt?raw";
-import { kpiCode } from "./templates/kpi";
+import kpiCode from "./templates/kpi.tsx.txt?raw";
 import layoutCode from "./templates/layout.tsx.txt?raw";
 import notesCode from "./templates/notes.tsx.txt?raw";
 import slideshowCode from "./templates/slideshow.tsx.txt?raw";
 import sqlTableCode from "./templates/sql-table.tsx.txt?raw";
 import stickyCode from "./templates/sticky.tsx.txt?raw";
 import textCode from "./templates/text.tsx.txt?raw";
-import { trendChartCode } from "./templates/trend-chart";
+import trendChartCode from "./templates/trend-chart.tsx.txt?raw";
 
 export type SketchpadLibraryGroup = "notes" | "data" | "frames";
 

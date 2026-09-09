@@ -1,7 +1,4 @@
-import {
-  SKETCHPAD_FIELD_MAX_ENTRIES,
-  SKETCHPAD_FIELD_MAX_REMOVED,
-} from "@posthog/shared";
+import { SKETCHPAD_FIELD_MAX_REMOVED } from "@posthog/shared";
 
 export const COPY_SKETCHPAD_LINK_ACTION = "Copy link";
 
@@ -64,10 +61,7 @@ export function fragmentCountLabel(count: number): string {
   return count === 1 ? "1 fragment" : `${count} fragments`;
 }
 
-export const SHARED_TEXT_FULL = `This text is full. It holds ${SKETCHPAD_FIELD_MAX_ENTRIES.toLocaleString("en-US")} characters. Delete some before you write more.`;
 export const SHARED_TEXT_CHANGES_FULL = `This text has ${SKETCHPAD_FIELD_MAX_REMOVED.toLocaleString("en-US")} deleted characters in it, which is the limit. Copy the text into a new fragment to go on.`;
-export const SHARED_FIELD_READ_ONLY_STATE =
-  "This key holds shared text. Use useSharedText or useSharedList to change it.";
 
 export const SKETCHPAD_TOO_MANY_READS_AT_ONCE =
   "This fragment asked for too much data at once. Wait for the data it already asked for.";
@@ -86,3 +80,6 @@ function secondsPhrase(seconds: number): string {
 }
 
 export const CHAT_START_ERROR = "Could not start the session";
+
+export const SKETCHPAD_REQUEST_TOO_LARGE =
+  "This fragment sent too much data in one call. Send it in smaller pieces.";

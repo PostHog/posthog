@@ -1,0 +1,173 @@
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+html.dark {
+  color-scheme: dark;
+}
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  color: var(--foreground, inherit);
+  background-color: var(--background, transparent);
+  background-image: radial-gradient(var(--ph-grid-dot) 1px, transparent 1px);
+  background-repeat: repeat;
+  touch-action: none;
+}
+:root {
+  --ph-plain-hover: rgba(17, 17, 17, 0.035);
+  --ph-grid-dot: rgba(17, 17, 17, 0.1);
+  --ph-card-shadow:
+    0 1px 2px rgba(16, 18, 22, 0.05), 0 4px 12px -2px rgba(16, 18, 22, 0.08);
+  --ph-card-shadow-hover:
+    0 1px 2px rgba(16, 18, 22, 0.06), 0 10px 24px -6px rgba(16, 18, 22, 0.14);
+}
+html.dark {
+  --ph-plain-hover: rgba(255, 255, 255, 0.05);
+  --ph-grid-dot: rgba(255, 255, 255, 0.09);
+  --ph-card-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px -2px rgba(0, 0, 0, 0.45);
+  --ph-card-shadow-hover:
+    0 1px 2px rgba(0, 0, 0, 0.45), 0 10px 24px -6px rgba(0, 0, 0, 0.6);
+}
+#world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.fragment {
+  content-visibility: auto;
+  position: absolute;
+  overflow: auto;
+  background: var(--card, var(--background, #fff));
+  color: var(--card-foreground, inherit);
+  border: 1px solid var(--border, rgba(128, 128, 128, 0.35));
+  border-radius: 10px;
+  box-shadow: var(--ph-card-shadow);
+  transition:
+    box-shadow 160ms ease,
+    filter 160ms ease;
+}
+.fragment:hover {
+  box-shadow: var(--ph-card-shadow-hover);
+}
+.fragment-plain,
+.fragment-plain.selected {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+.fragment-plain:hover {
+  background: var(--ph-plain-hover);
+  border-color: transparent;
+  box-shadow: none;
+}
+body.ph-focus {
+  background-image: none;
+}
+body.ph-focus #world {
+  transform: none;
+  will-change: auto;
+}
+body.ph-focus .fragment {
+  display: none;
+}
+body.ph-focus-frame {
+  background-image: none;
+}
+body.ph-focus-frame #world {
+  transform: none;
+  will-change: auto;
+}
+body.ph-focus-frame .fragment {
+  display: none;
+}
+body.ph-focus-frame .fragment.focused,
+body.ph-focus-frame .fragment.in-frame {
+  display: block;
+  position: fixed;
+}
+body.ph-focus-frame .fragment.focused {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: hidden;
+}
+@keyframes ph-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.fragment.entering {
+  animation: ph-slide-in 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .fragment.entering {
+    animation: none;
+  }
+}
+body.ph-focus .fragment.focused {
+  display: block;
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: auto;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  background: var(--card, var(--background, #fff));
+  box-shadow: none;
+  overflow: auto;
+}
+.fragment.selected {
+  box-shadow: var(--ph-card-shadow-hover);
+}
+.fragment-error {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+  padding: 16px;
+  font-size: 12px;
+}
+.ph-caret-name {
+  animation: ph-caret-fade 300ms 2500ms forwards;
+}
+@keyframes ph-caret-fade {
+  to {
+    opacity: 0;
+  }
+}
+.fragment-error-title {
+  font-weight: 600;
+  color: var(--destructive, #b91c1c);
+}
+.fragment-error-hint {
+  color: var(--muted-foreground, #6b7280);
+  font-size: 11px;
+}
+.fragment-error pre {
+  margin: 0;
+  max-height: 60%;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--muted, rgba(128, 128, 128, 0.12));
+  padding: 8px;
+  color: var(--muted-foreground, #6b7280);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

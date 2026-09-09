@@ -8,6 +8,7 @@ import {
 import { QueryClient } from "@tanstack/react-query";
 import { expect, it, vi } from "vitest";
 import {
+  createSketchpadBudget,
   handleSketchpadDataRequest,
   type SketchpadDataBridgeContext,
 } from "./sketchpadDataBridge";
@@ -19,6 +20,7 @@ it.each(["remote edit", "restore", "invalid stored entry"])(
     const ctx: SketchpadDataBridgeContext = {
       sketchpadId: change,
       queryClient: new QueryClient(),
+      budget: createSketchpadBudget("board"),
       getSnapshot: () => snapshot,
       applyLocal: (ops) => {
         for (const op of ops) snapshot = applyOp(snapshot, op);
@@ -85,6 +87,7 @@ it.each(["a", "🙂"])(
         {
           sketchpadId: character,
           queryClient: new QueryClient(),
+          budget: createSketchpadBudget("board"),
           getSnapshot: emptySketchpadSnapshot,
           applyLocal,
           reportCaret: vi.fn(),
@@ -103,6 +106,7 @@ it.each(["text", "list"] as const)(
     const ctx: SketchpadDataBridgeContext = {
       sketchpadId: kind,
       queryClient: new QueryClient(),
+      budget: createSketchpadBudget("board"),
       getSnapshot: () => snapshot,
       applyLocal: (ops) => {
         for (const op of ops) snapshot = applyOp(snapshot, op);
@@ -140,3 +144,53 @@ it.each(["text", "list"] as const)(
     }
   },
 );
+
+it("charges only committed edits and gives each frame its own budget", async () => {
+  const now = vi.spyOn(Date, "now").mockReturnValue(0);
+  const queryClient = new QueryClient();
+  try {
+    const ctx: SketchpadDataBridgeContext = {
+      sketchpadId: "board",
+      budget: createSketchpadBudget("board"),
+      queryClient,
+      getSnapshot: emptySketchpadSnapshot,
+      applyLocal: vi.fn(),
+      reportCaret: vi.fn(),
+    };
+    for (let index = 0; index < 121; index++) {
+      await handleSketchpadDataRequest(
+        "stateEditText",
+        { key: "note", next: "" },
+        ctx,
+      );
+      await expect(
+        handleSketchpadDataRequest("stateEditList", { key: "" }, ctx),
+      ).rejects.toThrow();
+    }
+    expect(ctx.applyLocal).not.toHaveBeenCalled();
+    for (let index = 0; index < 120; index++) {
+      await handleSketchpadDataRequest(
+        "stateSet",
+        { key: "setting", value: index },
+        ctx,
+      );
+    }
+    await expect(
+      handleSketchpadDataRequest(
+        "stateSet",
+        { key: "setting", value: 121 },
+        ctx,
+      ),
+    ).rejects.toThrow();
+    await expect(
+      handleSketchpadDataRequest(
+        "stateSet",
+        { key: "setting", value: 121 },
+        { ...ctx, budget: createSketchpadBudget("board") },
+      ),
+    ).resolves.toEqual({ ok: true });
+  } finally {
+    now.mockRestore();
+    queryClient.clear();
+  }
+});

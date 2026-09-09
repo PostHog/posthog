@@ -11,16 +11,11 @@ export const DEFAULT_SKETCHPAD_VIEWPORT: SketchpadViewport = {
 
 interface SketchpadLocalState {
   viewport: SketchpadViewport;
-  taskId?: string;
 }
 
 interface SketchpadViewportState {
   boards: Record<string, SketchpadLocalState>;
   setViewport: (sketchpadId: string, viewport: SketchpadViewport) => void;
-  setTaskForSketchpad: (
-    sketchpadId: string,
-    taskId: string | undefined,
-  ) => void;
 }
 
 export const useSketchpadViewportStore = create<SketchpadViewportState>()(
@@ -32,19 +27,6 @@ export const useSketchpadViewportStore = create<SketchpadViewportState>()(
           boards: {
             ...state.boards,
             [sketchpadId]: { ...state.boards[sketchpadId], viewport },
-          },
-        }));
-      },
-      setTaskForSketchpad: (sketchpadId, taskId) => {
-        set((state) => ({
-          boards: {
-            ...state.boards,
-            [sketchpadId]: {
-              viewport:
-                state.boards[sketchpadId]?.viewport ??
-                DEFAULT_SKETCHPAD_VIEWPORT,
-              taskId,
-            },
           },
         }));
       },
@@ -62,28 +44,4 @@ export function useSketchpadViewport(sketchpadId: string): SketchpadViewport {
     (state) =>
       state.boards[sketchpadId]?.viewport ?? DEFAULT_SKETCHPAD_VIEWPORT,
   );
-}
-
-export function useSketchpadTaskId(sketchpadId: string): string | undefined {
-  return useSketchpadViewportStore(
-    (state) => state.boards[sketchpadId]?.taskId,
-  );
-}
-
-export async function sketchpadIdForTask(
-  taskId: string,
-): Promise<string | undefined> {
-  if (!useSketchpadViewportStore.persist.hasHydrated()) {
-    await useSketchpadViewportStore.persist.rehydrate();
-  }
-  return Object.entries(useSketchpadViewportStore.getState().boards).find(
-    ([, board]) => board.taskId === taskId,
-  )?.[0];
-}
-
-export function setTaskForSketchpad(
-  sketchpadId: string,
-  taskId: string | undefined,
-): void {
-  useSketchpadViewportStore.getState().setTaskForSketchpad(sketchpadId, taskId);
 }

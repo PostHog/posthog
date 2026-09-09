@@ -52,7 +52,7 @@ import {
   useSettingsStore,
 } from "@posthog/ui/features/settings/settingsStore";
 import { taskViewedApi } from "@posthog/ui/features/sidebar/taskMetaApi";
-import { sketchpadIdForTask } from "@posthog/ui/features/sketchpad/hooks/useSketchpadViewportStore";
+import { sketchpadIdForTask } from "@posthog/ui/features/sketchpad/hooks/useSketchpadTaskLinkStore";
 import { WORKSPACE_QUERY_KEY } from "@posthog/ui/features/workspace/identifiers";
 import { toast } from "@posthog/ui/primitives/toast";
 import {
@@ -187,7 +187,7 @@ function buildSessionServiceDeps(): SessionServiceDeps {
     usageLimit: {
       show: (...args) => useUsageLimitStore.getState().show(...args),
     },
-    sketchpadIdForTask: sketchpadIdForTask,
+    sketchpadIdForTask,
     get addDirectoryDialog() {
       return { open: useAddDirectoryDialogStore.getState().open };
     },

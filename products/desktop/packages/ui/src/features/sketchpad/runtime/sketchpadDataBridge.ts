@@ -1,10 +1,14 @@
 import {
+  SHARED_FIELD_READ_ONLY_STATE,
+  SHARED_TEXT_FULL,
+} from "@posthog/core/sketchpad/frameCopy";
+import {
   SKETCHPAD_MAX_READS_IN_FLIGHT,
   SKETCHPAD_MAX_READS_WAITING,
   SKETCHPAD_READ_LIMIT,
   SKETCHPAD_WRITE_LIMIT,
   TokenBucket,
-} from "@posthog/core/sketchpad/frameBudget";
+} from "@posthog/core/sketchpad/sketchpadRateLimits";
 import {
   applyOp,
   diffTextToOps,
@@ -36,9 +40,7 @@ import {
 import { handleFreeformDataRequest } from "@posthog/ui/features/canvas/freeform/freeformDataBridge";
 import { fieldPlainValue } from "@posthog/ui/features/sketchpad/runtime/sketchpadFieldMessages";
 import {
-  SHARED_FIELD_READ_ONLY_STATE,
   SHARED_TEXT_CHANGES_FULL,
-  SHARED_TEXT_FULL,
   SKETCHPAD_TOO_MANY_READS_AT_ONCE,
   sketchpadReadsPausedMessage,
   sketchpadWritesPausedMessage,
@@ -47,6 +49,7 @@ import type { QueryClient } from "@tanstack/react-query";
 
 export interface SketchpadDataBridgeContext {
   signal?: AbortSignal;
+  budget: SketchpadBudget;
   sketchpadId: string;
   queryClient: QueryClient;
   getSnapshot: () => SketchpadSnapshot;
@@ -67,14 +70,13 @@ interface SketchpadListEditPayload {
   update?: unknown;
 }
 
-interface SketchpadBudget {
+export interface SketchpadBudget {
+  sketchpadId: string;
   reads: TokenBucket;
   writes: TokenBucket;
   readsInFlight: number;
   waiting: (() => void)[];
 }
-
-const budgets = new Map<string, SketchpadBudget>();
 
 const BRIDGE_CLIENT_ID = globalThis.crypto.randomUUID().replace(/-/g, "");
 let entryCounter = 0;
@@ -204,7 +206,6 @@ function editText(
   payload: unknown,
   ctx: SketchpadDataBridgeContext,
 ): { text: string; ids: string[] } {
-  spendWrite(ctx);
   const key = readKey(payload, "ph.state.editText(key, edit) requires a key");
   const input = (payload ?? {}) as SketchpadTextEditPayload;
   const next = readString(input.next);
@@ -243,7 +244,6 @@ function editList(
   payload: unknown,
   ctx: SketchpadDataBridgeContext,
 ): { items: { id: string; value: unknown }[] } {
-  spendWrite(ctx);
   const key = readKey(payload, "ph.state.editList(key, edit) requires a key");
   const input = (payload ?? {}) as SketchpadListEditPayload;
   const field = readyField(ctx, key, "list");
@@ -322,6 +322,7 @@ function commit(
   ops: SketchpadOp[],
 ): SketchpadField {
   if (ops.length === 0) return field;
+  spendWrite(ctx);
   const after = foldField(key, field, ops);
   ctx.applyLocal(ops);
   return after;
@@ -353,9 +354,7 @@ function readyField(
   if (!isField(live)) {
     const ops = seedOps(key, kind, live);
     if (ops.length > 0) {
-      const seeded = foldField(key, emptyField(kind), ops);
-      ctx.applyLocal(ops);
-      return seeded;
+      return commit(ctx, key, emptyField(kind), ops);
     }
   }
   return isField(live) && live[SKETCHPAD_FIELD_MARK] === kind
@@ -442,17 +441,15 @@ function readRecords(
   );
 }
 
-function budgetOf(sketchpadId: string): SketchpadBudget {
-  const existing = budgets.get(sketchpadId);
-  if (existing) return existing;
+export function createSketchpadBudget(sketchpadId: string): SketchpadBudget {
   const now = Date.now();
   const fresh: SketchpadBudget = {
+    sketchpadId,
     reads: new TokenBucket(SKETCHPAD_READ_LIMIT, now),
     writes: new TokenBucket(SKETCHPAD_WRITE_LIMIT, now),
     readsInFlight: 0,
     waiting: [],
   };
-  budgets.set(sketchpadId, fresh);
   return fresh;
 }
 
@@ -460,7 +457,7 @@ async function read<T>(
   ctx: SketchpadDataBridgeContext,
   run: () => Promise<T>,
 ): Promise<T> {
-  const budget = budgetOf(ctx.sketchpadId);
+  const budget = ctx.budget;
   const now = Date.now();
   if (!budget.reads.take(now)) {
     throw new Error(sketchpadReadsPausedMessage(budget.reads.waitSeconds(now)));
@@ -511,14 +508,10 @@ function releaseReadSlot(budget: SketchpadBudget): void {
 }
 
 function spendWrite(ctx: SketchpadDataBridgeContext): void {
-  const budget = budgetOf(ctx.sketchpadId);
+  const budget = ctx.budget;
   const now = Date.now();
   if (budget.writes.take(now)) return;
   throw new Error(sketchpadWritesPausedMessage(budget.writes.waitSeconds(now)));
-}
-
-export function spendSketchpadWrite(sketchpadId: string): boolean {
-  return budgetOf(sketchpadId).writes.take(Date.now());
 }
 
 function readKey(payload: unknown, message: string): string {

@@ -1,6 +1,4 @@
-import { eventField, labelField, selectClass } from "./chartParts";
-
-export const kpiCode = `import {
+import {
   hogqlString,
   useDateRange,
   useEventNames,
@@ -26,7 +24,7 @@ const DEFAULTS = {
 };
 
 const SELECT_CLASS =
-  "${selectClass}";
+  "w-full rounded-(--radius-2) border border-border bg-card px-2 py-1 text-[12px] text-foreground outline-none";
 
 const MEASURES = [
   { value: "events", label: "Events" },
@@ -99,7 +97,24 @@ export default function Kpi({ fragmentId }) {
 
       {open ? (
         <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto">
-          ${eventField}
+          <Field>
+  <FieldLabel>Event</FieldLabel>
+  <select
+    aria-label="Event"
+    value={settings.event}
+    onChange={(change) => setSettings({ event: change.target.value })}
+    className={SELECT_CLASS}
+  >
+    {events.names.indexOf(settings.event) === -1 ? (
+      <option value={settings.event}>{settings.event}</option>
+    ) : null}
+    {events.names.map((name) => (
+      <option key={name} value={name}>
+        {name}
+      </option>
+    ))}
+  </select>
+</Field>
           <Field>
             <FieldLabel>Count</FieldLabel>
             <select
@@ -117,7 +132,14 @@ export default function Kpi({ fragmentId }) {
               ))}
             </select>
           </Field>
-          ${labelField}
+          <Field>
+  <FieldLabel>Label</FieldLabel>
+  <Input
+    value={settings.label}
+    className="h-7 text-[13px]"
+    onChange={(change) => setSettings({ label: change.target.value })}
+  />
+</Field>
           <label className="flex items-center justify-between gap-2 text-[13px]">
             Compare with the range before
             <Switch
@@ -169,4 +191,3 @@ export default function Kpi({ fragmentId }) {
     </div>
   );
 }
-`;

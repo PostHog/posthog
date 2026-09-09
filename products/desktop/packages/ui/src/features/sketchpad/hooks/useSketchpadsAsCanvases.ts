@@ -32,22 +32,25 @@ export function sketchpadAsCanvas(board: SketchpadSummary): DashboardRecord {
   };
 }
 
-export function useSpaceSketchpadsAsCanvases(
+function useSketchpadsAsCanvases(
   channelId: string | undefined,
+  requested: boolean,
 ): DashboardRecord[] {
-  const enabled = useSketchpadsFlag();
-  const { boards } = useSketchpads(channelId, enabled && !!channelId);
+  const enabled = useSketchpadsFlag() && requested;
+  const { boards } = useSketchpads(channelId, enabled);
   return useMemo(
-    () => (enabled && channelId ? boards.map(sketchpadAsCanvas) : NO_RECORDS),
-    [boards, channelId, enabled],
+    () =>
+      enabled && boards.length > 0 ? boards.map(sketchpadAsCanvas) : NO_RECORDS,
+    [boards, enabled],
   );
 }
 
+export function useSpaceSketchpadsAsCanvases(
+  channelId: string | undefined,
+): DashboardRecord[] {
+  return useSketchpadsAsCanvases(channelId, Boolean(channelId));
+}
+
 export function useAllSketchpadsAsCanvases(): DashboardRecord[] {
-  const enabled = useSketchpadsFlag();
-  const { boards } = useSketchpads(undefined, enabled);
-  return useMemo(
-    () => (enabled ? boards.map(sketchpadAsCanvas) : NO_RECORDS),
-    [boards, enabled],
-  );
+  return useSketchpadsAsCanvases(undefined, true);
 }

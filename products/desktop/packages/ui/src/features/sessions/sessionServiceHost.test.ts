@@ -9,6 +9,13 @@ import type { Task } from "@posthog/shared/domain-types";
 import type { AgentSession } from "@posthog/ui/features/sessions/sessionStore";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock(
+  "@posthog/ui/features/sketchpad/hooks/useSketchpadTaskLinkStore",
+  () => ({
+    sketchpadIdForTask: vi.fn().mockResolvedValue(undefined),
+  }),
+);
+
 // --- Hoisted Mocks ---
 
 const mockTrpcAgent = vi.hoisted(() => ({

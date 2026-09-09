@@ -7,7 +7,7 @@ import { useService } from "@posthog/di/react";
 import type { SketchpadSnapshot } from "@posthog/shared";
 import { SKETCHPAD_TASK_ORIGIN } from "@posthog/shared";
 import { toastError } from "@posthog/ui/features/notifications/errorDetails";
-import { setTaskForSketchpad } from "@posthog/ui/features/sketchpad/hooks/useSketchpadViewportStore";
+import { setTaskForSketchpad } from "@posthog/ui/features/sketchpad/hooks/useSketchpadTaskLinkStore";
 import { SKETCHPAD_LIBRARY } from "@posthog/ui/features/sketchpad/library/registry";
 import { CHAT_START_ERROR } from "@posthog/ui/features/sketchpad/sketchpadCopy";
 import { useCallback, useState } from "react";

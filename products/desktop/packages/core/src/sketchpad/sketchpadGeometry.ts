@@ -296,3 +296,12 @@ function paneCenter(paneRect: SketchpadPaneRect): SketchpadPoint {
     y: paneRect.top + paneRect.height / 2,
   };
 }
+
+export function containsFragmentCenter(
+  box: SketchpadRect,
+  item: SketchpadRect,
+): boolean {
+  const x = item.x + item.w / 2;
+  const y = item.y + item.h / 2;
+  return x > box.x && x < box.x + box.w && y > box.y && y < box.y + box.h;
+}
