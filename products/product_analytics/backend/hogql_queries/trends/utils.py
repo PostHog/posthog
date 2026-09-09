@@ -38,15 +38,22 @@ def get_properties_chain(
     if breakdown_type == "session":
         return ["session", breakdown_field]
 
-    if breakdown_type == "group" and group_type_index is not None:
+    if breakdown_type == "group":
+        if group_type_index is None:
+            # The schema allows a `group` breakdown with no group type index, so a saved insight
+            # can hold this pair. It is bad input and not a server fault, so raise a
+            # ValidationError to make the query return a 400 that names what to fix.
+            raise ValidationError(
+                f"The breakdown on '{breakdown_field}' needs a group type. "
+                "Select a group type for it, or break down by something else."
+            )
+
         group_type_index_int = int(group_type_index)
         if breakdown_field.startswith("$virt_"):
             # Virtual properties exist as expression fields on the groups table
             return [f"group_{group_type_index_int}", breakdown_field]
         else:
             return [f"group_{group_type_index_int}", "properties", breakdown_field]
-    elif breakdown_type == "group" and group_type_index is None:
-        raise Exception("group_type_index missing from params")
 
     if breakdown_type == "data_warehouse":
         return [*breakdown_field.split(".")]
