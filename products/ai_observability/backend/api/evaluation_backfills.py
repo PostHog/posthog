@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Any, Protocol, cast
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import IntegrityError
 from django.db.models import QuerySet
 from django.utils import timezone
@@ -59,6 +60,12 @@ BACKFILL_RETENTION_MARGIN = timedelta(days=1)
 # answers NOT_FOUND for a backfill that is about to be valid. Probing it would let a concurrent
 # create cancel a live run and start a second walk over the same units.
 BACKFILL_START_GRACE = timedelta(minutes=2)
+
+# The tab polls the list every ten seconds while a backfill runs, and a session-authenticated
+# request passes the default throttles, so probing on every request would let one open tab, or one
+# caller in a loop, set the rate of a synchronous Temporal call. A live answer stays good for a
+# tick, and the release of a dead row waits at most this long.
+BACKFILL_ALIVE_CACHE_SECONDS = 60
 
 
 @frozen
@@ -410,11 +417,15 @@ class EvaluationBackfillViewSet(
         """
         if timezone.now() - backfill.created_at < BACKFILL_START_GRACE:
             return True
+        cache_key = f"llma/evaluation_backfill_alive/{backfill.pk}"
+        if cache.get(cache_key):
+            return True
         workflow_id = backfill_workflow_id(str(backfill.pk))
         try:
             client = sync_connect()
             description = asyncio.run(client.get_workflow_handle(workflow_id).describe())
             if description.status == WorkflowExecutionStatus.RUNNING:
+                cache.set(cache_key, True, BACKFILL_ALIVE_CACHE_SECONDS)
                 return True
         except RPCError as error:
             if error.status != RPCStatusCode.NOT_FOUND:

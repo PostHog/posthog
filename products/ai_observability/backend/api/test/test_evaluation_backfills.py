@@ -238,6 +238,16 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert active.status == EvaluationBackfillStatus.RUNNING
 
     @patch(f"{API_MODULE}.sync_connect")
+    def test_a_live_answer_is_reused_instead_of_probing_temporal_again(self, connect):
+        connect.return_value = _temporal_client()
+        self._stale_backfill()
+
+        for _ in range(3):
+            assert self.client.get(f"{self.url}/").status_code == status.HTTP_200_OK
+
+        assert connect.call_count == 1
+
+    @patch(f"{API_MODULE}.sync_connect")
     def test_list_releases_an_old_row_whose_workflow_is_gone(self, connect):
         connect.return_value = _temporal_client(None)
         stale = self._stale_backfill()
