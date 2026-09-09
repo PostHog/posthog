@@ -189,5 +189,17 @@ LOGGING: dict[str, Any] = {
         },
         "boto3": {"level": "WARN"},  # boto3 logs are noisy
         "botocore": {"level": "WARN"},  # botocore logs are noisy
+        # Prophet sets its own logger to INFO while prophet.forecaster is imported, which happens
+        # after dictConfig has run, so a level here would be overwritten. Route the logger to the
+        # WARNING-only handler instead: that drops the per-fit seasonality notes, which carry none
+        # of the alert context the forecast engine already logs, and keeps a real warning visible.
+        "prophet": {"handlers": ["console_stderr_warning"], "propagate": False},
+        # prophet.plot logs one ERROR per process for each optional plotting library it cannot
+        # import. plotly is not a dependency of this repo and forecasting never plots, so the
+        # logger has nothing to report and its only records are false errors.
+        "prophet.plot": {"handlers": ["null"], "propagate": False},
+        # cmdstanpy logs the start and the end of every chain it runs. It installs no handler of
+        # its own while the root logger has one, so it inherits this level.
+        "cmdstanpy": {"level": "WARN"},
     },
 }
