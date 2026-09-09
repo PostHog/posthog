@@ -366,19 +366,37 @@ That endpoint answered the read the metric counted, and that cluster's primary c
 Either reader URL can be unset, in which case reads go to the matching writer URL.
 The replica commands fall back the same way, so that cluster's two commands then return the same answer.
 
+Check the payload key and its ETag key on each endpoint.
+Redis evicts per key, so the pair can diverge although the writer sets both with one TTL.
+The payload is the key the alert counts, and the ETag key explains the counters from step 1.
+
 ```bash
+KEY="posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json"
+
 # Shared replica, served to pods reporting reason="disabled" or reason="no_dedicated_client"
-redis-cli -u "${REDIS_READER_URL:-$REDIS_URL}" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
+redis-cli -u "${REDIS_READER_URL:-$REDIS_URL}" exists "$KEY"
+redis-cli -u "${REDIS_READER_URL:-$REDIS_URL}" exists "$KEY:etag"
 
 # Shared primary, which the mirror writes
-redis-cli -u "$REDIS_URL" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
+redis-cli -u "$REDIS_URL" exists "$KEY"
+redis-cli -u "$REDIS_URL" exists "$KEY:etag"
 
 # Dedicated replica, served to pods reporting reason="dedicated"
-redis-cli -u "${FLAGS_REDIS_READER_URL:-$FLAGS_REDIS_URL}" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
+redis-cli -u "${FLAGS_REDIS_READER_URL:-$FLAGS_REDIS_URL}" exists "$KEY"
+redis-cli -u "${FLAGS_REDIS_READER_URL:-$FLAGS_REDIS_URL}" exists "$KEY:etag"
 
 # Dedicated primary, which Django writes first
-redis-cli -u "$FLAGS_REDIS_URL" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
+redis-cli -u "$FLAGS_REDIS_URL" exists "$KEY"
+redis-cli -u "$FLAGS_REDIS_URL" exists "$KEY:etag"
 ```
+
+Read the branches below per key.
+
+An absent payload beside a present ETag on the endpoint the reader served is the reading that
+every ETag-only check calls healthy. The handler reads the ETag key on every request and answers
+304 before it fetches the payload, so a team whose SDKs poll with a matching `If-None-Match`
+keeps the ETag key recent while the payload ages toward eviction. Read repair is disabled for
+this namespace, so the S3 hit does not rewarm the payload. Rebuild it with `update_flag_caches`.
 
 Absent on the replica of the cluster the reader served, and present on that cluster's primary,
 is replication lag rather than a lost entry.
