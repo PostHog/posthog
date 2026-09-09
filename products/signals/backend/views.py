@@ -2226,7 +2226,9 @@ class SignalReportViewSet(
     @action(detail=True, methods=["post"], url_path="state", required_scopes=["task:write"])
     def state(self, request, pk=None, **kwargs):
         """
-        Transition a report to a new state. The model validates allowed transitions.
+        Transition a report to a new state. The model validates allowed transitions, except that a
+        verdict the report already holds (dismissing a suppressed report, resolving a resolved one)
+        is a 200 that records the dismissal feedback without touching the status.
 
         The request body is validated by SignalReportStateRequestSerializer — only the
         fields it declares (state, dismissal_reason, dismissal_note, corrected_repository,
@@ -2566,29 +2568,40 @@ class SignalReportViewSet(
 
             effective_snooze_for = snooze_for if target == "potential" else None
 
-            try:
-                updated_fields = report.transition_to(effective_target, snooze_for=effective_snooze_for)
-            except InvalidStatusTransition as e:
-                logger.warning("Invalid status transition for SignalReport %s: %s", report.id, e, exc_info=True)
-                return SignalReportBulkStateOutcome.SKIPPED, None
-            except (ValueError, TypeError) as e:
-                logger.warning("Invalid data when transitioning SignalReport %s: %s", report.id, e, exc_info=True)
-                return SignalReportBulkStateOutcome.FAILED, None
+            # A verdict the report already holds is honoured, not refused: the open detail view lags
+            # the server once GitHub closes the PR (webhook suppresses the report), and that click
+            # still carries feedback for the agent. Skipping the save keeps every receiver quiet, so
+            # no second PR close is queued. A repeat restore carries no feedback, so it stays a 409.
+            already_holds_verdict = target_status == report.status and target_status in (
+                SignalReport.Status.SUPPRESSED,
+                SignalReport.Status.RESOLVED,
+            )
 
             writes_dismissal_feedback = target in ("suppressed", "potential", "resolved") and bool(
                 dismissal_reason or dismissal_note
             )
-            # Tell the status-changed receiver that this transition carries caller-supplied feedback,
-            # so the label picks up the artefact written just below. Set before the save because the
-            # post_save receiver snapshots it there. Matters most for resolve: a resolve driven by
-            # the PR-merge webhook has no feedback, and only this flag distinguishes the two.
-            report._wrote_dismissal_feedback = writes_dismissal_feedback  # type: ignore[attr-defined]
-            # A resolve through this API says the work is done without the inbox PR, so that PR is
-            # superseded and the receiver closes it. The PR-merge webhook resolves through
-            # transition_to directly and never sets this, so a merged PR is left alone.
-            report._close_pr_on_resolve = target_status == SignalReport.Status.RESOLVED  # type: ignore[attr-defined]
 
-            report.save(update_fields=updated_fields)
+            if not already_holds_verdict:
+                try:
+                    updated_fields = report.transition_to(effective_target, snooze_for=effective_snooze_for)
+                except InvalidStatusTransition as e:
+                    logger.warning("Invalid status transition for SignalReport %s: %s", report.id, e, exc_info=True)
+                    return SignalReportBulkStateOutcome.SKIPPED, None
+                except (ValueError, TypeError) as e:
+                    logger.warning("Invalid data when transitioning SignalReport %s: %s", report.id, e, exc_info=True)
+                    return SignalReportBulkStateOutcome.FAILED, None
+
+                # Tell the status-changed receiver that this transition carries caller-supplied feedback,
+                # so the label picks up the artefact written just below. Set before the save because the
+                # post_save receiver snapshots it there. Matters most for resolve: a resolve driven by
+                # the PR-merge webhook has no feedback, and only this flag distinguishes the two.
+                report._wrote_dismissal_feedback = writes_dismissal_feedback  # type: ignore[attr-defined]
+                # A resolve through this API says the work is done without the inbox PR, so that PR is
+                # superseded and the receiver closes it. The PR-merge webhook resolves through
+                # transition_to directly and never sets this, so a merged PR is left alone.
+                report._close_pr_on_resolve = target_status == SignalReport.Status.RESOLVED  # type: ignore[attr-defined]
+
+                report.save(update_fields=updated_fields)
 
             # Persist the dismissal feedback as its own artefact so it survives status changes
             # and so multiple dismissals (with different rationales) can stack over time.

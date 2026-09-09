@@ -273,4 +273,57 @@ describe('inboxSceneLogic routing', () => {
 
         clearSpy.mockRestore()
     })
+
+    describe('keeping the open report current', () => {
+        const originalVisibilityState = document.visibilityState
+
+        function setTabVisibility(state: 'visible' | 'hidden'): void {
+            Object.defineProperty(document, 'visibilityState', { value: state, configurable: true })
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
+
+        function mockReportGet(): jest.Mock {
+            const reportGet = jest.fn(() => [200, { id: 'report-1', title: 'Crash on login', status: 'ready' }])
+            // Pinned to the report's own path: a `:id` pattern would also swallow `available_reviewers/`.
+            useMocks({
+                get: { '/api/projects/:team_id/signals/reports/report-1/': reportGet },
+                post: { '/api/projects/:team_id/signals/reports/:id/viewed/': [204, null] },
+            })
+            return reportGet
+        }
+
+        afterEach(() => {
+            Object.defineProperty(document, 'visibilityState', {
+                value: originalVisibilityState,
+                configurable: true,
+            })
+        })
+
+        it('re-fetches the open report when the tab becomes visible again', async () => {
+            const reportGet = mockReportGet()
+            mountWithRedesign(true)
+            logic.actions.setSelectedReportId('report-1')
+            await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
+            expect(reportGet).toHaveBeenCalledTimes(1)
+
+            setTabVisibility('visible')
+
+            await expectLogic(logic).toDispatchActions(['loadSelectedReport', 'loadSelectedReportSuccess'])
+            expect(reportGet).toHaveBeenCalledTimes(2)
+        })
+
+        it('does not re-fetch while the tab is hidden, nor with no report open', async () => {
+            const reportGet = mockReportGet()
+            mountWithRedesign(true)
+            logic.actions.setSelectedReportId('report-1')
+            await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
+
+            setTabVisibility('hidden')
+            logic.actions.setSelectedReportId(null)
+            setTabVisibility('visible')
+
+            await expectLogic(logic).toNotHaveDispatchedActions(['loadSelectedReport'])
+            expect(reportGet).toHaveBeenCalledTimes(1)
+        })
+    })
 })

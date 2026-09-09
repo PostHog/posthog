@@ -913,7 +913,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         },
     })),
 
-    events(({ cache }) => ({
+    events(({ actions, cache, values }) => ({
         afterMount: () => {
             // `beforeUnmount` flushes dwell time on in-app navigation, but a tab close or hard page
             // unload never unmounts the scene, so half the closes were dropped. Flush on `pagehide`
@@ -926,6 +926,23 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     return () => window.removeEventListener('pagehide', onPageHide)
                 },
                 'reportUnloadFlush',
+                { pauseOnPageHidden: false }
+            )
+            // The open report is fetched once and then lags the server (closing its PR on GitHub
+            // suppresses it through the webhook), so re-fetch when the tab comes back into view.
+            // Same opt-out as above: the listener must be alive while hidden to see the return.
+            cache.disposables.add(
+                () => {
+                    const onVisibilityChange = (): void => {
+                        const id = values.selectedReportId
+                        if (document.visibilityState === 'visible' && id) {
+                            actions.loadSelectedReport({ id })
+                        }
+                    }
+                    document.addEventListener('visibilitychange', onVisibilityChange)
+                    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+                },
+                'selectedReportRefreshOnVisible',
                 { pauseOnPageHidden: false }
             )
         },
