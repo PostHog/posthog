@@ -1899,6 +1899,15 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.results, [(100000, datetime.date(1970, 1, 2))])
 
+        # An events timestamp is DateTime64, so its duration is Decimal(18, 6), which the plain
+        # constructors reject with code 44 unless the printer casts it to a float.
+        response = execute_hogql_query(
+            "SELECT toDate(gap) FROM (SELECT toDateTime64(200000, 6) - toDateTime64(100000, 6) AS gap)",
+            team=self.team,
+            pretty=False,
+        )
+        self.assertEqual(response.results, [(datetime.date(1970, 1, 2),)])
+
     def test_hogql_query_filters_empty_true(self):
         query = "SELECT event from events where {filters}"
         response = execute_hogql_query(

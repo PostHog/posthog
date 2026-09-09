@@ -1461,10 +1461,11 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         self._assert_first_columm_is_type(node, ast.FloatType(nullable=False))
 
-        # dates subtract to a duration as well, so this must not fall through to UnknownType
+        # dates subtract to an Int32 count of days, so this must neither fall through to UnknownType
+        # nor claim Float, which loses divideDecimal on a division of a decimal branch
         node = self._select("select toDate(timestamp) - toDate(timestamp) as key from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
-        self._assert_first_columm_is_type(node, ast.FloatType(nullable=False))
+        self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
 
         # timestamp shifted by an integer stays a datetime
         node = self._select("select timestamp - 1 as key from events")

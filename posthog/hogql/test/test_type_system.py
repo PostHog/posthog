@@ -818,16 +818,14 @@ class TestHogQLTypeSystem:
             # Falls through to the `*OrNull` parser, so the result really can be NULL.
             ("toDate", [ast.StringType(nullable=False)], True),
             ("toDateTime", [ast.StringType(nullable=False)], True),
-            # toDate overloads only for Date/DateTime, so an integer still parses.
-            ("toDate", [ast.IntegerType(nullable=False)], True),
             # toDateTimeUS declares no overloads at all — always the US best-effort parser.
             ("toDateTimeUS", [ast.StringType(nullable=False)], True),
             ("toDateTimeUS", [ast.DateTimeType(nullable=False)], True),
             # An overload wins, printing the plain constructor, which cannot fail.
             ("toDate", [ast.DateTimeType(nullable=False)], False),
             ("toDateTime", [ast.DateTimeType(nullable=False)], False),
+            ("toDate", [ast.IntegerType(nullable=False)], False),
             ("toDateTime", [ast.IntegerType(nullable=False)], False),
-            # A numeric duration (`timestamp - timestamp`) also reaches the plain constructor.
             ("toDate", [ast.FloatType(nullable=False)], False),
             ("toDateTime", [ast.FloatType(nullable=False)], False),
             # `_toDate` is already the plain constructor, so it never parses.

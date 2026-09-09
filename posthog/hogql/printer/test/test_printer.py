@@ -3005,13 +3005,21 @@ class TestPrinter(BaseTest):
         printed = self._expr("toDateTime(properties.dt_prop AS d)")
         self.assertEqual(printed.count("parseDateTime64BestEffortOrNull"), 1, printed)
 
-    @parameterized.expand([("toDate", "toDateOrNull"), ("toDateTime", "parseDateTime64BestEffortOrNull")])
-    def test_date_conversion_of_a_duration_uses_the_plain_constructor(self, function: str, parser: str):
-        # Subtracting two datetimes gives a number. ClickHouse's plain constructors take one, while
-        # the parsers behind these names only take strings and reject it with code 43.
-        printed = self._expr(f"{function}(toDateTime(200000) - toDateTime(100000))")
-        assert parser not in printed, printed
-        assert printed.startswith(f"{function}(minus("), printed
+    @parameterized.expand(
+        [
+            ("toDate(toDateTime(200000) - toDateTime(100000))", "toDate(toFloat64(minus("),
+            ("toDateTime(toDateTime(200000) - toDateTime(100000))", "toDateTime(toFloat64(minus("),
+            ("toDate(toDate(timestamp) - toDate(timestamp))", "toDate(minus("),
+        ]
+    )
+    def test_date_conversion_of_a_duration_uses_the_plain_constructor(self, expression: str, expected_prefix: str):
+        # The parsers behind these names take only strings and reject a number with code 43. A
+        # datetime duration is Decimal(18, 6) once the timestamps are DateTime64, which the plain
+        # constructors reject in turn with code 44, so only it needs toFloat64.
+        printed = self._expr(expression)
+        assert "toDateOrNull" not in printed, printed
+        assert "parseDateTime64BestEffort" not in printed, printed
+        assert printed.startswith(expected_prefix), printed
 
     def test_window_functions(self):
         self.assertEqual(
@@ -4171,6 +4179,14 @@ class TestPrinter(BaseTest):
         printed_int = self._select("SELECT 10 / 3 AS q FROM events", context)
         assert "divide(10, 3)" in printed_int, printed_int
         assert "divideDecimal" not in printed_int, printed_int
+
+        # A `date - date` duration is an integer, which unifies with a decimal branch to a decimal in
+        # HogQL and in ClickHouse alike. Typing it as a float loses the divideDecimal below.
+        printed_branch = self._select(
+            "SELECT if(event = 'x', toDate(timestamp) - toDate(timestamp), rate) / rate AS ratio FROM events",
+            context,
+        )
+        assert "divideDecimal(" in printed_branch, printed_branch
 
     def test_sortable_semver(self):
         # Also test different capitalizations

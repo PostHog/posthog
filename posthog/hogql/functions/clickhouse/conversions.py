@@ -155,10 +155,9 @@ DATE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
                 ((StringType(),), DateType()),
                 ((DateTimeType(),), DateType()),
             ],
-            # Float covers the numeric duration from `timestamp - timestamp`. ClickHouse's toDate
-            # accepts a number, but toDateOrNull accepts only strings and rejects a number with
-            # code 43.
-            overloads=[((ast.DateTimeType, ast.DateType, ast.FloatType), "toDate")],
+            # Only the plain constructor takes a number: toDateOrNull expects a String, and rejects a
+            # Float with code 43. Integer covers `date - date`, Float `timestamp - timestamp`.
+            overloads=[((ast.DateTimeType, ast.DateType, ast.IntegerType, ast.FloatType), "toDate")],
         )
         for name in ["toDate", "to_date"]
     },

@@ -1838,10 +1838,16 @@ class Resolver(CloningVisitor):
             and isinstance(left_type, ast.DateTimeType | ast.DateType)
             and isinstance(right_type, ast.DateTimeType | ast.DateType)
         ):
-            # Subtracting two temporal values yields a numeric duration in ClickHouse (Decimal for
-            # DateTime64, Int32 for DateTime/Date), not a datetime. Typing it as DateTime makes the
-            # printer wrap later references in toTimeZone(), which ClickHouse rejects (code 43).
-            node.type = ast.FloatType()
+            # Subtracting two temporal values yields a numeric duration in ClickHouse, not a datetime.
+            # Typing it as DateTime makes the printer wrap later references in toTimeZone(), which
+            # ClickHouse rejects (code 43). `Date - Date` is Int32, and an integer unifies with a
+            # Decimal branch to a Decimal the way ClickHouse does, so a division of that branch still
+            # prints divideDecimal. A DateTime duration is Int32 or Decimal(18, 6), depending on a
+            # precision HogQL does not carry, so Float is the widest numeric safe for both.
+            if isinstance(left_type, ast.DateType) and isinstance(right_type, ast.DateType):
+                node.type = ast.IntegerType()
+            else:
+                node.type = ast.FloatType()
         elif isinstance(left_type, ast.DateTimeType) or isinstance(right_type, ast.DateTimeType):
             node.type = ast.DateTimeType()
         elif isinstance(left_type, ast.DecimalType) or isinstance(right_type, ast.DecimalType):
