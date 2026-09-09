@@ -33,6 +33,9 @@ export const CLOUD_ONLY_REASON: Record<Adapter, string> = {
     "OpenAI billing only works for local and worktree tasks. Cloud tasks always use PostHog.",
 };
 
+const CLOUD_TOKEN_MISSING_REASON =
+  "Cloud tasks on your Anthropic plan need a saved Claude token. Add one in Settings, or select PostHog.";
+
 export function cloudBillingAvailable(
   adapter: Adapter,
   subscription: AdapterSubscription,
@@ -55,6 +58,32 @@ export function subscriptionBillingVisible(
 }
 
 /**
+ * Why the stored cloud pick cannot run, or null when it can. Starting a cloud
+ * run on the provider plan needs the cloud flag and a saved token, neither of
+ * which the access resolver reads, so the chip would otherwise name a plan the
+ * run refuses to use. `cloudTokenSaved` is undefined while the check is still
+ * pending.
+ */
+export function cloudBillingBlockReason(
+  adapter: Adapter,
+  subscription: AdapterSubscription,
+  workspaceMode: WorkspaceModeForAccess | undefined,
+  cloudTokenSaved: boolean | undefined,
+): string | null {
+  if (
+    adapter !== "claude" ||
+    workspaceMode !== "cloud" ||
+    !subscription.cloudSubscriptionOn
+  ) {
+    return null;
+  }
+  if (!cloudBillingAvailable(adapter, subscription)) {
+    return CLOUD_ONLY_REASON[adapter];
+  }
+  return cloudTokenSaved === false ? CLOUD_TOKEN_MISSING_REASON : null;
+}
+
+/**
  * Who pays for a run started now. Reads the resolved access rather than the
  * stored pick, because a missing provider login and a cloud task both send the
  * run to PostHog whatever the setting says.
@@ -63,7 +92,9 @@ export function subscriptionBillingLabel(
   adapter: Adapter,
   subscription: AdapterSubscription,
   workspaceMode: WorkspaceModeForAccess | undefined,
+  blockReason?: string | null,
 ): string {
+  if (blockReason) return "Unavailable";
   return subscriptionModelAccess(subscription, workspaceMode ?? "local") ===
     "own-subscription"
     ? PROVIDER_LABEL[adapter]
@@ -75,7 +106,9 @@ export function subscriptionBillingHint(
   adapter: Adapter,
   subscription: AdapterSubscription,
   workspaceMode: WorkspaceModeForAccess | undefined,
+  blockReason?: string | null,
 ): string {
+  if (blockReason) return blockReason;
   const mode = workspaceMode ?? "local";
   if (subscriptionModelAccess(subscription, mode) === "own-subscription") {
     return `This run bills to your ${PROVIDER_LABEL[adapter]} plan.`;

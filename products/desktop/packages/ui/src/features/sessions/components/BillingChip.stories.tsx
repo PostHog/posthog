@@ -14,11 +14,14 @@ type Story = StoryObj<typeof BillingChip>;
 function Harness({
   storedAccess,
   workspaceMode,
+  cloudSubscriptionOn = false,
 }: {
   storedAccess: "own-subscription" | "posthog-gateway";
   workspaceMode: "local" | "cloud";
+  cloudSubscriptionOn?: boolean;
 }) {
   useSettingsStore.getState().setClaudeModelAccess(storedAccess);
+  useSettingsStore.getState().setClaudeCloudSubscriptionOn(cloudSubscriptionOn);
   return (
     <div className="flex h-40 items-end p-2">
       <BillingChip adapter="claude" workspaceMode={workspaceMode} />
@@ -46,5 +49,19 @@ export const ProviderPickWithoutLogin: Story = {
 export const CloudTask: Story = {
   render: () => (
     <Harness storedAccess="own-subscription" workspaceMode="cloud" />
+  ),
+};
+
+/**
+ * The cloud pick is stored, but the cloud plan billing is not offered here, so
+ * a run would be refused. The chip says so instead of naming the plan.
+ */
+export const CloudPickUnavailable: Story = {
+  render: () => (
+    <Harness
+      storedAccess="own-subscription"
+      workspaceMode="cloud"
+      cloudSubscriptionOn
+    />
   ),
 };

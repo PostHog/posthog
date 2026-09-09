@@ -17,6 +17,7 @@ import {
   subscriptionBillingLabel,
   subscriptionBillingVisible,
 } from "@posthog/ui/features/sessions/components/subscriptionBilling";
+import { useCloudBillingBlockReason } from "@posthog/ui/features/sessions/components/useCloudBillingBlockReason";
 import {
   useAdapterSubscription,
   type WorkspaceModeForAccess,
@@ -35,8 +36,8 @@ interface BillingChipProps {
 /**
  * Who pays for the run, on the composer's toolbar row. The billing pick also
  * lives two levels inside the model menu, where a closed composer never shows
- * it — and the stored pick is not always what runs, so the chip reads the
- * resolved access instead.
+ * it. The stored pick is not always what runs, so the chip reads the resolved
+ * access and names a blocked cloud pick as unavailable.
  */
 export function BillingChip({
   adapter,
@@ -45,10 +46,20 @@ export function BillingChip({
 }: BillingChipProps): React.JSX.Element | null {
   const [open, setOpen] = useState(false);
   const subscription = useAdapterSubscription(adapter);
+  const blockReason = useCloudBillingBlockReason(
+    adapter,
+    subscription,
+    workspaceMode,
+  );
   if (!subscriptionBillingVisible(adapter, subscription, workspaceMode)) {
     return null;
   }
-  const label = subscriptionBillingLabel(adapter, subscription, workspaceMode);
+  const label = subscriptionBillingLabel(
+    adapter,
+    subscription,
+    workspaceMode,
+    blockReason,
+  );
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -63,7 +74,7 @@ export function BillingChip({
                     variant="default"
                     size="sm"
                     disabled={disabled}
-                    aria-label="Billing"
+                    aria-label={`Billing: ${label}`}
                   >
                     <CreditCard size={12} weight="bold" />
                     <span>{label}</span>
@@ -73,7 +84,12 @@ export function BillingChip({
             }
           />
           <TooltipContent side="top" className="max-w-60">
-            {subscriptionBillingHint(adapter, subscription, workspaceMode)}
+            {subscriptionBillingHint(
+              adapter,
+              subscription,
+              workspaceMode,
+              blockReason,
+            )}
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -87,7 +103,6 @@ export function BillingChip({
         <SubscriptionBillingItems
           adapter={adapter}
           subscription={subscription}
-          closeOnChange
           workspaceMode={workspaceMode}
         />
       </DropdownMenuContent>

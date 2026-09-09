@@ -1,4 +1,8 @@
+import type { ServiceContainer } from "@posthog/di/container";
+import { ServiceProvider } from "@posthog/di/react";
+import { CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS } from "@posthog/ui/features/settings/claudeSubscriptionTokenSettings";
 import { Theme } from "@radix-ui/themes";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { cloneElement } from "react";
@@ -41,6 +45,36 @@ vi.mock("@posthog/quill", async (importOriginal) => {
     TooltipContent: passthrough,
   };
 });
+
+const tokenStore = { has: vi.fn(), save: vi.fn(), clear: vi.fn() };
+
+function renderChip(
+  workspaceMode: "local" | "cloud",
+  tokenSaved = true,
+): ReturnType<typeof render> {
+  tokenStore.has.mockResolvedValue(tokenSaved);
+  const container: ServiceContainer = {
+    get: () => tokenStore,
+    getAll: () => [],
+    isBound: (token) => token === CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
+    bind: () => {
+      throw new Error("Test services are fixed");
+    },
+  };
+  return render(
+    <ServiceProvider container={container}>
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <Theme>
+          <BillingChip adapter="claude" workspaceMode={workspaceMode} />
+        </Theme>
+      </QueryClientProvider>
+    </ServiceProvider>,
+  );
+}
 
 function subscriptionState(
   overrides?: Partial<{
@@ -100,43 +134,70 @@ describe("BillingChip", () => {
       "PostHog",
       "This run bills to PostHog.",
     ],
-  ] as const)("names %s", (_case, overrides, workspaceMode, label, hint) => {
-    useAdapterSubscription.mockReturnValue(subscriptionState(overrides));
-    render(
-      <Theme>
-        <BillingChip adapter="claude" workspaceMode={workspaceMode} />
-      </Theme>,
-    );
+    [
+      "the cloud pick as unavailable once the cloud flag is off",
+      { cloudSubscriptionOn: true },
+      "cloud",
+      "Unavailable",
+      "Claude plan billing is unavailable for cloud tasks. Try again later.",
+    ],
+  ] as const)(
+    "names %s",
+    async (_case, overrides, workspaceMode, label, hint) => {
+      useAdapterSubscription.mockReturnValue(subscriptionState(overrides));
+      renderChip(workspaceMode);
 
-    expect(screen.getByRole("button", { name: "Billing" })).toHaveTextContent(
-      label,
+      expect(
+        await screen.findByRole("button", { name: `Billing: ${label}` }),
+      ).toHaveTextContent(label);
+      expect(screen.getByText(hint)).toBeInTheDocument();
+    },
+  );
+
+  it("names the cloud pick as unavailable while no token is saved", async () => {
+    // The run needs a saved token that the access resolver never reads, so
+    // without this the chip would promise a plan task creation refuses.
+    useAdapterSubscription.mockReturnValue(
+      subscriptionState({ cloudFlagEnabled: true, cloudSubscriptionOn: true }),
     );
-    expect(screen.getByText(hint)).toBeInTheDocument();
+    renderChip("cloud", false);
+
+    expect(
+      await screen.findByRole("button", { name: "Billing: Unavailable" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Cloud tasks on your Anthropic plan need a saved Claude token. Add one in Settings, or select PostHog.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("names the cloud pick as the provider plan once a token is saved", async () => {
+    useAdapterSubscription.mockReturnValue(
+      subscriptionState({ cloudFlagEnabled: true, cloudSubscriptionOn: true }),
+    );
+    renderChip("cloud", true);
+
+    expect(
+      await screen.findByRole("button", { name: "Billing: Anthropic" }),
+    ).toBeInTheDocument();
   });
 
   it("stays hidden while the billing pick is unavailable", () => {
     useAdapterSubscription.mockReturnValue(
       subscriptionState({ flagEnabled: false }),
     );
-    render(
-      <Theme>
-        <BillingChip adapter="claude" workspaceMode="local" />
-      </Theme>,
-    );
+    renderChip("local");
 
-    expect(screen.queryByRole("button", { name: "Billing" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Billing/ })).toBeNull();
   });
 
   it("opens the same billing pick the model menu carries", async () => {
     useAdapterSubscription.mockReturnValue(subscriptionState());
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    render(
-      <Theme>
-        <BillingChip adapter="claude" workspaceMode="local" />
-      </Theme>,
-    );
+    renderChip("local");
 
-    await user.click(screen.getByRole("button", { name: "Billing" }));
+    await user.click(screen.getByRole("button", { name: /^Billing/ }));
 
     expect(
       await screen.findByRole("menuitemradio", { name: "Anthropic" }),
