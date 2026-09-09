@@ -29,6 +29,7 @@ import {
 import {
   buildCloudTaskConfigOptions,
   type CloudTaskConfigSelectOption,
+  flattenSelectOptions,
   type GatewayModel,
   isRestrictedModelOption,
 } from "@posthog/shared";
@@ -128,12 +129,17 @@ export function availableOnboardingTestModels(
       ? stripDisabledModelOption(unfilteredModelOption, rolloutFlags)
       : undefined;
     if (modelOption?.type !== "select") continue;
-    for (const option of modelOption.options) {
+    for (const option of flattenSelectOptions(modelOption.options)) {
       if (
         gatewayModelIds.has(option.value) &&
-        !isRestrictedModelOption(option._meta)
+        !isRestrictedModelOption(option._meta ?? undefined)
       ) {
-        options.set(option.value, option);
+        options.set(option.value, {
+          value: option.value,
+          name: option.name,
+          description: option.description ?? undefined,
+          _meta: option._meta ?? undefined,
+        });
       }
     }
   }
