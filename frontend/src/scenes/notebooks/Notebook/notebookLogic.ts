@@ -545,6 +545,9 @@ export interface notebookLogicActions {
         error: string
         errorObject?: any
     }
+    saveNotebookNow: () => {
+        value: true
+    }
     saveNotebookSuccess: (
         notebook: NotebookType | null,
         payload?: {
@@ -804,6 +807,7 @@ export const notebookLogic = kea<notebookLogicType>([
         showMarkdownMergeConflictDetails: (conflicts: NotebookCollaborationConflict[]) => ({ conflicts }),
         dismissMarkdownMergeConflictDetails: true,
         saveNotebook: (notebook: Pick<NotebookType, 'content' | 'title'>) => ({ notebook }),
+        saveNotebookNow: true,
         renameNotebook: (title: string) => ({ title }),
         setEditingNodeEditing: (nodeId: string, editing: boolean) => ({ nodeId, editing }),
         exportJSON: true,
@@ -1962,6 +1966,20 @@ export const notebookLogic = kea<notebookLogicType>([
             actions.setMarkdownEditorDraft(null)
             actions.setAutosavePaused(false)
             actions.setLocalContent(buildMarkdownNotebookContent(nextMarkdown, values.markdownEditorNodeId))
+        },
+
+        saveNotebookNow: () => {
+            // Autosave already saves every edit, so this only skips its debounce and repeats the
+            // gates that path applies. No local content means the notebook is already saved.
+            if (values.previewContent || values.autosavePaused || values.isLocalOnly) {
+                return
+            }
+
+            if (!values.localContent || !values.content || values.notebookLoading) {
+                return
+            }
+
+            actions.saveNotebook({ content: values.content, title: values.title })
         },
 
         setLocalContent: async ({ jsonContent, skipCapture }, breakpoint) => {
