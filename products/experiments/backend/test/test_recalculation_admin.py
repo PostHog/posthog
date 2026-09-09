@@ -110,6 +110,7 @@ class TestRecalculationAdminPanel(BaseTest):
 
     def test_failure_falls_back_to_result_row_message(self) -> None:
         exp = self._launched_experiment()
+        query_to = datetime(2026, 1, 2, 10, 0, 0, tzinfo=UTC)
         recalc = ExperimentMetricsRecalculation.objects.create(
             team=self.team,
             experiment=exp,
@@ -117,7 +118,7 @@ class TestRecalculationAdminPanel(BaseTest):
             total_metrics=2,
             metric_uuids=["m-named"],
             metric_errors={},
-            query_to=datetime(2026, 1, 2, 10, 0, 0, tzinfo=UTC),
+            query_to=query_to,
             started_at=datetime(2026, 1, 2, 10, 0, 0, tzinfo=UTC),
             completed_at=datetime(2026, 1, 2, 10, 0, 30, tzinfo=UTC),
         )
@@ -128,7 +129,7 @@ class TestRecalculationAdminPanel(BaseTest):
             metric_uuid="m-named",
             fingerprint=fingerprints["m-named"],
             query_from=datetime(2026, 1, 1, tzinfo=UTC),
-            query_to=recalc.query_to,
+            query_to=query_to,
             status=ExperimentMetricResult.Status.FAILED,
             error_message="timeout in ClickHouse",
         )
@@ -157,7 +158,7 @@ class TestRecalculationAdminPanel(BaseTest):
         request.user = self.user
         # A bare RequestFactory request has no message store; the success path calls messages.success.
         request.session = SessionStore()
-        request._messages = FallbackStorage(request)
+        request._messages = FallbackStorage(request)  # type: ignore[attr-defined]
         with patch.object(admin, "has_change_permission", return_value=True):
             response = admin.retry_failures_view(request, str(prior.pk))
 
