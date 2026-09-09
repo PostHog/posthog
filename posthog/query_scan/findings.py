@@ -25,6 +25,8 @@ class ScanThresholds:
 class ScanMeasurements:
     """What the run cost, and what it is measured against."""
 
+    # Every row ClickHouse read for the query, across every table it touched, so a joined table
+    # counts towards it. The copy says rows rather than events for that reason.
     rows_read: int
     duration_ms: int
     killed: bool = False
@@ -47,8 +49,8 @@ _START_DATE_ADVICE = "If you only need recent data, add `timestamp >= now() - in
 
 _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
     (FindingKind.NO_EVENT_FILTER, None): _Copy(
-        lead="This query read every event in its date range: {rows} rows in {secs} s.",
-        killed_lead="This query read every event in its date range. " + _KILLED_NUMBERS,
+        lead="This query has no event filter, so it read {rows} rows in {secs} s.",
+        killed_lead="This query has no event filter. " + _KILLED_NUMBERS,
         advice="If the question is about specific events, add `WHERE event IN ('…')` naming them.",
         fix="Add an event filter naming the events this question is about. Change nothing else.",
     ),
@@ -150,8 +152,8 @@ _COPY: dict[tuple[FindingKind, FindingReason | None], _Copy] = {
         ),
     ),
     (FindingKind.ALL_EVENTS, None): _Copy(
-        lead=("This insight looks at all events, so it read every event in its date range: {rows} rows in {secs} s."),
-        killed_lead=("This insight looks at all events, so it read every event in its date range. " + _KILLED_NUMBERS),
+        lead="This insight looks at all events, so it read {rows} rows in {secs} s.",
+        killed_lead="This insight looks at all events. " + _KILLED_NUMBERS,
         advice="Pick specific events if the question is about some of them.",
         fix="Pick the events this insight is about instead of All events.",
     ),

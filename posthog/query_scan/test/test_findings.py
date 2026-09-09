@@ -65,7 +65,7 @@ class TestFindings(SimpleTestCase):
         self.assertEqual(warning.type, "query_scan")
         self.assertEqual(
             warning.message,
-            "This query read every event in its date range: 3.0 billion rows in 6.0 s. If the question "
+            "This query has no event filter, so it read 3.0 billion rows in 6.0 s. If the question "
             "is about specific events, add `WHERE event IN ('…')` naming them.",
         )
         self.assertEqual(warning.rows_read, 3_000_000_000)
