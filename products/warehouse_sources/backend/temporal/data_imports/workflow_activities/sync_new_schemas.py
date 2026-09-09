@@ -7,6 +7,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.models.integration import UndecryptedIntegrationSecretError
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import delete_discover_schemas_schedule
@@ -17,6 +18,9 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import (
+    is_transient_egress_proxy_error,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
@@ -93,6 +97,15 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
                 logger.warning(f"Skipping schema discovery due to non-retryable source error: {e}")
                 return
             error_msg = str(e)
+            # We couldn't reach our own egress proxy, which the source's outbound traffic goes
+            # through. Nothing on the customer's side is wrong and the next attempt recovers, so
+            # keep it out of error tracking — the message carries the source host, so each new host
+            # would otherwise open its own issue. Raise rather than skip, so Temporal still retries
+            # this discovery run, and classify here rather than per source: only the marker type
+            # stops the interceptor, and `get_retryable_errors()` is never consulted on this path.
+            if is_transient_egress_proxy_error(error_msg):
+                logger.warning(f"Transient egress-proxy error during schema discovery: {error_msg}")
+                raise NonReportableError(error_msg) from e
             non_retryable_errors = new_source.get_non_retryable_errors()
             if error_message_matches(error_msg, non_retryable_errors):
                 logger.warning(f"Skipping schema discovery due to non-retryable source error: {error_msg}")
