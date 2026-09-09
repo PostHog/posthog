@@ -2703,6 +2703,12 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
 
             if (terminal) {
+                if (retainedMessage) {
+                    // This bootstrap is the resume attach itself, and a terminal run opens no stream, so
+                    // the provisioning window is over. A replayed terminal status alone must not clear the
+                    // flag — an ancestor's bootstrap can resolve terminal while the successor still opens.
+                    actions.setRunOpening(false)
+                }
                 // Read-only history — surface the terminal status, do not open SSE. Flag the replay
                 // so the listener records the status without re-emitting termination telemetry.
                 actions.handleTerminalStatus({ status: run.status as RunStatus, replayedFromHistory: true })

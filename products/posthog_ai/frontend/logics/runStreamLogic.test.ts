@@ -1972,6 +1972,41 @@ describe('runStreamLogic', () => {
             }
         )
 
+        it('stops provisioning when the incomplete-history successor is already terminal', async () => {
+            const run = {
+                id: 'run-2',
+                task: 'task-1',
+                stage: null,
+                branch: null,
+                status: TaskRunStatus.FAILED,
+                environment: TaskRunEnvironment.CLOUD,
+                error_message: 'Failed to start task workflow',
+                output: null,
+                artifacts: [],
+                state: { resume_from_run_id: 'run-1' },
+                runtime_adapter: null,
+                model: null,
+                reasoning_effort: null,
+                log_url: null,
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z',
+                completed_at: '2026-01-01T00:00:01Z',
+            } satisfies TaskRun & TaskRunDetailDTOApi
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue(run)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                notification('_posthog/run_started', { runId: 'run-1' }),
+                notification('_posthog/user_message', { content: 'continue' }),
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Earlier answer' } }),
+            ])
+            logic.actions.handleTerminalStatus({ status: 'completed', replayedFromHistory: true })
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            logic.actions.startOptimisticResume('continue')
+            await expectLogic(logic, () => logic.actions.attachOptimisticResume('task-1', run)).toFinishAllListeners()
+
+            expect(logic.values.runOpening).toEqual(false)
+            expect(logic.values.streamPhase).toEqual('idle')
+        })
+
         it('is provisioning while the open POST is in flight, before any SSE state exists', () => {
             expect(logic.values.streamPhase).toEqual('idle')
 
