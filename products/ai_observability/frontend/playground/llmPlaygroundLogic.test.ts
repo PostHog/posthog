@@ -870,6 +870,10 @@ describe('llmPlaygroundLogic', () => {
                     { type: 'function', function: { name: 'search', description: 'Search tool' } },
                     { type: 'function', function: { name: 'calculator', description: 'Math tool' } },
                 ],
+                [
+                    { type: 'function', function: { name: 'search', description: 'Search tool' } },
+                    { type: 'function', function: { name: 'calculator', description: 'Math tool' } },
+                ],
             ],
             [
                 'a dictionary',
@@ -877,14 +881,28 @@ describe('llmPlaygroundLogic', () => {
                     search: { type: 'function', function: { name: 'search', description: 'Search tool' } },
                     calculator: { type: 'function', function: { name: 'calculator', description: 'Math tool' } },
                 },
+                [
+                    { type: 'function', function: { name: 'search', description: 'Search tool' } },
+                    { type: 'function', function: { name: 'calculator', description: 'Math tool' } },
+                ],
             ],
-        ])('should handle tools parameter as %s', (_, tools) => {
+            [
+                'a single tool object',
+                { type: 'function', function: { name: 'search', description: 'Search tool' } },
+                [{ type: 'function', function: { name: 'search', description: 'Search tool' } }],
+            ],
+            [
+                'a provider container',
+                { functionDeclarations: [{ name: 'search', description: 'Search tool' }] },
+                [{ functionDeclarations: [{ name: 'search', description: 'Search tool' }] }],
+            ],
+        ])('should handle tools parameter as %s', (_, tools, expectedTools) => {
             llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 input: 'Test',
                 tools,
             })
 
-            expect(llmPlaygroundPromptsLogic.values.tools).toEqual(Array.isArray(tools) ? tools : Object.values(tools))
+            expect(llmPlaygroundPromptsLogic.values.tools).toEqual(expectedTools)
         })
 
         it('should default messages with unknown roles to user', () => {

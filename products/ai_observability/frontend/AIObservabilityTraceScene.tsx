@@ -1568,13 +1568,12 @@ const EventContent = React.memo(
         // Check if we're viewing a trace with actual content vs. a pseudo-trace (grouping of generations w/o input/output state)
         const isTopLevelTraceWithoutContent = !event || (!isLLMEvent(event) && !event.inputState && !event.outputState)
 
-        // Only pre-load for generation events ($ai_input/$ai_output_choices).
         // TODO: Figure out why spans can't load properties async
         const eventData = isGenerationEvent
             ? {
                   uuid: event.id,
                   input: event.properties.$ai_input,
-                  output: selectAiValue(event.properties.$ai_output_choices, event.properties.$ai_output),
+                  output: event.properties.$ai_output_choices,
                   tools: event.properties.$ai_tools,
                   traceId: trace.id,
                   timestamp: event.createdAt,
@@ -1594,7 +1593,8 @@ const EventContent = React.memo(
 
             const model = event.properties.$ai_model
             const provider = event.properties.$ai_provider
-            openInPlayground({ model, provider, input: loadedInput, output: loadedOutput, tools: loadedTools })
+            const output = selectAiValue(loadedOutput, event.properties.$ai_output)
+            openInPlayground({ model, provider, input: loadedInput, output, tools: loadedTools })
         }
 
         return (

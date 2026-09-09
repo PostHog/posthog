@@ -73,8 +73,14 @@ export interface PlaygroundSetupPayload {
 }
 
 function normalizePlaygroundTools(tools: unknown): Record<string, unknown>[] | undefined {
-    const values = Array.isArray(tools) ? tools : isObject(tools) ? Object.values(tools) : undefined
-    return values?.every(isObject) ? values : undefined
+    if (Array.isArray(tools)) {
+        return tools.every(isObject) ? tools : undefined
+    }
+    if (!isObject(tools)) {
+        return undefined
+    }
+    const values = Object.values(tools)
+    return values.every(isObject) ? values : [tools]
 }
 
 export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful AI assistant.'
