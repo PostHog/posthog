@@ -279,6 +279,12 @@ class PersonHogServiceStub:
             response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamResponse.FromString,
             _registered_method=True,
         )
+        self.DeleteTombstonedPersons = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/DeleteTombstonedPersons",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsResponse.FromString,
+            _registered_method=True,
+        )
         self.SplitPerson = channel.unary_unary(
             "/personhog.service.v1.PersonHogService/SplitPerson",
             request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.SplitPersonRequest.SerializeToString,
@@ -552,6 +558,14 @@ class PersonHogServiceServicer:
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def DeleteTombstonedPersons(self, request, context):
+        """Deletes only persons that are still tombstoned when the delete runs.
+        WARNING: Same routing caveat as DeletePersons above.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
     def SplitPerson(self, request, context):
         """Person split
         WARNING: Same routing caveat as DeletePersons above — write operation on person data
@@ -775,6 +789,11 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             servicer.DeletePersonsBatchForTeam,
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamResponse.SerializeToString,
+        ),
+        "DeleteTombstonedPersons": grpc.unary_unary_rpc_method_handler(
+            servicer.DeleteTombstonedPersons,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsResponse.SerializeToString,
         ),
         "SplitPerson": grpc.unary_unary_rpc_method_handler(
             servicer.SplitPerson,
@@ -1991,6 +2010,36 @@ class PersonHogService:
             "/personhog.service.v1.PersonHogService/DeletePersonsBatchForTeam",
             personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamRequest.SerializeToString,
             personhog_dot_types_dot_v1_dot_person__pb2.DeletePersonsBatchForTeamResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def DeleteTombstonedPersons(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/DeleteTombstonedPersons",
+            personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.DeleteTombstonedPersonsResponse.FromString,
             options,
             channel_credentials,
             insecure,

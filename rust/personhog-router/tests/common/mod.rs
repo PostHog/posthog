@@ -25,6 +25,7 @@ use personhog_proto::personhog::types::v1::{
     DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
     DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
+    DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
     GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
@@ -444,6 +445,13 @@ impl PersonHogReplica for TestReplicaService {
         Ok(Response::new(DeletePersonsBatchForTeamResponse {
             deleted_count: 0,
         }))
+    }
+
+    async fn delete_tombstoned_persons(
+        &self,
+        _request: Request<DeleteTombstonedPersonsRequest>,
+    ) -> Result<Response<DeleteTombstonedPersonsResponse>, Status> {
+        Ok(Response::new(DeleteTombstonedPersonsResponse::default()))
     }
 
     async fn split_person(

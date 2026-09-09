@@ -20,14 +20,14 @@ use personhog_proto::personhog::types::v1::{
     DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
     DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
     DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
-    DeletePersonsResponse, DistinctIdWithVersion, GetDistinctIdsForPersonRequest,
-    GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
-    GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
-    GetGroupTypeMappingByDashboardIdRequest, GetGroupTypeMappingByDashboardIdResponse,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
-    GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    DeletePersonsResponse, DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
+    DistinctIdWithVersion, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
+    GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
+    GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
+    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupKey, GroupTypeMapping, GroupTypeMappingCount,
@@ -429,6 +429,42 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         Ok(Response::new(DeletePersonsBatchForTeamResponse {
             deleted_count,
+        }))
+    }
+
+    async fn delete_tombstoned_persons(
+        &self,
+        request: Request<DeleteTombstonedPersonsRequest>,
+    ) -> Result<Response<DeleteTombstonedPersonsResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.person_uuids.len() > 1000 {
+            return Err(Status::invalid_argument(
+                "Maximum 1000 person UUIDs per request",
+            ));
+        }
+
+        let uuids: Vec<Uuid> = req
+            .person_uuids
+            .iter()
+            .map(|s| Uuid::parse_str(s))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?;
+
+        let outcome = self
+            .storage
+            .delete_tombstoned_persons(req.team_id, &uuids)
+            .await
+            .map_err(|e| log_and_convert_error(e, "delete_tombstoned_persons"))?;
+
+        Ok(Response::new(DeleteTombstonedPersonsResponse {
+            deleted_count: outcome.deleted,
+            skipped_live_count: outcome.skipped_live,
+            blocked_person_uuids: outcome
+                .blocked_uuids
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
         }))
     }
 
