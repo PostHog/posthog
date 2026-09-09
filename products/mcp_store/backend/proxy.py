@@ -27,6 +27,15 @@ UPSTREAM_TIMEOUT = 180
 MAX_PROXY_BODY_SIZE = 1_048_576  # 1 MB
 REDIRECT_STATUS_CODES = {301, 302, 307, 308}
 
+# Caller headers the proxy passes to the upstream server. Identification only:
+# these tell the upstream which client it speaks to, and none of them change
+# what the installation's credentials are allowed to reach.
+FORWARDED_CALLER_HEADERS = (
+    "x-posthog-mcp-consumer",
+    "x-posthog-mcp-mode",
+    "x-posthog-mcp-version",
+)
+
 # JSON-RPC error codes used by per-tool approval enforcement. -32000..-32099 is
 # the implementation-defined server-error range; we deliberately use distinct
 # codes so clients can tell "needs approval" apart from "disabled" apart from
@@ -517,16 +526,18 @@ def proxy_mcp_request(
         **auth_headers,
     }
 
-    # Forward the full `x-posthog-*` namespace so the upstream server can
-    # identify the consumer, mode, and version that the caller declared, plus
-    # any custom PostHog-namespace headers the caller wants to pass through.
-    # Without this, the PostHog MCP cannot resolve single-exec mode for
-    # posthog-code-installed PostHog MCPs (the consumer header never reaches
-    # the resolver) and the `exec` tool comes back as "Tool exec not found".
-    # Non-PostHog upstreams ignore unknown headers in that namespace.
-    for header_name in request.headers:
-        if header_name.lower().startswith("x-posthog-"):
-            headers[header_name] = request.headers[header_name]
+    # Forward only the client-identification headers of the `x-posthog-*`
+    # namespace. Without the consumer header, the PostHog MCP cannot resolve
+    # single-exec mode for posthog-code-installed PostHog MCPs and the `exec`
+    # tool comes back as "Tool exec not found". The rest of the namespace stays
+    # out: the upstream call carries the installation owner's credentials, so a
+    # caller-supplied header such as `x-posthog-project-id` or
+    # `x-posthog-read-only` would let a member point those credentials at
+    # another project, or turn a read-only connection into a writable one.
+    for header_name in FORWARDED_CALLER_HEADERS:
+        value = request.headers.get(header_name)
+        if value:
+            headers[header_name] = value
 
     mcp_session_id = request.headers.get("mcp-session-id")
     if mcp_session_id:
