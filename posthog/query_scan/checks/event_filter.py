@@ -47,9 +47,8 @@ def check_event_filter(tree: ast.AST, plan: QueryPlan | None = None) -> EventFil
     if not reads:
         return EventFilterOutcome(classification="usable")
 
-    conditions = collect_conditions(tree)
     key_used = plan.event_key_used() if plan is not None else None
-    outcomes = [_check_read(read, conditions, key_used) for read in reads]
+    outcomes = [_check_read(read, collect_conditions(tree, read), key_used) for read in reads]
     return min(outcomes, key=lambda outcome: _CLASS_ORDER.index(outcome.classification))
 
 

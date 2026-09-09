@@ -8,6 +8,9 @@ can reach the events table through any number of view, subquery and alias layers
 A condition is attributed to an events read by the identity of the ``TableType`` node that
 both the read's ``JoinExpr`` and the condition's field resolve to. Identity is what
 separates two reads of the same table, because ``TableType`` compares equal by value.
+
+The attribution stops at a subquery that takes a slice of its own rows, because a condition
+above such a subquery cannot reach the read below it.
 """
 
 from collections.abc import Iterator
@@ -37,15 +40,18 @@ def find_events_reads(node: ast.AST) -> list[EventsRead]:
     return collector.reads
 
 
-def collect_conditions(node: ast.AST) -> list[ast.Expr]:
-    """Top-level AND terms of every ``where`` and ``prewhere`` in the tree.
+def collect_conditions(node: ast.AST, read: EventsRead) -> list[ast.Expr]:
+    """Top-level AND terms of every ``where`` and ``prewhere`` that constrains ``read``.
 
-    Terms from an enclosing query are included, because ClickHouse pushes a condition on a
-    subquery's or a view's column down into the read.
+    A term from an enclosing query counts, because ClickHouse pushes a condition on a
+    subquery's or a view's column down into the read. It stops counting where that push
+    stops: a subquery with its own ``LIMIT`` picks which rows to hand up before the outer
+    condition sees them, so the read below it still produced everything.
     """
     collector = _ConditionCollector()
     collector.visit(node)
-    return collector.conditions
+    reaching = collector.selects_reaching(read.select)
+    return [term for select, term in collector.terms if id(select) in reaching]
 
 
 def iter_and_terms(expr: ast.Expr | None) -> Iterator[ast.Expr]:
@@ -135,6 +141,17 @@ def _exported_column(select_type: ast.SelectQueryType | ast.SelectSetQueryType, 
     return None
 
 
+def _slices_rows(select: ast.SelectQuery) -> bool:
+    """Whether this select picks which of its rows to keep, so a condition applied above it
+    cannot reach the read below.
+
+    ``LIMIT``, ``OFFSET`` and ``LIMIT BY`` all do: the rows come in the select's own order,
+    and filtering earlier would keep different ones. The outermost select always carries the
+    query limit, which costs nothing here because no condition sits above it.
+    """
+    return select.limit is not None or select.offset is not None or select.limit_by is not None
+
+
 def _events_table_type(join: ast.JoinExpr) -> ast.TableType | None:
     join_type = join.type
     if join_type is None:
@@ -161,14 +178,36 @@ class _EventsReadCollector(TraversingVisitor):
 
 
 class _ConditionCollector(TraversingVisitor):
+    """Every top-level AND term with the select query that holds it, plus each select's
+    enclosing one, so a term can be matched to the reads it reaches."""
+
     def __init__(self) -> None:
         super().__init__()
-        self.conditions: list[ast.Expr] = []
+        self.terms: list[tuple[ast.SelectQuery, ast.Expr]] = []
+        self._enclosing_select: dict[int, ast.SelectQuery] = {}
+        self._stack: list[ast.SelectQuery] = []
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
-        self.conditions.extend(iter_and_terms(node.where))
-        self.conditions.extend(iter_and_terms(node.prewhere))
+        if self._stack:
+            self._enclosing_select[id(node)] = self._stack[-1]
+        self.terms.extend((node, term) for term in iter_and_terms(node.where))
+        self.terms.extend((node, term) for term in iter_and_terms(node.prewhere))
+        self._stack.append(node)
         super().visit_select_query(node)
+        self._stack.pop()
+
+    def selects_reaching(self, select: ast.SelectQuery) -> set[int]:
+        """The ids of the selects whose conditions constrain a read in ``select``: the select
+        itself, then each enclosing one until a row slice blocks the way."""
+        reaching = {id(select)}
+        current = select
+        while not _slices_rows(current):
+            enclosing = self._enclosing_select.get(id(current))
+            if enclosing is None:
+                break
+            reaching.add(id(enclosing))
+            current = enclosing
+        return reaching
 
 
 class _ColumnFinder(TraversingVisitor):

@@ -116,6 +116,12 @@ class TestEventFilterCheck(QueryScanCheckTest):
                 "none",
                 None,
             ),
+            (
+                "filter outside a subquery that limits its own rows",
+                "SELECT count() FROM (SELECT event FROM events LIMIT 1000000) WHERE event = 'a'",
+                "none",
+                None,
+            ),
         ]
     )
     @freeze_time(NOW)
@@ -206,6 +212,13 @@ class TestStartDateCheck(QueryScanCheckTest):
             (
                 "bound only inside an or",
                 "SELECT count() FROM events WHERE timestamp > now() - interval 1 day OR event = 'a'",
+                "none",
+                None,
+            ),
+            (
+                "bound outside a subquery that limits its own rows",
+                "SELECT count() FROM (SELECT timestamp FROM events ORDER BY timestamp LIMIT 1000000) "
+                "WHERE timestamp >= '2026-01-01'",
                 "none",
                 None,
             ),

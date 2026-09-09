@@ -106,8 +106,7 @@ def check_start_date(tree: ast.AST, *, has_filters_placeholder: bool = False) ->
         # A query that never touches the events table has no start date to report on.
         return StartDateOutcome(classification="bound", date_from=None, date_to=moment.date())
 
-    conditions = collect_conditions(tree)
-    bounds = [_bounds_for_read(read, conditions, moment) for read in reads]
+    bounds = [_bounds_for_read(read, collect_conditions(tree, read), moment) for read in reads]
     worst = min(bounds, key=lambda item: _CLASS_ORDER.index(item.classification))
 
     # One read without a bound makes the whole count unbounded on that side, because the query
