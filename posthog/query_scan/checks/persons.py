@@ -41,9 +41,10 @@ def _is_unfiltered(select: ast.SelectQuery) -> bool:
 
     ``argmax_select`` puts the deleted and created_at housekeeping in ``having``, so an
     unfiltered v1 subquery has no ``where`` at all. The v2 subquery keeps one condition, the
-    ``id IN (latest version per id)`` lookup. Every way a filter reaches the subquery adds
-    something this test rejects: a lazy-join filter and the ``optimizeJoinedFilters``
-    pushdown both add a term, and the v2 filter path adds a ``where`` to the inner select.
+    ``(id, version) IN (latest version per id)`` lookup. Every way a filter reaches the
+    subquery adds something this test rejects: a lazy-join filter and the
+    ``optimizeJoinedFilters`` pushdown both add a term, and the v2 filter path adds a ``where``
+    to the inner select.
     """
     return all(_is_version_dedup(term) for term in iter_and_terms(select.where))
 
@@ -52,5 +53,25 @@ def _is_version_dedup(term: ast.Expr) -> bool:
     term = strip_aliases(term)
     if not isinstance(term, ast.CompareOperation) or term.op != ast.CompareOperationOp.In:
         return False
+    if not _is_id_and_version(term.left):
+        return False
     right = strip_aliases(term.right)
     return isinstance(right, ast.SelectQuery) and right.where is None
+
+
+def _is_id_and_version(expr: ast.Expr) -> bool:
+    """The ``(id, version)`` pair the v2 lookup compares.
+
+    A filter reaching the subquery never takes this shape. The lazy join only moves a term
+    whose left side is the ``id`` column on its own, and ``version`` is not a column of the
+    persons table for a person to name.
+    """
+    expr = strip_aliases(expr)
+    if not isinstance(expr, ast.Tuple):
+        return False
+    return [_column_name(item) for item in expr.exprs] == ["id", "version"]
+
+
+def _column_name(expr: ast.Expr) -> str | int | None:
+    expr = strip_aliases(expr)
+    return expr.chain[-1] if isinstance(expr, ast.Field) and expr.chain else None

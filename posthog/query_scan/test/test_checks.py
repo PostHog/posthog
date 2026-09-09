@@ -5,7 +5,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.schema import DateRange, HogQLFilters, HogQLQueryModifiers
+from posthog.schema import DateRange, HogQLFilters, HogQLQueryModifiers, PersonsArgMaxVersion
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -395,6 +395,23 @@ class TestPersonsJoinCheck(QueryScanCheckTest):
     @freeze_time(NOW)
     def test_reading_the_persons_table_directly_is_not_a_join(self) -> None:
         _tree, context = self.prepare("SELECT count() FROM persons")
+
+        outcome = check_persons_join(context)
+
+        self.assertTrue(outcome.reads_persons)
+        self.assertFalse(outcome.unfiltered)
+
+    @parameterized.expand([("argmax v1", PersonsArgMaxVersion.V1), ("argmax v2", PersonsArgMaxVersion.V2)])
+    @freeze_time(NOW)
+    def test_a_cohort_filter_pushed_into_the_join_is_not_reported(
+        self, _name: str, version: PersonsArgMaxVersion
+    ) -> None:
+        _tree, context = self.prepare(
+            "SELECT count() FROM events AS e JOIN persons AS p "
+            "ON e.person_id = p.id AND p.id IN (SELECT person_id FROM cohort_people) "
+            "WHERE e.event = 'purchase'",
+            modifiers=HogQLQueryModifiers(personsArgMaxVersion=version),
+        )
 
         outcome = check_persons_join(context)
 
