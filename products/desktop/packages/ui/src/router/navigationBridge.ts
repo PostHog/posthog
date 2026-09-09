@@ -1,5 +1,11 @@
 import type { NotificationTarget } from "@posthog/platform/notifications";
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
+import {
+  navigationSourceHref,
+  reportNavigationState,
+  settingsSourceHref,
+  sourceHrefFromSearch,
+} from "./reportNavigation";
 import { getRouterOrNull } from "./routerRef";
 
 // This bridge isolates imperative router calls behind a stable API and, by
@@ -147,53 +153,49 @@ export function navigateToInboxReports(): void {
   void getRouterOrNull()?.navigate({ to: "/inbox/reports" });
 }
 
-export function navigateToInboxPullRequestDetail(reportId: string): void {
-  void getRouterOrNull()?.navigate({
-    to: "/inbox/pulls/$reportId",
+export function navigateToReport(
+  reportId: string,
+  options?: { preserveSource?: boolean; returnToTriage?: boolean },
+): void {
+  const router = getRouterOrNull();
+  if (!router) return;
+  if (options?.returnToTriage) {
+    const location = router.history.location;
+    router.history.replace(location.href, {
+      ...location.state,
+      inboxTriageOrigin: { reportId },
+    });
+  }
+  const from =
+    options?.preserveSource === false ? undefined : navigationSourceHref();
+  void router.navigate({
+    to: "/reports/$reportId",
     params: { reportId },
+    search: from ? { from } : {},
+    state: reportNavigationState,
   });
+}
+
+export function navigateToInboxPullRequestDetail(reportId: string): void {
+  navigateToReport(reportId);
 }
 
 export function navigateToInboxReportDetail(
   reportId: string,
   options?: { returnToTriage?: boolean },
 ): void {
-  const router = getRouterOrNull();
-  if (!router) return;
-
-  const inboxTriageOrigin = options?.returnToTriage ? { reportId } : undefined;
-  if (inboxTriageOrigin) {
-    const location = router.history.location;
-    router.history.replace(location.href, {
-      ...location.state,
-      inboxTriageOrigin,
-    });
-  }
-
-  void router.navigate({
-    to: "/inbox/reports/$reportId",
-    params: { reportId },
-    state: inboxTriageOrigin
-      ? (previous) => ({ ...previous, inboxTriageOrigin })
-      : undefined,
-  });
+  navigateToReport(reportId, options);
 }
 
 export function navigateToInboxDismissedDetail(reportId: string): void {
-  void getRouterOrNull()?.navigate({
-    to: "/inbox/dismissed/$reportId",
-    params: { reportId },
-  });
+  navigateToReport(reportId);
 }
 
 export function navigateToChannelReportDetail(
-  channelId: string,
+  _channelId: string,
   reportId: string,
 ): void {
-  void getRouterOrNull()?.navigate({
-    to: "/spaces/$channelId/reports/$reportId",
-    params: { channelId, reportId },
-  });
+  navigateToReport(reportId);
 }
 
 export function navigateToLoops(options?: { ignoreBlocker?: boolean }): void {
@@ -250,12 +252,11 @@ export function navigateToSettings(
   category: SettingsCategory,
   options?: { replace?: boolean },
 ): void {
+  const from = settingsSourceHref();
   void getRouterOrNull()?.navigate({
     to: "/settings/$category",
     params: { category },
-    // Switching categories within settings should replace, not stack, so a
-    // single history.back() (closeSettings) exits to the app rather than
-    // walking back through every category that was visited.
+    search: from ? { from } : {},
     replace: options?.replace,
   });
 }
@@ -273,6 +274,17 @@ export function isOnSettingsRoute(): boolean {
       isSettingsRouteId(m.routeId),
     ) ?? false
   );
+}
+
+export function leaveSettingsRoute(): void {
+  const router = getRouterOrNull();
+  if (!router) return;
+  const from = sourceHrefFromSearch(router.state.location);
+  if (!from) {
+    void router.navigate({ to: "/new", state: keepTabTag });
+    return;
+  }
+  router.history.push(from, { tabId: router.history.location.state.tabId });
 }
 
 export function goBackInHistory(): void {
