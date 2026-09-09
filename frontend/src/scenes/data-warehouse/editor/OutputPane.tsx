@@ -985,6 +985,7 @@ function InternalDataTableVisualization(
     } else if (
         effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
         effectiveVisualizationType === ChartDisplayType.ActionsBar ||
+        effectiveVisualizationType === ChartDisplayType.ActionsBarValue ||
         effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph ||
         effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
     ) {
@@ -1003,6 +1004,7 @@ function InternalDataTableVisualization(
                     insightNumericId={editingInsight?.id || 'new'}
                     showAnnotations={isDateXAxis && chartSettings.showAnnotations === true}
                     presetChartHeight={presetChartHeight}
+                    embedded={props.embedded}
                 />
             </BindLogic>
         )
