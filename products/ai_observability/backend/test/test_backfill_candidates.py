@@ -10,7 +10,11 @@ from parameterized import parameterized
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 
-from products.ai_observability.backend.backfill_candidates import count_backfill_candidates, fetch_backfill_candidates
+from products.ai_observability.backend.backfill_candidates import (
+    MAX_CANDIDATE_ID_BYTES,
+    count_backfill_candidates,
+    fetch_backfill_candidates,
+)
 from products.ai_observability.backend.models.evaluations import Evaluation
 
 CANDIDATES_MODULE = "products.ai_observability.backend.backfill_candidates"
@@ -242,6 +246,54 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
         page = self._fetch(target="trace", limit=1)
         assert page.candidates[0].unit_id == "t4"
         assert page.candidates[0].session_id is None
+
+    def test_an_oversized_unit_id_is_left_out_of_the_walk(self) -> None:
+        # Capture takes a trace id as large as the event carrying it, and a Temporal payload stops
+        # near 2 MiB, so a unit this wide can never be dispatched.
+        oversized = "t" * (MAX_CANDIDATE_ID_BYTES + 1)
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "distinct_id": "d-wide",
+                    "team": self.team,
+                    "timestamp": BASE + timedelta(hours=3),
+                    "event_uuid": _generation_uuid(90),
+                    "properties": {"$ai_trace_id": oversized, "$ai_session_id": "s-wide"},
+                }
+            ]
+        )
+
+        page = self._fetch(target="trace", limit=10)
+
+        assert oversized not in [candidate.unit_id for candidate in page.candidates]
+        assert self._count(target="trace") == len(page.candidates)
+
+    def test_an_oversized_id_beside_the_unit_is_dropped_rather_than_shipped(self) -> None:
+        # The trace id only narrows the child's scan and the session id only tags the verdict, so
+        # a candidate keeps its place without them.
+        oversized = "s" * (MAX_CANDIDATE_ID_BYTES + 1)
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "distinct_id": "d-t5",
+                    "team": self.team,
+                    "timestamp": BASE + timedelta(hours=4),
+                    "event_uuid": _generation_uuid(91),
+                    "properties": {
+                        "$ai_trace_id": "t5",
+                        "$ai_session_id": "s-t5",
+                        "$session_id": oversized,
+                    },
+                }
+            ]
+        )
+
+        candidate = self._fetch(target="trace", limit=1).candidates[0]
+
+        assert candidate.unit_id == "t5"
+        assert candidate.session_id is None
 
     def test_a_condition_on_a_heavy_property_reads_the_native_ai_events_column(self) -> None:
         # `properties.$ai_input` is stripped from ai_events, so a filter that survives into the

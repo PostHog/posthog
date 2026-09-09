@@ -20,6 +20,12 @@ from products.ai_observability.backend.models.evaluations import EvaluationTarge
 # is too expensive for ClickHouse must fail the caller quickly rather than hold it for the 60s default.
 MAX_EXECUTION_TIME_SECONDS = 30
 
+# A trace or session id is a plain event property, so capture takes one as large as the event it
+# rides on, while a Temporal activity payload stops near 2 MiB. Bounding every id a candidate
+# carries keeps a full batch far under that, and the bound sits in the query because the cursor is
+# itself a unit id: a row skipped after the query would never be passed, stalling the walk on it.
+MAX_CANDIDATE_ID_BYTES = 256
+
 CANDIDATE_QUERY_TYPE = "EvaluationBackfillCandidates"
 COUNT_QUERY_TYPE = "EvaluationBackfillCount"
 
@@ -40,6 +46,7 @@ FROM posthog.ai_events AS ai_events
 WHERE event = '$ai_generation'
   AND isNotNull({unit_key})
   AND {unit_key} != ''
+  AND length({unit_key}) <= {max_id_bytes}
   AND timestamp >= {window_start}
   AND timestamp < {window_end}
   AND {condition_filter}
@@ -148,6 +155,7 @@ def _units_query(
     assert isinstance(query, ast.SelectQuery)
     placeholders: dict[str, ast.Expr] = {
         "unit_key": unit_key,
+        "max_id_bytes": ast.Constant(value=MAX_CANDIDATE_ID_BYTES),
         "window_start": ast.Constant(value=window_start),
         "window_end": ast.Constant(value=window_end),
         "condition_filter": condition_filter if condition_filter is not None else ast.Constant(value=True),
@@ -182,6 +190,18 @@ def _cursor_predicate(cursor_timestamp: datetime, cursor_unit_id: str) -> ast.Ex
             ),
         ]
     )
+
+
+def _bounded_id(value: Any) -> str | None:
+    """An id a candidate carries alongside its unit, dropped when it is too large to ship.
+
+    Both are optional to the run that receives them: one narrows the child's ClickHouse scan and
+    the other becomes a property on the verdict, so losing an absurd one beats failing the tick.
+    """
+    if not value:
+        return None
+    text = str(value)
+    return text if len(text.encode()) <= MAX_CANDIDATE_ID_BYTES else None
 
 
 def _run(
@@ -275,8 +295,8 @@ def fetch_backfill_candidates(
             unit_id=str(row[0]),
             unit_timestamp=row[1],
             distinct_id=str(row[2]),
-            session_id=str(row[3]) if row[3] else None,
-            trace_id=str(row[4]) if row[4] else None,
+            session_id=_bounded_id(row[3]),
+            trace_id=_bounded_id(row[4]),
         )
         for row in rows
     ]
