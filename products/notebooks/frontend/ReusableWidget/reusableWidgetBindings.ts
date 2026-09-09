@@ -36,7 +36,7 @@ export async function applyReusableWidgetBinding(
     frame: WidgetFrameApi,
     logicalName: string,
     binding: ReusableWidgetInputBinding | undefined,
-    expectedColumns: string[] = []
+    expectedColumns: string[]
 ): Promise<WidgetFrameApi> {
     if (!binding) {
         return { ...frame, name: logicalName }
@@ -68,18 +68,17 @@ export async function applyReusableWidgetBinding(
         throw new Error(`The input mapping for "${logicalName}" must return a list of objects.`)
     }
     const records = mapped as Record<string, unknown>[]
-    const columnNames = Array.from(new Set(records.flatMap((row) => Object.keys(row)))).slice(0, 100)
-    const missingColumns = expectedColumns.filter((name) => !columnNames.includes(name))
-    if (records.length && missingColumns.length) {
-        throw new Error(
-            `The input mapping for "${logicalName}" must return the contract column "${missingColumns[0]}".`
-        )
+    const missingColumn = expectedColumns.find((name) =>
+        records.some((row) => !Object.prototype.hasOwnProperty.call(row, name))
+    )
+    if (missingColumn !== undefined) {
+        throw new Error(`The input mapping for "${logicalName}" must return the contract column "${missingColumn}".`)
     }
     return {
         ...frame,
         name: logicalName,
-        columns: columnNames.map((name) => ({ name, type: 'unknown' })),
-        rows: records.map((row) => columnNames.map((name) => row[name] ?? null)),
+        columns: expectedColumns.map((name) => ({ name, type: 'unknown' })),
+        rows: records.map((row) => expectedColumns.map((name) => row[name] ?? null)),
         includedRowCount: records.length,
     }
 }

@@ -27,7 +27,10 @@ describe('reusableWidgetBindings', () => {
     })
 
     it('renames a directly bound notebook dataframe to the logical contract slot', async () => {
-        const result = await applyReusableWidgetBinding(sourceFrame, 'revenue', { source: 'orders' })
+        const result = await applyReusableWidgetBinding(sourceFrame, 'revenue', { source: 'orders' }, [
+            'plan_name',
+            'amount',
+        ])
 
         expect(result).toEqual({ ...sourceFrame, name: 'revenue' })
         expect(execHog).not.toHaveBeenCalled()
@@ -37,11 +40,12 @@ describe('reusableWidgetBindings', () => {
         jest.mocked(execHog).mockReturnValue({ finished: true, error: null, result: ['hog-result'] } as never)
         jest.mocked(convertHogToJS).mockReturnValue([{ plan: 'Enterprise', revenue: 500 }] as never)
 
-        const result = await applyReusableWidgetBinding(sourceFrame, 'revenue', {
-            source: 'orders',
-            hog: 'return rows',
-            bytecode: ['_H', 1],
-        })
+        const result = await applyReusableWidgetBinding(
+            sourceFrame,
+            'revenue',
+            { source: 'orders', hog: 'return rows', bytecode: ['_H', 1] },
+            ['plan', 'revenue']
+        )
 
         expect(execHog).toHaveBeenCalledWith(
             ['_H', 1],
@@ -67,6 +71,40 @@ describe('reusableWidgetBindings', () => {
         })
     })
 
+    it.each([
+        {
+            label: 'extra columns in a different order',
+            mappedRows: [{ revenue: 500, internal_note: 'Private note', plan: 'Enterprise' }],
+            expectedColumns: ['plan', 'revenue'],
+            expectedRows: [['Enterprise', 500]],
+        },
+        {
+            label: 'an empty page',
+            mappedRows: [],
+            expectedColumns: ['plan', 'revenue'],
+            expectedRows: [],
+        },
+        {
+            label: 'a contract without columns',
+            mappedRows: [{ internal_note: 'Private note' }],
+            expectedColumns: [],
+            expectedRows: [[]],
+        },
+    ])('returns only declared columns for $label', async ({ mappedRows, expectedColumns, expectedRows }) => {
+        jest.mocked(execHog).mockReturnValue({ finished: true, error: null, result: ['hog-result'] } as never)
+        jest.mocked(convertHogToJS).mockReturnValue(mappedRows as never)
+
+        const result = await applyReusableWidgetBinding(
+            sourceFrame,
+            'revenue',
+            { source: 'orders', hog: 'return rows', bytecode: ['_H', 1] },
+            expectedColumns
+        )
+
+        expect(result.columns).toEqual(expectedColumns.map((name) => ({ name, type: 'unknown' })))
+        expect(result.rows).toEqual(expectedRows)
+    })
+
     it('ignores malformed persisted bindings', () => {
         expect(getReusableWidgetInputBinding({ revenue: { source: 42 } }, 'revenue')).toBeUndefined()
     })
@@ -78,7 +116,8 @@ describe('reusableWidgetBindings', () => {
         const result = await applyReusableWidgetBinding(
             { ...sourceFrame, totalRowCount: 200, nextOffset: 100, truncated: true },
             'revenue',
-            { source: 'orders', hog: 'return rows', bytecode: ['_H', 1] }
+            { source: 'orders', hog: 'return rows', bytecode: ['_H', 1] },
+            ['revenue']
         )
 
         expect(result.totalRowCount).toBe(200)
@@ -86,9 +125,12 @@ describe('reusableWidgetBindings', () => {
         expect(result.truncated).toBe(true)
     })
 
-    it('rejects mapped rows that do not satisfy the reusable contract', async () => {
+    it.each([
+        { rows: [{ amount: 500 }], missingColumn: 'plan' },
+        { rows: [{ plan: 'Enterprise', revenue: 500 }, { plan: 'Enterprise' }], missingColumn: 'revenue' },
+    ])('rejects mapped rows missing $missingColumn', async ({ rows, missingColumn }) => {
         jest.mocked(execHog).mockReturnValue({ finished: true, error: null, result: ['hog-result'] } as never)
-        jest.mocked(convertHogToJS).mockReturnValue([{ amount: 500 }] as never)
+        jest.mocked(convertHogToJS).mockReturnValue(rows as never)
 
         await expect(
             applyReusableWidgetBinding(
@@ -97,6 +139,6 @@ describe('reusableWidgetBindings', () => {
                 { source: 'orders', hog: 'return rows', bytecode: ['_H', 1] },
                 ['plan', 'revenue']
             )
-        ).rejects.toThrow('must return the contract column "plan"')
+        ).rejects.toThrow(`must return the contract column "${missingColumn}"`)
     })
 })

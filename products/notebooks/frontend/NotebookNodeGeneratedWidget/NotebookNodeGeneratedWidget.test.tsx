@@ -15,6 +15,7 @@ import { AccessControlLevel } from '~/types'
 
 import {
     notebooksWidgetCancel,
+    notebooksWidgetFrame,
     notebooksWidgetPin,
     notebooksWidgetSource,
     notebooksWidgetStatus,
@@ -24,6 +25,7 @@ import type { WidgetStatusApi } from 'products/notebooks/frontend/generated/api.
 
 import { notebookNodeGeneratedWidgetLogic } from './notebookNodeGeneratedWidgetLogic'
 import { NotebookWidgetGenerationModal } from './NotebookWidgetGenerationModal'
+import { NOTEBOOK_FRAME_KEY_PREFIX } from './widgetArtifactBridge'
 
 jest.mock('scenes/notebooks/Notebook/migrations/migrate', () => {
     const actual = jest.requireActual('scenes/notebooks/Notebook/migrations/migrate')
@@ -404,6 +406,102 @@ describe('NotebookNodeGeneratedWidget', () => {
             'https://example.com/untrusted-widget.html?sandbox=allow-pointer-lock#theme=light'
         )
         expect(container.querySelector('iframe')?.getAttribute('title')).toBe('Widget')
+    })
+
+    it('sends only contract columns to a reusable widget after applying its mapping', async () => {
+        jest.spyOn(HTMLIFrameElement.prototype, 'contentWindow', 'get').mockReturnValue(window)
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue({
+            lifecycle_status: 'ready',
+            error_detail: null,
+            artifact_url: 'https://example.com/revenue-widget.html',
+            frame_names: ['revenue'],
+            input_bindings: {
+                revenue: { source: 'orders', hog: 'return rows', bytecode: ['_H', 1, 32, 'rows', 1, 1, 38] },
+            },
+            input_contract: [
+                {
+                    slot: 'revenue',
+                    sourceName: 'orders',
+                    schemaHash: 'test-schema',
+                    columns: [
+                        { name: 'plan', type: 'string' },
+                        { name: 'revenue', type: 'float64' },
+                    ],
+                },
+            ],
+            current_version_id: '00000000-0000-0000-0000-000000000014',
+            pinned_version_id: null,
+            widget_id: '00000000-0000-0000-0000-000000000015',
+            instance_id: '00000000-0000-0000-0000-000000000016',
+            has_versions: true,
+            active_job: null,
+            security_review: null,
+            is_reusable: true,
+            build_hash: 'd'.repeat(64),
+        })
+        jest.mocked(notebooksWidgetFrame).mockResolvedValue({
+            name: 'revenue',
+            runId: '00000000-0000-0000-0000-000000000017',
+            columns: [
+                { name: 'plan', type: 'string' },
+                { name: 'revenue', type: 'float64' },
+                { name: 'internal_note', type: 'string' },
+            ],
+            rows: [['Enterprise', 500, 'Private note']],
+            totalRowCount: 1,
+            includedRowCount: 1,
+            offset: 0,
+            nextOffset: null,
+            truncated: false,
+        })
+        const port = {
+            postMessage: jest.fn(),
+            addEventListener: jest.fn(),
+            removeEventListener: jest.fn(),
+            start: jest.fn(),
+            close: jest.fn(),
+        }
+        const { container } = render(
+            <BindLogic logic={notebookLogic} props={logicProps}>
+                <MarkdownNotebookV2 />
+            </BindLogic>
+        )
+        await waitFor(() => expect(container.querySelector('[data-attr="notebook-widget-run"]')).not.toBeNull())
+        fireEvent.click(container.querySelector('[data-attr="notebook-widget-run"]')!)
+        const iframe = (await screen.findByTitle('Widget')) as HTMLIFrameElement
+        fireEvent(
+            window,
+            new MessageEvent('message', {
+                data: { channel: 'posthog-canvas', type: 'notebook-connect' },
+                source: iframe.contentWindow,
+                ports: [port as unknown as MessagePort],
+            })
+        )
+        const route = port.addEventListener.mock.calls[0][1] as (event: { data: unknown }) => Promise<void>
+
+        await route({
+            data: {
+                channel: 'posthog-canvas',
+                type: 'data-request',
+                id: 'revenue-page',
+                method: 'stateGet',
+                payload: { key: `${NOTEBOOK_FRAME_KEY_PREFIX}revenue:0:100` },
+            },
+        })
+
+        expect(port.postMessage).toHaveBeenCalledWith({
+            channel: 'posthog-canvas',
+            type: 'data-response',
+            id: 'revenue-page',
+            ok: true,
+            result: expect.objectContaining({
+                columns: [
+                    { name: 'plan', type: 'unknown' },
+                    { name: 'revenue', type: 'unknown' },
+                ],
+                rows: [['Enterprise', 500]],
+            }),
+        })
     })
 
     it.each([

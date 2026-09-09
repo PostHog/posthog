@@ -25,6 +25,9 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 
 ## Reusable widgets
 
+The reusable catalog fields, demo data, input bindings, and pending reviews share one schema migration: `notebooks.0020_reusable_widgets`, after `0019_squash_2026_09_07_schema_addons`.
+Local databases that already applied the earlier catalog, input-binding, pending-review, and merge migrations need their migration records reconciled after verifying all nine fields exist. Record the consolidated migration as applied and prune the four superseded records in both the development and reused test databases. Preserve the existing tables and data; rolling back those field additions would discard saved catalog metadata, bindings, and demo rows.
+
 The notebooks index shows **Notebooks** and **Reusable widgets** tabs only when `notebook-generated-widgets` is enabled. With the flag disabled, it shows the notebook list without tabs.
 Each reusable widget's page header has a back arrow before the notebook icon that returns to the **Reusable widgets** tab.
 
@@ -43,6 +46,7 @@ On wide detail pages, the controls sit beside the preview in a one-third/two-thi
 `<Widget>` nodes use a stable notebook `nodeId` and an optional `version`. Reusable placements also store the catalog `id` and notebook-local `inputs`. The server remains the source of truth for the placement and its bindings. A binding maps each logical contract slot to a local SQL or Python dataframe, so two instances of the same reusable widget can use different notebook data.
 
 An input binding can also include a pure Hog transform. It receives `rows` as a list of row objects, `columns`, and `frame`, and must return a list of row objects matching the widget's expected contract. Hog is compiled through the existing compiler and runs in the browser VM with no callable functions, no asynchronous steps, a 100 ms timeout, and a 16 MiB memory limit. Direct bindings retain the existing schema-hash check; transformed bindings are validated as bounded tabular output before the iframe receives them.
+Every mapped row must include all declared columns. Only those columns reach the widget, in contract order; extra fields are discarded, and empty pages retain the contract's columns.
 
 The notebook MCP surface exposes catalog list, detail, and attach operations. Agents should search saved widgets before generating a new visualization, inspect the candidate's contract, and provide explicit `{ source, hog? }` bindings when attaching it.
 
