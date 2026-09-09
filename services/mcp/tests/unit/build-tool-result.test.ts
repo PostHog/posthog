@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
     EXEC_BUILT_PAYLOAD,
     STRUCTURED_CONTENT_ONLY_TEXT,
+    UI_RESOURCE_RENDERED_HINT,
     estimateResponseTokens,
     markExecPayload,
     buildToolResultPayload,
@@ -96,6 +97,9 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
         })
         // Override key must not leak into structuredContent.
         expect(payload.structuredContent).not.toHaveProperty(POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY)
+        // No chart is going to render for this caller (no `includeUiResponseMeta`), so telling
+        // the model one already has would be false — regression guard for the hint's gating.
+        expect(payload.content[0]!.text).not.toContain(UI_RESOURCE_RENDERED_HINT)
     })
 
     it('keeps structuredContent when suppression is omitted', () => {
@@ -202,8 +206,10 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
             distinctId: 'd',
         })
 
-        // Model reads the compact table, not the verbose JSON.
-        expect(payload.content[0]!.text).toBe(FORMATTED_TABLE)
+        // Model reads the compact table, not the verbose JSON, plus a note that a chart already
+        // covers it — otherwise the model transcribes the table into its own reply on top of
+        // the chart the host renders from this same response's `_meta.ui.resourceUri`.
+        expect(payload.content[0]!.text).toBe(`${FORMATTED_TABLE}\n\n${UI_RESOURCE_RENDERED_HINT}`)
         expect(payload).not.toHaveProperty('structuredContent')
         // The UI app hydrates from _meta since structuredContent was dropped.
         expect(payload._meta?.[APP_DATA_META_KEY]).toMatchObject({ results: expect.any(Array) })

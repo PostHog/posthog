@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
-import { STRUCTURED_CONTENT_ONLY_TEXT } from '@/lib/build-tool-result'
+import { STRUCTURED_CONTENT_ONLY_TEXT, UI_RESOURCE_RENDERED_HINT } from '@/lib/build-tool-result'
 import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
@@ -518,8 +518,8 @@ describe('exec tool', () => {
                     _meta: { ui: { resourceUri: string }; [key: string]: unknown }
                 }
 
-                // Model sees ONLY the compact table, not the raw results JSON.
-                expect(result.content[0]!.text).toBe('Date|count\n2026-05-07|6')
+                // Model sees the compact table plus the rendered-chart hint, not the raw results JSON.
+                expect(result.content[0]!.text).toBe(`Date|count\n2026-05-07|6\n\n${UI_RESOURCE_RENDERED_HINT}`)
                 // Top-level structuredContent is dropped so coding agents don't surface it.
                 expect(result.structuredContent).toBeUndefined()
                 // The UI app's data (with analytics) rides on _meta instead.
