@@ -1358,6 +1358,7 @@ function appendTextChunk(
   ts: number,
 ) {
   if (update.content.type !== "text") return;
+  flushAgentStart(b);
 
   const lastItem = b.items[b.items.length - 1];
   if (

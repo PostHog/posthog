@@ -311,6 +311,16 @@ describe("buildConversationItems", () => {
       trailing: [agentMessageMsg(6, "Hi")],
       expected: 1,
     },
+    {
+      name: "once per burst when content separates them",
+      trailing: [
+        agentMessageMsg(6, "Hi"),
+        statusMsg(7, "setup_hooks"),
+        statusMsg(8, "sdk_initialization"),
+        agentMessageMsg(9, "Back"),
+      ],
+      expected: 2,
+    },
   ])(
     "collapses a startup burst into one agent_started row $name",
     ({ trailing, expected }) => {
