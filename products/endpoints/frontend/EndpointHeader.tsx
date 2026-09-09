@@ -1,19 +1,22 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBug } from '@posthog/icons'
-import { LemonButton, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
+import { IconBug, IconSparkles } from '@posthog/icons'
+import { LemonButton, LemonLabel, LemonMenu, LemonSwitch } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { objectsEqual } from 'lib/utils/objects'
+import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { EndpointRequest } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
-import { AccessControlLevel, AccessControlResourceType, EndpointType, EndpointVersionType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, EndpointType, EndpointVersionType, SidePanelTab } from '~/types'
 
+import { ENDPOINT_AI_PROMPTS } from './endpointAgentContext'
 import { endpointLogic } from './endpointLogic'
 import { endpointSceneLogic, extractBreakdownPropertyNames } from './endpointSceneLogic'
 
@@ -28,6 +31,7 @@ export const EndpointSceneHeader = (): JSX.Element => {
         debugInfoExpanded,
         dataFreshness,
         optionalBreakdownProperties,
+        activeTab,
     } = useValues(endpointSceneLogic)
     const { endpointName, endpointDescription, updatingEndpoint } = useValues(endpointLogic)
     const { setEndpointDescription, updateEndpoint } = useActions(endpointLogic)
@@ -40,6 +44,8 @@ export const EndpointSceneHeader = (): JSX.Element => {
         setDebugInfoExpanded,
     } = useActions(endpointSceneLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
+    const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     // SceneTitleSection takes a boolean `canEdit` rather than disabled/disabledReason, so we can't
     // wrap it with AccessControlAction — use the same helper AccessControlAction relies on internally.
@@ -139,6 +145,18 @@ export const EndpointSceneHeader = (): JSX.Element => {
                 renameDebounceMs={200}
                 actions={
                     <>
+                        {sceneIntegrationEnabled && endpoint && !endpointLoading && (
+                            <LemonMenu
+                                items={(ENDPOINT_AI_PROMPTS[activeTab] ?? ENDPOINT_AI_PROMPTS.query).map((prompt) => ({
+                                    label: prompt,
+                                    onClick: () => openSidePanel(SidePanelTab.Max, prompt),
+                                }))}
+                            >
+                                <LemonButton type="secondary" icon={<IconSparkles />} data-attr="endpoint-ask-ai">
+                                    Ask AI
+                                </LemonButton>
+                            </LemonMenu>
+                        )}
                         {superpowersEnabled && endpoint && (
                             <LemonSwitch
                                 bordered

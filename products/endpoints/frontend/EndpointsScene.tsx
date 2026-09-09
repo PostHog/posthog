@@ -1,4 +1,4 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -7,6 +7,8 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
+import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -15,6 +17,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { useToolStreamListener } from 'products/posthog_ai/frontend/api/logics'
 
 import { endpointsEmptyState } from './emptyState/endpointsEmptyState'
 import { Endpoints } from './Endpoints'
@@ -33,6 +37,33 @@ export const scene: SceneExport = {
 
 export function EndpointsScene(): JSX.Element {
     const { activeTab } = useValues(endpointsLogic)
+    const { loadEndpoints } = useActions(endpointsLogic)
+    const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
+    useSceneAgentPanel({
+        sceneKey: 'endpoints',
+        autoOpen: false,
+        headlines: ['What would you like to do with your endpoints?'],
+        contextItems: [
+            {
+                type: 'instructions',
+                hidden: true,
+                value:
+                    'The user is browsing Endpoints. Use endpoints-get-all to discover existing endpoints. ' +
+                    'Load creating-an-endpoint before creating an endpoint, or auditing-endpoints for an audit. ' +
+                    'Endpoint query changes immediately create a new latest version used by unpinned callers. ' +
+                    'The endpoint list refreshes after agent creates, updates, or deletes an endpoint.',
+            },
+            { type: 'text', hidden: true, value: JSON.stringify({ endpoints_scene_state: { tab: activeTab } }) },
+        ],
+    })
+    useToolStreamListener({
+        tools: ['endpoint-create', 'endpoint-update', 'endpoint-delete'],
+        onEvent: (event) => {
+            if (sceneIntegrationEnabled && event.phase === 'completed') {
+                loadEndpoints()
+            }
+        },
+    })
 
     const tabs: LemonTab<string>[] = [
         {

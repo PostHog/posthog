@@ -29,6 +29,8 @@ import 'lib/lemon-ui/LemonModal/LemonModal'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
+import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -46,6 +48,8 @@ import { tagsModel } from '~/models/tagsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope, EndpointVersionType } from '~/types'
 
+import { foregroundStreamLogic, resolveToolCall, useToolStreamListener } from 'products/posthog_ai/frontend/api/logics'
+
 import { EndpointConfiguration } from './endpoint-tabs/EndpointConfiguration'
 import { EndpointLogs } from './endpoint-tabs/EndpointLogs'
 import { EndpointOverview } from './endpoint-tabs/EndpointOverview'
@@ -53,6 +57,7 @@ import { EndpointPlayground } from './endpoint-tabs/EndpointPlayground'
 import { EndpointQuery } from './endpoint-tabs/EndpointQuery'
 import { EndpointVersions } from './endpoint-tabs/EndpointVersions'
 import { VersionBanner } from './endpoint-tabs/VersionBanner'
+import { buildEndpointAgentContext } from './endpointAgentContext'
 import { EndpointSceneHeader } from './EndpointHeader'
 import { endpointLogic } from './endpointLogic'
 import { EndpointTab, endpointSceneLogic } from './endpointSceneLogic'
@@ -66,8 +71,39 @@ export const scene: SceneExport = {
 }
 
 export function EndpointScene(): JSX.Element {
-    const { endpoint, endpointLoading, activeTab, viewingVersion, isMaterialized } = useValues(endpointSceneLogic)
-    const { setViewingVersion, toggleMaterializationFromMenu } = useActions(endpointSceneLogic)
+    const {
+        endpoint,
+        endpointLoading,
+        activeTab,
+        viewingVersion,
+        isMaterialized,
+        hasUnsavedChanges,
+        agentRefreshPending,
+    } = useValues(endpointSceneLogic)
+    const { setViewingVersion, toggleMaterializationFromMenu, endpointChangedByAgent, reloadEndpointAfterAgentChange } =
+        useActions(endpointSceneLogic)
+    const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
+    const { foregroundStreamKey } = useValues(foregroundStreamLogic)
+
+    useSceneAgentPanel({
+        sceneKey: 'endpoint',
+        contextItems: buildEndpointAgentContext(endpoint, viewingVersion, activeTab, hasUnsavedChanges),
+        headlines: ['How can I help with this endpoint?'],
+        active: !!endpoint && !endpointLoading,
+        autoOpen: false,
+    })
+    useToolStreamListener({
+        tools: ['endpoint-update'],
+        onEvent: (event) => {
+            if (!sceneIntegrationEnabled || event.phase !== 'completed' || event.streamKey !== foregroundStreamKey) {
+                return
+            }
+            const { innerInput } = resolveToolCall(event.invocation)
+            if (typeof innerInput?.name === 'string') {
+                endpointChangedByAgent(innerInput.name)
+            }
+        },
+    })
     const { deleteEndpoint, confirmToggleActive, saveTagsInline } = useActions(endpointLogic)
     const { versions } = useValues(endpointLogic)
     const { allEndpoints } = useValues(endpointsLogic)
@@ -316,6 +352,27 @@ export function EndpointScene(): JSX.Element {
                     </SceneMenuBar>
                 )}
                 <EndpointSceneHeader />
+                {agentRefreshPending && (
+                    <LemonBanner
+                        type="info"
+                        action={{
+                            children: 'Reload endpoint',
+                            onClick: () =>
+                                LemonDialog.open({
+                                    title: 'Reload endpoint and discard local changes?',
+                                    content:
+                                        'This loads the saved endpoint and discards your unsaved query, configuration, and playground changes.',
+                                    primaryButton: {
+                                        children: 'Reload endpoint',
+                                        onClick: reloadEndpointAfterAgentChange,
+                                    },
+                                    secondaryButton: { children: 'Keep editing' },
+                                }),
+                        }}
+                    >
+                        AI updated this endpoint. Your unsaved changes have been kept. Reload to see the saved endpoint.
+                    </LemonBanner>
+                )}
                 {endpoint && !endpoint.is_active && (
                     <LemonBanner type="error">
                         This endpoint is deactivated and cannot be accessed via the API. <br />

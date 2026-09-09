@@ -4,6 +4,7 @@ import api from 'lib/api'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { urls } from 'scenes/urls'
 
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
@@ -17,6 +18,7 @@ jest.mock('lib/api', () => ({
             get: jest.fn(),
             run: jest.fn(),
             listVersions: jest.fn().mockResolvedValue({ results: [] }),
+            getMaterializationPreview: jest.fn().mockResolvedValue({ can_materialize: true }),
         },
     },
     ApiConfig: {
@@ -25,7 +27,7 @@ jest.mock('lib/api', () => ({
 }))
 
 const mockEditorLogic = {
-    values: { queryInput: 'SELECT 1' },
+    values: { queryInput: 'SELECT 1', suggestionPayload: null as unknown },
     actions: {
         setQueryInput: jest.fn(),
         setSourceQuery: jest.fn(),
@@ -88,6 +90,8 @@ describe('endpointSceneLogic', () => {
 
     beforeEach(async () => {
         jest.clearAllMocks()
+        mockEditorLogic.values.queryInput = 'SELECT 1'
+        mockEditorLogic.values.suggestionPayload = null
         // The bare jest.fn() in the module mock resolves undefined, which the endpoint
         // loader would feed straight into its reducer. Echo the requested version so the
         // URL's version param survives the mount-time viewingVersion sync.
@@ -110,6 +114,99 @@ describe('endpointSceneLogic', () => {
     afterEach(() => {
         logic?.unmount()
     })
+
+    it('refreshes an agent update on the selected tab and version', async () => {
+        logic.actions.setActiveTab(EndpointTab.VERSIONS)
+        const refreshed = { ...endpoint, description: 'Updated by AI' }
+        ;(api.endpoint.get as jest.Mock).mockImplementation((_name: string, version?: number) =>
+            Promise.resolve(version === undefined ? refreshed : { ...refreshed, version })
+        )
+
+        logic.actions.endpointChangedByAgent(endpoint.name)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.endpoint?.description).toBe('Updated by AI')
+        expect(logic.values.viewingVersion?.version).toBe(2)
+        expect(logic.values.activeTab).toBe(EndpointTab.VERSIONS)
+        expect(logic.values.agentRefreshPending).toBe(false)
+    })
+
+    it('ignores agent updates for another endpoint', async () => {
+        ;(api.endpoint.get as jest.Mock).mockClear()
+        logic.actions.endpointChangedByAgent('another-endpoint')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(api.endpoint.get).not.toHaveBeenCalled()
+        expect(logic.values.agentRefreshPending).toBe(false)
+    })
+
+    test.each(['suggestion', 'unflushed SQL'])('keeps an editor %s during an agent update', async (kind) => {
+        logic.actions.setViewingVersion(null)
+        logic.actions.loadEndpointSuccess({ ...endpoint, query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' } })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.keepSqlEditorMounted('endpoint-query-latest')
+        if (kind === 'suggestion') {
+            mockEditorLogic.values.suggestionPayload = { suggestedValue: 'SELECT 2' }
+        } else {
+            mockEditorLogic.values.queryInput = 'SELECT 2'
+        }
+        ;(api.endpoint.get as jest.Mock).mockClear()
+
+        logic.actions.endpointChangedByAgent(endpoint.name)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(api.endpoint.get).not.toHaveBeenCalled()
+        expect(logic.values.agentRefreshPending).toBe(true)
+    })
+
+    test.each(['query', 'description', 'freshness', 'materialization', 'buckets', 'breakdowns', 'playground'])(
+        'keeps unsaved %s changes when AI updates the endpoint',
+        async (field) => {
+            switch (field) {
+                case 'query':
+                    logic.actions.setLocalQuery({ kind: NodeKind.HogQLQuery, query: 'SELECT 2' } as HogQLQuery)
+                    break
+                case 'description':
+                    logic.actions.setEndpointDescription('My unsaved description')
+                    break
+                case 'freshness':
+                    logic.actions.setDataFreshness(3600)
+                    break
+                case 'materialization':
+                    logic.actions.setIsMaterialized(true)
+                    break
+                case 'buckets':
+                    logic.actions.setBucketOverride('timestamp', 'week')
+                    break
+                case 'breakdowns':
+                    logic.actions.toggleBreakdownOptional('country')
+                    break
+                case 'playground':
+                    logic.actions.setPayloadJson('{"variables":{"country":"GB"}}')
+                    break
+            }
+            const before = logic.values
+            ;(api.endpoint.get as jest.Mock).mockClear()
+            logic.actions.endpointChangedByAgent(endpoint.name)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(api.endpoint.get).not.toHaveBeenCalled()
+            expect(logic.values.agentRefreshPending).toBe(true)
+            expect(logic.values).toMatchObject({
+                localQuery: before.localQuery,
+                endpointDescription: before.endpointDescription,
+                dataFreshness: before.dataFreshness,
+                isMaterialized: before.isMaterialized,
+                bucketOverrides: before.bucketOverrides,
+                optionalBreakdownProperties: before.optionalBreakdownProperties,
+                payloadJson: before.payloadJson,
+            })
+
+            logic.actions.reloadEndpointAfterAgentChange()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.agentRefreshPending).toBe(false)
+            expect(logic.values.hasUnsavedChanges).toBe(false)
+        }
+    )
 
     it('loads the requested version from the URL', async () => {
         const versionData = { ...endpoint, version: 2, description: 'Version 2' }
