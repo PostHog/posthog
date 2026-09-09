@@ -594,11 +594,16 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         return super().to_internal_value(data)
 
+    API_MANAGED_TYPE_ERRORS = {
+        HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value: "Cannot create or modify warehouse source webhook functions via this API.",
+        # A legacy destination is only ever written by the plugin config migration. One created here
+        # would supersede the plugin config it shares a template with, silently replacing it.
+        HogFunctionType.LEGACY_DESTINATION.value: "Cannot create or modify legacy destination functions via this API.",
+    }
+
     def validate_type(self, value):
-        if value == HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value:
-            raise serializers.ValidationError(
-                "Cannot create or modify warehouse source webhook functions via this API."
-            )
+        if value in self.API_MANAGED_TYPE_ERRORS:
+            raise serializers.ValidationError(self.API_MANAGED_TYPE_ERRORS[value])
 
         # Ensure it is only set when creating a new function
         if self.context.get("view") and self.context["view"].action == "create":
