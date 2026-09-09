@@ -8,7 +8,7 @@ import { UniversalFiltersGroup } from '~/types'
 
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
-import { logsFacetValuesBatchCreate } from '../../../generated/api'
+import { logsFacetValuesCreate } from '../../../generated/api'
 import { _LogFacetValueApi, _LogPropertyFilterApi } from '../../../generated/api.schemas'
 import type { LogsViewerFilters } from '../config/types'
 import { facetPresenceLogic } from './facetPresenceLogic'
@@ -207,7 +207,7 @@ export const facetValuesBatchLogic = kea<facetValuesBatchLogicType>([
                     }
                     const responses = await Promise.all(
                         chunks.map((chunk) =>
-                            logsFacetValuesBatchCreate(String(values.currentTeamId), {
+                            logsFacetValuesCreate(String(values.currentTeamId), {
                                 query: {
                                     facetResourceAttributes: chunk
                                         .filter((t) => t.attributeType === 'resource')

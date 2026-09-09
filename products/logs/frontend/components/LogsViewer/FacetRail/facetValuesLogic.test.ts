@@ -5,11 +5,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import {
-    logsAttributesRetrieve,
-    logsFacetValuesBatchCreate,
-    logsFacetValuesCreate,
-} from 'products/logs/frontend/generated/api'
+import { logsAttributesRetrieve, logsFacetValuesCreate } from 'products/logs/frontend/generated/api'
 import { userFacetSettingsRetrieve } from 'products/platform_features/frontend/generated/api'
 
 import { logsViewerFiltersLogic } from '../Filters/logsViewerFiltersLogic'
@@ -22,7 +18,6 @@ import { facetValuesLogic } from './facetValuesLogic'
 jest.mock('products/logs/frontend/generated/api', () => ({
     __esModule: true,
     logsFacetValuesCreate: jest.fn(),
-    logsFacetValuesBatchCreate: jest.fn(),
     logsAttributesRetrieve: jest.fn(),
 }))
 
@@ -32,9 +27,17 @@ jest.mock('products/platform_features/frontend/generated/api', () => ({
     userFacetSettingsPartialUpdate: jest.fn(),
 }))
 
-const mockFacetValues = logsFacetValuesCreate as jest.MockedFunction<typeof logsFacetValuesCreate>
-const mockBatch = logsFacetValuesBatchCreate as jest.MockedFunction<typeof logsFacetValuesBatchCreate>
+const mockEndpoint = logsFacetValuesCreate as jest.MockedFunction<typeof logsFacetValuesCreate>
 const mockAttributes = logsAttributesRetrieve as jest.MockedFunction<typeof logsAttributesRetrieve>
+
+const EMPTY_RESULTS = { facetField: [], facetResourceAttributes: [], facetAttributes: [] }
+
+// Single-target and multi-key requests share one endpoint, so the calls are told apart by which
+// fields they carry rather than by which function was called.
+const isBatchCall = (call: any): boolean =>
+    (call[1].query.facetResourceAttributes ?? []).length > 0 || (call[1].query.facetAttributes ?? []).length > 0
+const batchCalls = (): any[] => mockEndpoint.mock.calls.filter(isBatchCall)
+const singleCalls = (): any[] => mockEndpoint.mock.calls.filter((call) => !isBatchCall(call))
 const mockUserFacetSettings = userFacetSettingsRetrieve as jest.MockedFunction<typeof userFacetSettingsRetrieve>
 
 const ID = 'test-viewer'
@@ -71,7 +74,7 @@ describe('facetValuesLogic', () => {
         batchLogic.mount()
     }
 
-    const batchedQuery = (): Record<string, any> => mockBatch.mock.calls[0][1].query as Record<string, any>
+    const batchedQuery = (): Record<string, any> => batchCalls()[0][1].query as Record<string, any>
 
     beforeEach(() => {
         initKeaTests()
@@ -86,12 +89,35 @@ describe('facetValuesLogic', () => {
             results: [{ name: NAMESPACE_KEY, propertyFilterType: 'log_resource_attribute', matchedOn: 'key' }],
             count: 1,
         } as any)
-        mockFacetValues.mockResolvedValue({ results: [{ value: 'api', count: 10 }] })
-        mockBatch.mockResolvedValue({
-            results: {
-                facetResourceAttributes: [{ key: NAMESPACE_KEY, values: [{ value: 'argo', count: 4 }] }],
-                facetAttributes: [{ key: 'log.iostream', values: [{ value: 'stdout', count: 7 }] }],
-            },
+        mockEndpoint.mockImplementation(async (_projectId, body: any) => {
+            const q = body.query
+            if (isBatchCall([_projectId, body])) {
+                return {
+                    results: {
+                        ...EMPTY_RESULTS,
+                        facetResourceAttributes: (q.facetResourceAttributes ?? []).map((key: string) => ({
+                            key,
+                            values: [{ value: 'argo', count: 4 }],
+                        })),
+                        facetAttributes: (q.facetAttributes ?? []).map((key: string) => ({
+                            key,
+                            values: [{ value: 'stdout', count: 7 }],
+                        })),
+                    },
+                }
+            }
+            const single = [{ value: 'api', count: 10 }]
+            if (q.facetField) {
+                return { results: { ...EMPTY_RESULTS, facetField: single } }
+            }
+            const entries = [{ key: q.facetResourceAttribute ?? q.facetAttribute, values: single }]
+            return {
+                results: {
+                    ...EMPTY_RESULTS,
+                    facetResourceAttributes: q.facetResourceAttribute ? entries : [],
+                    facetAttributes: q.facetAttribute ? entries : [],
+                },
+            }
         })
         filtersLogic = logsViewerFiltersLogic({ id: ID })
         filtersLogic.mount()
@@ -118,7 +144,7 @@ describe('facetValuesLogic', () => {
         await expectLogic(mounted[2]).toDispatchActions(['loadFacetValuesSuccess'])
         await expectLogic(batchLogic).toDispatchActions(['loadBatchSuccess'])
 
-        expect(mockBatch).toHaveBeenCalledTimes(1)
+        expect(batchCalls()).toHaveLength(1)
         expect(batchedQuery()).toMatchObject({
             facetResourceAttributes: [NAMESPACE_KEY],
             facetAttributes: ['log.iostream'],
@@ -127,11 +153,11 @@ describe('facetValuesLogic', () => {
         expect(namespace.values.displayedValues).toEqual([{ value: 'argo', count: 4 }])
         expect(iostream.values.displayedValues).toEqual([{ value: 'stdout', count: 7 }])
         // Only the column facet went the single-facet route.
-        expect(mockFacetValues).toHaveBeenCalledTimes(1)
-        expect(mockFacetValues).toHaveBeenCalledWith(
+        expect(singleCalls()).toHaveLength(1)
+        expect(singleCalls()).toContainEqual([
             expect.any(String),
-            expect.objectContaining({ query: expect.objectContaining({ facetField: 'service_name' }) })
-        )
+            expect.objectContaining({ query: expect.objectContaining({ facetField: 'service_name' }) }),
+        ])
     })
 
     // The batch runs one WHERE for everyone, so it can't exclude a facet's own filter. A facet
@@ -141,21 +167,21 @@ describe('facetValuesLogic', () => {
         const namespace = mountFacet(NAMESPACE)
         await expectLogic(batchLogic).toDispatchActions(['loadBatchSuccess'])
         expect(namespace.values.isBatched).toBe(true)
-        mockBatch.mockClear()
-        mockFacetValues.mockClear()
+        mockEndpoint.mockClear()
+        mockEndpoint.mockClear()
 
         railLogic.actions.toggleFacetValue(NAMESPACE.source, 'argo')
         await expectLogic(namespace).toDispatchActions(['loadFacetValuesSuccess'])
 
         expect(namespace.values.isBatched).toBe(false)
-        expect(mockFacetValues).toHaveBeenCalledWith(
+        expect(singleCalls()).toContainEqual([
             expect.any(String),
             expect.objectContaining({
                 query: expect.objectContaining({ facetResourceAttribute: NAMESPACE_KEY }),
-            })
-        )
+            }),
+        ])
         // And the batch no longer asks for it, since it can't answer for it.
-        expect(mockBatch.mock.calls.every((call) => !(call[1].query.facetResourceAttributes ?? []).length)).toBe(true)
+        expect(batchCalls().every((call) => !(call[1].query.facetResourceAttributes ?? []).length)).toBe(true)
     })
 
     // Values stay on screen while the facet fetches for itself, rather than blanking to a skeleton.
@@ -175,26 +201,26 @@ describe('facetValuesLogic', () => {
         mountRail()
         const namespace = mountFacet(NAMESPACE)
         await expectLogic(batchLogic).toDispatchActions(['loadBatchSuccess'])
-        mockBatch.mockClear()
-        mockFacetValues.mockClear()
+        mockEndpoint.mockClear()
+        mockEndpoint.mockClear()
 
         namespace.actions.setFacetSearch('arg')
         await expectLogic(namespace).toDispatchActions(['loadFacetValuesSuccess'])
         expect(namespace.values.isBatched).toBe(false)
-        expect(mockFacetValues).toHaveBeenCalledWith(
+        expect(singleCalls()).toContainEqual([
             expect.any(String),
             expect.objectContaining({
                 query: expect.objectContaining({ facetResourceAttribute: NAMESPACE_KEY, facetSearch: 'arg' }),
-            })
-        )
+            }),
+        ])
 
-        mockFacetValues.mockClear()
+        mockEndpoint.mockClear()
         namespace.actions.setFacetSearch('')
         await expectLogic(namespace).toNotHaveDispatchedActions(['loadFacetValues'])
         expect(namespace.values.isBatched).toBe(true)
         expect(namespace.values.displayedValues).toEqual([{ value: 'argo', count: 4 }])
-        expect(mockFacetValues).not.toHaveBeenCalled()
-        expect(mockBatch).not.toHaveBeenCalled()
+        expect(singleCalls()).toHaveLength(0)
+        expect(batchCalls()).toHaveLength(0)
     })
 
     // A search with no matches must show "no values", not fall back to the batch's unfiltered list.
@@ -203,7 +229,7 @@ describe('facetValuesLogic', () => {
         const namespace = mountFacet(NAMESPACE)
         await expectLogic(batchLogic).toDispatchActions(['loadBatchSuccess'])
 
-        mockFacetValues.mockResolvedValue({ results: [] })
+        mockEndpoint.mockResolvedValue({ results: EMPTY_RESULTS })
         namespace.actions.setFacetSearch('no-such-value')
         await expectLogic(namespace).toDispatchActions(['loadFacetValuesSuccess'])
 
@@ -220,23 +246,29 @@ describe('facetValuesLogic', () => {
         expect(batchedQuery().facetResourceAttributes).toEqual([])
         expect(iostream.values.displayedValues).toEqual([{ value: 'stdout', count: 7 }])
 
-        mockBatch.mockClear()
+        mockEndpoint.mockClear()
         railLogic.actions.toggleFacetCollapsed(NAMESPACE.key)
         await expectLogic(batchLogic).toDispatchActions(['loadBatchSuccess'])
-        expect(mockBatch).toHaveBeenCalledTimes(1)
+        expect(batchCalls()).toHaveLength(1)
 
         // Collapsing and expanding again with nothing else changed has nothing to fetch.
-        mockBatch.mockClear()
+        mockEndpoint.mockClear()
         railLogic.actions.toggleFacetCollapsed(NAMESPACE.key)
         railLogic.actions.toggleFacetCollapsed(NAMESPACE.key)
         await expectLogic(batchLogic).toNotHaveDispatchedActions(['loadBatch'])
-        expect(mockBatch).not.toHaveBeenCalled()
+        expect(batchCalls()).toHaveLength(0)
     })
 
     // Every batched facet waits on one request, so a failure that left them "loading" would hang
     // the whole rail on a skeleton until the user happened to change a filter.
     it('shows the empty state rather than an endless skeleton when the batch fails', async () => {
-        mockBatch.mockRejectedValue(new Error('boom'))
+        const ok = mockEndpoint.getMockImplementation()!
+        mockEndpoint.mockImplementation(async (projectId, body: any) => {
+            if (isBatchCall([projectId, body])) {
+                throw new Error('boom')
+            }
+            return ok(projectId, body)
+        })
         mountRail()
         const namespace = mountFacet(NAMESPACE)
 
@@ -258,10 +290,10 @@ describe('facetValuesLogic', () => {
 
         await expectLogic(batchLogic).toDispatchActions(['loadBatchSuccess'])
 
-        expect(mockBatch).toHaveBeenCalledTimes(2)
-        const requested = mockBatch.mock.calls.flatMap((call) => call[1].query.facetAttributes ?? [])
+        expect(batchCalls()).toHaveLength(2)
+        const requested = batchCalls().flatMap((call) => call[1].query.facetAttributes ?? [])
         expect(requested).toEqual(expect.arrayContaining(keys))
-        mockBatch.mock.calls.forEach((call) => {
+        batchCalls().forEach((call) => {
             const query = call[1].query
             expect(
                 (query.facetResourceAttributes ?? []).length + (query.facetAttributes ?? []).length
@@ -276,7 +308,13 @@ describe('facetValuesLogic', () => {
         const namespace = mountFacet(NAMESPACE)
         await expectLogic(batchLogic).toDispatchActions(['loadBatchSuccess'])
 
-        mockFacetValues.mockRejectedValue(new Error('boom'))
+        const ok2 = mockEndpoint.getMockImplementation()!
+        mockEndpoint.mockImplementation(async (projectId, body: any) => {
+            if (!isBatchCall([projectId, body])) {
+                throw new Error('boom')
+            }
+            return ok2(projectId, body)
+        })
         namespace.actions.setFacetSearch('arg')
         await expectLogic(namespace).toDispatchActions(['loadFacetValuesFailure'])
 
@@ -293,30 +331,30 @@ describe('facetValuesLogic', () => {
         const otherLogic = mountFacet(other)
         await expectLogic(selectedLogic).toDispatchActions(['loadFacetValuesSuccess'])
         await expectLogic(otherLogic).toDispatchActions(['loadFacetValuesSuccess'])
-        mockFacetValues.mockClear()
+        mockEndpoint.mockClear()
 
         select()
         await expectLogic(otherLogic).toDispatchActions(['loadFacetValues', 'loadFacetValuesSuccess'])
 
-        expect(mockFacetValues).toHaveBeenCalledTimes(1)
+        expect(singleCalls()).toHaveLength(1)
         expect(selectedLogic.values.valuesLoading).toBe(false)
     })
 
     it('a type-ahead search refetches this facet with the search term', async () => {
         const logic = mountFacet(SERVICE)
         await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
-        mockFacetValues.mockClear()
+        mockEndpoint.mockClear()
 
         logic.actions.setFacetSearch('kaf')
         await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
 
-        expect(mockFacetValues).toHaveBeenCalledTimes(1)
-        expect(mockFacetValues).toHaveBeenCalledWith(
+        expect(singleCalls()).toHaveLength(1)
+        expect(singleCalls()).toContainEqual([
             expect.any(String),
             expect.objectContaining({
                 query: expect.objectContaining({ facetField: 'service_name', facetSearch: 'kaf' }),
-            })
-        )
+            }),
+        ])
     })
 
     // Each source type must route to its own facet* body field — a binary-to-ternary slip (e.g. a
@@ -332,10 +370,10 @@ describe('facetValuesLogic', () => {
         const logic = mountFacet(facet)
         logic.actions.setFacetSearch('any')
         await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
-        expect(mockFacetValues).toHaveBeenCalledWith(
+        expect(singleCalls()).toContainEqual([
             expect.any(String),
-            expect.objectContaining({ query: expect.objectContaining(expectedFields) })
-        )
+            expect.objectContaining({ query: expect.objectContaining(expectedFields) }),
+        ])
     })
 
     it('a collapsed facet defers its fetch until it is expanded, then only if the scope moved', async () => {
@@ -343,33 +381,33 @@ describe('facetValuesLogic', () => {
         const logic = mountFacet(SERVICE)
         const other = mountFacet(LEVEL)
         await expectLogic(other).toDispatchActions(['loadFacetValuesSuccess'])
-        expect(mockFacetValues).toHaveBeenCalledTimes(1)
+        expect(singleCalls()).toHaveLength(1)
 
         filtersLogic.actions.setSearchTerm('timeout')
         await expectLogic(other).toDispatchActions(['loadFacetValuesSuccess'])
         expect(logic.values.facetValues).toEqual([])
 
-        mockFacetValues.mockClear()
+        mockEndpoint.mockClear()
         railLogic.actions.toggleFacetCollapsed(SERVICE.key)
         await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
-        expect(mockFacetValues).toHaveBeenCalledTimes(1)
+        expect(singleCalls()).toHaveLength(1)
 
         // Collapsing and expanding again with nothing else changed has nothing to fetch.
-        mockFacetValues.mockClear()
+        mockEndpoint.mockClear()
         railLogic.actions.toggleFacetCollapsed(SERVICE.key)
         railLogic.actions.toggleFacetCollapsed(SERVICE.key)
         await expectLogic(logic).toNotHaveDispatchedActions(['loadFacetValues'])
-        expect(mockFacetValues).not.toHaveBeenCalled()
+        expect(singleCalls()).toHaveLength(0)
     })
 
     it('a manual refresh refetches an expanded facet even when the scope is unchanged', async () => {
         const logic = mountFacet(SERVICE)
         await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
-        mockFacetValues.mockClear()
+        mockEndpoint.mockClear()
 
         filtersLogic.actions.bumpFacetRefresh()
         await expectLogic(logic).toDispatchActions(['loadFacetValues', 'loadFacetValuesSuccess'])
-        expect(mockFacetValues).toHaveBeenCalledTimes(1)
+        expect(singleCalls()).toHaveLength(1)
     })
 
     // Most of the rail reads the batch, so a re-run that only refetched the single-facet path would
@@ -378,11 +416,11 @@ describe('facetValuesLogic', () => {
         mountRail()
         mountFacet(NAMESPACE)
         await expectLogic(batchLogic).toDispatchActions(['loadBatchSuccess'])
-        mockBatch.mockClear()
+        mockEndpoint.mockClear()
 
         filtersLogic.actions.bumpFacetRefresh()
         await expectLogic(batchLogic).toDispatchActions(['loadBatch', 'loadBatchSuccess'])
-        expect(mockBatch).toHaveBeenCalledTimes(1)
+        expect(batchCalls()).toHaveLength(1)
     })
 
     it('a manual refresh leaves a collapsed facet unfetched until it is expanded', async () => {
@@ -390,7 +428,7 @@ describe('facetValuesLogic', () => {
         const logic = mountFacet(SERVICE)
         const other = mountFacet(LEVEL)
         await expectLogic(other).toDispatchActions(['loadFacetValuesSuccess'])
-        mockFacetValues.mockClear()
+        mockEndpoint.mockClear()
 
         filtersLogic.actions.bumpFacetRefresh()
         await expectLogic(other).toDispatchActions(['loadFacetValuesSuccess'])
@@ -398,7 +436,7 @@ describe('facetValuesLogic', () => {
 
         railLogic.actions.toggleFacetCollapsed(SERVICE.key)
         await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
-        expect(mockFacetValues).toHaveBeenCalledTimes(2)
+        expect(singleCalls()).toHaveLength(2)
     })
 
     it('collapsing while a fetch is still debouncing drops it, and expanding fetches again', async () => {
@@ -407,16 +445,16 @@ describe('facetValuesLogic', () => {
         // refetch on expand, leaving the stale list it was showing before.
         const logic = mountFacet(SERVICE)
         await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
-        mockFacetValues.mockClear()
+        mockEndpoint.mockClear()
 
         filtersLogic.actions.setSearchTerm('timeout')
         await expectLogic(logic).toDispatchActions(['loadFacetValues'])
         railLogic.actions.toggleFacetCollapsed(SERVICE.key)
         await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
-        expect(mockFacetValues).not.toHaveBeenCalled()
+        expect(singleCalls()).toHaveLength(0)
 
         railLogic.actions.toggleFacetCollapsed(SERVICE.key)
         await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
-        expect(mockFacetValues).toHaveBeenCalledTimes(1)
+        expect(singleCalls()).toHaveLength(1)
     })
 })
