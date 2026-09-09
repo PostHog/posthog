@@ -56,7 +56,7 @@ export function useStartSketchpadSession({
             allowNoRepo: true,
             runtime: "acp",
             adapter: "claude",
-            executionMode: "bypassPermissions",
+            executionMode: "default",
           },
           (output) => {
             setTaskForSketchpad(sketchpadId, output.task.id);
