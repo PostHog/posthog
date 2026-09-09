@@ -2981,6 +2981,125 @@ async fn both_lanes_drain_before_the_worker_exits() {
     );
 }
 
+/// The composed half of the same guarantee. A seed run that flips a two-leaf cohort commits stage 1,
+/// fails its produce, and holds; nothing downstream was told and no `cf_stage2` row says otherwise,
+/// so the redelivery re-derives the flip and only then commits the offset.
+///
+/// The seed apply shares one read across a person's cohorts, so this pins that the sharing did not
+/// move the stage-2 write before the produce that justifies it.
+#[tokio::test]
+async fn a_failed_composed_seed_produce_replays_from_the_row_it_never_wrote() {
+    let (_dir, store) = temp_store();
+    // Two composable cohorts on the same leaf, so the run recomputes one person for both from one
+    // shared read — the shape this test's guarantee is about.
+    let composed = || {
+        build_team_filters(vec![
+            (CohortId(1), cohort(vec![behavioral_leaf(7), person_leaf()])),
+            (CohortId(2), cohort(vec![behavioral_leaf(7), person_leaf()])),
+        ])
+    };
+    let bob = person(2);
+    // The person leaf already holds, so the seed tile's behavioral leaf is what completes the AND.
+    write_person_record(&store, bob, &[PERSON_HASH], AppliedOffsets::default(), &[]);
+
+    let sink = CaptureSink::failing_first(1);
+    let deps = MergeWorkerDeps::capture();
+    let (live_tx, live_rx) = mpsc::channel(16);
+    let (seed_tx, seed_rx) = mpsc::channel(16);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        WorkerInbox::unmetered(live_rx, seed_rx),
+        test_handle(&store),
+        catalog_of(composed()),
+        Arc::new(sink.clone()),
+        Arc::new(OffsetTracker::new()),
+        deps.clone(),
+        false,
+    );
+    deps.seed_tracker.mark_dispatched(PARTITION_ID as i32, 8);
+    seed_tx
+        .send(consumed_seed(bob, utc_today(), 1, 7))
+        .await
+        .unwrap();
+    drop(seed_tx);
+    drop(live_tx);
+    worker.join().await.unwrap();
+
+    assert!(
+        sink.changes().is_empty(),
+        "the produce failed, so downstream was told nothing",
+    );
+    for cohort_id in [1, 2] {
+        assert_eq!(
+            membership_register_at(&store, cohort_id, bob),
+            None,
+            "the composed bits commit only after their produce acks",
+        );
+    }
+    assert_eq!(
+        deps.seed_tracker
+            .committable_offsets()
+            .get(&(PARTITION_ID as i32)),
+        None,
+        "the failed produce holds the seed offset",
+    );
+
+    // The redelivered tile merges to `Unchanged` and mints no transition. Only the absent stage-2
+    // row can still say the flip was never emitted.
+    let replay_sink = CaptureSink::new();
+    let replay_deps = MergeWorkerDeps::capture();
+    let (live_tx, live_rx) = mpsc::channel(16);
+    let (seed_tx, seed_rx) = mpsc::channel(16);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        WorkerInbox::unmetered(live_rx, seed_rx),
+        test_handle(&store),
+        catalog_of(composed()),
+        Arc::new(replay_sink.clone()),
+        Arc::new(OffsetTracker::new()),
+        replay_deps.clone(),
+        false,
+    );
+    replay_deps
+        .seed_tracker
+        .mark_dispatched(PARTITION_ID as i32, 8);
+    seed_tx
+        .send(consumed_seed(bob, utc_today(), 1, 7))
+        .await
+        .unwrap();
+    drop(seed_tx);
+    drop(live_tx);
+    worker.join().await.unwrap();
+
+    let changes = replay_sink.changes();
+    assert_eq!(
+        changes
+            .iter()
+            .map(|change| (change.cohort_id, change.person_id.clone(), change.status))
+            .collect::<Vec<_>>(),
+        vec![
+            (1, bob.to_string(), MembershipStatus::Entered),
+            (2, bob.to_string(), MembershipStatus::Entered),
+        ],
+        "the redelivery re-derived both lost changes from one shared read",
+    );
+    for cohort_id in [1, 2] {
+        assert_eq!(
+            membership_register_at(&store, cohort_id, bob).map(|state| state.in_cohort),
+            Some(true),
+            "and the rows it emitted are now durable",
+        );
+    }
+    assert_eq!(
+        replay_deps
+            .seed_tracker
+            .committable_offsets()
+            .get(&(PARTITION_ID as i32)),
+        Some(&8),
+        "the seed offset commits once the re-emission acks",
+    );
+}
+
 /// A failed seed emission holds only the seed tracker; the events tracker is unaffected, and the
 /// next tenure's redelivery re-emits the lost change.
 #[tokio::test]

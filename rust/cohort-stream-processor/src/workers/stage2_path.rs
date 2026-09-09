@@ -30,7 +30,9 @@ use crate::store::{
 };
 
 /// `affected_leaves` is the touched `(leaf, person)` set; `lane` is the read lane every recompute
-/// read runs on (`Maintenance` on the seed path, so backfill never contends with live reads).
+/// read runs on. Every caller passes `Event`: the seed paths, which read on `Maintenance`, go
+/// through [`recompute_stage2_by_person`](super::stage2_person_inputs::recompute_stage2_by_person)
+/// instead, whose store section draws the maintenance permit.
 pub async fn compose_stage2(
     partition_id: u16,
     handle: &StoreHandle,
@@ -86,6 +88,61 @@ impl Stage2Recompute {
         self.composed.add(other.composed);
         self.repairs.add(other.repairs);
     }
+
+    /// Record one recomputed pair: the flip it emits, if any, and the `cf_stage2` write it owes.
+    ///
+    /// Both recompute orders call this, so what a composed evaluation emits cannot depend on
+    /// whether the caller walked cohorts or persons.
+    pub(super) fn record_pair(
+        &mut self,
+        pair: RecomputedPair,
+        diff: &RecomputeDiff,
+        event_ms: i64,
+        last_updated: &str,
+    ) {
+        self.evaluated += 1;
+        if diff.flipped() {
+            self.composed.count(diff.status());
+            self.changes.push(CohortMembershipChange {
+                team_id: pair.team_id,
+                cohort_id: pair.cohort_id.0,
+                person_id: pair.person_id.to_string(),
+                last_updated: last_updated.to_string(),
+                status: diff.status(),
+                origin: None,
+                run_id: None,
+            });
+        }
+        if diff.requires_write() {
+            // Write `false` rather than deleting so the retracted pair stays enumerable by the
+            // reconcile scan. A no-flip transferred fallback is rewritten once so receiver
+            // evaluation claims ownership.
+            self.writes.push((
+                diff.stage2_key,
+                Stage2State {
+                    in_cohort: diff.new_bit,
+                    last_evaluated_at_ms: event_ms,
+                },
+            ));
+        }
+    }
+}
+
+#[cfg(test)]
+impl Stage2Recompute {
+    /// Pairs this recompute composed, which is what `STAGE2_COHORTS_EVALUATED` reports. Read by the
+    /// tests that hold the two recompute orders to the same work, including on pairs that flip
+    /// nothing and so leave no trace in `changes` or `writes`.
+    pub(super) fn evaluated(&self) -> u64 {
+        self.evaluated
+    }
+}
+
+/// One recomputed `(cohort, person)` as the emitted change names it.
+pub(super) struct RecomputedPair {
+    pub team_id: i32,
+    pub cohort_id: CohortId,
+    pub person_id: Uuid,
 }
 
 /// Per-status flip counts, kept so [`Stage2Recompute::record_metrics`] can attribute each half of a
@@ -160,8 +217,11 @@ impl RepairCounts {
     }
 }
 
-/// The read-only half of [`compose_stage2`].
-pub(crate) async fn recompute_stage2(
+/// The read-only half of [`compose_stage2`]: one cohort at a time, in `(cohort, person)` order.
+///
+/// The seed paths use [`recompute_stage2_by_person`](super::stage2_person_inputs::recompute_stage2_by_person)
+/// instead, which shares each person's reads across their cohorts.
+pub(super) async fn recompute_stage2(
     partition_id: u16,
     handle: &StoreHandle,
     filters: &TeamFilters,
@@ -179,51 +239,26 @@ pub(crate) async fn recompute_stage2(
         }
     }
 
-    let mut changes = Vec::new();
-    let mut writes: Vec<(Stage2Key, Stage2State)> = Vec::new();
-    let mut evaluated: u64 = 0;
-    let mut composed = StatusCounts::default();
-
+    let mut recompute = Stage2Recompute::default();
     for (cohort_id, person_id) in affected {
         let Some(tree) = filters.cohorts.get(&cohort_id) else {
             continue;
         };
 
         let diff = recompute_and_diff(partition_id, person_id, tree, filters, handle, lane).await?;
-        evaluated += 1;
-        if diff.flipped() {
-            composed.count(diff.status());
-            changes.push(CohortMembershipChange {
+        recompute.record_pair(
+            RecomputedPair {
                 team_id: tree.team_id.0,
-                cohort_id: cohort_id.0,
-                person_id: person_id.to_string(),
-                last_updated: last_updated.to_string(),
-                status: diff.status(),
-                origin: None,
-                run_id: None,
-            });
-        }
-        if diff.requires_write() {
-            // Write `false` rather than deleting so the retracted pair stays enumerable by the
-            // reconcile scan. A no-flip transferred fallback is rewritten once so receiver
-            // evaluation claims ownership.
-            writes.push((
-                diff.stage2_key,
-                Stage2State {
-                    in_cohort: diff.new_bit,
-                    last_evaluated_at_ms: event_ms,
-                },
-            ));
-        }
+                cohort_id,
+                person_id,
+            },
+            &diff,
+            event_ms,
+            last_updated,
+        );
     }
 
-    Ok(Stage2Recompute {
-        changes,
-        writes,
-        evaluated,
-        composed,
-        ..Default::default()
-    })
+    Ok(recompute)
 }
 
 /// One leaf a seed run folded, with the membership its resulting state implies. The caller holds
@@ -483,6 +518,15 @@ pub(crate) struct RecomputeDiff {
 }
 
 impl RecomputeDiff {
+    pub(super) fn new(new_bit: bool, prior: PriorStage2State, stage2_key: Stage2Key) -> Self {
+        Self {
+            new_bit,
+            prior_bit: prior.in_cohort,
+            stage2_key,
+            settles_transfer_fallback: prior.ownership == Stage2Ownership::TransferredFallback,
+        }
+    }
+
     pub fn flipped(&self) -> bool {
         self.new_bit != self.prior_bit
     }
@@ -529,13 +573,8 @@ pub(crate) async fn recompute_and_diff(
         cohort_id: tree.cohort_id.0 as u64,
         person_id,
     };
-    let prior = read_prior_stage2_state(handle, &stage2_key, lane).await?;
-    Ok(RecomputeDiff {
-        new_bit,
-        prior_bit: prior.in_cohort,
-        stage2_key,
-        settles_transfer_fallback: prior.ownership == Stage2Ownership::TransferredFallback,
-    })
+    let prior = read_prior_stage2(handle.get_stage2(&stage2_key, lane).await?);
+    Ok(RecomputeDiff::new(new_bit, prior, stage2_key))
 }
 
 /// Compose one cohort for one person. A leaf with absent or undecodable state reads as non-member;
@@ -756,7 +795,7 @@ async fn resolve_ref_membership(
 }
 
 /// Decode a `cf_behavioral` value, or [`None`] for absent/undecodable rows.
-fn decode_stage1_state(bytes: Option<Vec<u8>>) -> Option<Stage1State> {
+pub(super) fn decode_stage1_state(bytes: Option<Vec<u8>>) -> Option<Stage1State> {
     let bytes = bytes?;
     match StatefulRecord::decode(&bytes) {
         Ok(record) => Some(record.state),
@@ -767,36 +806,28 @@ fn decode_stage1_state(bytes: Option<Vec<u8>>) -> Option<Stage1State> {
     }
 }
 
-#[derive(Clone, Copy)]
-struct PriorStage2State {
-    in_cohort: bool,
-    ownership: Stage2Ownership,
+/// One stored `cf_stage2` row as composition reads it. [`Default`] is the fail-closed reading an
+/// absent or corrupt row gets: a non-member row nobody has transferred.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct PriorStage2State {
+    pub in_cohort: bool,
+    pub ownership: Stage2Ownership,
 }
 
 /// Decode both the logical prior bit and its ownership. Missing or corrupt rows keep the existing
 /// fail-closed `false` behavior and are never mistaken for a transferred fallback.
-async fn read_prior_stage2_state(
-    handle: &StoreHandle,
-    key: &Stage2Key,
-    lane: ReadLane,
-) -> Result<PriorStage2State, StoreError> {
-    let Some(bytes) = handle.get_stage2(key, lane).await? else {
-        return Ok(PriorStage2State {
-            in_cohort: false,
-            ownership: Stage2Ownership::Local,
-        });
+pub(super) fn read_prior_stage2(bytes: Option<Vec<u8>>) -> PriorStage2State {
+    let Some(bytes) = bytes else {
+        return PriorStage2State::default();
     };
     match Stage2State::decode_with_ownership(&bytes) {
-        Ok((state, ownership)) => Ok(PriorStage2State {
+        Ok((state, ownership)) => PriorStage2State {
             in_cohort: state.in_cohort,
             ownership,
-        }),
+        },
         Err(_) => {
             counter!(STAGE2_STATE_DECODE_ERROR).increment(1);
-            Ok(PriorStage2State {
-                in_cohort: false,
-                ownership: Stage2Ownership::Local,
-            })
+            PriorStage2State::default()
         }
     }
 }
@@ -816,7 +847,7 @@ fn decode_stage2_bit(bytes: Option<Vec<u8>>) -> bool {
 }
 
 /// Collect every state-keyed leaf's [`LeafStateKey`] in pre-order.
-fn collect_leaf_state_keys(node: &FilterNode, out: &mut Vec<LeafStateKey>) {
+pub(super) fn collect_leaf_state_keys(node: &FilterNode, out: &mut Vec<LeafStateKey>) {
     match node {
         FilterNode::Group { children, .. } => {
             for child in children {
@@ -833,7 +864,7 @@ fn collect_leaf_state_keys(node: &FilterNode, out: &mut Vec<LeafStateKey>) {
 
 /// Collect referenced cohort ids (with duplicates; the caller dedups). Negation is left to
 /// `evaluate_tree`, so a referent referenced twice with opposite negation reads one bit.
-fn collect_cohort_refs(node: &FilterNode, out: &mut Vec<CohortId>) {
+pub(super) fn collect_cohort_refs(node: &FilterNode, out: &mut Vec<CohortId>) {
     match node {
         FilterNode::Group { children, .. } => {
             for child in children {
@@ -932,10 +963,15 @@ mod tests {
     }
 
     fn freeze(values: Vec<Value>) -> TeamFilters {
+        freeze_for_team(TEAM as i32, values)
+    }
+
+    /// Freeze one cohort under an explicit team, so a test can prove state is keyed by team.
+    fn freeze_for_team(team_id: i32, values: Vec<Value>) -> TeamFilters {
         let cohort = json!({ "properties": { "type": "AND", "values": values } });
         let mut builder = TeamFiltersBuilder::default();
         builder
-            .add_cohort(CohortId(1), TeamId(TEAM as i32), &cohort)
+            .add_cohort(CohortId(1), TeamId(team_id), &cohort)
             .unwrap();
         builder.freeze(UTC)
     }
@@ -2017,5 +2053,634 @@ mod tests {
             "cohort 1's register was already true; the unbacked leaf contributes nothing",
         );
         assert_eq!(diff.stage1_writes.len(), 1, "only cohort 2 had no row");
+    }
+
+    // ---- Sharing one person's inputs across their cohorts ----
+    //
+    // `recompute_stage2_by_person` is the seed paths' recompute. It reads each person once instead
+    // of once per affected cohort, so every test below holds it to this module's cohort-ordered
+    // path as an oracle over the same store, and then asserts what the shared read had to get right
+    // for the two to agree.
+
+    use crate::workers::stage2_person_inputs::recompute_stage2_by_person;
+
+    /// Run both recompute orders over the same store and return the agreed result.
+    ///
+    /// Neither commits — both hand their `cf_stage2` writes back for the caller to commit after its
+    /// produce — so running them back to back reads the same durable state twice.
+    async fn recompute_both_ways(
+        store: &CohortStore,
+        filters: &TeamFilters,
+        team_id: i32,
+        affected: &[(LeafStateKey, Uuid)],
+    ) -> Stage2Recompute {
+        let handle = handle(store);
+        let cohort_ordered = recompute_stage2(
+            PARTITION,
+            &handle,
+            filters,
+            affected,
+            EVENT_MS,
+            TS,
+            ReadLane::Maintenance,
+        )
+        .await
+        .unwrap();
+        let by_person = recompute_stage2_by_person(
+            PARTITION,
+            &handle,
+            TeamId(team_id),
+            filters,
+            affected,
+            EVENT_MS,
+            TS,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            by_person.changes, cohort_ordered.changes,
+            "sharing a person's inputs changed which flips the run emits",
+        );
+        assert_eq!(
+            by_person.writes, cohort_ordered.writes,
+            "sharing a person's inputs changed which cf_stage2 rows the run owes",
+        );
+        assert_eq!(
+            by_person.evaluated(),
+            cohort_ordered.evaluated(),
+            "sharing a person's inputs changed how many pairs the run composed",
+        );
+        by_person
+    }
+
+    fn compressed_leaf(op: &str, value: i64) -> Value {
+        json!({
+            "type": "behavioral", "value": "performed_event_multiple", "key": "$pageview",
+            "time_value": 1, "time_interval": "year",
+            "operator": op, "operator_value": value,
+            "conditionHash": "0123456789abcdef",
+            "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
+        })
+    }
+
+    fn compressed_state(count: u32) -> Stage1State {
+        Stage1State::BehavioralCompressedHistory {
+            entries: vec![(20_607, count)],
+            window_start_day: 20_600,
+            last_event_at_ms: EVENT_MS,
+            earliest_eviction_at_ms: i64::MAX,
+        }
+    }
+
+    fn statuses(recompute: &Stage2Recompute) -> Vec<(i32, MembershipStatus)> {
+        recompute
+            .changes
+            .iter()
+            .map(|change| (change.cohort_id, change.status))
+            .collect()
+    }
+
+    /// A second person condition, which the stored record does not match. Sharing one record across
+    /// a person's cohorts must still answer each condition separately.
+    fn other_person_leaf() -> Value {
+        json!({
+            "type": "person", "key": "email", "value": "someone@example.com", "operator": "exact",
+            "conditionHash": "0f0f0f0f0f0f0f0f",
+            "bytecode": ["_H", 1, 32, "someone@example.com", 32, "email", 32, "properties", 32, "person", 1, 3, 11],
+        })
+    }
+
+    /// One person, four cohorts, one shared behavioral leaf and one shared person leaf, and every
+    /// behavioral variant in the mix. The shared read must serve all four cohorts from one person
+    /// record and one behavioral batch without changing any verdict.
+    ///
+    /// Cohort 4 names a second person condition the record does not match, so a read that collapsed
+    /// the record into one bit — "matched anything" rather than "matched this hash" — would enter it.
+    /// That is the mistake sharing the record invites.
+    #[tokio::test]
+    async fn shared_inputs_compose_every_leaf_variant_from_one_read() {
+        let (_dir, store) = temp_store();
+        let filters = freeze_cascade(
+            vec![
+                (1, vec![behavioral_leaf(7), person_leaf()]),
+                (2, vec![daily_leaf(7, "gte", 2), person_leaf()]),
+                (3, vec![compressed_leaf("gte", 2), person_leaf()]),
+                (4, vec![behavioral_leaf(7), other_person_leaf()]),
+            ],
+            false,
+        );
+        let single_lsk = filters.by_condition_to_lsk[&HASH]
+            .iter()
+            .copied()
+            .find(|lsk| filters.by_lsk[lsk].variant == StateVariant::BehavioralSingle)
+            .unwrap();
+        let daily_lsk = filters.by_condition_to_lsk[&HASH]
+            .iter()
+            .copied()
+            .find(|lsk| filters.by_lsk[lsk].variant == StateVariant::BehavioralDailyBuckets)
+            .unwrap();
+        let compressed_lsk = filters.by_condition_to_lsk[&HASH]
+            .iter()
+            .copied()
+            .find(|lsk| filters.by_lsk[lsk].variant == StateVariant::BehavioralCompressedHistory)
+            .unwrap();
+        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+        let alice = person(1);
+
+        write_behavioral(&store, single_lsk, alice, behavioral_match());
+        write_behavioral(&store, daily_lsk, alice, daily_state(2));
+        write_behavioral(&store, compressed_lsk, alice, compressed_state(2));
+        write_person_record(&store, alice, &[PERSON_HASH]);
+
+        // Both leaves, so cohort 4 is reached too: it hangs off the shared behavioral leaf, not off
+        // the person condition the other three share.
+        let affected = [(single_lsk, alice), (per_lsk, alice)];
+        let entered = recompute_both_ways(&store, &filters, TEAM as i32, &affected).await;
+        assert_eq!(
+            statuses(&entered),
+            vec![
+                (1, MembershipStatus::Entered),
+                (2, MembershipStatus::Entered),
+                (3, MembershipStatus::Entered),
+            ],
+            "each variant's comparator still decides its own leaf, and the unmatched person \
+             condition keeps cohort 4 out of the same record's answers",
+        );
+        // Absolute, not against the oracle: both orders build the change through one shared
+        // `record_pair`, so only a literal pins which team the shared read stamped on it.
+        assert!(entered
+            .changes
+            .iter()
+            .all(|change| change.team_id == TEAM as i32));
+
+        // The daily leaf now misses its threshold, and only that cohort may leave.
+        write_behavioral(&store, daily_lsk, alice, daily_state(1));
+        for cohort in [1, 2, 3] {
+            write_stage2(&store, cohort, alice, true);
+        }
+        let left = recompute_both_ways(&store, &filters, TEAM as i32, &affected).await;
+        assert_eq!(statuses(&left), vec![(2, MembershipStatus::Left)]);
+    }
+
+    /// A referent and its referrer recompute in the same call. The referrer must read the referent's
+    /// *stored* bit, not the one this run is about to write, or it emits a cascade nothing has
+    /// acknowledged.
+    #[tokio::test]
+    async fn a_referent_recomputed_in_the_same_call_is_still_read_from_the_store() {
+        let (_dir, store) = temp_store();
+        let filters = freeze_cascade(
+            vec![
+                (1, vec![person_leaf(), cohort_ref(2)]),
+                (2, vec![behavioral_leaf(7), person_leaf()]),
+            ],
+            true,
+        );
+        let beh_lsk = filters.by_condition_to_lsk[&HASH][0];
+        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+        let alice = person(1);
+
+        write_behavioral(&store, beh_lsk, alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
+        // Cohort 2 will recompute to `true` in this same call; the store still says `false`.
+        write_stage2(&store, 2, alice, false);
+
+        let recompute =
+            recompute_both_ways(&store, &filters, TEAM as i32, &[(per_lsk, alice)]).await;
+
+        assert_eq!(
+            statuses(&recompute),
+            vec![(2, MembershipStatus::Entered)],
+            "cohort 1 read the stored `false` for its referent and did not enter",
+        );
+    }
+
+    /// The one reference kind whose bit comes back through the *behavioral* batch rather than the
+    /// `cf_stage2` batch. A single-leaf referent is resolved from its own leaf state through its own
+    /// comparator, so resolving it from a stored membership row instead would read every referrer of
+    /// a single-leaf cohort as a non-member — and no other test here would notice.
+    #[tokio::test]
+    async fn a_single_leaf_referent_resolves_through_its_own_leaf_and_comparator() {
+        let (_dir, store) = temp_store();
+        let filters = freeze_cascade(
+            vec![
+                (1, vec![person_leaf(), cohort_ref(3)]),
+                (3, vec![daily_leaf(7, "gte", 2)]),
+            ],
+            true,
+        );
+        assert!(
+            matches!(
+                filters.eligibility[&CohortId(3)],
+                CohortEligibility::SingleLeaf(_)
+            ),
+            "cohort 3 has to be the single-leaf kind for this to be the case under test",
+        );
+        let referent_lsk = single_leaf_lsk(&filters, 3);
+        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+        let alice = person(1);
+        write_person_record(&store, alice, &[PERSON_HASH]);
+
+        // Below the referent's threshold: the referrer must not enter, even though the referent has
+        // behavioral state and no cf_stage2 row of its own to read.
+        write_behavioral(&store, referent_lsk, alice, daily_state(1));
+        let below = recompute_both_ways(&store, &filters, TEAM as i32, &[(per_lsk, alice)]).await;
+        assert!(
+            below.changes.is_empty(),
+            "the referent's own comparator says it is not a member",
+        );
+
+        write_behavioral(&store, referent_lsk, alice, daily_state(2));
+        let above = recompute_both_ways(&store, &filters, TEAM as i32, &[(per_lsk, alice)]).await;
+        assert_eq!(statuses(&above), vec![(1, MembershipStatus::Entered)]);
+    }
+
+    /// A referent read as stored, then referenced twice in one tree with opposite negation, is one
+    /// row and two consistent answers.
+    #[tokio::test]
+    async fn a_referent_named_twice_with_opposite_negation_reads_one_row() {
+        let (_dir, store) = temp_store();
+        let filters = freeze_cascade(
+            vec![
+                (1, vec![person_leaf(), cohort_ref(2), negated_cohort_ref(2)]),
+                (2, vec![behavioral_leaf(7), person_leaf()]),
+            ],
+            true,
+        );
+        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+        let alice = person(1);
+
+        write_person_record(&store, alice, &[PERSON_HASH]);
+        write_stage2(&store, 2, alice, true);
+
+        let recompute =
+            recompute_both_ways(&store, &filters, TEAM as i32, &[(per_lsk, alice)]).await;
+        assert!(
+            !recompute.changes.iter().any(|change| change.cohort_id == 1),
+            "`ref AND NOT ref` over one bit cannot be satisfied",
+        );
+    }
+
+    /// Absent and corrupt rows read as non-member on the shared path exactly as they do per cohort,
+    /// and a transferred fallback is still settled on a pair that does not flip.
+    #[tokio::test]
+    async fn corrupt_rows_stay_non_member_and_a_transferred_fallback_still_settles() {
+        let (_dir, store) = temp_store();
+        let filters = freeze_cascade(
+            vec![
+                (1, vec![behavioral_leaf(7), person_leaf()]),
+                (2, vec![daily_leaf(7, "gte", 2), person_leaf()]),
+            ],
+            false,
+        );
+        let beh_lsk = filters.by_condition_to_lsk[&HASH]
+            .iter()
+            .copied()
+            .find(|lsk| filters.by_lsk[lsk].variant == StateVariant::BehavioralSingle)
+            .unwrap();
+        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+        let alice = person(1);
+
+        write_behavioral(&store, beh_lsk, alice, behavioral_match());
+        write_corrupt_person_record(&store, alice);
+        // Cohort 1's row is already `false` and carries a transfer fallback, so the receiver has to
+        // claim it even though the bit does not move.
+        let key = Stage2Key {
+            partition_id: PARTITION,
+            team_id: TEAM,
+            cohort_id: 1,
+            person_id: alice,
+        };
+        let fallback = Stage2State {
+            in_cohort: false,
+            last_evaluated_at_ms: EVENT_MS,
+        };
+        store
+            .write_batch(|b| b.put_stage2(&key, &fallback.encode_transferred_fallback()))
+            .unwrap();
+
+        let recompute =
+            recompute_both_ways(&store, &filters, TEAM as i32, &[(per_lsk, alice)]).await;
+
+        assert!(
+            recompute.changes.is_empty(),
+            "a corrupt person record reads every person leaf as a non-member",
+        );
+        assert_eq!(
+            recompute.writes,
+            vec![(
+                key,
+                Stage2State {
+                    in_cohort: false,
+                    last_evaluated_at_ms: EVENT_MS,
+                }
+            )],
+            "the fallback row is rewritten once, and the ordinary no-flip row is left alone",
+        );
+    }
+
+    /// Two persons in one call, with opposite state. Sharing is per person, so neither may see the
+    /// other's record or leaves.
+    #[tokio::test]
+    async fn two_persons_in_one_call_keep_their_own_inputs() {
+        let (_dir, store) = temp_store();
+        let filters = freeze_cascade(
+            vec![
+                (1, vec![behavioral_leaf(7), person_leaf()]),
+                (2, vec![behavioral_leaf(7), person_leaf()]),
+            ],
+            false,
+        );
+        let beh_lsk = filters.by_condition_to_lsk[&HASH][0];
+        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+        let (alice, bob) = (person(1), person(2));
+
+        write_behavioral(&store, beh_lsk, alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
+        // Bob matches the person condition but has no behavioral state.
+        write_person_record(&store, bob, &[PERSON_HASH]);
+
+        let recompute = recompute_both_ways(
+            &store,
+            &filters,
+            TEAM as i32,
+            &[(per_lsk, alice), (per_lsk, bob)],
+        )
+        .await;
+
+        assert_eq!(
+            recompute
+                .changes
+                .iter()
+                .map(|change| (change.cohort_id, change.person_id.clone()))
+                .collect::<Vec<_>>(),
+            vec![(1, alice.to_string()), (2, alice.to_string()),],
+            "changes stay in (cohort, person) order and Bob's missing leaf keeps him out",
+        );
+        assert_eq!(
+            recompute.evaluated(),
+            4,
+            "both persons composed both cohorts"
+        );
+    }
+
+    /// The same person and the same leaf under a different team must not see the first team's rows.
+    #[tokio::test]
+    async fn state_written_for_one_team_is_invisible_to_another() {
+        let (_dir, store) = temp_store();
+        let leaves = vec![behavioral_leaf(7), person_leaf()];
+        let ours = freeze_for_team(TEAM as i32, leaves.clone());
+        let theirs = freeze_for_team(TEAM as i32 + 1, leaves);
+        let beh_lsk = ours.by_condition_to_lsk[&HASH][0];
+        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+        let alice = person(1);
+
+        write_behavioral(&store, beh_lsk, alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
+
+        let ours_recompute =
+            recompute_both_ways(&store, &ours, TEAM as i32, &[(per_lsk, alice)]).await;
+        assert_eq!(
+            statuses(&ours_recompute),
+            vec![(1, MembershipStatus::Entered)]
+        );
+
+        let theirs_recompute =
+            recompute_both_ways(&store, &theirs, TEAM as i32 + 1, &[(per_lsk, alice)]).await;
+        assert!(
+            theirs_recompute.changes.is_empty(),
+            "the neighbouring team's keyspace holds none of this state",
+        );
+    }
+
+    /// Distinct condition hashes, so a fixture can build a cohort wider than one read chunk.
+    fn wide_behavioral_leaf(index: usize) -> Value {
+        json!({
+            "type": "behavioral", "value": "performed_event", "key": "$pageview",
+            "time_value": 7, "time_interval": "day",
+            "conditionHash": format!("beh{index:013}"),
+            "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
+        })
+    }
+
+    fn wide_behavioral_hash(index: usize) -> [u8; 16] {
+        format!("beh{index:013}").as_bytes().try_into().unwrap()
+    }
+
+    /// More behavioral leaves than fit one chunk. A chunk the read skipped would leave its leaves
+    /// non-member and break the AND, so the entry proves every chunk landed.
+    #[tokio::test]
+    async fn a_cohort_wider_than_one_chunk_reads_every_leaf() {
+        const LEAVES: usize = 70;
+
+        let (_dir, store) = temp_store();
+        let filters = freeze((0..LEAVES).map(wide_behavioral_leaf).collect());
+        let lsks: Vec<LeafStateKey> = (0..LEAVES)
+            .map(|index| filters.by_condition_to_lsk[&wide_behavioral_hash(index)][0])
+            .collect();
+        let alice = person(1);
+        for &lsk in &lsks {
+            write_behavioral(&store, lsk, alice, behavioral_match());
+        }
+
+        let entered = recompute_both_ways(&store, &filters, TEAM as i32, &[(lsks[0], alice)]).await;
+        assert_eq!(statuses(&entered), vec![(1, MembershipStatus::Entered)]);
+
+        // Drop one leaf in the second chunk. The `Entered` above is what proves every chunk landed;
+        // this half pins that the far leaf's value is the one being read, not just its key.
+        write_behavioral(
+            &store,
+            lsks[LEAVES - 1],
+            alice,
+            Stage1State::BehavioralSingle {
+                has_match: false,
+                last_event_at_ms: EVENT_MS,
+                earliest_eviction_at_ms: i64::MAX,
+            },
+        );
+        write_stage2(&store, 1, alice, true);
+        let left = recompute_both_ways(&store, &filters, TEAM as i32, &[(lsks[0], alice)]).await;
+        assert_eq!(statuses(&left), vec![(1, MembershipStatus::Left)]);
+    }
+
+    /// One person in more composable cohorts than fit one `cf_stage2` chunk. The pair whose prior
+    /// row already agrees sits in the second chunk, so only a read that reached it stays silent.
+    #[tokio::test]
+    async fn a_person_in_more_cohorts_than_one_chunk_reads_every_prior_row() {
+        const COHORTS: i32 = 70;
+
+        let (_dir, store) = temp_store();
+        let filters = freeze_cascade(
+            (1..=COHORTS)
+                .map(|id| (id, vec![behavioral_leaf(7), person_leaf()]))
+                .collect(),
+            false,
+        );
+        let beh_lsk = filters.by_condition_to_lsk[&HASH][0];
+        let alice = person(1);
+        write_behavioral(&store, beh_lsk, alice, behavioral_match());
+        write_person_record(&store, alice, &[PERSON_HASH]);
+        write_stage2(&store, COHORTS as u64, alice, true);
+
+        let recompute =
+            recompute_both_ways(&store, &filters, TEAM as i32, &[(beh_lsk, alice)]).await;
+
+        assert_eq!(
+            recompute.evaluated(),
+            COHORTS as u64,
+            "every cohort on the leaf composed",
+        );
+        assert_eq!(
+            recompute.changes.len(),
+            COHORTS as usize - 1,
+            "the one cohort whose stored bit already said `true` did not flip",
+        );
+        assert!(
+            !recompute
+                .changes
+                .iter()
+                .any(|change| change.cohort_id == COHORTS),
+            "and it is the cohort whose row sits past the first chunk",
+        );
+    }
+
+    /// Invented fixture: `persons` persons, each in `cohorts` composable cohorts that share one
+    /// behavioral leaf and one person leaf, and each cohort also owning a leaf whose compressed
+    /// history spans a year. That is the shape the sharing is for — wide fanout over mostly shared
+    /// state, with values big enough that re-reading them is not free.
+    fn wide_fixture(
+        store: &CohortStore,
+        cohorts: usize,
+        persons: usize,
+    ) -> (TeamFilters, Vec<(LeafStateKey, Uuid)>) {
+        let shared = 0;
+        let filters = freeze_cascade(
+            (0..cohorts)
+                .map(|index| {
+                    (
+                        index as i32 + 1,
+                        vec![
+                            wide_behavioral_leaf(shared),
+                            wide_compressed_leaf(index + 1),
+                            person_leaf(),
+                        ],
+                    )
+                })
+                .collect(),
+            false,
+        );
+        let shared_lsk = filters.by_condition_to_lsk[&wide_behavioral_hash(shared)][0];
+
+        let mut affected = Vec::with_capacity(persons);
+        for index in 0..persons {
+            let who = person(index as u128 + 1);
+            write_behavioral(store, shared_lsk, who, behavioral_match());
+            for cohort in 0..cohorts {
+                let own = filters.by_condition_to_lsk[&wide_compressed_hash(cohort + 1)][0];
+                write_behavioral(store, own, who, year_long_compressed_state());
+            }
+            write_person_record(store, who, &[PERSON_HASH]);
+            affected.push((shared_lsk, who));
+        }
+        (filters, affected)
+    }
+
+    fn wide_compressed_leaf(index: usize) -> Value {
+        json!({
+            "type": "behavioral", "value": "performed_event_multiple", "key": "$pageview",
+            "time_value": 1, "time_interval": "year",
+            "operator": "gte", "operator_value": 1,
+            "conditionHash": format!("cmp{index:013}"),
+            "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
+        })
+    }
+
+    fn wide_compressed_hash(index: usize) -> [u8; 16] {
+        format!("cmp{index:013}").as_bytes().try_into().unwrap()
+    }
+
+    /// One entry per day of the window, so each behavioral value is kilobytes rather than bytes.
+    fn year_long_compressed_state() -> Stage1State {
+        Stage1State::BehavioralCompressedHistory {
+            entries: (0..365).map(|day| (20_600 + day, 1)).collect(),
+            window_start_day: 20_600,
+            last_event_at_ms: EVENT_MS,
+            earliest_eviction_at_ms: i64::MAX,
+        }
+    }
+
+    /// Benchmark, not a test. Run it in release:
+    ///
+    /// ```text
+    /// cargo test -p cohort-stream-processor --release --lib \
+    ///     recompute_orders_benchmark -- --ignored --nocapture
+    /// ```
+    ///
+    /// Both orders run over one store in one process, so the comparison needs no second checkout and
+    /// no second build. It asserts agreement only: a wall-time threshold in a test is a flake
+    /// waiting for a slower box, and reads per state source and memory belong to
+    /// `cohort_seed_recompute_*` under real load, not here.
+    #[tokio::test]
+    #[ignore = "benchmark; run in release with --ignored --nocapture"]
+    async fn recompute_orders_benchmark() {
+        use std::time::Instant;
+
+        const PERSONS: usize = 500;
+
+        println!(
+            "{:>8}  {:>8}  {:>12}  {:>12}  {:>7}",
+            "cohorts", "pairs", "by-cohort", "by-person", "ratio"
+        );
+        for cohorts in [1, 4, 14] {
+            let (_dir, store) = temp_store();
+            let (filters, affected) = wide_fixture(&store, cohorts, PERSONS);
+            let handle = handle(&store);
+            let run_by_cohort = || {
+                recompute_stage2(
+                    PARTITION,
+                    &handle,
+                    &filters,
+                    &affected,
+                    EVENT_MS,
+                    TS,
+                    ReadLane::Maintenance,
+                )
+            };
+            let run_by_person = || {
+                recompute_stage2_by_person(
+                    PARTITION,
+                    &handle,
+                    TeamId(TEAM as i32),
+                    &filters,
+                    &affected,
+                    EVENT_MS,
+                    TS,
+                )
+            };
+
+            // Warm the block cache first, so the timed pass measures the read shape and not the
+            // first touch of every SST.
+            let warm_by_cohort = run_by_cohort().await.unwrap();
+            let warm_by_person = run_by_person().await.unwrap();
+            assert_eq!(warm_by_person.changes, warm_by_cohort.changes);
+            assert_eq!(warm_by_person.writes, warm_by_cohort.writes);
+
+            let started = Instant::now();
+            run_by_cohort().await.unwrap();
+            let by_cohort = started.elapsed();
+
+            let started = Instant::now();
+            run_by_person().await.unwrap();
+            let by_person = started.elapsed();
+
+            println!(
+                "{:>8}  {:>8}  {:>10.1?}  {:>10.1?}  {:>6.2}x",
+                cohorts,
+                cohorts * PERSONS,
+                by_cohort,
+                by_person,
+                by_cohort.as_secs_f64() / by_person.as_secs_f64(),
+            );
+        }
     }
 }

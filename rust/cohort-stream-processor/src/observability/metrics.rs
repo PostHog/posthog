@@ -554,6 +554,27 @@ pub const PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str =
 /// produce-failure counters before concluding produces are failing.**
 pub const SEED_REGISTER_REPAIRS_TOTAL: &str = "cohort_seed_register_repairs_total";
 
+/// Persons whose Stage 2 inputs a seed apply read as one store section (counter).
+///
+/// Attempt-based, like everything a run *found*: a held run counts its persons, and so does the
+/// redelivery that replays it. **Do not divide [`STAGE2_COHORTS_EVALUATED`] by this.** That counter
+/// is settled-based — it is recorded only once the run's stage-2 writes commit — so the ratio
+/// under-reports the sharing during exactly the incidents that produce holds. Read keys per person
+/// off [`SEED_RECOMPUTE_KEYS_FETCHED_TOTAL`] instead, which is attempt-based on both sides.
+pub const SEED_RECOMPUTE_PERSONS_TOTAL: &str = "cohort_seed_recompute_persons_total";
+/// Store keys those sections fetched, labelled by `source` (`behavioral`|`person_record`|`stage2`)
+/// (counter). Against [`SEED_RECOMPUTE_PERSONS_TOTAL`] this is keys per person, by state source, and
+/// it is the sharing win: `person_record` holds at one per person however many cohorts that person
+/// reaches.
+pub const SEED_RECOMPUTE_KEYS_FETCHED_TOTAL: &str = "cohort_seed_recompute_keys_fetched_total";
+/// Raw value bytes one batched read returned, labelled by the same `source` (histogram, bytes). A
+/// section decodes and releases each batch before reading the next, so this is its raw-buffer peak.
+/// **A key limit does not bound bytes** — behavioral values grow with window length — so read this
+/// before concluding the read plan has a memory ceiling. A miss records a real `0`: on
+/// `source="person_record"` a dormant person the seed found nothing for is a zero sample, so read
+/// the upper quantiles rather than the median while a backfill sweeps non-matchers.
+pub const SEED_RECOMPUTE_CHUNK_BYTES: &str = "cohort_seed_recompute_chunk_bytes";
+
 /// Seeds applied as one run, labelled by `kind` (histogram). The p50 is the batching win: `1` means
 /// every seed still pays its own produce round trip.
 pub const SEED_APPLY_RUN_SIZE: &str = "cohort_seed_apply_run_size";
@@ -939,6 +960,18 @@ mod tests {
         assert_eq!(
             SEED_REGISTER_REPAIRS_TOTAL,
             "cohort_seed_register_repairs_total"
+        );
+        assert_eq!(
+            SEED_RECOMPUTE_PERSONS_TOTAL,
+            "cohort_seed_recompute_persons_total"
+        );
+        assert_eq!(
+            SEED_RECOMPUTE_KEYS_FETCHED_TOTAL,
+            "cohort_seed_recompute_keys_fetched_total",
+        );
+        assert_eq!(
+            SEED_RECOMPUTE_CHUNK_BYTES,
+            "cohort_seed_recompute_chunk_bytes"
         );
         assert_eq!(SEED_APPLY_RUN_SIZE, "cohort_seed_apply_run_size");
         assert_eq!(
