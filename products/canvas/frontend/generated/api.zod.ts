@@ -99,6 +99,34 @@ export const CanvasesBuildActionCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Call one declared connector tool as the viewer.
+ *
+ * The canvas must declare the provider and tool in capabilities.connectors
+ * (the reviewed permission boundary); the call runs with the viewer's own
+ * connection, so two viewers of the same canvas see their own data.
+ */
+export const canvasesConnectorsCallBodyProviderMax = 300
+
+export const canvasesConnectorsCallBodyToolMax = 200
+
+export const CanvasesConnectorsCallBody = /* @__PURE__ */ zod
+    .object({
+        provider: zod
+            .string()
+            .max(canvasesConnectorsCallBodyProviderMax)
+            .describe("Declared provider id, e.g. 'github'."),
+        tool: zod
+            .string()
+            .max(canvasesConnectorsCallBodyToolMax)
+            .describe("Declared tool name, e.g. 'list_pull_requests'."),
+        arguments: zod
+            .record(zod.string(), zod.unknown())
+            .optional()
+            .describe("Tool arguments, validated against the tool's input schema."),
+    })
+    .describe('Payload for calling one connector tool as the viewer.')
+
+/**
  * Stage a complete source project as a draft version and build it, without publishing.
  *
  * The draft gets the same validation, versioning, and server-side build as
@@ -143,6 +171,14 @@ export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogAgentRequest
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOneConnectorsItemProviderMax = 300
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsItemMax = 200
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsMax = 64
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOneConnectorsMax = 20
 
 export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
     .object({
@@ -291,6 +327,41 @@ export const CanvasesDraftCreateBody = /* @__PURE__ */ zod
                                 )
                                 .max(canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax),
                         }),
+                        connectors: zod
+                            .array(
+                                zod
+                                    .object({
+                                        provider: zod
+                                            .string()
+                                            .max(
+                                                canvasesDraftCreateBodyProjectOneCapabilitiesOneConnectorsItemProviderMax
+                                            )
+                                            .describe(
+                                                "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store."
+                                            ),
+                                        tools: zod
+                                            .array(
+                                                zod
+                                                    .string()
+                                                    .max(
+                                                        canvasesDraftCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsItemMax
+                                                    )
+                                            )
+                                            .min(1)
+                                            .max(canvasesDraftCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsMax)
+                                            .describe(
+                                                'Tool names the canvas may call on this provider. Read-only tools only.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'One provider a canvas may call through ph.connectors, with the tools it may use.'
+                                    )
+                            )
+                            .max(canvasesDraftCreateBodyProjectOneCapabilitiesOneConnectorsMax)
+                            .optional()
+                            .describe(
+                                "Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review."
+                            ),
                     })
                     .optional()
                     .describe(
@@ -761,6 +832,14 @@ export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsIte
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
 
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOneConnectorsItemProviderMax = 300
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsItemMax = 200
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsMax = 64
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOneConnectorsMax = 20
+
 export const canvasesPublishCreateBodyNameMax = 400
 
 export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
@@ -912,6 +991,43 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
                                 )
                                 .max(canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax),
                         }),
+                        connectors: zod
+                            .array(
+                                zod
+                                    .object({
+                                        provider: zod
+                                            .string()
+                                            .max(
+                                                canvasesPublishCreateBodyProjectOneCapabilitiesOneConnectorsItemProviderMax
+                                            )
+                                            .describe(
+                                                "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store."
+                                            ),
+                                        tools: zod
+                                            .array(
+                                                zod
+                                                    .string()
+                                                    .max(
+                                                        canvasesPublishCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsItemMax
+                                                    )
+                                            )
+                                            .min(1)
+                                            .max(
+                                                canvasesPublishCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsMax
+                                            )
+                                            .describe(
+                                                'Tool names the canvas may call on this provider. Read-only tools only.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'One provider a canvas may call through ph.connectors, with the tools it may use.'
+                                    )
+                            )
+                            .max(canvasesPublishCreateBodyProjectOneCapabilitiesOneConnectorsMax)
+                            .optional()
+                            .describe(
+                                "Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review."
+                            ),
                     })
                     .optional()
                     .describe(
@@ -1078,6 +1194,14 @@ export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsIt
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax = 20
 
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOneConnectorsItemProviderMax = 300
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsItemMax = 200
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsMax = 64
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOneConnectorsMax = 20
+
 export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
     .object({
         project: zod
@@ -1229,6 +1353,43 @@ export const CanvasesValidateCreateBody = /* @__PURE__ */ zod
                                 )
                                 .max(canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsMax),
                         }),
+                        connectors: zod
+                            .array(
+                                zod
+                                    .object({
+                                        provider: zod
+                                            .string()
+                                            .max(
+                                                canvasesValidateCreateBodyProjectOneCapabilitiesOneConnectorsItemProviderMax
+                                            )
+                                            .describe(
+                                                "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store."
+                                            ),
+                                        tools: zod
+                                            .array(
+                                                zod
+                                                    .string()
+                                                    .max(
+                                                        canvasesValidateCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsItemMax
+                                                    )
+                                            )
+                                            .min(1)
+                                            .max(
+                                                canvasesValidateCreateBodyProjectOneCapabilitiesOneConnectorsItemToolsMax
+                                            )
+                                            .describe(
+                                                'Tool names the canvas may call on this provider. Read-only tools only.'
+                                            ),
+                                    })
+                                    .describe(
+                                        'One provider a canvas may call through ph.connectors, with the tools it may use.'
+                                    )
+                            )
+                            .max(canvasesValidateCreateBodyProjectOneCapabilitiesOneConnectorsMax)
+                            .optional()
+                            .describe(
+                                "Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review."
+                            ),
                     })
                     .optional()
                     .describe(
