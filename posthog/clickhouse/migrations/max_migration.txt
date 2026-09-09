@@ -1,1 +1,1 @@
-0313_logs_pattern_buckets
+0315_add_snapshot_mode_to_session_replay_events

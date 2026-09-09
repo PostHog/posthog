@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from products.signals.backend.scout_harness.suggestions import SUGGESTIONS_AI_STAGE
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
 from products.tasks.backend.models import INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN
+from products.tasks.backend.temporal.process_task import utils
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     INTERACTIVE_MINTABLE_PRODUCTS,
     MINTABLE_PRODUCTS,
@@ -39,6 +40,7 @@ class TestResolveSandboxAiProduct:
             ("signal_report", "match", "signals"),
             ("loop", None, "posthog_code"),
             ("slack", None, "slack_app"),
+            ("workflow", None, "workflows"),
             ("support_reply", None, "conversations"),
             ("onboarding", None, "onboarding"),
             ("posthog_ai", None, "posthog_ai"),
@@ -309,6 +311,16 @@ class TestAiGatewayEnvVars:
         assert "AI_GATEWAY_AI_STAGE" not in env
         mint.assert_not_called()
 
+    def test_workflow_run_gets_a_pinned_token_when_routed(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "workflows"
+        with patch(
+            "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
+            return_value="phe_abc",
+        ) as mint:
+            env = ai_gateway_env_vars(team_id=123, origin_product="workflow")
+        assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
+        mint.assert_called_once_with(ai_product="workflows", team_id=123, user=None)
+
     # The agent trusts these as the worker's word, so the API must refuse a run-supplied value.
     def test_reserved_keys_cover_the_pinned_product_env(self):
         assert "AI_GATEWAY_PRODUCT" in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
@@ -460,6 +472,13 @@ class TestProvisioningBoundaries:
             distinct_id="user-1",
         )
 
+    def test_subscription_run_does_not_mint_gateway_credentials(self, mint_settings):
+        ctx = self._ctx()
+        ctx.claude_model_access = "own-subscription"
+        with patch.object(utils, "mint_scoped_token") as mint:
+            assert utils.run_gateway_env_vars(ctx, self._task()) == {}
+        mint.assert_not_called()
+
     def test_snapshot_builder_uses_the_shared_derivation(self, mint_settings):
         from products.tasks.backend.temporal.process_task import utils
 
@@ -546,7 +565,12 @@ class TestUserPinAndCapOverride:
 
     @pytest.mark.parametrize(
         "ai_product,expected_cap",
-        [("signals_inbox", "75"), ("signals_chat", "30"), ("signals_scout_suggestions", "10")],
+        [
+            ("signals_implementation", "20"),
+            ("signals_inbox", "75"),
+            ("signals_chat", "30"),
+            ("signals_scout_suggestions", "10"),
+        ],
     )
     # A cap key that stops matching the resolver's product fails here instead of quietly
     # dropping to the default. Suggestions carry no entry and take that default on purpose.

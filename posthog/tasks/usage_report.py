@@ -7,7 +7,7 @@ import logging
 import dataclasses
 from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union
 
 from django.conf import settings
@@ -75,9 +75,12 @@ from products.tasks.backend.facade.billing import (
     get_billable_sandbox_compute_usage_by_team,
     get_task_sandbox_usage_by_team,
 )
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
+from products.warehouse_sources.backend.facade.billing import (
+    get_free_historical_rows_synced_by_team,
+    get_rows_synced_by_team,
+)
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
-from products.warehouse_sources.backend.models.external_data_job import billable_destination_multiplier
 
 logger = structlog.get_logger(__name__)
 logging.getLogger(__name__).setLevel(logging.INFO)
@@ -369,8 +372,8 @@ class UsageReportCounters:
     logs_retention_30d_mb_in_period: int
     logs_retention_90d_mb_in_period: int
     # Byte-days of retention floored to whole MB-days (retention_byte_days // 1_000_000): ingested bytes
-    # weighted by retention days, so it scales to any retention day count. Report-only, like
-    # logs_mb_in_period. Average retention days = logs_retention_mb_days_in_period / logs_mb_in_period.
+    # weighted by the full retention day count, so it scales to any retention day count. Zero for teams
+    # on the default retention; they are covered by logs_mb_in_period alone. Report-only.
     logs_retention_mb_days_in_period: int
     # Per-SDK split of logs_records_in_period, which on its own has no SDK dimension. Keyed off the
     # telemetry.sdk.name resource attribute each SDK sets on every record. See SDK_TELEMETRY_NAMES.
@@ -385,6 +388,11 @@ class UsageReportCounters:
     apm_tracing_bytes_in_period: int
     apm_tracing_spans_in_period: int
     apm_tracing_mb_in_period: int
+
+    # Metrics (OTel). Report-only while the product is in alpha — makes per-team ingestion
+    # visible fleet-wide, the same signal logs_records_in_period provides for logs.
+    metrics_records_in_period: int
+    metrics_mb_in_period: int
 
 
 # Instance metadata to be included in overall report
@@ -1740,6 +1748,7 @@ CLOUD_REGION_TO_URL = {
 POSTHOG_AI_PRODUCTS = [
     "posthog_ai",
     "slack_app",
+    "workflows",
     "subscriptions",
     "alert_investigation_agent",
     "alert_llm_detector",
@@ -2089,64 +2098,16 @@ def combine_posthog_code_credits(token_credits: int, compute_credits: int) -> in
     return token_credits + compute_credits
 
 
-dwh_pricing_free_period_start = datetime(2025, 10, 29, 0, 0, 0, tzinfo=UTC)
-dwh_pricing_free_period_end = datetime(2025, 11, 6, 0, 0, 0, tzinfo=UTC)
-
-# A source's first week of syncing is free.
-NEW_SOURCE_FREE_WINDOW = timedelta(days=7)
-
-
-def _rows_synced_totals(
-    begin: datetime,
-    end: datetime,
-    source_age: Literal["any", "new_only", "established_only"],
-) -> list:
-    """Rows synced per team, counted once per destination the run delivered to.
-
-    A run is complete only once every destination has taken every batch, so multiplying by
-    the destination count snapshotted on the run is exact. Runs that predate destinations
-    carry a count of 1 and bill exactly as they did before.
-    """
-    filters = Q(
-        finished_at__gte=begin,
-        finished_at__lte=end,
-        billable=True,
-        status=ExternalDataJob.Status.COMPLETED,
-    )
-
-    if source_age != "any":
-        is_new = Q(pipeline__created_at__gte=end - NEW_SOURCE_FREE_WINDOW)
-        filters &= is_new if source_age == "new_only" else ~is_new
-
-    return list(
-        ExternalDataJob.objects.filter(filters)
-        .values("team_id")
-        .annotate(total=Sum(F("rows_synced") * billable_destination_multiplier()))
-    )
-
-
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list:
-    if begin >= dwh_pricing_free_period_start and begin < dwh_pricing_free_period_end:
-        # during the free period, everyone gets free rows synced
-        return []
-
-    if begin >= dwh_pricing_free_period_end:
-        # after the free period, don't include rows reported in the free historical period
-        return _rows_synced_totals(begin, end, source_age="established_only")
-
-    return _rows_synced_totals(begin, end, source_age="any")
+    return get_rows_synced_by_team(begin, end)
 
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_free_historical_rows_synced_in_period(begin: datetime, end: datetime) -> list:
-    if begin >= dwh_pricing_free_period_start and begin < dwh_pricing_free_period_end:
-        # during the free period, all rows get reported as free historical rows synced
-        return _rows_synced_totals(begin, end, source_age="any")
-
-    return _rows_synced_totals(begin, end, source_age="new_only")
+    return get_free_historical_rows_synced_by_team(begin, end)
 
 
 @timed_log()
@@ -2218,8 +2179,8 @@ def get_teams_with_dwh_tables_storage_in_s3() -> list:
 def get_teams_with_dwh_mat_views_storage_in_s3() -> list:
     return list(
         DataWarehouseSavedQuery.objects.filter(
+            ~Q(deleted=True),
             ~Q(table__deleted=True),
-            Q(status=DataWarehouseSavedQuery.Status.COMPLETED) | Q(last_run_at__isnull=False),
             table__isnull=False,
             table__size_in_s3_mib__isnull=False,
         )
@@ -2602,10 +2563,11 @@ def get_teams_with_logs_retention_byte_days_in_period(
     Returns byte-days of log retention grouped by team: ingested bytes weighted by retention days.
 
     The consumer emits one `retention_byte_days` metric into `app_metrics2`
-    (`retention_byte_days = bytes_ingested * retention_days`, summed per flush). Summed over the period
-    it is total storage-duration and scales to any retention day count. Average retention days =
-    `retention_byte_days` / `bytes_ingested`. Each `(team_id, count)` tuple is ready for
-    `convert_team_usage_rows_to_dict`.
+    (`retention_byte_days = bytes_ingested * retention_days`, summed per flush) only for teams on a
+    non-default retention; default-retention teams emit nothing, so their storage is billed through
+    `bytes_ingested` alone. Summed over the period it is the storage-duration of the logs kept beyond
+    the default, not of all logs, and it scales to any retention day count. Each `(team_id, count)`
+    tuple is ready for `convert_team_usage_rows_to_dict`.
     """
     with tags_context(product=Product.LOGS, feature=Feature.USAGE_REPORT):
         return sync_execute(
@@ -2753,6 +2715,44 @@ def get_teams_with_apm_tracing_usage_in_period(
     return usage
 
 
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_metrics_usage_in_period(
+    begin: datetime,
+    end: datetime,
+    # nosemgrep: tuple-return-prefer-dataclass -- (team_id, count) rows are the shared usage-report contract consumed by convert_team_usage_rows_to_dict, like the logs and traces functions above.
+) -> dict[str, list[tuple[int, int]]]:
+    """
+    Returns Metrics (OTel) ingested bytes and record counts per team for the period,
+    keyed by `bytes` / `records`; each value is a list of `(team_id, count)` tuples ready
+    for `convert_team_usage_rows_to_dict`.
+
+    The metrics ingestion consumer emits the same pre-aggregated `app_metrics2` counters
+    as logs and traces, under `app_source='metrics'`.
+    """
+    with tags_context(product=Product.METRICS, feature=Feature.USAGE_REPORT):
+        rows = sync_execute(
+            """
+            SELECT team_id, metric_name, SUM(count) as count
+            FROM app_metrics2
+            WHERE app_source='metrics'
+              AND metric_name IN ('bytes_ingested', 'records_ingested')
+              AND timestamp >= %(begin)s AND timestamp < %(end)s
+            GROUP BY team_id, metric_name
+            """,
+            {"begin": begin, "end": end},
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
+        )
+
+    key_by_metric = {"bytes_ingested": "bytes", "records_ingested": "records"}
+    usage: dict[str, list[tuple[int, int]]] = {"bytes": [], "records": []}
+    for team_id, metric_name, count in rows:
+        usage[key_by_metric[metric_name]].append((team_id, count))
+    return usage
+
+
 def _trim_oversize_usage_report_payload(full_report_dict: dict[str, Any]) -> dict[str, Any]:
     """Drop the per-team breakdown when the serialized report would exceed Kafka's
     message size limit, so the org-level roll-up still makes it through ingestion.
@@ -2872,6 +2872,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.task_sandbox_seconds_in_period > 0
         or report.logs_bytes_in_period > 0
         or report.apm_tracing_bytes_in_period > 0
+        or report.metrics_records_in_period > 0
         or report.workflow_emails_sent_in_period > 0
         or report.workflow_push_sent_in_period > 0
         or report.workflow_sms_sent_in_period > 0
@@ -2910,6 +2911,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
     logs_retention_by_tier = get_teams_with_logs_retention_bytes_in_period(period_start, period_end)
     logs_retention_byte_days_rows = get_teams_with_logs_retention_byte_days_in_period(period_start, period_end)
     apm_tracing_usage = get_teams_with_apm_tracing_usage_in_period(period_start, period_end)
+    metrics_usage = get_teams_with_metrics_usage_in_period(period_start, period_end)
     exception_metrics_by_library, exception_metrics = get_teams_with_exceptions_captured_in_period(
         period_start, period_end
     )
@@ -3198,6 +3200,8 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_ruby_logs_records_in_period": sdk_logs_by_suffix["ruby"],
         "teams_with_apm_tracing_bytes_in_period": apm_tracing_usage["bytes"],
         "teams_with_apm_tracing_spans_in_period": apm_tracing_usage["spans"],
+        "teams_with_metrics_bytes_in_period": metrics_usage["bytes"],
+        "teams_with_metrics_records_in_period": metrics_usage["records"],
     }
 
 
@@ -3453,6 +3457,8 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         apm_tracing_bytes_in_period=apm_tracing_bytes_in_period,
         apm_tracing_spans_in_period=all_data["teams_with_apm_tracing_spans_in_period"].get(team.id, 0),
         apm_tracing_mb_in_period=int(apm_tracing_bytes_in_period // 1_000_000),
+        metrics_records_in_period=all_data["teams_with_metrics_records_in_period"].get(team.id, 0),
+        metrics_mb_in_period=int(all_data["teams_with_metrics_bytes_in_period"].get(team.id, 0) // 1_000_000),
     )
 
 

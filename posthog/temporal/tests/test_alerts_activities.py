@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
@@ -526,7 +527,7 @@ class TestEvaluateAlert:
     # an error instead sends the alert silent until its next cadence slot, an hour for hourly ones.
     @pytest.mark.parametrize(
         "error_class",
-        [ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded],
+        [ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded, SocketTimeoutError, NetworkError],
     )
     async def test_evaluate_reraises_ch_transient_error(self, alert, error_class) -> None:
         with patch(

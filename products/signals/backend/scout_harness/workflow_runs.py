@@ -64,7 +64,8 @@ def start_workflow_scout_run(*, team_id: int, skill_name: str) -> WorkflowScoutR
     scout that cannot run (a typo, a deleted skill) and surfaces as a step failure the author
     notices; `CONFLICT` / `THROTTLED` are ordinary backpressure the step skips on.
     """
-    team = Team.objects.get(pk=team_id)
+    # `organization` is select_related for the spend gate's quota-pause capture.
+    team = Team.objects.select_related("organization").get(pk=team_id)
     if team.parent_team_id:
         raise _rejected(
             ScoutRunRejectionKind.FORBIDDEN,

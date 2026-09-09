@@ -638,6 +638,19 @@ class SessionContextsSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "600/hour"
 
 
+# Feature flag request usage scans up to 31 days of billing events in ClickHouse. Its primary
+# caller is the session-authenticated feature flags UI, which the generic ClickHouse throttle
+# pair does not cover. Use a team-wide bucket so users and API keys share one query budget.
+class FeatureFlagRequestUsageBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "feature_flag_request_usage_burst"
+    rate = "30/minute"
+
+
+class FeatureFlagRequestUsageSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "feature_flag_request_usage_sustained"
+    rate = "300/hour"
+
+
 # Fingerprint projection runs t-SNE synchronously over up to 250 high-dimensional embeddings.
 # Query endpoint defaults only cover personal API keys, so use a team-wide bucket to include
 # session callers and prevent forced refreshes from consuming application workers without bound.
