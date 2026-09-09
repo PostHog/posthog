@@ -1046,7 +1046,14 @@ function InternalDataTableVisualization(
     } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
     } else if (effectiveVisualizationType === ChartDisplayType.Metric) {
-        component = <SqlMetricCard xData={xData} yData={yData} presetChartHeight={presetChartHeight} />
+        component = (
+            <SqlMetricCard
+                xData={xData}
+                yData={yData}
+                metricSettings={chartSettings.metric}
+                presetChartHeight={presetChartHeight}
+            />
+        )
     }
 
     if (props.embedded && !props.showSettingsPanel) {

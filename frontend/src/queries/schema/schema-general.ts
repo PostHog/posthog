@@ -1371,6 +1371,26 @@ export interface ScatterChartSettings {
     showBestFit?: boolean
 }
 
+export interface MetricChartSettings {
+    /** Which value the resting headline shows: the latest point, the total, or the average of the returned points.
+     * @default latest */
+    summary?: 'total' | 'average' | 'latest'
+    /** Show the change pill comparing the first point to the latest point.
+     * @default true */
+    showChange?: boolean
+    /** Change pill color when the series went up. Defaults to green. */
+    changeIncreaseColor?: string
+    /** Change pill color when the series went down. Defaults to red. */
+    changeDecreaseColor?: string
+    /** Color the sparkline by whether the series went up or down.
+     * @default false */
+    colorByDirection?: boolean
+    /** Sparkline color when the series went up. Defaults to green. */
+    lineIncreaseColor?: string
+    /** Sparkline color when the series went down. Defaults to red. */
+    lineDecreaseColor?: string
+}
+
 export interface BoxPlotSettings {
     xAxisColumn?: string | null
     seriesColumn?: string | null
@@ -1421,6 +1441,7 @@ export interface ChartSettings {
     pie?: PieChartSettings
     scatter?: ScatterChartSettings
     boxPlot?: BoxPlotSettings
+    metric?: MetricChartSettings
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */

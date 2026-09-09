@@ -3304,6 +3304,12 @@ class MetaAdsDefaultSources(StrEnum):
     THREADS = "threads"
 
 
+class Summary(StrEnum):
+    TOTAL = "total"
+    AVERAGE = "average"
+    LATEST = "latest"
+
+
 class MetricsAggregation(StrEnum):
     SUM = "sum"
     AVG = "avg"

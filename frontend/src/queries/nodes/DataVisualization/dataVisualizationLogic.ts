@@ -429,6 +429,13 @@ const mergeChartSettings = (state: ChartSettings, settings: ChartSettings): Char
                       ...settings.boxPlot,
                   }
                 : undefined,
+        metric:
+            state.metric || settings.metric
+                ? {
+                      ...state.metric,
+                      ...settings.metric,
+                  }
+                : undefined,
         leftYAxisSettings:
             state.leftYAxisSettings || settings.leftYAxisSettings
                 ? {

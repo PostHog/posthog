@@ -50,7 +50,7 @@ describe('SideBar', () => {
         const logic = dataVisualizationLogic(props)
         dataNode.mount()
         logic.mount()
-        logic.actions.setSideBarTab(SideBarTab.Display)
+        logic.actions.setSideBarTab(SideBarTab.ConditionalFormatting)
 
         render(
             <BindLogic logic={dataVisualizationLogic} props={props}>
@@ -59,7 +59,7 @@ describe('SideBar', () => {
         )
 
         expect(await screen.findByText('X-axis')).toBeInTheDocument()
-        expect(screen.queryByText('Show legend')).not.toBeInTheDocument()
+        expect(screen.queryByText('Conditional formatting')).not.toBeInTheDocument()
 
         logic.unmount()
         dataNode.unmount()

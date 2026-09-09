@@ -19,7 +19,6 @@ type TabContent = {
 export const isDisplayTabSupported = (displayType: ChartDisplayType): boolean =>
     displayType !== ChartDisplayType.ActionsTable &&
     displayType !== ChartDisplayType.BoldNumber &&
-    displayType !== ChartDisplayType.Metric &&
     displayType !== ChartDisplayType.TwoDimensionalHeatmap
 
 const TABS_TO_CONTENT: Record<SideBarTab, TabContent> = {
