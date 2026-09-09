@@ -52,9 +52,11 @@ let uniqueNode = 0
 export function AttributionTable({
     query,
     attachTo,
+    revenue = false,
 }: {
     query: MarketingAnalyticsAttributionQuery
     attachTo?: LogicWrapper | BuiltLogic
+    revenue?: boolean
 }): JSX.Element {
     const [key] = useState(() => `MarketingAttribution.${uniqueNode++}`)
     // Registered under the tab's shared collection so the filter bar's ReloadAll reaches this query.
@@ -168,7 +170,7 @@ export function AttributionTable({
                     ...(hasValue
                         ? [
                               numericColumn(
-                                  'Value',
+                                  revenue ? 'Revenue' : 'Value',
                                   'Full value of every influenced conversion, also counted in full against the other rows that influenced it.',
                                   (row) => row.influencedValue,
                                   (value) => formatCurrency(value, baseCurrency),
@@ -207,7 +209,7 @@ export function AttributionTable({
                     ...(hasValue
                         ? [
                               numericColumn(
-                                  'Value',
+                                  revenue ? 'Revenue' : 'Value',
                                   `Conversion value credited to this ${dimensionLabel.toLowerCase()} by the ${MODEL_LABELS[
                                       model
                                   ].toLowerCase()} model.`,
@@ -256,7 +258,13 @@ export function AttributionTable({
                     later in the journey, like signing up or paying, show how the models differ.
                 </LemonBanner>
             )}
-            <AttributionChart rows={rows} models={models} dimensionLabel={dimensionLabel} loading={responseLoading} />
+            <AttributionChart
+                revenueCurrency={revenue ? baseCurrency : undefined}
+                rows={rows}
+                models={models}
+                dimensionLabel={dimensionLabel}
+                loading={responseLoading}
+            />
             <LemonTable
                 className="AttributionTable"
                 columns={columns}

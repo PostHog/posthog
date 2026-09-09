@@ -1,6 +1,7 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 
@@ -12,6 +13,8 @@ import {
     MarketingAnalyticsAggregatedQueryResponse,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+
+import { marketingDashboardLogic } from 'products/marketing_analytics/frontend/dashboard/marketingDashboardLogic'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import {
@@ -42,6 +45,8 @@ export function MarketingAnalyticsOverview(props: {
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
     const { response, responseLoading, responseError } = useValues(logic)
+    const { includeConversionGoals } = useValues(marketingDashboardLogic)
+    const hasNewDashboard = useFeatureFlag('MARKETING_ANALYTICS_NEW_DASHBOARD')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     useAttachedLogic(logic, props.attachTo)
 
@@ -83,7 +88,18 @@ export function MarketingAnalyticsOverview(props: {
             {allWarnings.length > 0 && <MarketingAnalyticsValidationWarningBanner warnings={allWarnings} />}
             <OverviewGrid
                 compact
-                items={overviewItems}
+                items={
+                    hasNewDashboard && !includeConversionGoals
+                        ? overviewItems.filter(
+                              (item) =>
+                                  !conversion_goals.some(
+                                      (goal) =>
+                                          item.key === goal.conversion_goal_name ||
+                                          item.key === `Cost per ${goal.conversion_goal_name}`
+                                  )
+                          )
+                        : overviewItems
+                }
                 loading={responseLoading}
                 numSkeletons={numSkeletons}
                 samplingRate={samplingRate}

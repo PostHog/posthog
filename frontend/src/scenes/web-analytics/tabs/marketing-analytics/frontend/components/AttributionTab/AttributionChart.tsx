@@ -6,9 +6,10 @@ import type { BarChartConfig, Series } from '@posthog/quill-charts'
 import { BarChart } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { formatCurrency } from 'lib/utils/currency'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { AttributionMode, MarketingAnalyticsAttributionRow } from '~/queries/schema/schema-general'
+import { AttributionMode, CurrencyCode, MarketingAnalyticsAttributionRow } from '~/queries/schema/schema-general'
 
 import { MODEL_LABELS } from '../../logic/marketingAttributionLogic'
 
@@ -49,27 +50,37 @@ export function AttributionChart({
     models,
     dimensionLabel,
     loading,
+    revenueCurrency,
 }: {
     rows: MarketingAnalyticsAttributionRow[]
     models: AttributionMode[]
     dimensionLabel: string
     loading?: boolean
+    revenueCurrency?: CurrencyCode
 }): JSX.Element | null {
     const theme = useChartTheme()
 
     // Rows arrive server-ordered by influenced conversions, so the slice is the top slice.
-    const chartRows = useMemo(() => rows.slice(0, MAX_CHART_ROWS), [rows])
+    const chartRows = useMemo(
+        () =>
+            (revenueCurrency
+                ? [...rows].sort((a, b) => (b.influencedValue ?? 0) - (a.influencedValue ?? 0))
+                : rows
+            ).slice(0, MAX_CHART_ROWS),
+        [rows, revenueCurrency]
+    )
 
     const config: BarChartConfig = useChartConfig(
         () => ({
             barLayout: 'grouped',
             legend: { show: true, position: 'top' },
             tooltip: {
-                valueFormatter: (value: number) => humanFriendlyNumber(value, 1),
+                valueFormatter: (value: number) =>
+                    revenueCurrency ? formatCurrency(value, revenueCurrency) : humanFriendlyNumber(value, 1),
                 sortedByValue: true,
             },
         }),
-        []
+        [revenueCurrency]
     )
 
     const series: Series[] = useMemo(
@@ -77,9 +88,12 @@ export function AttributionChart({
             models.map((model, index) => ({
                 key: model,
                 label: MODEL_LABELS[model],
-                data: chartRows.map((row) => row.models[index]?.conversions ?? 0),
+                data: chartRows.map(
+                    (row) =>
+                        (revenueCurrency ? row.models[index]?.conversionValue : row.models[index]?.conversions) ?? NaN
+                ),
             })),
-        [models, chartRows]
+        [models, chartRows, revenueCurrency]
     )
 
     // Only a settled empty result hides the card: collapsing while loading shoves the table upward.
@@ -89,10 +103,15 @@ export function AttributionChart({
 
     return (
         <div className="rounded border bg-surface-primary p-4">
-            <h3 className="mb-0 text-base font-semibold">Conversions by attribution model</h3>
+            <h3 className="mb-0 text-base font-semibold">
+                {revenueCurrency
+                    ? `Revenue by attribution model (${revenueCurrency})`
+                    : 'Conversions by attribution model'}
+            </h3>
             <p className="mb-2 text-secondary">
-                Each bar is the number of conversions a model credits to a {dimensionLabel.toLowerCase()}. Bars of equal
-                height mean the models agree; different heights show where credit moves when the model changes.
+                Each bar is {revenueCurrency ? 'the revenue' : 'the number of conversions'} a model credits to a{' '}
+                {dimensionLabel.toLowerCase()}. Bars of equal height mean the models agree; different heights show where
+                credit moves when the model changes.
                 {rows.length > MAX_CHART_ROWS
                     ? ` Showing the top ${MAX_CHART_ROWS} of ${rows.length} rows. The table below has all of them.`
                     : ''}

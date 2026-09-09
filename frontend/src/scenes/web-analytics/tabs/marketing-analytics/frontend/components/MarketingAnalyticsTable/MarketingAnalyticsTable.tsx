@@ -17,10 +17,13 @@ import {
     MarketingAnalyticsConstants,
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsTableQuery,
+    NodeKind,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
 import { InsightLogicProps } from '~/types'
+
+import { marketingDashboardLogic } from 'products/marketing_analytics/frontend/dashboard/marketingDashboardLogic'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
@@ -51,6 +54,28 @@ export const MarketingAnalyticsTable = ({
     const hasDrillDown = useFeatureFlag('MARKETING_ANALYTICS_DRILL_DOWN')
     const hasExtendedDrillDown = useFeatureFlag('MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
+
+    const { includeConversionGoals } = useValues(marketingDashboardLogic)
+    const hasNewDashboard = useFeatureFlag('MARKETING_ANALYTICS_NEW_DASHBOARD')
+    const hiddenGoalColumns = new Set(
+        conversion_goals.flatMap((goal) => [
+            goal.conversion_goal_name,
+            `${MarketingAnalyticsConstants.CostPer} ${goal.conversion_goal_name}`,
+        ])
+    )
+    const displayQuery =
+        hasNewDashboard && !includeConversionGoals && query.source.kind === NodeKind.MarketingAnalyticsTableQuery
+            ? {
+                  ...query,
+                  source: {
+                      ...query.source,
+                      select: (query.source as MarketingAnalyticsTableQuery).select?.filter(
+                          (column) =>
+                              !hiddenGoalColumns.has(column) && column !== 'ROAS' && column !== 'Cost per customer'
+                      ),
+                  },
+              }
+            : query
 
     const [searchTerm, setSearchTerm] = useState('')
 
@@ -194,6 +219,7 @@ export const MarketingAnalyticsTable = ({
                             <IconInfo className="text-xl text-secondary" />
                         </Tooltip>
                     </div>
+
                     <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
                         Configure columns
                     </LemonButton>
@@ -216,7 +242,7 @@ export const MarketingAnalyticsTable = ({
             <div className="relative marketing-analytics-table-container">
                 <Query
                     attachTo={attachTo}
-                    query={query}
+                    query={displayQuery}
                     readOnly={false}
                     context={marketingAnalyticsContext}
                     setQuery={setQuery}
