@@ -97,13 +97,20 @@ describe('BrowserPool', () => {
         expect(pool.stats.activePages).toBe(0)
     })
 
-    it('fails launch() on a browser that is not chrome-headless-shell', async () => {
+    it('rejects launch() and closes the browser when it is not chrome-headless-shell', async () => {
         const browser = mockBrowser('/usr/bin/chromium')
         puppeteerCapture.launch.mockResolvedValue(browser)
 
         pool = new BrowserPool(100)
         await expect(pool.launch()).rejects.toThrow('/usr/bin/chromium')
         expect(browser.close).toHaveBeenCalled()
+
+        // The refused browser must not stay in the idle pool for getPage to hand out.
+        const good = mockBrowser()
+        good.newPage.mockResolvedValue(mockPage())
+        puppeteerCapture.launch.mockResolvedValue(good)
+        await pool.getPage()
+        expect(puppeteerCapture.launch).toHaveBeenCalledTimes(2)
     })
 
     it('closes the browser instead of orphaning it when newPage throws', async () => {
