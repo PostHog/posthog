@@ -1,0 +1,85 @@
+# Hand-written ownership on top of the generated table_owners.json. Later entries win.
+#
+# databases: a whole database (or every database on a server) belongs to one team.
+# tables:    glob on the table name. kind: owner (default) | hub | ignore.
+#            hub = a table joined from everywhere (teams, users, persons); it never decides
+#            the owner of a query on its own, so the driving table of the query wins.
+# rotations: team slug -> incident.io rotation, when it is not the slug minus "team-".
+# channels:  team slug -> Slack channel, when the owners.yaml registry is wrong or missing.
+
+databases:
+  - server: persons
+    team: team-ingestion
+  - datname: posthog_stamphog
+    team: team-self-driving
+  - datname: posthog_visual_review
+    team: team-self-driving
+  - datname: posthog_warehouse_sources_queue
+    team: team-warehouse-sources
+
+tables:
+  # Hubs: every product joins these.
+  - match: posthog_team
+    kind: hub
+  - match: posthog_project
+    kind: hub
+  - match: "posthog_organization*"
+    kind: hub
+  - match: posthog_user
+    kind: hub
+  - match: "posthog_person*"
+    kind: hub
+    team: team-ingestion
+  - match: "posthog_tag*"
+    kind: hub
+  - match: "django_*"
+    kind: hub
+  - match: "auth_*"
+    kind: hub
+  - match: "social_auth_*"
+    kind: hub
+  - match: "axes_*"
+    kind: hub
+  - match: "otp_*"
+    kind: hub
+  - match: "oauth2_provider_*"
+    kind: hub
+  # Tables created by Rust sqlx migrations, not Django.
+  - match: "personhog_*"
+    team: team-ingestion
+  - match: "lifecycle_op*"
+    team: team-ingestion
+  - match: person_pg_cleanup_queue
+    team: team-ingestion
+  - match: "cohort_membership*"
+    team: team-feature-flags
+  - match: "cyclotron_*"
+    team: team-workflows
+  - match: "flags_*"
+    team: team-feature-flags
+  # The stats DB itself, if it is ever monitored.
+  - match: "ts_*"
+    team: team-ingestion
+  - match: "cur_*"
+    team: team-ingestion
+  - match: query_findings
+    team: team-ingestion
+  # Core tables without an owners.yaml entry yet. Claim them in posthog/models/owners.yaml
+  # and drop the line here.
+  - match: posthog_asyncdeletion
+    team: team-ingestion
+
+rotations:
+  team-ai-observability: llm-analytics
+  team-self-driving: max-ai
+  team-error-tracking: error-tracking
+  team-platform-features: platform-features
+  team-web-analytics: product-analytics
+  team-analytics-platform: analytics-platform
+  team-data-modeling: data-modeling
+  team-warehouse-sources: data-modeling
+  conversations: max-ai
+  clickhouse: clickhouse
+  ai-research: ai-research
+
+channels: {}
