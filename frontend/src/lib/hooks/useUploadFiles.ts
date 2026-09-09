@@ -12,6 +12,19 @@ export const IMAGE_DECODE_ERROR_MESSAGE = "This image can't be read, try a diffe
 /** The browser cannot resize images at all, which says nothing about the image itself. */
 class UnsupportedImageResizeEnvironment extends Error {}
 
+/** The browser cannot decode the bytes, so the image itself is unusable. */
+class ImageDecodeError extends Error {}
+
+function compressionFailureName(error: unknown): string {
+    if (error instanceof ImageDecodeError) {
+        return 'Image decoding failed'
+    }
+    if (error instanceof UnsupportedImageResizeEnvironment) {
+        return 'Image compression unavailable'
+    }
+    return 'Image compression failed'
+}
+
 export const lazyImageBlobReducer = async (blob: Blob): Promise<Blob> => {
     let reducerError: unknown
     try {
@@ -24,18 +37,15 @@ export const lazyImageBlobReducer = async (blob: Blob): Promise<Blob> => {
     try {
         return await simpleImageResize(blob)
     } catch (error) {
-        const unsupportedEnvironment = error instanceof UnsupportedImageResizeEnvironment
-        posthog.captureException(
-            new Error(unsupportedEnvironment ? 'Image compression unavailable' : 'Image compression failed', {
-                cause: error,
-            }),
-            { image_blob_reduce_error: String(reducerError) }
-        )
-        if (unsupportedEnvironment) {
-            // The image may still be valid, so send the original bytes and let the server judge them.
-            return blob
+        posthog.captureException(new Error(compressionFailureName(error), { cause: error }), {
+            image_blob_reduce_error: String(reducerError),
+        })
+        if (error instanceof ImageDecodeError) {
+            throw new Error(IMAGE_DECODE_ERROR_MESSAGE)
         }
-        throw new Error(IMAGE_DECODE_ERROR_MESSAGE)
+        // Only the compression failed, so the image may still be valid. Send the original bytes
+        // and let the server judge them.
+        return blob
     }
 }
 
@@ -48,7 +58,12 @@ async function simpleImageResize(blob: Blob): Promise<Blob> {
         throw new UnsupportedImageResizeEnvironment('OffscreenCanvas APIs not available')
     }
 
-    const bitmap = await createImageBitmap(blob)
+    let bitmap: ImageBitmap
+    try {
+        bitmap = await createImageBitmap(blob)
+    } catch (error) {
+        throw new ImageDecodeError('Failed to decode the image', { cause: error })
+    }
 
     // Only resize if image is larger than 2000px or file is > 2MB
     if (bitmap.width <= 2000 && bitmap.height <= 2000 && blob.size <= 2 * 1024 * 1024) {
@@ -58,8 +73,9 @@ async function simpleImageResize(blob: Blob): Promise<Blob> {
 
     // Calculate new dimensions (max 2000px, maintain aspect ratio)
     const scale = Math.min(2000 / bitmap.width, 2000 / bitmap.height)
-    const newWidth = Math.floor(bitmap.width * scale)
-    const newHeight = Math.floor(bitmap.height * scale)
+    // A canvas side of zero holds no pixels, so a very thin image keeps one pixel on its short side.
+    const newWidth = Math.max(1, Math.floor(bitmap.width * scale))
+    const newHeight = Math.max(1, Math.floor(bitmap.height * scale))
 
     // Create OffscreenCanvas and resize
     const canvas = new OffscreenCanvas(newWidth, newHeight)

@@ -65,7 +65,28 @@ describe('useUploadFiles', () => {
     })
 
     describe('lazyImageBlobReducer', () => {
+        const canvasSizes: [number, number][] = []
+        const convertToBlobMock = jest.fn()
+
+        // Stands in for a browser that decodes the image and resizes it on an OffscreenCanvas.
+        const givenResizeEnvironment = (bitmap: { width: number; height: number }): void => {
+            Reflect.set(globalThis, 'createImageBitmap', jest.fn().mockResolvedValue({ ...bitmap, close: jest.fn() }))
+            Reflect.set(
+                globalThis,
+                'OffscreenCanvas',
+                class {
+                    constructor(width: number, height: number) {
+                        canvasSizes.push([width, height])
+                    }
+                    getContext = (): unknown => ({ drawImage: jest.fn() })
+                    convertToBlob = convertToBlobMock
+                }
+            )
+        }
+
         beforeEach(() => {
+            canvasSizes.length = 0
+            convertToBlobMock.mockReset()
             reduceToBlob.mockRejectedValue(new Error('canvas is unavailable'))
         })
 
@@ -91,6 +112,23 @@ describe('useUploadFiles', () => {
             const blob = new Blob(['image bytes'])
 
             await expect(lazyImageBlobReducer(blob)).resolves.toBe(blob)
+        })
+
+        it('keeps the original image when compression fails after the image decoded', async () => {
+            givenResizeEnvironment({ width: 1, height: 4001 })
+            convertToBlobMock.mockRejectedValue(new Error('The size of "OffscreenCanvas" is zero'))
+            const blob = new Blob(['image bytes'])
+
+            await expect(lazyImageBlobReducer(blob)).resolves.toBe(blob)
+        })
+
+        it('resizes a very thin image on a canvas at least one pixel wide', async () => {
+            givenResizeEnvironment({ width: 1, height: 4001 })
+            const resized = new Blob(['resized bytes'])
+            convertToBlobMock.mockResolvedValue(resized)
+
+            await expect(lazyImageBlobReducer(new Blob(['image bytes']))).resolves.toBe(resized)
+            expect(canvasSizes).toEqual([[1, 2000]])
         })
     })
 })
