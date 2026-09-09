@@ -27,6 +27,7 @@ from posthog.models.github_integration_base import (
     GITHUB_BRANCH_CACHE_TTL_SECONDS,
     GITHUB_REPOSITORY_CACHE_TTL_SECONDS,
     GitHubIntegrationBase,
+    PullRequestRef,
 )
 from posthog.models.integration import (
     GitHubInstallationAccessFetchError,
@@ -763,6 +764,63 @@ class TestGitHubIntegrationModel(BaseTest):
             result = github.comment_on_pull_request_from_url("https://github.com/PostHog/posthog/pull/42", "note")
         assert result["success"] is True
         assert mock_post.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/42/comments"
+
+    def test_add_pull_request_assignees_posts_to_issues_endpoint(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=201)
+        # GitHub returns the issue, and drops any login without push access without failing.
+        mock_response.json.return_value = {"assignees": [{"login": "alice"}]}
+        with patch.object(github, "_installation_authenticated_post", return_value=mock_response) as mock_post:
+            result = github.add_pull_request_assignees("PostHog/posthog", 123, ["alice", "outsider"])
+        assert result == {"success": True, "assignees": ["alice"]}
+        # Assignees go through the issues endpoint, not /pulls.
+        assert mock_post.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/assignees"
+        assert mock_post.call_args.kwargs["json_body"] == {"assignees": ["alice", "outsider"]}
+
+    @parameterized.expand(
+        [
+            ("empty", []),
+            ("all_blank", ["", None]),
+        ]
+    )
+    def test_add_pull_request_assignees_skips_github_when_nothing_to_assign(self, _name: str, assignees: list):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "_installation_authenticated_post") as mock_post:
+            result = github.add_pull_request_assignees("PostHog/posthog", 123, assignees)
+        assert result == {"success": True, "assignees": []}
+        mock_post.assert_not_called()
+
+    def test_add_pull_request_assignees_dedupes_and_caps_at_ten(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=201)
+        mock_response.json.return_value = {"assignees": []}
+        requested = ["alice", "alice", *[f"user{i}" for i in range(12)]]
+        with patch.object(github, "_installation_authenticated_post", return_value=mock_response) as mock_post:
+            github.add_pull_request_assignees("PostHog/posthog", 123, requested)
+        sent = mock_post.call_args.kwargs["json_body"]["assignees"]
+        assert sent == ["alice", *[f"user{i}" for i in range(9)]]
+
+    def test_add_pull_request_assignees_reports_a_github_error(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=422, text="Validation Failed")
+        with patch.object(github, "_installation_authenticated_post", return_value=mock_response):
+            result = github.add_pull_request_assignees("PostHog/posthog", 123, ["alice"])
+        assert result["success"] is False
+        assert result["status_code"] == 422
+
+    def test_add_pull_request_assignees_from_url_parses_and_posts(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=201)
+        mock_response.json.return_value = {"assignees": [{"login": "alice"}]}
+        with patch.object(github, "_installation_authenticated_post", return_value=mock_response) as mock_post:
+            result = github.add_pull_request_assignees_from_url("https://github.com/PostHog/posthog/pull/42", ["alice"])
+        assert result["success"] is True
+        assert mock_post.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/42/assignees"
 
     @parameterized.expand(
         [
@@ -2121,7 +2179,14 @@ class TestGitHubIntegrationGraphQL(BaseTest):
 BABYSIT_PR_URL = "https://github.com/acme/widgets/pull/7"
 
 
-def _babysit_thread(thread_id: str, *, is_resolved: bool = False, author: str = "reviewer", body: str = "fix this"):
+def _babysit_thread(
+    thread_id: str,
+    *,
+    is_resolved: bool = False,
+    author: str = "reviewer",
+    body: str = "fix this",
+    is_bot: bool = False,
+):
     return {
         "id": thread_id,
         "isResolved": is_resolved,
@@ -2132,7 +2197,7 @@ def _babysit_thread(thread_id: str, *, is_resolved: bool = False, author: str = 
                     "id": f"{thread_id}-C1",
                     "url": f"{BABYSIT_PR_URL}#discussion_{thread_id}",
                     "body": body,
-                    "author": {"login": author},
+                    "author": {"login": author, "__typename": "Bot" if is_bot else "User"},
                     "authorAssociation": "MEMBER",
                 }
             ]
@@ -2140,12 +2205,12 @@ def _babysit_thread(thread_id: str, *, is_resolved: bool = False, author: str = 
     }
 
 
-def _babysit_feedback(node_id: str, *, author: str = "reviewer", body: str = "please rename"):
+def _babysit_feedback(node_id: str, *, author: str = "reviewer", body: str = "please rename", is_bot: bool = False):
     return {
         "id": node_id,
         "url": f"{BABYSIT_PR_URL}#issuecomment-{node_id}",
         "body": body,
-        "author": {"login": author},
+        "author": {"login": author, "__typename": "Bot" if is_bot else "User"},
         "authorAssociation": "MEMBER",
     }
 
@@ -2197,6 +2262,34 @@ class TestGitHubIntegrationPullRequestBabysitSnapshot(BaseTest):
 
         assert [thread["id"] for thread in result["unresolved_threads"]] == ["T2"]
         assert [comment["id"] for comment in result["comments"]] == ["M3", "R2"]
+
+    def test_bot_comments_are_dropped_and_bot_reviews_are_kept(self):
+        """A merge-queue bot comments once per submission, each with a fresh id, so every one
+        wakes the loop. A review bot writes the feedback the loop exists to act on."""
+        payload = self._payload(
+            comments={
+                "nodes": [
+                    _babysit_feedback("M1", author="talyn-app", body="/trunk merge", is_bot=True),
+                    _babysit_feedback("M2", author="github-actions", body="CI report", is_bot=True),
+                    _babysit_feedback("M3"),
+                ]
+            },
+            reviews={"nodes": [_babysit_feedback("R1", author="review-hog", body="rename this", is_bot=True)]},
+        )
+
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value=payload):
+            result = self._github().get_pull_request_babysit_snapshot(BABYSIT_PR_URL)
+
+        assert [comment["id"] for comment in result["comments"]] == ["M3", "R1"]
+
+    def test_a_bot_review_thread_is_kept(self):
+        """An unresolved inline thread is work somebody waits on, whoever opened it."""
+        payload = self._payload(reviewThreads={"nodes": [_babysit_thread("T1", author="review-hog", is_bot=True)]})
+
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value=payload):
+            result = self._github().get_pull_request_babysit_snapshot(BABYSIT_PR_URL)
+
+        assert [thread["id"] for thread in result["unresolved_threads"]] == ["T1"]
 
     @parameterized.expand(
         [
@@ -2290,3 +2383,52 @@ class TestGitHubIntegrationPullRequestBabysitSnapshot(BaseTest):
             result = self._github().get_pull_request_babysit_snapshot(BABYSIT_PR_URL)
 
         assert result["success"] is False
+
+
+class TestGitHubIntegrationPullRequestCiStatuses(BaseTest):
+    def _github(self) -> GitHubIntegration:
+        return GitHubIntegration(_create_github_integration(self.team))
+
+    @staticmethod
+    def _rollup(state: str | None) -> dict:
+        return {"pullRequest": {"commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": state}}}]}}}
+
+    def test_one_call_resolves_every_pull_request_against_its_own_reference(self):
+        # The whole point of the batch: a list of PRs costs one GraphQL call, and each rollup lands on
+        # the reference it was asked about. A mismatch here paints CI onto the wrong report.
+        references = [
+            PullRequestRef(owner="acme", repo="widgets", number=7),
+            PullRequestRef(owner="acme", repo="widgets", number=8),
+            PullRequestRef(owner="other", repo="thing", number=3),
+        ]
+        payload = {"pr0": self._rollup("SUCCESS"), "pr1": self._rollup("FAILURE"), "pr2": self._rollup(None)}
+
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value=payload) as mock_graphql:
+            statuses = self._github().get_pull_request_ci_statuses(references)
+
+        mock_graphql.assert_called_once()
+        assert statuses == {references[0]: "passing", references[1]: "failing", references[2]: "none"}
+        variables = mock_graphql.call_args.args[1]
+        assert variables["owner2"] == "other" and variables["repo2"] == "thing" and variables["number2"] == 3
+
+    def test_pull_requests_github_did_not_answer_for_are_left_out(self):
+        # GitHub returns partial data when an alias hits a permission error, so an unreadable PR must
+        # not take the readable ones down with it.
+        readable = PullRequestRef(owner="acme", repo="widgets", number=7)
+        unreadable = PullRequestRef(owner="private", repo="repo", number=1)
+
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value={"pr0": self._rollup("PENDING"), "pr1": None}):
+            statuses = self._github().get_pull_request_ci_statuses([readable, unreadable])
+
+        assert statuses == {readable: "pending"}
+
+    def test_more_pull_requests_than_one_batch_holds_are_split_across_calls(self):
+        # Without chunking a big inbox would build one query past GitHub's node limit and get nothing.
+        batch_size = GitHubIntegration.PR_CI_STATUS_BATCH_SIZE
+        references = [PullRequestRef(owner="acme", repo="widgets", number=n) for n in range(batch_size + 1)]
+
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value={}) as mock_graphql:
+            self._github().get_pull_request_ci_statuses(references)
+
+        assert mock_graphql.call_count == 2
+        assert len(mock_graphql.call_args_list[1].args[1]) == 3  # owner/repo/number of the one leftover

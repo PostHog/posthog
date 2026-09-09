@@ -35,6 +35,7 @@ import {
 import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
 import { ScoutTagsEditor } from './ScoutTagsEditor'
+import { ScoutWriteAccessSection } from './ScoutWriteAccessSection'
 
 interface ScoutConfigControlsProps {
     config: SignalScoutConfig
@@ -313,6 +314,7 @@ export function ScoutConfigForm({
                 // settable BEFORE the enable or the first run races out with the wrong toolset.
                 disabledReason={updating ? 'Saving scout settings' : undefined}
             />
+            <ScoutWriteAccessSection config={config} onUpdate={onUpdate} updating={updating} />
             {/* Only custom scouts are deletable. A canonical scout would be re-seeded from disk after
                 deletion (and couldn't be re-added from the UI), so its terminal action stays disable. */}
             {onDelete && config.scout_origin === 'custom' ? (

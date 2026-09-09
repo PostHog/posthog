@@ -27,6 +27,20 @@ No sync problems, no "baseline service went down", no mystery diffs from someone
 
 **Supersession** — when a new run is created for the same (repo, branch, run_type), older runs get a `superseded_by` pointer. This prevents approving stale runs without GitHub API polling — the DB knows what's current.
 
+### Retention
+
+A daily Celery task, `sweep visual review retention`, deletes data that can no longer be used.
+The windows and the reasons behind them are constants in `backend/logic/retention.py`.
+
+- Superseded runs on PR branches go after 30 days, on the default branch after 180 days.
+  A run without a PR number counts as default-branch history, because we do not record a repo's real default branch.
+- A PR branch with no run in 90 days loses its latest runs too, except the repo's newest completed full run per run type, which is the last row naming the committed baseline hashes.
+- Artifacts go by reference, never by age: content addressing means one upload backs every later run with the same pixels.
+  An artifact goes when no snapshot of the repo points at it or names its hash, no artifact uses it as a thumbnail, and it is over 7 days old.
+- Rows go before objects, and run registration and the delete share a per-repo lock, so a run is never told an artifact exists that the sweep then removes.
+  An artifact row is what makes the CLI skip an upload, so a row without its object is the one state to avoid; a leaked object only costs storage.
+- Each invocation is capped by rows and by a time budget, so a backlog drains over days.
+
 ## The flow
 
 ### Single-command flow (`vr submit`)
@@ -50,7 +64,7 @@ Backend completes the run
   - tolerated hash cache: skip diffing for known sub-threshold pairs
   - detect removals: baseline identifiers missing from RunSnapshot rows
   - verify uploads, create artifact records, link to snapshots
-  - two-tier diff (Celery): pixel diff → SSIM for tall-page dilution
+  - diff (Celery): row alignment absorbs small vertical shifts, then pixel diff → SSIM for tall-page dilution
   - post GitHub Check (pass/fail)
        │
        ▼
@@ -128,9 +142,15 @@ Add `--tolerate-drift` to report the drift and still exit 0. Use it on the defau
 
 Working end to end: CI upload → async diff → GitHub Check → web review → approve → baseline commit → clean re-run. Multi-repo per team, snapshot change history across runs, run supersession, GitHub commit status checks on transitions.
 
-**Tolerated hashes** — when the two-tier diff classifies a snapshot as below-threshold noise, it caches the `(identifier, baseline_hash, alternate_hash)` tuple.
+**Tolerated hashes** — when the diff classifies a snapshot as below-threshold noise, it caches the `(identifier, baseline_hash, alternate_hash)` tuple.
 Future runs skip diffing entirely for cached pairs.
 Developers can also manually tolerate a snapshot from the UI.
+
+**Row alignment** — a panel that grows by a pixel moves everything below it down, which a top-aligned pixel diff reads as a page-wide change.
+Before thresholding, the diff pairs the rows that exist in both images, so the classifier sees only what actually changed.
+A shift of one or two rows with nothing else changed is absorbed as noise, and the snapshot keeps the shift in `diff_metadata.row_shift` plus a diff image that shows the moved row, so the run leaves a trace instead of disappearing.
+A taller shift is `change_kind=layout`, which still needs review.
+The cap is measured against the committed baseline on every run, so absorbed shifts cannot accumulate into a page that quietly moved.
 
 **Quarantine** — known-flaky identifiers can be quarantined per repo and run type.
 Quarantined snapshots are still captured and diffed but excluded from gating.
@@ -181,6 +201,5 @@ Variants recorded against a superseded baseline can never match again.
 **Not yet built:**
 
 - Auto-release of a quarantine whose snapshot has gone clean (the flakiness tab flags it, a human still decides)
-- Retention / cleanup of old runs and artifacts
 - Server-side thumbnailing for the snapshot strip
 - Webhook-driven run creation (currently CLI-initiated only)

@@ -107,6 +107,7 @@ impl HarnessClient {
     ) -> Result<UpdatePersonPropertiesResponse> {
         self.inner
             .update_person_properties(UpdatePersonPropertiesRequest {
+                force_update: true,
                 team_id,
                 person_id,
                 event_name: "$set".to_string(),
@@ -159,7 +160,9 @@ impl IdentityClient {
 
     /// Merge `source_distinct_ids` into the person that
     /// `target_distinct_id` resolves to. A retry with the same op id
-    /// returns the recorded outcome and does not merge again.
+    /// returns the recorded outcome and does not merge again. The
+    /// creator must stay stable across those retries, so the caller
+    /// mints it once per merge alongside the op id.
     #[allow(clippy::too_many_arguments)]
     pub async fn merge_persons(
         &self,
@@ -169,6 +172,7 @@ impl IdentityClient {
         event_set: serde_json::Value,
         event_set_once: serde_json::Value,
         op_id: &uuid::Uuid,
+        creator_event_uuid: &uuid::Uuid,
         allow_identified_sources: bool,
         move_limit: i64,
     ) -> Result<MergePersonsResponse> {
@@ -191,6 +195,7 @@ impl IdentityClient {
                 allow_identified_sources,
                 move_limit: Some(move_limit),
                 created_at: 0,
+                creator_event_uuid: creator_event_uuid.to_string(),
             }))
             .await
             .context("MergePersons failed")?;

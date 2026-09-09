@@ -1,3 +1,4 @@
+import { TIMESTAMP_REF_PREFIX } from 'lib/lemon-ui/LemonMarkdown'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 
 // `uuid` is legacy (only old event-uuid citations carry it). Timestamp citations use `timestamp_ms` alone.
@@ -54,6 +55,30 @@ export function parseCitedSegments(text: string, segments: unknown): Segment[] {
         return splitLeakedCitations(text)
     }
     return persisted.flatMap((segment) => (segment.kind === 'text' ? splitLeakedCitations(segment.value) : [segment]))
+}
+
+/**
+ * Markdown source for a cited field, each chip written back as a `t:<ms>` target. One string rather than
+ * a segment list, or a bullet spanning a citation parses as two documents. The renderer sanitizes.
+ */
+export function citedMarkdown(text: string, segments: unknown): string {
+    const list = parseCitedSegments(text, segments)
+    if (list.length === 0) {
+        return text
+    }
+    let out = ''
+    for (const segment of list) {
+        if (segment.kind === 'text') {
+            out += segment.value
+            continue
+        }
+        // Glued to the preceding word, except after a `!`, where that would make the pair an image.
+        // Whole non-negative digits only: LemonMarkdown reads nothing else, and would leave a dead label.
+        const timestampMs = Math.max(0, Math.round(segment.timestamp_ms))
+        const label = colonDelimitedDuration(Math.floor(timestampMs / 1000), null)
+        out += `${out.endsWith('!') ? ' ' : ''}[${label}](${TIMESTAMP_REF_PREFIX}${timestampMs})`
+    }
+    return out
 }
 
 /** Plain-text rendering of a cited field for the clipboard: citation chips become readable `(mm:ss)` timestamps. */

@@ -17,6 +17,7 @@ import { RecordingUniversalFilters } from '~/types'
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
 import { parseExecCall, parseExecCommand } from '../posthogExecDisplay'
+import { getAllText } from '../toolContentUtils'
 
 /**
  * Shared shape extractors for the sandbox MCP tool renderer widgets. Each turns a flattened
@@ -49,21 +50,38 @@ function parseToonRecord(text: string): Record<string, unknown> | null {
     }
 }
 
+function unwrapToolOutput(rawOutput: unknown): unknown {
+    const envelope = asRecord(rawOutput)
+    if (envelope?.isError === true) {
+        return null
+    }
+    const structuredContent = asRecord(envelope?.structuredContent)
+    if (structuredContent) {
+        return structuredContent
+    }
+    // Entity payloads can also have a content array, so only unwrap the MCP envelope's top-level shape.
+    if (
+        !envelope ||
+        !Object.keys(envelope).every((key) => ['content', 'structuredContent', 'isError', '_meta'].includes(key))
+    ) {
+        return rawOutput
+    }
+    return Array.isArray(envelope.content) ? getAllText(envelope.content).join('\n') : rawOutput
+}
+
 /**
- * Best-effort record from a tool call's `rawOutput`. Objects pass through; strings are parsed per the
- * exec `call` output contract: `--json` means the server responded with `JSON.stringify`, otherwise
- * TOON (`services/mcp/src/lib/response.ts`). The off-order format is still tried as a fallback, and
- * anything unparseable (or empty) resolves to null so the widget falls back to the generic card.
+ * Prefer structured content because the text can be an optimized summary without the entity fields.
  */
 export function parseToolOutputRecord(message: ToolCallMessage): Record<string, unknown> | null {
-    const direct = asRecord(message.rawOutput)
+    const rawOutput = unwrapToolOutput(message.rawOutput)
+    const direct = asRecord(rawOutput)
     if (direct) {
         return direct
     }
-    if (typeof message.rawOutput !== 'string') {
+    if (typeof rawOutput !== 'string') {
         return null
     }
-    const text = message.rawOutput.trim()
+    const text = rawOutput.trim()
     if (!text) {
         return null
     }

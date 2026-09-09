@@ -2,6 +2,7 @@ import type { UserBasicType } from '~/types'
 
 import {
     type ReportChartApi,
+    type SignalReportAssignmentPrStateEnumApi,
     type SignalReportRefundApi,
     type SignalReportStateRequestApi,
     type SignalScoutRunSummaryApi,
@@ -95,6 +96,8 @@ export interface SignalReport {
     /** Whether that implementation PR is merged, per the GitHub webhook. Status doesn't imply it: a
      * resolved report may have been resolved directly, without a merged PR. */
     implementation_pr_merged?: boolean
+    /** Latest known state of that PR: unknown, draft, open, closed, or merged. */
+    implementation_pr_state?: SignalReportAssignmentPrStateEnumApi | null
     /** Reason code from the latest dismissal artefact (when archived). See dismissalReasons. */
     dismissal_reason?: string | null
     /** Free-form note from the latest dismissal artefact (when archived). */
@@ -368,6 +371,7 @@ export interface SignalUserAutonomyConfig {
     slack_notification_integration_id?: number | null
     slack_notification_channel?: string | null
     slack_notification_min_priority?: SignalReportPriority | null
+    github_assign_on_pull_request?: boolean
     created_at?: string
     updated_at?: string
 }
