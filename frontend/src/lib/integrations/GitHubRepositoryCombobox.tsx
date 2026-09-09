@@ -12,6 +12,8 @@ import {
     ComboboxTrigger,
 } from '@posthog/quill'
 
+import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
+
 import { ComboboxLoadMoreFooter, ComboboxSearchField } from './ComboboxSearchChrome'
 import { githubRepositorySearchLogic } from './githubRepositorySearchLogic'
 
@@ -24,6 +26,8 @@ export interface GitHubRepositoryComboboxProps {
     placeholder?: string
     /** When true, prepends a "— No repository —" item so users can explicitly clear the selection. */
     showNoneOption?: boolean
+    repositoryFilter?: (repository: GitHubRepoApi) => boolean
+    fullWidth?: boolean
 }
 
 /**
@@ -41,38 +45,22 @@ export function GitHubRepositoryCombobox({
     disabled = false,
     placeholder = 'Select repository...',
     showNoneOption = false,
+    repositoryFilter,
+    fullWidth = false,
 }: GitHubRepositoryComboboxProps): JSX.Element {
     const logic = githubRepositorySearchLogic({ id: integrationId })
-    const { repositoryNames, loading, hasMore, searchQuery, error } = useValues(logic)
+    const { repositories, loading, hasMore, searchQuery, error } = useValues(logic)
+    const repositoryNames = (repositoryFilter ? repositories.filter(repositoryFilter) : repositories).map(
+        (repo) => repo.full_name
+    )
     const { setSearchQuery, loadMore, refresh } = useActions(logic)
 
     const triggerRef = useRef<HTMLButtonElement>(null)
     const [open, setOpen] = useState(false)
 
     const trimmedSearchQuery = searchQuery.trim()
-    // While the popover is open we surface loading inline in the list; closed-and-loading shows a disabled
-    // button so the trigger never flickers an empty selection.
+    // Keep the selected target visible while searching, loading, or refreshing.
     const showInlineLoadingState = open && loading
-    // Distinguish "this account genuinely has no repos" from "the search/refresh just hasn't returned yet".
-    const hasActiveSearchContext = open || trimmedSearchQuery.length > 0
-
-    if (loading && !showInlineLoadingState && repositoryNames.length === 0) {
-        return (
-            <Button variant="outline" size="sm" disabled>
-                <IconGithub className="shrink-0" />
-                Loading repos...
-            </Button>
-        )
-    }
-
-    if (repositoryNames.length === 0 && !showInlineLoadingState && !hasActiveSearchContext && !error) {
-        return (
-            <Button variant="outline" size="sm" disabled>
-                <IconGithub className="shrink-0" />
-                No GitHub repos
-            </Button>
-        )
-    }
 
     const items = showNoneOption ? [NONE_SENTINEL, ...repositoryNames] : repositoryNames
 
@@ -99,7 +87,14 @@ export function GitHubRepositoryCombobox({
         >
             <ComboboxTrigger
                 render={
-                    <Button ref={triggerRef} variant="outline" size="sm" disabled={disabled} aria-label="Repository">
+                    <Button
+                        ref={triggerRef}
+                        variant="outline"
+                        size="sm"
+                        disabled={disabled}
+                        aria-label="Repository"
+                        className={fullWidth ? 'min-h-10 w-full justify-start' : undefined}
+                    >
                         <IconGithub className="shrink-0" />
                         <span className="min-w-0 truncate">{value || placeholder}</span>
                     </Button>
@@ -123,7 +118,7 @@ export function GitHubRepositoryCombobox({
                             </ComboboxItem>
                         ) : (
                             <ComboboxItem key={repo} value={repo}>
-                                {repo}
+                                <span className="min-w-0 break-all">{repo}</span>
                             </ComboboxItem>
                         )
                     }
