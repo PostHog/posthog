@@ -1262,6 +1262,12 @@ class TestAzureBlobIntegration:
             # Attacker-controlled DefaultEndpointsProtocol is interpolated raw into the derived
             # endpoint by the SDK, so the derived URL must be validated, not assumed https.
             "DefaultEndpointsProtocol=http://169.254.169.254/latest/meta-data?x=;AccountName=a;AccountKey=YQ==;EndpointSuffix=core.windows.net",
+            "DefaultEndpointsProtocol=http;AccountName=a;AccountKey=YQ==",
+            "AccountName=a;AccountKey=YQ==;BlobEndpoint=http://example.com",
+            # The SDK parses keys without stripping whitespace, so a padded key is ignored by
+            # the SDK while a stripping validator would see a safe endpoint and skip the
+            # attacker-controlled derived one.
+            "AccountName=a;AccountKey=YQ==; BlobEndpoint=https://example.com;EndpointSuffix=169.254.169.254",
         ],
     )
     @override_settings(FORCE_URL_VALIDATION=True)

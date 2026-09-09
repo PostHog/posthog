@@ -1,7 +1,7 @@
 """Azure Blob Storage integration."""
 
 from posthog.models.user import User
-from posthog.security.url_validation import is_url_allowed
+from posthog.security.url_validation import _dev_bypass_enabled, is_url_allowed
 
 from . import model
 
@@ -90,28 +90,33 @@ def validate_azure_blob_connection_string(connection_string: str) -> None:
     Extract its parts, evaluate all required settings are included, and check
     that values are supported.
     """
+    # Parse exactly as the SDK's parse_connection_str does: no stripping, keys uppercased,
+    # later duplicates win. Stricter than the SDK on whitespace-padded keys, which the SDK
+    # would silently ignore — a validation/SDK key mismatch is an SSRF bypass.
     settings: dict[str, str] = {}
-    for part in connection_string.split(";"):
-        part = part.strip()
-        if not part:
-            # The SDK accepts a trailing semicolon.
-            continue
-
+    for part in connection_string.rstrip(";").split(";"):
         try:
             key, value = part.split("=", maxsplit=1)
-        except Exception:
+        except ValueError:
             raise ValueError("Malformed connection string")
+        if key != key.strip():
+            raise ValueError("Malformed connection string")
+        settings[key.upper()] = value
 
-        settings[key.lower()] = value
-
-    if settings.get("usedevelopmentstorage", "").lower() == "true":
+    if settings.get("USEDEVELOPMENTSTORAGE", "").lower() == "true":
         raise ValueError("Emulator account not supported")
 
-    protocol = settings.get("defaultendpointsprotocol", "https").lower()
+    # HTTPS is required so TLS certificate verification at connect time closes the DNS
+    # rebinding window between validation and the SDK's own resolution. Local emulators
+    # (Azurite) use HTTP, so the requirement lifts with the dev bypass.
+    validation_applies = not _dev_bypass_enabled()
+    protocol = settings.get("DEFAULTENDPOINTSPROTOCOL", "https").lower()
     if protocol not in ("http", "https"):
         raise ValueError("'DefaultEndpointsProtocol' must be 'http' or 'https'")
+    if validation_applies and protocol != "https":
+        raise ValueError("'DefaultEndpointsProtocol' must be 'https'")
 
-    account_name = settings.get("accountname")
+    account_name = settings.get("ACCOUNTNAME")
     if not account_name:
         raise ValueError(
             "Could not extract AccountName from connection string. "
@@ -124,16 +129,18 @@ def validate_azure_blob_connection_string(connection_string: str) -> None:
     # For azure blob, we only care about BlobEndpoint.
     # But the docs also mention all these other ones, so we check all of
     # them if present.
-    for key in ("blobendpoint", "blobsecondaryendpoint", "fileendpoint", "tableendpoint", "queueendpoint"):
+    for key in ("BLOBENDPOINT", "BLOBSECONDARYENDPOINT", "FILEENDPOINT", "TABLEENDPOINT", "QUEUEENDPOINT"):
         if key in settings:
             explicit_endpoints.append(settings[key])
 
-    if "blobendpoint" not in settings:
-        suffix = settings.get("endpointsuffix") or "core.windows.net"
+    if "BLOBENDPOINT" not in settings:
+        suffix = settings.get("ENDPOINTSUFFIX") or "core.windows.net"
         derived_endpoints.append(f"{protocol}://{account_name}.blob.{suffix}")
         derived_endpoints.append(f"https://{account_name}-secondary.blob.{suffix}")
 
     for endpoint in explicit_endpoints + derived_endpoints:
+        if validation_applies and not endpoint.lower().startswith("https://"):
+            raise ValueError("Endpoints in the connection string must use https")
         allowed, error = is_url_allowed(endpoint)
         if not allowed:
             raise ValueError(f"Invalid endpoint found in connection string: {error}")
