@@ -5,7 +5,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { logsAttributesRetrieve, logsFacetValuesCreate } from 'products/logs/frontend/generated/api'
+import {
+    logsAttributesRetrieve,
+    logsFacetSearchCreate,
+    logsFacetValuesCreate,
+} from 'products/logs/frontend/generated/api'
 import { userFacetSettingsRetrieve } from 'products/platform_features/frontend/generated/api'
 
 import { logsViewerFiltersLogic } from '../Filters/logsViewerFiltersLogic'
@@ -18,6 +22,7 @@ import { facetValuesLogic } from './facetValuesLogic'
 jest.mock('products/logs/frontend/generated/api', () => ({
     __esModule: true,
     logsFacetValuesCreate: jest.fn(),
+    logsFacetSearchCreate: jest.fn(),
     logsAttributesRetrieve: jest.fn(),
 }))
 
@@ -28,6 +33,7 @@ jest.mock('products/platform_features/frontend/generated/api', () => ({
 }))
 
 const mockEndpoint = logsFacetValuesCreate as jest.MockedFunction<typeof logsFacetValuesCreate>
+const mockSearch = logsFacetSearchCreate as jest.MockedFunction<typeof logsFacetSearchCreate>
 const mockAttributes = logsAttributesRetrieve as jest.MockedFunction<typeof logsAttributesRetrieve>
 
 const EMPTY_RESULTS = { facetField: [], facetResourceAttributes: [], facetAttributes: [] }
@@ -89,6 +95,9 @@ describe('facetValuesLogic', () => {
             results: [{ name: NAMESPACE_KEY, propertyFilterType: 'log_resource_attribute', matchedOn: 'key' }],
             count: 1,
         } as any)
+        mockSearch.mockImplementation(async (_projectId, body: any) => ({
+            results: [{ value: `match:${body.query.facetSearch}`, count: 3 }],
+        }))
         mockEndpoint.mockImplementation(async (_projectId, body: any) => {
             const q = body.query
             if (isBatchCall([_projectId, body])) {
@@ -202,12 +211,11 @@ describe('facetValuesLogic', () => {
         const namespace = mountFacet(NAMESPACE)
         await expectLogic(batchLogic).toDispatchActions(['loadBatchSuccess'])
         mockEndpoint.mockClear()
-        mockEndpoint.mockClear()
 
         namespace.actions.setFacetSearch('arg')
         await expectLogic(namespace).toDispatchActions(['loadFacetValuesSuccess'])
         expect(namespace.values.isBatched).toBe(false)
-        expect(singleCalls()).toContainEqual([
+        expect(mockSearch.mock.calls).toContainEqual([
             expect.any(String),
             expect.objectContaining({
                 query: expect.objectContaining({ facetResourceAttribute: NAMESPACE_KEY, facetSearch: 'arg' }),
@@ -215,12 +223,14 @@ describe('facetValuesLogic', () => {
         ])
 
         mockEndpoint.mockClear()
+        mockSearch.mockClear()
         namespace.actions.setFacetSearch('')
         await expectLogic(namespace).toNotHaveDispatchedActions(['loadFacetValues'])
         expect(namespace.values.isBatched).toBe(true)
         expect(namespace.values.displayedValues).toEqual([{ value: 'argo', count: 4 }])
         expect(singleCalls()).toHaveLength(0)
         expect(batchCalls()).toHaveLength(0)
+        expect(mockSearch).not.toHaveBeenCalled()
     })
 
     // A search with no matches must show "no values", not fall back to the batch's unfiltered list.
@@ -229,7 +239,7 @@ describe('facetValuesLogic', () => {
         const namespace = mountFacet(NAMESPACE)
         await expectLogic(batchLogic).toDispatchActions(['loadBatchSuccess'])
 
-        mockEndpoint.mockResolvedValue({ results: EMPTY_RESULTS })
+        mockSearch.mockResolvedValue({ results: [] })
         namespace.actions.setFacetSearch('no-such-value')
         await expectLogic(namespace).toDispatchActions(['loadFacetValuesSuccess'])
 
@@ -308,13 +318,7 @@ describe('facetValuesLogic', () => {
         const namespace = mountFacet(NAMESPACE)
         await expectLogic(batchLogic).toDispatchActions(['loadBatchSuccess'])
 
-        const ok2 = mockEndpoint.getMockImplementation()!
-        mockEndpoint.mockImplementation(async (projectId, body: any) => {
-            if (!isBatchCall([projectId, body])) {
-                throw new Error('boom')
-            }
-            return ok2(projectId, body)
-        })
+        mockSearch.mockRejectedValue(new Error('boom'))
         namespace.actions.setFacetSearch('arg')
         await expectLogic(namespace).toDispatchActions(['loadFacetValuesFailure'])
 
@@ -348,8 +352,9 @@ describe('facetValuesLogic', () => {
         logic.actions.setFacetSearch('kaf')
         await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
 
-        expect(singleCalls()).toHaveLength(1)
-        expect(singleCalls()).toContainEqual([
+        expect(singleCalls()).toHaveLength(0)
+        expect(mockSearch).toHaveBeenCalledTimes(1)
+        expect(mockSearch.mock.calls).toContainEqual([
             expect.any(String),
             expect.objectContaining({
                 query: expect.objectContaining({ facetField: 'service_name', facetSearch: 'kaf' }),
@@ -365,12 +370,12 @@ describe('facetValuesLogic', () => {
         ['a resource-attribute facet', NAMESPACE, { facetResourceAttribute: NAMESPACE_KEY }],
         ['a custom plain-attribute facet', IOSTREAM, { facetAttribute: 'log.iostream' }],
     ])('%s requests the matching facet* body field', async (_, facet, expectedFields) => {
-        // A search takes any facet off the batch, which is what puts every source type through the
-        // single-facet path where the body field is chosen.
+        // Asserted against the search endpoint because a search is the one thing that takes any
+        // source type off the batch, and it names its target with the same three fields.
         const logic = mountFacet(facet)
         logic.actions.setFacetSearch('any')
         await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
-        expect(singleCalls()).toContainEqual([
+        expect(mockSearch.mock.calls).toContainEqual([
             expect.any(String),
             expect.objectContaining({ query: expect.objectContaining(expectedFields) }),
         ])
