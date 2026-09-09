@@ -4,8 +4,9 @@ description: >
   Explains PostHog billing usage and spend from the customer's visible Billing
   MCP tools. Use when the user asks why usage or spend is high, which product or
   project is driving usage, what a usage type means, how to reduce usage, what
-  changed over time, why they got a usage change alert, or whether a spike/drop
-  alert was real or noisy. Also use before product-specific analytics skills when
+  changed over time, why they got a usage change alert, whether a spike/drop
+  alert was real or noisy, or whether events from a historic import or backfill
+  count toward their quota. Also use before product-specific analytics skills when
   the user names a billable PostHog product metric such as events, recordings,
   feature flag requests, exceptions, survey responses, synced rows, logs, AI
   events, AI credits, or Inbox credits. Starts from Billing usage/spend tools,
@@ -243,3 +244,30 @@ root cause, say that. If an alert is mathematically valid but likely caused by a
 weekend pattern, holiday, campaign, batch job, or other expected cycle, say that. If the
 dashboard data does not support the alert, say that too and suggest checking the exact
 email date, product filter, or longer history window.
+
+## Historic imports and backfills
+
+Customers who migrate in from another tool often ask whether the imported volume counts
+against their event quota. It does. Answer this directly, because the docs phrase
+"historic imports are free" is about the feature, not the volume, and the separate
+historical ingestion pipeline is about routing and rate limits, not billing.
+
+What to tell them:
+
+- Imported events are billable. `get_teams_with_billable_event_count_in_period` in
+  `posthog/tasks/usage_report.py` filters only on the event timestamp window and the
+  excluded event names above. It does not filter on `historical_migration`, so an
+  imported event counts exactly like a live one.
+- Volume is attributed by event timestamp, not by import date. An event backfilled with
+  a timestamp from March lands in March's usage, however long after that the import ran.
+- The daily usage report covers the previous day only. Events backfilled into a period
+  that was already reported are normally never counted at all, so imported volume can be
+  lower than the customer's own export suggests.
+
+The `historical_migration` flag is not exposed in HogQL, so neither you nor the customer
+can filter events by it. To size an import, query the event timestamp range the customer
+imported and compare it with their source export.
+
+Do not tell a customer that a paid plan waives imported volume. Route pricing questions
+about whether historic volume should be exempt to the billing team instead of answering
+them from this skill.
