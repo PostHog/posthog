@@ -267,6 +267,7 @@ export type NewSessionMeta = {
    * emits always (consumers gate playback), local stays silent.
    */
   spokenNarration?: boolean;
+  sketchpadId?: string;
   /**
    * Matched `bedrock-llm-gateway` variant at session start. `test` serves the
    * session from Bedrock through the gateway. Only the desktop resolves this,

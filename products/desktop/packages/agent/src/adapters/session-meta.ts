@@ -38,6 +38,17 @@ export function resolveSpokenNarration(
   return meta?.spokenNarration === true;
 }
 
+interface SketchpadIdSource {
+  sketchpadId?: string;
+}
+
+export function resolveSketchpadId(
+  meta: SketchpadIdSource | undefined,
+): string | undefined {
+  const value = meta?.sketchpadId;
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
 /** Minimal shape needed to resolve the Bedrock gateway variant from meta. */
 interface BedrockGatewayVariantSource {
   bedrockGatewayVariant?: BedrockGatewayVariant;
