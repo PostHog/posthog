@@ -23,6 +23,22 @@ describe('buildAlertSummary', () => {
         expect(buildAlertSummary(targetAlert(target), 0).fires).toEqual(expected)
     })
 
+    // The server fires an upcoming-breach alert on the latest completed value before it forecasts,
+    // so a review step that named only the forecast would leave out a rule the alert runs.
+    it('names both firing rules of an upcoming breach alert', () => {
+        const breachAlert = {
+            forecast_config: {
+                type: 'ForecastConfig',
+                engine: ForecastEngineType.PROPHET,
+                condition: ForecastConditionType.FUTURE_BREACH,
+                horizon: 7,
+            },
+        } as AlertFormType
+        expect(buildAlertSummary(breachAlert, 0).fires).toEqual(
+            'the latest value or the point forecast crosses your threshold'
+        )
+    })
+
     // The server accepts ISO week dates, which dayjs reads as an invalid date.
     it('shows a stored date it cannot read instead of the words Invalid Date', () => {
         expect(buildAlertSummary(targetAlert(1500, '2026-W40-1'), 0).fires).toEqual(

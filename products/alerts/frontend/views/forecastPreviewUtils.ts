@@ -42,12 +42,18 @@ export function findObservedBreach(
     return valueBreachesBounds(value, bounds) ? { index, value } : null
 }
 
-/** Names the bucket the backend evaluated. History and forecast dates are bucket timestamps in
- *  project-local wall time with no zone attached, so formatting them as parsed keeps the bucket
- *  intact. An hourly insight puts up to 24 buckets on one calendar day, so the label has to keep
- *  the hour to say which bucket the value belongs to. */
+/** An hourly forecast label arrives with the project's offset attached, because the engine
+ *  converts each hourly bucket back to the project timezone before serializing it
+ *  (`ProphetEngine.forecast` in products/alerts/backend/forecasting/prophet_engine.py). Every other
+ *  bucket timestamp, history included, is a project-local wall time with no zone. Dropping the zone
+ *  designator reads the wall time in both forms, so the label names the bucket the backend
+ *  evaluated whatever timezone the reader's browser is in. */
+const ZONE_SUFFIX = /(?:Z|[+-]\d{2}:\d{2})$/
+
+/** Names the bucket the backend evaluated. An hourly insight puts up to 24 buckets on one calendar
+ *  day, so the label has to keep the hour to say which bucket the value belongs to. */
 export function bucketLabel(value: string, interval: string | null | undefined): string {
-    const parsed = dayjs(value)
+    const parsed = dayjs(value.replace(ZONE_SUFFIX, ''))
     if (!parsed.isValid()) {
         return value
     }
