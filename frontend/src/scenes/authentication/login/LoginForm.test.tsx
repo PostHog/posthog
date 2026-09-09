@@ -18,7 +18,7 @@ const CLOUD_PREFLIGHT = {
     realm: 'cloud',
     available_social_auth_providers: { ...preflightJson.available_social_auth_providers, 'google-oauth2': true },
 }
-const PROVIDER_HINT = /This account can also sign in with Google\./
+const PROVIDER_HINT = /This account can also sign in with Google\. Use the Google button below\./
 const REGION_HINT = /It may live in our EU region/
 
 async function submitAWrongPassword(): Promise<void> {

@@ -54,7 +54,8 @@ function linkedProviderHint(providers: SSOProvider[]): string {
     const names = new Intl.ListFormat('en', { type: 'disjunction' }).format(
         providers.map((provider) => SSO_PROVIDER_NAMES[provider])
     )
-    const action = providers.length > 1 ? 'Use one of the buttons below.' : 'Use the button below.'
+    // The button row is not limited to this account's providers, so name the button that works.
+    const action = providers.length > 1 ? 'Use one of the buttons below.' : `Use the ${names} button below.`
     return `This account can also sign in with ${names}. ${action}`
 }
 
