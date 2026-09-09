@@ -146,6 +146,7 @@ import { createRtkSavingsNotification } from "./rtk-savings";
 import { RunUsageAccumulator, reportRunUsage, seedRunUsage } from "./run-usage";
 import {
   type CredentialResponseParams,
+  claudeCodeConfigSchema,
   jsonRpcRequestSchema,
   validateCommandParams,
 } from "./schemas";
@@ -1520,18 +1521,20 @@ export class AgentServer {
           }
 
           this.recordTurnUsage(result.usage);
-          this.broadcastTurnComplete(
-            result.stopReason,
-            this.promptResultTraceId(result),
-          );
+          const turnTraceId = this.promptResultTraceId(result);
+          this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
           if (result.stopReason === "end_turn") {
             // Relay the response to Slack. For follow-ups this is the primary
             // delivery path — the HTTP caller only handles reactions. Echo the
-            // initiating message's id so the backend can attribute the answer.
-            this.relayAgentResponse(commandSession.payload, messageId).catch(
-              (err) =>
-                this.logger.debug("Failed to relay follow-up response", err),
+            // initiating message's id so the backend can attribute the answer,
+            // and the turn's trace id so a rating on the reply names the turn.
+            this.relayAgentResponse(
+              commandSession.payload,
+              messageId,
+              turnTraceId,
+            ).catch((err) =>
+              this.logger.debug("Failed to relay follow-up response", err),
             );
           }
 
@@ -1556,6 +1559,9 @@ export class AgentServer {
           const outcome = {
             stopReason: result.stopReason,
             ...(assistantMessage && { assistant_message: assistantMessage }),
+            // The caller posts this answer itself when the relay above found no
+            // message to send, so it needs the turn's trace id on the same terms.
+            ...(turnTraceId && { trace_id: turnTraceId }),
           };
           resolveDelivery(outcome);
           return outcome;
@@ -1830,22 +1836,20 @@ export class AgentServer {
   }
 
   /**
-   * The task's origin decides which origin-gated local tools load, so a transient failure here
-   * would silently drop report_activity from an analysis run. Retry, then give up so a task that
+   * The transport retries a rejected token but not a 5xx or a socket error, so one blip
+   * would silently degrade the session. Retry, then give up so a task or run that
    * genuinely does not exist still starts the session.
    */
-  private async fetchTaskForSessionContext(
-    taskId: string,
-  ): Promise<Task | null> {
+  private async fetchForSessionContext<T>(
+    fetch: () => Promise<T>,
+    onGiveUp: (error: unknown) => void,
+  ): Promise<T | null> {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        return await this.posthogAPI.getTask(taskId);
+        return await fetch();
       } catch (err) {
         if (attempt === 2) {
-          this.logger.warn("Failed to fetch task for session context", {
-            taskId,
-            error: err,
-          });
+          onGiveUp(err);
           return null;
         }
         await sleepWithBackoff(attempt, {
@@ -1855,6 +1859,43 @@ export class AgentServer {
       }
     }
     return null;
+  }
+
+  /**
+   * The task's origin decides which origin-gated local tools load, so a transient failure here
+   * would silently drop report_activity from an analysis run.
+   */
+  private async fetchTaskForSessionContext(
+    taskId: string,
+  ): Promise<Task | null> {
+    return this.fetchForSessionContext(
+      () => this.posthogAPI.getTask(taskId),
+      (error) =>
+        this.logger.warn("Failed to fetch task for session context", {
+          taskId,
+          error,
+        }),
+    );
+  }
+
+  /**
+   * The run carries the session's system prompt, which newSession fixes once, so a later
+   * refresh cannot repair a run lost to a blip here. Without the run the stage is also
+   * unknown, so routing falls back to the env product.
+   */
+  private async fetchTaskRunForSessionContext(
+    taskId: string,
+    runId: string,
+  ): Promise<TaskRun | null> {
+    return this.fetchForSessionContext(
+      () => this.posthogAPI.getTaskRun(taskId, runId),
+      (error) =>
+        this.logger.warn("Failed to fetch task run for session context", {
+          taskId,
+          runId,
+          error,
+        }),
+    );
   }
 
   private async _doInitializeSession(payload: JwtPayload): Promise<void> {
@@ -1885,17 +1926,7 @@ export class AgentServer {
       "context_fetch",
       () =>
         Promise.all([
-          this.posthogAPI
-            .getTaskRun(payload.task_id, payload.run_id)
-            .catch((err) => {
-              // Without the run the stage is unknown, so routing falls back to the env product.
-              this.logger.warn("Failed to fetch task run for session context", {
-                taskId: payload.task_id,
-                runId: payload.run_id,
-                error: err,
-              });
-              return null;
-            }),
+          this.fetchTaskRunForSessionContext(payload.task_id, payload.run_id),
           this.fetchTaskForSessionContext(payload.task_id),
         ]),
     );
@@ -1953,6 +1984,7 @@ export class AgentServer {
       preTaskRun,
       "slack_thread_url",
     );
+    const runState = preTaskRun?.state;
 
     // Unconditional for the same reason as detectedPrUrl: a re-init on this
     // instance must not keep the previous run's delivery capability.
@@ -1972,13 +2004,19 @@ export class AgentServer {
     await this.installStoreSkills(
       payload.task_id,
       payload.run_id,
-      preTaskRun?.state ?? null,
+      runState ?? null,
     );
+
+    const runStateSystemPrompt =
+      claudeCodeConfigSchema.shape.systemPrompt.safeParse(
+        runState?.systemPrompt,
+      );
 
     const sessionSystemPrompt = this.buildSessionSystemPrompt(
       prUrl,
       slackThreadUrl,
       inboxReportUrl,
+      runStateSystemPrompt.success ? runStateSystemPrompt.data : undefined,
     );
     const codexInstructions =
       runtimeAdapter === "codex"
@@ -2102,7 +2140,6 @@ export class AgentServer {
     const conversationClear =
       extractConversationClearCapability(initializeResult);
 
-    const runState = preTaskRun?.state;
     // Preserve native Codex modes for cloud runs so they behave the same as
     // local sessions. Claude keeps the historical auto-approved default when
     // PostHog Desktop has not explicitly selected a mode.
@@ -2805,13 +2842,11 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      this.broadcastTurnComplete(
-        result.stopReason,
-        this.promptResultTraceId(result),
-      );
+      const turnTraceId = this.promptResultTraceId(result);
+      this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
       if (result.stopReason === "end_turn") {
-        await this.relayAgentResponse(payload);
+        await this.relayAgentResponse(payload, undefined, turnTraceId);
       }
 
       await this.finalizeRunTelemetry(payload);
@@ -3194,13 +3229,11 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      this.broadcastTurnComplete(
-        result.stopReason,
-        this.promptResultTraceId(result),
-      );
+      const turnTraceId = this.promptResultTraceId(result);
+      this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
       if (result.stopReason === "end_turn") {
-        await this.relayAgentResponse(payload);
+        await this.relayAgentResponse(payload, undefined, turnTraceId);
       }
 
       await this.finalizeRunTelemetry(payload);
@@ -4105,13 +4138,15 @@ export class AgentServer {
     prUrl?: string | null,
     slackThreadUrl?: string | null,
     inboxReportUrl?: string | null,
+    runStateSystemPrompt?: ClaudeCodeConfig["systemPrompt"],
   ): string | { append: string } {
     const cloudAppend = this.buildCloudSystemPrompt(
       prUrl,
       slackThreadUrl,
       inboxReportUrl,
     );
-    const userPrompt = this.config.claudeCode?.systemPrompt;
+    const userPrompt =
+      this.config.claudeCode?.systemPrompt ?? runStateSystemPrompt;
 
     const sessionPrompt = buildCloudSessionSystemPrompt(
       cloudAppend,
@@ -5392,6 +5427,7 @@ ${commonInstructions}
   private async relayAgentResponse(
     payload: JwtPayload,
     messageId?: string,
+    traceId?: string | null,
   ): Promise<void> {
     if (!this.session) {
       return;
@@ -5437,6 +5473,7 @@ ${commonInstructions}
         message,
         messageParts,
         messageId,
+        traceId,
       );
     } catch (error) {
       this.logger.debug("Failed to relay initial agent response to Slack", {

@@ -126,6 +126,7 @@ from products.tasks.backend.presentation.serializers import (
     SlackThreadContextThreadSerializer,
     StreamReadTokenResponseSerializer,
     TaskArtifactsResponseSerializer,
+    TaskBasicSerializer,
     TaskCommentDetailQuerySerializer,
     TaskCommentDetailSerializer,
     TaskCommentsQuerySerializer,
@@ -463,7 +464,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(response=TaskSerializer, description="List of tasks"),
         },
         summary="List tasks",
-        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task.",
+        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task. Pass basic=true for a summary payload that drops the description body from each row; use the search parameter to match description text server-side.",
     )
     def list(self, request, *args, **kwargs):
         filters = {key: request.query_params.get(key) for key in request.query_params}
@@ -480,8 +481,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         page = self.paginate_queryset(tasks)
         assert page is not None, "TaskViewSet list requires an active paginator"
+        # Description bodies dominate the list payload. A summary surface asks for basic=true
+        # and gets the smaller rows without them.
+        basic = getattr(request, "validated_query_data", {}).get("basic", False)
+        serializer_class = TaskBasicSerializer if basic else TaskSerializer
         return self.get_paginated_response(
-            TaskSerializer(tasks_facade._tasks_to_dtos(page, self.team_id), many=True).data
+            serializer_class(tasks_facade._tasks_to_dtos(page, self.team_id), many=True).data
         )
 
     @validated_request(
@@ -779,6 +784,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(request=TaskWriteSerializer, responses={200: TaskSerializer})
     def partial_update(self, request, pk=None, **kwargs):
+        authenticator = request.successful_authenticator
+        if (
+            "channel" in request.data
+            and isinstance(authenticator, OAuthAccessTokenAuthentication)
+            and authenticator.access_token.sandbox_task_id is not None
+        ):
+            raise PermissionDenied("Task agents cannot move tasks between channels.")
         serializer = self._write_serializer(request.data, partial=True)
         task = tasks_facade.update_task(
             pk, self.team_id, self._user_id(), validated_data=dict(serializer.validated_data)
@@ -2033,6 +2045,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def relay_message(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        trace_id = request.validated_data.get("trace_id")
         relay_status, relay_id = tasks_facade.relay_task_run_message(
             pk,
             task_id,
@@ -2040,6 +2053,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             text=request.validated_data["text"],
             text_parts=request.validated_data.get("text_parts"),
             message_id=request.validated_data.get("message_id"),
+            # Validated as a UUID, carried on as the string form the events it ends up on use.
+            trace_id=str(trace_id) if trace_id else None,
         )
         if relay_status == "failed":
             return Response(
@@ -2782,7 +2797,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             404: OpenApiResponse(description="Task run not found"),
             409: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="Task run workflow has ended",
+                description="Task run workflow has ended; permission_target_ended for an ended approval target",
             ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
@@ -2791,13 +2806,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             502: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Agent server unreachable"),
             503: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="PostHog Desktop access could not be verified",
+                description="agent_session_not_ready: approval rejected before execution while the agent starts; "
+                "or PostHog Desktop access could not be verified",
             ),
         },
         summary="Send command to task run",
         description="Queue user_message JSON-RPC commands through the task workflow and forward sandbox control "
         "commands to the agent server. Supports user_message, cancel, close, permission_response, "
-        "set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations.",
+        "set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations. "
+        "Permission responses return 503 agent_session_not_ready only when rejected before execution; "
+        "clients may retry that code within a bounded startup wait. HTTP 200 preserves JSON-RPC errors; "
+        "permission acceptance requires result.resolved=true.",
         strict_request_validation=True,
     )
     @action(
@@ -2963,6 +2982,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if connection is None:
             raise NotFound()
 
+        if method == "permission_response":
+            try:
+                tasks_facade.validate_permission_response_target(pk, task_id, self.team_id)
+            except tasks_facade.PermissionResponseUnavailable as error:
+                return Response(
+                    TaskRunErrorResponseSerializer({"code": error.code, "error": str(error)}).data,
+                    status=error.status_code,
+                )
+
         if not connection.sandbox_url:
             return Response(
                 TaskRunErrorResponseSerializer(
@@ -3002,17 +3030,25 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 sandbox_token_param=connection.sandbox_token_param,
             )
 
+            try:
+                response_data = agent_response.json()
+            except ValueError:
+                if agent_response.ok:
+                    raise
+                response_data = {}
+            success = agent_response.ok
+            if method == "permission_response":
+                success = tasks_facade.classify_permission_response(
+                    pk, task_id, self.team_id, status_code=agent_response.status_code, data=response_data
+                )
             tasks_facade.capture_relay_command_telemetry(
-                pk, task_id, self.team_id, method=method, params=params, success=agent_response.ok
+                pk, task_id, self.team_id, method=method, params=params, success=success
             )
             if agent_response.ok:
                 tasks_facade.signal_task_run_client_activity(pk, task_id, self.team_id)
-                return Response(agent_response.json())
+                return Response(response_data)
 
-            try:
-                error_body = agent_response.json()
-            except Exception:
-                error_body = {}
+            error_body = response_data if isinstance(response_data, dict) else {}
 
             if agent_response.status_code == 401:
                 error_msg = error_body.get("error", "Agent server authentication failed")
@@ -3028,6 +3064,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
+        except tasks_facade.PermissionResponseUnavailable as error:
+            tasks_facade.capture_relay_command_telemetry(
+                pk, task_id, self.team_id, method=method, params=params, success=False
+            )
+            return Response(
+                TaskRunErrorResponseSerializer({"code": error.code, "error": str(error)}).data,
+                status=error.status_code,
+            )
         except http_requests.ConnectionError:
             logger.warning(f"Agent server unreachable for task run {pk}")
             tasks_facade.capture_relay_command_telemetry(

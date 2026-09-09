@@ -720,7 +720,7 @@ _WRITE_ACCESS_OBJECTS: dict[str, str] = {
     "dashboard:write": "dashboards and their tiles",
     "insight:write": "saved insights",
     "annotation:write": "annotations",
-    "alert:write": "insight alerts",
+    "alert:write": "insight alerts, including the Slack channels they post to",
     "llm_skill:write": "shared skills",
     "warehouse_view:write": "data warehouse views",
     "warehouse_table:write": "data warehouse tables",

@@ -23,7 +23,12 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewers,
     TaskRunArtefact,
 )
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
+from products.signals.backend.models import (
+    ArtefactAttribution,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportAssignment,
+)
 from products.signals.backend.reviewer_correction_notes import ForwardedCorrectionNotes
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
@@ -273,6 +278,49 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert kwargs["added_github_logins"] == ["bob"]
         assert kwargs["team_id"] == self.team.id
         assert kwargs["exclude_user_id"] == self.user.id
+
+    @parameterized.expand(
+        [
+            ("open_pr", SignalReportAssignment.PrState.OPEN, True),
+            ("merged_pr", SignalReportAssignment.PrState.MERGED, False),
+            ("no_pr", None, False),
+        ]
+    )
+    def test_put_adding_reviewer_queues_github_assignment_for_a_reviewable_pr(
+        self, _name: str, pr_state: str | None, expected: bool
+    ):
+        # A reviewer added after the PR opened still reaches GitHub's "Assigned to me", which is
+        # the wiring this feature depends on. A closed PR and a report with no PR queue nothing.
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
+        if pr_state is not None:
+            SignalReportAssignment.objects.create(
+                team_id=self.team.id,
+                report_id=report.id,
+                pr_url="https://github.com/PostHog/posthog/pull/7",
+                repository="posthog/posthog",
+                pr_number=7,
+                pr_state=pr_state,
+                pr_merged=pr_state == SignalReportAssignment.PrState.MERGED,
+            )
+
+        with (
+            patch("products.signals.backend.tasks.assign_reviewers_on_implementation_pr.delay") as mock_delay,
+            patch("products.signals.backend.views.send_reviewer_added_slack_notifications"),
+            patch(
+                "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts",
+                new_callable=AsyncMock,
+            ),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.put(
+                    self._detail_url(str(report.id), str(artefact.id)),
+                    data=json.dumps({"content": [{"github_login": "alice"}, {"github_login": "bob"}]}),
+                    content_type="application/json",
+                )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_delay.called is expected
 
     def test_put_removing_reviewer_does_not_notify(self):
         # Removing a reviewer is not an add, so nobody is pinged.
