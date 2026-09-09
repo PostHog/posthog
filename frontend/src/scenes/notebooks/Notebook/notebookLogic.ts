@@ -25,6 +25,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
+import { commentsLogic } from 'lib/components/Comments/commentsLogic'
 import {
     markdownCrc,
     mergeNotebookMarkdownChanges,
@@ -41,7 +42,6 @@ import { downloadFile } from 'lib/utils/dom'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectsEqual } from 'lib/utils/objects'
 import { slugify } from 'lib/utils/strings'
-import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 

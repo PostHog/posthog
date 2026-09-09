@@ -57,7 +57,7 @@ export function PendingChatView({
             className="mx-auto flex w-full items-center gap-2 px-2.5"
             style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
           >
-            <Spinner size={12} className="text-accent-11" />
+            <Spinner size="sm" className="text-accent-11" />
             <span className="text-[13px] text-accent-11">Loading</span>
           </div>
         </div>

@@ -665,7 +665,7 @@ export function SessionView({
                         >
                           {isRestoring ? (
                             <>
-                              <Spinner size={14} />
+                              <Spinner size="md" />
                               Restoring...
                             </>
                           ) : (
