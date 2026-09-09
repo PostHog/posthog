@@ -1,7 +1,7 @@
 """Azure Blob Storage integration."""
 
 from posthog.models.user import User
-from posthog.security.url_validation import _dev_bypass_enabled, is_url_allowed
+from posthog.security.url_validation import _dev_bypass_enabled, _test_bypass_enabled, is_url_allowed
 
 from . import model
 
@@ -109,7 +109,7 @@ def validate_azure_blob_connection_string(connection_string: str) -> None:
     # HTTPS is required so TLS certificate verification at connect time closes the DNS
     # rebinding window between validation and the SDK's own resolution. Local emulators
     # (Azurite) use HTTP, so the requirement lifts with the dev bypass.
-    validation_applies = not _dev_bypass_enabled()
+    validation_applies = not (_dev_bypass_enabled() or _test_bypass_enabled())
     protocol = settings.get("DEFAULTENDPOINTSPROTOCOL", "https").lower()
     if protocol not in ("http", "https"):
         raise ValueError("'DefaultEndpointsProtocol' must be 'http' or 'https'")
