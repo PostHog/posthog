@@ -1174,13 +1174,6 @@ class CSPMiddleware:
             response.headers["Content-Security-Policy"] = "default-src 'none'"
             return response
 
-        # A response that already carries an enforced policy (e.g. the canvas
-        # artifact origin) owns its CSP: stacking the app-wide report-only policy
-        # on top only logs frame-ancestors violations for the sandboxed iframes
-        # the view itself deliberately serves.
-        if "Content-Security-Policy" in response.headers:
-            return response
-
         is_admin_view = request.path.startswith("/admin/")
         if is_admin_view:
             django_loginas_inline_script_hash = "sha256-2bSkJXtgXFhxZUhgXzWsEsKImxJEQsqjns0vi3KiSrI="
@@ -1208,6 +1201,8 @@ class CSPMiddleware:
                     f'posthog="{admin_report_endpoint}", default="{admin_report_endpoint}"'
                 )
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
+        elif getattr(response, "_posthog_canvas_artifact", False) and "Content-Security-Policy" in response.headers:
+            return response
         else:
             resource_url = "https://*.posthog.com"
             if settings.DEBUG or settings.TEST:

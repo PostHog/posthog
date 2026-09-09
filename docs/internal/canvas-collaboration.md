@@ -24,6 +24,10 @@ The script's `src` attribute can use single or double quotes, with spaces around
 Builder fixes apply to new builds, not existing artifacts.
 Republish an affected canvas after the builder fix is deployed to replace a blank artifact.
 
+Canvas artifact responses use their enforced CSP without the application-wide report-only policy.
+Only the artifact response helper sets this exception; a CSP header alone does not enable it.
+Admin policy enforcement and reporting on other pages remain unchanged.
+
 Use `expected_current_version_id` when publishing. A stale version returns HTTP 409.
 Read the current source, apply the change again, and retry against that version.
 Use version history to inspect earlier source and revert an unwanted change.
