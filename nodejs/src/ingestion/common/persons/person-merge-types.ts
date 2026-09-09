@@ -55,6 +55,22 @@ export class PersonMergeCallFailedError extends PersonMergeError {
 }
 
 /**
+ * A merge that found neither distinct id mapped, then lost the race to create
+ * the person: a concurrent write already owns one of the two ids. The creation
+ * conflict resolves to whichever person holds an id, which is not necessarily
+ * the person this merge needs, so accepting it can leave the target distinct id
+ * mapped to nothing. Retry instead: the ids are committed by then, so the merge
+ * re-runs down the branch that matches the state on disk.
+ */
+export class MergeCreationConflictError extends PersonMergeError {
+    readonly type = 'CREATION_CONFLICT' as const
+
+    constructor(message: string) {
+        super(message)
+    }
+}
+
+/**
  * Error when race condition is detected during merge
  */
 export class PersonMergeRaceConditionError extends PersonMergeError {

@@ -10,7 +10,7 @@ import {
     PostgresPersonMerge,
     personMergeEventProducedCounter,
 } from './person-merge-postgres'
-import { createDefaultSyncMergeMode } from './person-merge-types'
+import { MergeCreationConflictError, createDefaultSyncMergeMode } from './person-merge-types'
 import { MergePersonsRequest } from './persons-store'
 
 describe('PostgresPersonMerge merge events', () => {
@@ -221,6 +221,69 @@ describe('PostgresPersonMerge merge events', () => {
         )
         expect(result.results).toEqual([{ sourceDistinctId: 'anon', outcome: 'attached' }])
         await expect(result.kafkaAck).resolves.toBeUndefined()
+    })
+
+    // $identify must never fold an already identified person into someone else. When only
+    // the source exists, attaching the target id to it puts a second login on that identity.
+    // The both-exist branch already refuses this.
+    it('a one-exists merge refuses an already identified source', async () => {
+        mockOutputs = { produce: jest.fn().mockResolvedValue(undefined) }
+        const identifiedSource = {
+            id: 'p1',
+            uuid: sourcePerson.uuid,
+            team_id: 2,
+            is_identified: true,
+        } as unknown as InternalPerson
+        const store = {
+            fetchForUpdate: jest
+                .fn()
+                .mockImplementation((_teamId: number, distinctId: string) =>
+                    Promise.resolve(distinctId === 'anon' ? identifiedSource : null)
+                ),
+            inTransaction: jest.fn(),
+        }
+        const merge = buildSingleSourceMerge(store, new UUIDT().toString())
+
+        const result = await merge.execute()
+
+        expect(store.inTransaction).not.toHaveBeenCalled()
+        expect(result.survivor).toBeNull()
+        expect(result.results).toEqual([
+            { sourceDistinctId: 'anon', outcome: 'skipped_already_identified', sourcePersonUuid: sourcePerson.uuid },
+        ])
+    })
+
+    // The conflict resolves to whichever person holds one of the two ids. That can be the
+    // source's holder alone, so accepting it as the survivor leaves the target id mapped to
+    // no person. The merge must throw and retry against committed state.
+    it('a neither-exists merge that loses the creation race throws and purges both ids', async () => {
+        mockOutputs = { produce: jest.fn().mockResolvedValue(undefined) }
+        const holder = { id: 'p1', uuid: sourcePerson.uuid, team_id: 2 } as unknown as InternalPerson
+        const tx = {
+            createPerson: jest.fn().mockResolvedValue({
+                success: false,
+                error: 'CreationConflict',
+                distinctIds: ['d', 'anon'],
+            }),
+        }
+        let branchFetches = 0
+        const store = {
+            fetchForUpdate: jest.fn().mockImplementation(() => {
+                branchFetches += 1
+                // The first two calls decide the branch; later ones are the conflict lookup.
+                return Promise.resolve(branchFetches <= 2 ? null : holder)
+            }),
+            removeDistinctIdFromCache: jest.fn(),
+            inTransaction: jest
+                .fn()
+                .mockImplementation((_description: string, body: (tx: unknown) => Promise<unknown>) => body(tx)),
+        }
+        const merge = buildSingleSourceMerge(store, new UUIDT().toString())
+
+        await expect(merge.execute()).rejects.toThrow(MergeCreationConflictError)
+
+        expect(store.removeDistinctIdFromCache).toHaveBeenCalledWith(2, 'd')
+        expect(store.removeDistinctIdFromCache).toHaveBeenCalledWith(2, 'anon')
     })
 
     // Both directions matter: never emitting loses the healing, and emitting on every

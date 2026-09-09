@@ -20,6 +20,7 @@ import { PersonOutputs } from './person-context'
 import { PersonCreateService } from './person-create-service'
 import { buildPersonMergeEventMessage } from './person-merge-event'
 import {
+    MergeCreationConflictError,
     PersonMergeLimitExceededError,
     PersonMergeRaceConditionError,
     PersonMergeResult,
@@ -77,6 +78,11 @@ export const mergeDistinctIdOverrideCounter = new Counter({
 export const personMergeEventProducedCounter = new Counter({
     name: 'person_merge_event_produced_total',
     help: 'Number of person_merge_events messages acked by the broker (gate-on merges only).',
+})
+
+export const mergeCreationConflictCounter = new Counter({
+    name: 'person_merge_creation_conflict_total',
+    help: 'Merges that lost the person-creation race and were retried against committed state.',
 })
 
 export const mergeNoopMappingEmissionCounter = new Counter({
@@ -330,6 +336,23 @@ export class PostgresPersonMerge {
         if ((otherPerson && !mergeIntoPerson) || (!otherPerson && mergeIntoPerson)) {
             // Only one of the two Distinct IDs points at an existing Person
 
+            if (otherPerson && !mergeIntoPerson && !this.request.allowIdentifiedSources && otherPerson.is_identified) {
+                // Same rule mergePeople applies when both persons exist. $identify and
+                // $create_alias never fold an already identified person into someone else.
+                // Attaching the target id here would put a second login on that identity.
+                // Answer skipped and let the property path create the target person.
+                return {
+                    survivor: null,
+                    results: [
+                        {
+                            sourceDistinctId: otherPersonDistinctId,
+                            outcome: 'skipped_already_identified',
+                            sourcePersonUuid: otherPerson.uuid,
+                        },
+                    ],
+                }
+            }
+
             const [existingPerson, distinctIdToAdd] = (() => {
                 if (otherPerson) {
                     return [otherPerson!, mergeIntoDistinctId]
@@ -414,38 +437,40 @@ export class PostgresPersonMerge {
             const distinctId2 = otherPersonDistinctId
 
             this.discardOverrideCounts()
-            const [person, needsPersonUpdate, kafkaMessages] = await this.inTransaction(
-                'mergeDistinctIds-NeitherExist',
-                async (tx) => {
-                    // See comment above about `distinctIdVersion`: the first Distinct ID derives the
-                    // new Person's UUID so it never needs an override; the second always gets one.
-                    const distinctId1Version = 0
-                    const distinctId2Version = 1
-                    this.recordOverrideCount('neitherExist')
+            const [person, kafkaMessages] = await this.inTransaction('mergeDistinctIds-NeitherExist', async (tx) => {
+                // See comment above about `distinctIdVersion`: the first Distinct ID derives the
+                // new Person's UUID so it never needs an override; the second always gets one.
+                const distinctId1Version = 0
+                const distinctId2Version = 1
+                this.recordOverrideCount('neitherExist')
 
-                    const [created, wasCreated, messages] = await this.createService.createPerson(
-                        this.timestamp,
-                        this.request.eventOps.set,
-                        this.request.eventOps.setOnce,
-                        teamId,
-                        null,
-                        true,
-                        this.request.eventUuid,
-                        { distinctId: distinctId1, version: distinctId1Version },
-                        [{ distinctId: distinctId2, version: distinctId2Version }],
-                        tx
-                    )
-                    // If person was not created (creation conflict) and is not identified,
-                    // we need to update it later
-                    return [created, !wasCreated && !created.is_identified, messages] as const
+                const [created, wasCreated, messages] = await this.createService.createPerson(
+                    this.timestamp,
+                    this.request.eventOps.set,
+                    this.request.eventOps.setOnce,
+                    teamId,
+                    null,
+                    true,
+                    this.request.eventUuid,
+                    { distinctId: distinctId1, version: distinctId1Version },
+                    [{ distinctId: distinctId2, version: distinctId2Version }],
+                    tx
+                )
+                if (!wasCreated) {
+                    // The conflict resolved to the holder of one id, which can be the source
+                    // alone. Roll back and let the retry read both ids again.
+                    mergeCreationConflictCounter.inc()
+                    throw new MergeCreationConflictError(`merge lost the person-creation race for team ${teamId}`)
                 }
-            )
+                return [created, messages] as const
+            })
             this.flushOverrideCounts()
             const kafkaAck = this.produceMessages(kafkaMessages)
             return {
                 survivor: person,
                 results: [{ sourceDistinctId: otherPersonDistinctId, outcome: 'attached' }],
-                survivorNeedsUpdate: needsPersonUpdate,
+                // The create applied the event's property ops, so nothing is left to write.
+                survivorNeedsUpdate: false,
                 kafkaAck,
             }
         }
