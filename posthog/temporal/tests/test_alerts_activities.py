@@ -50,6 +50,7 @@ from posthog.temporal.alerts.types import (
     PrepareAction,
     PrepareAlertActivityInputs,
     RecordFailedEvaluationActivityInputs,
+    ScheduleDueAlertChecksWorkflowInputs,
     SkipReason,
 )
 
@@ -133,10 +134,11 @@ async def _create_alert(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_retrieve_due_alerts_limits_each_schedule_run_to_fifty_without_starving_other_teams(
+async def test_retrieve_due_alerts_limits_each_schedule_run_without_starving_other_teams(
     ateam: Team,
 ) -> None:
-    for _ in range(50):
+    max_alerts_per_run = 2
+    for _ in range(max_alerts_per_run):
         await _create_alert(ateam, calculation_interval=AlertCalculationInterval.REAL_TIME.value)
 
     other_team = await sync_to_async(Team.objects.create)(
@@ -146,9 +148,12 @@ async def test_retrieve_due_alerts_limits_each_schedule_run_to_fifty_without_sta
     )
     other_alert = await _create_alert(other_team)
 
-    alerts = await ActivityEnvironment().run(retrieve_due_alerts)
+    alerts = await ActivityEnvironment().run(
+        retrieve_due_alerts,
+        ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=max_alerts_per_run),
+    )
 
-    assert len(alerts) == 50
+    assert len(alerts) == max_alerts_per_run
     assert str(other_alert.id) in {alert.alert_id for alert in alerts}
 
 

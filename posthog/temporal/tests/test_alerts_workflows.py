@@ -33,7 +33,12 @@ from posthog.tasks.alerts.utils import AlertEvaluationResult
 from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, prepare_alert, record_failed_evaluation
 from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY
 from posthog.temporal.alerts.schedule import create_schedule_due_alert_checks_schedule
-from posthog.temporal.alerts.types import AlertInfo, CheckAlertWorkflowInputs, SkipReason
+from posthog.temporal.alerts.types import (
+    AlertInfo,
+    CheckAlertWorkflowInputs,
+    ScheduleDueAlertChecksWorkflowInputs,
+    SkipReason,
+)
 from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleDueAlertChecksWorkflow
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.tests.test_alerts_activities import _email_delivery
@@ -47,6 +52,42 @@ CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [
     notify_alert,
     record_failed_evaluation,
 ]
+
+
+@pytest.mark.asyncio
+async def test_schedule_due_alert_checks_passes_configured_limit_to_retrieval() -> None:
+    execute_activity = AsyncMock(return_value=[])
+    inputs = ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=17)
+
+    with patch(
+        "posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity",
+        new=execute_activity,
+    ):
+        await ScheduleDueAlertChecksWorkflow().run(inputs)
+
+    assert execute_activity.await_args is not None
+    assert execute_activity.await_args.args[1] == inputs
+
+
+@pytest.mark.asyncio
+async def test_schedule_due_alert_checks_defaults_to_three_hundred_alerts() -> None:
+    create_schedule = AsyncMock()
+
+    with (
+        patch(
+            "posthog.temporal.alerts.schedule.a_schedule_exists",
+            new=AsyncMock(return_value=False),
+        ),
+        patch(
+            "posthog.temporal.alerts.schedule.a_create_schedule",
+            new=create_schedule,
+        ),
+    ):
+        await create_schedule_due_alert_checks_schedule(MagicMock())
+
+    assert create_schedule.await_args is not None
+    schedule = create_schedule.await_args.args[2]
+    assert schedule.action.args == [ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=300)]
 
 
 @pytest.mark.asyncio
