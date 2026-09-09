@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { configureCustomCloud } from "./custom-cloud";
 import {
   getOauthClientIdFromRegion,
   POSTHOG_DEV_CLIENT_ID,
@@ -6,8 +7,26 @@ import {
   POSTHOG_EU_CLIENT_ID,
   POSTHOG_US_CLIENT_ID,
 } from "./oauth";
-import { CLOUD_REGIONS, formatRegionBadge, REGION_LABELS } from "./regions";
+import {
+  CLOUD_REGIONS,
+  describeRegion,
+  formatRegionBadge,
+  REGION_LABELS,
+} from "./regions";
 import { getCloudUrlFromRegion } from "./urls";
+
+beforeEach(() => {
+  // A custom cloud in the developer's own environment must not move the
+  // default targets that the tests below assert.
+  vi.stubEnv("POSTHOG_CUSTOM_CLOUD_URL", "");
+  vi.stubEnv("VITE_POSTHOG_CUSTOM_CLOUD_URL", "");
+  configureCustomCloud(null);
+});
+
+afterEach(() => {
+  configureCustomCloud(null);
+  vi.unstubAllEnvs();
+});
 
 describe("getCloudUrlFromRegion", () => {
   it("maps each region to its cloud URL", () => {
@@ -38,6 +57,34 @@ describe("getOauthClientIdFromRegion", () => {
       getOauthClientIdFromRegion("dev-cloud"),
     ]);
     expect(ids.size).toBe(CLOUD_REGIONS.length);
+  });
+});
+
+describe("a configured custom cloud", () => {
+  beforeEach(() => {
+    configureCustomCloud({
+      url: "https://posthog.example.com/",
+      oauthClientId: "custom-client-id",
+    });
+  });
+
+  it("moves the dev region only", () => {
+    expect(getCloudUrlFromRegion("dev")).toBe("https://posthog.example.com");
+    expect(getOauthClientIdFromRegion("dev")).toBe("custom-client-id");
+    expect(getCloudUrlFromRegion("us")).toBe("https://us.posthog.com");
+    expect(getCloudUrlFromRegion("eu")).toBe("https://eu.posthog.com");
+    expect(getCloudUrlFromRegion("dev-cloud")).toBe(
+      "https://app.dev.posthog.dev",
+    );
+    expect(getOauthClientIdFromRegion("us")).toBe(POSTHOG_US_CLIENT_ID);
+  });
+
+  it("labels the dev region with the custom host", () => {
+    expect(describeRegion("dev")).toMatchObject({
+      label: "Custom cloud",
+      hint: "posthog.example.com",
+    });
+    expect(describeRegion("us")).toEqual(REGION_LABELS.us);
   });
 });
 

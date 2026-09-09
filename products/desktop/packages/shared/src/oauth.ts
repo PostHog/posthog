@@ -1,3 +1,4 @@
+import { getCustomCloud } from "./custom-cloud";
 import type { CloudRegion } from "./regions";
 
 export const POSTHOG_US_CLIENT_ID = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W";
@@ -253,7 +254,7 @@ export function getOauthClientIdFromRegion(region: CloudRegion): string {
     case "eu":
       return POSTHOG_EU_CLIENT_ID;
     case "dev":
-      return POSTHOG_DEV_CLIENT_ID;
+      return getCustomCloud()?.oauthClientId ?? POSTHOG_DEV_CLIENT_ID;
     case "dev-cloud":
       return POSTHOG_DEV_CLOUD_CLIENT_ID;
   }

@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { configureCustomCloud } from "@posthog/shared";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   GATEWAY_PRODUCT,
   getGatewayBaseUrl,
@@ -8,6 +9,33 @@ import {
 } from "./gateway";
 
 describe("getGatewayBaseUrl", () => {
+  beforeEach(() => {
+    // A custom cloud in the developer's own environment must not move the
+    // default hosts.
+    vi.stubEnv("POSTHOG_CUSTOM_CLOUD_URL", "");
+    vi.stubEnv("VITE_POSTHOG_CUSTOM_CLOUD_URL", "");
+    configureCustomCloud(null);
+  });
+
+  afterEach(() => {
+    configureCustomCloud(null);
+    vi.unstubAllEnvs();
+  });
+
+  it("sends the dev region to the gateway of a configured custom cloud", () => {
+    configureCustomCloud({
+      url: "https://posthog.example.com",
+      gatewayUrl: "https://gateway.example.com",
+    });
+    expect(getGatewayBaseUrl("dev")).toBe("https://gateway.example.com");
+    expect(getGatewayBaseUrl("us")).toBe("https://gateway.us.posthog.com");
+  });
+
+  it("keeps the local gateway when a custom cloud has no gateway", () => {
+    configureCustomCloud({ url: "https://posthog.example.com" });
+    expect(getGatewayBaseUrl("dev")).toBe("http://localhost:3308");
+  });
+
   it("maps each region to its own gateway host", () => {
     expect(getGatewayBaseUrl("us")).toBe("https://gateway.us.posthog.com");
     expect(getGatewayBaseUrl("eu")).toBe("https://gateway.eu.posthog.com");

@@ -1,4 +1,4 @@
-import type { CloudRegion } from "@posthog/shared";
+import { type CloudRegion, getCustomCloud } from "@posthog/shared";
 
 export const GATEWAY_PRODUCT = "posthog_code";
 
@@ -10,6 +10,9 @@ const GATEWAY_HOSTS: Record<CloudRegion, string> = {
 };
 
 export function getGatewayBaseUrl(region: CloudRegion): string {
+  if (region === "dev") {
+    return getCustomCloud()?.gatewayUrl ?? GATEWAY_HOSTS.dev;
+  }
   return GATEWAY_HOSTS[region];
 }
 

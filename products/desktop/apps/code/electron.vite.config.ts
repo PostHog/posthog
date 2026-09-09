@@ -104,6 +104,18 @@ export default defineConfig(({ mode }) => {
       define: {
         __BUILD_COMMIT__: JSON.stringify(getGitCommit()),
         __BUILD_DATE__: JSON.stringify(getBuildDate()),
+        // The `dev` region target. Empty in a normal build, which leaves the
+        // region on localhost. The renderer reads the same values through
+        // `import.meta.env`.
+        __CUSTOM_CLOUD_URL__: JSON.stringify(
+          env.VITE_POSTHOG_CUSTOM_CLOUD_URL || "",
+        ),
+        __CUSTOM_CLOUD_OAUTH_CLIENT_ID__: JSON.stringify(
+          env.VITE_POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID || "",
+        ),
+        __CUSTOM_CLOUD_GATEWAY_URL__: JSON.stringify(
+          env.VITE_POSTHOG_CUSTOM_CLOUD_GATEWAY_URL || "",
+        ),
         "process.env.VITE_POSTHOG_API_KEY": JSON.stringify(
           env.VITE_POSTHOG_API_KEY || "",
         ),

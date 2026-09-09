@@ -123,6 +123,34 @@ The development build has two separate region values:
 
 Keeping both values preserves stored Local development sessions. Dev Cloud agent requests use `https://gateway.dev.posthog.dev`.
 
+## Custom cloud
+
+The `dev` region can point at any PostHog instance, for example a self-hosted deployment.
+Set these values in `.env` before you build:
+
+| Variable | Purpose |
+| --- | --- |
+| `VITE_POSTHOG_CUSTOM_CLOUD_URL` | Base URL of the instance, for example `https://posthog.example.com` |
+| `VITE_POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID` | Client ID of the OAuth application on that instance |
+| `VITE_POSTHOG_CUSTOM_CLOUD_GATEWAY_URL` | Base URL of the LLM gateway for agent requests. Optional |
+
+Steps:
+
+1. On the instance, make an OAuth application. Give it these redirect URIs:
+   - `http://localhost:8237/callback` for a development build.
+   - `posthog-code://callback` for a packaged build. A development build uses `posthog-code-dev://callback`.
+2. Put the client ID in `VITE_POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID`.
+3. Build the app. The build compiles the values into the image.
+4. Start the app and select **Custom cloud** in the region list. The region shows the host of the instance.
+
+The `us`, `eu`, and `dev-cloud` regions never read these values, so a normal build stays on PostHog Cloud.
+A packaged build shows the region only when it has a custom cloud, or when it is a development build.
+
+The same three names without the `VITE_` prefix work as runtime environment variables:
+`POSTHOG_CUSTOM_CLOUD_URL`, `POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID`, and `POSTHOG_CUSTOM_CLOUD_GATEWAY_URL`.
+A value in the environment wins over the value that the build compiled in.
+The main process gives these values to each child process, which includes the agent.
+
 ## Dev console commands
 
 Open devtools in the dev build and type:

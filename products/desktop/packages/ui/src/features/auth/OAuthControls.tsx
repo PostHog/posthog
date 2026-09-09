@@ -1,4 +1,4 @@
-import type { CloudRegion } from "@posthog/shared";
+import { type CloudRegion, hasCustomCloud } from "@posthog/shared";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Callout } from "@radix-ui/themes";
 import { RegionSelect } from "./RegionSelect";
@@ -6,13 +6,16 @@ import { useOAuthFlow } from "./useOAuthFlow";
 
 interface OAuthControlsProps {
   onAuthInitiated?: (region: CloudRegion) => void;
-  /** Defaults to the dev build, where development targets are available. */
+  /**
+   * Defaults to the builds where development targets are available: a dev
+   * build, and any build with a custom cloud compiled in.
+   */
   includeDevRegion?: boolean;
 }
 
 export function OAuthControls({
   onAuthInitiated,
-  includeDevRegion = import.meta.env.DEV,
+  includeDevRegion = import.meta.env.DEV || hasCustomCloud(),
 }: OAuthControlsProps = {}) {
   const {
     region,

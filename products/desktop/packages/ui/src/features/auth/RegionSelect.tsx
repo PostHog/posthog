@@ -6,7 +6,7 @@ import {
   SelectValue,
   Text,
 } from "@posthog/quill";
-import { type CloudRegion, REGION_LABELS } from "@posthog/shared";
+import { type CloudRegion, describeRegion } from "@posthog/shared";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 
 interface RegionSelectProps {
@@ -27,7 +27,7 @@ export function getSelectableRegions(includeDevRegion: boolean): CloudRegion[] {
 }
 
 function RegionOptionLabel({ region }: { region: CloudRegion }) {
-  const { flag, hint, label } = REGION_LABELS[region];
+  const { flag, hint, label } = describeRegion(region);
   return (
     <span className="flex items-center gap-2">
       <span className="shrink-0 leading-none">{flag}</span>
@@ -57,7 +57,7 @@ export function RegionSelect({
         }
         items={offered.map((candidate) => ({
           value: candidate,
-          label: `${REGION_LABELS[candidate].label} - ${REGION_LABELS[candidate].hint}`,
+          label: `${describeRegion(candidate).label} - ${describeRegion(candidate).hint}`,
         }))}
       >
         {/* Fixed width so switching regions never reflows the row beneath the button. */}

@@ -95,6 +95,13 @@ export {
   pickAllowedModel,
 } from "./cloud-task-models";
 export {
+  type CustomCloud,
+  configureCustomCloud,
+  getCustomCloud,
+  hasCustomCloud,
+  readCustomCloudFromEnv,
+} from "./custom-cloud";
+export {
   buildLoopDeeplink,
   buildScoutDeeplink,
   decodePlanBase64,
@@ -280,7 +287,9 @@ export { REFUND_REASON_OPTIONS } from "./refund-reasons";
 export {
   CLOUD_REGIONS,
   type CloudRegion,
+  describeRegion,
   REGION_LABELS,
+  type RegionLabel,
 } from "./regions";
 export { normalizeRepoKey } from "./repo";
 export { getTaskRepository, parseRepository } from "./repository";
