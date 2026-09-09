@@ -100,6 +100,21 @@ export const isUrlPattern = (url: string): boolean => {
     return /[*+?^${}()|[\]\\]/.test(url)
 }
 
+// A recorded address is a literal, and the URL field documents `*` as the only wildcard. The API
+// matches a pattern as a regular expression, so every other special character gets escaped. Without
+// this, the `?` of a query string quantifies the character before it and the page matches nothing.
+export const recordingUrlToHref = (url: string): { href: string; matchType: 'pattern' | 'exact' } => {
+    if (!url.includes('*')) {
+        return { href: url, matchType: 'exact' }
+    }
+    // The finished anchored pattern gets built here, because the API loosens a `*` only when no dot
+    // comes before it, and it adds no end anchor to a pattern that already ends with `$`. Both of
+    // those rules read the escaped text as regular expression syntax. So `file.*` would arrive as
+    // `file\.*`, which matches a run of dots instead of any name that starts with `file.`.
+    const literalParts = url.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+    return { href: `^${literalParts.join('.+')}$`, matchType: 'pattern' }
+}
+
 const normalizeUrlPath = (urlObj: URL): string => {
     if (urlObj.pathname === '') {
         urlObj.pathname = '/'
@@ -664,10 +679,9 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         },
         setReplayIframeData: ({ replayIframeData }) => {
             if (isUsableHeatmapUrl(replayIframeData?.url)) {
-                actions.setHref(replayIframeData.url)
-                // Auto-detect match type for replay data URLs too
-                const isPattern = isUrlPattern(replayIframeData.url)
-                actions.setHrefMatchType(isPattern ? 'pattern' : 'exact')
+                const { href, matchType } = recordingUrlToHref(replayIframeData.url)
+                actions.setHref(href)
+                actions.setHrefMatchType(matchType)
             } else {
                 removeReplayIframeDataFromLocalStorage()
             }
@@ -730,10 +744,9 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         setReplayIframeDataURL: async ({ url }, breakpoint) => {
             await breakpoint(150)
             if (url?.trim().length) {
-                actions.setHref(url)
-                // Auto-detect match type for replay URLs too
-                const isPattern = isUrlPattern(url)
-                actions.setHrefMatchType(isPattern ? 'pattern' : 'exact')
+                const { href, matchType } = recordingUrlToHref(url)
+                actions.setHref(href)
+                actions.setHrefMatchType(matchType)
             }
         },
 

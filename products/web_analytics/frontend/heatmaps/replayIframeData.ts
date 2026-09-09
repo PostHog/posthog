@@ -19,6 +19,47 @@ export function isUsableHeatmapUrl(url: string | undefined | null): url is strin
     return !!trimmed && trimmed !== 'unknown'
 }
 
+function isAbsoluteUrl(url: string): boolean {
+    try {
+        new URL(url)
+        return url.includes('://')
+    } catch {
+        return false
+    }
+}
+
+/**
+ * Give a recorded href an origin, so a heatmap query can match it.
+ *
+ * A snapshot can carry a path instead of a full address. Heatmap data holds the absolute page
+ * address, so a path matches nothing. Each base is an address from the same recording, best
+ * candidate first. A path that no base can complete stays as it is, for the person to correct.
+ */
+export function resolveHeatmapUrl(
+    url: string | undefined | null,
+    bases: (string | undefined | null)[]
+): string | undefined {
+    const trimmed = url?.trim()
+    if (!isUsableHeatmapUrl(trimmed)) {
+        return undefined
+    }
+    if (isAbsoluteUrl(trimmed)) {
+        return trimmed
+    }
+    for (const base of bases) {
+        const trimmedBase = base?.trim()
+        if (!trimmedBase || !isAbsoluteUrl(trimmedBase)) {
+            continue
+        }
+        try {
+            return new URL(trimmed, trimmedBase).toString()
+        } catch {
+            continue
+        }
+    }
+    return trimmed
+}
+
 // Serializing the replayed DOM allocates several full copies of this on the main thread, in a tab
 // that is already holding a decoded recording. Past roughly this size that spike is what kills the
 // renderer.

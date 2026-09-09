@@ -60,6 +60,7 @@ import {
     MAX_REPLAY_IFRAME_HTML_CHARS,
     ReplayIframeData,
     isUsableHeatmapUrl,
+    resolveHeatmapUrl,
     persistReplayIframeData,
 } from 'products/web_analytics/frontend/heatmaps/replayIframeData'
 
@@ -3242,12 +3243,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const iframe = values.rootFrame?.querySelector('iframe')
             const rawIframeHtml = iframe?.contentWindow?.document?.documentElement?.innerHTML
             const resolution = values.resolution
-            if (!rawIframeHtml || !resolution) {
+            const pausedAt = values.currentTimestamp
+            if (!rawIframeHtml || !resolution || pausedAt === undefined) {
                 rejectHeatmapSnapshot('not_ready', rawIframeHtml?.length ?? 0)
                 return
             }
 
-            const url = values.currentURL?.trim()
+            // The snapshot href can be a path. The heatmap query needs the full address, so the
+            // recording's own addresses supply the origin, latest first. An address recorded after
+            // the paused moment can sit on another origin, so it is not a candidate. The comparison
+            // matches the currentURL selector, which picks the address in force at this moment.
+            const basesAtPause = values.urls
+                .filter((u) => u.timestamp < pausedAt)
+                .map((u) => u.url)
+                .reverse()
+            const url = resolveHeatmapUrl(values.currentURL, [...basesAtPause, values.sessionPlayerMetaData?.start_url])
             if (!isUsableHeatmapUrl(url)) {
                 rejectHeatmapSnapshot('no_url', rawIframeHtml.length)
                 return
