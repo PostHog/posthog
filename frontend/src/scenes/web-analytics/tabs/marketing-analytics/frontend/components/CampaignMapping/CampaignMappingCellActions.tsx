@@ -22,15 +22,12 @@ import {
 } from './mappingUtils'
 import { buildCampaignMappingMenuItems, buildSourceMappingMenuItems } from './menuBuilders'
 
-export interface NonIntegratedConversionsCellActionsProps {
+export interface CampaignMappingCellActionsProps {
     columnName: string
     value: unknown
 }
 
-export function NonIntegratedConversionsCellActions({
-    columnName,
-    value,
-}: NonIntegratedConversionsCellActionsProps): JSX.Element | null {
+export function CampaignMappingCellActions({ columnName, value }: CampaignMappingCellActionsProps): JSX.Element | null {
     if (!isMappableValue(value)) {
         return null
     }

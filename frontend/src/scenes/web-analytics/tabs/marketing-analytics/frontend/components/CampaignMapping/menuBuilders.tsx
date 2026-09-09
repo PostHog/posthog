@@ -10,7 +10,6 @@ import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/S
 import { CampaignMappingInfo, MappingTypes, SourceMappingStatus } from './mappingUtils'
 
 const MENU_TITLE_MAX_LENGTH = 20
-const ROW_LABEL_MAX_LENGTH = 15
 const DEFAULT_MATCHING_DISABLED_REASON = 'This matches a default mapping, so it cannot be modified.'
 const MAPPING_LABEL = 'Mapping'
 
@@ -182,99 +181,3 @@ export function buildCampaignMappingMenuItems({
 }
 
 /** Row Menu Builder */
-export interface RowMenuBuilderParams {
-    sourceValue: string
-    campaignValue: string
-    sourceMappingStatus: SourceMappingStatus
-    availableSourceIntegrations: NativeMarketingSource[]
-    globalCampaignMapping: CampaignMappingInfo | null
-    existingCampaignMappings: CampaignMappingInfo[]
-    availableCampaignIntegrations: NativeMarketingSource[]
-    onOpenSourceSettings?: (integration: NativeMarketingSource, utmValue: string) => void
-    onOpenCampaignSettings?: (integration: NativeMarketingSource, utmValue: string) => void
-    onRemoveSourceMapping?: () => void
-    onRemoveCampaignMapping?: (integration: NativeMarketingSource, campaignName: string) => void
-}
-
-export function buildRowMappingMenuItems({
-    sourceValue,
-    campaignValue,
-    sourceMappingStatus,
-    availableSourceIntegrations,
-    globalCampaignMapping,
-    existingCampaignMappings,
-    availableCampaignIntegrations,
-    onOpenSourceSettings,
-    onOpenCampaignSettings,
-    onRemoveSourceMapping,
-    onRemoveCampaignMapping,
-}: RowMenuBuilderParams): LemonMenuItems | null {
-    const mappingItems: LemonMenuItem[] = []
-
-    // Build source item
-    if (sourceValue) {
-        const sourceLabel = `Source: ${formatLabel(sourceValue, ROW_LABEL_MAX_LENGTH)}`
-
-        if (sourceMappingStatus.type === MappingTypes.Default) {
-            mappingItems.push({
-                label: sourceLabel,
-                icon: <IconLink />,
-                disabledReason: DEFAULT_MATCHING_DISABLED_REASON,
-            })
-        } else {
-            const sourceSubmenuItems: LemonMenuItem[] = []
-
-            if (sourceMappingStatus.type === MappingTypes.Unmapped) {
-                sourceSubmenuItems.push(
-                    ...createMapToItems(availableSourceIntegrations, sourceValue, onOpenSourceSettings)
-                )
-            }
-
-            if (sourceMappingStatus.type === MappingTypes.Custom) {
-                sourceSubmenuItems.push(createRemoveSourceItem(sourceMappingStatus.integration, onRemoveSourceMapping))
-            }
-
-            if (sourceSubmenuItems.length > 0) {
-                mappingItems.push({
-                    label: sourceLabel,
-                    icon: <IconLink />,
-                    sideIcon: <IconChevronRight />,
-                    items: sourceSubmenuItems,
-                })
-            }
-        }
-    }
-
-    // Build campaign item
-    if (campaignValue) {
-        const campaignLabel = `Campaign: ${formatLabel(campaignValue, ROW_LABEL_MAX_LENGTH)}`
-
-        if (globalCampaignMapping && existingCampaignMappings.length === 0) {
-            mappingItems.push({
-                label: campaignLabel,
-                icon: <IconLink />,
-                disabledReason: `Already mapped to ${globalCampaignMapping.integration}: ${globalCampaignMapping.campaignName}`,
-            })
-        } else {
-            const campaignSubmenuItems: LemonMenuItem[] = [
-                ...createMapToItems(availableCampaignIntegrations, campaignValue, onOpenCampaignSettings),
-                ...createRemoveCampaignItems(existingCampaignMappings, onRemoveCampaignMapping),
-            ]
-
-            if (campaignSubmenuItems.length > 0) {
-                mappingItems.push({
-                    label: campaignLabel,
-                    icon: <IconLink />,
-                    sideIcon: <IconChevronRight />,
-                    items: campaignSubmenuItems,
-                })
-            }
-        }
-    }
-
-    if (mappingItems.length === 0) {
-        return null
-    }
-
-    return [{ title: MAPPING_LABEL, items: mappingItems }]
-}
