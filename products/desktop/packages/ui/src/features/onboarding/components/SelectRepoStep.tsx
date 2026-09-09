@@ -37,7 +37,7 @@ import { OptionalBadge } from "./OptionalBadge";
 import { StepActions } from "./StepActions";
 
 interface SelectRepoStepProps {
-  onComplete: (skipped: boolean) => void;
+  onComplete: (skipped: boolean) => void | Promise<void>;
   onBack: () => void;
   selectedDirectory: string;
   detectedRepo: DetectedRepo | null;
@@ -46,6 +46,7 @@ interface SelectRepoStepProps {
   selectedCloudRepo: string | null;
   onCloudRepoChange: (repo: string | null) => void;
   hasGithubIntegration: boolean | undefined;
+  isCompleting: boolean;
 }
 
 export function SelectRepoStep({
@@ -58,6 +59,7 @@ export function SelectRepoStep({
   selectedCloudRepo,
   onCloudRepoChange,
   hasGithubIntegration,
+  isCompleting,
 }: SelectRepoStepProps) {
   const shouldReduceMotion = useReducedMotion() === true;
   const { localWorkspaces } = useHostCapabilities();
@@ -233,6 +235,7 @@ export function SelectRepoStep({
                   isRefreshing={isRefreshingRepos}
                   placeholder="Select repository…"
                   variant="field"
+                  disabled={isCompleting}
                 />
               </EmptyContent>
             </Empty>
@@ -282,14 +285,15 @@ export function SelectRepoStep({
               <Button
                 size="lg"
                 variant={hasSelection ? "primary" : "outline"}
-                onClick={() => onComplete(!hasSelection)}
+                loading={isCompleting}
+                onClick={() => void onComplete(!hasSelection)}
               >
                 {hasSelection ? "Get started" : "Skip & get started"}
                 <ArrowRight size={16} weight="bold" />
               </Button>
             }
           >
-            <Button size="lg" onClick={onBack}>
+            <Button size="lg" disabled={isCompleting} onClick={onBack}>
               <ArrowLeft size={16} weight="bold" />
               Back
             </Button>

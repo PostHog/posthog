@@ -28,59 +28,37 @@ const general = channel({
 });
 
 describe("spaceRepoAssignment", () => {
-  const bothCreated = { personalCreated: true, generalCreated: true };
-  const nothingCreated = { personalCreated: false, generalCreated: false };
-
   describe("planSpaceRepoAssignments", () => {
-    it("targets both just-created spaces", () => {
-      expect(
-        planSpaceRepoAssignments([personal, general], bothCreated),
-      ).toEqual(["personal-id", "general-id"]);
+    it("fills empty default spaces", () => {
+      expect(planSpaceRepoAssignments([personal, general])).toEqual([
+        "personal-id",
+        "general-id",
+      ]);
     });
 
-    it("still fills an unconfigured pre-existing personal space", () => {
-      expect(
-        planSpaceRepoAssignments([personal, general], nothingCreated),
-      ).toEqual(["personal-id"]);
-    });
-
-    it("keeps a configured personal space on re-onboarding", () => {
-      // Wiped local storage re-runs onboarding; the pick must not clobber the
-      // repos the user already configured on their own space.
+    it("keeps a configured personal space and fills empty general", () => {
       const configured = channel({
         ...personal,
         repositories: ["example/mine"],
       });
-      expect(
-        planSpaceRepoAssignments([configured, general], nothingCreated),
-      ).toEqual([]);
+      expect(planSpaceRepoAssignments([configured, general])).toEqual([
+        "general-id",
+      ]);
     });
 
-    it("skips an inherited #general even when its repository list is empty", () => {
-      expect(
-        planSpaceRepoAssignments([personal, general], {
-          personalCreated: true,
-          generalCreated: false,
-        }),
-      ).toEqual(["personal-id"]);
-    });
-
-    it("skips a just-created #general that a teammate already configured", () => {
+    it("keeps a configured general space and fills empty personal", () => {
       const configured = channel({
         ...general,
         repositories: ["example/app"],
       });
-      expect(
-        planSpaceRepoAssignments([personal, configured], bothCreated),
-      ).toEqual(["personal-id"]);
+      expect(planSpaceRepoAssignments([personal, configured])).toEqual([
+        "personal-id",
+      ]);
     });
 
     it("returns no targets when neither space exists", () => {
       expect(
-        planSpaceRepoAssignments(
-          [channel({ id: "other", name: "random" })],
-          bothCreated,
-        ),
+        planSpaceRepoAssignments([channel({ id: "other", name: "random" })]),
       ).toEqual([]);
     });
   });

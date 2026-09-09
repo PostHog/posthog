@@ -230,6 +230,7 @@ function OnboardingHeader({
 
 export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
   const [consentSubmitting, setConsentSubmitting] = useState(false);
+  const [isCompleting, setIsCompleting] = useState(false);
   const queryClient = useQueryClient();
   const {
     currentStep,
@@ -269,6 +270,12 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
   // landing reads moments later.
   const assignRepoToSpaces = async (): Promise<void> => {
     if (!apiClient || !startupIdentity) return;
+    // Cloud-only hosts store the GitHub repository in selectedDirectory.
+    // Local-workspace hosts keep cloud and local selections separate.
+    const cloudRepo = localWorkspaces
+      ? selectedCloudRepo
+      : selectedDirectory || null;
+    if (!cloudRepo) return;
     const provisioned = await firstRun(startupIdentity, apiClient).provisioned;
     if (!provisioned) return;
     // Set before the entry exists: setQueryData builds the query from the defaults in
@@ -279,14 +286,6 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
       meta: AUTH_SCOPED_QUERY_META,
     });
     queryClient.setQueryData(TASK_CHANNELS_QUERY_KEY, provisioned.channels);
-    // Cloud-only hosts keep the picked GitHub repo in selectedDirectory (they
-    // never set selectedCloudRepo). On local-workspace hosts selectedDirectory
-    // can be a filesystem path, so only the explicit cloud pick is a valid
-    // "owner/repo" space default there.
-    const cloudRepo = localWorkspaces
-      ? selectedCloudRepo
-      : selectedDirectory || null;
-    if (!cloudRepo) return;
     // Fetched directly: the integrations store only fills once the main app's
     // hooks mount, which has not happened during onboarding.
     const integrations = await queryClient.fetchQuery({
@@ -302,10 +301,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
     // Channels only accept a team integration alongside repositories, so a
     // user-level-only GitHub connection cannot set a space default.
     if (integrationId == null) return;
-    for (const channelId of planSpaceRepoAssignments(provisioned.channels, {
-      personalCreated: provisioned.personal_created,
-      generalCreated: provisioned.general_created,
-    })) {
+    for (const channelId of planSpaceRepoAssignments(provisioned.channels)) {
       const updated = await apiClient.updateTaskChannelRepositories(
         channelId,
         integrationId,
@@ -408,7 +404,9 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
   ]);
   useHotkeys("left", handleBack, { enableOnFormTags: false }, [handleBack]);
 
-  const handleComplete = (repoSkipped: boolean) => {
+  const handleComplete = async (repoSkipped: boolean) => {
+    if (isCompleting) return;
+    setIsCompleting(true);
     if (repoSkipped) {
       track(ANALYTICS_EVENTS.ONBOARDING_STEP_SKIPPED, {
         step_id: currentStep,
@@ -437,15 +435,18 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
         localWorkspaces && !selectedCloudRepo && !!selectedDirectory;
       setLastUsedWorkspaceMode(pickedLocalRepo ? "local" : "cloud");
     }
-    assignRepoToSpaces().catch((error) =>
-      log.warn("Failed to save onboarding repo to spaces", { error }),
-    );
+    try {
+      await assignRepoToSpaces();
+    } catch (error) {
+      log.warn("Failed to save onboarding repo to spaces", { error });
+    }
     shipIt();
     completeOnboarding();
     openTaskInput();
   };
 
   const handleSkip = () => {
+    if (isCompleting) return;
     track(ANALYTICS_EVENTS.ONBOARDING_STEP_SKIPPED, {
       step_id: currentStep,
       step_index: currentIndex,
@@ -581,6 +582,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
                     selectedCloudRepo={selectedCloudRepo}
                     onCloudRepoChange={handleCloudRepoChange}
                     hasGithubIntegration={hasGithubIntegration}
+                    isCompleting={isCompleting}
                   />
                 </motion.div>
               )}

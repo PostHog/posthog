@@ -275,7 +275,6 @@ export function GitHubConnectPanel() {
       ),
     [hasGitIntegration, projectsWithGithub, selectedProjectId],
   );
-  const [selectedAlternativeId] = useState<number | null>(null);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
   const checkGithubState = async () => {
     setIsCheckingStatus(true);
@@ -289,14 +288,7 @@ export function GitHubConnectPanel() {
       setIsCheckingStatus(false);
     }
   };
-  const selectedAlternative = useMemo(() => {
-    if (!alternativeConnectedProjects.length) return null;
-    return (
-      alternativeConnectedProjects.find(
-        (p) => p.id === selectedAlternativeId,
-      ) ?? alternativeConnectedProjects[0]
-    );
-  }, [alternativeConnectedProjects, selectedAlternativeId]);
+  const selectedAlternative = alternativeConnectedProjects[0] ?? null;
 
   // Which connect path applies. The user presses the same button either way.
   const teamConnectFlow: OnboardingGithubConnectFlow | null =
@@ -320,9 +312,6 @@ export function GitHubConnectPanel() {
     <div>
       <div className="flex flex-col gap-3">
         <div className="flex flex-col gap-1 empty:hidden">
-          {(isLoading || githubUserIntegrationsLoading) && (
-            <Skeleton className="h-4 w-20" />
-          )}
           {!isLoading &&
             !githubUserIntegrationsLoading &&
             hasGitIntegration &&
