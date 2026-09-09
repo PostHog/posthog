@@ -5,14 +5,18 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
+from posthog.clickhouse.cluster import TOO_MANY_MUTATIONS
 from posthog.models import AsyncDeletion, DeletionType, Organization, Team
 from posthog.models.async_deletion.delete_cohorts import (
+    COHORT_MUTATION_RETRIES,
     CohortDeleteTarget,
     CohortKey,
     MutationCounts,
     _collapse,
+    _delete,
     _mark_verified,
     _wait_for_capacity,
     sweep_cohort_deletions,
@@ -212,3 +216,40 @@ class TestCollapseCohortDeletions(TestCase):
             _wait_for_capacity()
 
         assert mutation_counts.call_count == len(counts)
+
+    def test_a_rejected_mutation_is_retried_rather_than_losing_the_pass(self):
+        rejected = ServerException("Too many unfinished mutations (1)", code=TOO_MANY_MUTATIONS)
+        with (
+            patch("posthog.models.async_deletion.delete_cohorts.sync_execute", side_effect=[rejected, None]) as execute,
+            patch("posthog.models.async_deletion.delete_cohorts._wait_for_capacity") as capacity,
+        ):
+            issued = _delete([CohortDeleteTarget(team_id=1, cohort_id=2, below_version=None)])
+
+        assert issued == 1
+        assert execute.call_count == 2
+        assert capacity.call_count == 2
+
+    def test_a_mutation_rejected_past_the_retry_bound_fails_the_pass(self):
+        rejected = ServerException("Too many unfinished mutations (1)", code=TOO_MANY_MUTATIONS)
+        attempts = COHORT_MUTATION_RETRIES + 1
+        with (
+            patch(
+                "posthog.models.async_deletion.delete_cohorts.sync_execute", side_effect=[rejected] * attempts
+            ) as execute,
+            patch("posthog.models.async_deletion.delete_cohorts._wait_for_capacity"),
+            pytest.raises(ServerException),
+        ):
+            _delete([CohortDeleteTarget(team_id=1, cohort_id=2, below_version=None)])
+
+        assert execute.call_count == attempts
+
+    def test_a_failure_that_is_not_about_capacity_is_not_retried(self):
+        denied = ServerException("Not enough privileges", code=497)
+        with (
+            patch("posthog.models.async_deletion.delete_cohorts.sync_execute", side_effect=denied) as execute,
+            patch("posthog.models.async_deletion.delete_cohorts._wait_for_capacity"),
+            pytest.raises(ServerException),
+        ):
+            _delete([CohortDeleteTarget(team_id=1, cohort_id=2, below_version=None)])
+
+        assert execute.call_count == 1

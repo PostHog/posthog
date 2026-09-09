@@ -28,10 +28,12 @@ from django.db.models.functions import Cast
 from django.utils import timezone
 
 import structlog
+from clickhouse_driver.errors import ServerException
 from more_itertools import chunked
 from prometheus_client import Counter
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.cluster import TOO_MANY_MUTATIONS
 from posthog.dataclasses import frozen
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 
@@ -70,6 +72,10 @@ COHORT_MARK_PAGE_SIZE = 50_000
 # its whole pass is lost. `MutationRunner.wait_for_mutation_capacity`, which the person tables use,
 # waits for zero for the same reason.
 COHORT_MUTATION_CAPACITY = 1
+# The cluster sets `number_of_mutations_to_throw = 1` for every user on the default profile, so a
+# mutation from any other source rejects ours, and the capacity check cannot rule that out: it
+# reads the table before the enqueue, not atomically with it.
+COHORT_MUTATION_RETRIES = 3
 COHORT_MUTATION_POLL_SECONDS = 30.0
 # Log one line in this many polls. Dagster stores every log line, and a drain can poll for an hour,
 # so the wait reports periodically rather than every tick.
@@ -313,17 +319,28 @@ def _delete(targets: list[CohortDeleteTarget], settings: Mapping[str, Any] | Non
     """
     issued = 0
     for chunk in chunked(targets, COHORT_DELETION_CHUNK_SIZE):
-        _wait_for_capacity()
         conditions, params = _conditions(list(chunk))
-        # nosemgrep: clickhouse-fstring-param-audit - conditions come from CohortDeleteTarget.condition
-        sync_execute(
-            f"""
-            DELETE FROM cohortpeople
-            WHERE {" OR ".join(conditions)}
-            """,
-            params,
-            settings={**(settings or {}), "lightweight_deletes_sync": 0},
-        )
+        for attempt in range(COHORT_MUTATION_RETRIES + 1):
+            _wait_for_capacity()
+            try:
+                # nosemgrep: clickhouse-fstring-param-audit - conditions come from CohortDeleteTarget.condition
+                sync_execute(
+                    f"""
+                    DELETE FROM cohortpeople
+                    WHERE {" OR ".join(conditions)}
+                    """,
+                    params,
+                    settings={**(settings or {}), "lightweight_deletes_sync": 0},
+                )
+                break
+            except ServerException as error:
+                if error.code != TOO_MANY_MUTATIONS or attempt == COHORT_MUTATION_RETRIES:
+                    raise
+                logger.info(
+                    "cohortpeople rejected the mutation for capacity, waiting to retry",
+                    attempt=attempt + 1,
+                    retries=COHORT_MUTATION_RETRIES,
+                )
         issued += 1
     return issued
 
