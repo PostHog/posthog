@@ -17,6 +17,9 @@ DEEP_LINK_MAX_PATH_LENGTH = 2000
 # building blocks of header-injection and backslash-host open-redirect tricks, so reject them outright.
 DEEP_LINK_DISALLOWED_PATH_CHARS = re.compile(r"[\x00-\x20\x7f-\x9f\\]")
 
+# Pinned: the verify-email scene matches this exact value to pick the copy it shows.
+VERIFY_EMAIL_REASON = "partner_deep_link"
+
 CIMD_DOMAIN_RATE_LIMIT_PREFIX = "cimd_registration_domain_rate:"
 CIMD_DOMAIN_RATE_LIMIT_MAX = 5
 CIMD_DOMAIN_RATE_LIMIT_WINDOW_SECONDS = 3600
