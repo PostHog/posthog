@@ -32,7 +32,7 @@ export function ReasonSubmenuItems<T extends string>({
                                     onClick={() => onPick(option.value)}
                                     data-attr={`${dataAttrPrefix}-reason`}
                                 >
-                                    {option.label}
+                                    Other
                                 </ButtonPrimitive>
                             </ContextMenuItem>
                             <ContextMenuItem asChild>

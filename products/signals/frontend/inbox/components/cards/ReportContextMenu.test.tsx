@@ -130,8 +130,8 @@ describe('ReportContextMenu', () => {
 
     // The submenu's whole point: a reason click persists that reason, with no dialog in the way.
     // A miswired option (wrong state, wrong reason value) would silently record the wrong verdict on
-    // every report, and "Something else…" routed back through the dialog is the friction this menu
-    // exists to remove.
+    // every report. The immediate catch-all action uses "Other" without an ellipsis so it does not
+    // imply that a dialog will open.
     it.each([
         {
             submenu: 'Resolve',
@@ -140,7 +140,7 @@ describe('ReportContextMenu', () => {
         },
         {
             submenu: 'Resolve',
-            reason: 'Something else…',
+            reason: 'Other',
             body: { state: 'resolved', dismissal_reason: 'other' },
         },
         {
@@ -150,7 +150,7 @@ describe('ReportContextMenu', () => {
         },
         {
             submenu: 'Dismiss',
-            reason: 'Something else…',
+            reason: 'Other',
             body: { state: 'suppressed', dismissal_reason: 'other' },
         },
     ])('$submenu > $reason applies through the state API', async ({ submenu, reason, body }) => {
