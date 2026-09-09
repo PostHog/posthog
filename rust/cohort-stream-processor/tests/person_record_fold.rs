@@ -304,6 +304,54 @@ fn row3_argmax_stale_event_advances_dedup_and_last_seen_but_not_membership() {
     );
 }
 
+/// Gives the team a behavioral condition, so the event path builds the behavioral globals.
+fn behavioral_leaf() -> Value {
+    json!({
+        "type": "behavioral", "value": "performed_event", "key": "$pageview",
+        "time_value": 7, "time_interval": "day",
+        "conditionHash": "pageviewhash0003",
+        "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
+    })
+}
+
+/// Row 3 with a behavioral condition, which is what makes the globals build parse
+/// `person_properties` this early. Guards the tempting repair: checking `GlobalsError::field` in
+/// `plan_event` would skip this event and break the gate's arm parity, because a gated-out event
+/// never runs that check.
+#[test]
+fn a_stale_event_with_malformed_person_properties_still_advances_the_record() {
+    let (_dir, store) = temp_store();
+    let f = filters(vec![email_leaf(), plan_leaf(), behavioral_leaf()]);
+    let alice = person(1);
+
+    feed(
+        &store,
+        &f,
+        &event(alice, PRO, 0, "2026-05-26 13:00:00.000000"),
+    );
+    let before = record(&store, alice).unwrap();
+
+    let older = CohortStreamEvent {
+        source_partition: 9,
+        ..event(alice, "{not json", 5, "2026-05-26 12:00:00.000000")
+    };
+    let out = feed(&store, &f, &older);
+
+    assert_eq!(out.skipped, None, "the event is folded, not skipped");
+    assert!(out.transitions.is_empty());
+    let after = record(&store, alice).unwrap();
+    assert_eq!(after.matched, before.matched, "no evaluation happened");
+    assert_eq!(after.stamp, before.stamp, "argMax kept the newer stamp");
+    assert_eq!(
+        after.props_fingerprint, before.props_fingerprint,
+        "a fingerprint from an unparseable payload would let a later copy of it reach SkipEval",
+    );
+    assert!(
+        after.applied_offsets.is_replay(9, 5),
+        "the stale event still recorded its offset",
+    );
+}
+
 /// The stamp-advance counterexample: without row 4a advancing the stamp, an out-of-order event landing
 /// between the old and new stamps would wrongly win argMax. Because 4a advances it, that middle event
 /// is stale.

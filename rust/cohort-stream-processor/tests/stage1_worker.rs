@@ -413,7 +413,7 @@ fn c1_same_hash_two_windows_get_independent_state_and_deadlines() {
     let lsks = &filters.by_condition_to_lsk[&BEHAVIORAL_HASH];
     assert_eq!(lsks.len(), 2, "two distinct LSKs under one conditionHash");
     assert_eq!(
-        filters.behavioral_conditions.len(),
+        filters.behavioral.conditions.len(),
         1,
         "one unique conditionHash → one HogVM eval that fans out",
     );
@@ -918,46 +918,89 @@ fn out_of_order_person_events_keep_the_latest_by_event_time() {
 #[test]
 fn whole_event_skips_carry_distinct_reasons() {
     let (_dir, store) = temp_store();
-    let filters = build_team_filters(vec![(
-        CohortId(1),
-        cohort(vec![behavioral_leaf(7), person_leaf()]),
-    )]);
+    // `event == "$pageview" AND properties.x == "1"`. The behavioral condition has to read
+    // `properties` for the build to parse that payload at all, so that a malformed one can fail.
+    let mut behavioral = behavioral_leaf(7);
+    behavioral["bytecode"] = json!([
+        "_H",
+        1,
+        32,
+        "$pageview",
+        32,
+        "event",
+        1,
+        1,
+        11,
+        32,
+        "1",
+        32,
+        "x",
+        32,
+        "properties",
+        1,
+        2,
+        11,
+        3,
+        2,
+    ]);
+    let filters = build_team_filters(vec![(CohortId(1), cohort(vec![behavioral, person_leaf()]))]);
 
-    type SkipCase = (&'static str, fn(&mut CohortStreamEvent), SkipReason);
+    type SkipCase = (
+        &'static str,
+        fn(&mut CohortStreamEvent),
+        Option<SkipReason>,
+        &'static [[u8; 16]],
+    );
     let cases: [SkipCase; 5] = [
         (
             "empty person id",
             |e| e.person_id = String::new(),
-            SkipReason::NullPersonId,
+            Some(SkipReason::NullPersonId),
+            &[],
         ),
         (
             "non-uuid person id",
             |e| e.person_id = "not-a-uuid".to_string(),
-            SkipReason::UnparseablePersonId,
+            Some(SkipReason::UnparseablePersonId),
+            &[],
         ),
         (
             "unparseable timestamp",
             |e| e.timestamp = "nonsense".to_string(),
-            SkipReason::BadTimestamp,
+            Some(SkipReason::BadTimestamp),
+            &[],
         ),
+        // `properties` is behavioral-only data, so a malformed payload drops the behavioral side
+        // and lets the person side run — the event's `person_properties` match the person leaf.
         (
             "malformed properties",
             |e| e.properties = Some("{not json".to_string()),
-            SkipReason::GlobalsParseError,
+            None,
+            &[PERSON_HASH],
         ),
         (
             "malformed person_properties",
             |e| e.person_properties = Some("nope".to_string()),
-            SkipReason::GlobalsParseError,
+            Some(SkipReason::GlobalsParseError),
+            &[],
         ),
     ];
 
-    for (name, mutate, expected) in cases {
-        let mut ev = event(person(1), 1, 0);
+    // One person and one offset per case: the malformed-`properties` case writes a person record,
+    // which would make the next case a replay and send it down an arm that never parses.
+    for (index, (name, mutate, expected, transitions)) in cases.into_iter().enumerate() {
+        let mut ev = event(person(index as u128 + 1), 1, index as i64);
         mutate(&mut ev);
         let out = process_event(PARTITION_ID, &store, &filters, &ev).unwrap();
-        assert_eq!(out.skipped, Some(expected), "{name}");
-        assert!(out.transitions.is_empty(), "{name}");
+        assert_eq!(out.skipped, expected, "{name}");
+        assert_eq!(
+            out.transitions
+                .iter()
+                .map(|transition| transition.condition_hash)
+                .collect::<Vec<_>>(),
+            transitions,
+            "{name}",
+        );
     }
 
     let empty = TeamFiltersBuilder::default().freeze(UTC);
@@ -2935,6 +2978,122 @@ async fn both_lanes_drain_before_the_worker_exits() {
             .get(&(PARTITION_ID as i32)),
         Some(&8),
         "the seed tracker advanced",
+    );
+}
+
+/// The composed half of the same guarantee: a run that flips two cohorts commits stage 1, fails its
+/// produce, and holds. Nothing downstream was told and no `cf_stage2` row says otherwise, so the
+/// redelivery re-derives both flips and only then commits the offset.
+#[tokio::test]
+async fn a_failed_composed_seed_produce_replays_from_the_row_it_never_wrote() {
+    let (_dir, store) = temp_store();
+    // Two composable cohorts on the same leaf, so one person recomputes for both from one shared
+    // read.
+    let composed = || {
+        build_team_filters(vec![
+            (CohortId(1), cohort(vec![behavioral_leaf(7), person_leaf()])),
+            (CohortId(2), cohort(vec![behavioral_leaf(7), person_leaf()])),
+        ])
+    };
+    let bob = person(2);
+    // The person leaf already holds, so the seed tile's behavioral leaf is what completes the AND.
+    write_person_record(&store, bob, &[PERSON_HASH], AppliedOffsets::default(), &[]);
+
+    let sink = CaptureSink::failing_first(1);
+    let deps = MergeWorkerDeps::capture();
+    let (live_tx, live_rx) = mpsc::channel(16);
+    let (seed_tx, seed_rx) = mpsc::channel(16);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        WorkerInbox::unmetered(live_rx, seed_rx),
+        test_handle(&store),
+        catalog_of(composed()),
+        Arc::new(sink.clone()),
+        Arc::new(OffsetTracker::new()),
+        deps.clone(),
+        false,
+    );
+    deps.seed_tracker.mark_dispatched(PARTITION_ID as i32, 8);
+    seed_tx
+        .send(consumed_seed(bob, utc_today(), 1, 7))
+        .await
+        .unwrap();
+    drop(seed_tx);
+    drop(live_tx);
+    worker.join().await.unwrap();
+
+    assert!(
+        sink.changes().is_empty(),
+        "the produce failed, so downstream was told nothing",
+    );
+    for cohort_id in [1, 2] {
+        assert_eq!(
+            membership_register_at(&store, cohort_id, bob),
+            None,
+            "the composed bits commit only after their produce acks",
+        );
+    }
+    assert_eq!(
+        deps.seed_tracker
+            .committable_offsets()
+            .get(&(PARTITION_ID as i32)),
+        None,
+        "the failed produce holds the seed offset",
+    );
+
+    // The redelivered tile merges to `Unchanged` and mints no transition, so only the absent
+    // stage-2 row can say the flips were never emitted.
+    let replay_sink = CaptureSink::new();
+    let replay_deps = MergeWorkerDeps::capture();
+    let (live_tx, live_rx) = mpsc::channel(16);
+    let (seed_tx, seed_rx) = mpsc::channel(16);
+    let worker = Stage1Worker::spawn(
+        PARTITION_ID,
+        WorkerInbox::unmetered(live_rx, seed_rx),
+        test_handle(&store),
+        catalog_of(composed()),
+        Arc::new(replay_sink.clone()),
+        Arc::new(OffsetTracker::new()),
+        replay_deps.clone(),
+        false,
+    );
+    replay_deps
+        .seed_tracker
+        .mark_dispatched(PARTITION_ID as i32, 8);
+    seed_tx
+        .send(consumed_seed(bob, utc_today(), 1, 7))
+        .await
+        .unwrap();
+    drop(seed_tx);
+    drop(live_tx);
+    worker.join().await.unwrap();
+
+    let changes = replay_sink.changes();
+    assert_eq!(
+        changes
+            .iter()
+            .map(|change| (change.cohort_id, change.person_id.clone(), change.status))
+            .collect::<Vec<_>>(),
+        vec![
+            (1, bob.to_string(), MembershipStatus::Entered),
+            (2, bob.to_string(), MembershipStatus::Entered),
+        ],
+        "the redelivery re-derived both lost changes from one shared read",
+    );
+    for cohort_id in [1, 2] {
+        assert_eq!(
+            membership_register_at(&store, cohort_id, bob).map(|state| state.in_cohort),
+            Some(true),
+            "and the rows it emitted are now durable",
+        );
+    }
+    assert_eq!(
+        replay_deps
+            .seed_tracker
+            .committable_offsets()
+            .get(&(PARTITION_ID as i32)),
+        Some(&8),
+        "the seed offset commits once the re-emission acks",
     );
 }
 
