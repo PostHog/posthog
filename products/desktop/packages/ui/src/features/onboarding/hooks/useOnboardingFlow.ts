@@ -16,10 +16,7 @@ import {
 } from "@posthog/core/onboarding/steps";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import {
-  useAuthStateFetched,
-  useAuthStateValue,
-} from "@posthog/ui/features/auth/store";
+import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useOrgConsent } from "@posthog/ui/features/consent/useOrgConsent";
 import { useUserGithubIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
@@ -181,16 +178,21 @@ export function useOnboardingFlow() {
       state.desktopAccess.projectId === state.currentProjectId &&
       state.desktopAccess.status === "allowed",
   );
-  const authFetched = useAuthStateFetched();
+  // Anonymous bootstrap also reports fetched, with an empty map, so the count
+  // has to wait for authentication or it settles the gate at zero before the
+  // person signs in on the project-select card.
+  const isAuthenticated = useAuthStateValue(
+    (state) => state.status === "authenticated",
+  );
   const projectCount = useMemo(
     () =>
-      authFetched
+      isAuthenticated
         ? Object.values(orgProjectsMap).reduce(
             (total, org) => total + org.projects.length,
             0,
           )
         : undefined,
-    [authFetched, orgProjectsMap],
+    [isAuthenticated, orgProjectsMap],
   );
   const consent = useOrgConsent(hasDesktopAccess);
   const consentSatisfied =
