@@ -50,7 +50,11 @@ logger = structlog.get_logger(__name__)
 # out of `preset-N` and indexes the theme with it, so a hex value there yields `theme['preset-NaN']`,
 # which is undefined. A pattern rather than a fixed range, because a theme can carry more slots than
 # the default palette and the token wraps past its end.
-_COLOR_TOKEN = re.compile(r"^preset-\d+$")
+#
+# Kept identical to the `colorToken` pattern the API validates writes against, in
+# products/dashboards/backend/widget_specs/openapi.py. A token this keeps but the API rejects would
+# leave the dashboard's next save failing with a 400 its owner cannot act on.
+_COLOR_TOKEN = re.compile(r"^preset-[1-9][0-9]*$")
 
 Outcome = Literal["written", "dry_run", "concurrent_save"]
 

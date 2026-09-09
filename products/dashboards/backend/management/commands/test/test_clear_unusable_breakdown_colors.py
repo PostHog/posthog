@@ -31,6 +31,10 @@ class TestClearUnusableEntries(SimpleTestCase):
             ("entry_under_snake_case_keys", [{"breakdown_value": "good", "color": "#36a854"}], []),
             ("entry_missing_the_color_token", [{"breakdownValue": "Chrome"}], []),
             ("entry_with_a_hex_color_token", [{"breakdownValue": "Chrome", "colorToken": "#3fb950"}], []),
+            # Slots start at 1, and `getColorFromToken` reads another script's digits as NaN. The
+            # API rejects both, so keeping one here would leave the next save failing with a 400.
+            ("entry_with_color_token_slot_zero", [{"breakdownValue": "Chrome", "colorToken": "preset-0"}], []),
+            ("entry_with_non_ascii_color_token", [{"breakdownValue": "Chrome", "colorToken": "preset-١"}], []),
             # A token that is not a string at all reaches the pattern match, which raises on it and
             # would take down the whole run rather than skip the entry.
             ("entry_with_a_numeric_color_token", [{"breakdownValue": "Chrome", "colorToken": 1}], []),
