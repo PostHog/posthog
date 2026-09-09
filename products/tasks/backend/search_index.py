@@ -22,12 +22,25 @@ _PR_URL_RE = re.compile(r"^https?://github\.com/(?P<repo>[^/]+/[^/]+)/pull/(?P<n
 MAX_INDEXED_PR_URLS = 50
 MAX_INDEXED_ARTIFACTS = 100
 MAX_IDENTIFIER_LENGTH = 512
+# Descriptions are unbounded, and every indexed character widens the trigram index
+# that serves task search. Index the opening slice, where a summary of the body sits.
+MAX_INDEXED_BODY_LENGTH = 4000
 
 
 def _normalized(values: Iterable[str]) -> list[str]:
     return list(
         dict.fromkeys(value.strip().lower()[:MAX_IDENTIFIER_LENGTH] for value in values if value and value.strip())
     )
+
+
+def search_text_match_q(term: str) -> Q:
+    """Match a term against the trigram-indexed projection column.
+
+    ``search_text`` is stored lowercased and collapsed, so a plain LIKE over the
+    lowercased term reads the index. Terms under three characters hold no full
+    trigram, so those still read the table.
+    """
+    return Q(search_text__contains=term.strip().lower())
 
 
 def _source_key(value: str) -> str:
@@ -49,8 +62,15 @@ def _upsert(
     task_run_id: Any = None,
     channel_id: Any = None,
     metadata: dict[str, Any] | None = None,
+    body: str = "",
 ) -> None:
     exact_identifiers = _normalized(identifiers)
+    search_parts = _normalized([title, subtitle, *exact_identifiers])
+    if body.strip():
+        # Collapse the layout, so a phrase that spans a line break still matches.
+        # Slice first, so an unbounded description costs bounded work on every save.
+        collapsed = " ".join(body[: MAX_INDEXED_BODY_LENGTH * 2].split())
+        search_parts.append(collapsed[:MAX_INDEXED_BODY_LENGTH].lower())
     TaskSearchDocument.objects.for_team(team_id, canonical=True).update_or_create(
         team_id=team_id,
         kind=kind,
@@ -61,7 +81,7 @@ def _upsert(
             "channel_id": channel_id,
             "title": title[:512],
             "subtitle": subtitle[:512],
-            "search_text": " ".join(_normalized([title, subtitle, *exact_identifiers])),
+            "search_text": " ".join(search_parts),
             "exact_identifiers": exact_identifiers,
             "metadata": metadata or {},
         },
@@ -87,6 +107,7 @@ def index_task(task_id: Any, *, include_related: bool = True, canonical_team_id:
         task_id=task.id,
         channel_id=task.channel_id,
         metadata={"archived": task.archived},
+        body=task.description or "",
     )
     if not include_related:
         return
@@ -279,7 +300,7 @@ def _after_commit(callback) -> None:
 def task_saved(sender, instance: Task, update_fields=None, **kwargs) -> None:
     if not _touches(
         update_fields,
-        {"title", "task_number", "slug", "repository", "channel", "archived", "deleted"},
+        {"title", "description", "task_number", "slug", "repository", "channel", "archived", "deleted"},
     ):
         return
     include_related = _touches(update_fields, {"title", "channel"})

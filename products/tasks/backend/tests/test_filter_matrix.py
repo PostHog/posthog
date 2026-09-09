@@ -55,16 +55,19 @@ class TestTaskListFilterMatrix(TestCase):
             run_status: str | None = None,
             output: dict | None = None,
         ) -> Task:
-            t = Task.objects.create(
-                team=cls.team,
-                created_by=created_by,
-                title=title,
-                description=f"{key} description",
-                origin_product=origin,
-                repository=repository,
-                archived=archived,
-                channel=channel if in_channel else shared,
-            )
+            # Search reads the projection the post-save hook writes on commit, and a
+            # class fixture never commits, so run the callbacks the way a request does.
+            with cls.captureOnCommitCallbacks(execute=True):
+                t = Task.objects.create(
+                    team=cls.team,
+                    created_by=created_by,
+                    title=title,
+                    description=f"{key} description",
+                    origin_product=origin,
+                    repository=repository,
+                    archived=archived,
+                    channel=channel if in_channel else shared,
+                )
             if run_status is not None:
                 TaskRun.objects.create(task=t, team=cls.team, status=run_status, output=output)
             return t

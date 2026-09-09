@@ -75,6 +75,15 @@ class TestTaskSearchIndex(TransactionTestCase):
         self.assertEqual(result["latest_run"].environment, TaskRun.Environment.CLOUD)
         self.assertIsNotNone(result["updated_at"])
 
+    def test_indexes_the_description_body_the_task_list_search_filters_on(self):
+        task = self.make_task(title="Trim the export queue")
+        task.description = "The nightly sweep leaves orphaned rows behind"
+        task.save(update_fields=["description"])
+
+        result = search_tasks(self.team.id, self.user.id, "orphaned rows")[0]
+
+        self.assertEqual(result["task_id"], str(task.id))
+
     @parameterized.expand([("channel",), ("channel_id",)])
     def test_a_canvas_moved_into_a_private_space_leaves_team_search(self, channel_field):
         shared = Channel.objects.create(team=self.team, name="canvas-home", created_by=self.user)
