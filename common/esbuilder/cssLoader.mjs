@@ -7,18 +7,13 @@
  * app that renders without this stylesheet paints raw markup at natural size. The failure is also
  * silent, because a `<link>` that fails or hangs raises no JavaScript error.
  *
- * This loader therefore treats the stylesheet as something that can fail:
- *
- * - Each attempt has its own timeout. A request that stalls fires no `error` event, so without a
- *   timeout the page stays unstyled for as long as the request hangs.
- * - `load` counts as success only when the sheet actually applied. A response that is not CSS
- *   still fires `load`, and leaves `link.sheet` null.
- * - The attempts form a ladder, and a failed attempt starts the next one. A stale CDN can refuse
- *   the hashed file but serve the hashless copy, and a fresh query string defeats a poisoned cache
- *   entry or a connection that hangs.
- * - Each failed attempt reports an `$exception` to the capture API, so error tracking sees the
- *   rate. posthog-js is not loaded this early, so the beacon goes out by hand, the same way
- *   RootErrorBoundary reports boot failures.
+ * This loader therefore treats the stylesheet as something that can fail. Each attempt has its own
+ * timeout, because a stalled request fires no `error` event. `load` counts as success only when the
+ * sheet applied, because a response that is not CSS fires `load` and leaves `link.sheet` null. A
+ * failed attempt starts the next URL in the ladder: a stale CDN can refuse the hashed file but
+ * serve the hashless copy, and a fresh query defeats a poisoned cache entry or a hung connection.
+ * Each failure also sends an `$exception` beacon by hand, because posthog-js is not loaded this
+ * early, the same way RootErrorBoundary reports boot failures.
  *
  * `window.ESBUILD_CSS_READY` resolves `true` once a stylesheet applies, and `false` once every
  * attempt has failed. The app entry waits on it before its first render (frontend/src/index.tsx).
@@ -71,7 +66,11 @@ export function cssLoaderScript(cssFile, cssFileFallback) {
                         distinct_id: distinctId || ('stylesheet-failure-' + Date.now()),
                         properties: {
                             $process_person_profile: false,
-                            $current_url: window.location.href,
+                            // Origin only. This loader also runs on exporter.html, where the path
+                            // carries the share token (/shared/<token>, /interview/<token>), and it
+                            // runs before the exporter can redact it. stylesheet_href already says
+                            // which build and which page type failed.
+                            $current_url: window.location.origin,
                             $exception_level: attempt === paths.length ? 'fatal' : 'error',
                             $exception_list: [{
                                 type: ${JSON.stringify(STYLESHEET_ERROR_TYPE)},

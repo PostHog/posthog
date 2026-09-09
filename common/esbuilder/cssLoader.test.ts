@@ -35,7 +35,8 @@ function runLoader({ cssFileFallback = CSS_FALLBACK, apiKey = 'phc_test' as stri
         JS_URL: 'https://cdn.example.com',
         JS_POSTHOG_API_KEY: apiKey,
         JS_POSTHOG_HOST: 'https://capture.example.com',
-        location: { origin: 'https://app.example.com', href: 'https://app.example.com/insights' },
+        // A share path, because this loader also runs on exporter.html.
+        location: { origin: 'https://app.example.com', href: 'https://app.example.com/shared/sh4r3-t0k3n' },
         localStorage: { getItem: () => null },
     }
     const doc = {
@@ -102,6 +103,8 @@ describe('css loader script', () => {
             $exception_level: 'error',
             $process_person_profile: false,
         })
+        // The path can carry a share token, so the beacon must keep the origin only.
+        expect(JSON.stringify(beacons[0])).not.toContain('sh4r3-t0k3n')
     })
 
     it('retries with a fresh query, then reports the page unstyled once every attempt fails', async () => {

@@ -94,27 +94,35 @@ function renderStylesheetFailure(): void {
 // for it, but only briefly: a stylesheet that is merely slow must not hold the app back, and the
 // loader keeps working on it in the background.
 const CSS_READY_TIMEOUT_MS = 5000
-function whenBootStylesheetReady(): Promise<boolean | undefined> {
-    const cssReady = window.ESBUILD_CSS_READY
+function whenBootStylesheetReady(cssReady: Promise<boolean> | undefined): Promise<boolean | null> {
     if (!cssReady) {
-        return Promise.resolve(undefined)
+        return Promise.resolve(null)
     }
-    return Promise.race([cssReady, new Promise<undefined>((resolve) => setTimeout(resolve, CSS_READY_TIMEOUT_MS))])
+    return Promise.race([
+        cssReady,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), CSS_READY_TIMEOUT_MS)),
+    ])
 }
 
 function boot(): void {
     // Observe early failures until React mounts its boundaries, without replacing the rejected promise.
     void loadAppModules().catch(() => {})
-    void whenBootStylesheetReady().then((applied) => {
-        // `false` means the loader ran out of stylesheet URLs, and it can only get there within the
-        // timeout when every one of them failed outright. The app has no styles of its own, so it
-        // would paint raw markup at natural size. Show a recoverable message instead. A sheet that
-        // only stalls leaves the promise pending, and the app renders as usual.
-        if (applied === false) {
+    const cssReady = window.ESBUILD_CSS_READY
+    // `false` means the loader ran out of stylesheet URLs, so every one of them failed. The app has
+    // no styles of its own, so it would paint raw markup at natural size. Offer a reload instead.
+    // A stalled attempt can hold the loader well past the render gate below, so this replaces the
+    // app whenever the verdict arrives, not only when it beats the gate.
+    void cssReady?.then((applied) => {
+        if (!applied) {
             renderStylesheetFailure()
-            return
         }
-        renderApp()
+    })
+    void whenBootStylesheetReady(cssReady).then((applied) => {
+        // `null` is the gate expiring on a sheet that is only slow. The loader keeps working on it
+        // in the background, so render now rather than hold the app back.
+        if (applied !== false) {
+            renderApp()
+        }
     })
 }
 

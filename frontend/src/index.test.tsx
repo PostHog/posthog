@@ -128,14 +128,19 @@ describe('app entry boot', () => {
         expect(bootApp).toHaveBeenCalledTimes(1)
     })
 
-    it('offers a reload instead of an unstyled app when every stylesheet URL failed', async () => {
+    it.each([
+        ['within the render gate', 0],
+        ['after a stall let the app render', 6000],
+    ])('offers a reload instead of an unstyled app when every stylesheet URL fails %s', async (_case, stallMs) => {
         await loadEntry()
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(stallMs)
+        })
 
         await act(async () => stylesheet.resolve(false))
 
         expect(document.querySelector('[role="alert"]')).toHaveTextContent('PostHog failed to load its styles.')
         expect(document.querySelector('[data-attr="boot-test-app"]')).not.toBeInTheDocument()
-        expect(bootApp).not.toHaveBeenCalled()
     })
 
     it('boots after five seconds if the stylesheet stays pending', async () => {
