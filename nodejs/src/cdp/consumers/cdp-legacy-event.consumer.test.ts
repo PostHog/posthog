@@ -9,7 +9,7 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
-import { createHogExecutionGlobals } from '../_tests/fixtures'
+import { createHogExecutionGlobals, insertHogFunction } from '../_tests/fixtures'
 import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { HogFunctionInvocationGlobals } from '../types'
@@ -317,7 +317,7 @@ describe('CdpLegacyEventsConsumer', () => {
 
             expect(invocations).toBeTruthy()
             expect(invocations.length).toBeGreaterThan(0)
-            expect(invocations[0].hogFunction.template_id).toBe('plugin-customerio-plugin')
+            expect(invocations[0].invocation.hogFunction.template_id).toBe('plugin-customerio-plugin')
 
             // Check that the loader was called and cached
             const cachedConfigs = consumer['pluginConfigsLoader'].getCache()[team.id.toString()]
@@ -366,7 +366,7 @@ describe('CdpLegacyEventsConsumer', () => {
             expect(invocations.length).toBeGreaterThan(0)
 
             // Check that the attachment was loaded into inputs
-            const hogFunction = invocations[0].hogFunction
+            const hogFunction = invocations[0].invocation.hogFunction
             expect(hogFunction.inputs).toBeTruthy()
             expect(hogFunction.inputs?.mappings).toBeTruthy()
             expect(hogFunction.inputs?.mappings?.value).toEqual({
@@ -408,7 +408,7 @@ describe('CdpLegacyEventsConsumer', () => {
             expect(invocations).toBeTruthy()
             expect(invocations.length).toBeGreaterThan(0)
 
-            const hogFunctionInvocation = invocations[0]
+            const hogFunctionInvocation = invocations[0].invocation
             expect(hogFunctionInvocation.hogFunction.template_id).toBe('plugin-customerio-plugin')
 
             // Verify the invocation structure is correct by executing it manually
@@ -480,7 +480,7 @@ describe('CdpLegacyEventsConsumer', () => {
             expect(invocations.length).toBeGreaterThan(0)
 
             // Verify that the inputs contain the actual object, not "[object Object]"
-            const inputs = invocations[0].state.globals.inputs as Record<string, any>
+            const inputs = invocations[0].invocation.state.globals.inputs as Record<string, any>
 
             expect(inputs.complexMapping).toBeDefined()
             expect(typeof inputs.complexMapping).not.toBe('string')
@@ -522,6 +522,71 @@ describe('CdpLegacyEventsConsumer', () => {
         it('should return empty array for teams with no configs', async () => {
             const hogFunctions = await consumer['pluginConfigsLoader'].get('99999')
             expect(hogFunctions).toEqual([])
+        })
+    })
+
+    describe('migrated legacy_destination hog functions', () => {
+        const migrate = async (overrides: Record<string, any> = {}) =>
+            insertHogFunction(hub.postgres, team.id, {
+                type: 'legacy_destination',
+                template_id: 'plugin-customerio-plugin',
+                name: 'Migrated Customer.io',
+                enabled: true,
+                inputs: {
+                    customerioSiteId: { value: '1234567890' },
+                    customerioToken: { value: 'cio-token' },
+                },
+                ...overrides,
+            })
+
+        it('runs the migrated hog function instead of the plugin config it replaces', async () => {
+            const migrated = await migrate()
+
+            const invocations = await consumer['getLegacyPluginHogFunctionInvocations'](invocation)
+
+            expect(invocations).toHaveLength(1)
+            expect(invocations[0].invocation.hogFunction.id).toBe(migrated.id)
+            expect(invocations[0].pluginConfigId).toBeNull()
+        })
+
+        it('still runs a plugin config whose template has not been migrated', async () => {
+            await migrate({ template_id: 'plugin-hubspot-plugin' })
+
+            const invocations = await consumer['getLegacyPluginHogFunctionInvocations'](invocation)
+            const templateIds = invocations.map((x) => x.invocation.hogFunction.template_id)
+
+            expect(templateIds).toEqual(expect.arrayContaining(['plugin-customerio-plugin', 'plugin-hubspot-plugin']))
+            expect(templateIds).toHaveLength(2)
+        })
+
+        it('invokes the underlying processor exactly once when both representations exist', async () => {
+            await migrate()
+            const onEvent = jest.spyOn(customerIoPlugin, 'onEvent')
+
+            await consumer.processEvent(invocation)
+
+            expect(onEvent).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not run a disabled migrated hog function, and does not let it suppress the plugin config', async () => {
+            await migrate({ enabled: false })
+
+            const invocations = await consumer['getLegacyPluginHogFunctionInvocations'](invocation)
+
+            expect(invocations).toHaveLength(1)
+            expect(invocations[0].pluginConfigId).toBe(pluginConfig.id)
+        })
+
+        it('reports the migrated row against its own hog function id rather than the plugin config', async () => {
+            const migrated = await migrate()
+            const queueAppMetric = jest.spyOn(consumer['hogFunctionMonitoringService'], 'queueAppMetric')
+
+            await consumer.processEvent(invocation)
+
+            expect(queueAppMetric).toHaveBeenCalledWith(
+                expect.objectContaining({ app_source_id: migrated.id, team_id: team.id }),
+                'hog_function'
+            )
         })
     })
 

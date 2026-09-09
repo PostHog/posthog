@@ -45,9 +45,16 @@ export type LightweightPluginConfig = {
 }
 
 type PluginConfigHogFunction = {
-    pluginConfigId: number
+    /** Null once the plugin config has been migrated and the hog function row is the source of truth */
+    pluginConfigId: number | null
     hogFunction: HogFunctionType
 }
+
+const supersededPluginConfigCounter = new Counter({
+    name: 'cdp_legacy_event_consumer_superseded_plugin_config_total',
+    help: 'Plugin configs skipped because a migrated legacy_destination hog function covers the same template',
+    labelNames: ['template_id'],
+})
 
 const legacyPluginExecutionResultCounter = new Counter({
     name: 'cdp_legacy_event_consumer_execution_result_total',
@@ -212,6 +219,41 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
             }
         }
 
+        return this.preferMigratedHogFunctions(results, await this.loadMigratedHogFunctions(teamIds))
+    }
+
+    private async loadMigratedHogFunctions(teamIds: string[]): Promise<Record<string, HogFunctionType[]>> {
+        const byTeam = await this.hogFunctionManager.getHogFunctionsForTeams(
+            teamIds.map((id) => parseInt(id)),
+            ['legacy_destination']
+        )
+
+        return Object.fromEntries(Object.entries(byTeam).map(([teamId, fns]) => [teamId, fns]))
+    }
+
+    // Both representations would run the same processor. Production has at most one enabled onEvent
+    // plugin config per team and plugin, so the template id identifies the pair and the migrated row wins.
+    private preferMigratedHogFunctions(
+        fromPluginConfigs: Record<string, PluginConfigHogFunction[]>,
+        fromHogFunctions: Record<string, HogFunctionType[]>
+    ): Record<string, PluginConfigHogFunction[]> {
+        const results: Record<string, PluginConfigHogFunction[]> = {}
+
+        for (const [teamId, pluginConfigFns] of Object.entries(fromPluginConfigs)) {
+            const migrated = fromHogFunctions[teamId] ?? []
+            const migratedTemplateIds = new Set(migrated.map((fn) => fn.template_id))
+
+            const superseded = pluginConfigFns.filter((x) => migratedTemplateIds.has(x.hogFunction.template_id))
+            for (const { hogFunction } of superseded) {
+                supersededPluginConfigCounter.labels({ template_id: hogFunction.template_id ?? 'unknown' }).inc()
+            }
+
+            results[teamId] = [
+                ...pluginConfigFns.filter((x) => !migratedTemplateIds.has(x.hogFunction.template_id)),
+                ...migrated.map((hogFunction) => ({ pluginConfigId: null, hogFunction })),
+            ]
+        }
+
         return results
     }
 
@@ -281,11 +323,12 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
         const invocations = await this.getLegacyPluginHogFunctionInvocations(invocation)
 
         const results = await Promise.all(
-            invocations.map(async (invocation) => this.legacyPluginExecutor.execute(invocation))
+            invocations.map(async ({ invocation, pluginConfigId }) =>
+                this.legacyPluginExecutor.execute(invocation).then((result) => ({ result, pluginConfigId }))
+            )
         )
 
-        for (const result of results) {
-            const pluginConfigId = parseInt(result.invocation.hogFunction.id.replace('legacy-', ''))
+        for (const { result, pluginConfigId } of results) {
             const error = result.error
 
             legacyPluginExecutionResultCounter
@@ -298,12 +341,12 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
             this.hogFunctionMonitoringService.queueAppMetric(
                 {
                     team_id: event.teamId,
-                    app_source_id: String(pluginConfigId),
+                    app_source_id: pluginConfigId !== null ? String(pluginConfigId) : result.invocation.hogFunction.id,
                     metric_kind: error ? 'failure' : 'success',
                     metric_name: error ? 'failed' : 'succeeded',
                     count: 1,
                 },
-                'legacy_plugin'
+                pluginConfigId !== null ? 'legacy_plugin' : 'hog_function'
             )
         }
     }
@@ -358,14 +401,14 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
 
     private async getLegacyPluginHogFunctionInvocations(
         invocation: HogFunctionInvocationGlobals
-    ): Promise<CyclotronJobInvocationHogFunction[]> {
+    ): Promise<{ invocation: CyclotronJobInvocationHogFunction; pluginConfigId: number | null }[]> {
         const pluginConfigHogFunctions = await this.pluginConfigsLoader.get(invocation.project.id.toString())
 
         if (!pluginConfigHogFunctions) {
             return []
         }
 
-        return pluginConfigHogFunctions.map(({ hogFunction }) => {
+        return pluginConfigHogFunctions.map(({ hogFunction, pluginConfigId }) => {
             // Plugin configs are always static { value: any } so we can just convert to a record of strings
             const inputs = Object.entries(hogFunction.inputs || {}).reduce(
                 (acc, [key, value]) => {
@@ -375,13 +418,16 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
                 {} as Record<string, string>
             )
 
-            return createInvocation(
-                {
-                    ...invocation,
-                    inputs,
-                },
-                hogFunction
-            )
+            return {
+                pluginConfigId,
+                invocation: createInvocation(
+                    {
+                        ...invocation,
+                        inputs,
+                    },
+                    hogFunction
+                ),
+            }
         })
     }
 
