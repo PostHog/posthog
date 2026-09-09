@@ -1,3 +1,4 @@
+mod checks;
 mod collector;
 mod collectors;
 mod config;
@@ -34,6 +35,10 @@ struct Cli {
     /// Run every collector once against every server, print row counts, exit (no sink writes)
     #[arg(long)]
     once: bool,
+    /// Evaluate the slow-query checks once against the stats DB, print the candidates as
+    /// JSON lines, exit (no findings written, no gauges)
+    #[arg(long)]
+    checks_once: bool,
     /// Print which team owns a SQL statement (per [ownership]) as JSON, then exit
     #[arg(long, value_name = "SQL")]
     attribute: Option<String>,
@@ -114,6 +119,10 @@ async fn main() -> Result<()> {
         return attribute(&cfg, &cli.server, &cli.datname, sql);
     }
 
+    if cli.checks_once {
+        return checks_once(&cfg).await;
+    }
+
     let sink: Arc<dyn sink::Sink> = if cli.once {
         Arc::new(sink::StdoutSink)
     } else {
@@ -130,7 +139,11 @@ async fn main() -> Result<()> {
         });
     }
 
-    scheduler::run(Arc::new(cfg), Arc::new(registry), sink, ready, cli.once).await
+    let cfg = Arc::new(cfg);
+    if cfg.checks.enabled && !cli.once {
+        tokio::spawn(checks::run(cfg.clone()));
+    }
+    scheduler::run(cfg, Arc::new(registry), sink, ready, cli.once).await
 }
 
 fn attribute(cfg: &config::Config, server: &str, datname: &str, sql: &str) -> Result<()> {
@@ -150,6 +163,31 @@ fn attribute(cfg: &config::Config, server: &str, datname: &str, sql: &str) -> Re
         "tables_known": own.table_count(),
     });
     println!("{}", serde_json::to_string_pretty(&out)?);
+    Ok(())
+}
+
+async fn checks_once(cfg: &config::Config) -> Result<()> {
+    let own = ownership::Ownership::load(&cfg.ownership)?;
+    let pool = checks::pool(&cfg.sink)?;
+    let Some(report) =
+        checks::run_once(&pool, &cfg.checks, &own, chrono::Utc::now(), false).await?
+    else {
+        anyhow::bail!("another checks runner holds the advisory lock");
+    };
+    for (server, cand, f) in &report.candidates {
+        println!(
+            "{}",
+            serde_json::json!({ "server": server, "rule": cand.rule, "datname": cand.datname, "queryid": cand.queryid,
+                "fingerprint": cand.fingerprint, "team": f.team, "rotation": f.rotation, "method": f.method,
+                "reasons": cand.reasons, "attribution": f.attribution, "stats": cand.stats,
+                "query": cand.query.chars().take(300).collect::<String>() })
+        );
+    }
+    eprintln!(
+        "{} candidates, rollup advanced {} hours",
+        report.candidates.len(),
+        report.rollup_hours
+    );
     Ok(())
 }
 

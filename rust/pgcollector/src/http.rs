@@ -4,7 +4,8 @@
 use axum::{extract::State, http::StatusCode, routing::get, Router};
 use once_cell::sync::Lazy;
 use prometheus::{
-    Encoder, HistogramVec, IntCounterVec, IntGaugeVec, Registry as PromRegistry, TextEncoder,
+    Encoder, Histogram, HistogramVec, IntCounterVec, IntGaugeVec, Registry as PromRegistry,
+    TextEncoder,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -17,6 +18,10 @@ pub struct Metrics {
     pub rows: IntCounterVec,
     pub errors: IntCounterVec,
     pub targets: IntGaugeVec,
+    /// 1 per open finding; the vmalert rule fires on these.
+    pub query_finding: IntGaugeVec,
+    pub checks_findings: IntCounterVec,
+    pub checks_run_seconds: Histogram,
 }
 
 impl Metrics {
@@ -56,6 +61,45 @@ impl Metrics {
         build_info
             .with_label_values(&[env!("CARGO_PKG_VERSION")])
             .set(1);
+        let query_finding = IntGaugeVec::new(
+            prometheus::opts!(
+                "pgcollector_query_finding",
+                "open slow-query finding attributed to a team"
+            ),
+            &[
+                "server",
+                "datname",
+                "rule",
+                "severity",
+                "team",
+                "rotation",
+                "slack_channel",
+                "method",
+                "queryid",
+                "fingerprint",
+            ],
+        )
+        .unwrap();
+        let checks_findings = IntCounterVec::new(
+            prometheus::opts!(
+                "pgcollector_checks_findings_total",
+                "findings that reached open"
+            ),
+            &["rule", "team"],
+        )
+        .unwrap();
+        let checks_run_seconds = Histogram::with_opts(
+            prometheus::histogram_opts!("pgcollector_checks_run_seconds", "checks run duration")
+                .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0]),
+        )
+        .unwrap();
+        registry.register(Box::new(query_finding.clone())).unwrap();
+        registry
+            .register(Box::new(checks_findings.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(checks_run_seconds.clone()))
+            .unwrap();
         registry.register(Box::new(tick_seconds.clone())).unwrap();
         registry.register(Box::new(rows.clone())).unwrap();
         registry.register(Box::new(errors.clone())).unwrap();
@@ -68,6 +112,9 @@ impl Metrics {
             rows,
             errors,
             targets,
+            query_finding,
+            checks_findings,
+            checks_run_seconds,
         }
     }
 }

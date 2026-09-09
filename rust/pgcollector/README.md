@@ -81,6 +81,38 @@ driving table of the outermost `FROM`, joins after it; hub tables (`posthog_team
 pgcollector --attribute "SELECT * FROM posthog_survey WHERE team_id = 1" --datname posthog
 ```
 
+## Slow-query checks
+
+`[checks]` (off by default) runs a job every 10 minutes that finds heavy new
+queries and regressions in the stats DB, attributes each to the team that owns
+the tables it touches, and stores the result in `query_findings`. With
+`alerting = true` every open finding is a `pgcollector_query_finding` gauge
+labelled `team` / `rotation` / `slack_channel`; the vmalert rule in the charts
+repo turns those into per-rotation alerts. Leave `alerting = false` (shadow
+mode) until the thresholds are tuned; pgapi shows the findings either way.
+
+Rules, all over the last `window` (1h) and thresholds in `[checks.thresholds]`:
+
+* `new_heavy`: a query first seen within 24h that already takes >= 2% of the
+  server's exec time, >= 60 s in total, has a mean >= 500 ms over >= 10 calls,
+  or reads/spills a lot. Skipped while a server is younger than 48h or after a
+  stats reset. More than 5 new shapes on one table collapse into one
+  `new_heavy_burst` finding (a deploy).
+* `regression`: a query with >= 7 days of history whose mean or share of server
+  time over the window is over 3x the median and 1.5x the p95 of the same
+  hour-of-day on the previous 7 days (read from the hourly roll-up
+  `ts_query_stats_1h`, which this job also fills).
+
+A finding opens after 2 consecutive matching runs and resolves after 6 clean
+runs. Utility statements, catalog-only queries, `ignore_roles` and `mute`
+fingerprints never produce findings.
+
+Each finding is attributed to a team through [table ownership](#table-ownership);
+unowned queries route to `[ownership] fallback_rotation`.
+
+`pgcollector --checks-once` evaluates once and prints the candidates as JSON
+lines without writing findings or gauges.
+
 ## Local testing
 
 `test/setup-local.sh` starts a throwaway PG16 with `pg_stat_statements`,
