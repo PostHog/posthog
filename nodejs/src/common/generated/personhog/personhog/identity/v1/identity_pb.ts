@@ -355,9 +355,8 @@ export const GetDistinctIdMappingsRequestSchema: GenMessage<GetDistinctIdMapping
     messageDesc(file_personhog_identity_v1_identity, 10)
 
 /**
- * One live mapping row, shaped for re-emission to ClickHouse: the person
- * uuid (ClickHouse keys persons by uuid, not row id) and the mapping row's
- * own version (not the person's).
+ * One live mapping row: the person uuid (ClickHouse keys persons by uuid,
+ * not row id) and the mapping row's own version (not the person's).
  *
  * @generated from message personhog.identity.v1.DistinctIdMappingRow
  */
@@ -812,9 +811,8 @@ export const PersonHogIdentity: GenService<{
         output: typeof GetPersonsByDistinctIdsResponseSchema
     }
     /**
-     * Committed mapping rows for the given distinct ids on the primary, with
-     * the person uuid and mapping-row version, for re-emission to ClickHouse
-     * by merge paths that find their request already satisfied.
+     * Committed mapping rows on the primary, for re-emission to ClickHouse by
+     * merge paths that find their request already satisfied.
      *
      * @generated from rpc personhog.identity.v1.PersonHogIdentity.GetDistinctIdMappings
      */
