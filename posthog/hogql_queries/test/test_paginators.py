@@ -247,6 +247,10 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
             ("not_base64", "invalid_cursor"),
             ("not_utf8", base64.b64encode(b"\xdb\xff").decode("utf-8")),
             ("not_json", base64.b64encode(b"not json").decode("utf-8")),
+            ("json_null", base64.b64encode(b"null").decode("utf-8")),
+            ("json_number", base64.b64encode(b"5").decode("utf-8")),
+            ("json_list", base64.b64encode(b"[1, 2]").decode("utf-8")),
+            ("json_string", base64.b64encode(b'"session_123"').decode("utf-8")),
         ]
     )
     def test_invalid_cursor_raises_validation_error(self, _name: str, after: str):
