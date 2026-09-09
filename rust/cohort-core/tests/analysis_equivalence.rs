@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use cohort_core::events::CohortStreamEvent;
 use cohort_core::hogvm::analysis::{analyze_condition, GlobalRoot, Projection, ReadPath};
-use cohort_core::{build_behavioral_globals, evaluate_detailed, EvalOutcome};
+use cohort_core::{build_behavioral_globals, evaluate_detailed, EvalOutcome, GlobalsPlan};
 use proptest::prelude::*;
 use serde_json::{json, Value};
 
@@ -373,7 +373,8 @@ fn verdict(outcome: EvalOutcome) -> String {
 }
 
 fn evaluate(bytecode: &[Value], event: &CohortStreamEvent) -> String {
-    let globals = build_behavioral_globals(event).expect("generated payloads are valid JSON");
+    let globals = build_behavioral_globals(event, GlobalsPlan::FULL)
+        .expect("generated payloads are valid JSON");
     verdict(evaluate_detailed(bytecode, globals))
 }
 

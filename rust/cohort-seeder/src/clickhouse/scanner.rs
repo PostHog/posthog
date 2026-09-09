@@ -544,7 +544,12 @@ fn active_event_names(run: &PinnedRun, active: &ActiveConditions) -> EventNameSe
                 run.filters
                     .behavioral_by_event_name
                     .get(*event_name)
-                    .is_some_and(|hashes| hashes.iter().any(|hash| active.get(hash).is_some()))
+                    .is_some_and(|bucket| {
+                        bucket
+                            .conditions
+                            .iter()
+                            .any(|hash| active.get(hash).is_some())
+                    })
             })
             .cloned(),
     )
