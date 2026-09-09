@@ -74,17 +74,14 @@ function pickDiffEditorOptions(sideBySide: boolean, hideUnchanged: boolean): edi
     return hideUnchanged ? DIFF_EDITOR_OPTIONS : SHOW_ALL_DIFF_EDITOR_OPTIONS
 }
 
-export function DiffEditor({
-    diff,
-    path,
-    sideBySide,
-    hideUnchanged = true,
-}: {
+export interface DiffEditorProps {
     diff: ToolCallDiffContent
     path?: string
     sideBySide?: boolean
     hideUnchanged?: boolean
-}): JSX.Element {
+}
+
+export function DiffEditor({ diff, path, sideBySide, hideUnchanged = true }: DiffEditorProps): JSX.Element {
     // Lazy-mount: only instantiate the Monaco diff editor once the card scrolls near the viewport.
     const { ref, inView } = useInView({ rootMargin: '500px', triggerOnce: true })
     // Match the surrounding app theme — without this Monaco falls back to its default `vs` (white) theme.

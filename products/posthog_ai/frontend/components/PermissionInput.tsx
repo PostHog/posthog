@@ -17,8 +17,8 @@ import type { PermissionRequestRecord } from '../types/streamTypes'
 import { resolveToolCall } from '../utils/toolResolver'
 import { isPlanApprovalModeOptionId, InlineEditableText, PlanApprovalSelector } from './PlanApprovalActions'
 import { DiffStats } from './tool/DiffStats'
-import { DiffEditor } from './tool/EditDiffRenderer'
 import { FilePath } from './tool/FilePath'
+import { LazyDiffEditor } from './tool/LazyDiffEditor'
 import { findAllDiffContent, getDiffStats } from './tool/toolDiffContent'
 import { lookupToolRenderer } from './tool/toolRegistry'
 
@@ -80,7 +80,7 @@ function PermissionEvidence({ request, label, payload }: PermissionEvidenceProps
                                 )}
                                 <DiffStats added={stats.added} removed={stats.removed} />
                             </div>
-                            <DiffEditor diff={diff} path={diff.path} sideBySide />
+                            <LazyDiffEditor diff={diff} path={diff.path} sideBySide />
                         </div>
                     )
                 })}
