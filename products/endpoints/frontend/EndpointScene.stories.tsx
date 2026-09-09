@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -37,6 +37,8 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/code/invites/check-access': () => [200, { has_access: false, has_loops_access: false }],
+                '/api/projects/:team_id/tasks/repositories': () => [200, { repositories: [] }],
                 '/api/environments/:team_id/endpoints': () => [200, { results: [endpoint], count: 1 }],
                 '/api/environments/:team_id/endpoints/:name': () => [200, endpoint],
                 '/api/environments/:team_id/endpoints/:name/versions': () => [200, { results: [endpoint], count: 1 }],
@@ -56,12 +58,21 @@ type Story = StoryObj<typeof meta>
 
 export const Versions: Story = {}
 
+export const IntegrationDisabled: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.PHAI_SANDBOX_MODE],
+        testOptions: { waitForSelector: '[data-attr="endpoint-query-tab"]' },
+    },
+}
+
 export const UnsavedChanges: Story = {
     render: function UnsavedChangesStory() {
+        const updateSimulated = useRef(false)
         const { endpoint: loadedEndpoint } = useValues(endpointSceneLogic)
         const { setDataFreshness, endpointChangedByAgent } = useActions(endpointSceneLogic)
         useEffect(() => {
-            if (loadedEndpoint?.name === endpoint.name) {
+            if (loadedEndpoint?.name === endpoint.name && !updateSimulated.current) {
+                updateSimulated.current = true
                 setDataFreshness(3600)
                 endpointChangedByAgent(endpoint.name)
             }
