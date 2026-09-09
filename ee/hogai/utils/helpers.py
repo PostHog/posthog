@@ -51,6 +51,7 @@ from ee.hogai.utils.types.base import (
     AssistantMessageUnion,
     ConversationTitleAction,
 )
+from ee.hogai.utils.untrusted import neutralize_markup
 
 
 def sanitize_for_system_reminder(text: str) -> str:
@@ -77,39 +78,42 @@ _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 # blow up every team member's prompt. The taxonomy already bounds the number of events per prompt.
 MAX_EVENT_DESCRIPTION_LENGTH = 500
 
-# Real names are short, so this only truncates a name already unusable in a query.
-MAX_TAXONOMY_NAME_LENGTH = 200
+# Definitions store a name up to 400 characters, so this truncates no name a project can save.
+MAX_TAXONOMY_NAME_LENGTH = 400
 
-# URLs and search terms are legitimately long, so values get more room than names.
-MAX_TAXONOMY_VALUE_LENGTH = 500
+# Bounds a hostile blob without reaching the URLs and search terms ordinary traffic sends.
+MAX_TAXONOMY_VALUE_LENGTH = 1000
+
+_LINE_BREAKS_RE = re.compile(r"[\r\n\u2028\u2029]")
 
 
-def _neutralize_untrusted_text(text: str, max_length: int) -> str:
-    """Flatten untrusted text to a single capped line and neutralize system_reminder framing."""
-    collapsed = re.sub(r"\s+", " ", _CONTROL_CHARS_RE.sub(" ", text)).strip()
-    if len(collapsed) > max_length:
-        collapsed = collapsed[:max_length].rstrip() + "…"
-    return sanitize_for_system_reminder(collapsed)
+def _defang(text: str, max_length: int) -> str:
+    """Cap the length, then defang markup so the text cannot forge the fences around it."""
+    if len(text) > max_length:
+        text = text[:max_length].rstrip() + "…"
+    return neutralize_markup(text)
+
+
+def _sanitize_taxonomy_text(text: str, max_length: int) -> str:
+    """Neutralize ingested taxonomy text before it goes into the model's context.
+
+    Anyone who can reach the project's capture endpoint chooses event names, property names, and
+    property values, so they are untrusted even though they read as schema. The prompts wrap them
+    in tagged blocks and list them one per line, so a line break or an angle bracket is enough to
+    close a fence and open a forged one.
+
+    Ordinary spacing is left alone. The model has to echo a name or a value back into a query that
+    compares it exactly, so this changes as little as it can.
+    """
+    return _defang(_LINE_BREAKS_RE.sub(" ", _CONTROL_CHARS_RE.sub(" ", text)), max_length)
 
 
 def sanitize_taxonomy_name(name: str) -> str:
-    """Neutralize an event or property name before it goes into the model's context.
-
-    Anyone who can reach the project's capture endpoint chooses these names, so they are untrusted
-    even though they read as schema. A name that keeps its line breaks can close the surrounding
-    block and open a forged one, which turns ingested text into instructions for another user's
-    agent session.
-    """
-    return _neutralize_untrusted_text(name, MAX_TAXONOMY_NAME_LENGTH)
+    return _sanitize_taxonomy_text(name, MAX_TAXONOMY_NAME_LENGTH)
 
 
 def sanitize_taxonomy_value(value: str) -> str:
-    """Neutralize a sample property value before it goes into the model's context.
-
-    Same untrusted ingestion path as the names, and the widest one: a value is free text that the
-    sender fully controls.
-    """
-    return _neutralize_untrusted_text(value, MAX_TAXONOMY_VALUE_LENGTH)
+    return _sanitize_taxonomy_text(value, MAX_TAXONOMY_VALUE_LENGTH)
 
 
 NOT_SEEN_RECENTLY_MARKER = "(not seen in the last 30 days)"
@@ -125,9 +129,10 @@ def sanitize_event_description(text: str) -> str:
     Event definition descriptions (and per-conversation context descriptions) are user-controlled
     project metadata, so they're treated as untrusted data: an editor could embed instructions that
     reach another user's agent session verbatim. Collapse control characters and whitespace so the
-    text can't break out of its line, cap the length, and neutralize system_reminder framing.
+    text can't break out of its line, cap the length, and defang the markup.
     """
-    return _neutralize_untrusted_text(text, MAX_EVENT_DESCRIPTION_LENGTH)
+    collapsed = re.sub(r"\s+", " ", _CONTROL_CHARS_RE.sub(" ", text)).strip()
+    return _defang(collapsed, MAX_EVENT_DESCRIPTION_LENGTH)
 
 
 def filter_and_merge_messages(

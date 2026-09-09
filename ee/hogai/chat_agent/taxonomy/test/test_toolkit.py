@@ -85,8 +85,9 @@ class TestTaxonomyAgentToolkit(BaseTest):
         result = self.toolkit._format_property_values(hostile_name, sample_values, len(sample_values))
 
         self.assertEqual(len([line for line in result.splitlines() if line.startswith("property:")]), 1)
-        self.assertNotIn("<system_reminder>", result)
-        self.assertIn("&lt;system_reminder&gt;", result)
+        # The formatter emits no angle bracket of its own, so any survivor came from the name.
+        self.assertNotIn("<", result)
+        self.assertIn("system_reminder", result)
 
     def test_handle_incorrect_response(self):
         class TestModel(BaseModel):
@@ -170,8 +171,8 @@ class TestTaxonomyAgentToolkit(BaseTest):
 
         yaml_result = self.toolkit._format_properties_yaml(props)
 
-        self.assertNotIn("<system_reminder>", yaml_result)
-        self.assertIn("&lt;system_reminder&gt;", yaml_result)
+        self.assertNotIn("<", yaml_result)
+        self.assertIn("system_reminder", yaml_result)
         self.assertIn("name: plan", yaml_result)
 
     @parameterized.expand(
