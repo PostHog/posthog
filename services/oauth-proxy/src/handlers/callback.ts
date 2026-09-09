@@ -1,4 +1,4 @@
-import { getCallbackRedirectUri } from '@/lib/kv'
+import { deleteFlowRecord, getFlowRecord } from '@/lib/kv'
 
 /**
  * OAuth Callback Interception — proxy receives the regional server's callback
@@ -15,15 +15,27 @@ export async function handleCallback(request: Request, kv: KVNamespace): Promise
         return new Response('Missing state parameter', { status: 400 })
     }
 
-    const originalRedirectUri = await getCallbackRedirectUri(kv, state)
-    if (!originalRedirectUri) {
+    const record = await getFlowRecord(kv, state)
+    if (!record) {
         return new Response('State expired or invalid', { status: 400 })
     }
 
-    // Forward all query params (code, state, error, error_description) to the client
-    const clientUrl = new URL(originalRedirectUri)
+    // A transient KV failure here should not turn an already-verified callback into a 500.
+    try {
+        await deleteFlowRecord(kv, state)
+    } catch {
+        console.warn(JSON.stringify({ handler: 'callback', error: 'flow_record_delete_failed' }))
+    }
+
+    const clientUrl = new URL(record.redirect_uri)
     for (const [key, value] of url.searchParams.entries()) {
+        if (key === 'state') {
+            continue
+        }
         clientUrl.searchParams.set(key, value)
+    }
+    if (record.state !== null) {
+        clientUrl.searchParams.set('state', record.state)
     }
 
     return Response.redirect(clientUrl.toString(), 302)

@@ -1,5 +1,11 @@
 import { type Region, baseUrlForRegion } from '@/lib/constants'
-import { type ClientMapping, getClientMapping, putCallbackRedirectUri, putRegionSelection } from '@/lib/kv'
+import {
+    type ClientMapping,
+    getClientMapping,
+    putCallbackRedirectUri,
+    putFlowRecord,
+    putRegionSelection,
+} from '@/lib/kv'
 import { type ValidationError, errorResponse } from '@/lib/validation'
 
 import REGION_PICKER_HTML from '../static/region-picker.html'
@@ -72,24 +78,22 @@ async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNames
         return errorResponse(redirectUriError)
     }
 
-    // Store region selection keyed by both state and client_id.
-    // The token exchange only has client_id (state is not sent to the token endpoint),
-    // but we also store by state for the callback interception.
+    // Region selection is keyed by client_id; the token exchange only has client_id
+    // (state is not sent to the token endpoint).
     const kvWrites: Promise<void>[] = []
-    if (state) {
-        kvWrites.push(putRegionSelection(kv, state, region))
-    }
     if (clientId) {
         kvWrites.push(putRegionSelection(kv, clientId, region))
     }
 
-    // Store original redirect_uri and intercept callback only for clients with stored
-    // redirect_uris (the proxy callback URL is only in their registered redirect_uris).
-    // Legacy clients without redirect_uris fall through to regional server validation.
+    // Intercept the callback only for clients with stored redirect_uris (the proxy
+    // callback URL is only in their registered redirect_uris). Legacy clients without
+    // redirect_uris fall through to regional server validation.
+    let nonce: string | null = null
     if (mapping?.redirect_uris && originalRedirectUri) {
-        if (state) {
-            kvWrites.push(putCallbackRedirectUri(kv, state, originalRedirectUri))
-        }
+        // Keyed by a proxy-generated nonce so nobody who merely knows the client's state
+        // can write or overwrite the record.
+        nonce = crypto.randomUUID()
+        kvWrites.push(putFlowRecord(kv, nonce, { redirect_uri: originalRedirectUri, state: state ?? null }))
         if (clientId) {
             kvWrites.push(putCallbackRedirectUri(kv, clientId, originalRedirectUri))
         }
@@ -111,6 +115,9 @@ async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNames
         if (key === '_region') {
             continue
         }
+        if (key === 'state' && nonce) {
+            continue
+        }
         if (key === 'client_id' && regionalClientId) {
             regionalUrl.searchParams.set(key, regionalClientId)
         } else if (key === 'redirect_uri' && mapping?.redirect_uris) {
@@ -118,6 +125,9 @@ async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNames
         } else {
             regionalUrl.searchParams.set(key, value)
         }
+    }
+    if (nonce) {
+        regionalUrl.searchParams.set('state', nonce)
     }
 
     return Response.redirect(regionalUrl.toString(), 302)

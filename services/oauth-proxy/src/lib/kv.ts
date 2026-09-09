@@ -12,9 +12,11 @@ export interface ClientMapping {
 const CLIENT_PREFIX = 'client:'
 const REGION_PREFIX = 'region:'
 const CALLBACK_PREFIX = 'callback:'
+const FLOW_PREFIX = 'flow:'
 
 const REGION_SELECTION_TTL = 3600
 const CALLBACK_TTL = 3600
+const FLOW_TTL = 3600
 
 // Cloudflare KV caps key names at 512 bytes. Callers may pass opaque values
 // (notably the OAuth `state` parameter) that exceed that limit, so we derive
@@ -55,6 +57,24 @@ export async function putCallbackRedirectUri(kv: KVNamespace, key: string, redir
 
 export async function getCallbackRedirectUri(kv: KVNamespace, key: string): Promise<string | null> {
     return kv.get(`${CALLBACK_PREFIX}${await hashKey(key)}`)
+}
+
+export interface FlowRecord {
+    redirect_uri: string
+    state: string | null
+}
+
+export async function putFlowRecord(kv: KVNamespace, nonce: string, record: FlowRecord): Promise<void> {
+    await kv.put(`${FLOW_PREFIX}${await hashKey(nonce)}`, JSON.stringify(record), { expirationTtl: FLOW_TTL })
+}
+
+export async function getFlowRecord(kv: KVNamespace, nonce: string): Promise<FlowRecord | null> {
+    const data = await kv.get(`${FLOW_PREFIX}${await hashKey(nonce)}`, 'json')
+    return data as FlowRecord | null
+}
+
+export async function deleteFlowRecord(kv: KVNamespace, nonce: string): Promise<void> {
+    await kv.delete(`${FLOW_PREFIX}${await hashKey(nonce)}`)
 }
 
 /**

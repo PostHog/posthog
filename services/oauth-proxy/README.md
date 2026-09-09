@@ -34,9 +34,11 @@ Trailing slashes are optional; paths are normalized before matching.
 2. **Authorize.**
    `/oauth/authorize` serves a static region picker.
    The picker re-requests the same URL with `_region=us|eu` appended.
-   The worker stores that choice in KV under both the `state` and the `client_id`, swaps in the regional `client_id`, replaces `redirect_uri` with the proxy callback, and redirects to the region.
+   The worker stores the region choice in KV under the `client_id`, swaps in the regional `client_id`, replaces `redirect_uri` with the proxy callback, and redirects to the region.
+   For clients with a stored `redirect_uris` list, it also generates a nonce, stores the client's original `redirect_uri` and `state` under it, and sends the regional server that nonce as `state` instead of the client's own.
 3. **Callback.**
-   The regional server sends the user to `/oauth/callback`, which looks up the client's original `redirect_uri` by `state` and forwards every query param on to it.
+   The regional server sends the user to `/oauth/callback` with the nonce from step 2 as `state`.
+   The worker looks up and deletes the matching record, then forwards every query param to the client's original `redirect_uri`, restoring the client's own `state`.
    The client never sees a regional URL, so its token request comes back through the proxy.
 4. **Token.**
    `/oauth/token` looks up the region by `client_id`.
@@ -54,13 +56,16 @@ Clients registered directly against a region keep their own `redirect_uri` and f
 
 ## KV keys
 
-| Key                 | TTL    | Value                                                           |
-| ------------------- | ------ | --------------------------------------------------------------- |
-| `client:<proxy_id>` | none   | US and EU `client_id`s, secrets, and registered `redirect_uris` |
-| `region:<sha256>`   | 1 hour | `us` or `eu`, stored under both `state` and `client_id`         |
-| `callback:<sha256>` | 1 hour | The client's original `redirect_uri`                            |
+| Key                 | TTL    | Value                                                                 |
+| ------------------- | ------ | --------------------------------------------------------------------- |
+| `client:<proxy_id>` | none   | US and EU `client_id`s, secrets, and registered `redirect_uris`       |
+| `region:<sha256>`   | 1 hour | `us` or `eu`, stored under `client_id`                                |
+| `callback:<sha256>` | 1 hour | The client's original `redirect_uri`, stored under `client_id`        |
+| `flow:<sha256>`     | 1 hour | The client's original `redirect_uri` and `state`, under a proxy nonce |
 
-Key material is SHA-256 hashed because `state` is opaque and can exceed Cloudflare's 512 byte key limit.
+Key material is SHA-256 hashed because `state` and the nonce are opaque and can exceed Cloudflare's 512 byte key limit.
+`flow:` records are deleted once `/oauth/callback` reads them, so a nonce is single-use.
+KV is eventually consistent across Cloudflare's edge locations, so this single-use guarantee is best effort; the authorization code itself is still single-use at the regional server.
 
 ## Development
 

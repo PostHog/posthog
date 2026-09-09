@@ -108,7 +108,7 @@ describe('handleAuthorize', () => {
         expect(data.error_description).toBe('redirect_uri is not registered for this client')
     })
 
-    it('stores region selection and callback redirect_uri keyed by state and client_id', async () => {
+    it('stores region selection and callback redirect_uri keyed by client_id, and a flow record keyed by nonce', async () => {
         const mapping = {
             us_client_id: 'us_id',
             eu_client_id: 'eu_id',
@@ -125,31 +125,43 @@ describe('handleAuthorize', () => {
         const request = new Request(
             'https://oauth.posthog.com/oauth/authorize/?client_id=us_id&redirect_uri=http://localhost:3000/callback&response_type=code&state=abc123&_region=eu'
         )
-        await handleAuthorize(request, mockKV)
+        const response = await handleAuthorize(request, mockKV)
+
+        // The outbound state is a proxy nonce, not the client's own state.
+        const location = new URL(response.headers.get('location')!)
+        const nonce = location.searchParams.get('state')!
+        expect(nonce).not.toBe('abc123')
 
         const putCalls = vi.mocked(mockKV.put).mock.calls
 
-        const stateHash = await hashKey('abc123')
         const clientHash = await hashKey('us_id')
+        const nonceHash = await hashKey(nonce)
 
-        // Region selection stored by both state and client_id
-        const regionByState = putCalls.find(([key]) => (key as string) === `region:${stateHash}`)
+        // Region selection stored by client_id only
         const regionByClient = putCalls.find(([key]) => (key as string) === `region:${clientHash}`)
-        expect(regionByState).toBeTruthy()
-        expect(regionByState![1]).toBe('eu')
         expect(regionByClient).toBeTruthy()
         expect(regionByClient![1]).toBe('eu')
 
-        // Callback redirect_uri stored by both state and client_id
-        const callbackByState = putCalls.find(([key]) => (key as string) === `callback:${stateHash}`)
+        // Callback redirect_uri stored by client_id (used by the token exchange)
         const callbackByClient = putCalls.find(([key]) => (key as string) === `callback:${clientHash}`)
-        expect(callbackByState).toBeTruthy()
-        expect(callbackByState![1]).toBe('http://localhost:3000/callback')
         expect(callbackByClient).toBeTruthy()
         expect(callbackByClient![1]).toBe('http://localhost:3000/callback')
+
+        // Flow record stored by the nonce, holding the client's original redirect_uri and state
+        const flowByNonce = putCalls.find(([key]) => (key as string) === `flow:${nonceHash}`)
+        expect(flowByNonce).toBeTruthy()
+        expect(JSON.parse(flowByNonce![1] as string)).toEqual({
+            redirect_uri: 'http://localhost:3000/callback',
+            state: 'abc123',
+        })
+
+        // Nothing is keyed by the client's own state anymore
+        const stateHash = await hashKey('abc123')
+        expect(putCalls.find(([key]) => (key as string) === `region:${stateHash}`)).toBeUndefined()
+        expect(putCalls.find(([key]) => (key as string) === `callback:${stateHash}`)).toBeUndefined()
     })
 
-    it('writes bounded-length KV keys even for very large state values', async () => {
+    it('writes bounded-length KV keys even for very large state values, and holds the state in the flow record', async () => {
         const mapping = {
             us_client_id: 'us_id',
             eu_client_id: 'eu_id',
@@ -171,11 +183,23 @@ describe('handleAuthorize', () => {
         const response = await handleAuthorize(request, mockKV)
 
         expect(response.status).toBe(302)
+
+        // The outbound state is the short proxy nonce, not the large client state.
+        const location = new URL(response.headers.get('location')!)
+        const nonce = location.searchParams.get('state')!
+        expect(nonce).not.toBe(longState)
+        expect(nonce.length).toBeLessThan(100)
+
         const putCalls = vi.mocked(mockKV.put).mock.calls
         expect(putCalls.length).toBeGreaterThan(0)
         for (const [key] of putCalls) {
             expect((key as string).length).toBeLessThanOrEqual(512)
         }
+
+        const nonceHash = await hashKey(nonce)
+        const flowRecord = putCalls.find(([key]) => (key as string) === `flow:${nonceHash}`)
+        expect(flowRecord).toBeTruthy()
+        expect((JSON.parse(flowRecord![1] as string) as { state: string }).state).toBe(longState)
     })
 
     it('passes redirect_uri through without interception for legacy clients (no stored redirect_uris)', async () => {
