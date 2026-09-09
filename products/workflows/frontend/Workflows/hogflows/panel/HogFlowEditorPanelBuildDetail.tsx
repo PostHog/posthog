@@ -12,9 +12,9 @@ import {
     LemonLabel,
     LemonSelect,
     LemonSwitch,
+    LemonTag,
 } from '@posthog/lemon-ui'
 
-import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 import { urls } from 'scenes/urls'
@@ -27,7 +27,7 @@ import { workflowLogic } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
-import { isEmailAction, isOptOutEligibleAction, isScheduleTrigger } from '../steps/types'
+import { isEmailAction, isOptOutEligibleAction } from '../steps/types'
 import type { HogFlowAction } from '../types'
 import { hogFlowOutputMappingLogic } from './hogFlowOutputMappingLogic'
 import { OutputTestResultTree } from './OutputTestResultTree'
@@ -76,49 +76,13 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     const hideFiltersPanel = isBranchingStep && !hasLegacyBranchingFilters
 
     return (
-        <div className="flex flex-col h-full overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <ScrollableShadows
                 direction="vertical"
                 className="flex-1 min-h-0"
                 innerClassName="flex flex-col gap-2 p-3"
                 styledScrollbars
             >
-                <div className="flex flex-col gap-1">
-                    <EditableField
-                        name="step-name"
-                        value={action.name}
-                        onSave={(value) => {
-                            const trimmed = value.trim()
-                            if (trimmed) {
-                                setWorkflowAction(action.id, { ...action, name: trimmed })
-                            }
-                        }}
-                        placeholder="Step name"
-                        minLength={1}
-                        saveOnBlur
-                        clickToEdit
-                        compactButtons
-                        compactIcon
-                        className="font-semibold text-base"
-                        data-attr="workflow-step-name"
-                    />
-                    {!isScheduleTrigger(action) && (
-                        <EditableField
-                            name="step-description"
-                            value={action.description || ''}
-                            onSave={(value) => setWorkflowAction(action.id, { ...action, description: value.trim() })}
-                            placeholder="Add a description (optional)"
-                            multiline
-                            saveOnBlur
-                            clickToEdit
-                            compactButtons
-                            compactIcon
-                            className="text-sm text-secondary"
-                            data-attr="workflow-step-description"
-                        />
-                    )}
-                </div>
-                <LemonDivider className="my-2" />
                 <ErrorBoundary exceptionProps={{ feature: 'workflow-step-config' }}>
                     {Step?.renderConfiguration(selectedNode)}
                 </ErrorBoundary>
@@ -430,7 +394,17 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                       ]),
                                 {
                                     key: 'on_error',
-                                    header: <span className="flex-1">Error handling</span>,
+                                    header: (
+                                        <>
+                                            <span className="flex-1">Error handling</span>
+                                            <LemonTag
+                                                size="small"
+                                                type={action.on_error === 'continue' ? 'success' : 'danger'}
+                                            >
+                                                {action.on_error === 'continue' ? 'Continue on error' : 'Exit on error'}
+                                            </LemonTag>
+                                        </>
+                                    ),
                                     content: (
                                         <div>
                                             <p>

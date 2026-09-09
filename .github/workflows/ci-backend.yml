@@ -1017,6 +1017,16 @@ jobs:
                   LEGACY_FILTERS: ${{ matrix.filters }}
                   LEGACY_PYTEST_ARGS: ${{ matrix.pytest_args }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+                  # Person-on-events v2 reads are the production default for every project
+                  # created since 2024-06-14, so product tests run with the mode on, as the
+                  # Core Django rows do. Without it a product query runner is only ever
+                  # tested in the legacy joined mode, and its snapshots record SQL that no
+                  # recent project executes. Tests that need the legacy mode pin it
+                  # themselves with override_settings.
+                  # marker: product-poe-default. The run block below greps the checked-out
+                  # workflow for this token to tell a head that carries the flip from one
+                  # that predates it.
+                  PERSON_ON_EVENTS_V2_ENABLED: 'true'
                   # products/tasks/backend/temporal moved here from the Django Temporal
                   # segment, and its conftest and workflows talk to Modal. Injected only
                   # when that directory changed, matching the gate the Django job used.
@@ -1046,6 +1056,16 @@ jobs:
               run: |
                   set +e
                   overall=0
+                  # The job checks out the PR head while this workflow runs merged with
+                  # master. A head that predates the person-on-events default lacks the
+                  # snapshots regenerated under that mode, so keep it on the legacy mode
+                  # until it rebases. Without this a fork or 'no-snapshot-update' PR, which
+                  # checks snapshots rather than updating them, fails on queries it never
+                  # changed. The marker sits on this step's env line in the checked-out copy.
+                  if [[ "$PERSON_ON_EVENTS_V2_ENABLED" == "true" ]] && ! grep -qF "marker: product-poe-default" .github/workflows/ci-backend.yml; then
+                      echo "::notice::Checked-out revision predates the person-on-events default, running product tests in legacy mode"
+                      export PERSON_ON_EVENTS_V2_ENABLED=false
+                  fi
                   # A workflow edit reaches an open PR before the script edit does, so a
                   # branch that has not rebased still plans the flat {filters, pytest_args}
                   # shape. Normalize that into one leg rather than requiring the new key.

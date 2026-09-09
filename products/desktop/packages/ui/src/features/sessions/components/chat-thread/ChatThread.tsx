@@ -47,6 +47,7 @@ import { ANALYTICS_EVENTS } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useSmoothedText } from "@posthog/ui/features/editor/components/useSmoothedText";
+import { hasUiAppResult } from "@posthog/ui/features/mcp-apps/hasUiAppResult";
 import type {
   BuildResult,
   ConversationItem,
@@ -210,11 +211,29 @@ function isThoughtItem(item: ConversationItem): boolean {
 }
 
 /**
+ * An item that must render as its own row, never folded into a `ToolGroupItem`:
+ * a plan awaiting approval, a show-actions handoff, or a call whose result
+ * carries a UI app. The next standalone item type joins this predicate instead
+ * of widening the condition at the call site.
+ *
+ * A UI-app call cannot ride in a group, and `keepMounted` on the group body is
+ * not the fix. It would keep every collapsed run's body mounted thread-wide,
+ * and a chart inside a group still stays invisible until the user expands it:
+ * while the run is live the group reads "Thinking…", so a rendered chart would
+ * hide behind a collapsed panel. Keeping the chart outside the group is the
+ * rule that fixes both.
+ */
+function rendersStandalone(item: ConversationItem): boolean {
+  return isPlanItem(item) || isShowActionsItem(item) || hasUiAppResult(item);
+}
+
+/**
  * Collapse each contiguous run of ≥2 tool-call updates into a single `ToolGroupItem`. A run is
  * broken by any *visible* non-tool, non-thought item (prose, status) so groups follow reading
  * order; invisible updates (see {@link INVISIBLE_UPDATES}) are transparent and don't split a run.
  * A lone tool call passes through untouched as a single marker, and so do the thoughts around it:
- * thoughts ride along a run, they never make one.
+ * thoughts ride along a run, they never make one. A standalone item (see
+ * {@link rendersStandalone}) flushes the run and passes through alone.
  */
 /**
  * Item arrays for settled runs, keyed on the run's (stable) first item.
@@ -266,7 +285,7 @@ export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
 
   for (const item of items) {
     if (isToolCallItem(item)) {
-      if (isPlanItem(item) || isShowActionsItem(item)) {
+      if (rendersStandalone(item)) {
         flush();
         out.push(item);
         continue;
