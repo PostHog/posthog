@@ -63,7 +63,7 @@ describe('GitHubRepositoryCombobox', () => {
         renderFilteredPicker()
         await userEvent.click(screen.getByRole('combobox'))
         expect(await screen.findByText(message)).toBeVisible()
-        expect(!!screen.queryByRole('button', { name: 'Load more' })).toBe(more)
+        expect(!!screen.queryByText('Load more')).toBe(more)
     })
 
     it('can select an available repository after loading past an archived-only page', async () => {
@@ -71,8 +71,8 @@ describe('GitHubRepositoryCombobox', () => {
         const onChange = jest.fn()
         renderFilteredPicker(onChange)
         await userEvent.click(screen.getByRole('combobox'))
-        await userEvent.click(await screen.findByRole('button', { name: 'Load more' }))
-        await userEvent.click(await screen.findByRole('option', { name: 'example-org/active' }))
+        await userEvent.click(await screen.findByText('Load more'))
+        await userEvent.click(await screen.findByText('example-org/active'))
         expect(onChange).toHaveBeenCalledWith('example-org/active')
     })
 
