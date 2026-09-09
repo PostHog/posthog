@@ -3,7 +3,13 @@ import pLimit from 'p-limit'
 
 import { logger } from '~/common/utils/logger'
 
-import { FetchCandidate, MAX_HOPS, UrlDropReason, parseCollectedUrlsRecord } from './collected-urls-record'
+import {
+    FetchCandidate,
+    MAX_HOPS,
+    UrlDropReason,
+    UrlSkipReason,
+    parseCollectedUrlsRecord,
+} from './collected-urls-record'
 import { CrawlHistoryItem, CrawlHistoryStore, UrlCrawlHistoryItem, configurationCacheKey } from './crawl-history'
 import { mergeDuplicateFetchCandidates } from './fetch-candidate-queue'
 import {
@@ -56,6 +62,7 @@ export class UrlFetchConsumer {
         const startedAt = process.hrtime.bigint()
         const republishDeadlineAtMonotonicMs = performance.now() + REPUBLISH_DEADLINE_FROM_BATCH_START_MS
         const drops = new Map<UrlDropReason, number>()
+        const skips = new Map<UrlSkipReason, number>()
         const rejectedRecords: RejectedFrontierRecord[] = []
         const candidatesByRef = new Map<string, FetchCandidate>()
         let dedupedInBatch = 0
@@ -83,6 +90,9 @@ export class UrlFetchConsumer {
                         message,
                         reasons: parsed.rejected.map((rejected) => rejected.reason),
                     })
+                }
+                for (const { reason } of parsed.skipped) {
+                    skips.set(reason, (skips.get(reason) ?? 0) + 1)
                 }
                 for (const candidate of parsed.candidates) {
                     const partitionCandidate = { ...candidate, sourcePartitions: [message.partition] }
@@ -131,6 +141,7 @@ export class UrlFetchConsumer {
 
             if (this.options.dryRun || candidates.length === 0) {
                 await this.parkRejectedRecords(rejectedRecords, drops)
+                this.countSkippedJobs(skips)
                 return
             }
 
@@ -207,6 +218,7 @@ export class UrlFetchConsumer {
                 throw new Error(`the image fetch lane could not account for ${lost} URLs`)
             }
             await this.parkRejectedRecords(rejectedRecords, drops)
+            this.countSkippedJobs(skips)
         } finally {
             ImageFetchConsumerMetrics.finishBatch(activeBatchId)
             this.recordMetrics(
@@ -229,6 +241,13 @@ export class UrlFetchConsumer {
                 error: error instanceof Error ? error.name : 'unknown',
             })
             return { ok: false, reason: 'malformed' }
+        }
+    }
+
+    /** Runs after the batch's durable work, so a batch that fails and is redelivered counts its skips once. */
+    private countSkippedJobs(skips: Map<UrlSkipReason, number>): void {
+        for (const [reason, count] of skips) {
+            ImageFetchConsumerMetrics.incSkipped(reason, count)
         }
     }
 

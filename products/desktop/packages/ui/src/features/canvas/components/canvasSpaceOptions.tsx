@@ -10,6 +10,7 @@ function optionForChannel(channel: Channel): CanvasMultiSelectOption {
     icon: channelGlyph(channel.name, {
       size: 16,
       personal,
+      private: channel.channelType === "private",
       space: true,
       className: "shrink-0 text-muted-foreground",
     }),

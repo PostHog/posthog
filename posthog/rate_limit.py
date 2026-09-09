@@ -607,6 +607,19 @@ class LlmsTxtFetchSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "200/hour"
 
 
+# Site discovery can fetch several small public resources per request and holds the web worker for
+# the complete chain. The project-wide API throttles do not cover session-authenticated requests,
+# so this separate team bucket also limits browser callers.
+class ContentAutopilotDiscoveryBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "content_autopilot_discovery_burst"
+    rate = "10/minute"
+
+
+class ContentAutopilotDiscoverySustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "content_autopilot_discovery_sustained"
+    rate = "100/hour"
+
+
 # The batch session-context endpoint computes experiment context for up to 20 recordings per
 # call, in up to several per-day ClickHouse scan sets — heavier than most ClickHouse endpoints
 # — and its primary caller is the session-authenticated replay/experiment UI, which the
@@ -623,6 +636,19 @@ class SessionContextsBurstRateThrottle(_TeamBucketRateThrottle):
 class SessionContextsSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "session_contexts_sustained"
     rate = "600/hour"
+
+
+# Feature flag request usage scans up to 31 days of billing events in ClickHouse. Its primary
+# caller is the session-authenticated feature flags UI, which the generic ClickHouse throttle
+# pair does not cover. Use a team-wide bucket so users and API keys share one query budget.
+class FeatureFlagRequestUsageBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "feature_flag_request_usage_burst"
+    rate = "30/minute"
+
+
+class FeatureFlagRequestUsageSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "feature_flag_request_usage_sustained"
+    rate = "300/hour"
 
 
 # Fingerprint projection runs t-SNE synchronously over up to 250 high-dimensional embeddings.
@@ -1167,8 +1193,15 @@ class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
 
     def get_rate(self):
         if settings.DEBUG:
-            return "1000/day"
-        return "5/day"
+            return "1000/week"
+        return "5/week"
+
+    def parse_rate(self, rate):
+        """DRF's period map stops at days. A week is spelled out rather than
+        written as 7 days so the rate reads as what it is everywhere it is logged."""
+        if isinstance(rate, str) and rate.endswith("/week"):
+            return int(rate.split("/")[0]), 7 * 24 * 60 * 60
+        return super().parse_rate(rate)
 
     def allow_request(self, request, view):
         """Always admit; the ceiling is the view's atomic reservation.
@@ -1212,9 +1245,9 @@ class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
 
 
 def reserve_wizard_mint(request, view, limit: int | None = None) -> str | None:
-    """Atomically consume one of this user's daily mints for this program, or raise.
+    """Atomically consume one of this user's weekly mints for this program, or raise.
 
-    `limit` replaces the throttle's daily count; None keeps the configured rate.
+    `limit` replaces the throttle's weekly count; None keeps the configured rate.
 
     Called immediately before the mint, after every gate, so a request refused by a
     gate spends nothing, while parallel requests cannot all slip under the ceiling
@@ -1222,8 +1255,8 @@ def reserve_wizard_mint(request, view, limit: int | None = None) -> str | None:
     slot unless the failure proves no token was issued; see refund_wizard_mint.
 
     Returns the counter it charged so the refund targets that exact key. Recomputing
-    the window at refund time would decrement the next day's counter for a request
-    spanning 00:00 UTC, handing out a free slot.
+    the window at refund time would decrement the next window's counter for a request
+    spanning the boundary, handing out a free slot.
 
     Fails open on a cache error: this bounds spend that the per-token cap and the
     wallet also bound, and a Redis blip must not turn a minted token into a 500.
@@ -1251,7 +1284,7 @@ def reserve_wizard_mint(request, view, limit: int | None = None) -> str | None:
         capture_exception(e)
         return None
     if count > (throttle.num_requests if limit is None else limit):
-        raise exceptions.Throttled(detail="This wizard program has used its daily run limit. Try again tomorrow.")
+        raise exceptions.Throttled(detail="This wizard program has used its weekly run limit. Try again next week.")
     return counter
 
 
@@ -1259,7 +1292,7 @@ def refund_wizard_mint(counter: str | None) -> None:
     """Return a reserved mint slot after a failure that issued no token.
 
     Only for failures that prove the gateway holds nothing: refunding one it did
-    mint would let a user exceed the daily ceiling. Swallows cache errors so a
+    mint would let a user exceed the weekly ceiling. Swallows cache errors so a
     refund can never turn the 503 the caller is already answering into a 500.
     """
     if counter is None:

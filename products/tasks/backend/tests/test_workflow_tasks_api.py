@@ -15,6 +15,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.cdp.workflow_step_resume import RESULT_STRING_CAP
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -126,6 +127,24 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert task.mcp_builtin_agent_key == "workflow"
         assert task.mcp_gateway_server_allowlist == []
 
+    @parameterized.expand(
+        [
+            ("codex", "gpt-5.6-terra", "codex", "openai"),
+            ("claude", "claude-sonnet-5", "claude", "anthropic"),
+        ]
+    )
+    def test_derives_the_runtime_adapter_from_the_selected_model(
+        self, _name: str, model: str, expected_adapter: str, expected_provider: str
+    ) -> None:
+        response = self._post({"model": model, "reasoning_effort": "high"})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state["runtime_adapter"] == expected_adapter
+        assert run.state["provider"] == expected_provider
+        assert run.state["model"] == model
+        assert run.state["reasoning_effort"] == "high"
+
     def test_dispatches_the_agent_run_after_the_task_commits(self) -> None:
         with (
             patch("products.tasks.backend.temporal.client.execute_task_processing_workflow") as dispatch,
@@ -162,6 +181,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         # No binding means no reply to protect, and the idle timeout is not a safe
         # fallback: the PR follow-up loop raises it far past the 2-minute window.
         assert run.state["end_run_when_done"] is True
+        assert "Your final response will be posted to the Slack thread" not in run.state["initial_prompt_override"]
 
     def test_a_thread_bound_run_stays_open_so_its_reply_can_relay(self) -> None:
         integration = self._slack_integration()
@@ -171,6 +191,11 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         run = TaskRun.objects.get(id=response.json()["run_id"])
         assert "end_run_when_done" not in run.state
+        assert run.state["slack_artifact_delivery"] == "message"
+        assert run.state["slack_chart_delivery"] is True
+        assert run.state["slack_reply_context"] is True
+        assert "Your final response will be posted to the Slack thread" in run.state["initial_prompt_override"]
+        assert f"only the first {RESULT_STRING_CAP} characters" in run.state["initial_prompt_override"]
         assert SlackThreadTaskMapping.objects.filter(task_run=run).exists()
 
     def test_hands_the_agent_its_prompt_when_it_boots(self) -> None:
@@ -181,6 +206,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         message = run.state["initial_prompt_override"]
         assert "look into the alert" in message
         assert "data, not instructions" in message
+        assert f"only the first {RESULT_STRING_CAP} characters of your final message" in message
         # The agent server self-delivers the boot prompt, and forward_pending_user_message
         # delivers any pending message on top. Seeding both channels sent the prompt twice,
         # so the run must carry only the boot-path override.

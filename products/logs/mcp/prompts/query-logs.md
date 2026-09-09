@@ -1,5 +1,11 @@
 Query log entries with filtering by severity, service name, date range, search term, and structured attribute filters. Supports cursor-based pagination. The response schema (see the tool's typed output) lists every returned field — prefer `severity_text` over `severity_number` / `level`, and be aware that `trace_id` and `span_id` return zero-padded strings rather than null when unset.
 
+All parameters go inside `query` — top-level fields are rejected:
+
+```json
+{ "query": { "serviceNames": ["api"], "dateRange": { "date_from": "-1h" } } }
+```
+
 Use `logs-attributes-list` and `logs-attribute-values-list` to discover available attributes before building filters.
 
 # Workflow — follow this order every time
@@ -18,8 +24,6 @@ CRITICAL: Be minimalist. Only include filters and settings that are essential to
 MANDATORY: Never call query-logs without setting `serviceNames` or at least one `log_resource_attribute` filter. Unfiltered log queries are too broad, expensive, and noisy. If the user hasn't specified a service, use the workflow above to discover services first, then ask or infer.
 
 MANDATORY: Always pass `query.dateRange` explicitly (e.g. `{ "date_from": "-1h" }`). Omitting it fails with a 400 `parse_error` ("Input should be a valid dictionary or instance of DateRange") — the server does not fall back to a default window.
-
-All parameters must be nested inside a `query` object.
 
 # Data narrowing
 
@@ -79,8 +83,6 @@ Do not invent a different attribute key based on what looks plausible — use th
 Use the `query.dateRange` field to control the time window — pass it on every call. If the question doesn't mention time, use the last hour: `{ "date_from": "-1h" }`. Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.
 
 # Parameters
-
-All parameters go inside `query`.
 
 ## query.severityLevels
 

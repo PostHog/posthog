@@ -7,6 +7,7 @@ import asyncio
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 import pytest
@@ -14,12 +15,15 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
+from django.core.cache import cache
 from django.db import OperationalError
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
+from temporalio.exceptions import ActivityError, TimeoutError, TimeoutType
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -30,7 +34,9 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_charts import ReportChart
+from products.signals.backend.scout_harness import run_costs
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, failure_streak_pause_threshold
@@ -60,9 +66,15 @@ from products.signals.backend.scout_harness.skill_loader import (
     resolve_scout_acting_user_id,
 )
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
-from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, run_signals_scout_activity
+from products.signals.backend.temporal.agentic.scout_scheduler import (
+    RunSignalsScoutInput,
+    RunSignalsScoutOutput,
+    RunSignalsScoutWorkflow,
+    run_signals_scout_activity,
+)
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -563,6 +575,56 @@ class TestBusinessKnowledgePromptSection(SimpleTestCase):
         # one of the untrusted sources a run may read, and must keep doing so.
         assert "business-knowledge-documents-search" not in unmaintained
         assert "business-knowledge-document-window-retrieve" not in unmaintained
+
+
+class TestWriteAccessPromptSection(SimpleTestCase):
+    # Each channel assembles its own tail list, so the gate can be lost on one channel alone.
+    @parameterized.expand(
+        [
+            ("signal_channel", []),
+            ("report_channel", ["emit_report", "edit_report"]),
+        ]
+    )
+    def test_section_names_only_the_objects_the_token_can_write(self, _name: str, allowed_tools: list[str]) -> None:
+        # Both failure modes cost a run: naming an object the scout was not granted earns it a
+        # refused tool call, and omitting the section leaves a scout granted write access still
+        # only describing the fix someone asked it to make.
+        def _prompt(*, write_scopes: list[str]) -> str:
+            return build_run_prompt(
+                LoadedSkill(
+                    name="signals-scout-hygiene",
+                    version=1,
+                    body="tidy",
+                    description="d",
+                    allowed_tools=allowed_tools,
+                    files=[],
+                    skill_id="skill-1",
+                    origin="custom",
+                    authors=[],
+                ),
+                run_id="00000000-0000-0000-0000-000000000abc",
+                team_id=1,
+                started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+                write_scopes=write_scopes,
+            )
+
+        granted = _prompt(write_scopes=["dashboard:write", "alert:write"])
+        assert "# Write access" in granted
+        assert "dashboards and their tiles" in granted
+        assert "insight alerts" in granted
+        assert "saved insights" not in granted
+        # The organization-wide reach is a fact about annotations only. Stating it for every grant
+        # would send a dashboard scout looking for sibling projects' objects that are not there.
+        assert "Annotations reach past this project" not in granted
+        assert "Annotations reach past this project" in _prompt(write_scopes=["annotation:write"])
+        # A custom scout is a skill, so the skills grant is the one that can change what a later
+        # run is told to do. Stating it for every grant would send a dashboard scout hunting for
+        # scout bodies it was never granted.
+        assert "Skills include the scouts themselves" not in granted
+        assert "Skills include the scouts themselves" in _prompt(write_scopes=["llm_skill:write"])
+
+        ungranted = _prompt(write_scopes=[])
+        assert "# Write access" not in ungranted
 
 
 class TestPromptBuilder(BaseTest):
@@ -1157,10 +1219,11 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aer
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
+async def test_run_tags_session_with_scout_attribution(ateam, aerrors_skill):
     # Scouts pass a `scout:<skill>` ai_stage to the sandbox session so every $ai_generation
     # carries it, letting scout spend be split out of the ai_product='signals' bucket (scouts
-    # have no report id) and attributed to one scout.
+    # have no report id) and attributed to one scout. The full skill name rides alongside it,
+    # because ai_stage collapses every team-authored scout to one value.
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     captured: dict = {}
 
@@ -1183,8 +1246,9 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
     ):
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
-    # `signals-scout-errors` is not a canonical scout, so its team-authored name is withheld.
+    # `signals-scout-errors` is not canonical, so only `ai_agent_name` can name it.
     assert captured["ai_stage"] == "scout:custom"
+    assert captured["ai_agent_name"] == "signals-scout-errors"
 
 
 @pytest.mark.asyncio
@@ -1267,6 +1331,82 @@ async def test_run_passes_the_per_scout_server_selection_and_no_credential_owner
     assert captured["mcp_builtin_agent_key"] == "scout"
     assert captured.get("mcp_credential_owner_id") is None
     assert captured["mcp_gateway_server_ids"] == ["11111111-1111-1111-1111-111111111111"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "emit,acting_user_resolves,expected_grant,expected_mcp_scopes",
+    [
+        pytest.param(
+            True,
+            True,
+            ["dashboard:write"],
+            {"preset": "signals_scout", "extra_write_scopes": ["dashboard:write"]},
+            id="live_run_holds_the_grant",
+        ),
+        # Dry run is how a person previews a scout before trusting it, so a dry run that could
+        # edit dashboards would do the thing they wanted to look at first.
+        pytest.param(False, True, [], "signals_scout", id="dry_run_holds_no_grant"),
+        # The grant was approved for the person the runs act as. When that identity no longer
+        # resolves, the team fallback is a member who never approved it and cannot revoke it.
+        pytest.param(True, False, [], "signals_scout", id="team_fallback_holds_no_grant"),
+    ],
+)
+async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_run(
+    ateam, aerrors_skill, emit, acting_user_resolves, expected_grant, expected_mcp_scopes
+):
+    # The grant is what the run's token carries, so a composition that loses it leaves a scout
+    # unable to do the job it was granted for, and one that passes the column through unfiltered
+    # would let a stored scope the allowlist has since dropped reach the token.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    def _seed_config() -> None:
+        SignalScoutConfig.objects.unscoped().create(
+            team_id=ateam.id,
+            skill_name="signals-scout-errors",
+            emit=emit,
+            write_scopes=["dashboard:write", "feature_flag:write"],
+        )
+
+    await database_sync_to_async(_seed_config, thread_sensitive=False)()
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_scout_acting_user_id",
+            return_value=42 if acting_user_resolves else None,
+        ),
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    # A scout without a grant is dispatched as the plain preset string. The posture dict is the
+    # newer wire shape, and a sandbox worker one deploy behind reads it as a list of its keys,
+    # which mints a token with no scout scopes at all. Only a scout that holds a grant pays that
+    # compatibility cost.
+    assert captured["context"].posthog_mcp_scopes == expected_mcp_scopes
+    # Stamped at run creation, because the config's grant can be widened or revoked afterwards and
+    # would otherwise rewrite what past runs are recorded as having been able to change.
+    metadata = await database_sync_to_async(
+        lambda: SignalScoutRun.objects.unscoped().filter(team_id=ateam.id).latest("created_at").metadata or {},
+        thread_sensitive=False,
+    )()
+    assert metadata.get("write_scopes", []) == expected_grant
 
 
 @pytest.mark.asyncio
@@ -2234,21 +2374,33 @@ async def test_activity_returns_skip_outcome_when_already_running(ateam):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("billing_limited", "daily_limited", "expected_skip_reason"),
+    ("quota_gate", "daily_limited", "expected_skip_reason"),
     [
-        (True, False, "quota_limited"),
-        (False, True, "daily_report_limit"),
-        (True, True, "quota_limited"),
+        (SelfDrivingQuotaGate(limited=True, enforced=True), False, "quota_limited"),
+        (SelfDrivingQuotaGate(limited=False, enforced=False), True, "daily_report_limit"),
+        (SelfDrivingQuotaGate(limited=True, enforced=True), True, "quota_limited"),
+        # Dark launch: a limited team with enforcement off still runs, and still reports the pause.
+        (SelfDrivingQuotaGate(limited=True, enforced=False), False, None),
     ],
 )
 async def test_activity_skips_run_attributed_to_the_limit_that_fired(
-    ateam, billing_limited, daily_limited, expected_skip_reason
+    ateam, quota_gate, daily_limited, expected_skip_reason
 ):
-    fake_arun = AsyncMock()
+    fake_arun = AsyncMock(
+        return_value=RunResult(
+            run_id="abc",
+            task_run_id="def",
+            status="completed",
+            last_message="ok",
+            runtime_s=1.5,
+            skill_name="signals-scout-errors",
+            skill_version=2,
+        )
+    )
     with (
         patch(
-            "products.signals.backend.temporal.agentic.scout_scheduler.is_team_signals_quota_limited",
-            return_value=billing_limited,
+            "products.signals.backend.temporal.agentic.scout_scheduler.self_driving_quota_gate",
+            return_value=quota_gate,
         ),
         patch(
             "products.signals.backend.temporal.agentic.scout_scheduler.daily_report_limit_gate",
@@ -2256,7 +2408,10 @@ async def test_activity_skips_run_attributed_to_the_limit_that_fired(
         ),
         patch(
             "products.signals.backend.temporal.agentic.scout_scheduler.capture_signal_report_daily_limit_paused"
-        ) as capture,
+        ) as capture_daily,
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.capture_signal_report_quota_paused"
+        ) as capture_quota,
         patch("products.signals.backend.scout_harness.runner.arun_signals_scout", fake_arun),
     ):
         env = ActivityEnvironment()
@@ -2265,16 +2420,24 @@ async def test_activity_skips_run_attributed_to_the_limit_that_fired(
             RunSignalsScoutInput(team_id=ateam.id, skill_name="signals-scout-errors"),
         )
 
-    fake_arun.assert_not_called()
-    assert output.run_id is None
-    assert output.status is None
     assert output.skip_reason == expected_skip_reason
-    # The capture event tracks its own gate: it fires whenever the daily limit binds, even when
-    # the quota skip wins the single-status run counter.
-    if daily_limited:
-        assert capture.call_args.kwargs["stage"] == "scout_run"
+    if expected_skip_reason is None:
+        fake_arun.assert_called_once()
     else:
-        capture.assert_not_called()
+        fake_arun.assert_not_called()
+        assert output.run_id is None
+        assert output.status is None
+    # Each capture tracks its own gate: it fires whenever that limit binds, even when the other
+    # one wins the single-status run counter, and a dark-launch pause is reported without blocking.
+    if quota_gate.limited:
+        assert capture_quota.call_args.kwargs["stage"] == "scout_run"
+        assert capture_quota.call_args.kwargs["enforced"] is quota_gate.enforced
+    else:
+        capture_quota.assert_not_called()
+    if daily_limited:
+        assert capture_daily.call_args.kwargs["stage"] == "scout_run"
+    else:
+        capture_daily.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -2295,8 +2458,8 @@ async def test_activity_runs_when_team_under_signals_quota(ateam):
 
     with (
         patch(
-            "products.signals.backend.temporal.agentic.scout_scheduler.is_team_signals_quota_limited",
-            return_value=False,
+            "products.signals.backend.temporal.agentic.scout_scheduler.self_driving_quota_gate",
+            return_value=SelfDrivingQuotaGate(limited=False, enforced=False),
         ),
         patch("products.signals.backend.scout_harness.runner.arun_signals_scout", side_effect=fake_arun),
     ):
@@ -2472,3 +2635,226 @@ class TestRunRowProvenanceStamps(BaseTest):
             business_knowledge_maintained=True,
         )
         assert (run.metadata or {})["business_knowledge_maintained"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("workflow_origin_key,wakes", [("job:step:1", True), (None, False)])
+async def test_activity_wakes_the_workflow_step_that_started_the_run(ateam, workflow_origin_key, wakes):
+    async def fake_arun(**_kwargs):
+        return RunResult(
+            run_id="abc",
+            task_run_id="def",
+            status="completed",
+            last_message="Two regressions found",
+            runtime_s=1.5,
+            skill_name="signals-scout-errors",
+            skill_version=2,
+        )
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.arun_signals_scout", side_effect=fake_arun),
+        patch("products.signals.backend.temporal.agentic.scout_scheduler.emit_workflow_step_resume") as resume,
+    ):
+        await ActivityEnvironment().run(
+            run_signals_scout_activity,
+            RunSignalsScoutInput(
+                team_id=ateam.id, skill_name="signals-scout-errors", workflow_origin_key=workflow_origin_key
+            ),
+        )
+
+    assert resume.call_count == (1 if wakes else 0)
+    if wakes:
+        resume.assert_called_once_with(
+            team_id=ateam.id,
+            origin_key="job:step:1",
+            status="completed",
+            result={"run_id": "abc", "summary": "Two regressions found", "error_message": None},
+            raise_on_error=False,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["completed", "preflight_error", "timeout", "cancelled"])
+@pytest.mark.parametrize("workflow_origin_key", ["job:step:1", None])
+async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_cannot(outcome, workflow_origin_key):
+    output = RunSignalsScoutOutput(
+        run_id="abc",
+        task_run_id="def",
+        status="completed",
+        runtime_s=1.5,
+        skill_name="signals-scout-errors",
+        skill_version=2,
+        last_message="Two regressions found",
+    )
+    error = ActivityError(
+        "Scout activity failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="worker",
+        activity_type="run_signals_scout_activity",
+        activity_id="scout",
+        retry_state=None,
+    )
+    error.__cause__ = (
+        TimeoutError("Heartbeat timed out", type=TimeoutType.HEARTBEAT, last_heartbeat_details=[])
+        if outcome == "timeout"
+        else RuntimeError("Preflight failed")
+    )
+
+    async def execute_activity(activity_function, input=None, **kwargs):
+        if activity_function is run_signals_scout_activity:
+            if outcome == "cancelled":
+                raise asyncio.CancelledError()
+            if outcome != "completed":
+                raise error
+            return output
+        return ActivityEnvironment().run(activity_function, *kwargs["args"])
+
+    with (
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.patched", return_value=True
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.execute_activity",
+            side_effect=execute_activity,
+        ),
+        patch("products.signals.backend.temporal.agentic.scout_scheduler.emit_workflow_step_resume") as resume,
+    ):
+        workflow = RunSignalsScoutWorkflow()
+        input = RunSignalsScoutInput(team_id=7, skill_name=output.skill_name, workflow_origin_key=workflow_origin_key)
+        if outcome == "completed":
+            assert await workflow.run(input) == output
+        else:
+            with pytest.raises(asyncio.CancelledError if outcome == "cancelled" else ActivityError):
+                await workflow.run(input)
+
+    if workflow_origin_key is None:
+        resume.assert_not_called()
+    else:
+        resume.assert_called_once()
+        assert resume.call_args.kwargs["origin_key"] == workflow_origin_key
+        assert resume.call_args.kwargs["status"] == (outcome if outcome in ("completed", "cancelled") else "failed")
+        assert resume.call_args.kwargs["raise_on_error"] is True
+
+
+class TestScoutRunTokenCosts(BaseTest):
+    """The staff-only per-run cost read behind the roster's run tooltips."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def _run(
+        self,
+        *,
+        team: Team | None = None,
+        task_run_status: str | None = None,
+        settled_seconds_ago: int | None = None,
+    ) -> SignalScoutRun:
+        team = team or self.team
+        task_run = _make_task_run(team)
+        if task_run_status is not None:
+            task_run.status = task_run_status
+            task_run.save(update_fields=["status"])
+        if settled_seconds_ago is not None:
+            task_run.completed_at = timezone.now() - timedelta(seconds=settled_seconds_ago)
+            task_run.save(update_fields=["completed_at"])
+        config, _ = SignalScoutConfig.objects.get_or_create(team=team, skill_name="signals-scout-general")
+        return SignalScoutRun.objects.create(
+            team=team,
+            task_run=task_run,
+            scout_config=config,
+            skill_name="signals-scout-general",
+            skill_version=1,
+        )
+
+    def test_prices_each_run_and_serves_a_settled_run_from_cache(self) -> None:
+        run = self._run(task_run_status="completed")
+        with patch.object(
+            run_costs, "get_local_task_run_token_costs", return_value={str(run.task_run_id): Decimal("1.5")}
+        ) as query:
+            first = run_costs.scout_run_token_costs(team_id=self.team.id, run_ids=[run.id])
+            second = run_costs.scout_run_token_costs(team_id=self.team.id, run_ids=[run.id])
+
+        assert first.available
+        assert first.costs == [run_costs.ScoutRunTokenCost(run_id=str(run.id), token_cost_usd=Decimal("1.5"))]
+        assert second.costs == first.costs
+        # The roster polls every 60s and a settled run's spend is final, so the second read must not
+        # re-run the query.
+        query.assert_called_once()
+        called = query.call_args.kwargs
+        assert called["origin_product"] == "signals_scout"
+        # The HogQL escaper dispatches on the exact class, so a `TextChoices` member in the constant
+        # raises before the query runs. Equality alone does not catch that.
+        assert type(called["origin_product"]) is str
+        assert called["task_run_ids"] == [run.task_run_id]
+        # The window has to open before the run did, or the sum finds none of its generations.
+        assert called["generated_after"] < run.created_at
+
+    def test_run_with_no_attributed_generations_reads_as_unknown(self) -> None:
+        # A run that failed before its first model call must not read as "$0.00 spent".
+        run = self._run(task_run_status="failed")
+        with patch.object(run_costs, "get_local_task_run_token_costs", return_value={}):
+            costs = run_costs.scout_run_token_costs(team_id=self.team.id, run_ids=[run.id])
+
+        assert costs.available
+        assert costs.costs == [run_costs.ScoutRunTokenCost(run_id=str(run.id), token_cost_usd=None)]
+
+    @parameterized.expand(
+        [
+            ("in_progress", "in_progress", None, Decimal("1"), run_costs.LIVE_RUN_COST_CACHE_TIMEOUT_SECONDS),
+            ("completed", "completed", None, Decimal("1"), run_costs.SETTLED_RUN_COST_CACHE_TIMEOUT_SECONDS),
+            ("completed but unpriced", "completed", None, None, run_costs.LIVE_RUN_COST_CACHE_TIMEOUT_SECONDS),
+            ("settled seconds ago", "completed", 5, Decimal("1"), run_costs.LIVE_RUN_COST_CACHE_TIMEOUT_SECONDS),
+            ("settled long ago", "completed", 60 * 60, Decimal("1"), run_costs.SETTLED_RUN_COST_CACHE_TIMEOUT_SECONDS),
+        ]
+    )
+    def test_only_a_known_total_on_a_settled_run_is_cached_for_long(
+        self,
+        _name: str,
+        task_run_status: str,
+        settled_seconds_ago: int | None,
+        cost: Decimal | None,
+        expected_timeout: int,
+    ) -> None:
+        # A run still generating keeps spending, so caching its partial total for as long as a
+        # finished run's would leave the roster showing a number that stopped moving. A settled run
+        # with nothing attributed is the other unfinished answer: its generations may still be
+        # crossing capture, or its model may not be priced yet, and both resolve within the hour.
+        # A run that settled seconds ago is the same case with a number attached: the total can be
+        # short of its last generations until they land.
+        run = self._run(task_run_status=task_run_status, settled_seconds_ago=settled_seconds_ago)
+        with (
+            patch.object(
+                run_costs,
+                "get_local_task_run_token_costs",
+                return_value={str(run.task_run_id): cost} if cost is not None else {},
+            ),
+            patch.object(run_costs.cache, "set") as cache_set,
+        ):
+            run_costs.scout_run_token_costs(team_id=self.team.id, run_ids=[run.id])
+
+        assert cache_set.call_args.kwargs["timeout"] == expected_timeout
+
+    def test_unreadable_cost_project_is_reported_rather_than_priced_at_zero(self) -> None:
+        # The generations live in one region's internal project, so a deployment that can't read it
+        # has to say the cost is unknown.
+        run = self._run(task_run_status="completed")
+        with patch.object(run_costs, "get_local_task_run_token_costs", side_effect=TaskTokenUsageUnavailable()):
+            costs = run_costs.scout_run_token_costs(team_id=self.team.id, run_ids=[run.id])
+
+        assert costs.available is False
+        assert costs.costs == []
+
+    def test_another_teams_run_is_not_priced(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        mine = self._run(task_run_status="completed")
+        theirs = self._run(team=other_team, task_run_status="completed")
+        with patch.object(
+            run_costs, "get_local_task_run_token_costs", return_value={str(mine.task_run_id): Decimal("1")}
+        ) as query:
+            costs = run_costs.scout_run_token_costs(team_id=self.team.id, run_ids=[mine.id, theirs.id])
+
+        assert [cost.run_id for cost in costs.costs] == [str(mine.id)]
+        assert query.call_args.kwargs["task_run_ids"] == [mine.task_run_id]

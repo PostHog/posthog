@@ -32,6 +32,7 @@ import { useChannelItemMetadata } from "@posthog/ui/features/canvas/hooks/useCha
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { InlineEditInput } from "@posthog/ui/features/sidebar/components/items/TaskItem";
 import {
   PinnedBadge,
@@ -50,6 +51,7 @@ import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSe
 import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
 import { useMountedOnceOpened } from "@posthog/ui/hooks/useMountedOnceOpened";
 import { useNow } from "@posthog/ui/hooks/useNow";
+import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
 import {
   type DragEvent,
   type ReactNode,
@@ -155,12 +157,10 @@ function CanvasBadgeStack({
 function rowAuthor(
   item: ChannelItemModel,
 ): { user: AvatarPerson; label: string } | null {
-  if (item.kind === "task") {
-    if (!item.authorUser) return null;
+  if (item.authorUser) {
     return { user: item.authorUser, label: userDisplayName(item.authorUser) };
   }
-  // A canvas carries only a display name and uuid — no email or photo — so its
-  // face is an initials bubble seeded off the uuid.
+  if (item.kind === "task") return null;
   const name = item.authorName;
   if (!name && !item.authorUuid) return null;
   const [first, ...rest] = (name ?? "").split(/\s+/).filter(Boolean);
@@ -182,11 +182,23 @@ function rowAuthor(
  * so a row that is idle now stays idle until its item changes, and re-rendering
  * it every minute would buy nothing. Only a row with a face to fade subscribes.
  */
-function RowPresence({ item }: { item: ChannelItemModel }) {
+function RowPresence({
+  item,
+  currentUserUuid,
+}: {
+  item: ChannelItemModel;
+  currentUserUuid?: string;
+}) {
   const author = rowAuthor(item);
   if (!author) return null;
   if (presenceTier(item.ts, Date.now()) === "idle") return null;
-  return <ActiveRowPresence item={item} author={author} />;
+  return (
+    <ActiveRowPresence
+      item={item}
+      author={author}
+      isCurrentUser={author.user.uuid === currentUserUuid}
+    />
+  );
 }
 
 /**
@@ -197,9 +209,11 @@ function RowPresence({ item }: { item: ChannelItemModel }) {
 function ActiveRowPresence({
   item,
   author,
+  isCurrentUser,
 }: {
   item: ChannelItemModel;
   author: NonNullable<ReturnType<typeof rowAuthor>>;
+  isCurrentUser: boolean;
 }) {
   const tier = presenceTier(item.ts, useNow());
   if (tier === "idle") return null;
@@ -208,9 +222,13 @@ function ActiveRowPresence({
       user={author.user}
       tier={tier}
       label={
-        tier === "live"
-          ? `${author.label} is working on this`
-          : `${author.label} was here recently`
+        isCurrentUser && tier === "live"
+          ? "You are working on this"
+          : isCurrentUser
+            ? "You were here recently"
+            : tier === "live"
+              ? `${author.label} is working on this`
+              : `${author.label} was here recently`
       }
     />
   );
@@ -249,8 +267,10 @@ export function ChannelItemRowView({
   subtitle,
   isActive,
   isSelected = false,
+  isArchiving = false,
   showPinBadge = true,
   draggable = false,
+  currentUserUuid,
   onClick,
   onDragStart,
   onDragEnd,
@@ -261,8 +281,10 @@ export function ChannelItemRowView({
   subtitle?: ReactNode;
   isActive: boolean;
   isSelected?: boolean;
+  isArchiving?: boolean;
   showPinBadge?: boolean;
   draggable?: boolean;
+  currentUserUuid?: string;
   onClick?: (e: React.MouseEvent) => void;
   onDragStart?: (e: DragEvent) => void;
   onDragEnd?: (e: DragEvent) => void;
@@ -273,18 +295,30 @@ export function ChannelItemRowView({
       // The space's lists follow web conventions — every clickable row shows a
       // pointer, like the feed and activity rows — unlike the Code sidebar,
       // which keeps SidebarItem's native cursor-default.
-      className="cursor-pointer"
+      className={isArchiving ? "cursor-default" : "cursor-pointer"}
       depth={0}
-      icon={<ChannelItemDot item={item} status={status} />}
+      icon={
+        isArchiving ? (
+          <>
+            <DotsCircleSpinner size={12} className="text-muted-foreground" />
+            <span className="sr-only">Archiving</span>
+          </>
+        ) : (
+          <ChannelItemDot item={item} status={status} />
+        )
+      }
       // A non-string label opts out of SidebarItem's truncation tooltip.
       label={<span>{item.title}</span>}
       subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}
+      aria-busy={isArchiving || undefined}
+      isDimmed={isArchiving}
+      disabled={isArchiving}
       // Lets a drag-selection find the row and its session; canvases are not
       // selectable, so they stay unmarked and the marquee passes over them.
       {...(item.kind === "task" ? { [SESSION_ROW_ATTRIBUTE]: item.id } : {})}
-      draggable={draggable}
+      draggable={draggable && !isArchiving}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onClick={onClick}
@@ -292,7 +326,7 @@ export function ChannelItemRowView({
         <span className={TRAILING_CLASS}>
           {/* Who's here, ahead of the badges: presence is the row's most
               time-sensitive fact, and it's absent on a quiet row. */}
-          <RowPresence item={item} />
+          <RowPresence item={item} currentUserUuid={currentUserUuid} />
           {/* Badges take the timestamp's slot: identity (pin, source, cloud,
               PR) is what you scan a task list for, and the age is still on the
               preview card. */}
@@ -367,6 +401,16 @@ export function ChannelItemRow({
 }) {
   const status = useChannelTaskStatus(item);
   const subtitle = useChannelItemMetadata(item);
+  const archivePresentation = useArchivingTasksStore((state) =>
+    item.kind !== "task"
+      ? null
+      : state.hiddenArchivingTaskIds.has(item.id)
+        ? "hidden"
+        : state.archivingTaskIds.has(item.id)
+          ? "progress"
+          : null,
+  );
+  const isArchiving = archivePresentation === "progress";
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [handoffOpen, setHandoffOpen] = useState(false);
   const handoffMounted = useMountedOnceOpened(handoffOpen);
@@ -451,7 +495,9 @@ export function ChannelItemRow({
     ],
   );
 
-  if (isEditing) {
+  if (archivePresentation === "hidden") return null;
+
+  if (isEditing && !isArchiving) {
     return (
       <InlineEditInput
         depth={0}
@@ -466,24 +512,36 @@ export function ChannelItemRow({
 
   // One tooltip provider per task row, shared by its dot and badges so moving
   // between them doesn't re-wait the open delay. Canvas rows have neither.
-  const row = (
+  const rowView = (
+    <ChannelItemRowView
+      item={item}
+      status={status}
+      subtitle={subtitle}
+      isActive={isActive}
+      isSelected={isSelected}
+      isArchiving={isArchiving}
+      showPinBadge={showPinBadge}
+      draggable
+      currentUserUuid={currentUser.data?.uuid}
+      onDragStart={handleDragStart}
+      onDragEnd={onDragEnd}
+      onClick={
+        isArchiving
+          ? undefined
+          : (e) => (onClick ? onClick(e) : actions.open(item))
+      }
+    />
+  );
+  const row = isArchiving ? (
+    rowView
+  ) : (
     <ChannelItemHoverCard item={item} menu={menu}>
-      <ChannelItemRowView
-        item={item}
-        status={status}
-        subtitle={subtitle}
-        isActive={isActive}
-        isSelected={isSelected}
-        showPinBadge={showPinBadge}
-        draggable
-        onDragStart={handleDragStart}
-        onDragEnd={onDragEnd}
-        onClick={(e) => (onClick ? onClick(e) : actions.open(item))}
-      />
+      {rowView}
     </ChannelItemHoverCard>
   );
 
   const tipped = <TaskStatusTooltips>{row}</TaskStatusTooltips>;
+  if (isArchiving) return tipped;
   // Right-click opens the same actions the hover card lists, from the same
   // definition, so the two can't drift.
   return (

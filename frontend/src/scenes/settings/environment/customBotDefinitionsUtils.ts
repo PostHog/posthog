@@ -14,6 +14,14 @@ export const CUSTOM_BOT_FIELD_OPTIONS: { value: CustomBotField; label: string }[
     { value: CustomBotField.Host, label: 'Host' },
     { value: CustomBotField.Pathname, label: 'Path name' },
     { value: CustomBotField.CurrentURL, label: 'Current URL' },
+    { value: CustomBotField.Browser, label: 'Browser' },
+    { value: CustomBotField.OS, label: 'OS' },
+    { value: CustomBotField.BrowserLanguage, label: 'Browser language' },
+    { value: CustomBotField.ScreenWidth, label: 'Screen width' },
+    { value: CustomBotField.ScreenHeight, label: 'Screen height' },
+    { value: CustomBotField.CountryCode, label: 'Country code' },
+    { value: CustomBotField.Referrer, label: 'Referrer' },
+    { value: CustomBotField.ReferringDomain, label: 'Referring domain' },
 ]
 
 const MATCHER_LABELS: Record<CustomBotMatcher, string> = {
@@ -69,6 +77,14 @@ export function patternPlaceholderFor(key: CustomBotField, matcher: CustomBotMat
             [CustomBotField.Host]: 'scraper.example.com',
             [CustomBotField.Pathname]: '/api/products',
             [CustomBotField.CurrentURL]: 'example.com/api',
+            [CustomBotField.Browser]: 'Chrome',
+            [CustomBotField.OS]: 'Linux',
+            [CustomBotField.BrowserLanguage]: '@posix',
+            [CustomBotField.ScreenWidth]: '800',
+            [CustomBotField.ScreenHeight]: '600',
+            [CustomBotField.CountryCode]: 'US',
+            [CustomBotField.Referrer]: 'scraper.example.com',
+            [CustomBotField.ReferringDomain]: 'scraper.example.com',
         }[key] ?? 'AcmeBot'
     )
 }

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { IconChat } from '@posthog/icons'
-import { LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import type { MultiQuestionFormQuestion } from '~/queries/schema/schema-assistant-messages'
 
@@ -14,6 +14,7 @@ import { QuestionField } from './QuestionField'
 interface QuestionInputProps {
     streamKey: string
     request: PermissionRequestRecord
+    disabled?: boolean
 }
 
 /** Adapt a sandbox question onto the `MultiQuestionFormQuestion` shape `QuestionField` renders. */
@@ -47,10 +48,11 @@ function selectedLabels(answer: string | string[] | undefined): string[] {
  * text — the agent reads `_meta.answers`; `optionId` only has to be a valid offered option (derived
  * from the first question's selection). `respondingToPermission` drives the loading / double-submit guard.
  */
-export function QuestionInput({ streamKey, request }: QuestionInputProps): JSX.Element | null {
+export function QuestionInput({ streamKey, request, disabled = false }: QuestionInputProps): JSX.Element | null {
     const boundLogic = runStreamLogic({ streamKey })
     const { respondToPermission } = useActions(boundLogic)
-    const { respondingToPermission } = useValues(boundLogic)
+    const { respondingToPermission: delivering } = useValues(boundLogic)
+    const respondingToPermission = delivering || disabled
 
     // Stable reference so the memoized callbacks below don't re-evaluate every render.
     const questions = useMemo(() => request.questions ?? [], [request.questions])
@@ -137,15 +139,6 @@ export function QuestionInput({ streamKey, request }: QuestionInputProps): JSX.E
         return null
     }
 
-    if (respondingToPermission) {
-        return (
-            <div className="flex items-center gap-2 text-muted p-3">
-                <Spinner className="size-4" />
-                <span>Sending response…</span>
-            </div>
-        )
-    }
-
     const isLast = currentIndex === questions.length - 1
 
     return (
@@ -164,6 +157,7 @@ export function QuestionInput({ streamKey, request }: QuestionInputProps): JSX.E
             <div className="font-medium text-sm">{question.question}</div>
             <QuestionField
                 key={currentIndex}
+                disabled={respondingToPermission}
                 question={toFormQuestion(question, currentIndex)}
                 value={answers[currentIndex]}
                 onAnswer={handleAnswer}

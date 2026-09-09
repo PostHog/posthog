@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 6 enabled ops
+ * PostHog API - MCP 8 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1291,13 +1291,13 @@ export const AlertsCreateBody = () => zod.object({
         .boolean()
         .optional()
         .describe(
-            'When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.'
+            'When enabled, an investigation agent runs on each check where the alert fires, up to three times per firing episode, and writes findings to a Notebook linked from the alert check. An episode is the run of consecutive firing checks since the last check that did not fire. A later investigation of the same episode that reaches a different verdict sends one follow-up notification, unless investigation_inconclusive_action suppresses it. Only effective for detector-based (anomaly) alerts.'
         ),
     investigation_gates_notifications: zod
         .boolean()
         .optional()
         .describe(
-            'When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls.'
+            'When enabled (and investigation_agent_enabled is on), the first fire of an episode is held until the investigation agent produces a verdict, and that notification is suppressed when the verdict is false_positive (and optionally when inconclusive). Later fires of the same episode notify without waiting. A safety-net task force-fires after a few minutes if the investigation stalls.'
         ),
     investigation_inconclusive_action: zod
         .enum(['notify', 'suppress'])
@@ -2620,13 +2620,13 @@ export const AlertsPartialUpdateBody = () => zod.object({
         .boolean()
         .optional()
         .describe(
-            'When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.'
+            'When enabled, an investigation agent runs on each check where the alert fires, up to three times per firing episode, and writes findings to a Notebook linked from the alert check. An episode is the run of consecutive firing checks since the last check that did not fire. A later investigation of the same episode that reaches a different verdict sends one follow-up notification, unless investigation_inconclusive_action suppresses it. Only effective for detector-based (anomaly) alerts.'
         ),
     investigation_gates_notifications: zod
         .boolean()
         .optional()
         .describe(
-            'When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls.'
+            'When enabled (and investigation_agent_enabled is on), the first fire of an episode is held until the investigation agent produces a verdict, and that notification is suppressed when the verdict is false_positive (and optionally when inconclusive). Later fires of the same episode notify without waiting. A safety-net task force-fires after a few minutes if the investigation stalls.'
         ),
     investigation_inconclusive_action: zod
         .enum(['notify', 'suppress'])
@@ -2644,6 +2644,58 @@ export const AlertsDestroyParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * Send this alert to a Slack channel as well as by email. The workspace must already be connected to the project. The returned IDs identify the destination.
+ */
+export const AlertsDestinationsCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this alert configuration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const alertsDestinationsCreateBodyTypeDefault = `slack`
+
+export const AlertsDestinationsCreateBody = () => zod.object({
+    type: zod
+        .enum(['slack'])
+        .describe('\* `slack` - slack')
+        .default(alertsDestinationsCreateBodyTypeDefault)
+        .describe('Destination type. Slack is the only type this endpoint creates.\n\n\* `slack` - slack'),
+    slack_workspace_id: zod
+        .number()
+        .describe('Integration ID of the Slack workspace to post in. List them with the integrations endpoint.'),
+    slack_channel_id: zod.string().describe('Slack channel ID to post in, for example C0123456789.'),
+    slack_channel_name: zod
+        .string()
+        .optional()
+        .describe('Channel name shown on the destination, for example product-alerts.'),
+})
+
+/**
+ * Stop sending this alert to a destination. The alert keeps its email recipients.
+ */
+export const AlertsDestinationsDeleteCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this alert configuration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const alertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 100
+
+export const AlertsDestinationsDeleteCreateBody = () => zod.object({
+    hog_function_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(alertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
+        .describe('Destination IDs to delete, as returned when the destination was created.'),
 })
 
 /**

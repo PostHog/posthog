@@ -10,6 +10,7 @@ import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { SupportedPlatforms } from 'lib/components/SupportedPlatforms/SupportedPlatforms'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { IconLink } from 'lib/lemon-ui/icons'
@@ -37,6 +38,7 @@ import {
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
@@ -413,15 +415,22 @@ export function Settings({
     )
 }
 
-function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }): JSX.Element {
-    const { settings: allSettings, selectedLevel, selectedSectionId, selectedSetting } = useValues(settingsLogic(props))
+function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }): JSX.Element | null {
+    const {
+        settings: allSettings,
+        selectedLevel,
+        selectedSection,
+        selectedSectionId,
+        selectedSetting,
+    } = useValues(settingsLogic(props))
     const { selectSetting } = useActions(settingsLogic(props))
+    const { user } = useValues(userLogic)
 
     const settingsInSidebar = !!selectedSetting && !!props.sectionId
 
     const settings = settingsInSidebar ? [selectedSetting] : allSettings
 
-    return (
+    const content = (
         <div className="flex flex-col gap-y-8">
             {settings.length ? (
                 settings.map((x, index) => (
@@ -464,6 +473,23 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                 <NotFound object="setting" />
             )}
         </div>
+    )
+
+    const payGate = selectedSection?.payGate
+    if (!payGate) {
+        return content
+    }
+
+    // One gate for the whole section, so the upsell appears once however many settings the
+    // section holds.
+    return (
+        <PayGateMini
+            feature={payGate.feature}
+            featureDetail={payGate.featureDetail}
+            overrideShouldShowGate={payGate.bypassForImpersonation && user?.is_impersonated}
+        >
+            {content}
+        </PayGateMini>
     )
 }
 

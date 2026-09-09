@@ -81,7 +81,6 @@ import {
     ReasoningAnswer,
     RecordingsWidget,
     ReplayVisionScanWidget,
-    ResourcesBar,
     ThreadView,
     TurnFeedbackActions,
     type TurnTrailer,
@@ -161,7 +160,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     sessionId={feedbackTaskId}
                     turnIndex={trailer.turnIndex}
                     run={feedbackRun}
-                    isLastTurn={trailer.isLastTurn}
+                    traceId={trailer.traceId}
                     turnText={trailer.turnText}
                 />
             ) : null,
@@ -407,7 +406,6 @@ export function SandboxComposerSurfaces(): JSX.Element | null {
             props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
         >
             <div className="w-full max-w-180 self-center mx-auto">
-                <ResourcesBar />
                 <ContextUsageBar />
             </div>
         </BindLogic>

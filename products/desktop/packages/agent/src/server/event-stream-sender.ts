@@ -70,7 +70,6 @@ export class TaskRunEventStreamSender {
   private readonly requestTimeoutMs: number;
   private readonly stopTimeoutMs: number;
   private readonly streamWindowMs: number;
-  private readonly usingProxy: boolean;
   private readonly keepProxyStreamOpen: boolean;
   private readonly createStreamingUpload: StreamingUploadFactory;
   private readonly encoder = new TextEncoder();
@@ -103,7 +102,7 @@ export class TaskRunEventStreamSender {
     config.logger.info("Event ingest target resolved", {
       ingestUrl: this.ingestUrl,
       routedToProxy: usingProxy,
-      persistentUpload: !usingProxy || config.keepProxyStreamOpen === true,
+      persistentUpload: config.keepProxyStreamOpen ?? !usingProxy,
     });
     this.maxBufferedEvents =
       config.maxBufferedEvents ?? DEFAULT_MAX_BUFFERED_EVENTS;
@@ -116,8 +115,7 @@ export class TaskRunEventStreamSender {
       config.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.stopTimeoutMs = config.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS;
     this.streamWindowMs = config.streamWindowMs ?? DEFAULT_STREAM_WINDOW_MS;
-    this.usingProxy = usingProxy;
-    this.keepProxyStreamOpen = config.keepProxyStreamOpen ?? false;
+    this.keepProxyStreamOpen = config.keepProxyStreamOpen ?? !usingProxy;
     this.createStreamingUpload =
       config.createStreamingUpload ?? createNodeStreamingUpload;
   }
@@ -137,7 +135,7 @@ export class TaskRunEventStreamSender {
     this.scheduleFlush();
   }
 
-  async stop(): Promise<void> {
+  async stop({ complete = true }: { complete?: boolean } = {}): Promise<void> {
     if (this.stopPromise) {
       await this.stopPromise;
       return;
@@ -150,7 +148,7 @@ export class TaskRunEventStreamSender {
       this.flushTimer = null;
     }
 
-    this.stopPromise = this.drainForStop();
+    this.stopPromise = this.drainForStop(complete);
     await this.stopPromise;
   }
 
@@ -163,7 +161,7 @@ export class TaskRunEventStreamSender {
     }, delayMs);
   }
 
-  private async drainForStop(): Promise<void> {
+  private async drainForStop(complete: boolean): Promise<void> {
     const startedAtMs = Date.now();
     const deadlineAtMs = startedAtMs + this.stopTimeoutMs;
 
@@ -173,8 +171,15 @@ export class TaskRunEventStreamSender {
 
       try {
         await this.flush();
-        await this.writeCompletionLine();
+        if (complete) {
+          await this.writeCompletionLine();
+        }
         await this.closeActiveStream();
+        if (this.bufferedEvents.length > 0) {
+          throw new Error(
+            "Event ingest stopped before all events were acknowledged",
+          );
+        }
         this.transportCompleted = true;
         return;
       } catch (error) {
@@ -216,7 +221,7 @@ export class TaskRunEventStreamSender {
       await flushPromise;
       // The ingress ahead of the agent-proxy only forwards the request body once the
       // upload closes, so close per drained batch to avoid stranding buffered events.
-      if (!this.stopped && this.usingProxy && !this.keepProxyStreamOpen) {
+      if (!this.stopped && !this.keepProxyStreamOpen) {
         await this.closeActiveStream();
       }
       return this.bufferedEvents.length < previousBufferLength;
