@@ -24,11 +24,17 @@ HOT_PARENT_TABLES = (
     "posthog_project",
 )
 
+# confdeltype 'a' (NO ACTION) and 'r' (RESTRICT) make the parent delete fail while a child row
+# survives. 'c' (CASCADE), 'n' (SET NULL) and 'd' (SET DEFAULT) let Postgres clear the child row
+# on its own, so they do not block a delete even when Django cannot see the table.
+BLOCKING_DELETE_ACTIONS = ("a", "r")
+
 ORPHAN_FK_QUERY = """
     SELECT src.relname   AS referencing_table,
            con.conname   AS constraint_name,
            tgt.relname   AS referenced_table,
-           con.condeferred
+           con.condeferred,
+           con.confdeltype
     FROM pg_constraint con
     JOIN pg_class src ON src.oid = con.conrelid
     JOIN pg_class tgt ON tgt.oid = con.confrelid
@@ -36,6 +42,7 @@ ORPHAN_FK_QUERY = """
     WHERE con.contype = 'f'
       AND ns.nspname = 'public'
       AND tgt.relname = ANY(%s)
+      AND con.confdeltype = ANY(%s)
     ORDER BY src.relname, con.conname
 """
 
@@ -45,10 +52,10 @@ def known_django_tables() -> set[str]:
 
 
 def find_orphan_fks() -> list[dict[str, Any]]:
-    """Foreign keys to a hot parent whose owning table has no Django model."""
+    """Foreign keys that block a hot-parent delete and whose owning table has no Django model."""
     known = known_django_tables()
     with connection.cursor() as cursor:
-        cursor.execute(ORPHAN_FK_QUERY, [list(HOT_PARENT_TABLES)])
+        cursor.execute(ORPHAN_FK_QUERY, [list(HOT_PARENT_TABLES), list(BLOCKING_DELETE_ACTIONS)])
         rows = cursor.fetchall()
     return [
         {
@@ -56,8 +63,9 @@ def find_orphan_fks() -> list[dict[str, Any]]:
             "constraint_name": constraint,
             "referenced_table": referenced,
             "deferred": deferred,
+            "delete_action": delete_action,
         }
-        for referencing, constraint, referenced, deferred in rows
+        for referencing, constraint, referenced, deferred, delete_action in rows
         if referencing.lower() not in known
     ]
 
