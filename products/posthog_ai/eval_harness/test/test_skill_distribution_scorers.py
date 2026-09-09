@@ -137,6 +137,15 @@ def test_skill_search_must_not_be_parallelized_with_non_learning_exec_commands()
             ),
             SkillLoadedBeforeTool(),
         ),
+        (
+            _output(
+                _exec("search", "learn -s revenue", QUALIFIED_SKILL),
+                _exec("query", "call execute-sql {}"),
+                _exec("load", f"learn {QUALIFIED_SKILL}"),
+                _exec("retry", "call execute-sql {}"),
+            ),
+            SkillLoadedBeforeTool(),
+        ),
     ],
 )
 def test_skill_distribution_scorers_reject_missing_discovery_or_wrong_order(
@@ -300,6 +309,16 @@ def test_exec_distribution_accepts_an_alternate_skill(scorer: Scorer) -> None:
     )
     assert _score(scorer, output, EXEC_WITH_ALTERNATE).score == 1.0
     assert _score(scorer, output, EXEC_EXPECTED).score == 0.0
+
+
+@pytest.mark.parametrize("command", ["call --no-skills execute-sql {}", "call --confirm --json execute-sql {}"])
+def test_downstream_call_flags_do_not_hide_the_tool(command: str) -> None:
+    output = _output(
+        _exec("search", "learn -s revenue", QUALIFIED_SKILL),
+        _exec("load", f"learn {QUALIFIED_SKILL}"),
+        _exec("query", command, "[]"),
+    )
+    assert _score(SkillLoadedBeforeTool(), output).score == 1.0
 
 
 @pytest.mark.parametrize("scorer", [ExpectedSkillLoaded(), SkillLoadedBeforeTool()])
