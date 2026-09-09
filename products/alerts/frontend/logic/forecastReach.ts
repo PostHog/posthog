@@ -12,6 +12,8 @@ import {
 
 export const MAX_FORECAST_REACH_DAYS = 92
 export const MAX_FORECAST_OUTPUT_POINTS = 250
+export const MAX_FORECAST_TRAINING_POINTS = 1000
+export const MAX_FORECAST_LOOKBACK_DAYS = 730
 
 const MINUTES_PER_DAY = 60 * 24
 const SUPPORTED_FORECAST_INTERVALS: ReadonlySet<IntervalType> = new Set(['hour', 'day', 'week', 'month'])
@@ -193,7 +195,33 @@ export function usableSimulationRanges<T extends { value: string }>(
     interval: IntervalType | null | undefined
 ): T[] {
     const required = minForecastPoints(interval)
-    const usable = options.filter((option) => pointsInSimulationRange(option.value, interval) >= required)
+    const intervalDays = FORECAST_INTERVAL_DAYS[interval ?? 'day'] ?? 1
+    const maximumDays = Math.min(MAX_FORECAST_LOOKBACK_DAYS, Math.ceil(MAX_FORECAST_TRAINING_POINTS * intervalDays))
+    const maximumMinutes = maximumDays * MINUTES_PER_DAY
+    let addedMaximum = false
+    const usable: T[] = []
+    for (const option of options) {
+        const match = /^-(\d+)([mhdwM])$/.exec(option.value)
+        const rangeMinutes = match ? Number(match[1]) * (UNIT_MINUTES[match[2]] ?? 1) : Number.POSITIVE_INFINITY
+        if (pointsInSimulationRange(option.value, interval) < required) {
+            continue
+        }
+        if (
+            rangeMinutes > maximumMinutes ||
+            pointsInSimulationRange(option.value, interval) > MAX_FORECAST_TRAINING_POINTS
+        ) {
+            if (!addedMaximum) {
+                usable.push({
+                    ...option,
+                    value: `-${maximumDays}d`,
+                    ...('label' in option ? { label: `Last ${maximumDays}d (maximum)` } : {}),
+                } as T)
+                addedMaximum = true
+            }
+            continue
+        }
+        usable.push(option)
+    }
     return usable.length > 0 ? usable : options.slice(-1)
 }
 

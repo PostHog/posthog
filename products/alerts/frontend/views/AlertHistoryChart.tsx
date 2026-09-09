@@ -134,6 +134,16 @@ export function getAlertHistoryThresholds(
     return buildThresholds(getChartThresholdContext(alert, chartPlotsAnomalyScore))
 }
 
+export function getAlertHistoryPoints(alert: AlertType, points: AlertHistoryChartPoint[]): AlertHistoryChartPoint[] {
+    if (alert.forecast_config?.condition !== ForecastConditionType.TARGET_BY_DATE) {
+        return points
+    }
+    // A stored target forecast belongs to the target date configured when that check ran. The API
+    // does not expose that snapshot, so after an edit we cannot honestly compare old values with
+    // today's target date. Keep the historical fired state and suppress only the what-if overlay.
+    return points.map((point) => ({ ...point, wouldFireUnderCurrentConfiguration: null }))
+}
+
 export function AlertHistoryChart({
     points,
     valueLabel,
@@ -151,7 +161,7 @@ export function AlertHistoryChart({
 }): JSX.Element {
     return (
         <AlertEvaluationHistoryChart
-            points={points}
+            points={getAlertHistoryPoints(alert, points)}
             valueLabel={valueLabel}
             thresholds={getAlertHistoryThresholds(alert, chartPlotsAnomalyScore)}
             historyLimit={historyLimit}

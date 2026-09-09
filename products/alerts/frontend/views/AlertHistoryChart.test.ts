@@ -6,7 +6,7 @@ import {
 } from '~/queries/schema/schema-general'
 
 import type { AlertType } from '../types'
-import { getAlertHistoryThresholds } from './AlertHistoryChart'
+import { getAlertHistoryPoints, getAlertHistoryThresholds } from './AlertHistoryChart'
 
 describe('getAlertHistoryThresholds', () => {
     const makeAlert = (overrides: Partial<AlertType>): AlertType =>
@@ -57,6 +57,26 @@ describe('getAlertHistoryThresholds', () => {
     it('keeps the threshold bounds for a plain threshold alert', () => {
         expect(getAlertHistoryThresholds(makeAlert({}), false)).toEqual([
             { direction: 'upper', value: 50, label: 'Upper (50)' },
+        ])
+    })
+})
+
+describe('getAlertHistoryPoints', () => {
+    it('does not compare stored target forecasts with a target date configured later', () => {
+        const alert = {
+            forecast_config: {
+                type: 'ForecastConfig',
+                engine: ForecastEngineType.PROPHET,
+                condition: ForecastConditionType.TARGET_BY_DATE,
+                target: 100,
+                target_direction: ForecastTargetDirection.AT_LEAST,
+                target_date: '2026-12-01',
+            },
+        } as AlertType
+        const points = [{ label: 'Sep 1', value: 90, firedAtTime: false }]
+
+        expect(getAlertHistoryPoints(alert, points)).toEqual([
+            { ...points[0], wouldFireUnderCurrentConfiguration: null },
         ])
     })
 })

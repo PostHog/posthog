@@ -212,6 +212,24 @@ describe('usableSimulationRanges', () => {
     it('drops the monthly ranges that are too short for a monthly insight', () => {
         expect(usableSimulationRanges(monthlyOptions, 'month')).toEqual([{ value: '-24m' }])
     })
+
+    it('collapses hourly choices beyond the server limit to one effective maximum', () => {
+        expect(
+            usableSimulationRanges(
+                [
+                    { label: 'Last 14d', value: '-14d' },
+                    { label: 'Last 30d', value: '-30d' },
+                    { label: 'Last 60d', value: '-60d' },
+                    { label: 'Last 90d', value: '-90d' },
+                ],
+                'hour'
+            )
+        ).toEqual([
+            { label: 'Last 14d', value: '-14d' },
+            { label: 'Last 30d', value: '-30d' },
+            { label: 'Last 42d (maximum)', value: '-42d' },
+        ])
+    })
 })
 
 describe('resolveForecastSimulationRange', () => {
