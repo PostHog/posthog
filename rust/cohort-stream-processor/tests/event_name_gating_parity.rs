@@ -1,7 +1,6 @@
 //! Differential parity for the event-name fan-out gate: the same event sequence with gating ON
 //! (evaluate only the event's name bucket) and OFF (full behavioral sweep) must yield byte-identical
-//! `cf_behavioral` and the same leaf transitions. Covers a matching name, a non-matching name, and
-//! numeric-looking names (`"0"` vs `"0.0"`) that must not cross-match.
+//! `cf_behavioral` and the same leaf transitions.
 
 // Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
 #![allow(clippy::disallowed_methods)]
@@ -14,6 +13,7 @@ use cohort_stream_processor::filters::{CohortId, TeamFilters, TeamFiltersBuilder
 use cohort_stream_processor::stage1::LeafTransition;
 use cohort_stream_processor::store::{CohortStore, StoreConfig};
 use cohort_stream_processor::workers::{process_event_gated, EventNameGating, EventOutcome};
+use metrics_exporter_prometheus::PrometheusBuilder;
 use serde_json::{json, Value};
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -26,6 +26,7 @@ const PURCHASE_HASH: [u8; 16] = *b"purchasehash0002";
 const ZERO_HASH: [u8; 16] = *b"zerohash00000003";
 const ZERODOT_HASH: [u8; 16] = *b"zerodothash00004";
 const PAGEVIEW_MULTIPLE_HASH: [u8; 16] = *b"pageviewmult0006";
+const PERSON_HASH: [u8; 16] = *b"planhash00000005";
 
 /// A `performed_event` leaf whose bytecode roots at `event == <event_name>`.
 fn behavioral_leaf(event_name: &str, hash: &str) -> Value {
@@ -93,6 +94,45 @@ fn catalog() -> TeamFilters {
     builder.freeze(UTC)
 }
 
+/// A catalog whose behavioral condition reads `properties`, so a build parses that payload at all:
+/// a team whose conditions name no payload never parses one, and so can never fail on a malformed
+/// one.
+fn properties_reading_catalog() -> TeamFilters {
+    let mut leaf = behavioral_leaf("$pageview", "pageviewhash0001");
+    // event == "$pageview" AND properties.x == "1"
+    leaf["bytecode"] = json!([
+        "_H",
+        1,
+        32,
+        "$pageview",
+        32,
+        "event",
+        1,
+        1,
+        11,
+        32,
+        "1",
+        32,
+        "x",
+        32,
+        "properties",
+        1,
+        2,
+        11,
+        3,
+        2,
+    ]);
+    let mut builder = TeamFiltersBuilder::default();
+    builder
+        .add_cohort(
+            CohortId(1),
+            TeamId(TEAM),
+            &json!({ "properties": { "type": "AND", "values": [leaf, person_leaf()] } }),
+        )
+        .unwrap();
+    builder.freeze(UTC)
+}
+
 /// A `$pageview` bucket holding two distinct behavioral leaves — a `performed_event`
 /// (`BehavioralSingle`) and a `performed_event_multiple` (`BehavioralDailyBuckets`) — so one event
 /// name maps to 2 conditionHashes across 2 write paths.
@@ -109,6 +149,39 @@ fn multi_condition_catalog() -> TeamFilters {
                         behavioral_leaf("$pageview", "pageviewhash0001"),
                         behavioral_multiple_leaf("$pageview", "pageviewmult0006"),
                     ],
+                }
+            }),
+        )
+        .unwrap();
+    builder.freeze(UTC)
+}
+
+/// Only the `$pageview` bucket needs `pdi`, so the two buckets get different globals plans.
+fn pdi_catalog() -> TeamFilters {
+    let pdi_leaf = json!({
+        "type": "behavioral",
+        "value": "performed_event",
+        "key": "$pageview",
+        "time_value": 7,
+        "time_interval": "day",
+        "conditionHash": "pdipageviewhash1",
+        // event == "$pageview" AND pdi.person.properties.plan == "pro"
+        "bytecode": [
+            "_H", 1,
+            32, "$pageview", 32, "event", 1, 1, 11,
+            32, "pro", 32, "plan", 32, "properties", 32, "person", 32, "pdi", 1, 4, 11,
+            3, 2,
+        ],
+    });
+    let mut builder = TeamFiltersBuilder::default();
+    builder
+        .add_cohort(
+            CohortId(1),
+            TeamId(TEAM),
+            &json!({
+                "properties": {
+                    "type": "AND",
+                    "values": [pdi_leaf, behavioral_leaf("purchase", "purchasehash0002")],
                 }
             }),
         )
@@ -177,14 +250,18 @@ fn sorted_transitions(transitions: &[LeafTransition]) -> Vec<LeafTransition> {
     sorted
 }
 
-/// Feeds each event to two independent stores — gating ON and OFF — and asserts parity after every
-/// step. Gating is the only varying axis; the person leaf never matches, so the person record is
-/// identical on both sides and the gate's effect is confined to `cf_behavioral`.
+/// Feeds each event to two independent stores, gating ON and OFF, and asserts parity after every
+/// step. Gating is the only varying axis, and it varies the globals dict too: the gated arm builds
+/// from one bucket's plan and the ungated arm from the union over every bucket.
 struct GatingParity {
     _on_dir: TempDir,
     _off_dir: TempDir,
     on_store: CohortStore,
     off_store: CohortStore,
+    /// What each arm emitted on the last [`Self::feed`]. Two arms that agree on every output can
+    /// still disagree on the work they did to get there, and only the counters show that.
+    on_metrics: String,
+    off_metrics: String,
 }
 
 impl GatingParity {
@@ -196,6 +273,8 @@ impl GatingParity {
             _off_dir: off_dir,
             on_store,
             off_store,
+            on_metrics: String::new(),
+            off_metrics: String::new(),
         }
     }
 
@@ -205,22 +284,33 @@ impl GatingParity {
         event: &CohortStreamEvent,
         label: &str,
     ) -> EventOutcome {
-        let on = process_event_gated(
-            PARTITION,
-            &self.on_store,
-            filters,
-            event,
-            EventNameGating::Enabled,
-        )
+        let on_recorder = PrometheusBuilder::new().build_recorder();
+        let on_handle = on_recorder.handle();
+        let on = metrics::with_local_recorder(&on_recorder, || {
+            process_event_gated(
+                PARTITION,
+                &self.on_store,
+                filters,
+                event,
+                EventNameGating::Enabled,
+            )
+        })
         .unwrap();
-        let off = process_event_gated(
-            PARTITION,
-            &self.off_store,
-            filters,
-            event,
-            EventNameGating::Disabled,
-        )
+        self.on_metrics = on_handle.render();
+
+        let off_recorder = PrometheusBuilder::new().build_recorder();
+        let off_handle = off_recorder.handle();
+        let off = metrics::with_local_recorder(&off_recorder, || {
+            process_event_gated(
+                PARTITION,
+                &self.off_store,
+                filters,
+                event,
+                EventNameGating::Disabled,
+            )
+        })
         .unwrap();
+        self.off_metrics = off_handle.render();
 
         assert_eq!(on.skipped, off.skipped, "{label}: skip reason");
         assert_eq!(on.event_ms, off.event_ms, "{label}: event_ms");
@@ -310,7 +400,9 @@ fn gating_matches_full_sweep_on_a_multi_condition_event_name_bucket() {
     // daily-bucket write path), and both leaves must flip.
     let filters = multi_condition_catalog();
     assert_eq!(
-        filters.behavioral_by_event_name["$pageview"].len(),
+        filters.behavioral_by_event_name["$pageview"]
+            .conditions
+            .len(),
         2,
         "the $pageview bucket holds both conditionHashes",
     );
@@ -336,4 +428,88 @@ fn gating_matches_full_sweep_on_a_multi_condition_event_name_bucket() {
         expected.to_vec(),
         "both leaves in the bucket flip — the single and the daily-bucket write paths",
     );
+}
+
+/// Were a malformed payload to skip the whole event, the gate would become a correctness switch:
+/// with gating on an unbucketed event is never parsed and so never skipped, while the ungated sweep
+/// parses it, fails, and skips it, leaving the person record on one side only.
+///
+/// The counters carry the other half. The outcomes here are equal whether the gated arm skipped the
+/// parse or ran it and failed, so only `stage1_globals_builds_total` distinguishes them — and
+/// skipping the parse on an event nothing can match is the saving this gate exists for.
+#[test]
+fn a_malformed_properties_payload_keeps_both_arms_identical() {
+    let mut p = GatingParity::new();
+    let filters = properties_reading_catalog();
+    let alice = Uuid::from_u128(1);
+
+    let mut broken = event(alice, "no_such_event", 0, "2026-05-26 10:00:00.000000");
+    broken.properties = Some("{not json".to_string());
+    // Matches the `pro` person leaf, so the person side flipping is visible as a transition.
+    broken.person_properties = Some(r#"{"plan":"pro"}"#.to_string());
+
+    let outcome = p.feed(&filters, &broken, "malformed properties, unbucketed name");
+    assert_eq!(
+        outcome.skipped, None,
+        "a malformed `properties` is behavioral-only data and must not skip the event",
+    );
+    assert_eq!(
+        outcome.transitions.len(),
+        1,
+        "the person side still ran: {:?}",
+        outcome.transitions,
+    );
+    assert_eq!(outcome.transitions[0].condition_hash, PERSON_HASH);
+    assert!(
+        dump_stage1(&p.on_store).is_empty(),
+        "the behavioral side staged a row from a payload that never parsed",
+    );
+
+    assert!(
+        p.on_metrics
+            .contains("stage1_globals_builds_total{result=\"no_candidates\"} 1"),
+        "the gated arm built globals for an event no bucket holds: {}",
+        p.on_metrics,
+    );
+    assert!(
+        !p.on_metrics.contains("result=\"parse_error\""),
+        "the gated arm parsed the payload it was supposed to skip: {}",
+        p.on_metrics,
+    );
+    assert!(
+        p.off_metrics
+            .contains("stage1_globals_builds_total{result=\"parse_error\"} 1"),
+        "the ungated sweep has to parse, and this payload has to fail: {}",
+        p.off_metrics,
+    );
+}
+
+/// Every other fixture reads only `event`, so the builder could stop emitting `pdi` under every plan
+/// and they would all still pass.
+#[test]
+fn a_condition_reading_pdi_matches_under_both_gating_arms() {
+    const PDI_HASH: [u8; 16] = *b"pdipageviewhash1";
+    let mut p = GatingParity::new();
+    let filters = pdi_catalog();
+    let alice = Uuid::from_u128(1);
+
+    // The `purchase` bucket plans no `pdi`, so this exercises the narrower plan first.
+    let purchase = p.feed(
+        &filters,
+        &event(alice, "purchase", 0, "2026-05-26 10:00:00.000000"),
+        "purchase",
+    );
+    assert_eq!(purchase.transitions.len(), 1);
+    assert_eq!(purchase.transitions[0].condition_hash, PURCHASE_HASH);
+
+    let mut matching = event(alice, "$pageview", 1, "2026-05-26 11:00:00.000000");
+    matching.person_properties = Some(r#"{"plan":"pro"}"#.to_string());
+    let pageview = p.feed(&filters, &matching, "$pageview reading pdi");
+    assert_eq!(
+        pageview.transitions.len(),
+        1,
+        "the pdi-reading leaf did not flip: {:?}",
+        pageview.transitions,
+    );
+    assert_eq!(pageview.transitions[0].condition_hash, PDI_HASH);
 }
