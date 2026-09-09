@@ -6,6 +6,7 @@ authenticate via the team secret API token passed as a Bearer token in the
 Authorization header. The bulk account list instead authenticates via a project
 secret API key carrying the ``account:read`` scope, because the team token is
 readable by every project member and must not unlock a team-wide account export.
+The single-account GET accepts either credential; its writes stay team-token only.
 
 The team token deliberately grants single-account writes (create, tags,
 relationships, custom property values) without per-user ``account`` scope checks:
@@ -31,7 +32,7 @@ from django.http import HttpRequest
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
@@ -49,7 +50,6 @@ from products.customer_analytics.backend.facade import api as facade
 from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CSP_FLAG
 from products.customer_analytics.backend.presentation.views.account_actions import (
     ACCOUNT_ACTION_AUTH_COUNTER,
-    ExternalAccountCreateSerializer,
     ExternalAccountCustomPropertiesSerializer,
     handle_account_create,
     handle_account_get,
@@ -60,7 +60,7 @@ from products.customer_analytics.backend.presentation.views.account_actions impo
 logger = structlog.get_logger(__name__)
 
 EXTERNAL_ACCOUNT_LIST_MAX_LIMIT = 100
-EXTERNAL_ACCOUNT_LIST_REQUIRED_SCOPE = "account:read"
+EXTERNAL_ACCOUNT_READ_SCOPE = "account:read"
 
 
 class _ExternalAccountThrottle(SimpleRateThrottle):
@@ -81,6 +81,16 @@ class ExternalAccountBurstThrottle(_ExternalAccountThrottle):
 class ExternalAccountSustainedThrottle(_ExternalAccountThrottle):
     scope = "external_account_sustained"
     rate = "600/hour"
+
+
+class ExternalAccountTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "external_account_psak_team_burst"
+    rate = ExternalAccountBurstThrottle.rate
+
+
+class ExternalAccountTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "external_account_psak_team_sustained"
+    rate = ExternalAccountSustainedThrottle.rate
 
 
 class ExternalAccountListBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
@@ -116,7 +126,11 @@ def _customer_analytics_enabled(team: Team) -> bool:
     )
 
 
-class ExternalAccountListAuthentication(ProjectSecretAPIKeyAuthentication):
+class ExternalAccountProjectSecretAPIKeyAuthentication(ProjectSecretAPIKeyAuthentication):
+    """Returns None instead of raising when the key's team lacks customer analytics, so a
+    key for a disabled team is indistinguishable from an unknown token and the response
+    cannot reveal that the key exists or which scopes it carries."""
+
     def authenticate(self, request: HttpRequest | Request) -> tuple[Any, None] | None:
         result = super().authenticate(request)
         if result is None or not _customer_analytics_enabled(self.project_secret_api_key.team):
@@ -159,16 +173,27 @@ def _authenticate_psak_team(request: Request) -> tuple[Team, None] | tuple[None,
 
     key_scopes = set(get_authenticator_scopes(authenticator) or [])
     valid_scopes = {
-        EXTERNAL_ACCOUNT_LIST_REQUIRED_SCOPE,
-        EXTERNAL_ACCOUNT_LIST_REQUIRED_SCOPE.replace(":read", ":write"),
+        EXTERNAL_ACCOUNT_READ_SCOPE,
+        EXTERNAL_ACCOUNT_READ_SCOPE.replace(":read", ":write"),
     }
     if "*" not in key_scopes and key_scopes.isdisjoint(valid_scopes):
         return None, Response(
-            {"error": f"API key missing required scope '{EXTERNAL_ACCOUNT_LIST_REQUIRED_SCOPE}'"},
+            {"error": f"API key missing required scope '{EXTERNAL_ACCOUNT_READ_SCOPE}'"},
             status=status.HTTP_403_FORBIDDEN,
         )
 
     return psak.team, None
+
+
+def _authenticate_team_for_write(request: Request) -> tuple[Team, None] | tuple[None, Response]:
+    """Writes stay team-token only. A project secret API key is rejected explicitly, because
+    the team-token lookup treats it as an unknown token and answers 401 instead of 403."""
+    if is_authenticated_via_project_secret_api_key(request):
+        return None, Response(
+            {"error": "Project secret API keys can only read accounts on this route"},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    return _authenticate_team(request)
 
 
 class ExternalAccountAssignmentSerializer(serializers.Serializer):
@@ -220,20 +245,66 @@ class ExternalAccountView(APIView):
     POST /api/customer_analytics/external/account — Create an account (no-op if it already exists)
     PATCH /api/customer_analytics/external/account — Update an account's relationships, tags, and churn state
 
-    Authenticated via Bearer token (team secret_api_token) in Authorization header.
+    GET accepts either the team secret_api_token or a project secret API key with the
+    ``account:read`` scope as a Bearer token. POST and PATCH accept only the team
+    secret_api_token.
     """
 
-    authentication_classes: list = []
+    authentication_classes = [ExternalAccountProjectSecretAPIKeyAuthentication]
     permission_classes = [AllowAny]
-    throttle_classes = [ExternalAccountBurstThrottle, ExternalAccountSustainedThrottle]
+    throttle_classes = [
+        ExternalAccountBurstThrottle,
+        ExternalAccountSustainedThrottle,
+        ExternalAccountTeamBurstThrottle,
+        ExternalAccountTeamSustainedThrottle,
+    ]
+    # Opts the route into the OpenAPI spec and generated types; the schema preprocessor drops
+    # views without a scope_object. Authorization itself stays in the manual Bearer checks above.
+    scope_object = "account"
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "external_id",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="External account key: the group key the account is linked to.",
+            )
+        ],
+        responses={
+            200: OpenApiResponse(response=ExternalAccountSerializer, description="The account."),
+            400: OpenApiResponse(response=ExternalAccountErrorSerializer, description="Missing external_id."),
+            401: OpenApiResponse(
+                response=ExternalAccountErrorSerializer, description="Missing or invalid Bearer token."
+            ),
+            403: OpenApiResponse(
+                response=ExternalAccountErrorSerializer,
+                description="Project secret API key does not carry the account:read scope.",
+            ),
+            404: OpenApiResponse(
+                response=ExternalAccountErrorSerializer, description="No account with that external_id."
+            ),
+        },
+        summary="Get an external customer analytics account",
+        description=(
+            "Fetch one account by external ID with its properties, tags, active relationship assignments "
+            "and custom property values. Accepts the team secret API token or a project secret API key with "
+            "the `account:read` scope."
+        ),
+    )
     def get(self, request: Request) -> Response:
-        team, error = _authenticate_team(request)
+        if is_authenticated_via_project_secret_api_key(request):
+            team, error = _authenticate_psak_team(request)
+            auth_method = "project_secret_api_key"
+        else:
+            team, error = _authenticate_team(request)
+            auth_method = "secret_api_token"
         if error:
             return error
 
         assert team is not None
-        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method="secret_api_token", http_method="get").inc()
+        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method=auth_method, http_method="get").inc()
 
         external_id = request.query_params.get("external_id", "").strip()
         if not external_id:
@@ -241,21 +312,12 @@ class ExternalAccountView(APIView):
 
         return handle_account_get(team, external_id)
 
-    @extend_schema(
-        request=ExternalAccountCreateSerializer,
-        responses={
-            201: OpenApiResponse(response=ExternalAccountSerializer, description="Account created."),
-            200: OpenApiResponse(
-                response=ExternalAccountSerializer, description="Account already existed — creation skipped."
-            ),
-            400: OpenApiResponse(response=ExternalAccountErrorSerializer, description="Invalid request body."),
-            401: OpenApiResponse(
-                response=ExternalAccountErrorSerializer, description="Missing or invalid Bearer token."
-            ),
-        },
-    )
+    # The write operations stay out of the generated schema. drf-spectacular renders a PATCH body
+    # as fully optional although this route requires external_id, and validation failures return
+    # field-keyed errors that ExternalAccountErrorSerializer does not describe.
+    @extend_schema(exclude=True)
     def post(self, request: Request) -> Response:
-        team, error = _authenticate_team(request)
+        team, error = _authenticate_team_for_write(request)
         if error:
             return error
 
@@ -263,8 +325,9 @@ class ExternalAccountView(APIView):
         ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method="secret_api_token", http_method="post").inc()
         return handle_account_create(request, team)
 
+    @extend_schema(exclude=True)
     def patch(self, request: Request) -> Response:
-        team, error = _authenticate_team(request)
+        team, error = _authenticate_team_for_write(request)
         if error:
             return error
 
@@ -376,7 +439,7 @@ class ExternalAccountListView(APIView):
     explicit scope.
     """
 
-    authentication_classes = [ExternalAccountListAuthentication]
+    authentication_classes = [ExternalAccountProjectSecretAPIKeyAuthentication]
     permission_classes = [AllowAny]
     throttle_classes = [
         ExternalAccountListBurstThrottle,

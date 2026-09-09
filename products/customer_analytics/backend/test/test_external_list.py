@@ -12,8 +12,8 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.project_secret_api_key import ProjectSecretAPIKey
-from posthog.models.utils import generate_random_token_secret, hash_key_value, mask_key_value
+from posthog.models.utils import generate_random_token_secret
+from posthog.test.api_keys import create_project_secret_api_key
 
 from products.customer_analytics.backend.models import AccountRelationship, AccountRelationshipDefinition
 from products.customer_analytics.backend.test.factories import create_account
@@ -37,14 +37,7 @@ class TestExternalAccountListAPI(APIBaseTest):
         self.addCleanup(csp_enabled.stop)
 
     def _create_psak_token(self, scopes, label="external-list"):
-        token = generate_random_token_secret()
-        ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label=label,
-            mask_value=mask_key_value(token),
-            secure_value=hash_key_value(token),
-            scopes=scopes,
-        )
+        _, token = create_project_secret_api_key(self.team, label=label, scopes=scopes)
         return token
 
     def _create_definition(self, name, **kwargs):

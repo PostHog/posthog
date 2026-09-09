@@ -7,6 +7,63 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * Typed account properties: external-system ids. Role assignments live under `relationships`.
+ */
+export type ExternalAccountApiProperties = { [key: string]: unknown }
+
+export interface ExternalAccountAssignmentApi {
+    /** PostHog user id of the assigned user. */
+    user_id: number
+    /** Email address of the assigned user. */
+    email: string
+}
+
+/**
+ * Active relationship assignments keyed by definition name (e.g. 'CSM'). Definitions with no active assignment are omitted.
+ */
+export type ExternalAccountApiRelationships = { [key: string]: ExternalAccountAssignmentApi[] }
+
+/**
+ * Every team custom property definition keyed by name, with the account's active value or null.
+ */
+export type ExternalAccountApiCustomProperties = { [key: string]: unknown }
+
+export interface ExternalAccountApi {
+    /** Account UUID. */
+    id: string
+    /**
+     * External account key — the group key the account is linked to.
+     * @nullable
+     */
+    external_id: string | null
+    /** Human-readable account name. */
+    name: string
+    /**
+     * When the account churned, or null if it has not churned.
+     * @nullable
+     */
+    churned_at: string | null
+    /**
+     * When Track Rules ignored the account, or null if it is tracked.
+     * @nullable
+     */
+    ignored_at: string | null
+    /** Typed account properties: external-system ids. Role assignments live under `relationships`. */
+    properties: ExternalAccountApiProperties
+    /** Tag names on the account, sorted alphabetically. */
+    tags: string[]
+    /** Active relationship assignments keyed by definition name (e.g. 'CSM'). Definitions with no active assignment are omitted. */
+    relationships: ExternalAccountApiRelationships
+    /** Every team custom property definition keyed by name, with the account's active value or null. */
+    custom_properties: ExternalAccountApiCustomProperties
+}
+
+export interface ExternalAccountErrorApi {
+    /** What went wrong with the request. */
+    error: string
+}
+
 export interface ExternalAccountListAssignmentApi {
     /** PostHog user id of the assigned user. */
     user_id: number
@@ -3960,6 +4017,13 @@ export interface UserCustomerAnalyticsConfigApi {
 export interface PatchedUserCustomerAnalyticsConfigUpdateApi {
     /** Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them. */
     pinned_properties?: PinnedAccountPropertyApi[]
+}
+
+export type CustomerAnalyticsExternalAccountRetrieveParams = {
+    /**
+     * External account key: the group key the account is linked to.
+     */
+    external_id: string
 }
 
 export type CustomerAnalyticsExternalAccountsRetrieveParams = {

@@ -36665,6 +36665,63 @@ export namespace Schemas {
       readonly user_access_level: string | null;
     }
 
+    /**
+     * Typed account properties: external-system ids. Role assignments live under `relationships`.
+     */
+    export type ExternalAccountProperties = {[key: string]: unknown};
+
+    export interface ExternalAccountAssignment {
+      /** PostHog user id of the assigned user. */
+      user_id: number;
+      /** Email address of the assigned user. */
+      email: string;
+    }
+
+    /**
+     * Active relationship assignments keyed by definition name (e.g. 'CSM'). Definitions with no active assignment are omitted.
+     */
+    export type ExternalAccountRelationships = {[key: string]: ExternalAccountAssignment[]};
+
+    /**
+     * Every team custom property definition keyed by name, with the account's active value or null.
+     */
+    export type ExternalAccountCustomProperties = {[key: string]: unknown};
+
+    export interface ExternalAccount {
+      /** Account UUID. */
+      id: string;
+      /**
+         * External account key — the group key the account is linked to.
+         * @nullable
+         */
+      external_id: string | null;
+      /** Human-readable account name. */
+      name: string;
+      /**
+         * When the account churned, or null if it has not churned.
+         * @nullable
+         */
+      churned_at: string | null;
+      /**
+         * When Track Rules ignored the account, or null if it is tracked.
+         * @nullable
+         */
+      ignored_at: string | null;
+      /** Typed account properties: external-system ids. Role assignments live under `relationships`. */
+      properties: ExternalAccountProperties;
+      /** Tag names on the account, sorted alphabetically. */
+      tags: string[];
+      /** Active relationship assignments keyed by definition name (e.g. 'CSM'). Definitions with no active assignment are omitted. */
+      relationships: ExternalAccountRelationships;
+      /** Every team custom property definition keyed by name, with the account's active value or null. */
+      custom_properties: ExternalAccountCustomProperties;
+    }
+
+    export interface ExternalAccountError {
+      /** What went wrong with the request. */
+      error: string;
+    }
+
     export interface ExternalAccountListAssignment {
       /** PostHog user id of the assigned user. */
       user_id: number;
@@ -91982,6 +92039,13 @@ export namespace Schemas {
      * @maxItems 50
      */
     cohort_ids: number[];
+    };
+
+    export type CustomerAnalyticsExternalAccountRetrieveParams = {
+    /**
+     * External account key: the group key the account is linked to.
+     */
+    external_id: string;
     };
 
     export type CustomerAnalyticsExternalAccountsRetrieveParams = {

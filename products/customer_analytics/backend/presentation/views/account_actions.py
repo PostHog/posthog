@@ -25,7 +25,7 @@ from products.customer_analytics.backend.facade import (
 ACCOUNT_ACTION_AUTH_COUNTER = Counter(
     "posthog_customer_analytics_account_action_auth_total",
     "Successful authentications on the account routes called by CDP workflow actions, by auth method",
-    labelnames=["auth_method", "http_method"],  # auth_method: secret_api_token | scoped_jwt
+    labelnames=["auth_method", "http_method"],  # auth_method: secret_api_token | project_secret_api_key | scoped_jwt
 )
 
 
