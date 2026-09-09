@@ -110,11 +110,11 @@ Do not:
 
 The data shows that a workflow does not cache.
 It cannot show whether that is an oversight, a choice, or unfixable.
-This gate removes most false positives: a candidate is not a finding until you have read the code behind it.
+This gate removes most false positives: a candidate with a linked repository is not a finding until you have read the code behind it.
 
 Where to look:
 
-- Clone the linked repository once a candidate clears the data checks, not before. Use `gh` read access for anything outside the clone.
+- Read the calling code in the linked repository once a candidate clears the data checks, not before.
 - Grep for the span or prompt name, the feature tag, and the model id. The span name usually names the class or chain that builds the request.
 - When it resolves to a class, read the base classes too. The volatile injection often lives in a wrapper or mixin, not in the file that names the span.
 
@@ -146,7 +146,7 @@ A run that re-checks a live report has a different job from a run that finds a n
 
 - Cacheable tokens equal the measured prefix length times the calls that read it back. The first call in each cache window writes and does not read.
 - The gross saving equals cacheable tokens times the input rate times the discount: 0.9 for Claude, 0.5 for the auto-cache families.
-- Subtract the write cost for providers that charge for writes. A path that mostly writes and rarely reads gets more expensive, not cheaper.
+- Subtract the write surcharge for providers that charge for writes. Count only the surcharge above the input rate, not the full write price: the write replaces input the call already pays for. Anthropic's surcharge is 0.25 times the input rate. A path that mostly writes and rarely reads still gets more expensive, not cheaper.
 - Report the net figure.
 - Never scale a saving by the total tokens of the calls that share a prefix. Only the shared part is cacheable. That mistake turns a short system prompt into a large fake number.
 
