@@ -512,7 +512,6 @@ function commandLocations(item: AppServerItem): ToolCallLocation[] | undefined {
   return paths.map((path) => ({ path }));
 }
 
-/** `_meta.posthog` for a tool call, so the desktop renderer routes MCP UI apps regardless of which adapter produced the call. */
 function toolCallMeta(
   item: AppServerItem,
   tool: ToolDescriptor,
@@ -562,11 +561,7 @@ function mapItem(
       status: mapStatus(item.status),
       ...(content ? { content } : {}),
       ...(meta ? { _meta: meta } : {}),
-      // Carries the raw MCP CallToolResult (content, structuredContent, _meta.ui)
-      // so the desktop MCP Apps host can render UI resources, not just text.
-      // Codex models absent MCP result optionals as nullable and serializes
-      // them as explicit nulls; strip those, because the app-side schema
-      // rejects them and drops the whole result.
+      // rawOutput lets the desktop MCP Apps host render UI resources, not just text.
       ...(item.type === "mcpToolCall" && item.result !== undefined
         ? { rawOutput: omitNullCallToolResultFields(item.result) }
         : {}),

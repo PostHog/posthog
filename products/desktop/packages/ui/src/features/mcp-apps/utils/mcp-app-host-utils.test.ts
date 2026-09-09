@@ -136,8 +136,7 @@ describe("toCallToolResult", () => {
     });
   });
 
-  // Codex serializes an absent MCP optional as JSON null; the app-side zod
-  // schema rejects explicit nulls and silently drops the tool result.
+  // Explicit nulls fail the app-side zod schema; see omitNullCallToolResultFields.
   it.each(["structuredContent", "isError", "_meta"])(
     "strips %s when it is null, keeping the payload app-schema-valid",
     (key) => {

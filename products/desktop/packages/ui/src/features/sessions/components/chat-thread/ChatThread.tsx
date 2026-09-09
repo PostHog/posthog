@@ -211,12 +211,9 @@ function isThoughtItem(item: ConversationItem): boolean {
 }
 
 /**
- * A tool call whose resolved result carries a UI-app resource — one that mounts an interactive
- * chart via `McpAppHost`. Checked on the *result*, not the tool's name or MCP-ness: Codex calls
- * every underlying tool through one inline-exec wrapper (`POSTHOG_EXEC_TOOL_KEY`), so a name-based
- * "is this MCP" check would match every one of a session's tool calls, not just the one that
- * renders a chart. Before the call resolves there is nothing to check yet, so this reads false
- * until the result carries a resource URI — which is also the earliest point a chart could exist.
+ * Checked on the result, not the tool name: Codex routes every tool through one
+ * inline-exec wrapper, so a name check would match every call in the session,
+ * not just the one that renders a chart.
  */
 function hasUiAppResult(item: ConversationItem): boolean {
   if (item.type !== "session_update") return false;
@@ -235,11 +232,10 @@ function hasUiAppResult(item: ConversationItem): boolean {
  * A lone tool call passes through untouched as a single marker, and so do the thoughts around it:
  * thoughts ride along a run, they never make one.
  *
- * A tool call that renders a chart (see {@link hasUiAppResult}) never folds into a group either,
- * even alongside other tool calls: `ToolGroup`'s body is collapsed and unmounted by default (Base
- * UI's Collapsible defaults `keepMounted` to `false`), so a chart nested inside one never renders
- * until a person expands the group. It flushes the run and renders on its own row instead,
- * mirroring `isPlanItem`.
+ *
+ * A chart-rendering call (see {@link hasUiAppResult}) never folds in: the group body stays
+ * unmounted (Base UI's Collapsible defaults `keepMounted` to `false`), so a nested chart never
+ * renders until expanded. It flushes the run and renders alone, mirroring `isPlanItem`.
  */
 /**
  * Item arrays for settled runs, keyed on the run's (stable) first item.
