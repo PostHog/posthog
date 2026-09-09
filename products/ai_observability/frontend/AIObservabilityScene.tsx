@@ -13,7 +13,6 @@ import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { dateMapping } from 'lib/utils/dateFilters'
@@ -62,7 +61,7 @@ import { aiObservabilityToolsLogic } from './tabs/aiObservabilityToolsLogic'
 import { aiObservabilityTracesTabLogic } from './tabs/aiObservabilityTracesTabLogic'
 import { aiObservabilityUsersLogic } from './tabs/aiObservabilityUsersLogic'
 import { AIObservabilityHumanReviews } from './traceReviews/AIObservabilityHumanReviews'
-import { getTraceTimestamp, sanitizeTraceUrlSearchParams, truncateValue } from './utils'
+import { sanitizeTraceUrlSearchParams, truncateValue } from './utils'
 
 export const scene: SceneExport = {
     component: AIObservabilityScene,
@@ -203,7 +202,7 @@ function AIObservabilityGenerations(): JSX.Element {
     const { renderSortableColumnTitle } = useSortableColumns(generationsSort, setGenerationsSort)
 
     // Helper to safely extract uuid and traceId from a result row based on current column configuration
-    const getRowIds = (result: unknown): { uuid: string; traceId: string; traceTimestamp?: string } | null => {
+    const getRowIds = (result: unknown): { uuid: string; traceId: string } | null => {
         if (!Array.isArray(result) || !isEventsQuery(generationsQuery.source)) {
             return null
         }
@@ -212,7 +211,6 @@ function AIObservabilityGenerations(): JSX.Element {
 
         const uuidIndex = columns.findIndex((col) => col === 'uuid')
         const traceIdIndex = columns.findIndex((col) => col === 'properties.$ai_trace_id')
-        const timestampIndex = columns.findIndex((col) => col === 'timestamp')
 
         if (uuidIndex < 0 || traceIdIndex < 0) {
             return null
@@ -220,14 +218,9 @@ function AIObservabilityGenerations(): JSX.Element {
 
         const uuid = result[uuidIndex]
         const traceId = result[traceIdIndex]
-        const timestampValue = timestampIndex >= 0 ? result[timestampIndex] : null
 
         if (typeof uuid === 'string' && typeof traceId === 'string') {
-            const parsedTimestamp =
-                timestampValue != null && dayjs(String(timestampValue)).isValid()
-                    ? getTraceTimestamp(String(timestampValue))
-                    : undefined
-            return { uuid, traceId, traceTimestamp: parsedTimestamp }
+            return { uuid, traceId }
         }
 
         return null
@@ -284,10 +277,15 @@ function AIObservabilityGenerations(): JSX.Element {
                                     <Tooltip title={value}>
                                         <Link
                                             to={
+                                                // No timestamp param on purpose: a row only knows
+                                                // its own generation's time, and a trace can have
+                                                // started long before it. Anchoring the trace
+                                                // lookup there cuts off everything earlier, so the
+                                                // trace opens without its root. Without one the
+                                                // query scans from the beginning and stays whole.
                                                 combineUrl(urls.aiObservabilityTrace(ids.traceId), {
                                                     ...nonTraceSearchParams,
                                                     event: value,
-                                                    timestamp: ids.traceTimestamp,
                                                     back_to: 'generations',
                                                 }).url
                                             }

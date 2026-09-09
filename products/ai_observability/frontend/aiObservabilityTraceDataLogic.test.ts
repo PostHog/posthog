@@ -1,8 +1,14 @@
+import { waitFor } from '@testing-library/react'
 import posthog from 'posthog-js'
 
+import api from 'lib/api'
+
+import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
 
 import {
+    aiObservabilityTraceDataLogic,
     TraceTreeNode,
     buildFeedbackAttachmentMap,
     extractTotalCost,
@@ -15,6 +21,7 @@ import {
     restoreTree,
     traceHasRootContent,
 } from './aiObservabilityTraceDataLogic'
+import { aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 
 describe('aiObservabilityTraceDataLogic: restoreTree', () => {
     it('should group a basic trace into a tree', () => {
@@ -717,5 +724,52 @@ describe('buildFeedbackAttachmentMap', () => {
         const { byNodeId } = buildFeedbackAttachmentMap([span, feedback, metric], 'trace-1')
 
         expect(byNodeId.get('span-1')).toEqual([metric, feedback])
+    })
+})
+
+describe('aiObservabilityTraceDataLogic: trace retention', () => {
+    const traceId = 'trace-1'
+    const loadedTrace: LLMTrace = {
+        id: traceId,
+        createdAt: '2024-01-01T00:00:00Z',
+        distinctId: 'person1',
+        events: [],
+    }
+
+    let logic: ReturnType<typeof aiObservabilityTraceDataLogic.build>
+    let querySpy: jest.SpyInstance
+
+    beforeEach(async () => {
+        initKeaTests()
+        querySpy = jest.spyOn(api, 'query').mockResolvedValue({ results: [loadedTrace] })
+
+        const traceLogic = aiObservabilityTraceLogic()
+        traceLogic.mount()
+        traceLogic.actions.setTraceId(traceId)
+
+        logic = aiObservabilityTraceDataLogic({
+            traceId,
+            query: traceLogic.values.query,
+            cachedResults: null,
+            searchQuery: '',
+        })
+        logic.mount()
+        await waitFor(() => expect(logic.values.trace).toEqual(loadedTrace))
+    })
+
+    afterEach(() => {
+        querySpy.mockRestore()
+    })
+
+    // Regression: the scene read the trace straight off the current response, so one re-run that
+    // came back empty replaced a trace already on screen with "Trace not found". The trace query
+    // re-runs on its own whenever the URL gains a param or the one-minute cache entry ages out.
+    it('keeps a trace on screen when a later response comes back empty', async () => {
+        querySpy.mockResolvedValue({ results: [] })
+
+        dataNodeCollectionLogic({ key: traceId }).actions.reloadAll()
+        await waitFor(() => expect(logic.values.traceFromResponse).toBeUndefined())
+
+        expect(logic.values.trace).toEqual(loadedTrace)
     })
 })

@@ -683,10 +683,14 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                     traceId,
                     includeSentiment: true,
                     dateRange: dateRange?.dateFrom
-                        ? // dateFrom is a minimum timestamp of an event for a trace.
+                        ? // dateFrom is a minimum timestamp of an event for a trace, so the upper
+                          // end stays open unless the URL named one. A trace that maps to a chat
+                          // runs for hours, and a fixed cap here covers only its first minutes.
+                          // The query runner adds a forward buffer for one trace's plausible
+                          // duration, so the upper bound is its call rather than a second one here.
                           {
                               date_from: dateRange.dateFrom,
-                              date_to: dateRange?.dateTo || dayjs(dateRange.dateFrom).add(10, 'minutes').toISOString(),
+                              ...(dateRange.dateTo ? { date_to: dateRange.dateTo } : {}),
                           }
                         : // By default will look for traces from the beginning.
                           {
