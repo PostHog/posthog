@@ -128,6 +128,12 @@ const ticketActionsMapping: Record<
             ],
         }
     },
+    archived_at: function onArchivedAt(change) {
+        const after = change?.after as string | null
+        return {
+            description: [after ? <>archived this ticket</> : <>restored this ticket from the archive</>],
+        }
+    },
     tag: function onTag(change) {
         const tagName = (change?.after || change?.before) as string
         if (change?.action === 'created') {
@@ -199,9 +205,28 @@ export function ticketActivityDescriber(logItem: ActivityLogItem, asNotification
     }
 
     if (logItem.activity === 'updated') {
+        const changes = logItem.detail.changes || []
+
+        // Its own sentence, because the generic branch below closes with "on {ticket}" and
+        // this fragment names the ticket itself.
+        const archiveChange = changes.length === 1 && changes[0]?.field === 'archived_at' ? changes[0] : null
+        if (archiveChange) {
+            return {
+                description: archiveChange.after ? (
+                    <>
+                        {actor} archived {ticketLink}
+                    </>
+                ) : (
+                    <>
+                        {actor} restored {ticketLink} from the archive
+                    </>
+                ),
+            }
+        }
+
         const allChanges: Description[] = []
 
-        for (const change of logItem.detail.changes || []) {
+        for (const change of changes) {
             if (!change?.field) {
                 continue
             }

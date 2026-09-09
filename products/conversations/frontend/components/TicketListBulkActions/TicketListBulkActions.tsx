@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect } from '@posthog/lemon-ui'
+import { IconArchive, IconUndo } from '@posthog/icons'
+import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 
@@ -8,9 +9,9 @@ import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSce
 import { type TicketStatus, statusOptionsWithoutAll } from '../../types'
 
 export function TicketListBulkActions(): JSX.Element {
-    const { selectedTicketIds, selectedTickets, editableSelectedTicketIds, bulkUpdating } =
+    const { selectedTicketIds, selectedTickets, editableSelectedTicketIds, allEditableSelectedArchived, bulkUpdating } =
         useValues(supportTicketsSceneLogic)
-    const { bulkUpdateStatus, clearSelectedTickets, loadTickets } = useActions(supportTicketsSceneLogic)
+    const { bulkUpdateStatus, bulkArchive, clearSelectedTickets, loadTickets } = useActions(supportTicketsSceneLogic)
 
     const hasSelection = selectedTicketIds.length > 0
     const editableTicketIds = editableSelectedTicketIds
@@ -50,6 +51,27 @@ export function TicketListBulkActions(): JSX.Element {
                 options={statusOptionsWithoutAll.map((o) => ({ value: o.value, label: o.label }))}
                 size="small"
             />
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={allEditableSelectedArchived ? <IconUndo /> : <IconArchive />}
+                loading={bulkUpdating}
+                disabledReason={bulkUpdating ? 'Updating…' : noEditableSelectionReason}
+                tooltip={
+                    restrictedSelectionTooltip ??
+                    (allEditableSelectedArchived
+                        ? 'Put these tickets back in the ticket list'
+                        : 'Hide these tickets from the ticket list. Nothing is deleted, and you can restore them from the Archived filter.')
+                }
+                onClick={() => {
+                    if (editableTicketIds.length > 0) {
+                        bulkArchive(editableTicketIds, !allEditableSelectedArchived)
+                    }
+                }}
+                data-attr="bulk-archive-tickets"
+            >
+                {allEditableSelectedArchived ? 'Restore' : 'Archive'}
+            </LemonButton>
             <BulkUpdateTagsButton
                 resource="conversations/tickets"
                 selectedIds={editableTicketIds}

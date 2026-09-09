@@ -24,13 +24,14 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb, TeamType } from '~/types'
 
-import { conversationsViewsRetrieve } from '../../generated/api'
+import { conversationsTicketsBulkArchiveCreate, conversationsViewsRetrieve } from '../../generated/api'
 import { normalizeAssigneeFilter } from '../../types'
 import type {
     AITriageFilterValue,
     AssigneeFilterEntry,
     SavedTicketView,
     Ticket,
+    TicketArchivedFilter,
     TicketChannel,
     TicketPriority,
     TicketSlaState,
@@ -54,6 +55,7 @@ const DEFAULT_TICKET_FILTERS: TicketViewFilters = {
     tags: [],
     tagsMatch: 'any',
     tagsExclude: [],
+    archived: 'hide',
     sorting: { columnKey: 'updated_at', order: -1 },
     search: '',
 }
@@ -73,6 +75,7 @@ const FILTER_URL_PARAM_KEYS = [
     'tags',
     'tags_match',
     'tags_exclude',
+    'archived',
     'order_by',
 ] as const
 
@@ -117,6 +120,10 @@ function decodeAssignee(value: unknown): AssigneeFilterEntry[] {
     return normalizeAssigneeFilter(entries.filter((entry): entry is AssigneeFilterEntry => entry !== null))
 }
 
+function toArchivedFilter(value: unknown): TicketArchivedFilter {
+    return value === 'only' || value === 'all' ? value : 'hide'
+}
+
 // Canonical URL representation of the filters. Only non-default values are
 // emitted so shared links stay readable.
 function filtersToUrlParams(filters: TicketViewFilters): Record<string, any> {
@@ -149,6 +156,9 @@ function filtersToUrlParams(filters: TicketViewFilters): Record<string, any> {
     if (filters.tagsExclude?.length) {
         params.tags_exclude = filters.tagsExclude
     }
+    if (filters.archived && filters.archived !== 'hide') {
+        params.archived = filters.archived
+    }
     const orderBy = sortingToOrderBy(filters.sorting)
     if (orderBy !== DEFAULT_ORDER_BY) {
         params.order_by = orderBy
@@ -170,6 +180,7 @@ function urlParamsToFilters(searchParams: Record<string, any>): TicketViewFilter
         tags: toStringArray(searchParams.tags),
         tagsMatch: searchParams.tags_match === 'all' ? 'all' : 'any',
         tagsExclude: toStringArray(searchParams.tags_exclude),
+        archived: toArchivedFilter(searchParams.archived),
         search: '',
         sorting: searchParams.order_by ? orderByToSorting(String(searchParams.order_by)) : { ...DEFAULT_SORTING },
     }
@@ -199,6 +210,8 @@ export interface supportTicketsSceneLogicValues {
     activeView: SavedTicketView | null
     aiEnabled: boolean
     aiTriageResultFilter: AITriageFilterValue[]
+    allEditableSelectedArchived: boolean
+    archivedFilter: TicketArchivedFilter
     assigneeFilter: AssigneeFilterEntry[]
     assigneeFilterEntries: AssigneeFilterEntry[]
     breadcrumbs: Breadcrumb[]
@@ -213,6 +226,7 @@ export interface supportTicketsSceneLogicValues {
     } | null
     dateTo: string | null
     editableSelectedTicketIds: string[]
+    editableSelectedTickets: Ticket[]
     hasActiveFilters: boolean
     orderBy: string
     priorityFilter: TicketPriority[]
@@ -240,6 +254,13 @@ export interface supportTicketsSceneLogicActions {
     }
     applyViewFilters: (filters: TicketViewFilters) => {
         filters: TicketViewFilters
+    }
+    bulkArchive: (
+        ids: string[],
+        archived: boolean
+    ) => {
+        archived: boolean
+        ids: string[]
     }
     bulkUpdateStatus: (
         ids: string[],
@@ -271,6 +292,9 @@ export interface supportTicketsSceneLogicActions {
     }
     setAiTriageResultFilter: (results: AITriageFilterValue[]) => {
         results: AITriageFilterValue[]
+    }
+    setArchivedFilter: (archived: TicketArchivedFilter) => {
+        archived: TicketArchivedFilter
     }
     setAssigneeFilter: (assignees: AssigneeFilterEntry[]) => {
         assignees: AssigneeFilterEntry[]
@@ -344,7 +368,9 @@ export interface supportTicketsSceneLogicMeta {
         aiEnabled: (currentTeam: TeamType | null | import('~/types').TeamPublicType) => boolean
         orderBy: (sorting: Sorting | null) => string
         selectedTickets: (tickets: Ticket[], selectedTicketIds: string[]) => Ticket[]
-        editableSelectedTicketIds: (selectedTickets: Ticket[]) => string[]
+        editableSelectedTickets: (selectedTickets: Ticket[]) => Ticket[]
+        editableSelectedTicketIds: (editableSelectedTickets: Ticket[]) => string[]
+        allEditableSelectedArchived: (editableSelectedTickets: Ticket[]) => boolean
         assigneeFilterEntries: (assigneeFilter: AssigneeFilterEntry[]) => AssigneeFilterEntry[]
         hasActiveFilters: (
             statusFilter: TicketStatus[],
@@ -355,6 +381,7 @@ export interface supportTicketsSceneLogicMeta {
             assigneeFilterEntries: AssigneeFilterEntry[],
             tagsFilter: string[],
             tagsExcludeFilter: string[],
+            archivedFilter: TicketArchivedFilter,
             dateFrom: string | null,
             dateTo: string | null
         ) => boolean
@@ -368,6 +395,7 @@ export interface supportTicketsSceneLogicMeta {
             tagsFilter: string[],
             tagsMatch: TicketTagsMatch,
             tagsExcludeFilter: string[],
+            archivedFilter: TicketArchivedFilter,
             dateFrom: string | null,
             dateTo: string | null,
             sorting: Sorting | null,
@@ -397,6 +425,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setTagsFilter: (tags: string[]) => ({ tags }),
         setTagsMatch: (match: TicketTagsMatch) => ({ match }),
         setTagsExcludeFilter: (tags: string[]) => ({ tags }),
+        setArchivedFilter: (archived: TicketArchivedFilter) => ({ archived }),
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setSorting: (sorting: Sorting | null) => ({ sorting }),
         setSearchQuery: (query: string) => ({ query }),
@@ -415,6 +444,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         clearFiltersKeepingSearch: true,
         setDateRangeBeforeView: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         bulkUpdateStatus: (ids: string[], status: TicketStatus) => ({ ids, status }),
+        bulkArchive: (ids: string[], archived: boolean) => ({ ids, archived }),
         setBulkUpdating: (updating: boolean) => ({ updating }),
         setSelectedTicketIds: (ids: string[]) => ({ ids }),
         clearSelectedTickets: true,
@@ -519,6 +549,16 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 applyViewFilters: (state, { filters }) => filters.tagsExclude ?? state,
             },
         ],
+        archivedFilter: [
+            'hide' as TicketArchivedFilter,
+            { persist: true },
+            {
+                setArchivedFilter: (_, { archived }) => archived,
+                // Unlike its siblings, an absent value resets instead of keeping the current
+                // scope, because a view saved before the archive existed holds no key here.
+                applyViewFilters: (_, { filters }) => toArchivedFilter(filters.archived),
+            },
+        ],
         searchQuery: [
             '' as string,
             { persist: true },
@@ -610,20 +650,28 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 return tickets.filter((t) => idSet.has(t.id))
             },
         ],
-        editableSelectedTicketIds: [
+        editableSelectedTickets: [
             (s) => [s.selectedTickets],
-            (selectedTickets: Ticket[]): string[] =>
-                selectedTickets
-                    .filter(
-                        (ticket) =>
-                            !ticket.user_access_level ||
-                            accessLevelSatisfied(
-                                AccessControlResourceType.Ticket,
-                                ticket.user_access_level,
-                                AccessControlLevel.Editor
-                            )
-                    )
-                    .map((ticket) => ticket.id),
+            (selectedTickets: Ticket[]): Ticket[] =>
+                selectedTickets.filter(
+                    (ticket) =>
+                        !ticket.user_access_level ||
+                        accessLevelSatisfied(
+                            AccessControlResourceType.Ticket,
+                            ticket.user_access_level,
+                            AccessControlLevel.Editor
+                        )
+                ),
+        ],
+        editableSelectedTicketIds: [
+            (s) => [s.editableSelectedTickets],
+            (editableSelectedTickets: Ticket[]): string[] => editableSelectedTickets.map((ticket) => ticket.id),
+        ],
+        // The editable subset, because a ticket the request skips must not pick the verb.
+        allEditableSelectedArchived: [
+            (s) => [s.editableSelectedTickets],
+            (editableSelectedTickets: Ticket[]): boolean =>
+                editableSelectedTickets.length > 0 && editableSelectedTickets.every((ticket) => !!ticket.archived_at),
         ],
         assigneeFilterEntries: [
             (s) => [s.assigneeFilter],
@@ -639,6 +687,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 s.assigneeFilterEntries,
                 s.tagsFilter,
                 s.tagsExcludeFilter,
+                s.archivedFilter,
                 s.dateFrom,
                 s.dateTo,
             ],
@@ -651,6 +700,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 assignee: AssigneeFilterEntry[],
                 tags: string[],
                 tagsExclude: string[],
+                archived: TicketArchivedFilter,
                 dateFrom: string | null,
                 dateTo: string | null
             ): boolean =>
@@ -662,6 +712,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 assignee.length > 0 ||
                 tags.length > 0 ||
                 tagsExclude.length > 0 ||
+                archived !== 'hide' ||
                 dateFrom !== null ||
                 dateTo !== null,
         ],
@@ -676,6 +727,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 s.tagsFilter,
                 s.tagsMatch,
                 s.tagsExcludeFilter,
+                s.archivedFilter,
                 s.dateFrom,
                 s.dateTo,
                 s.sorting,
@@ -691,6 +743,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 tags: string[],
                 tagsMatch: TicketTagsMatch,
                 tagsExclude: string[],
+                archived: TicketArchivedFilter,
                 dateFrom: string | null,
                 dateTo: string | null,
                 sorting: Sorting | null,
@@ -705,6 +758,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 tags,
                 tagsMatch,
                 tagsExclude,
+                archived,
                 dateFrom,
                 dateTo,
                 sorting,
@@ -744,6 +798,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             }
             if (values.tagsExcludeFilter.length > 0) {
                 params.tags_exclude = JSON.stringify(values.tagsExcludeFilter)
+            }
+            if (values.archivedFilter !== 'hide') {
+                params.archived = values.archivedFilter
             }
             if (values.searchQuery) {
                 params.search = values.searchQuery
@@ -837,6 +894,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             actions.clearActiveView()
             actions.setCurrentPage(1)
         },
+        setArchivedFilter: () => {
+            actions.clearActiveView()
+            actions.setCurrentPage(1)
+        },
         setDateRange: () => {
             actions.clearActiveView()
             actions.setCurrentPage(1)
@@ -914,6 +975,23 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 actions.setBulkUpdating(false)
             }
         },
+        bulkArchive: async ({ ids, archived }) => {
+            actions.setBulkUpdating(true)
+            try {
+                const result = await conversationsTicketsBulkArchiveCreate(String(teamLogic.values.currentTeamId), {
+                    ids,
+                    archived,
+                })
+                const verb = archived ? 'Archived' : 'Restored'
+                lemonToast.success(`${verb} ${result.updated} ticket${result.updated === 1 ? '' : 's'}`)
+                actions.clearSelectedTickets()
+                actions.loadTickets()
+            } catch {
+                lemonToast.error(archived ? 'Failed to archive tickets' : 'Failed to restore tickets')
+            } finally {
+                actions.setBulkUpdating(false)
+            }
+        },
     })),
     actionToUrl(({ values, props, cache }) => {
         const buildUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] | undefined => {
@@ -954,6 +1032,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             setTagsFilter: buildUrl,
             setTagsMatch: buildUrl,
             setTagsExcludeFilter: buildUrl,
+            setArchivedFilter: buildUrl,
             setSorting: buildUrl,
             setSearchQuery: buildUrl,
             applyViewFilters: buildUrl,

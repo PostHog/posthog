@@ -30,6 +30,7 @@ const conversationsTicketsList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/`,
             query: {
                 ai_triage_result: params.ai_triage_result,
+                archived: params.archived,
                 assignee: params.assignee,
                 channel_detail: params.channel_detail,
                 channel_source: params.channel_source,
@@ -66,6 +67,7 @@ const conversationsTicketsList = (): ToolBase<
                     'unread_team_count',
                     'created_at',
                     'updated_at',
+                    'archived_at',
                 ])
             ),
         } as typeof result
@@ -235,6 +237,7 @@ const conversationsTicketsRetrieve = (): ToolBase<
             'distinct_id',
             'created_at',
             'updated_at',
+            'archived_at',
         ]) as typeof result
         return withAgentNote(
             await withPostHogUrl(context, filtered, `/support/tickets/${filtered.id}`),
@@ -277,6 +280,9 @@ const conversationsTicketsUpdate = (): ToolBase<
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
+        }
+        if (params.archived !== undefined) {
+            body['archived'] = params.archived
         }
         const result = await context.api.request<Schemas.Ticket>({
             method: 'PATCH',

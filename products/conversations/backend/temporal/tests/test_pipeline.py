@@ -5,6 +5,8 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from posthog.models import Organization, Team
@@ -542,6 +544,43 @@ class TestPersistReplyActivity:
         assert comment.item_context is not None
         assert comment.item_context["author_type"] == "AI"
         assert comment.item_context["is_private"] is expected_private
+
+    @pytest.mark.django_db
+    def test_archived_ticket_keeps_the_reply_private(self):
+        from posthog.models.comment import Comment
+
+        org = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(
+            organization=org,
+            name="Test Team",
+            conversations_settings={
+                "ai_suggestions_enabled": True,
+                "ai_reply_modes": {"widget": {"how_to": "bot_reply"}},
+            },
+        )
+        ticket = Ticket.objects.create_with_number(
+            team=team,
+            widget_session_id="aabbccdd-0000-0000-0000-000000000002",
+            distinct_id="test-user",
+            channel_source="widget",
+            archived_at=timezone.now(),
+        )
+
+        _persist_reply_sync(
+            PersistReplyInput(
+                team_id=team.id,
+                ticket_id=str(ticket.id),
+                reply="Test reply.",
+                citations=["c1"],
+                confidence=0.9,
+                ticket_type="how_to",
+                allow_bot_reply=True,
+            )
+        )
+
+        comment = Comment.objects.get(team_id=team.id, item_id=str(ticket.id))
+        assert comment.item_context is not None
+        assert comment.item_context["is_private"] is True
 
 
 class TestBuildContextAutoPublish:

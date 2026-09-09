@@ -112,9 +112,12 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     cutoff = now - timedelta(minutes=lookback_minutes)
     # last_message_at is the debounce axis; fall back to created_at for tickets whose denormalized
     # timestamp hasn't landed yet (set via a post-commit signal, so there's a brief null window).
+    # Archiving keeps the status, so an archived ticket stays new or open. Exclude it here or
+    # the bot answers a customer on a ticket an agent took off the queue.
     recent_tickets = Ticket.objects.filter(
         Q(last_message_at__gte=cutoff) | Q(last_message_at__isnull=True, created_at__gte=cutoff),
         status__in=[Status.NEW, Status.OPEN],
+        archived_at__isnull=True,
     ).select_related("team__organization")
 
     # First pass: the cheap per-ticket gates that don't touch the comments table. We keep

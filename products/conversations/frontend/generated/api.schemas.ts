@@ -178,6 +178,11 @@ export interface TicketApi {
     sla_due_at?: string | null
     /** @nullable */
     snoozed_until?: string | null
+    /**
+     * When the ticket was archived, or null while it is live. Archived tickets are hidden from the ticket list and the unread count but are never deleted; pass `archived` on an update to archive or restore one.
+     * @nullable
+     */
+    readonly archived_at: string | null
     /** @nullable */
     readonly slack_channel_id: string | null
     /** @nullable */
@@ -303,6 +308,8 @@ export interface TicketUpdateRequestApi {
     snoozed_until?: string | null
     /** Tag names to set on the ticket. */
     tags?: string[]
+    /** True archives the ticket (a soft delete: it leaves the ticket list and the unread count but is kept in full), false restores it. Read the resulting state from `archived_at`. */
+    archived?: boolean
 }
 
 /**
@@ -347,6 +354,8 @@ export interface PatchedTicketUpdateRequestApi {
     snoozed_until?: string | null
     /** Tag names to set on the ticket. */
     tags?: string[]
+    /** True archives the ticket (a soft delete: it leaves the ticket list and the unread count but is kept in full), false restores it. Read the resulting state from `archived_at`. */
+    archived?: boolean
 }
 
 /**
@@ -454,6 +463,23 @@ export interface TicketReplyRequestApi {
     is_private?: boolean
     /** Optional TipTap rich content JSON for formatted messages. */
     rich_content?: unknown
+}
+
+export interface BulkArchiveRequestApi {
+    /**
+     * List of ticket UUIDs to archive or restore.
+     * @maxItems 500
+     */
+    ids: string[]
+    /** True archives the tickets (a soft delete: they leave the ticket list and the unread count but are kept in full), false restores them. */
+    archived: boolean
+}
+
+export interface BulkArchiveResponseApi {
+    /** Number of tickets whose archived state actually changed. */
+    updated: number
+    /** UUIDs of the tickets that were archived or restored. */
+    ids: string[]
 }
 
 export interface BulkUpdateStatusRequestApi {
@@ -640,6 +666,19 @@ export const TicketTagsMatchEnumApi = {
 } as const
 
 /**
+ * * `hide` - hide
+ * * `only` - only
+ * * `all` - all
+ */
+export type TicketArchivedFilterEnumApi = (typeof TicketArchivedFilterEnumApi)[keyof typeof TicketArchivedFilterEnumApi]
+
+export const TicketArchivedFilterEnumApi = {
+    Hide: 'hide',
+    Only: 'only',
+    All: 'all',
+} as const
+
+/**
  * * `1` - 1
  * * `-1` - -1
  */
@@ -706,6 +745,12 @@ export interface TicketViewFiltersApi {
     tagsMatch?: TicketTagsMatchEnumApi
     /** Tickets carrying any of these tags are excluded. */
     tagsExclude?: string[]
+    /** Which side of the archive to return. 'hide' (the default when omitted) returns only live tickets, 'only' returns only archived ones, 'all' returns both.
+     *
+     * * `hide` - hide
+     * * `only` - only
+     * * `all` - all */
+    archived?: TicketArchivedFilterEnumApi
     /**
      * Only include tickets updated on or after this date. Accepts absolute dates (2026-01-01) or relative ones (-7d). 'all' or null disables the bound.
      * @nullable
@@ -920,6 +965,10 @@ export type ConversationsTicketsListParams = {
      */
     ai_triage_result?: string
     /**
+     * Which side of the archive to return. Defaults to `hide`, so archived (soft-deleted) tickets are left out unless asked for: `only` returns just the archive, `all` returns both.
+     */
+    archived?: ConversationsTicketsListArchived
+    /**
      * Filter by assignee. Accepts a single value or a comma-separated list (matches any, max 100 entries). Each entry is `unassigned` (no assignee), `me` (the requesting user), `user:<user_id>`, or `role:<role_uuid>`, e.g. `assignee=unassigned,user:123`.
      */
     assignee?: string
@@ -996,6 +1045,15 @@ export type ConversationsTicketsListParams = {
      */
     view?: string
 }
+
+export type ConversationsTicketsListArchived =
+    (typeof ConversationsTicketsListArchived)[keyof typeof ConversationsTicketsListArchived]
+
+export const ConversationsTicketsListArchived = {
+    All: 'all',
+    Hide: 'hide',
+    Only: 'only',
+} as const
 
 export type ConversationsTicketsListChannelDetail =
     (typeof ConversationsTicketsListChannelDetail)[keyof typeof ConversationsTicketsListChannelDetail]

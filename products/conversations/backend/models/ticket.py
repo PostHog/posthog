@@ -121,6 +121,12 @@ class Ticket(UUIDTModel):
     # Snooze — when set, ticket is "on hold" until this time, then auto-reopened by wake task
     snoozed_until = models.DateTimeField(null=True, blank=True)
 
+    # The product's soft delete. A set timestamp hides the ticket from the list and the unread
+    # count, and the row is never destroyed, so a customer can still be answered about it. The
+    # archived-only list rides the (team, -updated_at) index with a filter; it gets an index of
+    # its own once a concurrent build is possible here (see the PR notes).
+    archived_at = models.DateTimeField(null=True, blank=True)
+
     # Customer's PostHog org group key, resolved once at creation or on a later message
     # (local org pk, cross-region analytics key, or the person's organization_id property).
     organization_id = models.CharField(max_length=400, null=True, blank=True)

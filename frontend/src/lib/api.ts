@@ -7052,6 +7052,7 @@ const api = {
                 sla?: string
                 assignee?: string
                 tags?: string
+                archived?: string
                 distinct_ids?: string
                 emails?: string
                 search?: string

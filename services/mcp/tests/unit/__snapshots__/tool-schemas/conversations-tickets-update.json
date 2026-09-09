@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "archived": {
+            "description": "True archives the ticket (a soft delete: it leaves the ticket list and the unread count but is kept in full), false restores it. Read the resulting state from `archived_at`.",
+            "type": "boolean"
+        },
         "assignee": {
             "anyOf": [
                 {

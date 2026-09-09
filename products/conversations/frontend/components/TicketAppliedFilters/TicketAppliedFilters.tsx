@@ -20,6 +20,7 @@ export function TicketAppliedFilters(): JSX.Element | null {
         setAssigneeFilter,
         setTagsFilter,
         setTagsExcludeFilter,
+        setArchivedFilter,
         resetFilters,
     } = useActions(logic)
 
@@ -51,6 +52,9 @@ export function TicketAppliedFilters(): JSX.Element | null {
                 break
             case 'tag-exclude':
                 setTagsExcludeFilter(tagsExcludeFilter.filter((tag) => tag !== chip.value))
+                break
+            case 'archived':
+                setArchivedFilter('hide')
                 break
             case 'assignee':
                 setAssigneeFilter(assigneeFilterEntries.filter((entry) => !isSameAssigneeEntry(entry, chip.entry)))

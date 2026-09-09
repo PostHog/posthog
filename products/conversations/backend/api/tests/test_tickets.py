@@ -18,6 +18,7 @@ from posthog.test.base import (
 from unittest.mock import patch
 
 from django.db import close_old_connections, connection, transaction
+from django.db.models import F
 from django.db.utils import IntegrityError
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -39,7 +40,11 @@ from posthog.test.persons import create_person
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
-from products.conversations.backend.api.tickets import ComposeTicketSerializer, TicketReplyRequestSerializer
+from products.conversations.backend.api.tickets import (
+    ComposeTicketSerializer,
+    TicketReplyRequestSerializer,
+    TicketUpdateRequestSerializer,
+)
 from products.conversations.backend.models import (
     EmailChannel,
     EmailChannelKind,
@@ -2251,6 +2256,9 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
             ("compose_with_write", "compose", ["ticket:write"], status.HTTP_400_BAD_REQUEST),
             ("compose_with_read", "compose", ["ticket:read"], status.HTTP_403_FORBIDDEN),
             ("compose_wrong_scope", "compose", ["insight:write"], status.HTTP_403_FORBIDDEN),
+            ("bulk_archive_with_write", "bulk_archive", ["ticket:write"], status.HTTP_400_BAD_REQUEST),
+            ("bulk_archive_with_read", "bulk_archive", ["ticket:read"], status.HTTP_403_FORBIDDEN),
+            ("bulk_archive_wrong_scope", "bulk_archive", ["insight:write"], status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_write_actions(self, _name, action, scopes, expected_status):
@@ -3234,6 +3242,7 @@ class TestTicketViewParamFilter(APIBaseTest):
             ("assignee_bad_user_id", "assignee", "user:abc", "assignee"),
             ("assignee_bad_role_id", "assignee", "role:not-a-uuid", "assignee"),
             ("order_by", "order_by", "bogus", "sorting"),
+            ("archived", "archived", "bogus", "archived"),
         ]
     )
     def test_all_invalid_param_values_leave_key_unset(self, _label, param, value, key):
@@ -3404,3 +3413,231 @@ class TestTicketNoteAPI(APIBaseTest):
     def test_blank_message_rejected(self, mock_on_commit):
         response = self.client.patch(self.url, {"message": "   "}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestTicketArchive(APIBaseTest):
+    """Archiving is the product's soft delete. The ticket leaves every list, keeps everything
+    it had, and stays reachable, so a customer who asks about it can still be answered."""
+
+    def setUp(self):
+        super().setUp()
+        # unread_count short-circuits to zero for a team without conversations enabled.
+        self.team.conversations_enabled = True
+        self.team.save()
+        self.ticket = self._create_ticket()
+
+    def _create_ticket(self, **kwargs) -> Ticket:
+        defaults = {
+            "team": self.team,
+            "channel_source": Channel.WIDGET,
+            "widget_session_id": f"sess-{Ticket.objects.count()}",
+            "distinct_id": "user-123",
+            "status": Status.OPEN,
+        }
+        defaults.update(kwargs)
+        return Ticket.objects.create_with_number(**defaults)
+
+    def _ticket_url(self, ticket: Ticket) -> str:
+        return f"/api/projects/{self.team.id}/conversations/tickets/{ticket.id}/"
+
+    def _bulk_url(self) -> str:
+        return f"/api/projects/{self.team.id}/conversations/tickets/bulk_archive/"
+
+    def _list_ids(self, **params) -> set[str]:
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/", data=params)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return {r["id"] for r in response.json()["results"]}
+
+    def test_archiving_records_when_and_leaves_the_rest_alone(self, mock_on_commit):
+        response = self.client.patch(self._ticket_url(self.ticket), {"archived": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["archived_at"] is not None
+        self.ticket.refresh_from_db()
+        assert self.ticket.archived_at is not None
+        assert self.ticket.status == Status.OPEN
+
+    def test_restoring_clears_the_timestamp(self, mock_on_commit):
+        self.ticket.archived_at = timezone.now()
+        self.ticket.save(update_fields=["archived_at"])
+
+        response = self.client.patch(self._ticket_url(self.ticket), {"archived": False}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["archived_at"] is None
+        self.ticket.refresh_from_db()
+        assert self.ticket.archived_at is None
+
+    def test_repeating_an_archive_keeps_the_original_time(self, mock_on_commit):
+        first = self.client.patch(self._ticket_url(self.ticket), {"archived": True}, format="json")
+        archived_at = first.json()["archived_at"]
+
+        second = self.client.patch(self._ticket_url(self.ticket), {"archived": True}, format="json")
+
+        assert second.json()["archived_at"] == archived_at
+        self.ticket.refresh_from_db()
+        assert self.ticket.archived_at is not None
+        assert self.ticket.archived_at.isoformat().replace("+00:00", "Z") == archived_at
+        changes = [
+            change
+            for log in ActivityLog.objects.filter(team_id=self.team.id, scope="Ticket", item_id=str(self.ticket.id))
+            for change in (log.detail or {}).get("changes") or []
+            if change["field"] == "archived_at"
+        ]
+        assert len(changes) == 1
+
+    def test_archive_and_restore_are_in_the_activity_log(self, mock_on_commit):
+        self.client.patch(self._ticket_url(self.ticket), {"archived": True}, format="json")
+        self.client.patch(self._ticket_url(self.ticket), {"archived": False}, format="json")
+
+        changes = [
+            change
+            for log in ActivityLog.objects.filter(
+                team_id=self.team.id, scope="Ticket", item_id=str(self.ticket.id)
+            ).order_by("created_at")
+            for change in (log.detail or {}).get("changes") or []
+            if change["field"] == "archived_at"
+        ]
+        assert len(changes) == 2
+        assert changes[0]["before"] is None and changes[0]["after"] is not None
+        assert changes[1]["before"] is not None and changes[1]["after"] is None
+
+    def test_list_hides_archived_tickets_by_default(self, mock_on_commit):
+        archived = self._create_ticket(archived_at=timezone.now())
+
+        assert self._list_ids() == {str(self.ticket.id)}
+        assert self._list_ids(archived="only") == {str(archived.id)}
+        assert self._list_ids(archived="all") == {str(self.ticket.id), str(archived.id)}
+
+    def test_archived_filter_composes_with_other_filters(self, mock_on_commit):
+        archived_open = self._create_ticket(archived_at=timezone.now())
+        self._create_ticket(status=Status.RESOLVED, archived_at=timezone.now())
+
+        assert self._list_ids(archived="only", status="open") == {str(archived_open.id)}
+
+    def test_saved_view_can_scope_to_the_archive(self, mock_on_commit):
+        archived = self._create_ticket(archived_at=timezone.now())
+        view = TicketView.objects.create(
+            team=self.team, name="Archived", filters={"archived": "only"}, created_by=self.user
+        )
+
+        assert self._list_ids(view=view.short_id) == {str(archived.id)}
+
+    def test_archived_ticket_is_still_readable_by_number(self, mock_on_commit):
+        self.ticket.archived_at = timezone.now()
+        self.ticket.save(update_fields=["archived_at"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.ticket_number}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["archived_at"] is not None
+
+    def test_unread_count_excludes_archived_tickets(self, mock_on_commit):
+        self.ticket.unread_team_count = 2
+        self.ticket.save(update_fields=["unread_team_count"])
+        archived = self._create_ticket(unread_team_count=5)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/unread_count/")
+        assert response.json()["count"] == 7
+
+        self.client.patch(self._ticket_url(archived), {"archived": True}, format="json")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/unread_count/")
+        assert response.json()["count"] == 2
+
+    def test_bulk_archive_and_restore(self, mock_on_commit):
+        second = self._create_ticket()
+        ids = [str(self.ticket.id), str(second.id)]
+
+        response = self.client.post(self._bulk_url(), {"ids": ids, "archived": True}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["updated"] == 2
+        assert set(response.json()["ids"]) == set(ids)
+        assert self._list_ids() == set()
+
+        response = self.client.post(self._bulk_url(), {"ids": ids, "archived": False}, format="json")
+        assert response.json()["updated"] == 2
+        assert self._list_ids() == set(ids)
+
+    def test_bulk_archive_skips_tickets_already_in_that_state(self, mock_on_commit):
+        already = self._create_ticket(archived_at=timezone.now())
+
+        response = self.client.post(
+            self._bulk_url(), {"ids": [str(self.ticket.id), str(already.id)], "archived": True}, format="json"
+        )
+
+        assert response.json()["updated"] == 1
+        assert response.json()["ids"] == [str(self.ticket.id)]
+
+    def test_bulk_archive_ignores_other_team_ids(self, mock_on_commit):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = self.create_team_with_organization(organization=other_org)
+        other_ticket = Ticket.objects.create_with_number(
+            team=other_team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="other-sess",
+            distinct_id="other-user",
+            status=Status.NEW,
+        )
+
+        response = self.client.post(
+            self._bulk_url(), {"ids": [str(self.ticket.id), str(other_ticket.id)], "archived": True}, format="json"
+        )
+
+        assert response.json()["updated"] == 1
+        other_ticket.refresh_from_db()
+        assert other_ticket.archived_at is None
+
+    def test_bulk_archive_skips_tickets_denied_at_object_level(self, mock_on_commit):
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+        denied = self._create_ticket()
+        AccessControl.objects.create(
+            resource="ticket",
+            resource_id=str(denied.id),
+            organization_member=self.user.organization_memberships.get(organization=self.organization),
+            team=self.team,
+            access_level="none",
+        )
+
+        response = self.client.post(
+            self._bulk_url(), {"ids": [str(self.ticket.id), str(denied.id)], "archived": True}, format="json"
+        )
+
+        assert response.json()["updated"] == 1
+        denied.refresh_from_db()
+        assert denied.archived_at is None
+
+    def test_archiving_does_not_revert_a_message_that_lands_mid_request(self, mock_on_commit):
+        """The update path saved the whole row from the snapshot get_object() read, so a customer
+        message arriving during the request had its counters written back to their old values."""
+        snapshot = Ticket.objects.get(id=self.ticket.id)
+
+        Ticket.objects.filter(id=self.ticket.id).update(
+            message_count=F("message_count") + 1,
+            unread_team_count=F("unread_team_count") + 1,
+            last_message_text="One more thing",
+        )
+
+        serializer = TicketUpdateRequestSerializer(snapshot, data={"archived": True}, partial=True)
+        assert serializer.is_valid(), serializer.errors
+        serializer.save()
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.archived_at is not None
+        assert self.ticket.message_count == 1
+        assert self.ticket.unread_team_count == 1
+        assert self.ticket.last_message_text == "One more thing"
+
+    def test_bulk_archive_logs_activity_per_ticket(self, mock_on_commit):
+        second = self._create_ticket()
+
+        self.client.post(
+            self._bulk_url(), {"ids": [str(self.ticket.id), str(second.id)], "archived": True}, format="json"
+        )
+
+        logged_items = set(
+            ActivityLog.objects.filter(team_id=self.team.id, scope="Ticket").values_list("item_id", flat=True)
+        )
+        assert logged_items == {str(self.ticket.id), str(second.id)}

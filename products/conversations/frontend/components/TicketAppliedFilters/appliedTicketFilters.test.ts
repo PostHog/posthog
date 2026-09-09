@@ -10,6 +10,7 @@ const emptyState: AppliedTicketFiltersState = {
     tagsFilter: [],
     tagsMatch: 'any',
     tagsExcludeFilter: [],
+    archivedFilter: 'hide',
 }
 
 describe('listAppliedTicketFilters', () => {
@@ -29,6 +30,7 @@ describe('listAppliedTicketFilters', () => {
             tagsFilter: ['billing'],
             tagsMatch: 'all',
             tagsExcludeFilter: ['spam'],
+            archivedFilter: 'only',
         })
 
         expect(chips.map((chip) => chip.key)).toEqual([
@@ -39,9 +41,15 @@ describe('listAppliedTicketFilters', () => {
             'ai:persisted',
             'tag:billing',
             'tag-exclude:spam',
+            'archived:only',
             'assignee:me',
         ])
         expect(chips.find((chip) => chip.kind === 'status')).toMatchObject({ label: 'Status: Open' })
         expect(chips.find((chip) => chip.kind === 'tag')).toMatchObject({ label: 'Tag (all): billing' })
+        expect(chips.find((chip) => chip.kind === 'archived')).toMatchObject({ label: 'Only archived' })
+    })
+
+    it('does not chip the archive default, which is not a filter anyone applied', () => {
+        expect(listAppliedTicketFilters({ ...emptyState, archivedFilter: 'hide' })).toEqual([])
     })
 })

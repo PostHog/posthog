@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 from django.db import transaction
 from django.db.models import Q, QuerySet, Sum
 from django.http import Http404
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -64,6 +65,7 @@ from products.access_control.backend.presentation.access_control import (
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
 from products.conversations.backend.api.ticket_filters import (
     AI_TRIAGE_FILTER_VALUES,
+    TICKET_ARCHIVED_FILTER_CHOICES,
     apply_ticket_filters,
     is_ticket_number_search,
     parse_stored_view_filters,
@@ -307,6 +309,27 @@ class BulkUpdateStatusResponseSerializer(serializers.Serializer):
     )
 
 
+class BulkArchiveRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=BULK_UPDATE_STATUS_MAX_IDS,
+        help_text="List of ticket UUIDs to archive or restore.",
+    )
+    archived = serializers.BooleanField(
+        help_text="True archives the tickets (a soft delete: they leave the ticket list and the unread "
+        "count but are kept in full), false restores them.",
+    )
+
+
+class BulkArchiveResponseSerializer(serializers.Serializer):
+    updated = serializers.IntegerField(help_text="Number of tickets whose archived state actually changed.")
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="UUIDs of the tickets that were archived or restored.",
+    )
+
+
 class TicketPagination(pagination.LimitOffsetPagination):
     default_limit = 100
     max_limit = 1000
@@ -366,6 +389,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "session_context",
             "sla_due_at",
             "snoozed_until",
+            "archived_at",
             "slack_channel_id",
             "slack_thread_ts",
             "slack_team_id",
@@ -389,6 +413,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "channel_detail",
             "distinct_id",
             "created_at",
+            "archived_at",
             "message_count",
             "last_message_at",
             "last_message_text",
@@ -425,6 +450,11 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved"},
             "priority": {"help_text": "Ticket priority: low, medium, high, or critical. Null if unset."},
             "sla_due_at": {"help_text": "SLA deadline set via workflows. Null means no SLA."},
+            "archived_at": {
+                "help_text": "When the ticket was archived, or null while it is live. Archived tickets are "
+                "hidden from the ticket list and the unread count but are never deleted; pass `archived` on "
+                "an update to archive or restore one."
+            },
             "anonymous_traits": {"help_text": "Customer-provided traits such as name and email"},
             "organization_id": {
                 "help_text": "Customer's PostHog organization group key, resolved at ticket creation. Null when unknown."
@@ -491,6 +521,12 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
         required=False,
         help_text="Tag names to set on the ticket.",
     )
+    archived = serializers.BooleanField(
+        required=False,
+        write_only=True,
+        help_text="True archives the ticket (a soft delete: it leaves the ticket list and the unread count "
+        "but is kept in full), false restores it. Read the resulting state from `archived_at`.",
+    )
 
     class Meta:
         model = Ticket
@@ -504,6 +540,7 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
             "sla_due_at",
             "snoozed_until",
             "tags",
+            "archived",
         ]
         extra_kwargs = {
             "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved."},
@@ -517,7 +554,21 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
 
     def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
         validated_data.pop("assignee", None)
-        return super().update(instance, validated_data)
+        if (archived := validated_data.pop("archived", None)) is not None:
+            # Move the stamp only on a state change, so a repeated archive keeps the first time.
+            if archived != (instance.archived_at is not None):
+                validated_data["archived_at"] = timezone.now() if archived else None
+
+        # Save only the columns this request set, or the whole-row write from the get_object()
+        # snapshot reverts a message signal that landed mid-request. updated_at is auto_now, so
+        # it moves only when named, and a tags-only request still needs the list sort to move.
+        concrete_fields = {field.name for field in Ticket._meta.concrete_fields}
+        touched = [name for name in validated_data if name in concrete_fields]
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save(update_fields=[*touched, "updated_at"])
+        self._attempt_set_tags(self.initial_data.get("tags"), instance)
+        return instance
 
 
 TICKET_ID_PARAM = OpenApiParameter(
@@ -576,6 +627,7 @@ class _TicketFields:
     priority: str | None
     sla_due_at: datetime | None
     snoozed_until: datetime | None
+    archived_at: datetime | None
 
     @classmethod
     def read_from(cls, ticket: Ticket) -> _TicketFields:
@@ -584,6 +636,7 @@ class _TicketFields:
             priority=ticket.priority,
             sla_due_at=ticket.sla_due_at,
             snoozed_until=ticket.snoozed_until,
+            archived_at=ticket.archived_at,
         )
 
 
@@ -610,6 +663,10 @@ class _TicketUpdateDiff:
         return self.status_changed and Status.RESOLVED in (self.before.status, self.after.status)
 
     @property
+    def archive_changed(self) -> bool:
+        return (self.before.archived_at is None) != (self.after.archived_at is None)
+
+    @property
     def has_changes(self) -> bool:
         return self.assignee_submitted or self.before != self.after
 
@@ -620,6 +677,7 @@ class _TicketUpdateDiff:
             ("priority", self.before.priority, self.after.priority),
             ("sla_due_at", self.before.sla_due_at, self.after.sla_due_at),
             ("snoozed_until", self.before.snoozed_until, self.after.snoozed_until),
+            ("archived_at", self.before.archived_at, self.after.archived_at),
         ]
         # Compare the raw values, so two datetimes for the same instant in different
         # timezones do not register as a change, then render for the log.
@@ -661,6 +719,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         "update",
         "partial_update",
         "patch",
+        "bulk_archive",
         "compose",
         "reply",
         "ai_feedback",
@@ -734,7 +793,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         queryset = self._filter_queryset_by_access_level(queryset)
 
         user = cast("User", self.request.user) if self.request.user and self.request.user.is_authenticated else None
-        return apply_ticket_filters(queryset, filters, team=self.team, user=user)
+        # List-only, so an archived ticket stays reachable by id and can be restored.
+        return apply_ticket_filters(queryset, filters, team=self.team, user=user, archive_scope=self.action == "list")
 
     def _get_view_filters(self, short_id: str) -> dict[str, Any]:
         """Resolve a saved ticket view into the canonical filter shape for apply_ticket_filters."""
@@ -970,6 +1030,16 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 description="Filter by snooze state: `true` returns only snoozed tickets, `false` only non-snoozed.",
             ),
             OpenApiParameter(
+                "archived",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                enum=TICKET_ARCHIVED_FILTER_CHOICES,
+                description=(
+                    "Which side of the archive to return. Defaults to `hide`, so archived (soft-deleted) "
+                    "tickets are left out unless asked for: `only` returns just the archive, `all` returns both."
+                ),
+            ),
+            OpenApiParameter(
                 "order_by",
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
@@ -1111,11 +1181,14 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 instance.save(update_fields=["status"])
 
     def _emit_update_side_effects(self, request, instance: Ticket, diff: _TicketUpdateDiff) -> None:
-        if diff.crosses_resolved:
+        if diff.crosses_resolved or diff.archive_changed:
             invalidate_unread_count_cache(self.team_id)
 
         self._capture_update_events(request, instance, diff)
         self._log_update_activity(request, instance, diff)
+
+        if diff.archive_changed:
+            self._report_ticket_archived(request, instance, archived=instance.archived_at is not None)
 
         if diff.has_changes:
             self._report_ticket_updated(request, instance)
@@ -1153,6 +1226,20 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                     name=f"Ticket #{instance.ticket_number}",
                     changes=changes,
                 ),
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(instance.id)})
+
+    def _report_ticket_archived(self, request, instance: Ticket, *, archived: bool) -> None:
+        """Archiving is the closest thing to deleting a ticket, so the rate of archives and of
+        restores after them is worth measuring."""
+        try:
+            report_user_action(
+                request.user,
+                "support ticket archived",
+                {"archived": archived, "count": 1, **_ticket_action_properties(instance)},
+                team=self.team,
+                request=request,
             )
         except Exception as e:
             capture_exception(e, {"ticket_id": str(instance.id)})
@@ -1264,6 +1351,102 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         return Response({"updated": len(changed), "ids": [str(t.id) for t, _ in changed]})
 
+    @extend_schema(
+        request=BulkArchiveRequestSerializer,
+        responses={200: OpenApiResponse(response=BulkArchiveResponseSerializer)},
+    )
+    @action(detail=False, methods=["POST"])
+    def bulk_archive(self, request, *args, **kwargs):
+        """Archive or restore multiple tickets in a single request.
+
+        Archiving is a soft delete: the tickets leave the ticket list and the unread count,
+        keep their status, assignee and SLA, and stay readable by direct link or through the
+        `archived` filter. Nothing is destroyed, and every change goes into the ticket's
+        activity log.
+
+        Team scoping, object-level access and no-op skipping match `bulk_update_status`:
+        other-team UUIDs are ignored, tickets the caller can't edit are skipped, and a
+        ticket already in the requested state is left alone.
+        """
+        serializer = BulkArchiveRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        ticket_ids: list[uuid.UUID] = serializer.validated_data["ids"]
+        archived: bool = serializer.validated_data["archived"]
+
+        changed: list[tuple[Ticket, datetime | None]] = []
+        with transaction.atomic():
+            tickets = list(self.get_queryset().filter(id__in=ticket_ids).select_for_update(of=("self",)))
+            self.user_access_control.preload_object_access_controls(tickets)
+            tickets = [
+                ticket
+                for ticket in tickets
+                if self.user_access_control.check_access_level_for_object(ticket, required_level="editor")
+            ]
+            archived_at = timezone.now() if archived else None
+            for ticket in tickets:
+                if (ticket.archived_at is not None) == archived:
+                    continue
+                was_archived_at = ticket.archived_at
+                ticket.archived_at = archived_at
+                ticket.save(update_fields=["archived_at", "updated_at"])
+                changed.append((ticket, was_archived_at))
+
+        def _emit_bulk_side_effects() -> None:
+            if not changed:
+                return
+            invalidate_unread_count_cache(self.team_id)
+
+            for ticket, was_archived_at in changed:
+                self._log_archive_activity(request, ticket, before=was_archived_at)
+
+            try:
+                report_user_action(
+                    request.user,
+                    "support ticket archived",
+                    {"archived": archived, "count": len(changed)},
+                    team=self.team,
+                    request=request,
+                )
+            except Exception as e:
+                capture_exception(e, {"team_id": self.team_id})
+
+        transaction.on_commit(_emit_bulk_side_effects)
+
+        response = BulkArchiveResponseSerializer({"updated": len(changed), "ids": [t.id for t, _ in changed]})
+        return Response(response.data)
+
+    def _log_archive_activity(self, request, ticket: Ticket, *, before: datetime | None) -> None:
+        """Activity entry for one archive or restore.
+
+        Bulk archiving logs per ticket, the way ``bulk_update_status`` does, because the entry
+        is what answers "who took this ticket out of the list, and when". It has to be on the
+        ticket rather than summarized on the request.
+        """
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=request.user,
+                was_impersonated=is_impersonated(request),
+                item_id=str(ticket.id),
+                scope="Ticket",
+                activity="updated",
+                detail=Detail(
+                    name=f"Ticket #{ticket.ticket_number}",
+                    changes=[
+                        Change(
+                            type="Ticket",
+                            field="archived_at",
+                            before=_activity_value(before),
+                            after=_activity_value(ticket.archived_at),
+                            action="changed",
+                        )
+                    ],
+                ),
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+
     @action(detail=False, methods=["get"])
     def unread_count(self, request, *args, **kwargs):
         """
@@ -1289,8 +1472,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             if cached_count is not None:
                 return Response({"count": cached_count})
 
-        # Query database - only non-resolved tickets with unread messages
-        queryset = Ticket.objects.filter(team_id=team_id).exclude(status="resolved").filter(unread_team_count__gt=0)
+        queryset = (
+            Ticket.objects.filter(team_id=team_id, archived_at__isnull=True)
+            .exclude(status="resolved")
+            .filter(unread_team_count__gt=0)
+        )
         if is_restricted:
             queryset = uac.filter_queryset_by_access_level(queryset)
 

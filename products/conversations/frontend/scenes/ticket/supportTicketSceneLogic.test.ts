@@ -650,6 +650,79 @@ describe('supportTicketSceneLogic send outcome handling', () => {
     })
 })
 
+describe('supportTicketSceneLogic archive', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+    const ticketUpdateMock = conversationsTicketsPartialUpdate as jest.Mock
+
+    const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket
+
+    beforeEach(async () => {
+        initKeaTests()
+        ticketGetMock.mockReset().mockResolvedValue(loadedTicket())
+        ticketUpdateMock.mockReset()
+        logic = supportTicketSceneLogic({ id: 42 })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['setTicket'])
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
+    })
+
+    // Regression: patching only the archive stamp left the info card on a pre-archive time.
+    it.each([
+        ['archiving', true, '2026-02-02T10:00:00Z'],
+        ['restoring', false, null],
+    ])('applies the response timestamps when %s', async (_label, archived, archivedAt) => {
+        ticketUpdateMock.mockResolvedValue({
+            ...loadedTicket(),
+            archived_at: archivedAt,
+            updated_at: '2026-02-02T10:00:00Z',
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.setArchived(archived as boolean)
+        }).toFinishAllListeners()
+
+        expect(logic.values.ticket?.archived_at).toBe(archivedAt)
+        expect(logic.values.ticket?.updated_at).toBe('2026-02-02T10:00:00Z')
+    })
+
+    // Regression: both actions PATCH the whole row, so an overlap reverted the earlier one.
+    it('waits for an in-flight save before archiving', async () => {
+        let releaseSave: (ticket: Ticket) => void = () => {}
+        const savedTicket = { ...loadedTicket(), status: 'pending' } as Ticket
+        ticketUpdateMock.mockImplementationOnce(
+            () =>
+                new Promise<Ticket>((resolve) => {
+                    releaseSave = resolve
+                })
+        )
+        ticketUpdateMock.mockResolvedValue({
+            ...savedTicket,
+            archived_at: '2026-02-02T10:00:00Z',
+            updated_at: '2026-02-02T10:00:00Z',
+        })
+
+        logic.actions.updateTicket()
+        await Promise.resolve()
+        expect(ticketUpdateMock).toHaveBeenCalledTimes(1)
+
+        logic.actions.setArchived(true)
+        await Promise.resolve()
+        expect(ticketUpdateMock).toHaveBeenCalledTimes(1)
+
+        releaseSave(savedTicket)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(ticketUpdateMock).toHaveBeenCalledTimes(2)
+        expect(ticketUpdateMock.mock.calls[1][2]).toEqual({ archived: true })
+        expect(logic.values.ticket?.archived_at).toBe('2026-02-02T10:00:00Z')
+    })
+})
+
 describe('supportTicketSceneLogic tag pool refresh', () => {
     let logic: ReturnType<typeof supportTicketSceneLogic.build>
 

@@ -140,6 +140,11 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
                             </span>
                         </TZLabel>
                     )}
+                    {ticket.archived_at && (
+                        <TZLabel time={ticket.archived_at} title="Archived">
+                            <LemonTag type="muted">Archived</LemonTag>
+                        </TZLabel>
+                    )}
                 </span>
             ),
         },

@@ -2,8 +2,17 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonModal, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { IconArchive, IconChevronDown, IconUndo } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCard,
+    LemonModal,
+    LemonSelect,
+    LemonTag,
+    Link,
+    Spinner,
+} from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -113,6 +122,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         fullEmailContent,
         fullEmailContentLoading,
         fullEmailMessageId,
+        isArchived,
+        archiving,
     } = useValues(logic)
     // The list's filters / saved view ride along in this page's query string
     // (the ticket row carries them through on navigation). Preserve them on the
@@ -138,6 +149,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         deleteMessage,
         loadFullEmail,
         closeFullEmail,
+        setArchived,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
@@ -235,7 +247,46 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 description=""
                 resourceType={{ type: 'conversation' }}
                 forceBackTo={ticketListBackTo(searchParams)}
+                actions={
+                    ticket ? (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Ticket}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={ticket.user_access_level}
+                        >
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={isArchived ? <IconUndo /> : <IconArchive />}
+                                loading={archiving}
+                                onClick={() => setArchived(!isArchived)}
+                                tooltip={
+                                    isArchived
+                                        ? 'Put this ticket back in the ticket list'
+                                        : "Hide this ticket from the ticket list. Nothing is deleted, and you can restore it from here or the list's Archived filter."
+                                }
+                                data-attr="archive-ticket"
+                            >
+                                {isArchived ? 'Restore' : 'Archive'}
+                            </LemonButton>
+                        </AccessControlAction>
+                    ) : undefined
+                }
             />
+            {/* An archived ticket is out of every list, so a reader arrived by link or by
+                ticket number and has no other way to tell. */}
+            {isArchived && (
+                <LemonBanner
+                    type="info"
+                    action={{
+                        children: 'Restore',
+                        onClick: () => setArchived(false),
+                        disabledReason: archiving ? 'Restoring…' : sendDisabledReason,
+                    }}
+                >
+                    This ticket is archived. It's hidden from the ticket list and the unread count, and kept in full.
+                </LemonBanner>
+            )}
             <LemonModal title="Full email" isOpen={fullEmailMessageId !== null} onClose={closeFullEmail}>
                 {fullEmailContentLoading ? (
                     <div className="flex h-40 items-center justify-center">

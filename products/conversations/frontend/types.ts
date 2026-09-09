@@ -19,6 +19,7 @@ export type TicketChannelDetail =
     | 'widget_api'
     | 'github_issue'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
+export type TicketArchivedFilter = 'hide' | 'only' | 'all'
 export type TicketPriority = 'low' | 'medium' | 'high' | 'critical'
 export type SceneTabKey = 'tickets' | 'settings'
 export type MessageAuthorType = 'customer' | 'AI' | 'human'
@@ -97,9 +98,11 @@ export interface KnowledgeGapSuggestion {
  * Canonical saved-view filter shape, generated from the backend's TicketViewFiltersSerializer.
  * `assignee` is widened locally: the API stores filters raw, so old saved views can still
  * return the legacy single-value shape — always read it through normalizeAssigneeFilter.
+ * `archived` is declared locally so this type doesn't wait on the generated schema.
  */
-export type TicketViewFilters = Omit<TicketViewFiltersApi, 'assignee'> & {
+export type TicketViewFilters = Omit<TicketViewFiltersApi, 'assignee' | 'archived'> & {
     assignee?: AssigneeFilterEntry[] | AssigneeFilterValue
+    archived?: TicketArchivedFilter
 }
 
 export interface SavedTicketView {
@@ -159,6 +162,7 @@ export interface Ticket {
     }
     sla_due_at?: string | null
     snoozed_until?: string | null
+    archived_at?: string | null
     slack_channel_id?: string | null
     slack_thread_ts?: string | null
     slack_team_id?: string | null
@@ -281,6 +285,12 @@ export const channelOptions: { value: TicketChannel | 'all'; label: string }[] =
     { value: 'teams', label: 'Microsoft Teams' },
     { value: 'email', label: 'Email' },
     { value: 'github', label: 'GitHub' },
+]
+
+export const archivedOptions: { value: TicketArchivedFilter; label: string }[] = [
+    { value: 'hide', label: 'Hide archived' },
+    { value: 'only', label: 'Only archived' },
+    { value: 'all', label: 'Live and archived' },
 ]
 
 export const slaOptions: { value: TicketSlaState | 'all'; label: string }[] = [
