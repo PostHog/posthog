@@ -235,9 +235,7 @@ class TestSketchpadValidationEndpoint(APIBaseTest):
         ]
         operations.append({"op_id": "move", "op": {"type": "update_fragment", "id": "one", "patch": {"x": 80}}})
         with self.captureOnCommitCallbacks(execute=True):
-            response = self.client.post(
-                f"{url}ops/", {"base_seq": 0, "ops": operations, "actor": {"kind": "user"}}
-            )
+            response = self.client.post(f"{url}ops/", {"base_seq": 0, "ops": operations, "actor": {"kind": "user"}})
         assert response.status_code == 200
         assert response.json()["replayed"] == []
         task = Task.objects.create(team=self.team, channel=channel, created_by=self.user, title="Edit sketchpad")
