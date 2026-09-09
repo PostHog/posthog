@@ -16,6 +16,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { CustomBotDefinition, CustomBotField, CustomBotMatcher } from '~/queries/schema/schema-general'
 
@@ -103,6 +104,14 @@ export function CustomBotDefinitions(): JSX.Element {
                 analytics, and SQL. PostHog's built-in list already covers crawlers that identify themselves, like
                 GPTBot and Googlebot. Your rules are checked first, so you can give one of those a different name or
                 category.
+            </p>
+            <p className="mb-0">
+                These rules only mark events as bot traffic in queries. They do not stop bot events being ingested or
+                billed. To drop bot events as they arrive, add the{' '}
+                <Link to={urls.hogFunctionNew('template-bot-detection')} target="_blank">
+                    Filter Bot Events
+                </Link>{' '}
+                transformation, which keeps its own patterns and does not read the rules here.
             </p>
             <p className="mb-0">
                 Match the user agent to catch a crawler that names itself, or the IP address to catch one that sends a
