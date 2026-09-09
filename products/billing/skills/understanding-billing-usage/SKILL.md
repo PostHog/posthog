@@ -41,6 +41,10 @@ or contract questions. Keep it focused on usage and spend behavior.
 | `posthog:billing-spend-get`    | Optional spend context when the user asks about dollars                 |
 | Product-specific MCP tools     | Follow-up investigation inside the affected product/project             |
 
+One question here needs no Billing tools: whether events from a historic import or
+backfill count toward the quota. That answer comes from "Historic imports and
+backfills" below, so answer it even when the Billing tools are missing.
+
 Only use this skill when the Billing read tools above are available. If the user asks
 about Billing usage and those tools are not available, do not continue with this
 workflow; briefly say that Billing usage investigation is not enabled for this
