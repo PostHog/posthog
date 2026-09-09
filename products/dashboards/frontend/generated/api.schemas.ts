@@ -423,6 +423,44 @@ export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
 export type DashboardApiTilesItem = { [key: string]: unknown }
 
 /**
+ * * `auto` - auto
+ * * `manual` - manual
+ */
+export type BreakdownColorConfigSourceEnumApi =
+    (typeof BreakdownColorConfigSourceEnumApi)[keyof typeof BreakdownColorConfigSourceEnumApi]
+
+export const BreakdownColorConfigSourceEnumApi = {
+    Auto: 'auto',
+    Manual: 'manual',
+} as const
+
+export interface BreakdownColorConfigApi {
+    /** The breakdown value this color applies to, as it appears in the chart legend. */
+    breakdownValue: string
+    /**
+     * Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color.
+     * @nullable
+     * @pattern ^preset-[1-9][0-9]*$
+     */
+    colorToken: string | null
+    /**
+     * Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.
+     * @nullable
+     */
+    breakdownType?: string | null
+    /**
+     * Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.
+     * @nullable
+     */
+    breakdownProperty?: string | null
+    /** `manual` for a color a person picked, `auto` for one the dashboard assigned.
+     *
+     * * `auto` - auto
+     * * `manual` - manual */
+    source?: BreakdownColorConfigSourceEnumApi | null
+}
+
+/**
  * * `tight` - tight
  * * `condensed` - condensed
  * * `standard` - standard
@@ -508,8 +546,11 @@ export interface DashboardApi {
     readonly filters: DashboardApiFilters
     /** @nullable */
     readonly variables: DashboardApiVariables
-    /** Custom color mapping for breakdown values. */
-    breakdown_colors?: unknown
+    /**
+     * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
+     * @nullable
+     */
+    breakdown_colors?: BreakdownColorConfigApi[] | null
     /**
      * ID of the color theme used for chart visualizations.
      * @nullable
@@ -1112,8 +1153,11 @@ export interface PatchedPatchedDashboardOpenApiApi {
     pinned?: boolean
     /** Dashboard-level filters (date range and properties) applied across all tiles as the source of truth. */
     filters?: DashboardFiltersOpenApiApi
-    /** Custom color mapping for breakdown values. */
-    breakdown_colors?: unknown
+    /**
+     * Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.
+     * @nullable
+     */
+    breakdown_colors?: BreakdownColorConfigApi[] | null
     /**
      * ID of the color theme used for chart visualizations.
      * @nullable
