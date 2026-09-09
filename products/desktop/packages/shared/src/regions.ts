@@ -1,4 +1,4 @@
-import { type CustomCloud, getCustomCloud } from "./custom-cloud";
+import { getCustomCloud } from "./custom-cloud";
 
 export const CLOUD_REGIONS = ["us", "eu", "dev", "dev-cloud"] as const;
 export type CloudRegion = (typeof CLOUD_REGIONS)[number];
@@ -32,14 +32,6 @@ export const REGION_LABELS: Record<CloudRegion, RegionLabel> = {
   },
 };
 
-function customCloudHint(custom: CustomCloud): string {
-  try {
-    return new URL(custom.url).host;
-  } catch {
-    return custom.url;
-  }
-}
-
 export function describeRegion(region: CloudRegion): RegionLabel {
   if (region !== "dev") return REGION_LABELS[region];
   const custom = getCustomCloud();
@@ -47,7 +39,7 @@ export function describeRegion(region: CloudRegion): RegionLabel {
   return {
     flag: REGION_LABELS.dev.flag,
     label: "Custom cloud",
-    hint: customCloudHint(custom),
+    hint: new URL(custom.url).host,
   };
 }
 

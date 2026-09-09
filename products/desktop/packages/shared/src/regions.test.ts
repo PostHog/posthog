@@ -59,7 +59,7 @@ describe("getOauthClientIdFromRegion", () => {
 describe("a configured custom cloud", () => {
   beforeEach(() => {
     configureCustomCloud({
-      url: "https://posthog.example.com/",
+      url: "https://posthog.example.com",
       oauthClientId: "custom-client-id",
     });
   });

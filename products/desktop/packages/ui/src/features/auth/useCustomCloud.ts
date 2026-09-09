@@ -75,7 +75,6 @@ export function useCustomCloud() {
     updateDraft,
     commit,
     error,
-    isLoading: stored.isLoading,
     isSaving: save.isPending,
   };
 }

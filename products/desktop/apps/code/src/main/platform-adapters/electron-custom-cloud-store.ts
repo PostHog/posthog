@@ -34,17 +34,15 @@ export class ElectronCustomCloudStore implements CustomCloudStore {
 
   private apply(target: CustomCloud | null): void {
     configureCustomCloud(target);
-    const values: Record<keyof CustomCloud, string | undefined> = {
-      url: target?.url,
-      oauthClientId: target?.oauthClientId,
-      gatewayUrl: target?.gatewayUrl,
-    };
-    for (const key of Object.keys(CUSTOM_CLOUD_ENV) as (keyof CustomCloud)[]) {
-      const value = values[key];
+    for (const [key, name] of Object.entries(CUSTOM_CLOUD_ENV) as [
+      keyof CustomCloud,
+      string,
+    ][]) {
+      const value = target?.[key];
       if (value) {
-        process.env[CUSTOM_CLOUD_ENV[key]] = value;
+        process.env[name] = value;
       } else {
-        delete process.env[CUSTOM_CLOUD_ENV[key]];
+        delete process.env[name];
       }
     }
   }

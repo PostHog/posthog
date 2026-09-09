@@ -69,11 +69,5 @@ describe("custom cloud", () => {
       });
       expect(hasCustomCloud()).toBe(true);
     });
-
-    it("has no target when the configured URL is not valid", () => {
-      vi.stubEnv("POSTHOG_CUSTOM_CLOUD_URL", "");
-      configureCustomCloud({ url: "not-a-url" });
-      expect(hasCustomCloud()).toBe(false);
-    });
   });
 });

@@ -50,7 +50,7 @@ function fromEnv(): CustomCloud | null {
 let configured: CustomCloud | null = null;
 
 export function configureCustomCloud(target: CustomCloud | null): void {
-  configured = normalizeCustomCloud(target);
+  configured = target;
 }
 
 export function getCustomCloud(): CustomCloud | null {

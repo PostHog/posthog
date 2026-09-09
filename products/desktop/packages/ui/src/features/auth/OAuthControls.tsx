@@ -6,12 +6,6 @@ import { RegionSelect } from "./RegionSelect";
 import { useCustomCloud } from "./useCustomCloud";
 import { useOAuthFlow } from "./useOAuthFlow";
 
-const TEST_BUILD_CHANNEL = "test";
-
-function isTestBuild(): boolean {
-  return import.meta.env.VITE_POSTHOG_BUILD_CHANNEL === TEST_BUILD_CHANNEL;
-}
-
 interface OAuthControlsProps {
   onAuthInitiated?: (region: CloudRegion) => void;
   /** Defaults to the dev build, where development targets are available. */
@@ -20,7 +14,8 @@ interface OAuthControlsProps {
 
 export function OAuthControls({
   onAuthInitiated,
-  includeDevRegion = import.meta.env.DEV || isTestBuild(),
+  includeDevRegion = import.meta.env.DEV ||
+    import.meta.env.VITE_POSTHOG_BUILD_CHANNEL === "test",
 }: OAuthControlsProps = {}) {
   const {
     region,
