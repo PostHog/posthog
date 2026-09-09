@@ -5334,6 +5334,8 @@ class HogFlowViewSet(
         failures unexplained. The allowance keeps the reputation endpoint's project-wide gate,
         because it pools every workflow's sending.
         """
+        tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+
         suspension = (
             TeamWorkflowsConfig.objects.filter(team_id=self.team_id)
             .values("email_sending_suspended_at", "email_sending_suspension_reason", "ses_tenant_sending_status")

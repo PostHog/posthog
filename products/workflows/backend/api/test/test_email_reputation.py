@@ -8,6 +8,9 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.schema import ProductKey
+
+from posthog.clickhouse.query_tagging import Feature, get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.integration import Integration
@@ -270,9 +273,15 @@ class TestEmailReputationAPI(APIBaseTest):
         assert data["email_sending_suspension_reason"] == "critical bounce rate"
 
     def test_email_sending_suspension_endpoint_reports_the_sending_allowance(self):
+        tags_at_query_time = []
+
+        def record_tags(*args, **kwargs):
+            tags_at_query_time.append(get_query_tags())
+            return {self.team.id: {"source": {"email_sent": 7}}}
+
         with patch(
             "products.workflows.backend.api.hog_flow.fetch_app_metric_totals_by_team_and_source",
-            return_value={self.team.id: {"source": {"email_sent": 7}}},
+            side_effect=record_tags,
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/email_sending_suspension")
 
@@ -283,6 +292,12 @@ class TestEmailReputationAPI(APIBaseTest):
         # Tier caps are deployment configuration, so assert only that the scene gets numbers to compare against.
         assert allowance["emails_per_hour"] > 0
         assert allowance["emails_per_day"] > 0
+        # The allowance reaches ClickHouse, and an untagged query only raises under DEBUG, which
+        # tests never run with. Assert the attribution here instead.
+        assert tags_at_query_time
+        for tags in tags_at_query_time:
+            assert tags.product == ProductKey.WORKFLOWS
+            assert tags.feature == Feature.QUERY
 
     @parameterized.expand(
         [
