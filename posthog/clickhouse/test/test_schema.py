@@ -181,19 +181,7 @@ def _hogql_column_names(table: Table) -> set[str]:
 
 
 # Kafka metadata, deliberately not exposed to customers.
-_FLAG_EVALUATIONS_KAFKA_METADATA_COLUMNS = {"_timestamp", "_offset", "_partition"}
-
-# Property blobs the table still declares but nothing reads. No producer writes group0..4_properties:
-# serializeEvent omits them and ProcessedEvent has no field to source them from, so they hold '' on
-# every row here and on the events table. person_properties is written, but no Insight or Hog
-# function breaks down or filters on it. Exposing either would promise properties as captured and
-# return nothing useful, so join to `groups` or `persons` instead. Both are being dropped from the
-# table, at which point they stop being declared and these entries have to go with them.
-_FLAG_EVALUATIONS_UNREAD_PROPERTY_BLOBS = {"person_properties"} | {f"group{index}_properties" for index in range(5)}
-
-_FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = (
-    _FLAG_EVALUATIONS_KAFKA_METADATA_COLUMNS | _FLAG_EVALUATIONS_UNREAD_PROPERTY_BLOBS
-)
+_FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {"_timestamp", "_offset", "_partition"}
 
 
 def test_flag_evaluations_hogql_table_matches_the_read_table():
