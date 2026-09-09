@@ -77,7 +77,7 @@ describe("useOpenTargetDeepLink", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getPendingOpenTarget.mockResolvedValue(null);
-    focusOrOpenBrowserTab.mockResolvedValue("opened");
+    focusOrOpenBrowserTab.mockResolvedValue(true);
   });
 
   it("routes a warm-start task target through the open-task saga", async () => {
@@ -99,7 +99,7 @@ describe("useOpenTargetDeepLink", () => {
   });
 
   it("falls back to in-tab navigation when browser tabs are unavailable", async () => {
-    focusOrOpenBrowserTab.mockResolvedValue("unavailable");
+    focusOrOpenBrowserTab.mockResolvedValue(false);
     renderHook(() => useOpenTargetDeepLink(), { wrapper });
     onOpenTarget.mock.calls[0]?.[1]?.onData?.(canvasTarget);
     await waitFor(() =>

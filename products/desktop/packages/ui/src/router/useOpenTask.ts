@@ -69,8 +69,8 @@ export async function openTask(
     const tabsClient =
       resolveServiceOptional<BrowserTabsClient>(BROWSER_TABS_CLIENT);
     if (tabsClient) {
-      const resolved = await focusOrOpenBrowserTab(tabsClient, destination);
-      if (resolved !== "unavailable") {
+      const handled = await focusOrOpenBrowserTab(tabsClient, destination);
+      if (handled) {
         await bindTaskWorkspace(task, opts);
         return;
       }

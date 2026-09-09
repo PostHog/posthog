@@ -40,8 +40,8 @@ export function useInboxDeepLink() {
         void openReport(reportId, { preserveSource: false, newTab: true });
       } else {
         void focusOrOpenBrowserTab(tabsClient, { href: "/inbox" }).then(
-          (resolved) => {
-            if (resolved !== "unavailable") return;
+          (handled) => {
+            if (handled) return;
             navigateToInbox();
           },
         );

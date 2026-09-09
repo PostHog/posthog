@@ -50,13 +50,16 @@ export function useOpenInboxReport() {
         if (getRouterOrNull()?.history.location.state.__TSR_key !== sourceKey)
           return;
         if (options?.newTab) {
-          await focusOrOpenBrowserTab(tabsClient, {
+          const handled = await focusOrOpenBrowserTab(tabsClient, {
             href: `/reports/${report.id}`,
             appView: "report",
           });
-        } else {
-          navigateToReport(report.id, options);
+          if (handled) {
+            log.info(`Successfully opened report: ${report.id}`);
+            return;
+          }
         }
+        navigateToReport(report.id, options);
         log.info(`Successfully opened report: ${report.id}`);
       } catch (error) {
         log.error("Unexpected error opening report:", error);

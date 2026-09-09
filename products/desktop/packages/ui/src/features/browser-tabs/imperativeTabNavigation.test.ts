@@ -152,7 +152,7 @@ describe("imperative browser-tab navigation", () => {
   it("opens an inbound destination in its own tab without touching the current one", async () => {
     const tabId = await focusOrOpenBrowserTab(client(), destination);
 
-    expect(tabId).toBe("opened");
+    expect(tabId).toBe(true);
     const mirror = mocks.applyLocalTransform.mock.results[0]
       ?.value as TabsSnapshot;
     expect(mirror.tabs).toHaveLength(3);
@@ -170,9 +170,9 @@ describe("imperative browser-tab navigation", () => {
     mocks.readMirror.mockReturnValue({ windows: [], tabs: [] });
     mocks.reseedMirror.mockResolvedValue({ windows: [], tabs: [] });
 
-    await expect(
-      focusOrOpenBrowserTab(client(), destination),
-    ).resolves.toBe("unavailable");
+    await expect(focusOrOpenBrowserTab(client(), destination)).resolves.toBe(
+      false,
+    );
     expect(mocks.applyLocalTransform).not.toHaveBeenCalled();
     expect(history.push).not.toHaveBeenCalled();
   });

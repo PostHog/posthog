@@ -53,8 +53,8 @@ export function useScoutDeepLink() {
         href: "/settings/agents",
         appView: "settings" as const,
       };
-      void focusOrOpenBrowserTab(tabsClient, destination).then((resolved) => {
-        if (resolved === "unavailable") {
+      void focusOrOpenBrowserTab(tabsClient, destination).then((handled) => {
+        if (!handled) {
           openSettings("agents");
         } else {
           prepareSettingsPage();

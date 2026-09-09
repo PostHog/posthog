@@ -71,8 +71,8 @@ export function useChannelDeepLink() {
               taskId,
             }
           : { href: `/spaces/${channelId}`, channelId },
-      ).then((resolved) => {
-        if (resolved !== "unavailable") return;
+      ).then((handled) => {
+        if (handled) return;
         if (taskId) {
           navigateToChannelTask(channelId, taskId);
         } else {

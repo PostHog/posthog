@@ -44,17 +44,13 @@ export function openInNewBrowserTabSync(
   return tabId;
 }
 
-export type InboundTabResolution = "focused" | "opened" | "unavailable";
-
 export async function focusOrOpenBrowserTab(
   client: BrowserTabsClient,
   destination: BrowserTabDestination,
-): Promise<InboundTabResolution> {
+): Promise<boolean> {
   if (readMirror().windows.length === 0) await reseedMirror();
-  if (focusExistingTab(destination)) return "focused";
-  return (await openInNewBrowserTabSync(client, destination))
-    ? "opened"
-    : "unavailable";
+  if (focusExistingTab(destination)) return true;
+  return openInNewBrowserTabSync(client, destination) !== null;
 }
 
 export interface BrowserTabDestination extends Partial<TabIdentity> {

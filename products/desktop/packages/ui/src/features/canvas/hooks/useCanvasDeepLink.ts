@@ -60,8 +60,8 @@ export function useCanvasDeepLink() {
       void focusOrOpenBrowserTab(tabsClient, {
         href: `/spaces/${channelId}/dashboards/${dashboardId}`,
         dashboardId,
-      }).then((resolved) => {
-        if (resolved !== "unavailable") return;
+      }).then((handled) => {
+        if (handled) return;
         navigateToChannelDashboard(channelId, dashboardId);
       });
     },

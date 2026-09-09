@@ -32,8 +32,8 @@ export function useLoopDeepLink() {
       void focusOrOpenBrowserTab(tabsClient, {
         href: `/loops/${loopId}`,
         appView: "loops",
-      }).then((resolved) => {
-        if (resolved !== "unavailable") return;
+      }).then((handled) => {
+        if (handled) return;
         navigateToLoopDetail(loopId);
       });
     },

@@ -53,8 +53,8 @@ export function useOpenTargetDeepLink() {
           void focusOrOpenBrowserTab(
             tabsClient,
             targetDestination(target),
-          ).then((resolved) => {
-            if (resolved !== "unavailable") return;
+          ).then((handled) => {
+            if (handled) return;
             navigateToChannelDashboard(target.channelId, target.dashboardId);
           });
           break;
