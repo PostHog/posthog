@@ -12,6 +12,7 @@ from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.integration import AzureBlobIntegration, Integration
+from posthog.models.integration.azure_blob import validate_azure_blob_connection_string
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
@@ -101,7 +102,7 @@ class MalformedConnectionStringError(Exception):
 
     def __init__(self):
         super().__init__(
-            "The provided connection string was rejected by Azure. Ensure the connection string is made up of key=value pairs separated only by a semicolon (;) with no additional characters in between. Example: AccountName=name;AccountKey=key;SomeKey=somevalue"
+            "The provided connection string is malformed or invalid. Ensure the connection string is made up of key=value pairs separated only by a semicolon (;) with no additional characters in between. Additionally, ensure any endpoints point to valid URLs you control. Example: AccountName=name;AccountKey=key;SomeKey=somevalue"
         )
 
 
@@ -193,8 +194,10 @@ class AzureBlobConsumer(Consumer):
         # See: https://learn.microsoft.com/en-us/python/api/azure-storage-blob/azure.storage.blob.blobserviceclient
 
         try:
+            connection_string = _strip_leading_whitespace(connection_string)
+            validate_azure_blob_connection_string(connection_string)
             blob_service_client = BlobServiceClient.from_connection_string(
-                conn_str=_strip_leading_whitespace(connection_string),
+                conn_str=connection_string,
                 max_single_put_size=64 * 1024 * 1024,  # 64 MiB
                 max_block_size=4 * 1024 * 1024,  # 4 MiB
                 # Increase the read timeout to 10 minutes to account for large uploads.
