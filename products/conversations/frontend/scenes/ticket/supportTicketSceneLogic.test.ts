@@ -5,9 +5,9 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { commentsLogic } from 'lib/components/Comments/commentsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'

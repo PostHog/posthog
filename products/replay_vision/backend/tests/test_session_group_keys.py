@@ -3,9 +3,13 @@ import datetime as dt
 import pytest
 from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events
 
+from posthog.models.group.util import create_group
 from posthog.uuidt import uuid7
 
-from products.replay_vision.backend.queries.session_group_keys import fetch_session_group_keys
+from products.replay_vision.backend.queries.session_group_keys import (
+    fetch_group_display_names,
+    fetch_session_group_keys,
+)
 
 _START = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
 _END = _START + dt.timedelta(minutes=5)
@@ -71,3 +75,37 @@ class TestFetchSessionGroupKeys(ClickhouseTestMixin):
         flush_persons_and_events()
 
         assert fetch_session_group_keys(team=team, session_id=session_id, start=_START, end=_END) == {}
+
+
+class TestFetchGroupDisplayNames(ClickhouseTestMixin):
+    @pytest.mark.django_db
+    def test_returns_the_name_property_per_group_type_index(self, team) -> None:
+        create_group(team_id=team.pk, group_type_index=0, group_key="acme-inc", properties={"name": "Acme Inc"})
+        create_group(team_id=team.pk, group_type_index=2, group_key="proj-9", properties={"name": "Project Nine"})
+
+        names = fetch_group_display_names(team=team, group_keys={0: "acme-inc", 2: "proj-9"})
+
+        assert names == {0: "Acme Inc", 2: "Project Nine"}
+
+    @pytest.mark.django_db
+    def test_skips_groups_with_no_usable_name(self, team) -> None:
+        # A group key is customer-chosen and often a UUID, so a group without a `name` has nothing worth
+        # showing — better omitted than rendered as an opaque id the model might repeat as a company.
+        create_group(team_id=team.pk, group_type_index=0, group_key="acme-inc", properties={"name": "Acme Inc"})
+        create_group(team_id=team.pk, group_type_index=1, group_key="no-name", properties={"plan": "paid"})
+        create_group(team_id=team.pk, group_type_index=2, group_key="blank", properties={"name": "   "})
+
+        names = fetch_group_display_names(team=team, group_keys={0: "acme-inc", 1: "no-name", 2: "blank"})
+
+        assert names == {0: "Acme Inc"}
+
+    @pytest.mark.django_db
+    def test_ignores_a_matching_key_on_a_different_group_type(self, team) -> None:
+        # Keys are only unique within a group type; matching on key alone would cross-label the session's org.
+        create_group(team_id=team.pk, group_type_index=1, group_key="acme-inc", properties={"name": "Acme Projects"})
+
+        assert fetch_group_display_names(team=team, group_keys={0: "acme-inc"}) == {}
+
+    @pytest.mark.django_db
+    def test_returns_empty_without_group_keys(self, team) -> None:
+        assert fetch_group_display_names(team=team, group_keys={}) == {}
