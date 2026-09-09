@@ -27,26 +27,12 @@ import {
 import type { SignalReportPriority } from '../types'
 import { DismissalFeedback, ResolveReasonValue, suppressDismissalPayload } from '../utils/dismissalReasons'
 import { isInboxRedesignEnabled } from '../utils/inboxRedesign'
-import { displayConventionalCommitTitle } from '../utils/reportPresentation'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { buildSignalReportListOrdering, inboxFiltersLogic } from './inboxFiltersLogic'
 import type { InboxFilterState, InboxSortDirection, InboxSortField } from './inboxFiltersLogic'
 import { prCiStatusLogic } from './prCiStatusLogic'
 
 const PAGE_SIZE = 50
-
-/** How long the dismiss toast holds its Undo. Longer than the app's default toast, because reading
- * the row's title and deciding it was the wrong one takes longer than reading a confirmation. */
-const VERDICT_UNDO_TOAST_MS = 8000
-
-/** How a report is named in a verdict toast: its title, quoted and clamped, or a plain fallback. */
-function verdictToastTitle(report: SignalReport | undefined): string {
-    const title = displayConventionalCommitTitle(report?.title, '').trim()
-    if (!title) {
-        return 'this report'
-    }
-    return `"${title.length > 60 ? `${title.slice(0, 59)}…` : title}"`
-}
 
 /** Fixed, section-defining server filter (e.g. `{ has_implementation_pr: 'true' }`). */
 export type ReportListParams = Record<string, string>
@@ -299,10 +285,8 @@ export interface reportListLogicActions {
     }
     restoreReport: (
         reportId: string,
-        surface: InboxReportActionSurface,
-        report?: SignalReport
+        surface: InboxReportActionSurface
     ) => {
-        report?: SignalReport
         reportId: string
         surface: InboxReportActionSurface
     }
@@ -402,11 +386,7 @@ export const reportListLogic = kea<reportListLogicType>([
         loadMore: true,
         dismissReport: (reportId: string, dismissal: DismissalFeedback) => ({ reportId, dismissal }),
         resolveReport: (reportId: string, reason: ResolveReasonValue, note: string) => ({ reportId, reason, note }),
-        restoreReport: (reportId: string, surface: InboxReportActionSurface, report?: SignalReport) => ({
-            reportId,
-            surface,
-            report,
-        }),
+        restoreReport: (reportId: string, surface: InboxReportActionSurface) => ({ reportId, surface }),
         removeReport: (reportId: string) => ({ reportId }),
         refresh: true,
     }),
@@ -670,24 +650,11 @@ export const reportListLogic = kea<reportListLogicType>([
             }
         },
         dismissReport: async ({ reportId, dismissal }) => {
-            // Read before the optimistic removal: it names the report in the toast and rides along
-            // with an undo, whose restore runs once the row is gone from this section.
-            const dismissed = values.reports.find((r) => r.id === reportId)
             actions.removeReport(reportId)
             try {
                 await api.signalReports.setState(reportId, {
                     state: 'suppressed',
                     ...suppressDismissalPayload(dismissal),
-                })
-                // A reason now applies on one click from the row and its menus, so the toast is where
-                // a mis-click is caught. Undo is the restore the Dismissed section already offers.
-                lemonToast.success(`Dismissed ${verdictToastTitle(dismissed)}`, {
-                    button: {
-                        label: 'Undo',
-                        action: () => actions.restoreReport(reportId, 'undo_toast', dismissed),
-                        dataAttr: 'inbox-report-dismiss-undo',
-                    },
-                    autoClose: VERDICT_UNDO_TOAST_MS,
                 })
                 // Reconcile every mounted section against the server so the Dismissed target gains the
                 // row and count, not just this source section (which already dropped it optimistically).
@@ -700,7 +667,6 @@ export const reportListLogic = kea<reportListLogicType>([
         // Mark a report done without an inbox PR (transition to `resolved`). Optimistically drops it
         // from this section; the broadcast below reconciles every section, so it joins Resolved now.
         resolveReport: async ({ reportId, reason, note }) => {
-            const reportTitle = verdictToastTitle(values.reports.find((r) => r.id === reportId))
             actions.removeReport(reportId)
             try {
                 await api.signalReports.setState(reportId, {
@@ -708,8 +674,7 @@ export const reportListLogic = kea<reportListLogicType>([
                     dismissal_reason: reason,
                     ...(note ? { dismissal_note: note } : {}),
                 })
-                // No undo: a resolve is terminal server-side, so the only way back is a fresh report.
-                lemonToast.success(`Resolved ${reportTitle}`)
+                lemonToast.success('Report resolved')
                 // Reconcile every mounted section so the Resolved target gains the row and count.
                 inboxBulkActionsLogic.actions.reportStateChanged()
             } catch (error: any) {
@@ -719,9 +684,8 @@ export const reportListLogic = kea<reportListLogicType>([
         },
         // Restore a suppressed report back to the inbox (transition to `potential`). Optimistically
         // drops it from Dismissed; the report re-enters the pipeline and resurfaces elsewhere.
-        restoreReport: async ({ reportId, surface, report: restoredReport }) => {
-            // An undo restores a report this section has already dropped, so the caller passes it.
-            const report = restoredReport ?? values.reports.find((r) => r.id === reportId)
+        restoreReport: async ({ reportId, surface }) => {
+            const report = values.reports.find((r) => r.id === reportId)
             actions.removeReport(reportId)
             try {
                 await api.signalReports.setState(reportId, { state: 'potential' })

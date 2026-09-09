@@ -1,6 +1,6 @@
 import { useActions } from 'kea'
 import { router } from 'kea-router'
-import { Fragment, ReactNode, useRef } from 'react'
+import { ReactNode, useRef } from 'react'
 
 import {
     IconArrowUpRight,
@@ -10,12 +10,11 @@ import {
     IconExternal,
     IconHide,
     IconPeople,
-    IconPencil,
     IconPullRequest,
     IconUndo,
 } from '@posthog/icons'
 
-import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenu,
     ContextMenuContent,
@@ -46,6 +45,7 @@ import { displayConventionalCommitTitle } from '../../utils/reportPresentation'
 import { ReviewerSearchList } from '../detail/ReviewerSearchList'
 import { openDismissReportDialog } from '../shell/DismissReportDialog'
 import { openResolveReportDialog } from '../shell/ResolveReportDialog'
+import { ReasonSubmenuItems } from './ReasonSubmenuItems'
 
 /**
  * Right-click menu on a report row in the flat inbox list: the report's major actions without
@@ -107,71 +107,6 @@ export function ReportContextMenu({
                 />
             </ContextMenuContent>
         </ContextMenu>
-    )
-}
-
-/**
- * One verdict's reasons inside its submenu. Every reason applies on click; "Something else…" sits
- * apart below them because its trailing pencil is the only way left to write a note, and Radix gives
- * an item one action, so the pencil is a focusable item of its own.
- */
-function ReasonSubmenuItems<T extends string>({
-    options,
-    noteTooltip,
-    dataAttrPrefix,
-    onPick,
-    onPickWithNote,
-}: {
-    options: readonly { readonly value: T; readonly label: string }[]
-    noteTooltip: string
-    dataAttrPrefix: string
-    onPick: (reason: T) => void
-    onPickWithNote: (reason: T) => void
-}): JSX.Element {
-    return (
-        <ContextMenuGroup>
-            {options.map((option) =>
-                option.value === 'other' ? (
-                    <Fragment key={option.value}>
-                        <ContextMenuSeparator />
-                        <ButtonGroupPrimitive fullWidth>
-                            <ContextMenuItem asChild>
-                                <ButtonPrimitive
-                                    menuItem
-                                    hasSideActionRight
-                                    onClick={() => onPick(option.value)}
-                                    data-attr={`${dataAttrPrefix}-reason`}
-                                >
-                                    {option.label}
-                                </ButtonPrimitive>
-                            </ContextMenuItem>
-                            <ContextMenuItem asChild>
-                                <ButtonPrimitive
-                                    iconOnly
-                                    isSideActionRight
-                                    tooltip={noteTooltip}
-                                    aria-label={noteTooltip}
-                                    onClick={() => onPickWithNote(option.value)}
-                                    data-attr={`${dataAttrPrefix}-note`}
-                                >
-                                    <IconPencil />
-                                </ButtonPrimitive>
-                            </ContextMenuItem>
-                        </ButtonGroupPrimitive>
-                    </Fragment>
-                ) : (
-                    <ContextMenuItem asChild key={option.value}>
-                        <ButtonPrimitive
-                            menuItem
-                            onClick={() => onPick(option.value)}
-                            data-attr={`${dataAttrPrefix}-reason`}
-                        >
-                            {option.label}
-                        </ButtonPrimitive>
-                    </ContextMenuItem>
-                )
-            )}
-        </ContextMenuGroup>
     )
 }
 
