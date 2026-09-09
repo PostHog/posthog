@@ -351,9 +351,13 @@ async fn get_etag_from_redis(state: &AppState, team_key: &KeyType) -> Option<Str
 /// Metric label for a failed ETag read.
 ///
 /// An absent key and an unreachable Redis need opposite responses: the first says the
-/// cache tier Django mirrors to holds nothing for this team, the second says the cluster
-/// is down. One label for both hides that difference from the on-call, who has to pick
-/// between rebuilding the cache and treating Redis as the fault.
+/// Redis endpoint that answered holds no ETag key for this team, the second says the
+/// cluster is down. One label for both hides that difference from the on-call, who has to
+/// pick between rebuilding the cache and treating Redis as the fault.
+///
+/// `redis_missing` names what the read saw, not the cause. Reads go to a replica, and
+/// `NotFound` is unrecoverable, so `ReadWriteClient` does not consult the primary. A key
+/// that Django wrote to the primary therefore reads as absent until it replicates.
 fn etag_read_failure_label(err: &CustomRedisError) -> &'static str {
     match err {
         CustomRedisError::NotFound => "redis_missing",

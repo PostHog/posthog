@@ -309,9 +309,9 @@ Operational controls:
 
 Result labels: `hit_redis`, `hit_s3`, `hit_db`, `missing`, `batch_miss`
 
-ETag result labels: `hit` (client ETag matched, 304), `miss` (client sent a stale ETag), `none` (client sent none), `redis_missing` (no ETag stored for the team), `redis_error` (the read itself failed)
+ETag result labels: `hit` (client ETag matched, 304), `miss` (client sent a stale ETag), `none` (client sent none), `redis_missing` (the endpoint that answered held no ETag key), `redis_error` (the read itself failed)
 
-`redis_missing` and `redis_error` are the pair that separates an empty cache tier from an unreachable cluster. Keep them apart on dashboards and alerts.
+`redis_missing` and `redis_error` are the pair that separates a cache-tier problem from an unreachable cluster. Keep them apart on dashboards and alerts. `redis_missing` reports the read, not the cause: reads go to the replica, so a key Django wrote to the primary counts here until it replicates. A sustained rise is a tier that holds nothing, and a short burst that clears on its own is lag.
 
 Read repair result labels: `success`, `skipped` (key already existed, repair deferred to it), `error`
 
@@ -343,7 +343,10 @@ cache tier both produce that symptom, so establish which one first.
 **1. Separate a cluster fault from an empty tier.** Split `flags_flag_definitions_etag_total`
 by `result`. A rise in `redis_error` points at the cluster; check managed-cache CPU,
 evictions, command latency, and memory before going further. A rise in `redis_missing`
-means Redis answered and holds no entry, which rules the cluster out.
+means Redis answered and the endpoint that served the read held no ETag key. That points at
+the tier rather than at the cluster, but the label does not prove the entry is gone: reads
+go to the replica, so replication lag reads as absence too. Confirm it in step 2 before you
+rebuild anything.
 
 **2. Compare the two clusters for one affected team.** Django writes the dedicated instance
 and mirrors to the shared one, and the reader serves from the shared copy, so the two can
