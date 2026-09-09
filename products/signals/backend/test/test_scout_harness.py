@@ -2599,6 +2599,25 @@ class TestRunRowProvenanceStamps(BaseTest):
 
         assert not SignalScoutRun.all_teams.filter(pk=run_id).exists()
 
+    def test_creates_a_run_row_for_a_child_environment(self) -> None:
+        # Config rows are keyed on the canonical parent, so the lock has to look there too. The
+        # dogfood `run_signals_scout --team-id` command passes its id through uncanonicalized, so
+        # a child environment id reaches here directly.
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="child env")
+        config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name="signals-scout-general")
+        run_id = uuid7()
+
+        run = _create_run_row(
+            run_id=run_id,
+            task_run=_make_task_run(child),
+            team=child,
+            config=config,
+            skill=self._skill(allowed_tools=["emit_report"], origin="custom"),
+        )
+
+        assert run.pk == run_id
+        assert SignalScoutRun.all_teams.filter(pk=run_id).exists()
+
     @parameterized.expand(
         [
             # emit-only and edit-only are separate prompt builds, not one "report channel" —

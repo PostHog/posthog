@@ -964,7 +964,11 @@ def _create_run_row(
     business_knowledge_maintained: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
 ) -> SignalScoutRun:
-    current_config = SignalScoutConfig.all_teams.select_for_update().get(pk=config.pk, team_id=team.id)
+    # Keyed on the canonical team like `_resolve_config` stores it — a child environment id
+    # would miss the row and raise `DoesNotExist` after the TaskRun already exists.
+    current_config = SignalScoutConfig.all_teams.select_for_update().get(
+        pk=config.pk, team_id=team.parent_team_id or team.id
+    )
     if current_config.skill_name != skill.name:
         raise ValueError("The scout was renamed before this run started. Start a new run with the current name.")
 
