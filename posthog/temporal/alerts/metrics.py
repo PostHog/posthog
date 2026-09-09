@@ -25,16 +25,16 @@ def record_due_alert_metrics(alerts: Iterable[AlertConfiguration], polled_at: da
     with pushed_metrics_registry("temporal_insight_alerts") as registry:
         Gauge(
             "posthog_insight_alerts_due_count",
-            "Number of enabled insight alerts due for evaluation",
+            "Number of enabled alerts due for evaluation",
             registry=registry,
         ).set(due_count)
         Gauge(
             "posthog_insight_alerts_oldest_due_age_seconds",
-            "Age in seconds of the oldest due insight alert",
+            "Age in seconds of the oldest due alert",
             registry=registry,
         ).set(oldest_due_age_seconds)
         Gauge(
             "posthog_insight_alerts_scheduler_last_poll_timestamp_seconds",
-            "Unix timestamp of the last successful insight alert scheduler poll",
+            "Unix timestamp of the last successful alert scheduler poll",
             registry=registry,
         ).set(polled_at.timestamp())
