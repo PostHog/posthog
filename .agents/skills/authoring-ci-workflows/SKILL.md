@@ -31,6 +31,22 @@ Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI,
 Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, required-check gate hygiene, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
 Third-party action digests are bumped by Renovate.
 
+## Check what a condition does before you push it
+
+The linters check the shape of an `if:`; `tools/workflow-plan` checks what it does.
+It evaluates every job and step condition with GitHub's own expression evaluator against a synthetic draft PR, ready PR, fork PR, merge-queue run, master push, hourly schedule, and cancelled run, and prints which jobs run:
+
+```bash
+hogli ci:plan .github/workflows/ci-backend.yml            # one row per job, one column per scenario
+hogli ci:plan .github/workflows/ci-backend.yml --steps changes
+hogli test:workflows                                       # the pinned expectations, run in ci-lint-workflows
+```
+
+`tools/workflow-plan/tests/workflows.test.ts` pins the rules in this file as `runs` / `skipped` rows per scenario: drafts skip the product matrix, the queue takes the full one, forks skip telemetry, a `no-ci` draft still reports its gate, the hourly run takes the matrices and skips the PR-only checks, and a superseded run records the gate as `cancelled`.
+When you change a condition in `ci-backend.yml` or `ci-frontend.yml`, run the suite and update the row that describes the behavior you changed; when you add a lever to another heavy suite, add rows for it.
+The planner stubs the paths filter as "everything changed" and knows nothing a `run:` body produces, so a scenario stubs selector outputs by step id.
+It does not model trigger `paths:`, concurrency, or matrix expansion beyond a cell count; see [the README](../../../tools/workflow-plan/README.md).
+
 ## The dispatch budget (500 runs / 10s / repo)
 
 GitHub caps _workflow-run dispatch_ at 500 runs per 10s per repo; overflow fails as `startup_failure` and takes unrelated runs in the same window down with it (a stack restack pushing many branches is the usual trigger).
