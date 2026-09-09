@@ -428,15 +428,24 @@ class EvaluationBackfillViewSet(
                 cache.set(cache_key, True, BACKFILL_ALIVE_CACHE_SECONDS)
                 return True
         except RPCError as error:
-            if error.status != RPCStatusCode.NOT_FOUND:
-                # Treat an unreachable Temporal as "still running": refusing a second backfill is
-                # recoverable, starting one against a live walk doubles every evaluation it runs.
+            # Treat an unreachable Temporal as "still running": refusing a second backfill is
+            # recoverable, starting one against a live walk doubles every evaluation it runs. A
+            # namespace that does not resolve answers NOT_FOUND for every workflow alike, so
+            # reading that as "this run is gone" would cancel every backfill at once.
+            if error.status != RPCStatusCode.NOT_FOUND or "namespace" in error.message.lower():
                 logger.exception("llma.evaluation_backfill_describe_failed", backfill_id=str(backfill.pk))
                 return True
         except Exception:
             logger.exception("llma.evaluation_backfill_describe_failed", backfill_id=str(backfill.pk))
             return True
 
+        # Says which read ended someone's backfill, because nothing else records it.
+        logger.warning(
+            "llma.evaluation_backfill_released",
+            backfill_id=str(backfill.pk),
+            team_id=self.team_id,
+            workflow_id=workflow_id,
+        )
         cancel_backfill(self.team_id, backfill.pk)
         return False
 
