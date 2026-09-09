@@ -1205,6 +1205,10 @@ class TestBytecodeExecute:
         assert self._run("extractRegex(null, '\\\\w+')") == ""
         assert self._run("extractRegex('hello', null)") == ""
 
+        # A pattern with a group that captured nothing still returns the group, not the whole match
+        assert self._run("extractRegex('b', '(a)?b')") == ""
+        assert self._run("extractRegex('b', '(?:(a)|b)')") == ""
+
         # Complex pattern like ClickHouse sortableSemver uses
         assert self._run("extractRegex('v1.2.3-alpha', '(\\\\d+(\\\\.\\\\d+)+)')") == "1.2.3"
         assert self._run("extractRegex('version 10.20.30', '(\\\\d+(\\\\.\\\\d+)+)')") == "10.20.30"

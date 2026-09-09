@@ -102,7 +102,10 @@ def regex_extract(string: Any, pattern: Any) -> str:
     found = compiled.search(haystack)
     if not found:
         return ""
-    if found.lastindex and found.lastindex >= 1:
+    # Select on the pattern's static group count, not on which groups participated. A group that
+    # captured nothing still wins over the whole match, so `(a)?b` on "b" gives "". The Node and
+    # Rust VMs branch on the same static count.
+    if compiled.groups > 0:
         return found.group(1) or ""
     return found.group(0) or ""
 
