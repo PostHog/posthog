@@ -36,6 +36,15 @@ describe('user-agent.template', () => {
         expect(result.properties.$useragent).toBeNull()
     })
 
+    it('reads the Segment segment_userAgent property and strips it', async () => {
+        const globals = tester.createGlobals({ event: { properties: { segment_userAgent: CHROME_UA } } })
+
+        const result = await invoke({}, globals)
+
+        expect(result.properties.$browser).toBe('chrome')
+        expect(result.properties.segment_userAgent).toBeNull()
+    })
+
     it('detects a mobile device and reads the $user-agent key', async () => {
         const globals = tester.createGlobals({ event: { properties: { '$user-agent': IPHONE_UA } } })
 

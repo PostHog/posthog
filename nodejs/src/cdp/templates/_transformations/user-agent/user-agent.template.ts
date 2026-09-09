@@ -23,6 +23,7 @@ let candidates := [
     event.properties.$useragent,
     event.properties['$user-agent'],
     event.properties.$user_agent,
+    event.properties.segment_userAgent,
     event.properties.$raw_user_agent
 ]
 let ua := ''
@@ -48,6 +49,9 @@ if (not empty(event.properties['$user-agent'])) {
 }
 if (not empty(event.properties.$user_agent)) {
     returnEvent.properties.$user_agent := null
+}
+if (not empty(event.properties.segment_userAgent)) {
+    returnEvent.properties.segment_userAgent := null
 }
 
 // Do not overwrite browser or device properties the SDK already set, unless asked to.

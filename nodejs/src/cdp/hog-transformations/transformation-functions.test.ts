@@ -36,6 +36,18 @@ describe('parseUserAgent', () => {
         expect(durationMs).toBeLessThan(100)
     })
 
+    it('parses a hostile value at the accepted maximum length quickly', () => {
+        // The adversarial `Chrom` pattern at exactly the accepted maximum still reaches
+        // detect-browser, so the bound must be low enough that even this stays cheap.
+        const hostileAtMax = 'Chrom'.repeat(Math.floor(MAX_USER_AGENT_LENGTH / 5))
+
+        const start = process.hrtime.bigint()
+        parseUserAgent(hostileAtMax)
+        const durationMs = Number(process.hrtime.bigint() - start) / 1e6
+
+        expect(durationMs).toBeLessThan(10)
+    })
+
     it('still parses a user agent at the length bound', () => {
         const padded = CHROME_UA + ' '.repeat(MAX_USER_AGENT_LENGTH - CHROME_UA.length)
 
