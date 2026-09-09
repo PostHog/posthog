@@ -544,6 +544,38 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             validate_inputs(inputs_schema, {"email": {"value": value}})
         assert expected in str(ctx.value.detail)
 
+    @parameterized.expand(
+        [
+            ("plain_address", "a@b.com", {"email": "a@b.com"}),
+            ("templated_address", "{person.properties.email}", {"email": "{person.properties.email}"}),
+        ]
+    )
+    def test_native_email_coerces_a_string_recipient_to_an_object(self, _name, to_value, expected):
+        # The runtime reads to.email, so a string recipient saved cleanly and then failed every send.
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True}]
+        value = {"from": {"integrationId": 1}, "to": to_value, "subject": "hi", "text": "hi"}
+
+        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
+
+        assert validated["email"]["value"]["to"] == expected
+
+    def test_native_email_rejects_a_recipient_object_without_an_address(self):
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True}]
+        value = {"from": {"integrationId": 1}, "to": {"name": "Ada"}, "subject": "hi", "text": "hi"}
+
+        with pytest.raises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, {"email": {"value": value}})
+        assert "Expected 'to' to be an object with an 'email' address" in str(ctx.value.detail)
+
+    def test_legacy_email_keeps_a_string_recipient(self):
+        # The Mailgun destination templates `to` as a plain address string.
+        inputs_schema = [{"key": "template", "type": "email", "required": True}]
+        value = {"from": "hi@posthog.com", "to": "{person.properties.email}", "subject": "hi", "text": "hi"}
+
+        validated = validate_inputs(inputs_schema, {"template": {"value": value}})
+
+        assert validated["template"]["value"]["to"] == "{person.properties.email}"
+
     def test_email_from_overrides_accept_templated_strings(self):
         inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
         value = {

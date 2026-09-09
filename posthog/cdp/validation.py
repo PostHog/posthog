@@ -681,6 +681,18 @@ class InputsItemSerializer(serializers.Serializer):
                 label = "value" if len(missing) == 1 else "values"
                 raise serializers.ValidationError({"input": f"Missing {label} for {', '.join(missing)}."})
 
+            # The native email runtime reads `to.email`, so a bare address string saves cleanly and
+            # then fails every send. The legacy `email` type keeps a plain string `to`.
+            if item_type == "native_email":
+                to_value = value.get("to")
+                if isinstance(to_value, str):
+                    value = {**value, "to": {"email": to_value}}
+                    attrs["value"] = value
+                elif not isinstance(to_value, dict) or not to_value.get("email"):
+                    raise serializers.ValidationError(
+                        {"input": "Expected 'to' to be an object with an 'email' address, like {'email': ...}."}
+                    )
+
             # Templated sender overrides on the `from` object. Non-string values would only
             # surface as a send-time failure in the runtime's schema parse, so reject them here.
             from_value = value.get("from")

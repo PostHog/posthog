@@ -1098,8 +1098,8 @@ export const WorkflowActionEmailPatchSchema = z
             .optional()
             .describe(
                 "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, " +
-                    'preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is ' +
-                    'always re-rendered from it.'
+                    'preheader, text, to, from, replyTo, cc, bcc. The recipient is to: {email, name?}, not a plain ' +
+                    'address string. The design is edited via operations, and html is always re-rendered from it.'
             ),
         base_updated_at: z
             .string()

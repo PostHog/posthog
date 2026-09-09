@@ -107,7 +107,13 @@ export class RecipientPreferencesService {
         if (action.type === 'function_sms') {
             identifier = invocation.state.globals.inputs?.to_number
         } else if (action.type === 'function_email') {
-            identifier = invocation.state.globals.inputs?.email?.to?.email
+            const to = invocation.state.globals.inputs?.email?.to
+            if (typeof to === 'string') {
+                throw new Error(
+                    `The email 'to' field on message action [Action:${action.id}] must be an object with an 'email' address, not a plain address. Open the step and set the recipient again.`
+                )
+            }
+            identifier = to?.email
         } else if (action.type === 'function_push') {
             // Push has no email/phone "to" field. Delivery reads the device token from the invocation's
             // person (globals.person.properties), so key the opt-out on that same person's distinct_id —
