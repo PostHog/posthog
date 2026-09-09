@@ -331,6 +331,7 @@ export {
   sessionSupportsSideQuestion,
   TRANSCRIPT_TAIL_WINDOW,
 } from "./sessions";
+export * from "./sketchpad";
 export type {
   ExportedSkill,
   SkillFileEntry,
