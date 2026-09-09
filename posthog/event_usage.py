@@ -29,10 +29,6 @@ if TYPE_CHECKING:
 
 
 def _is_hosted_dev_deployment() -> bool:
-    """The hosted dev environment captures into the same production project as US and EU cloud,
-    and its deploy smoke tests sign up a throwaway organization and delete it again on every run.
-    Reporting those lifecycle events counts each run as a real signup and a real churn.
-    """
     return get_instance_region() == "DEV"
 
 
