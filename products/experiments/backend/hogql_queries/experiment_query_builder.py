@@ -278,6 +278,10 @@ class ExperimentQueryBuilder:
         """
         return self._exposure_query_builder().daily_exposures_from_precomputed(job_ids)
 
+    def get_flag_call_outcomes_query(self) -> ast.SelectQuery:
+        """Entity counts per flag-evaluation outcome. Columns: reason, entities."""
+        return self._exposure_query_builder().flag_call_outcomes_query()
+
     def _get_conversion_window_seconds(self) -> int:
         """
         Returns the conversion window in seconds for the current metric.
