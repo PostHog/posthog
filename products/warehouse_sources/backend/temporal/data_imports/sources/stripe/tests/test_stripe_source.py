@@ -1,4 +1,5 @@
 import functools
+import contextvars
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -628,13 +629,70 @@ class TestStripeNestedResourceGetRows:
         assert {row["customer"] for row in rows} == {"cus_a", "cus_b"}
 
 
-class TestInvoiceListWithAllLines:
-    def test_skips_lines_for_invoice_deleted_mid_sync(self):
-        invoices = [
-            SimpleNamespace(id="in_gone", lines=SimpleNamespace(has_more=True, data=[], url="orig")),
-            SimpleNamespace(id="in_ok", lines=SimpleNamespace(has_more=True, data=[], url="orig")),
-        ]
+def _invoice(invoice_id, has_more=True):
+    return SimpleNamespace(
+        id=invoice_id, lines=SimpleNamespace(has_more=has_more, data=[{"id": "embedded"}], url="orig")
+    )
 
+
+class _FakeInvoicePage:
+    def __init__(self, data, next_page=None):
+        self.data = data
+        self.has_more = next_page is not None
+        self._next = next_page
+
+    @property
+    def is_empty(self):
+        return not self.data
+
+    def next_page(self):
+        return self._next if self._next is not None else _FakeInvoicePage([])
+
+
+class TestInvoiceListWithAllLines:
+    def test_expands_lines_across_pages_in_list_order(self):
+        pages = _FakeInvoicePage(
+            [_invoice("in_1"), _invoice("in_2", has_more=False), _invoice(None)],
+            next_page=_FakeInvoicePage([_invoice("in_3")]),
+        )
+        client = MagicMock()
+        client.invoices.list.return_value = pages
+        worker_client = MagicMock()
+        worker_client.invoices.line_items.list.side_effect = lambda invoice=None, params=None: _list_object(
+            [{"id": f"il_{invoice}_a"}, {"id": f"il_{invoice}_b"}]
+        )
+
+        result = list(
+            InvoiceListWithAllLines(
+                client, params={}, logger=MagicMock(), client_factory=lambda: worker_client
+            ).auto_paging_iter()
+        )
+
+        assert [inv.id for inv in result] == ["in_1", "in_2", "in_3"]
+        assert result[0].lines.data == [{"id": "il_in_1_a"}, {"id": "il_in_1_b"}]
+        assert result[0].lines.has_more is False
+        assert result[1].lines.data == [{"id": "embedded"}]
+        assert result[2].lines.data == [{"id": "il_in_3_a"}, {"id": "il_in_3_b"}]
+        client.invoices.line_items.list.assert_not_called()
+
+    def test_line_fetches_run_with_the_callers_context(self):
+        label: contextvars.ContextVar[str] = contextvars.ContextVar("label")
+        label.set("job-42")
+        seen = []
+
+        def line_items_list(invoice=None, params=None):
+            seen.append(label.get(None))
+            return _list_object([{"id": "il_1"}])
+
+        client = MagicMock()
+        client.invoices.list.return_value = _FakeInvoicePage([_invoice("in_1"), _invoice("in_2")])
+        client.invoices.line_items.list.side_effect = line_items_list
+
+        list(InvoiceListWithAllLines(client, params={}, logger=MagicMock()).auto_paging_iter())
+
+        assert seen == ["job-42", "job-42"]
+
+    def test_skips_lines_for_invoice_deleted_mid_sync(self):
         def line_items_list(invoice=None, params=None):
             if invoice == "in_gone":
                 raise stripe_lib.InvalidRequestError(
@@ -643,7 +701,7 @@ class TestInvoiceListWithAllLines:
             return _list_object([{"id": "il_1"}])
 
         client = MagicMock()
-        client.invoices.list.return_value = _list_object(invoices)
+        client.invoices.list.return_value = _FakeInvoicePage([_invoice("in_gone"), _invoice("in_ok")])
         client.invoices.line_items.list.side_effect = line_items_list
 
         result = list(InvoiceListWithAllLines(client, params={}, logger=MagicMock()).auto_paging_iter())
@@ -656,13 +714,11 @@ class TestInvoiceListWithAllLines:
         assert result[1].lines.data == [{"id": "il_1"}]
 
     def test_other_invalid_request_errors_still_raise(self):
-        invoices = [SimpleNamespace(id="in_1", lines=SimpleNamespace(has_more=True, data=[], url="orig"))]
-
         def line_items_list(invoice=None, params=None):
             raise stripe_lib.InvalidRequestError("Invalid string", "expand", code="parameter_unknown", http_status=400)
 
         client = MagicMock()
-        client.invoices.list.return_value = _list_object(invoices)
+        client.invoices.list.return_value = _FakeInvoicePage([_invoice("in_1")])
         client.invoices.line_items.list.side_effect = line_items_list
 
         with pytest.raises(stripe_lib.InvalidRequestError):

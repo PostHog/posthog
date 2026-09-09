@@ -672,7 +672,9 @@ def _batch_and_yield(
 
 
 def _build_resources(
-    client: StripeClient, logger: Optional[FilteringBoundLogger] = None
+    client: StripeClient,
+    logger: Optional[FilteringBoundLogger] = None,
+    client_factory: Optional[Callable[[], StripeClient]] = None,
 ) -> dict[str, Union[StripeResource, StripeNestedResource]]:
     """Single source of truth for the resources we sync from Stripe and how they relate.
 
@@ -680,8 +682,9 @@ def _build_resources(
     checks). Nested resources carry their parent on `.parent`, so callers can derive the
     nested→parent linkage without restating it elsewhere.
 
-    `logger` is only consumed by InvoiceListWithAllLines; pass None when the caller doesn't
-    need the wrapped invoice expansion (e.g. validation, which just probes the list endpoint).
+    `logger` and `client_factory` are only consumed by InvoiceListWithAllLines; pass None when the
+    caller doesn't need the wrapped invoice expansion (e.g. validation, which just probes the list
+    endpoint). The factory gives each of its worker threads a client of its own.
     """
     return {
         ACCOUNT_RESOURCE_NAME: StripeResource(method=client.accounts.list),
@@ -692,7 +695,7 @@ def _build_resources(
         INVOICE_ITEM_RESOURCE_NAME: StripeResource(method=client.invoice_items.list),
         INVOICE_RESOURCE_NAME: StripeResource(
             method=(
-                (lambda params: InvoiceListWithAllLines(client, params, logger))  # type: ignore
+                (lambda params: InvoiceListWithAllLines(client, params, logger, client_factory=client_factory))  # type: ignore
                 if logger is not None
                 else client.invoices.list
             )
@@ -841,16 +844,19 @@ def get_rows(
     should_use_incremental_field: bool = False,
     warehouse_parent: Optional["ParentTableRef"] = None,
 ):
-    client = StripeClient(
-        api_key,
-        stripe_account=account_id,
-        stripe_version=api_version,
-        max_network_retries=2,
-        base_addresses=_stripe_base_addresses(),
-        http_client=_tracked_stripe_http_client(),
-    )
+    def new_client() -> StripeClient:
+        return StripeClient(
+            api_key,
+            stripe_account=account_id,
+            stripe_version=api_version,
+            max_network_retries=2,
+            base_addresses=_stripe_base_addresses(),
+            http_client=_tracked_stripe_http_client(),
+        )
+
+    client = new_client()
     default_params = {"limit": DEFAULT_LIMIT}
-    resources = _build_resources(client, logger=logger)
+    resources = _build_resources(client, logger=logger, client_factory=new_client)
 
     batcher = Batcher(logger=logger, chunk_size=STRIPE_CHUNK_SIZE)
 
