@@ -8,6 +8,7 @@ from posthog.schema import HogQLQuery
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.autoresearch.backend.dataset.labeling import (
     IDENTIFIED_USERS_ONLY,
@@ -22,9 +23,11 @@ from products.autoresearch.backend.query import run_hogql_rows
 
 logger = structlog.get_logger(__name__)
 
-# Minimum number of labeled examples needed to train a meaningful model
+# Minimum number of labeled examples needed to train a meaningful model. Both classes
+# need examples: holdout AUC is undefined when every label is the same.
 MIN_TRAINING_ROWS = 100
 MIN_POSITIVE_EXAMPLES = 20
+MIN_NEGATIVE_EXAMPLES = 20
 
 # Warn when fewer than this fraction of the population is identified — under the v1
 # identified-only scope the anonymous remainder is silently excluded, so flag it.
@@ -69,12 +72,15 @@ def validate_pipeline_definition(
     training_population: dict[str, Any],
     inference_population: dict[str, Any],
     target_definition: dict[str, Any] | None = None,
+    user: User | None = None,
 ) -> ValidationResult:
     """
     Validate a proposed pipeline definition against real team data.
 
     Runs HogQL count queries to estimate volume, base rate, and catch common
-    mistakes before training is triggered.
+    mistakes before training is triggered. `user` is the person HogQL applies
+    access control for; without one the counts can be masked from data the
+    requester may read.
     """
     try:
         return _run_validation(
@@ -85,6 +91,7 @@ def validate_pipeline_definition(
             training_lookback_days=training_lookback_days,
             training_population=training_population,
             inference_population=inference_population,
+            user=user,
         )
     except Exception as exc:
         logger.exception("autoresearch_validation_error", team_id=team.pk, target_event=target_event)
@@ -109,13 +116,8 @@ def _run_validation(
     training_population: dict[str, Any],
     inference_population: dict[str, Any],
     target_definition: dict[str, Any] | None = None,
+    user: User | None = None,
 ) -> ValidationResult:
-    warnings: list[ValidationWarning] = []
-
-    # Use the explicit training lookback window. Clamp to a sane minimum so very short windows
-    # still produce a meaningful estimate.
-    lookback_days = max(training_lookback_days, 7)
-
     tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
 
     # Headline eligible count — true number of users that would be labeled by the
@@ -123,13 +125,13 @@ def _run_validation(
     # volume warnings.
     eligible_sql, eligible_values = build_eligible_count_sql(
         horizon_days=horizon_days,
-        lookback_days=lookback_days,
+        lookback_days=training_lookback_days,
         training_population=training_population,
         target_event=target_event,
         target_definition=target_definition,
         team=team,
     )
-    eligible_rows = run_hogql_rows(team=team, query=HogQLQuery(query=eligible_sql, values=eligible_values))
+    eligible_rows = run_hogql_rows(team=team, query=HogQLQuery(query=eligible_sql, values=eligible_values), user=user)
     # eligible = identified-only headline (v1); eligible_all = same count without the
     # identified restriction, used to detect a mostly-anonymous population.
     total_users = 0
@@ -148,11 +150,11 @@ def _run_validation(
         target_definition=target_definition,
         team=team,
         horizon_days=horizon_days,
-        lookback_days=lookback_days,
+        lookback_days=training_lookback_days,
         training_population=training_population,
         sample_limit=LIVE_ESTIMATE_SAMPLE_LIMIT,
     )
-    label_rows = run_hogql_rows(team=team, query=HogQLQuery(query=label_sql, values=label_values))
+    label_rows = run_hogql_rows(team=team, query=HogQLQuery(query=label_sql, values=label_values), user=user)
     sampled_users = 0
     sampled_positives = 0
     if label_rows:
@@ -165,10 +167,10 @@ def _run_validation(
     positives = round(base_rate * total_users) if total_users > 0 else 0
     negatives = total_users - positives
 
-    # Inference population — count distinct users matching the prediction filter.
-    # If no inference filter is provided we fall back to the training count.
+    # Inference population: distinct users matching the prediction filter over the
+    # window the scorer binds. Always counted, even with no filter, so the preview
+    # stays aligned with what `build_inference_anchors_sql` scores.
     inference_properties = (inference_population or {}).get("properties", []) if inference_population else []
-    identified_clause = _identified_users_and_clause()
     # Template populations carry a `kind` rather than raw properties, so compile it through
     # the same helper scoring uses — counting every identified user would preview a
     # population the pipeline will never score.
@@ -176,25 +178,58 @@ def _run_validation(
         inference_population, target_event=target_event, target_definition=target_definition, team=team
     )
     compiled_inference_kind = _build_population_kind_conditions(inference_population, target_cond=target_cond)
-    if inference_properties or compiled_inference_kind.where_parts or identified_clause:
-        inf_parts, inf_values = _build_population_conditions(inference_properties)
-        inf_parts.extend(compiled_inference_kind.where_parts)
-        inf_values.update(target_values)
-        inf_values.update(compiled_inference_kind.values)
-        inference_clause = f" AND ({' AND '.join(inf_parts)})" if inf_parts else ""
-        inference_query = HogQLQuery(
-            query=f"""
-                SELECT countDistinct(person_id) AS users
-                FROM events
-                WHERE timestamp >= now() - toIntervalDay({{lookback}})
-                  AND timestamp < now(){inference_clause}{identified_clause}
-            """,
-            values={"lookback": inference_lookback_days(horizon_days), **inf_values},
-        )
-        inf_rows = run_hogql_rows(team=team, query=inference_query)
-        inference_size = int(inf_rows[0][0] or 0) if inf_rows else 0
-    else:
-        inference_size = total_users
+    inf_parts, inf_values = _build_population_conditions(inference_properties)
+    inf_parts.extend(compiled_inference_kind.where_parts)
+    inf_values.update(target_values)
+    inf_values.update(compiled_inference_kind.values)
+    inference_clause = f" AND ({' AND '.join(inf_parts)})" if inf_parts else ""
+    inference_query = HogQLQuery(
+        query=f"""
+            SELECT countDistinct(person_id) AS users
+            FROM events
+            WHERE timestamp >= now() - toIntervalDay({{lookback}})
+              AND timestamp < now(){inference_clause}{_identified_users_and_clause()}
+        """,
+        values={"lookback": inference_lookback_days(horizon_days), **inf_values},
+    )
+    inf_rows = run_hogql_rows(team=team, query=inference_query, user=user)
+    inference_size = int(inf_rows[0][0] or 0) if inf_rows else 0
+
+    warnings = _build_warnings(
+        total_users=total_users,
+        total_users_all=total_users_all,
+        positives=positives,
+        negatives=negatives,
+        base_rate=base_rate,
+        lookback_days=training_lookback_days,
+        target_event=target_event,
+    )
+    has_errors = any(w.severity == "error" for w in warnings)
+    has_hard_warnings = any(w.severity == "warning" for w in warnings)
+
+    return ValidationResult(
+        can_proceed=not has_errors,
+        requires_acknowledgement=has_hard_warnings and not has_errors,
+        estimated_training_rows=total_users,
+        positive_count=positives,
+        negative_count=negatives,
+        base_rate=base_rate,
+        inference_population_size=inference_size,
+        warnings=warnings,
+    )
+
+
+def _build_warnings(
+    *,
+    total_users: int,
+    total_users_all: int,
+    positives: int,
+    negatives: int,
+    base_rate: float,
+    lookback_days: int,
+    target_event: str,
+) -> list[ValidationWarning]:
+    warnings: list[ValidationWarning] = []
 
     # Volume warnings
     if total_users < MIN_TRAINING_ROWS:
@@ -210,7 +245,7 @@ def _run_validation(
         warnings.append(
             ValidationWarning(
                 code="moderate_volume",
-                message=f"{total_users} users found — model may have limited accuracy with this volume.",
+                message=f"{total_users} users found. The model may have limited accuracy with this volume.",
                 severity="warning",
             )
         )
@@ -242,13 +277,23 @@ def _run_validation(
             )
         )
 
+    if negatives < MIN_NEGATIVE_EXAMPLES:
+        warnings.append(
+            ValidationWarning(
+                code="low_negatives",
+                message=f"Only {negatives} users did not perform '{target_event}'. "
+                f"At least {MIN_NEGATIVE_EXAMPLES} negative examples are needed.",
+                severity="error",
+            )
+        )
+
     # Extreme imbalance
     if total_users > 0 and base_rate < 0.01:
         warnings.append(
             ValidationWarning(
                 code="extreme_imbalance",
-                message=f"Base rate is {base_rate:.2%} — very rare events require special handling "
-                "and will need a larger population for reliable calibration.",
+                message=f"Base rate is {base_rate:.2%}. Very rare events need a larger population "
+                "for reliable calibration.",
                 severity="warning",
             )
         )
@@ -256,22 +301,10 @@ def _run_validation(
         warnings.append(
             ValidationWarning(
                 code="near_universal",
-                message=f"Base rate is {base_rate:.2%} — almost everyone does this event. "
-                "The model may not add much predictive value.",
+                message=f"Base rate is {base_rate:.2%}. Almost everyone does this event, "
+                "so the model may not add much predictive value.",
                 severity="warning",
             )
         )
 
-    has_errors = any(w.severity == "error" for w in warnings)
-    has_hard_warnings = any(w.severity == "warning" for w in warnings)
-
-    return ValidationResult(
-        can_proceed=not has_errors,
-        requires_acknowledgement=has_hard_warnings and not has_errors,
-        estimated_training_rows=total_users,
-        positive_count=positives,
-        negative_count=negatives,
-        base_rate=base_rate,
-        inference_population_size=inference_size,
-        warnings=warnings,
-    )
+    return warnings

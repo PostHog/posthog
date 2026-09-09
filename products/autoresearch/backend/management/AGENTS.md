@@ -18,8 +18,8 @@ Every command calls the same functions the API and the Temporal activities call.
   `--pipeline-id --dry-run --seed-fixture-bundle --prediction-date --backfill-days`
   `--prediction-date` / `--backfill-days` backdate the emitted events, which is the only way to get matured predictions for online validation without waiting out the horizon.
 - `autoresearch_validate` — pre-flight target viability, before committing to a run.
-  `--team-id --target --horizon`
-  Note there is no `--mode` flag. Note also that `autoresearch_train` does **not** call this, so a target that fails here still trains.
+  `--team-id --target --horizon --user-id`
+  `--user-id` is the person HogQL applies access control for; without it the counts run fail-closed. Note there is no `--mode` flag. Note also that `autoresearch_train` does **not** call this, so a target that fails here still trains.
 - `autoresearch_validate_online` — realized performance for predictions whose horizon has elapsed.
   `--pipeline-id --dry-run`
 
