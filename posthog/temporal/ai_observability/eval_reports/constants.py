@@ -34,33 +34,29 @@ COUNT_TRIGGER_QUERY_WIDTH = 20
 # same ceiling as the legacy per-report path.
 COUNT_TRIGGER_MAX_CONCURRENT_CHECKS = 5
 COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT = timedelta(seconds=120)
-# Oldest events a count check considers. Without this bound a report that never reaches its
-# threshold anchors its window to last_delivered_at, starts_at, or created_at, so the scan
-# grows on every 5-minute poll and eventually cannot finish inside any budget. A report that
-# cannot collect trigger_threshold results inside this window is configured above the volume
-# its evaluation produces, so an ever-wider scan would not make it fire either.
+# Oldest events a count check considers. A report that never reaches its threshold keeps its
+# window anchor forever, so without this bound its scan grows on every 5-minute poll. A report
+# that cannot collect trigger_threshold results inside this window asks for more than its
+# evaluation produces, so a wider scan would not make it fire either.
 COUNT_TRIGGER_MAX_LOOKBACK = timedelta(days=7)
 # Per-attempt ClickHouse budget. A too-slow count query fails with a catchable
 # ClickHouseQueryTimeOut the activity can split-and-retry, unlike a Temporal activity
 # timeout, which kills the split midway and replays the same sequence on every retry.
 COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS = 15
-# ClickHouse checks max_execution_time between blocks rather than stopping at it exactly, so
-# an attempt can run past its own limit before it gives up. Every attempt reserves this
-# multiple of its limit against the shared wall-clock budget, so an overshooting query still
-# concludes inside the budget instead of eating the share of the retries after it.
+# ClickHouse checks max_execution_time between blocks rather than stopping at it exactly, so an
+# attempt can run past its own limit. Every attempt reserves this multiple of its limit against
+# the shared budget, so an overshooting query cannot eat the share of the retries after it.
 COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR = 2.0
 # Wall-clock budget shared by all of one activity's count queries, split retries included.
-# Sized so a complete first-level split (a full-range timeout, then both halves running to
-# their full per-attempt budget, each allowed to overshoot) fits, and kept below
+# Sized so a complete first-level split fits (a full-range timeout, then both halves running to
+# their full per-attempt budget, each allowed to overshoot), and kept below
 # COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT with headroom for the Postgres gate and per-query
-# overhead, so the split tree always concludes inside the activity instead of racing its
-# timeout.
+# overhead, so the split tree concludes inside the activity instead of racing its timeout.
 COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS = 100
 # With less remaining budget than this a retry can't do useful work (and a zero budget would
 # mean "unlimited" to ClickHouse), so the split re-raises the timeout instead of querying.
 COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS = 5
-# A split narrower than this stops halving the time range. Each half reads about half the
-# rows, so the split only helps while the range is wide enough for that to matter.
+# Narrower than this, halving the range no longer removes enough rows to be worth an attempt.
 COUNT_TRIGGER_QUERY_MIN_SPLIT_RANGE = timedelta(minutes=1)
 PREPARE_ACTIVITY_TIMEOUT = timedelta(seconds=60)
 AGENT_ACTIVITY_TIMEOUT = timedelta(seconds=660)  # 11 minutes (agent timeout + buffer)

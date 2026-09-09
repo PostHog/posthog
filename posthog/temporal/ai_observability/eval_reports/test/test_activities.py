@@ -733,8 +733,7 @@ class TestCountTriggeredReportChecks(BaseTest):
         ]
     )
     def test_count_window_never_reaches_further_back_than_the_lookback(self, _name, anchor_age, expected_age):
-        # A report that never crosses its threshold keeps its anchor forever, so an unclamped
-        # window scans more events on every 5-minute poll until no budget can cover it.
+        # Catches a clamp that stops reaching the query, which returns the scan to unbounded.
         now = timezone.now()
         report = self._create_report(starts_at=now - anchor_age)
 
@@ -762,8 +761,7 @@ class TestCountEvalResultsForReportsSplitRetry(BaseTest):
         ]
 
     def test_splits_time_range_in_half_on_timeout_and_sums_the_halves(self):
-        # The full range times out once; each half then succeeds over half the rows. The old
-        # column split left both retries reading the same range, so they timed out too.
+        # Catches a retry that reads the same range again, as the old column split did.
         until = timezone.now()
         since = until - dt.timedelta(days=8)
         side_effects = [ClickHouseQueryTimeOut(), Mock(results=[[1, 2]]), Mock(results=[[30, 40]])]
@@ -783,8 +781,7 @@ class TestCountEvalResultsForReportsSplitRetry(BaseTest):
         )
 
     def test_reraises_when_the_narrowest_range_still_times_out(self):
-        # A range too narrow to halve has nothing cheaper to retry, so the failure must
-        # surface instead of recursing until the budget runs out.
+        # A range too narrow to halve has nothing cheaper to retry, so the failure must surface.
         until = timezone.now()
         with patch("posthog.hogql.query.execute_hogql_query", side_effect=ClickHouseQueryTimeOut()):
             with self.assertRaises(ClickHouseQueryTimeOut):
@@ -815,9 +812,9 @@ class TestCountEvalResultsForReportsSplitRetry(BaseTest):
         self.assertEqual(execute_hogql_query.call_count, 1)
 
     def test_execution_limit_leaves_room_for_clickhouse_to_overshoot_it(self):
-        # ClickHouse can run past max_execution_time, so a retry that claimed the whole
-        # remaining budget as its limit would overshoot past the deadline and be killed by
-        # Temporal mid-split. Each attempt claims only what it can afford to overshoot.
+        # Catches a retry that claims the whole remaining budget as its limit. ClickHouse can
+        # run past that limit, so the attempt would overshoot the deadline and Temporal would
+        # kill the split midway.
         clock = [0.0]
         until = timezone.now()
         remaining_after_first_attempt = COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS * 1.5
@@ -990,8 +987,7 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
         self.assertFalse(due_by_id[str(report_c.id)])
 
     def test_split_after_a_timeout_counts_a_midpoint_event_exactly_once(self):
-        # A timeout halves the window, so an event that lands on the midpoint sits on the
-        # boundary between the halves. Dropped, a report that is exactly at its threshold
+        # An event on the split boundary must count once. Dropped, a report at its threshold
         # stops firing; counted twice, a report below its threshold fires early.
         midpoint = self.T0 + (self.NOW - self.T0) / 2
         timestamps = [self.T0 + dt.timedelta(hours=1), midpoint, self.NOW - dt.timedelta(hours=1)]

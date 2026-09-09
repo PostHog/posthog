@@ -210,8 +210,6 @@ def _count_triggered_pg_gate(
     if today_runs >= report.daily_run_cap:
         return "daily_cap", None
 
-    # A report that has never delivered anchors its window to starts_at or created_at, so
-    # without the clamp its scan widens on every poll until no time budget can cover it.
     since = report.last_delivered_at or report.starts_at or report.created_at
     return None, max(since, now - COUNT_TRIGGER_MAX_LOOKBACK)
 
@@ -481,8 +479,7 @@ def _count_eval_results_for_reports_with_split_retry(
             team, entries, since=since, until=midpoint, deadline=deadline
         )
         # The events table stores timestamps as DateTime64(6), so one microsecond past the
-        # midpoint is the next representable instant. The halves therefore cover the range
-        # once each, with no row counted twice and none skipped.
+        # midpoint is the next representable instant and the halves cannot overlap.
         later_half = _count_eval_results_for_reports_with_split_retry(
             team, entries, since=midpoint + dt.timedelta(microseconds=1), until=until, deadline=deadline
         )
