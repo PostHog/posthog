@@ -182,6 +182,27 @@ class BatchExportRun(UUIDTModel):
                 name="run_has_exactly_one_parent_batch_export_or_batch_export_on_demand",
             )
         ]
+        indexes = [
+            # Serve the lookup of the latest completed run of a parent, which every run does to
+            # estimate its partition count. The condition holds a row only when it recorded a count
+            # and belongs to this index's parent kind. The parent predicate matters because a B-tree
+            # stores NULL keys, so without it a completed run of the other parent kind would enter
+            # here with a NULL leading key and write to both indexes. `status` stays a column rather
+            # than part of the condition: the ORM binds it as a parameter, and Postgres cannot prove
+            # a parameter satisfies an index predicate once it switches to a generic plan. The parent
+            # predicate is an exception, because the query filters the parent with strict equality,
+            # from which Postgres proves IS NOT NULL without the parameter value.
+            models.Index(
+                fields=["batch_export", "status", "-data_interval_end"],
+                condition=Q(records_completed__isnull=False, batch_export__isnull=False),
+                name="be_run_export_completed_idx",
+            ),
+            models.Index(
+                fields=["batch_export_on_demand", "status", "-data_interval_end"],
+                condition=Q(records_completed__isnull=False, batch_export_on_demand__isnull=False),
+                name="be_run_ondemand_completed_idx",
+            ),
+        ]
 
     class Status(models.TextChoices):
         """Possible states of the BatchExportRun."""
