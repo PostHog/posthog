@@ -22,11 +22,11 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings, LimitContext
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from .attribution_base import PERSON_ARRAYS_CTE, PERSON_CONVERSION_COUNT, AttributionQueryRunnerBase
-from .constants import PAGINATION_EXTRA
+from .constants import MARKETING_SPILL_AFTER_BYTES, PAGINATION_EXTRA
 
 # Paths longer than this are grouped on their most recent steps — the same truncation direction as
 # MAX_TOUCHPOINTS_PER_PERSON, and for the same reason: the touches nearest the conversion are the ones
@@ -300,7 +300,7 @@ class MarketingAnalyticsAttributionPathsQueryRunner(
             context=self._shared_hogql_context,
             # The per-person touchpoint arrays are unbounded, so let the GROUP BY spill to disk
             # rather than hit the memory limit. Same guard funnels, retention and paths use.
-            settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY),
+            settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MARKETING_SPILL_AFTER_BYTES),
         )
 
         # Mapped by column name, not tuple position, so adding a column can't shift every later one.

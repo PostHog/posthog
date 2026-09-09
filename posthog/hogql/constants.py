@@ -66,14 +66,14 @@ EXCEPTION_STRING_ARRAY_PROPERTIES = frozenset(
     }
 )
 
-type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb", "mysql", "snowflake", "redshift"]
+type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb", "mysql", "snowflake", "redshift", "trino"]
 
 # All dialects that compile to an external SQL database queried directly (as opposed to
 # ClickHouse / HogQL). MySQL shares the standard-SQL keyword surface (CURRENT_DATE & co.)
 # but not Postgres-specific features like PIVOT/UNPIVOT, TRY_CAST, or positional references.
 # Redshift is a Postgres fork: it reuses the Postgres-family lazy-table resolution and
 # property lowering, then its printer blocks the constructs the Redshift engine can't run.
-SQL_TARGET_DIALECTS: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb", "mysql", "redshift"})
+SQL_TARGET_DIALECTS: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb", "mysql", "redshift", "trino"})
 
 type HogQLParserBackend = Literal["cpp-json", "rust-json", "rust-py"]
 

@@ -7,9 +7,14 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 
 static COMMENT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)/\*.*?\*/|--[^\n]*").unwrap());
-static STRING: Lazy<Regex> = Lazy::new(|| Regex::new(r"'(?:[^']|'')*'").unwrap());
+// Escape/bit/hex string prefixes (E'..', B'..', X'..') go with the literal.
+static STRING: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)\b[ebx]'(?:[^']|'')*'|'(?:[^']|'')*'").unwrap());
 static PARAM: Lazy<Regex> = Lazy::new(|| Regex::new(r"\$\d+").unwrap());
 static NUMBER: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b\d+(?:\.\d+)?\b").unwrap());
+// pg_stat_statements turns these constants into $n like any other literal.
+static KEYWORD_CONST: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)\b(?:true|false|null)\b").unwrap());
 static LIST: Lazy<Regex> = Lazy::new(|| Regex::new(r"\(\s*\?(?:\s*,\s*\?)*\s*\)").unwrap());
 static WS: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s+").unwrap());
 static PUNCT: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s*([=<>!,()+\-*/])\s*").unwrap());
@@ -19,6 +24,7 @@ pub fn normalize(sql: &str) -> String {
     let s = STRING.replace_all(&s, "?");
     let s = PARAM.replace_all(&s, "?");
     let s = NUMBER.replace_all(&s, "?");
+    let s = KEYWORD_CONST.replace_all(&s, "?");
     let s = LIST.replace_all(&s, "(?)");
     let s = WS.replace_all(&s, " ");
     let s = PUNCT.replace_all(&s, "$1");
@@ -31,6 +37,9 @@ pub fn normalize(sql: &str) -> String {
 pub fn redact_literals(sql: &str) -> String {
     STRING.replace_all(sql, "'?'").into_owned()
 }
+
+/// Bump when `normalize` changes so stored query fingerprints are recomputed.
+pub const FINGERPRINT_VERSION: u32 = 2;
 
 /// FNV-1a 64 of the normalised text, as i64 so it fits a bigint column.
 pub fn fingerprint(sql: &str) -> i64 {
@@ -53,6 +62,18 @@ mod tests {
         assert_eq!(a, b);
         assert_eq!(a, c);
         assert_ne!(a, fingerprint("select * from t where id = 1"));
+    }
+
+    #[test]
+    fn keyword_constants_and_escape_strings_match_pgss_text() {
+        // Logged statement text versus what pg_stat_statements stores for it.
+        let logged = r#"UPDATE "t" SET "path" = E'a\nb', "shortcut" = false, "created_by_id" = NULL, "meta" = '{}'::jsonb WHERE "t"."id" = 7"#;
+        let pgss = r#"UPDATE "t" SET "path" = $1, "shortcut" = $2, "created_by_id" = $3, "meta" = $4::jsonb WHERE "t"."id" = $5"#;
+        assert_eq!(fingerprint(logged), fingerprint(pgss));
+        assert_eq!(
+            fingerprint("select * from t where enabled = TRUE and x = B'101'"),
+            fingerprint("select * from t where enabled = $1 and x = $2")
+        );
     }
 
     #[test]

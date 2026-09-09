@@ -57,7 +57,9 @@ from posthog.user_permissions import UserPermissions, UserPermissionsSerializerM
 from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
+from products.access_control.backend.models.role import Role
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
+from products.legal_documents.backend.facade.api import SIGNED_BAA_ANNOTATION, annotate_signed_baa, has_signed_baa
 
 
 class PremiumMultiorganizationPermission(permissions.BasePermission):
@@ -99,6 +101,10 @@ tracer = trace.get_tracer(__name__)
 
 CacheField = Literal["teams", "projects"]
 OrgCacheField = Literal["member_count"]
+
+
+class OrganizationRoleScopedPrimaryKeyRelatedField(OrgScopedPrimaryKeyRelatedField):
+    scope_field = "organization"
 
 
 def _cached_org_serializer_field(cache_key: str, fetcher: Callable[[], Any]) -> Any:
@@ -155,7 +161,9 @@ class OrganizationSerializer(
     logo_media_id = OrgScopedPrimaryKeyRelatedField(
         queryset=UploadedMedia.objects.all(), required=False, allow_null=True
     )
-    default_role_id = serializers.CharField(
+    default_role_id = OrganizationRoleScopedPrimaryKeyRelatedField(
+        queryset=Role.objects.all(),
+        source="default_role",
         required=False,
         allow_null=True,
         help_text="ID of the role to automatically assign to new members joining the organization",
@@ -163,6 +171,9 @@ class OrganizationSerializer(
     is_member_join_email_enabled = serializers.BooleanField(
         read_only=True,
         help_text="Legacy field; member-join emails are controlled per user in account notification settings.",
+    )
+    has_signed_baa = serializers.SerializerMethodField(
+        help_text="Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed."
     )
 
     class Meta:
@@ -196,6 +207,7 @@ class OrganizationSerializer(
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
             "is_hipaa",
+            "has_signed_baa",
             "default_experiment_stats_method",
             "default_anonymize_ips",
             "default_role_id",
@@ -216,13 +228,13 @@ class OrganizationSerializer(
             "metadata",
             "customer_id",
             "member_count",
-            "default_role_id",
             "is_active",
             "is_not_active_reason",
             "is_pending_deletion",
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
             "is_hipaa",
+            "has_signed_baa",
         ]
         extra_kwargs = {
             "slug": {
@@ -280,6 +292,15 @@ class OrganizationSerializer(
     def _fetch_visible_projects(self, instance: Organization) -> list[dict[str, Any]]:
         visible_projects = instance.projects.filter(id__in=self.user_permissions.project_ids_visible_for_user)
         return list(ProjectBasicSerializer(visible_projects, context=self.context, many=True).data)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_has_signed_baa(self, instance: Organization) -> bool:
+        # The list route annotates this in the organizations query. The single-organization
+        # routes do not go through that queryset, so they fall back to one lookup.
+        annotated = getattr(instance, SIGNED_BAA_ANNOTATION, None)
+        if annotated is not None:
+            return annotated
+        return has_signed_baa(instance.id)
 
     @extend_schema_field(serializers.DictField(child=serializers.CharField()))
     def get_metadata(self, instance: Organization) -> dict[str, Union[str, int, object]]:
@@ -363,9 +384,9 @@ class OrganizationSerializer(
 
     def validate_is_ai_training_opted_in(self, value: bool | None) -> bool | None:
         if self.instance and self.instance.is_ai_training_opted_in != value:
-            if self.instance.is_hipaa:
+            if has_signed_baa(self.instance.id):
                 raise serializers.ValidationError(
-                    "HIPAA organizations are always opted out of AI training and this setting cannot be changed.",
+                    "Organizations with a signed BAA stay opted out of AI training. Contact PostHog support if you need to change this.",
                     code="locked",
                 )
             if self.instance.is_ai_training_locked:
@@ -524,7 +545,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if scoped_organizations := self.request.successful_authenticator.access_token.scoped_organizations:
                 queryset = queryset.filter(id__in=scoped_organizations)
 
-        return queryset
+        return annotate_signed_baa(queryset)
 
     def safely_get_object(self, queryset):
         return self.organization

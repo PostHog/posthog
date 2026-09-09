@@ -4,17 +4,22 @@ Facade re-exports for product analytics HogQL query runners.
 Core's query-runner registry (``posthog/hogql_queries/query_runner.py``) dispatches
 on query ``kind`` and constructs these runners by class identity; the paths_v2
 presentation imports the segment-to-funnels helpers. The implementations stay in
-``backend/hogql_queries/`` (the wiring location, covered by the contract-check
-inputs). Runner modules pull the heavy HogQL import chain, so — like
-warehouse_sources' pipeline facade — names resolve lazily (PEP 562), keeping the
-runners off the ``django.setup()`` path that presentation loads at startup.
+``backend/hogql_queries/`` (the wiring location, which stays out of the
+contract-check inputs while no test outside the product drives it). Runner modules
+pull the heavy HogQL import chain, so — like warehouse_sources' pipeline facade —
+names resolve lazily (PEP 562), keeping the runners off the ``django.setup()`` path
+that presentation loads at startup.
 """
 
 _B = "products.product_analytics.backend.hogql_queries."
 
 _LAZY = {
     "PATHS_V2_OTHER": "paths_v2.path_item",
+    "FunnelCorrelationQueryRunner": "funnels.funnel_correlation_query_runner",
+    "FunnelsQueryRunner": "funnels.funnels_query_runner",
+    "LifecycleQueryRunner": "lifecycle.lifecycle_query_runner",
     "PathsQueryRunner": "paths.paths_query_runner",
+    "RetentionQueryRunner": "retention.retention_query_runner",
     "PathsV2QueryRunner": "paths_v2.paths_v2_query_runner",
     "StickinessQueryRunner": "stickiness.stickiness_query_runner",
     "anchored_segment_to_funnels_query": "paths_v2.funnel_converter",

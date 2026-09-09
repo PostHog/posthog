@@ -1,8 +1,6 @@
 import {
-  CaretDown,
   Check,
   Copy,
-  FileText,
   Robot,
   Scroll,
   ThumbsDown,
@@ -10,7 +8,6 @@ import {
 } from "@phosphor-icons/react";
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
 import { buildTurnRatingMetric } from "@posthog/core/analytics/aiFeedback";
-import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { useService } from "@posthog/di/react";
 import {
   Button,
@@ -46,12 +43,10 @@ import type {
   AgentConversationEvent,
   AgentTurnFeedbackSentiment,
 } from "@posthog/shared";
-import { ANALYTICS_EVENTS, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useSmoothedText } from "@posthog/ui/features/editor/components/useSmoothedText";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import type {
   BuildResult,
   ConversationItem,
@@ -71,6 +66,7 @@ import {
   type AgentTurn,
   CHAT_THREAD_VIRTUALIZATION_THRESHOLD,
   completedTurnTimestamp,
+  completedTurnTraceId,
   countFlatRows,
   type FlatThreadRow,
   FOLLOWING_END,
@@ -86,6 +82,7 @@ import {
   type TurnRow,
 } from "@posthog/ui/features/sessions/components/chat-thread/threadVirtualization";
 import { buildTurnCopyText } from "@posthog/ui/features/sessions/components/chat-thread/turnCopyText";
+import { UserMessageBody } from "@posthog/ui/features/sessions/components/chat-thread/UserMessageBody";
 import { usePromptRecallSource } from "@posthog/ui/features/sessions/components/chat-thread/usePromptRecallSource";
 import { VirtualThreadScrollBody } from "@posthog/ui/features/sessions/components/chat-thread/VirtualThreadScrollBody";
 import {
@@ -97,23 +94,13 @@ import { GitActionResult } from "@posthog/ui/features/sessions/components/GitAct
 import { isUserInitiatedConversationItem } from "@posthog/ui/features/sessions/components/isUserInitiatedConversationItem";
 import { mergeConversationItems } from "@posthog/ui/features/sessions/components/mergeConversationItems";
 import { isPlanItem } from "@posthog/ui/features/sessions/components/new-thread/buildThreadGroups";
-import { extractCanvasInstructions } from "@posthog/ui/features/sessions/components/session-update/canvasInstructions";
-import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
-import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
-import {
-  extractOnboardingBrief,
-  ONBOARDING_BRIEF_LABEL,
-} from "@posthog/ui/features/sessions/components/session-update/onboardingBrief";
-import {
-  hasFileMentions,
-  MentionChip,
-  parseFileMentions,
-} from "@posthog/ui/features/sessions/components/session-update/parseFileMentions";
-import { extractPeerAgentMessage } from "@posthog/ui/features/sessions/components/session-update/peerAgentMessage";
-import { collapsePiSkillInvocation } from "@posthog/ui/features/sessions/components/session-update/piSkillInvocation";
+import { InjectedBlockChips } from "@posthog/ui/features/sessions/components/session-update/InjectedBlockChips";
+import { MentionChip } from "@posthog/ui/features/sessions/components/session-update/parseFileMentions";
 import { SessionUpdateView } from "@posthog/ui/features/sessions/components/session-update/SessionUpdateView";
+import { isShowActionsItem } from "@posthog/ui/features/sessions/components/session-update/showActionsItem";
 import { UserShellExecuteView } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
-import { UserMessageAttachments } from "@posthog/ui/features/sessions/components/UserMessageAttachments";
+import { splitUserMessage } from "@posthog/ui/features/sessions/components/session-update/userMessageDisplay";
+import { useVisibleInjectedBlocks } from "@posthog/ui/features/sessions/components/session-update/useVisibleInjectedBlocks";
 import {
   CHAT_CONTENT_MAX_WIDTH,
   CHAT_CONTENT_PADDING_INLINE,
@@ -148,11 +135,14 @@ import {
   type DiffWorkerFactory,
 } from "@posthog/ui/shell/diffWorkerHost";
 import {
+  createContext,
+  type FocusEvent,
   memo,
   type ReactElement,
   type ReactNode,
   type RefObject,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -276,10 +266,7 @@ export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
 
   for (const item of items) {
     if (isToolCallItem(item)) {
-      // A plan presented for approval renders as the full PlanApprovalView
-      // card — folded into a "N tool calls" chip, the plan the user is being
-      // asked to approve is invisible. Same exemption as buildThreadGroups.
-      if (isPlanItem(item)) {
+      if (isPlanItem(item) || isShowActionsItem(item)) {
         flush();
         out.push(item);
         continue;
@@ -352,29 +339,45 @@ function formatTimestamp(ts: number): string {
  * A rated turn keeps its footer on screen, so the reader can see which thumb they picked without
  * hovering to find out.
  */
+/**
+ * True while the pointer is over the row, or focus sits inside it. The feedback thumbs (each a
+ * Tooltip around a Button) mount only then: a thread mounts dozens of rows at once and they are
+ * invisible until hover anyway. The copy button stays mounted regardless, so the footer keeps the
+ * tab stop a keyboard reader needs to reach the thumbs at all.
+ */
+const FooterRevealContext = createContext(false);
+const RawLogsToggleContext = createContext(false);
+
 function TurnFooter({
   turnId,
+  traceId,
   timestamp,
   copyText,
 }: {
   turnId: string;
+  traceId: string | null;
   timestamp?: number;
   copyText?: string;
 }) {
   const sentiment = useTurnFeedback(turnId);
+  const revealed = useContext(FooterRevealContext);
   if (timestamp == null) return null;
   return (
     <ChatMessageFooter
       className={cn(
-        "mt-2 items-center justify-end gap-1 pl-0 transition-opacity",
-        sentiment ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+        "mt-2 min-h-5 items-center justify-end gap-1 pl-0 transition-opacity",
+        sentiment
+          ? "opacity-100"
+          : "opacity-0 focus-within:opacity-100 group-hover:opacity-100",
       )}
     >
       <span className="text-muted-foreground">
         {formatTimestamp(timestamp)}
       </span>
       {copyText && <CopyButton value={copyText} label="Copy turn" />}
-      <TurnFeedback turnId={turnId} sentiment={sentiment} />
+      {(revealed || sentiment) && (
+        <TurnFeedback turnId={turnId} traceId={traceId} sentiment={sentiment} />
+      )}
     </ChatMessageFooter>
   );
 }
@@ -390,9 +393,11 @@ function TurnFooter({
  */
 function TurnFeedback({
   turnId,
+  traceId,
   sentiment,
 }: {
   turnId: string;
+  traceId: string | null;
   sentiment: AgentTurnFeedbackSentiment | null;
 }) {
   const taskId = useSessionTaskId();
@@ -410,6 +415,7 @@ function TurnFeedback({
       buildTurnRatingMetric({
         run: { taskId, taskRunId },
         turnId,
+        traceId,
         sentiment: next,
       }),
     );
@@ -498,12 +504,6 @@ function CopyButton({ value, label }: { value: string; label: string }) {
  * grow a toggle. Overflow can't be known
  * from character count (it depends on wrapping width), so we measure `scrollHeight` against the
  * clamped `clientHeight` — which holds even while clamped — and re-measure on resize.
- *
- * A channel's CONTEXT.md and the canvas generation instructions, if injected into this prompt, are
- * collapsed into a clickable `ChatMessageHeader` chip above the bubble (opening the snapshot as a
- * split tab) rather than rendered inline — a project-bluebird feature. The blocks are always stripped
- * (along with the always-on personalization block) so the raw XML never leaks for flag-off viewers.
- * The send timestamp sits in a `ChatMessageFooter` revealed on hover.
  */
 function UserBubble({
   content,
@@ -516,83 +516,20 @@ function UserBubble({
   attachments?: UserMessageAttachment[];
   keyboardFocused?: boolean;
 }) {
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
   // A message relayed from another agent run renders as an incoming agent
   // message (start-aligned, outlined, provenance chip) instead of masquerading
   // as something this run's user typed. The envelope boilerplate never renders;
   // only the sender-authored body flows into the normal pipeline below.
-  const peerAgentMessage = useMemo(
-    () => extractPeerAgentMessage(content),
+  const { peerAgentMessage, blocks, displayContent } = useMemo(
+    () => splitUserMessage(content),
     [content],
   );
-  const baseContent = peerAgentMessage ? peerAgentMessage.body : content;
-  const channelContext = useMemo(
-    () => extractChannelContext(baseContent),
-    [baseContent],
-  );
-  const afterChannelContext = channelContext
-    ? channelContext.stripped
-    : baseContent;
-  const canvasInstructions = useMemo(
-    () => extractCanvasInstructions(afterChannelContext),
-    [afterChannelContext],
-  );
-  const afterCanvasInstructions = canvasInstructions
-    ? canvasInstructions.stripped
-    : afterChannelContext;
-  const customInstructions = useMemo(
-    () => extractCustomInstructions(afterCanvasInstructions),
-    [afterCanvasInstructions],
-  );
-  const afterCustomInstructions = customInstructions
-    ? customInstructions.stripped
-    : afterCanvasInstructions;
-  const onboardingBrief = useMemo(
-    () => extractOnboardingBrief(afterCustomInstructions),
-    [afterCustomInstructions],
-  );
-  const displayContent = collapsePiSkillInvocation(
-    onboardingBrief ? onboardingBrief.stripped : afterCustomInstructions,
-  );
-  const showChannelContextTag = !!channelContext && bluebirdEnabled;
-  const showCanvasInstructionsTag = !!canvasInstructions && bluebirdEnabled;
+  const visibleBlocks = useVisibleInjectedBlocks(blocks);
   // Provenance is never flag-gated: a peer message must not read as the user's.
-  const showHeaderChips =
-    !!peerAgentMessage ||
-    showChannelContextTag ||
-    showCanvasInstructionsTag ||
-    !!onboardingBrief;
+  const showHeaderChips = !!peerAgentMessage || visibleBlocks.length > 0;
   const taskId = useSessionTaskId();
-  const openChannelContextInSplit = usePanelLayoutStore(
-    (s) => s.openChannelContextInSplit,
-  );
-  const openCanvasInstructionsInSplit = usePanelLayoutStore(
-    (s) => s.openCanvasInstructionsInSplit,
-  );
 
-  const containsFileMentions = hasFileMentions(displayContent);
-
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [isOverflowing, setIsOverflowing] = useState(false);
-  const textRef = useRef<HTMLDivElement>(null);
-
-  // Only meaningful while collapsed: expanding removes the clamp so scrollHeight === clientHeight.
-  // We keep the prior result when expanded so the "Show less" trigger stays put.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-measure when the message text changes.
-  useLayoutEffect(() => {
-    if (isExpanded) return;
-    const el = textRef.current;
-    if (!el) return;
-    const measure = () =>
-      setIsOverflowing(el.scrollHeight - el.clientHeight > 1);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [displayContent, isExpanded]);
+  const footerRevealed = useContext(FooterRevealContext);
 
   return (
     <MessageContextMenu value={displayContent}>
@@ -606,45 +543,7 @@ function UserBubble({
                   label={`From agent: ${peerAgentMessage.senderTaskTitle}`}
                 />
               )}
-              {onboardingBrief && (
-                <MentionChip
-                  icon={<FileText size={12} />}
-                  label={ONBOARDING_BRIEF_LABEL}
-                />
-              )}
-              {showChannelContextTag && channelContext && (
-                <MentionChip
-                  icon={<FileText size={12} />}
-                  label={`${
-                    channelContext.mention.name
-                      ? `${channelDisplayLabel(channelContext.mention.name)} `
-                      : ""
-                  }CONTEXT.md`}
-                  onClick={
-                    taskId
-                      ? () =>
-                          openChannelContextInSplit(taskId, {
-                            channelName: channelContext.mention.name,
-                            body: channelContext.mention.body,
-                          })
-                      : undefined
-                  }
-                />
-              )}
-              {showCanvasInstructionsTag && canvasInstructions && (
-                <MentionChip
-                  icon={<Scroll size={12} />}
-                  label="Canvas instructions"
-                  onClick={
-                    taskId
-                      ? () =>
-                          openCanvasInstructionsInSplit(taskId, {
-                            body: canvasInstructions.body,
-                          })
-                      : undefined
-                  }
-                />
-              )}
+              <InjectedBlockChips blocks={visibleBlocks} taskId={taskId} />
             </ChatMessageHeader>
           )}
           {/* The brief is the whole message, so stripping it leaves nothing to put in a bubble. */}
@@ -658,49 +557,19 @@ function UserBubble({
               )}
             >
               <ChatBubbleContent>
-                <div
-                  ref={textRef}
-                  className={cn(
-                    "[&_p]:my-0",
-                    !isExpanded && "max-h-[5lh] overflow-hidden",
-                    // Fade the clamped text out at the bottom so it reads as "continues below". Only
-                    // when actually overflowing — a short collapsed message shouldn't fade. The mask is
-                    // paint-only, so it doesn't affect the overflow measurement above.
-                    !isExpanded &&
-                      isOverflowing &&
-                      "[mask-image:linear-gradient(to_bottom,black_45%,transparent)]",
-                  )}
-                >
-                  {containsFileMentions ? (
-                    parseFileMentions(displayContent)
-                  ) : (
-                    <ChatMarkdown content={displayContent} />
-                  )}
-                </div>
-                {attachments.length > 0 && !containsFileMentions && (
-                  <div className="mt-1.5">
-                    <UserMessageAttachments attachments={attachments} />
-                  </div>
-                )}
-                {isOverflowing && (
-                  <button
-                    type="button"
-                    onClick={() => setIsExpanded((v) => !v)}
-                    className="mt-1 flex items-center gap-0.5 text-muted-foreground text-sm hover:text-foreground"
-                  >
-                    Show {isExpanded ? "less" : "more"}
-                    <CaretDown
-                      className={cn("size-3", isExpanded && "rotate-180")}
-                    />
-                  </button>
-                )}
+                <UserMessageBody
+                  content={displayContent}
+                  attachments={attachments}
+                />
               </ChatBubbleContent>
             </ChatBubble>
           )}
           {timestamp != null && (
-            <ChatMessageFooter className="items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+            <ChatMessageFooter className="min-h-5 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
               {formatTimestamp(timestamp)}
-              <CopyButton value={displayContent} label="Copy message" />
+              {(footerRevealed || keyboardFocused) && (
+                <CopyButton value={displayContent} label="Copy message" />
+              )}
             </ChatMessageFooter>
           )}
         </ChatMessageContent>
@@ -713,10 +582,6 @@ function UserBubble({
  * Right-click a message to copy it. Replaces the per-message copy button that used to float in the
  * message's right rail — the turn footer covers the common case, so a single message's copy lives
  * here instead of costing every row a hover affordance.
- *
- * This menu sits inside `SessionView`'s own context menu and wins the event over it, so it also
- * carries that menu's raw-logs toggle; without it, right-clicking a message would be the one spot
- * in the session where the toggle went missing.
  *
  * Highlighted text wins over the message: right-clicking a selection copies just that, as it does
  * outside the app. The whole message is the fallback for a right-click with nothing selected, and
@@ -733,6 +598,7 @@ function MessageContextMenu({
   value: string;
   children: ReactElement;
 }) {
+  const showRawLogsToggle = useContext(RawLogsToggleContext);
   const showRawLogs = useShowRawLogs();
   const { setShowRawLogs } = useSessionViewActions();
   const [selection, setSelection] = useState<string | null>(null);
@@ -757,11 +623,15 @@ function MessageContextMenu({
           <Copy size={14} />
           {selection ? "Copy selection" : "Copy message"}
         </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={() => setShowRawLogs(!showRawLogs)}>
-          <Scroll size={14} />
-          {showRawLogs ? "Back to conversation" : "Show raw logs"}
-        </ContextMenuItem>
+        {showRawLogsToggle && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={() => setShowRawLogs(!showRawLogs)}>
+              <Scroll size={14} />
+              {showRawLogs ? "Back to conversation" : "Show raw logs"}
+            </ContextMenuItem>
+          </>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );
@@ -843,6 +713,38 @@ function ThreadItemBody({
 }
 
 /**
+ * Pointer and focus state for one transcript row, which is what its footer mounts against. Focus
+ * counts alongside hover because the footer holds the only copy and rating controls a turn has: a
+ * reader who tabs into the row has to be able to bring them out.
+ */
+function useRowReveal(keyboardFocused?: boolean): {
+  revealed: boolean;
+  rowProps: {
+    onPointerEnter: () => void;
+    onPointerLeave: () => void;
+    onFocus: () => void;
+    onBlur: (event: FocusEvent<HTMLElement>) => void;
+  };
+} {
+  const [hovered, setHovered] = useState(false);
+  const [focusWithin, setFocusWithin] = useState(false);
+  return {
+    revealed: hovered || focusWithin || Boolean(keyboardFocused),
+    rowProps: {
+      onPointerEnter: () => setHovered(true),
+      onPointerLeave: () => setHovered(false),
+      onFocus: () => setFocusWithin(true),
+      // React's blur is focusout, so it also fires for moves within the row.
+      onBlur: (event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          setFocusWithin(false);
+        }
+      },
+    },
+  };
+}
+
+/**
  * One transcript row. Memoized and scroll-state-free, so rows never re-render while scrolling — the
  * non-virtualized thread stays cheap. The pinned header is the separate overlay, not the rows.
  *
@@ -858,6 +760,7 @@ const ThreadRow = memo(function ThreadRow({
   renderItem: (item: ConversationItem) => ReactNode;
   keyboardFocused?: boolean;
 }) {
+  const { revealed: footerRevealed, rowProps } = useRowReveal(keyboardFocused);
   if (item.type === "agent_turn") {
     return (
       <ChatMessageScrollerItem
@@ -865,31 +768,35 @@ const ThreadRow = memo(function ThreadRow({
         scrollAnchor={false}
         className="group mx-auto w-full empty:hidden"
         style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
+        {...rowProps}
       >
-        <div className="flex flex-col gap-4 empty:hidden">
-          {item.items.map((sub, i) => (
-            // The scroller item's own content-visibility works at whole-turn granularity — a
-            // large turn (diffs, charts, dozens of tools) would render wholesale as soon as the
-            // card nears the viewport. Nesting content-visibility per sub-item keeps layout +
-            // paint bounded to the viewport-sized slice while scrolling; `auto` remembers each
-            // row's real size after first render so the scrollbar stays stable.
-            <div
-              key={sub.id}
-              className="[contain-intrinsic-size:auto_2rem] [content-visibility:auto] empty:hidden"
-            >
-              <ThreadItemBody
-                item={sub}
-                renderItem={renderItem}
-                isTrailing={i === item.items.length - 1}
-              />
-            </div>
-          ))}
-        </div>
-        <TurnFooter
-          turnId={item.id}
-          timestamp={completedTurnTimestamp(item)}
-          copyText={buildTurnCopyText(item.items) ?? undefined}
-        />
+        <FooterRevealContext.Provider value={footerRevealed}>
+          <div className="flex flex-col gap-4 empty:hidden">
+            {item.items.map((sub, i) => (
+              // The scroller item's own content-visibility works at whole-turn granularity — a
+              // large turn (diffs, charts, dozens of tools) would render wholesale as soon as the
+              // card nears the viewport. Nesting content-visibility per sub-item keeps layout +
+              // paint bounded to the viewport-sized slice while scrolling; `auto` remembers each
+              // row's real size after first render so the scrollbar stays stable.
+              <div
+                key={sub.id}
+                className="[contain-intrinsic-size:auto_2rem] [content-visibility:auto] empty:hidden"
+              >
+                <ThreadItemBody
+                  item={sub}
+                  renderItem={renderItem}
+                  isTrailing={i === item.items.length - 1}
+                />
+              </div>
+            ))}
+          </div>
+          <TurnFooter
+            turnId={item.id}
+            traceId={completedTurnTraceId(item)}
+            timestamp={completedTurnTimestamp(item)}
+            copyText={buildTurnCopyText(item.items) ?? undefined}
+          />
+        </FooterRevealContext.Provider>
       </ChatMessageScrollerItem>
     );
   }
@@ -899,12 +806,15 @@ const ThreadRow = memo(function ThreadRow({
       scrollAnchor={item.type === "user_message"}
       className="mx-auto w-full py-1 empty:hidden"
       style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
+      {...rowProps}
     >
-      <ThreadItemBody
-        item={item}
-        renderItem={renderItem}
-        keyboardFocused={keyboardFocused}
-      />
+      <FooterRevealContext.Provider value={footerRevealed}>
+        <ThreadItemBody
+          item={item}
+          renderItem={renderItem}
+          keyboardFocused={keyboardFocused}
+        />
+      </FooterRevealContext.Provider>
     </ChatMessageScrollerItem>
   );
 });
@@ -1237,10 +1147,13 @@ const FlatRowView = memo(
     keyboardFocused: boolean;
   }) {
     const { item } = row;
+    const { revealed: footerRevealed, rowProps } =
+      useRowReveal(keyboardFocused);
     return (
       <ChatMessageScrollerItem
         messageId={item.id}
         scrollAnchor={false}
+        {...rowProps}
         className={cn(
           // pb-4 stands in for the non-virtualized content's inter-row gap-4; an empty row
           // collapses entirely (display:none hides the padding too), matching how flex gap
@@ -1250,19 +1163,22 @@ const FlatRowView = memo(
         )}
         style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
       >
-        <ThreadItemBody
-          item={item}
-          renderItem={renderItem}
-          isTrailing={row.isTrailingInTurn}
-          keyboardFocused={keyboardFocused}
-        />
-        {row.turnId != null && row.turnTimestamp != null && (
-          <TurnFooter
-            turnId={row.turnId}
-            timestamp={row.turnTimestamp}
-            copyText={row.turnCopyText}
+        <FooterRevealContext.Provider value={footerRevealed}>
+          <ThreadItemBody
+            item={item}
+            renderItem={renderItem}
+            isTrailing={row.isTrailingInTurn}
+            keyboardFocused={keyboardFocused}
           />
-        )}
+          {row.turnId != null && row.turnTimestamp != null && (
+            <TurnFooter
+              turnId={row.turnId}
+              traceId={row.turnTraceId ?? null}
+              timestamp={row.turnTimestamp}
+              copyText={row.turnCopyText}
+            />
+          )}
+        </FooterRevealContext.Provider>
       </ChatMessageScrollerItem>
     );
   },
@@ -1366,13 +1282,15 @@ export function ChatThread({ events, ...props }: ChatThreadProps) {
   );
 
   return (
-    <ChatThreadRenderer
-      key={props.taskId}
-      {...props}
-      conversationItems={items}
-      footerEvents={[]}
-      footerState={footerState}
-    />
+    <RawLogsToggleContext.Provider value={false}>
+      <ChatThreadRenderer
+        key={props.taskId}
+        {...props}
+        conversationItems={items}
+        footerEvents={[]}
+        footerState={footerState}
+      />
+    </RawLogsToggleContext.Provider>
   );
 }
 
@@ -1383,12 +1301,14 @@ export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
   });
 
   return (
-    <ChatThreadRenderer
-      key={props.taskId}
-      {...props}
-      conversationItems={items}
-      footerEvents={events}
-    />
+    <RawLogsToggleContext.Provider value={true}>
+      <ChatThreadRenderer
+        key={props.taskId}
+        {...props}
+        conversationItems={items}
+        footerEvents={events}
+      />
+    </RawLogsToggleContext.Provider>
   );
 }
 

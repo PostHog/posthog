@@ -105,8 +105,7 @@ export interface ConnectivityStatus {
 
 /**
  * Reports network connectivity so the session refresh can avoid pointless
- * offline attempts and recover when the network returns. Desktop adapter wraps
- * the ConnectivityService (workspace-server connectivity stream).
+ * offline attempts and recover when the network returns.
  */
 export interface IAuthConnectivity {
   getStatus(): ConnectivityStatus;

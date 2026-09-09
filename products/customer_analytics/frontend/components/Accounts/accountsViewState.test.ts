@@ -56,9 +56,9 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
             sortOrder: { column: 'csm' as const, direction: 'desc' as const },
             filters: {
                 search: 'acme',
-                tags: ['enterprise'],
-                unassigned: false,
+                assignmentStatus: 'assigned',
                 assignedTo: [1, 2, 3],
+                tags: ['enterprise'],
                 tileFilter: {
                     tileId: 't1',
                     filter: {
@@ -97,39 +97,53 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
         expect(deserializeAccountsView(payload)).toEqual(state)
     })
 
-    it('omits empty filters and serializes no sort', () => {
+    it('omits empty filters but always stores the assignment status', () => {
         const payload = serializeAccountsView({
             columns: [...ACCOUNTS_DEFAULT_COLUMNS],
             sortOrder: null,
             filters: {
                 search: '',
-                tags: [],
-                unassigned: false,
+                assignmentStatus: 'all',
                 assignedTo: [],
+                tags: [],
                 tileFilter: null,
                 customProperties: [],
             },
             tiles: [...DEFAULT_TILES],
             columnDisplay: {},
         })
-        expect(payload.filters).toEqual({})
+        // The status is stored even for the `all` default so reopening the view can't be
+        // mistaken for a legacy view (no field), which restores as assigned-only.
+        expect(payload.filters).toEqual({ assignmentStatus: 'all' })
         expect(payload.order_by).toEqual([])
         expect(payload.properties).toEqual({ tiles: DEFAULT_TILES })
     })
 
-    it('treats a legacy columns-only row (filters [], no properties) as defaults', () => {
+    it('reads a legacy row with no assignment field as assigned-only', () => {
         const state = deserializeAccountsView({ columns: ['name'], order_by: null, filters: [], properties: {} })
         expect(state.filters).toEqual({
             search: '',
-            tags: [],
-            unassigned: false,
+            assignmentStatus: 'assigned',
             assignedTo: [],
+            tags: [],
             tileFilter: null,
             customProperties: [],
         })
         expect(state.tiles).toEqual(DEFAULT_TILES)
         expect(state.sortOrder).toBeNull()
         expect(state.columnDisplay).toEqual({})
+    })
+
+    it('reads a legacy unassigned-only row as the unassigned status', () => {
+        const state = deserializeAccountsView({ columns: ['name'], order_by: null, filters: { unassigned: true } })
+        expect(state.filters.assignmentStatus).toEqual('unassigned')
+    })
+
+    it('keeps an explicit stored status distinct from a legacy default', () => {
+        expect(deserializeAccountsView({ filters: { assignmentStatus: 'all' } }).filters.assignmentStatus).toEqual(
+            'all'
+        )
+        expect(deserializeAccountsView({ filters: {} }).filters.assignmentStatus).toEqual('assigned')
     })
 
     it('falls back to default columns when a row has none', () => {
