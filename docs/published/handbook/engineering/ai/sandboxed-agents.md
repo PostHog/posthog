@@ -305,7 +305,9 @@ images retain their separate ten-minute, batched refresh fanout.
 `python manage.py bake_dev_stack_image` triggers a bake manually and bypasses the flag.
 Pointing an org's `default_custom_image` payload key at that name gives its VM runs warm docker
 state and already-migrated databases, so a task-time `hogli start` only applies the migrations
-that landed since the last bake. The pnpm store and Playwright's Chromium are prewarmed too:
+that landed since the last bake. The snapshot clones the migrated Postgres database into
+`test_posthog`, so pytest's default `--reuse-db` path also applies only newer migrations.
+The pnpm store and Playwright's Chromium are prewarmed too:
 `pnpm install --frozen-lockfile --prefer-offline` is a fast linking pass and browser installs
 are no-ops. Build outputs (node_modules, Storybook dist, Vite/Turbo caches) are deliberately
 not baked — the bake's checkout is deleted before the snapshot — so frontend builds always run
@@ -474,6 +476,27 @@ The flow, driven from the PostHog Desktop Environments → Cloud tab:
    from the published image (`SandboxConfig.custom_image_name`),
    falling back to the standard base if the image can't be loaded.
    Repo-setup snapshots are skipped for custom-image runs; resume snapshots still apply.
+
+## Continuing after sandbox inactivity
+
+When a sandbox expires, a new user message starts the next turn with the preserved
+conversation and workspace. A prewarmed successor waits for the queued message even
+after activation clears `await_user_message`. The agent restores context and decides
+whether to wait before accepting commands. Message IDs deduplicate retried deliveries.
+
+Explicit recovery of an interrupted run can still continue automatically. Idle
+same-run restores stay idle until a message arrives. Internal recovery instructions
+use hidden content blocks; adapters and transcript rendering omit those blocks from
+user message echoes. Existing unmarked transcript entries are unchanged.
+
+Full filesystem snapshots contain an agent binary. Prewarmed resumes require its
+`prewarmedResumeMessageDriven` capability; the older `prewarmedResumeIdle` capability
+alone is insufficient. An incompatible snapshot uses the existing fresh-agent fallback.
+The check applies to ACP runs, because the capability belongs to the ACP agent server.
+Pi runs keep their snapshot, because the Pi server starts no turn of its own and loads
+its session history from the API.
+Publish the updated agent and rebuild sandbox images before deploying the stricter
+backend capability gate, so the fallback supplies a compatible agent.
 
 ## Local development
 

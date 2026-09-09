@@ -13,11 +13,20 @@ import {
 } from '@posthog/lemon-ui'
 
 import { GoalLinesList } from 'lib/components/GoalLinesList'
+import { MetricDirectionColorPickers } from 'lib/components/Metric/MetricDirectionColorPickers'
+import {
+    METRIC_COLOR_BY_DIRECTION_DEFAULT,
+    METRIC_DEFAULT_DECREASE_COLOR,
+    METRIC_DEFAULT_INCREASE_COLOR,
+    METRIC_SHOW_CHANGE_DEFAULT,
+    type MetricSummary,
+} from 'lib/components/Metric/metricSummary'
 
 import { ChartDisplayType } from '~/types'
 
 import { dataVisualizationLogic } from '../dataVisualizationLogic'
 import { displayLogic } from '../displayLogic'
+import { SQL_METRIC_SUMMARY_DEFAULT } from './Charts/useSqlMetricModel'
 
 const PIE_SLICE_CONTENT_OPTIONS: { value: 'labels' | 'values' | 'none'; label: string }[] = [
     { value: 'labels', label: 'Labels' },
@@ -28,6 +37,19 @@ const PIE_SLICE_CONTENT_OPTIONS: { value: 'labels' | 'values' | 'none'; label: s
 const PIE_VALUE_DISPLAY_OPTIONS: { value: 'absolute' | 'percentage'; label: string }[] = [
     { value: 'absolute', label: 'Absolute' },
     { value: 'percentage', label: 'Percentage' },
+]
+
+const LEGEND_POSITION_OPTIONS: { value: 'top' | 'bottom' | 'left' | 'right'; label: string }[] = [
+    { value: 'top', label: 'Top' },
+    { value: 'bottom', label: 'Bottom' },
+    { value: 'left', label: 'Left' },
+    { value: 'right', label: 'Right' },
+]
+
+const METRIC_SUMMARY_OPTIONS: { value: MetricSummary; label: string }[] = [
+    { value: 'latest', label: 'Latest' },
+    { value: 'total', label: 'Total' },
+    { value: 'average', label: 'Average' },
 ]
 
 const LINE_STYLE_OPTIONS: { value: 'smooth' | 'linear'; label: string }[] = [
@@ -44,6 +66,7 @@ export const DisplayTab = (): JSX.Element => {
     const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
     const isScatterPlot = effectiveVisualizationType === ChartDisplayType.ScatterPlot
     const isBoxPlot = effectiveVisualizationType === ChartDisplayType.BoxPlot
+    const isMetric = effectiveVisualizationType === ChartDisplayType.Metric
     // Scatter and box plots have a single Y axis, so there is no separate right axis to configure.
     const isSingleAxisChart = isScatterPlot || isBoxPlot
     const isLineChart =
@@ -121,6 +144,84 @@ export const DisplayTab = (): JSX.Element => {
         )
     }
 
+    if (isMetric) {
+        const metric = chartSettings.metric ?? {}
+        const showChange = metric.showChange ?? METRIC_SHOW_CHANGE_DEFAULT
+        const colorByDirection = metric.colorByDirection ?? METRIC_COLOR_BY_DIRECTION_DEFAULT
+
+        return (
+            <div className="flex flex-col w-full">
+                <LemonCollapse
+                    embedded
+                    defaultActiveKeys={['metric']}
+                    multiple
+                    panels={[
+                        {
+                            key: 'metric',
+                            header: 'Metric',
+                            className: 'p-2 flex flex-col gap-2',
+                            content: (
+                                <>
+                                    <div className="flex flex-col gap-1">
+                                        <LemonLabel>Headline value</LemonLabel>
+                                        <LemonSelect
+                                            className="w-full"
+                                            data-attr="data-visualization-metric-summary"
+                                            value={metric.summary ?? SQL_METRIC_SUMMARY_DEFAULT}
+                                            options={METRIC_SUMMARY_OPTIONS}
+                                            onChange={(value) => updateChartSettings({ metric: { summary: value } })}
+                                            fullWidth
+                                        />
+                                    </div>
+                                    <LemonSwitch
+                                        className="flex-1 w-full"
+                                        label="Show change"
+                                        checked={showChange}
+                                        onChange={(value) => updateChartSettings({ metric: { showChange: value } })}
+                                    />
+                                    {showChange && (
+                                        <MetricDirectionColorPickers
+                                            className="gap-2"
+                                            increaseColor={metric.changeIncreaseColor ?? METRIC_DEFAULT_INCREASE_COLOR}
+                                            decreaseColor={metric.changeDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR}
+                                            onIncrease={(color) =>
+                                                updateChartSettings({ metric: { changeIncreaseColor: color } })
+                                            }
+                                            onDecrease={(color) =>
+                                                updateChartSettings({ metric: { changeDecreaseColor: color } })
+                                            }
+                                        />
+                                    )}
+                                    <LemonSwitch
+                                        className="flex-1 w-full"
+                                        label="Color by trend"
+                                        checked={colorByDirection}
+                                        onChange={(value) =>
+                                            updateChartSettings({ metric: { colorByDirection: value } })
+                                        }
+                                    />
+                                    {colorByDirection && (
+                                        <MetricDirectionColorPickers
+                                            className="gap-2"
+                                            increaseColor={metric.lineIncreaseColor ?? METRIC_DEFAULT_INCREASE_COLOR}
+                                            decreaseColor={metric.lineDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR}
+                                            onIncrease={(color) =>
+                                                updateChartSettings({ metric: { lineIncreaseColor: color } })
+                                            }
+                                            onDecrease={(color) =>
+                                                updateChartSettings({ metric: { lineDecreaseColor: color } })
+                                            }
+                                        />
+                                    )}
+                                </>
+                            ),
+                        },
+                    ]}
+                />
+            </div>
+        )
+    }
+
     return (
         <div className="flex flex-col w-full">
             <LemonCollapse
@@ -142,6 +243,21 @@ export const DisplayTab = (): JSX.Element => {
                                         updateChartSettings({ showLegend: value })
                                     }}
                                 />
+                                <div className="flex flex-col gap-1">
+                                    <LemonLabel>Legend position</LemonLabel>
+                                    <LemonSelect
+                                        className="w-full"
+                                        value={chartSettings.legendPosition ?? (isPieChart ? 'right' : 'top')}
+                                        options={LEGEND_POSITION_OPTIONS}
+                                        disabledReason={
+                                            chartSettings.showLegend
+                                                ? undefined
+                                                : 'Turn the legend on to set its position'
+                                        }
+                                        onChange={(value) => updateChartSettings({ legendPosition: value })}
+                                        fullWidth
+                                    />
+                                </div>
                                 {isBoxPlot && (
                                     <LemonSwitch
                                         className="flex-1 w-full"

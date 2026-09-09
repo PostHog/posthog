@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import type { MCPAnalyticsIntentSource } from '@posthog/mcp-analytics'
+import type { MCPAnalyticsIntentSource, MCPAnalyticsModelSource } from '@posthog/mcp-analytics'
 
 import type { McpAuthFailure } from '@/lib/auth-errors'
 import { classifyAuthMethod } from '@/lib/auth-method'
@@ -15,6 +15,8 @@ import {
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
 import type { RequestProperties } from '@/lib/request-properties'
+import { resolveScopePreset } from '@/lib/scope-preset'
+import type { SkillInvocation } from '@/tools/exec-learn'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 
@@ -64,6 +66,9 @@ function buildBaseProperties(
         $mcp_mode: requestContext.mode,
         $mcp_region: requestContext.region,
         $mcp_auth_method: requestContext.authMethod,
+        // Which kind of caller minted this token — scout, research run, implementation run, or
+        // ordinary user — so scratchpad and notes calls split by caller in one breakdown.
+        $mcp_scope_preset: resolveScopePreset(state.apiKeyScopes),
         ...(analyticsContext
             ? {
                   $mcp_organization_id: analyticsContext.organizationId,
@@ -74,7 +79,7 @@ function buildBaseProperties(
               }
             : {}),
         mcp_runtime: 'hono',
-        mcp_vendor_client: clientIdentity.mcpVendorClient,
+        $mcp_vendor_client: clientIdentity.mcpVendorClient,
         ...buildMCPSessionAnalyticsProperties(state.sessionContext),
     }
     return { properties, groups }
@@ -113,11 +118,15 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
     }
 }
 
-export interface ToolCallIntentMeta {
+export interface ToolCallAnalyticsMeta {
     /** The agent's stated intent (the injected `context` arg) → `$mcp_intent`. */
     intent?: string
     /** Where it came from → `$mcp_intent_source`. */
     intentSource?: MCPAnalyticsIntentSource
+    /** The calling model -> `$mcp_llm_model`. */
+    llmModel?: string
+    /** Where the model identifier came from -> `$mcp_llm_model_source`. */
+    llmModelSource?: MCPAnalyticsModelSource
 }
 
 export async function trackToolCall(
@@ -126,7 +135,7 @@ export async function trackToolCall(
     isError: boolean,
     state: ResolvedState,
     extraProperties?: Record<string, unknown>,
-    intentMeta?: ToolCallIntentMeta,
+    analyticsMeta?: ToolCallAnalyticsMeta,
     servedDescription?: string
 ): Promise<void> {
     try {
@@ -166,8 +175,10 @@ export async function trackToolCall(
             distinctId: state.distinctId,
             groups,
             ...(sessionUuid ? { sessionId: sessionUuid } : {}),
-            ...(intentMeta?.intent ? { intent: intentMeta.intent } : {}),
-            ...(intentMeta?.intentSource ? { intentSource: intentMeta.intentSource } : {}),
+            ...(analyticsMeta?.intent ? { intent: analyticsMeta.intent } : {}),
+            ...(analyticsMeta?.intentSource ? { intentSource: analyticsMeta.intentSource } : {}),
+            ...(analyticsMeta?.llmModel ? { llmModel: analyticsMeta.llmModel } : {}),
+            ...(analyticsMeta?.llmModelSource ? { llmModelSource: analyticsMeta.llmModelSource } : {}),
             properties: {
                 ...properties,
                 tool_name: toolName,
@@ -202,7 +213,7 @@ export async function trackExecuteSqlGeneration(
     args: unknown,
     state: ResolvedState,
     meta: ExecuteSqlGenerationMeta,
-    intentMeta?: ToolCallIntentMeta
+    analyticsMeta?: ToolCallAnalyticsMeta
 ): Promise<void> {
     if (toolName !== EXECUTE_SQL_TOOL_NAME) {
         return
@@ -225,7 +236,7 @@ export async function trackExecuteSqlGeneration(
                 ...(sessionUuid ? { $session_id: sessionUuid } : {}),
                 $ai_trace_id: sessionUuid ?? randomUUID(),
                 $ai_span_name: EXECUTE_SQL_TOOL_NAME,
-                $ai_input: [{ role: 'user', content: intentMeta?.intent ?? '' }],
+                $ai_input: [{ role: 'user', content: analyticsMeta?.intent ?? '' }],
                 $ai_output_choices: [{ role: 'assistant', content: query }],
                 $ai_latency: meta.durationMs / 1000,
                 $ai_is_error: meta.isError,
@@ -263,6 +274,14 @@ function isMetadataQuery(query: string): boolean {
     return stripSqlCommentsAndLiterals(query).toLowerCase().includes(METADATA_QUERY_MARKER)
 }
 
+// Its result is a live presigned S3 POST — a policy, signature and credential fields
+// that grant write access to one object-storage key until they expire. Key-based
+// redaction can't reach them: they're byte-identical output fields (`upload_url`,
+// `form_fields`), not fields whose *name* looks like a secret, and the policy
+// document also embeds the credential in a form redaction wouldn't recognize either
+// way. `$mcp_tool_call` still records that the call happened.
+const PRESIGNED_UPLOAD_TOOL_NAME = 'media-image-upload-start'
+
 function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     // A proxied third-party tool's args and result are the vendor's content — an issue
     // body, a support ticket, a CRM record — passing through our gateway on its way
@@ -271,6 +290,9 @@ function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     // evaluations that target PostHog's own tools. `$mcp_tool_call` still records that
     // the call happened, with its server, duration and outcome.
     if (isGatewayToolName(toolName)) {
+        return false
+    }
+    if (toolName === PRESIGNED_UPLOAD_TOOL_NAME) {
         return false
     }
     // execute-sql can't be captured wholesale: its payload is the query result,
@@ -435,7 +457,7 @@ export function trackAuthFailure(props: RequestProperties, failure: McpAuthFailu
                 $mcp_region: props.region,
                 $mcp_auth_method: classifyAuthMethod(props.apiToken),
                 mcp_runtime: 'hono',
-                mcp_vendor_client: props.mcpVendorClient,
+                $mcp_vendor_client: props.mcpVendorClient,
                 $mcp_auth_failure_reason: failure.reason,
                 ...(failure.status ? { $mcp_auth_status: failure.status } : {}),
                 ...(failure.missingScope ? { $mcp_missing_scope: failure.missingScope } : {}),
@@ -466,6 +488,38 @@ export async function trackToolsList(toolNames: string[], state: ResolvedState):
             properties: {
                 ...properties,
                 tool_count: toolNames.length,
+            },
+        })
+    } catch {
+        // never break the request for analytics
+    }
+}
+
+/**
+ * Captures `skill invoked` when a skill's content is consumed through exec `learn`,
+ * whichever read kind delivered it (full load, file read, file search, line range) —
+ * the consumption counterpart of the authoring `llma skill *` events emitted by
+ * `products/skills`. The caller dedupes per skill identifier per request, so a
+ * command that reads one skill several ways still counts once. Keep property keys
+ * additive: they feed the same LLMA skills adoption dashboards.
+ */
+export async function trackSkillInvoked(state: ResolvedState, invocation: SkillInvocation): Promise<void> {
+    try {
+        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
+        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
+        const { properties, groups } = buildBaseProperties(state, analyticsContext)
+
+        getPostHogClient().capture({
+            distinctId: state.distinctId,
+            event: 'skill invoked',
+            groups,
+            properties: {
+                ...properties,
+                ...(sessionUuid ? { $session_id: sessionUuid } : {}),
+                skill_source: invocation.source,
+                skill_name: invocation.skill,
+                skill_identifier: `${invocation.source}:${invocation.skill}`,
+                skill_read_kind: invocation.readKind,
             },
         })
     } catch {

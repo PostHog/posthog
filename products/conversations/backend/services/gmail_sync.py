@@ -395,6 +395,7 @@ def _parse_gmail_message(
         subject=_decode_header(headers.get("subject", ""))[:500],
         body_plain=body_plain[:50_000],
         stripped_text=body_plain[:50_000],
+        body_html=(bodies.html or "")[:50_000],
         sender_authenticated=False,
         dkim_passed=False,
         dkim_signing_domains=(),

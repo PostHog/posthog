@@ -201,7 +201,11 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 54
+        # 56, not 54: the app context serializes the project's tags, which costs one
+        # indexed lookup on posthog_taggeditem per page load, and the organization it
+        # serializes comes off the user's current_organization foreign key, which carries
+        # no signed-BAA annotation, so the AI training lock costs one more indexed lookup.
+        cls.base_app_num_queries = 56
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 
@@ -1886,18 +1890,56 @@ class TestActivityLoggingMiddleware(APIBaseTest):
 
 
 class TestCSPMiddleware(APIBaseTest):
+    def test_replay_player_frame_carries_its_own_policy_and_reports_nothing(self):
+        # The frame exists so a recorded page stops being judged against the app policy. If the
+        # middleware branch goes, it silently inherits that policy again, along with its report-uri,
+        # and every replayed page resumes reporting a customer's site to our project.
+        response = self.client.get("/replay_player_frame/index.html")
+        assert response.status_code == 200
+        policy = response["Content-Security-Policy"]
+        assert "script-src 'none'" in policy
+        assert "img-src * data: blob:" in policy
+        assert "report-uri" not in policy
+        assert "Content-Security-Policy-Report-Only" not in response
+        assert "Reporting-Endpoints" not in response
+
+    def test_app_policy_allows_framing_the_replay_player_frame(self):
+        # The player frame is same-origin, and an http origin does not match the https: source
+        # that heatmaps need.
+        response = self.client.get("/")
+        assert "frame-src 'self' https:" in response["Content-Security-Policy-Report-Only"]
+
+    def test_replay_player_frame_serves_the_mount_node_without_a_session(self):
+        # Shared recordings render the player for logged-out viewers.
+        self.client.logout()
+        response = self.client.get("/replay_player_frame/index.html")
+        assert response.status_code == 200
+        # PlayerFrame.tsx looks the mount node up by this id. A rename here makes every player fall
+        # back to the app document.
+        assert 'id="player-frame-content"' in response.content.decode()
+
     def test_non_html_response_gets_strict_csp(self):
         response = self.client.get("/api/users/@me/")
         assert response.status_code == 200
         assert response["Content-Security-Policy"] == "default-src 'none'"
         assert "Content-Security-Policy-Report-Only" not in response
 
-    def test_html_response_gets_report_only_csp(self):
-        response = self.client.get("/")
+    @parameterized.expand(
+        [
+            ("app_root", "/"),
+            # No route serves this path, so the app catch-all answers it. It must keep the app
+            # policy, because the frame policy is enforced and its script-src 'none' stops the app
+            # from starting.
+            ("path_under_the_replay_frame_prefix", "/replay_player_frame"),
+        ]
+    )
+    def test_html_response_gets_report_only_csp(self, _name, path):
+        response = self.client.get(path)
         assert response.status_code == 200
         assert "Content-Security-Policy-Report-Only" in response
         assert "Content-Security-Policy" not in response
 
+    @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
     def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):
         # Browsers only deliver crash reports to the endpoint named `default`, so dropping or
         # renaming it silently stops crash ingestion.
@@ -1907,12 +1949,72 @@ class TestCSPMiddleware(APIBaseTest):
         assert 'default="https://us.i.posthog.com/report/' in header
         assert f"distinct_id={self.user.distinct_id}" in header
 
+    @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
     def test_reporting_endpoints_omit_distinct_id_when_logged_out(self):
         self.client.logout()
         response = self.client.get("/login")
         header = response["Reporting-Endpoints"]
         assert 'default="https://us.i.posthog.com/report/' in header
         assert "distinct_id" not in header
+
+    @parameterized.expand(
+        [
+            ("self_hosted_by_default", {"CLOUD_DEPLOYMENT": None, "DEBUG": False}),
+            # DEBUG puts an install in the local run mode rather than the hobby one, and nothing
+            # stops a self-hoster deploying that way, so it must report nowhere as well.
+            ("self_hosted_with_debug", {"CLOUD_DEPLOYMENT": None, "DEBUG": True}),
+            # Cloud would otherwise report, so this case proves the empty value turns it off.
+            ("explicitly_disabled", {"CLOUD_DEPLOYMENT": "US", "CSP_REPORT_ENDPOINT": ""}),
+        ]
+    )
+    def test_no_endpoint_still_sends_the_policy_but_asks_for_no_reports(self, _name, overrides):
+        # A self-hosted install must not report to PostHog, and the policy itself must survive, so
+        # dropping it here would silently remove a security control.
+        with override_settings(**{"CSP_REPORT_ENDPOINT": None, **overrides}):
+            response = self.client.get("/")
+        policy = response["Content-Security-Policy-Report-Only"]
+        assert "default-src 'self'" in policy
+        assert "report-uri" not in policy
+        assert "report-to" not in policy
+        assert "Reporting-Endpoints" not in response
+
+    @override_settings(CSP_REPORT_ENDPOINT="https://posthog.example.com/report/")
+    def test_report_endpoint_is_configurable(self):
+        # An operator can point reporting at their own install, so nothing may hardcode ours.
+        response = self.client.get("/")
+        policy = response["Content-Security-Policy-Report-Only"]
+        assert "report-uri https://posthog.example.com/report/?sample_rate=0.1" in policy
+        header = response["Reporting-Endpoints"]
+        assert "us.i.posthog.com" not in header
+        assert f"distinct_id={self.user.distinct_id}" in header
+
+    @parameterized.expand(
+        [
+            ("cloud", {"CLOUD_DEPLOYMENT": "US"}, True),
+            ("self_hosted", {"CLOUD_DEPLOYMENT": None, "DEBUG": False}, False),
+        ]
+    )
+    def test_admin_pages_enforce_the_policy_and_follow_the_reporting_default(self, _name, overrides, expects_reporting):
+        # The admin policy is enforced, not report-only, and builds its own Reporting-Endpoints
+        # header, so it can drift from the app policy unnoticed. A non-staff request redirects but
+        # still carries that policy, because the middleware picks its branch by path.
+        with override_settings(CSP_REPORT_ENDPOINT=None, **overrides):
+            response = self.client.get("/admin/")
+        policy = response["Content-Security-Policy"]
+        # Only the admin policy forbids framing outright; the non-HTML fallback is default-src alone.
+        assert "frame-ancestors 'none'" in policy
+        assert "Content-Security-Policy-Report-Only" not in response
+
+        if expects_reporting:
+            assert "report-uri https://us.i.posthog.com/report/" in policy
+            assert "report-to posthog" in policy
+            # Sampling the admin policy too would silently drop violations, so the branches diverge.
+            assert "sample_rate" not in policy
+            assert "Reporting-Endpoints" in response
+        else:
+            assert "report-uri" not in policy
+            assert "report-to" not in policy
+            assert "Reporting-Endpoints" not in response
 
 
 class TestSocialAuthExceptionMiddleware(APIBaseTest):

@@ -381,7 +381,7 @@ export const sceneLogic = kea<sceneLogicType>([
     path(['scenes', 'sceneLogic']),
 
     connect(() => ({
-        logic: [router, userLogic, preflightLogic],
+        logic: [router, userLogic, preflightLogic, teamLogic],
         actions: [router, ['locationChanged'], inviteLogic, ['hideInviteModal']],
         values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
@@ -746,9 +746,6 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                     }
                 } catch (error) {
-                    // Scene logic builders (e.g. dashboardLogic.key()) can throw on malformed
-                    // route params like `/dashboard/abc`. Capture so regressions surface, then
-                    // route to Error404 so the user sees a proper 404 instead of a blank crash.
                     posthog.captureException(error, { extra: { sceneId, sceneKey } })
                     newLogicErrored = true
                 }

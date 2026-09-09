@@ -22,22 +22,23 @@ import {
 /**
  * How loudly the dashboard card should present itself.
  *
- * - `hidden`: nothing to say. No checklist has loaded, the flag is off, or the request failed.
+ * - `hidden`: nothing to say. The flag is off, or the request failed.
+ * - `checking`: the first read has not answered yet.
  * - `warnings`: at least one check is missing instrumentation.
  * - `collecting`: nothing has been graded yet, because every check the team still wants judged is
  *   below its volume floor.
  * - `passing`: at least one check graded ok, or every check has been dismissed.
  */
-export type InstrumentationChecklistCardState = 'hidden' | 'warnings' | 'collecting' | 'passing'
+export type InstrumentationChecklistCardState = 'hidden' | 'checking' | 'warnings' | 'collecting' | 'passing'
 
 /**
- * The verdict is graded by an uncached 30 day aggregate over every AI event a project sent, so it is
- * the most expensive read on the scene. The logic unmounts with the scene, and the trace view mounts
- * it again for each trace opened, which would refire that aggregate per trace.
+ * The logic unmounts with the scene, and the trace view mounts it again for each trace opened, which
+ * would refetch the verdict per trace. The server caches the graded counts as well, so this saves the
+ * round trip rather than the aggregate behind it.
  *
  * Instrumentation changes when someone edits their code, so a verdict stays true far longer than a
  * few minutes. The cache lives at module scope rather than in a reducer because it has to outlive the
- * unmount that causes the refetch. Refresh calls the loader directly and bypasses it.
+ * unmount that causes the refetch. Refresh asks the server for a fresh read and bypasses both.
  */
 const VERDICT_TTL_MS = 5 * 60 * 1000
 let cachedVerdict: { at: number; teamId: number | null; checklist: InstrumentationChecklistApi } | null = null
@@ -75,7 +76,9 @@ export interface instrumentationChecklistLogicActions {
     dismissCheck: (check: AIObservabilityInstrumentationCheckEnumApi) => {
         check: AIObservabilityInstrumentationCheckEnumApi
     }
-    loadInstrumentationChecklist: (_: void) => void
+    loadInstrumentationChecklist: ({ refresh }?: { refresh?: boolean }) => {
+        refresh?: boolean
+    }
     loadInstrumentationChecklistFailure: (
         error: string,
         errorObject?: any
@@ -85,10 +88,14 @@ export interface instrumentationChecklistLogicActions {
     }
     loadInstrumentationChecklistSuccess: (
         checklist: InstrumentationChecklistApi | null,
-        payload?: void
+        payload?: {
+            refresh?: boolean
+        }
     ) => {
         checklist: InstrumentationChecklistApi | null
-        payload?: void
+        payload?: {
+            refresh?: boolean
+        }
     }
     restoreCheck: (check: AIObservabilityInstrumentationCheckEnumApi) => {
         check: AIObservabilityInstrumentationCheckEnumApi
@@ -110,7 +117,8 @@ export interface instrumentationChecklistLogicMeta {
         ) => boolean
         checklistCardState: (
             checklistEnabled: boolean,
-            checks: InstrumentationCheckApi[]
+            checks: InstrumentationCheckApi[],
+            checklistLoading: boolean
         ) => InstrumentationChecklistCardState
         warningForCheck: (
             checklistEnabled: boolean,
@@ -155,13 +163,16 @@ export const instrumentationChecklistLogic = kea<instrumentationChecklistLogicTy
             null as InstrumentationChecklistApi | null,
             {
                 loadInstrumentationChecklist: async (
-                    _: void,
+                    { refresh }: { refresh?: boolean } = {},
                     breakpoint
                 ): Promise<InstrumentationChecklistApi | null> => {
                     if (!values.checklistEnabled) {
                         return null
                     }
-                    const response = await aiObservabilityInstrumentationChecklistRetrieve(String(values.currentTeamId))
+                    const response = await aiObservabilityInstrumentationChecklistRetrieve(
+                        String(values.currentTeamId),
+                        { refresh }
+                    )
                     breakpoint()
                     cachedVerdict = { at: performance.now(), teamId: values.currentTeamId, checklist: response }
                     return response
@@ -205,10 +216,19 @@ export const instrumentationChecklistLogic = kea<instrumentationChecklistLogicTy
                 checklistLoading || pendingCheckKey !== null,
         ],
         checklistCardState: [
-            (s) => [s.checklistEnabled, s.checks],
-            (checklistEnabled: boolean, checks: InstrumentationCheckApi[]): InstrumentationChecklistCardState => {
-                if (!checklistEnabled || checks.length === 0) {
+            (s) => [s.checklistEnabled, s.checks, s.checklistLoading],
+            (
+                checklistEnabled: boolean,
+                checks: InstrumentationCheckApi[],
+                checklistLoading: boolean
+            ): InstrumentationChecklistCardState => {
+                if (!checklistEnabled) {
                     return 'hidden'
+                }
+                if (checks.length === 0) {
+                    // A read that failed stays hidden rather than announcing itself, so nothing is
+                    // ever claimed about instrumentation we could not measure.
+                    return checklistLoading ? 'checking' : 'hidden'
                 }
                 if (checks.some((check) => check.status === InstrumentationCheckStatusEnumApi.Warning)) {
                     return 'warnings'

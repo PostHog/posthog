@@ -1,19 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const navigateToSettings = vi.fn();
+const leaveSettingsRoute = vi.fn();
 const isOnSettingsRoute = vi.fn(() => false);
 
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToSettings: (...args: unknown[]) => navigateToSettings(...args),
   isOnSettingsRoute: () => isOnSettingsRoute(),
-  canGoBackInHistory: vi.fn(),
-  goBackInHistory: vi.fn(),
-  navigateToNewTask: vi.fn(),
+  isSettingsRouteId: (routeId: string) => routeId.includes("/settings/"),
+  leaveSettingsRoute: () => leaveSettingsRoute(),
 }));
 
-import { openSettings } from "./useOpenSettings";
+import { closeSettings, openSettings } from "./useOpenSettings";
 
-describe("openSettings", () => {
+describe("settings navigation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isOnSettingsRoute.mockReturnValue(false);
@@ -26,8 +26,6 @@ describe("openSettings", () => {
     });
   });
 
-  // "Back to app" is a single history step, so a category change from inside
-  // settings must replace — otherwise it lands on the previous category.
   it("replaces the entry when already inside settings", () => {
     isOnSettingsRoute.mockReturnValue(true);
     openSettings("shortcuts");
@@ -35,4 +33,13 @@ describe("openSettings", () => {
       replace: true,
     });
   });
+
+  it.each([true, false])(
+    "leaves settings by route when on a settings route: %s",
+    (onRoute) => {
+      isOnSettingsRoute.mockReturnValue(onRoute);
+      closeSettings();
+      expect(leaveSettingsRoute).toHaveBeenCalledTimes(onRoute ? 1 : 0);
+    },
+  );
 });

@@ -979,6 +979,10 @@ export const PropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
  */
 export const propertyDefinitionsBulkUpdateTagsCreateBodyIdsMax = 500
 
+export const propertyDefinitionsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const propertyDefinitionsBulkUpdateTagsCreateBodyTagsMax = 100
+
 export const PropertyDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
     ids: zod
         .array(zod.number())
@@ -990,7 +994,10 @@ export const PropertyDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.o
         .describe(
             "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+    tags: zod
+        .array(zod.string().max(propertyDefinitionsBulkUpdateTagsCreateBodyTagsItemMax))
+        .max(propertyDefinitionsBulkUpdateTagsCreateBodyTagsMax)
+        .describe('Tag names to add, remove, or set.'),
 })
 
 /**
@@ -1011,6 +1018,43 @@ export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod
         password_required: zod.boolean().optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
+
+/**
+ *
+ *     When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards.
+ *
+ *     Uploaded media must be less than 4MB and decode as a PNG, JPEG, GIF, WebP, AVIF or BMP image — the formats
+ *     the download route will serve inline. Pass `purpose` to also add the image to a library, making it visible
+ *     to `GET ?purpose=...`.
+ *
+ */
+export const UploadedMediaCreateBody = /* @__PURE__ */ zod.object({
+    image: zod.instanceof(File).describe('Image file. Must be under 4MB and a real, decodable image.'),
+    purpose: zod
+        .enum(['email', 'canvas'])
+        .optional()
+        .describe(
+            'Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).'
+        ),
+})
+
+/**
+ * Step 1 of the presigned upload flow: reserves a pending image and returns a presigned URL to POST the file to directly, bytes never pass through this API. Call complete_upload with the returned id once the upload finishes.
+ */
+export const uploadedMediaStartUploadCreateBodyNameMax = 1000
+
+export const uploadedMediaStartUploadCreateBodyPurposeMax = 100
+
+export const UploadedMediaStartUploadCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(uploadedMediaStartUploadCreateBodyNameMax)
+        .describe("The file's display name, e.g. 'logo.png'."),
+    purpose: zod
+        .string()
+        .max(uploadedMediaStartUploadCreateBodyPurposeMax)
+        .describe("Library to add this image to once uploaded, e.g. 'email'."),
+})
 
 /**
  * Public, unauthenticated endpoint for self-service revocation of a leaked PostHog personal API key, project secret API key, or OAuth access/refresh token. If the token matches a real credential, it is revoked immediately and the owner is notified by email. This includes an expired OAuth access token: the paired refresh token it protects may still be live.
@@ -1400,6 +1444,37 @@ export const UsersOnboardingSkipCreateBody = /* @__PURE__ */ zod
     .describe(
         'Request body for POST \/api\/users\/{id}\/onboarding\/skip\/.\n\nSource of truth for OpenAPI \/ generated TS \/ zod \/ MCP — bind this serializer at\nruntime so the contract clients believe is enforced (length cap, choice validation,\nno extra fields) is actually enforced server-side.'
     )
+
+/**
+ * Record that this user has seen one product intro.
+ *
+ * Separate from the `has_seen_product_intro_for` field on the main user PATCH, which requires a
+ * recently authenticated session. Dismissing an intro must not depend on that: a re-auth prompt
+ * would cover the intro it interrupts, and the dismissal would never persist. Nothing reachable
+ * here changes an account, an organization, or a profile.
+ *
+ * Merging server-side also keeps two intros dismissed from separate tabs from dropping each
+ * other's key, which a read-modify-write of the whole map cannot avoid.
+ */
+export const usersProductIntroSeenPartialUpdateBodyProductKeyMax = 128
+
+export const usersProductIntroSeenPartialUpdateBodySeenDefault = true
+
+export const UsersProductIntroSeenPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        product_key: zod
+            .string()
+            .max(usersProductIntroSeenPartialUpdateBodyProductKeyMax)
+            .optional()
+            .describe(
+                'Which key in `has_seen_product_intro_for` to set. Any string is accepted: besides the product keys, the map holds keys composed per team and keys for surfaces that are not products.'
+            ),
+        seen: zod
+            .boolean()
+            .default(usersProductIntroSeenPartialUpdateBodySeenDefault)
+            .describe('Whether the intro counts as seen. Send false to show it again.'),
+    })
+    .describe('Request body for PATCH \/api\/users\/@me\/product_intro_seen.')
 
 /**
  * Idempotent upsert: if the (user, token) pair already exists, `platform` and `last_seen_at` are refreshed. Otherwise a new row is created.
@@ -2058,15 +2133,10 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
 export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod
     .object({
         uuid: zod.string().describe('UUID of the user whose email is being verified.'),
-        token: zod
-            .string()
-            .optional()
-            .describe('Verification token from the emailed link. Required unless a code is provided.'),
         code: zod
             .string()
-            .optional()
             .describe(
-                'The 6-digit verification code emailed at signup. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking.'
+                'The 6-digit verification code from the email. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking.'
             ),
     })
-    .describe('Request body for POST \/api\/users\/verify_email\/. Exactly one of token or code is required.')
+    .describe('Request body for POST \/api\/users\/verify_email\/.')

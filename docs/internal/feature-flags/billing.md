@@ -260,6 +260,20 @@ AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw(properties, 'token
 | Selective billing                | Survey and product tour flags are internal features, not customer-billable         |
 | SDK breakdown for analytics only | Billing charges per request regardless of SDK; breakdown is for internal analytics |
 
+## Customer request usage view
+
+The feature flags **Usage** tab shows the existing billing events grouped by SDK and request type. It does not add counters or work to the request path.
+
+- Daily queries cover up to 31 days. Hourly queries cover up to 8 days so calendar-aligned 30-day and 7-day presets fit.
+- Remote evaluation combines `/flags` and legacy `/decide` traffic.
+- Local evaluation combines `/flags/definitions` and its legacy alias.
+- Counts include billable requests only. They are not raw HTTP traffic totals.
+- Local evaluation requests contribute 10 billing units each.
+- The SDK breakdown comes from the request user-agent and unknown SDKs appear as `other`.
+- Aggregation means recent usage can take approximately 30 minutes to appear. Hourly buckets use aggregation event time, so they approximate rather than preserve exact request time.
+
+The view cannot attribute a request to an individual flag lookup. `$feature_flag_called` events describe evaluation activity, but their totals do not map one-to-one to request usage.
+
 ## Billing service processing
 
 The usage report is sent daily to the billing service (`billing.posthog.com`), which:

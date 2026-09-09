@@ -1,13 +1,13 @@
 ---
 name: building-product-empty-states
-description: Guide for adding a product setup empty state — the skippable first-run screen a product scene shows until real data arrives, built on the shared ProductEmptyState component. Use when adding an empty state or first-run/setup screen to a product scene, declaring `emptyState` on a `SceneExport`, writing a product setup-status detection logic, building an animated example-data preview widget, or migrating away from the deprecated `ProductIntroduction` component. Covers the `productSetupStatusLogic` single-layer contract, real-data detection rules, local-only skip semantics, wizard commands, and design tokens.
+description: Guide for adding a product setup empty state — the skippable first-run screen a product scene shows until real data arrives, built on the shared ProductEmptyState component. Use when adding an empty state or first-run/setup screen to a product scene, declaring `emptyState` on a `SceneExport`, writing a product setup-status detection logic, building an animated example-data preview widget, or deciding between the scene-level `ProductEmptyState` gate and an inline `ProductIntroduction` panel. Covers the `productSetupStatusLogic` single-layer contract, real-data detection rules, local-only skip semantics, wizard commands, and design tokens.
 ---
 
 # Building product empty states
 
 Before a user has set a product up, its scene should show a setup empty state: the product pitch and install command on the left, an animated preview of the product filled with realistic example data on the right. The shared component lives in `frontend/src/lib/components/ProductEmptyState/`; MCP analytics (`products/mcp_analytics/frontend/emptyState/`) is the reference adoption.
 
-`ProductIntroduction` is **deprecated** — don't add new call sites. Both of its jobs fold into this system: "product not installed" (data-existence detection) and "no entities yet" (entity-count detection with a `primaryAction` create CTA).
+This system is for product landing scenes. `ProductIntroduction` stays the inline panel for surfaces the gate cannot cover; see "Scene gate or inline panel?" at the end before choosing.
 
 ## How it works
 
@@ -67,8 +67,11 @@ Statuses: `loading` (not yet known - the gate holds a spinner, never flashes the
 - **Wizard vs primary action**: SDK-installed products set `wizard: { slug }` (the slug must exist in `@posthog/wizard`); creation-first products (flags, surveys) set `primaryAction` instead. Self-hosted degrades automatically: no cloud → the terminal hides and the manual path is promoted. If the create action needs hooks (e.g. it opens PostHog AI via `useMaxTool`, like user research's "New topic"), provide a `PrimaryAction` component instead of `primaryAction` - it renders in the same slot and takes precedence.
 - **Permissions and selectors on the primary action**: set `primaryAction.accessControl` to the same resource type and level the gated scene's own create button uses. Without it a viewer gets an enabled button and only learns they can't create when the form fails to save. Set `primaryAction.dataAttr` to the attr that scene button carries, so an end-to-end spec keeps one selector whether it lands on the scene or the empty state. A `PrimaryAction` component wraps its own `AccessControlAction`.
 - **`featureFlag`**: set it when the scene is already flag-gated (so the scene's own gate keeps handling flag-off) or to roll the empty state out gradually.
+- **Scene modules that serve more than one surface**: `scenes` narrows where the gate applies, and omitting it gates everything the module serves. A plain scene id covers that whole scene (web analytics gates only `Scene.WebAnalyticsWebVitals`). When one scene id serves several tabs, pass `{ scene, tabs }` and list every value of the `tab` route param you gate, including `undefined` for the URL with no tab segment - `products/workflows/frontend/emptyState/workflowsEmptyState.tsx` gates its workflow list while channels, opt-outs, suppression, and reputation stay reachable with no workflows yet. Gating the scene instead would take those tabs down with it.
 - **Hedgehog**: a `pngHoggie(...)`-wrapped module — import only inside the product chunk (eager-graph guard: `frontend/bin/check-eager-graph.mjs`). Never hardcode image URLs (e.g. Cloudinary) — `@posthog/brand` assets only.
 - **`text` is keyed by mode**: provide the `needs-setup` base; add a `waiting-for-data` entry only if your product has that middle state (missing fields fall back to the base). Sentence case, benefit-first, no AI tells (see "User-facing copy" in `CLAUDE.md`).
+- **Key `wizard` by mode when the install command stops applying**: a product whose `waiting-for-data` means "events are flowing, a scheduled job hasn't run yet" has nothing left to install, so pass `wizard: { 'needs-setup': { slug } }` and the terminal, the manual link, and the hint leave the waiting screen (clusters). Leave it flat when re-running setup still makes sense there (MCP analytics: "Instrumenting another server?").
+- **Key `primaryAction` by mode when it only fits one**: a one-click opt-in ("Enable session recording") is done once the status is `waiting-for-data`, and clicking it again re-sends the same team update. Pass `primaryAction: { 'needs-setup': { ... } }` and the button, along with the `hint` that introduces it, leaves the waiting screen. A single flat action still covers both modes - keep that when it reads correctly either way (support's "Open support settings").
 - **Product header**: the gate keeps the product header (name, description, icon) above the empty state automatically, sourced from the scene's `SceneConfig` in your product manifest — make sure your manifest's scene entry has `name`, `description`, and `iconType` set.
 
 ### 3. Build the signature preview
@@ -112,12 +115,13 @@ Extend the detection logic's existing jest file with a parameterized push-throug
 
 Add one story per mode to `lib/components/ProductEmptyState/ProductEmptyState.stories.tsx` with `productEmptyStateStory(myProductEmptyState, mode)` (from `storybookHelpers.ts`) - it renders your real config and gives you visual-regression snapshots for free. Default mocks answer queries and product intents so a bare call renders cleanly; pass `mocks` to drive your status indicator into a specific state (see the MCP stories).
 
-## Migrating a ProductIntroduction call site
+## Scene gate or inline panel?
 
-- Full-scene "product not set up" uses → this system, via steps 1-4.
-- Entity-list empties ("create your first X") → detection = entity count, `primaryAction` = the create button.
-- The SetupPrompt family (error_tracking, logs, tracing, metrics, ai_observability) already has detection logics — step 1 is just the `connect` + push; then replace the wrapper with a scene-level `emptyState` declaration.
-- `has_seen_product_intro_for` dismissals are superseded by local skip; don't migrate the flag.
+- The whole scene is empty because the product is not set up, or has no entities yet → this system. "Product not installed" is data-existence detection; "no entities yet" is entity-count detection with a `primaryAction` create CTA.
+- One part of an otherwise working surface is empty → `ProductIntroduction`, rendered inline where the list would be. Typical cases: a tab or sub-list inside an adopted product (workflow channels, message templates), a dashboard widget tile or notebook node, a section of a settings page, an activity log, a flag-off gate, or a state that is not about setup (no ingestion warnings, an empty chat history).
+- Never both on one scene for the same emptiness. When a scene adopts this system, delete the `ProductIntroduction` it rendered for the whole-scene case; keep or add one only for a per-tab or mixed case the gate does not see (alerts keeps a compact table message per kind, pulse keeps a per-focus message).
+- The SetupPrompt family (error_tracking, logs, tracing, metrics, ai_observability) already has detection logics; when one of those scenes adopts, step 1 is just the `connect` + push. Their dashboard widget tiles keep `SetupPrompt`, because tiles are not scenes.
+- `has_seen_product_intro_for` dismissals belong to neither: this system uses a local skip, and `ProductIntroduction` no longer reads the flag.
 
 ## QA checklist
 

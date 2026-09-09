@@ -192,6 +192,12 @@ export type IngestionConsumerConfig = {
     // recreated person revives above its own tombstone. Comma-separated team IDs, or '*' for all
     // teams; empty means no teams.
     PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: string
+    // Re-emit committed distinct id mappings for merge events that arrive already satisfied,
+    // debounced per (team, distinct id). Heals ClickHouse mapping rows lost to a crash between
+    // a merge's commit and its produce; see MergeMappingDebounce for why the cache is in-memory.
+    PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED: boolean
+    PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE: number
+    PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS: number
     // Teams whose person creation claims an existing unreachable posthog_person row holding
     // the same deterministic (team_id, uuid) instead of inserting a duplicate row. Scope to
     // teams whose distinct-ID mappings were destroyed outside the write path (stranded rows);
@@ -209,6 +215,12 @@ export type IngestionConsumerConfig = {
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
     GROUPS_PREFETCH_ENABLED: boolean
+
+    // Team-keyed cache prefetch config: one batched warm-up per chunk for each cache,
+    // instead of a per-event lookup in the sequential steps that read it.
+    TEAMS_PREFETCH_ENABLED: boolean
+    EVENT_SCHEMAS_PREFETCH_ENABLED: boolean
+    HOG_FUNCTIONS_PREFETCH_ENABLED: boolean
 
     // Event overflow config
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
@@ -359,6 +371,9 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_FOLD_ENABLED: false,
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
         PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '',
+        PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED: false,
+        PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE: 500_000,
+        PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS: 60 * 60 * 1000,
         PERSON_CREATE_CLAIM_TEAM_ALLOWLIST: '',
 
         // Group batch writing config
@@ -368,6 +383,10 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUPS_PREFETCH_ENABLED: false,
+
+        TEAMS_PREFETCH_ENABLED: false,
+        EVENT_SCHEMAS_PREFETCH_ENABLED: false,
+        HOG_FUNCTIONS_PREFETCH_ENABLED: false,
 
         // Event overflow config
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,

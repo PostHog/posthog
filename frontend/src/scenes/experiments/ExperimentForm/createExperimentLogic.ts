@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, events, kea, key, listeners, path, pro
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -35,14 +36,13 @@ import type { ExperimentMetricUnion } from '../../../queries/schema/schema-gener
 import type { FeatureFlagType } from '../../../types'
 import { FORM_MODES, experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
-import { experimentScannerBody, experimentScannerFilters } from '../replayVisionScanner'
+import { experimentScannerBody } from '../replayVisionScanner'
 import {
     type ExperimentWritePayload,
     getExperimentVariants,
     toExperimentWritePayload,
     toFlagVariantsInput,
 } from '../utils'
-import { loadUnlinkableEventNames } from '../viewRecordingsLinkabilityLogic'
 import { validateExperimentSubmission } from './experimentSubmissionValidation'
 import type { FeatureFlagKeyValidation } from './variantsPanelLogic'
 import { variantsPanelLogic } from './variantsPanelLogic'
@@ -526,14 +526,10 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     let replayScannerId: string | null = null
                     let replayScannerCreationFailed = false
                     if (values.createReplayVisionScanner) {
-                        const { filters, usedExposureFallback } = experimentScannerFilters(
-                            response,
-                            await loadUnlinkableEventNames(response)
-                        )
                         try {
                             const replayScanner = await visionScannersCreate(
                                 String(values.currentProjectId),
-                                experimentScannerBody(response, filters, usedExposureFallback)
+                                experimentScannerBody(response)
                             )
                             replayScannerId = replayScanner.id
                             actions.addProductIntentForCrossSell({
@@ -542,9 +538,18 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                                 intent_context: ProductIntentContext.EXPERIMENT_REPLAY_VISION_SCANNER_CREATED,
                             })
                         } catch (scannerError) {
-                            // Captured rather than swallowed: a systematically failing create (quota, access)
-                            // is otherwise invisible, since the experiment itself still succeeds.
-                            posthog.captureException(scannerError)
+                            // A missing org AI consent is a user-correctable config state, not a defect, so it
+                            // stays out of error tracking. The checkbox gates on consent, but a stale client can
+                            // still reach here. Other failures (quota, access) are still captured. Without that,
+                            // a systematic break is invisible, because the experiment itself still succeeds.
+                            if (
+                                !(
+                                    scannerError instanceof ApiError &&
+                                    scannerError.code === 'ai_data_processing_not_approved'
+                                )
+                            ) {
+                                posthog.captureException(scannerError)
+                            }
                             replayScannerCreationFailed = true
                         }
                     }

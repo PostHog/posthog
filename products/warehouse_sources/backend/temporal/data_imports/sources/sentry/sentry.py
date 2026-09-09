@@ -402,6 +402,29 @@ def _skip_rows_on_stale_issue_404(
         raise
 
 
+def _skip_issue_on_tags_server_error(
+    rows: Iterator[dict[str, Any]], organization_slug: str, issue_id: str
+) -> Iterator[dict[str, Any]]:
+    """Swallow a persistent 5xx raised while iterating an issue's tags endpoint.
+
+    Retries are already exhausted by _request_with_retry; skip this issue's tags
+    rather than failing the whole sync — same graceful-skip as the values endpoint.
+    """
+    try:
+        yield from rows
+    except HTTPError as exc:
+        response = exc.response
+        if response is not None and response.status_code >= 500:
+            logger.warning(
+                "sentry_source.issue_tags_server_error_skipped",
+                organization_slug=organization_slug,
+                issue_id=issue_id,
+                status_code=response.status_code,
+            )
+            return
+        raise
+
+
 # lastSeen carries the scan floor, so it is always projected. A parent whose column selection
 # dropped it fails the eager resolve check and drives this child from the API instead.
 _ISSUES_PARENT_COLUMNS = ["id", "lastSeen"]
@@ -557,7 +580,7 @@ def _iter_issue_tag_values_rows(
             # schema last synced; their tags endpoint 404s. A fresh API parent pull would
             # simply not list them, so skip instead of failing the sync.
             tags = _skip_rows_on_stale_issue_404(tags, organization_slug, issue_id, stale_issues)
-        for tag in tags:
+        for tag in _skip_issue_on_tags_server_error(tags, organization_slug, issue_id):
             tag_key = tag.get("key") or tag.get("id")
             if not isinstance(tag_key, str) or not tag_key:
                 continue
@@ -1120,6 +1143,19 @@ def validate_credentials(
         return False, str(exc)
 
     url = f"{base_url}/api/0/organizations/{organization_slug}/projects/"
+
+    try:
+        auth_token.encode("latin-1")
+    except UnicodeEncodeError:
+        # The token rides in the Authorization header, which http.client encodes as latin-1. A
+        # character outside that range raises mid-request; reject it as invalid input rather than
+        # letting the UnicodeEncodeError surface as a 500.
+        return (
+            False,
+            "Invalid Sentry auth token. It contains characters that can't be sent to Sentry. "
+            "Copy the token again from Sentry, then reconnect.",
+        )
+
     headers = _auth_headers(auth_token)
 
     try:

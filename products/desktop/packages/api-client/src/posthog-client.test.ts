@@ -1,15 +1,58 @@
 import type { Task } from "@posthog/shared/domain-types";
 import { describe, expect, it, vi } from "vitest";
-import { ApiRequestError } from "./fetcher";
+import { ApiRequestError, type FetchImplementation } from "./fetcher";
 import {
   CloudCommandError,
   CloudUsageLimitError,
   DESKTOP_BILLING_LIMIT_ERROR_CODE,
   PostHogAPIClient,
+  ScoutRequestError,
   SESSION_LOGS_PAGE_TIMEOUT_MS,
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  it("sends the selected scout to the runs endpoint", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response("[]", { status: 200 }));
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+      { fetch },
+    );
+
+    await client.listScoutRuns(42, { skill_name: "signals-scout-example" });
+
+    const url = fetch.mock.calls[0][0] as URL;
+    expect(url.pathname).toBe("/api/projects/42/signals/scout/runs/");
+    expect(url.searchParams.get("skill_name")).toBe("signals-scout-example");
+  });
+  describe("updateTaskChannelAutoArchive", () => {
+    it("rejects a successful response that did not save the setting", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ id: "channel-1", name: "personal" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(
+        client.updateTaskChannelAutoArchive("channel-1", 7),
+      ).rejects.toThrow(
+        "Automatic archiving isn't available on this server yet",
+      );
+    });
+  });
+
   describe("setUserSpendLimit", () => {
     // The shared fetcher throws on non-2xx, so the endpoint's `detail` must be
     // unwrapped for the settings toast rather than the raw fetcher string.
@@ -37,6 +80,75 @@ describe("PostHogAPIClient", () => {
       expect(error).toBeInstanceOf(Error);
       expect((error as Error).message).toBe(
         "Limit must be above current spend.",
+      );
+    });
+  });
+
+  describe("getLlmSkillByName", () => {
+    // The endpoint pages a body over 8,000 characters, so a single request
+    // returns instructions that stop mid-skill.
+    it("follows body_next_offset until the whole body is fetched", async () => {
+      const body = `${"x".repeat(8000)}final instruction`;
+      const fetch = vi.fn().mockImplementation((url: URL) => {
+        const offset = Number(url.searchParams.get("body_offset") ?? "0");
+        const page = body.slice(offset, offset + 8000);
+        const next = offset + 8000 < body.length ? offset + 8000 : null;
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              name: "pr-shepherd",
+              version: 3,
+              body: page,
+              body_total_length: body.length,
+              body_next_offset: next,
+              files: [],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+      });
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      const skill = await client.getLlmSkillByName("pr-shepherd");
+
+      expect(skill.body).toBe(body);
+      // The continuation pins the version, so a publish between pages cannot
+      // splice two bodies together.
+      const second = fetch.mock.calls[1][0] as URL;
+      expect(second.searchParams.get("body_offset")).toBe("8000");
+      expect(second.searchParams.get("version")).toBe("3");
+    });
+
+    it("rejects a body that arrives shorter than the server reports", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            name: "pr-shepherd",
+            version: 3,
+            body: "# Body",
+            body_total_length: 9689,
+            body_next_offset: null,
+            files: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(client.getLlmSkillByName("pr-shepherd")).rejects.toThrow(
+        "got 6 of 9689 characters",
       );
     });
   });
@@ -114,6 +226,43 @@ describe("PostHogAPIClient", () => {
   });
 
   describe("getEvidencePreview", () => {
+    it("retrieves an Inbox report from the signals endpoint", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: "rep-1",
+            title: "Checkout latency increased",
+            summary: "Requests became slower after the latest release.",
+            status: "ready",
+            priority: "P1",
+            signal_count: 3,
+            total_weight: 3,
+            artefact_count: 1,
+            created_at: "2026-01-02T10:00:00Z",
+            updated_at: "2026-01-03T10:00:00Z",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(
+        client.getEvidencePreview("report", "rep-1"),
+      ).resolves.toMatchObject({
+        title: "Checkout latency increased",
+        status: { label: "Ready", tone: "positive" },
+      });
+      expect((fetch.mock.calls[0][0] as URL).pathname).toBe(
+        "/api/projects/42/signals/reports/rep-1/",
+      );
+    });
+
     it("builds experiment presentation data from metric and exposure query responses", async () => {
       const metricResponse = {
         kind: "ExperimentQuery",
@@ -392,10 +541,33 @@ describe("PostHogAPIClient", () => {
     });
   });
 
+  it("fetches every task page when requested", async () => {
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+    );
+    const getTasksPage = vi
+      .spyOn(client, "getTasksPage")
+      .mockResolvedValueOnce({ tasks: [{ id: "task-1" } as Task], count: 3 })
+      .mockResolvedValueOnce({ tasks: [{ id: "task-2" } as Task], count: 3 })
+      .mockResolvedValueOnce({ tasks: [{ id: "task-3" } as Task], count: 3 });
+
+    await expect(
+      client.getTasksWithStatus(undefined, { fetchAll: true }),
+    ).resolves.toMatchObject({
+      isComplete: true,
+      tasks: [{ id: "task-1" }, { id: "task-2" }, { id: "task-3" }],
+    });
+    expect(getTasksPage).toHaveBeenCalledTimes(3);
+  });
+
   it.each([
     ["pinned", { pinned: true }, "pinned", "true"],
     ["commented-by", { commentedBy: 17 }, "commented_by", "17"],
     ["mentions", { mentions: 19 }, "mentions", "19"],
+    ["basic summary", { basic: true }, "basic", "true"],
   ])("sends the %s task-list filter", async (_name, options, param, value) => {
     const fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ results: [], count: 0 }), {
@@ -416,6 +588,29 @@ describe("PostHogAPIClient", () => {
     expect(url.pathname).toBe("/api/projects/42/tasks/");
     expect(url.searchParams.get(param)).toBe(value);
   });
+
+  it.each([undefined, { basic: false }])(
+    "omits basic unless the caller asks for the summary payload (%o)",
+    async (options) => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ results: [], count: 0 }), {
+          status: 200,
+        }),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await client.getTasksPage(options);
+
+      const url = fetch.mock.calls[0][0] as URL;
+      expect(url.searchParams.has("basic")).toBe(false);
+    },
+  );
 
   it.each([
     "user_message",
@@ -816,38 +1011,46 @@ describe("PostHogAPIClient", () => {
     );
   });
 
-  it("omits the permission mode when no adapter is set", async () => {
-    const client = new PostHogAPIClient(
-      "http://localhost:8000",
-      async () => "token",
-      async () => "token",
-      123,
-    );
+  it.each([false, true])(
+    "omits the permission mode when no adapter is set (Pi: %s)",
+    async (piRuntime) => {
+      const client = new PostHogAPIClient(
+        "http://localhost:8000",
+        async () => "token",
+        async () => "token",
+        123,
+      );
 
-    const post = vi.fn().mockResolvedValue({
-      id: "task-123",
-      title: "Task",
-      description: "Task",
-      created_at: "2026-04-14T00:00:00Z",
-      updated_at: "2026-04-14T00:00:00Z",
-      origin_product: "user_created",
-    });
+      const post = vi.fn().mockResolvedValue({
+        id: "task-123",
+        title: "Task",
+        description: "Task",
+        created_at: "2026-04-14T00:00:00Z",
+        updated_at: "2026-04-14T00:00:00Z",
+        origin_product: "user_created",
+      });
 
-    (client as unknown as { api: { post: typeof post } }).api = { post };
+      (client as unknown as { api: { post: typeof post } }).api = { post };
 
-    await client.runTaskInCloud("task-123", "feature/no-adapter", {
-      initialPermissionMode: "plan",
-    });
+      await client.runTaskInCloud("task-123", "feature/no-adapter", {
+        initialPermissionMode: "plan",
+        piRuntime,
+        claudeModelAccess: "own-subscription",
+      });
 
-    expect(post).toHaveBeenCalledWith(
-      "/api/projects/{project_id}/tasks/{id}/run/",
-      expect.objectContaining({
-        body: expect.not.objectContaining({
-          initial_permission_mode: expect.anything(),
+      expect(post).toHaveBeenCalledWith(
+        "/api/projects/{project_id}/tasks/{id}/run/",
+        expect.objectContaining({
+          body: expect.not.objectContaining({
+            initial_permission_mode: expect.anything(),
+          }),
         }),
-      }),
-    );
-  });
+      );
+      expect(post.mock.calls[0][1].body.claude_model_access).toBe(
+        piRuntime ? undefined : "own-subscription",
+      );
+    },
+  );
 
   it.each([true, false])("forwards auto publish %s", async (autoPublish) => {
     const client = new PostHogAPIClient(
@@ -1117,35 +1320,43 @@ describe("PostHogAPIClient", () => {
     });
   });
 
-  it("omits the permission mode from created task runs without an adapter", async () => {
-    const fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ id: "run-123", environment: "cloud" }),
-    });
-    const client = new PostHogAPIClient(
-      "http://localhost:8000",
-      async () => "token",
-      async () => "token",
-      123,
-    );
+  it.each([false, true])(
+    "omits the permission mode from created task runs without an adapter (Pi: %s)",
+    async (piRuntime) => {
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ id: "run-123", environment: "cloud" }),
+      });
+      const client = new PostHogAPIClient(
+        "http://localhost:8000",
+        async () => "token",
+        async () => "token",
+        123,
+      );
 
-    (
-      client as unknown as {
-        api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
-      }
-    ).api = {
-      baseUrl: "http://localhost:8000",
-      fetcher: { fetch },
-    };
+      (
+        client as unknown as {
+          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
+        }
+      ).api = {
+        baseUrl: "http://localhost:8000",
+        fetcher: { fetch },
+      };
 
-    await client.createTaskRun("task-123", {
-      environment: "cloud",
-      initialPermissionMode: "plan",
-    });
+      await client.createTaskRun("task-123", {
+        environment: "cloud",
+        initialPermissionMode: "plan",
+        piRuntime,
+        claudeModelAccess: "own-subscription",
+      });
 
-    const body = JSON.parse(fetch.mock.calls[0][0].overrides.body as string);
-    expect(body).not.toHaveProperty("initial_permission_mode");
-  });
+      const body = JSON.parse(fetch.mock.calls[0][0].overrides.body as string);
+      expect(body).not.toHaveProperty("initial_permission_mode");
+      expect(body.claude_model_access).toBe(
+        piRuntime ? undefined : "own-subscription",
+      );
+    },
+  );
 
   it("omits the permission mode when none is selected", async () => {
     const client = new PostHogAPIClient(
@@ -1719,6 +1930,41 @@ describe("PostHogAPIClient", () => {
     });
   });
 
+  describe("getSignalReports", () => {
+    it("sends report filters to the reports endpoint", async () => {
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ count: 3, results: [] }),
+      });
+      const client = new PostHogAPIClient(
+        "http://localhost:8000",
+        async () => "token",
+        async () => "token",
+        123,
+      );
+      (
+        client as unknown as {
+          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
+        }
+      ).api = {
+        baseUrl: "http://localhost:8000",
+        fetcher: { fetch },
+      };
+
+      await expect(
+        client.getSignalReports({
+          actionability: "immediately_actionable,requires_human_input",
+          count_only: true,
+        }),
+      ).resolves.toEqual({ count: 3, results: [] });
+
+      const request = fetch.mock.calls[0]?.[0] as { url: URL };
+      expect(request.url.toString()).toBe(
+        "http://localhost:8000/api/projects/123/signals/reports/?actionability=immediately_actionable%2Crequires_human_input&count_only=true",
+      );
+    });
+  });
+
   describe("getSignalReport", () => {
     function makeClient(fetch: ReturnType<typeof vi.fn>) {
       const client = new PostHogAPIClient(
@@ -1779,6 +2025,110 @@ describe("PostHogAPIClient", () => {
       const client = makeClient(fetch);
 
       await expect(client.getSignalReport("abc")).rejects.toThrow("[500]");
+    });
+  });
+
+  describe("updateSignalReportState", () => {
+    function makeClient(fetch: FetchImplementation): PostHogAPIClient {
+      return new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+    }
+
+    it("accepts a suppression conflict when a fresh read is already suppressed", async () => {
+      const fetch = vi
+        .fn<FetchImplementation>()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: "Invalid state transition" }), {
+            status: 409,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ id: "abc", status: "suppressed" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      const client = makeClient(fetch);
+
+      await expect(
+        client.updateSignalReportState("abc", { state: "suppressed" }),
+      ).resolves.toMatchObject({ id: "abc", status: "suppressed" });
+    });
+
+    it("preserves a suppression conflict when the report is still active", async () => {
+      const fetch = vi
+        .fn<FetchImplementation>()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: "Invalid state transition" }), {
+            status: 409,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ id: "abc", status: "ready" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      const client = makeClient(fetch);
+
+      await expect(
+        client.updateSignalReportState("abc", { state: "suppressed" }),
+      ).rejects.toThrow("[409]");
+    });
+
+    it.each([
+      {
+        name: "accepts matching dismissal feedback",
+        current: {
+          dismissal_reason: "wontfix_intentional",
+          dismissal_note: "Expected behavior",
+        },
+        rejects: false,
+      },
+      {
+        name: "rejects feedback another dismissal did not save",
+        current: {
+          dismissal_reason: "analysis_wrong",
+          dismissal_note: "Different feedback",
+        },
+        rejects: true,
+      },
+    ])("$name after a suppression conflict", async ({ current, rejects }) => {
+      const fetch = vi
+        .fn<FetchImplementation>()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: "Invalid state transition" }), {
+            status: 409,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ id: "abc", status: "suppressed", ...current }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        );
+      const request = makeClient(fetch).updateSignalReportState("abc", {
+        state: "suppressed",
+        dismissal_reason: "wontfix_intentional",
+        dismissal_note: " Expected behavior ",
+      });
+
+      if (rejects) {
+        await expect(request).rejects.toThrow("[409]");
+      } else {
+        await expect(request).resolves.toMatchObject({ status: "suppressed" });
+      }
     });
   });
 
@@ -2203,6 +2553,54 @@ describe("PostHogAPIClient", () => {
       // attribution survives the fallback path
       expect(results[0].task_id).toBe("t1");
     });
+
+    // A resolve stores its rationale as a `dismissal` artefact, so resolve-only
+    // reasons must normalize as dismissals rather than degrade to a raw preview.
+    it.each([["fixed_outside_posthog"], ["pr_merged"]])(
+      "keeps a resolve reason %s as a dismissal row",
+      async (reason) => {
+        const rows = [
+          {
+            id: "d1",
+            type: "dismissal",
+            content: { reason, note: "", user_id: 1, user_uuid: null },
+            created_at: "2026-06-01T00:00:00Z",
+          },
+        ];
+        const fetch = vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ count: rows.length, results: rows }),
+        });
+        const client = makeClient(fetch);
+
+        const { results } = await client.getSignalReportArtefacts("r1");
+
+        expect(results).toHaveLength(1);
+        expect(results[0].type).toBe("dismissal");
+        expect(results[0].degraded).toBeFalsy();
+        expect((results[0].content as { reason: string }).reason).toBe(reason);
+      },
+    );
+
+    it.each([
+      [
+        "asks for the full log when a caller reads every row",
+        { limit: 1000 },
+        "1000",
+      ],
+      ["leaves list callers on the server page size", undefined, null],
+    ])("%s", async (_name, options, expected) => {
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ count: 0, results: [] }),
+      });
+      const client = makeClient(fetch);
+
+      await client.getSignalReportArtefacts("r1", options);
+
+      const { url } = fetch.mock.calls[0][0] as { url: URL };
+      expect(url.searchParams.get("limit")).toBe(expected);
+    });
   });
 
   describe("updateSignalReportArtefact", () => {
@@ -2299,6 +2697,30 @@ describe("PostHogAPIClient", () => {
       await expect(
         client.updateSignalReportArtefact("report-1", "art-1", []),
       ).rejects.toThrow("Unexpected response");
+    });
+
+    it("sets the first reviewer through the report-level endpoint", async () => {
+      const content = [{ user_uuid: "uuid-1" }];
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          id: "art-1",
+          type: "suggested_reviewers",
+          created_at: "2024-01-01T00:00:00Z",
+          content: [OCTOCAT_REVIEWER],
+        }),
+      });
+      const client = makeClient(fetch);
+
+      await client.setSignalReportReviewers("report-1", content);
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "put",
+          path: "/api/projects/123/signals/reports/report-1/reviewers/",
+          overrides: { body: JSON.stringify({ content }) },
+        }),
+      );
     });
   });
 
@@ -2862,4 +3284,30 @@ describe("PostHogAPIClient", () => {
       );
     });
   });
+});
+
+describe("manual scout run refusals", () => {
+  it.each([403, 409, 429])(
+    "preserves HTTP status %s from the production fetcher",
+    async (status) => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ detail: "Run request refused." }), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      const client = new PostHogAPIClient(
+        "https://example.com",
+        async () => "test-token",
+        async () => "test-token",
+        42,
+        { fetch },
+      );
+      const error = await client
+        .runScoutNow(42, "config-1")
+        .catch((value: unknown) => value);
+      expect(error).toBeInstanceOf(ScoutRequestError);
+      expect(error).toMatchObject({ status });
+    },
+  );
 });
