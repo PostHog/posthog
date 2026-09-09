@@ -3,12 +3,15 @@ from typing import Any
 
 from posthog.clickhouse.client import query_with_columns
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.ai.ai_table_resolver import AIEventsExpiredError, AIEventsNotFoundError
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, HEAVY_COLUMN_TO_PROPERTY, merge_heavy_properties
 from posthog.utils import ensure_utc
 
 
-def _query_ai_event(team_id: int, where_clauses: list[str], params: dict[str, object]) -> dict[str, Any] | None:
+def _query_ai_event(
+    team_id: int, where_clauses: list[str], params: dict[str, object], workload: Workload = Workload.DEFAULT
+) -> dict[str, Any] | None:
     """Read one event with its heavy AI columns, or None. An evaluation grades the heavy
     $ai_input / $ai_output, which live only on the dedicated ai_events table."""
     heavy_cols = ",\n                ".join(HEAVY_COLUMN_NAMES)
@@ -32,6 +35,7 @@ def _query_ai_event(team_id: int, where_clauses: list[str], params: dict[str, ob
             """,
             params,
             team_id=team_id,
+            workload=workload,
         )
     if not rows:
         return None
@@ -100,4 +104,6 @@ def fetch_generation_event(
         where_clauses.append("timestamp >= %(ts)s - INTERVAL 1 DAY")
         where_clauses.append("timestamp <= %(ts)s + INTERVAL 1 DAY")
         params["ts"] = timestamp
-    return _query_ai_event(team_id, where_clauses, params)
+    # An evaluation activity reads this, and a backfill tick can start hundreds of them at once,
+    # so it belongs off the cluster serving interactive requests.
+    return _query_ai_event(team_id, where_clauses, params, workload=Workload.OFFLINE)

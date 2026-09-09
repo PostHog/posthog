@@ -1,7 +1,7 @@
 """One HogQL query shape serves both the pre-start estimate and the paged dispatch, so the number
 a user approves and the units the workflow evaluates come from the same predicate."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from posthog.hogql import ast
@@ -9,6 +9,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.ai_table_resolver import AIEventsExpiredError, AIEventsNotFoundError, query_ai_events
 from posthog.models.team import Team
@@ -19,6 +20,10 @@ from products.ai_observability.backend.models.evaluations import EvaluationTarge
 # The count runs inside an API request and the walk inside one activity attempt, so a filter that
 # is too expensive for ClickHouse must fail the caller quickly rather than hold it for the 60s default.
 MAX_EXECUTION_TIME_SECONDS = 30
+
+# Room for the verdict event's own trip through ingestion, on top of the evaluation's settle
+# horizon. A verdict that lands later than this is one the dedupe cannot see.
+VERDICT_LAG_MARGIN = timedelta(days=1)
 
 # A trace or session id is a plain event property, so capture takes one as large as the event it
 # rides on, while a Temporal activity payload stops near 2 MiB. Bounding every id a candidate
@@ -63,7 +68,7 @@ WHERE event = '$ai_evaluation'
   AND properties.$ai_evaluation_id = {evaluation_id}
   AND {target_type_filter}
   AND timestamp >= {window_start}
-  AND timestamp < {window_end} + INTERVAL 2 DAY
+  AND timestamp < {verdict_end}
 """
 
 
@@ -117,17 +122,20 @@ def _not_already_evaluated(
     target: str,
     window_start: datetime,
     window_end: datetime,
+    settle_horizon: timedelta,
 ) -> ast.Expr:
     # The upper bound keeps the subquery off the whole events history after the window. A live
-    # verdict for a unit in the window lands within the longest settle budget, the 24 hour session
-    # max age, plus ingestion lag, so two days covers every verdict this dedupe must see.
+    # verdict is stamped when its unit finishes settling, so it can trail the unit by the whole
+    # settle horizon the evaluation is configured with, up to 7 days for a session. Reading that
+    # number from the evaluation rather than assuming one keeps the scan tight where the wait is
+    # short, which is every generation and every trace.
     already_evaluated = parse_select(
         _ALREADY_EVALUATED_SQL,
         placeholders={
             "evaluation_id": ast.Constant(value=evaluation_id),
             "target_type_filter": _target_type_filter(target),
             "window_start": ast.Constant(value=window_start),
-            "window_end": ast.Constant(value=window_end),
+            "verdict_end": ast.Constant(value=window_end + settle_horizon + VERDICT_LAG_MARGIN),
         },
     )
     return ast.CompareOperation(op=ast.CompareOperationOp.NotIn, left=unit_key, right=already_evaluated)
@@ -138,6 +146,7 @@ def _units_query(
     team: Team,
     evaluation_id: str,
     target: str,
+    settle_horizon: timedelta,
     conditions: list[dict[str, Any]],
     window_start: datetime,
     window_end: datetime,
@@ -167,6 +176,7 @@ def _units_query(
             target=target,
             window_start=window_start,
             window_end=window_end,
+            settle_horizon=settle_horizon,
         ),
     }
     return query, placeholders
@@ -216,6 +226,7 @@ def _run(
                 team=team,
                 query_type=query_type,
                 fall_back_to_events=False,
+                workload=Workload.OFFLINE,
                 settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME_SECONDS),
             )
         except (AIEventsNotFoundError, AIEventsExpiredError):
@@ -228,6 +239,7 @@ def count_backfill_candidates(
     team: Team,
     evaluation_id: str,
     target: str,
+    settle_horizon: timedelta,
     conditions: list[dict[str, Any]],
     window_start: datetime,
     window_end: datetime,
@@ -237,6 +249,7 @@ def count_backfill_candidates(
         team=team,
         evaluation_id=evaluation_id,
         target=target,
+        settle_horizon=settle_horizon,
         conditions=conditions,
         window_start=window_start,
         window_end=window_end,
@@ -255,6 +268,7 @@ def fetch_backfill_candidates(
     team: Team,
     evaluation_id: str,
     target: str,
+    settle_horizon: timedelta,
     conditions: list[dict[str, Any]],
     window_start: datetime,
     window_end: datetime,
@@ -267,6 +281,7 @@ def fetch_backfill_candidates(
         team=team,
         evaluation_id=evaluation_id,
         target=target,
+        settle_horizon=settle_horizon,
         conditions=conditions,
         window_start=window_start,
         window_end=window_end,

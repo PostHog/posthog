@@ -27,7 +27,11 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime
 from posthog.temporal.ai_observability.evaluation_types import EVALUATION_WORKFLOW_PREFIXES
 from posthog.temporal.ai_observability.evaluation_workflow_activities import RunEvaluationInputs
-from posthog.temporal.ai_observability.run_aggregate_evaluation import RunAggregateEvaluationInputs
+from posthog.temporal.ai_observability.run_aggregate_evaluation import (
+    INGESTION_LAG_MARGIN_SECONDS,
+    RunAggregateEvaluationInputs,
+    resolve_settle_plan,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.ai_observability.backend.backfill_candidates import fetch_backfill_candidates
@@ -36,6 +40,7 @@ from products.ai_observability.backend.models.evaluation_backfill import (
     EvaluationBackfill,
     EvaluationBackfillStatus,
 )
+from products.ai_observability.backend.models.evaluations import EvaluationTarget
 
 BACKFILL_WORKFLOW_NAME = "llma-evaluation-backfill"
 BACKFILL_TICK_INTERVAL = timedelta(seconds=60)
@@ -58,6 +63,20 @@ MIN_BACKFILL_BATCH_SIZE = 1
 MAX_BACKFILL_BATCH_SIZE = 1000
 # A tick that keeps failing would otherwise leave the row RUNNING and the loop spinning forever.
 BACKFILL_MAX_CONSECUTIVE_FAILURES = 5
+
+
+def settle_horizon(target: str, settle: dict[str, Any] | None) -> timedelta:
+    """How long after its first event a unit is still being graded by the live path.
+
+    Zero for a generation, which is complete when it lands. For a trace or a session it is the
+    settle ceiling the evaluation is configured with, which reaches 7 days for a session, not the
+    24 hour default. Two things read it: the window a backfill may cover, and how far past that
+    window a live verdict for one of its units can still be stamped.
+    """
+    if target == EvaluationTarget.GENERATION.value:
+        return timedelta(0)
+    plan = resolve_settle_plan(settle, target)
+    return timedelta(seconds=plan.max_age_seconds + INGESTION_LAG_MARGIN_SECONDS)
 
 
 def backfill_workflow_id(backfill_id: str) -> str:
@@ -228,12 +247,13 @@ async def prepare_evaluation_backfill_tick_activity(inputs: EvaluationBackfillIn
 
 
 def _find_backfill_candidates(inputs: FindCandidatesInputs) -> FindCandidatesOutput:
-    row = EvaluationBackfill.objects.for_team(inputs.team_id).get(pk=inputs.backfill_id)
+    row = EvaluationBackfill.objects.for_team(inputs.team_id).select_related("evaluation").get(pk=inputs.backfill_id)
     team = Team.objects.get(pk=inputs.team_id)
     page = fetch_backfill_candidates(
         team=team,
         evaluation_id=str(row.evaluation_id),
         target=row.target,
+        settle_horizon=settle_horizon(row.target, row.evaluation.target_config),
         conditions=row.conditions,
         window_start=row.window_start,
         window_end=row.window_end,

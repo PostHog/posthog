@@ -104,6 +104,7 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
             "team": self.team,
             "evaluation_id": str(self.evaluation.id),
             "target": "trace",
+            "settle_horizon": timedelta(0),
             "conditions": [],
             "window_start": WINDOW_START,
             "window_end": WINDOW_END,
@@ -117,6 +118,7 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
             "team": self.team,
             "evaluation_id": str(self.evaluation.id),
             "target": "generation",
+            "settle_horizon": timedelta(0),
             "conditions": [],
             "window_start": WINDOW_START,
             "window_end": WINDOW_END,
@@ -203,7 +205,19 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
         assert self._count(target=target, rerun_existing=False) == expected
         assert self._count(target=target, rerun_existing=True) == expected + 1
 
-    def test_a_verdict_landing_long_after_the_window_does_not_dedupe(self) -> None:
+    @parameterized.expand(
+        [
+            # A generation is graded when it lands, so a verdict three days later belongs to
+            # something else and the unit is still a candidate.
+            ("a settle horizon this evaluation does not have", timedelta(0), 3),
+            # A session evaluation can wait a week before it grades, so the same verdict is the
+            # one this backfill would otherwise duplicate.
+            ("the horizon a long session evaluation waits", timedelta(days=7), 2),
+        ]
+    )
+    def test_a_verdict_is_deduped_when_the_evaluation_could_still_have_been_settling(
+        self, _case: str, horizon: timedelta, expected: int
+    ) -> None:
         _create_event(
             team=self.team,
             event="$ai_evaluation",
@@ -216,7 +230,8 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
             },
         )
         flush_persons_and_events()
-        assert self._count(target="trace", rerun_existing=False) == 3
+
+        assert self._count(target="trace", settle_horizon=horizon, rerun_existing=False) == expected
 
     def test_pages_descend_by_timestamp_then_id_and_report_exhaustion(self) -> None:
         page1 = self._fetch(limit=3)
