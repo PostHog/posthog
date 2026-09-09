@@ -28,7 +28,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 ## What the linters already enforce
 
 Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI, and they (not this list) are the source of truth for what's enforced.
-Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, required-check gate hygiene, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
+Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, required-check gate hygiene, secrets a reusable workflow reads being declared and passed by its callers, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
 Third-party action digests are bumped by Renovate.
 
 ## The dispatch budget (500 runs / 10s / repo)
@@ -296,6 +296,14 @@ A dedicated GitHub App installation is its own bucket — rate-limit headroom pl
   Convention: `GH_APP_<PURPOSE>_APP_ID` (an org **variable** — app IDs are not sensitive, and org secret slots are capped at 100) + `GH_APP_<PURPOSE>_PRIVATE_KEY` (an org secret).
 - Cross-repo tokens set explicit `owner:` + `repositories:` (least privilege).
 - Creating the app + secret is out of scope here — use `/managing-github-actions-secrets`.
+
+### Secrets in reusable workflows
+
+A `workflow_call` workflow receives no secrets on its own.
+A `secrets.X` it reads interpolates to an empty string unless it declares `X` under `on.workflow_call.secrets` and every caller passes it, or a caller uses `secrets: inherit`.
+Nothing fails when that happens: an App-token step under `continue-on-error` falls back to `github.token` and the check stays green, which is how `ci-turbo` silently lost its dedicated rate-limit bucket.
+`WF010` fails an undeclared read, and fails a caller that omits a secret declared `required: true`.
+Declare `required: false` only when the callee genuinely works without the value, the way a smoke-test build withholds a publish key on purpose; that is the callee's promise, and the linter takes it at its word.
 
 ## Forks and untrusted PRs (public repo)
 
