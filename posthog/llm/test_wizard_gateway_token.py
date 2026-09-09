@@ -12,11 +12,17 @@ import requests
 from posthog.llm.wizard_gateway_token import (
     _TIER_FLOORS,
     NO_OVERRIDE,
+    WIZARD_DECLARABLE_EFFORTS,
+    WIZARD_EFFORT_LEVELS,
     WIZARD_GATEWAY_CONFIG_REJECTS,
+    WIZARD_MODEL_ALLOWLIST,
     WizardGatewayMintError,
     WizardLimitOverride,
     WizardTierLimits,
+    allowed_efforts,
+    allowed_models,
     mint_wizard_gateway_token,
+    normalize_model,
     parse_limit_override,
     wizard_gateway_base_url,
     wizard_gateway_configured,
@@ -72,9 +78,43 @@ class TestMintWizardGatewayToken:
             "product": "wizard",
             "obo": "org_1",
             "user": "user_1",
+            # Derived: this case pins that the mint carries the pins, not which
+            # models are on the table. TestWizardModelAllowlist owns the contents.
+            "allowed_models": allowed_models(),
+            "allowed_efforts": allowed_efforts(),
         }
         assert post.call_args.kwargs["headers"] == {"Authorization": "Bearer phs_wizard_secret"}
         assert post.call_args.kwargs["timeout"] > 0
+
+
+class TestWizardModelAllowlist:
+    def test_the_allowlist_is_never_empty(self):
+        # The gateway refuses an explicit [] at mint, so an empty table would
+        # refuse every wizard run rather than pin nothing.
+        assert allowed_models()
+        assert allowed_efforts()
+        assert all(efforts for efforts in WIZARD_MODEL_ALLOWLIST.values())
+
+    def test_models_are_sent_lowercased_and_stripped_of_the_openai_prefix(self):
+        table = {"OpenAI/GPT-5.6-Luna": ("low",), "gpt-5.6-luna": ("medium",), " Claude-Sonnet-5 ": ("none",)}
+        with patch("posthog.llm.wizard_gateway_token.WIZARD_MODEL_ALLOWLIST", table):
+            assert allowed_models() == ["gpt-5.6-luna", "claude-sonnet-5"]
+
+    def test_efforts_cover_what_the_cli_can_declare_not_what_the_table_measured(self):
+        # A flag payload or a remote prompt can name any declarable level with
+        # no deploy here, so a pin built from the table would refuse those runs.
+        table = {"a": ("high", "none")}
+        with patch("posthog.llm.wizard_gateway_token.WIZARD_MODEL_ALLOWLIST", table):
+            assert allowed_efforts() == ["none", "minimal", "low", "medium", "high", "xhigh"]
+
+    def test_the_effort_pin_withholds_the_level_the_cli_cannot_send(self):
+        assert "max" not in allowed_efforts()
+        assert set(WIZARD_DECLARABLE_EFFORTS) <= set(WIZARD_EFFORT_LEVELS)
+
+    def test_every_effort_in_the_table_is_gateway_vocabulary(self):
+        for model, efforts in WIZARD_MODEL_ALLOWLIST.items():
+            assert set(efforts) <= set(WIZARD_EFFORT_LEVELS), model
+            assert normalize_model(model) == model, model
 
     @override_settings(WIZARD_GATEWAY_URL="https://ai-gateway.us.posthog.com/v1/")
     def test_version_suffixed_setting_does_not_double_up(self):
