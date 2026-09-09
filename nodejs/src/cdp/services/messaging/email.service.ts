@@ -118,11 +118,14 @@ const TEAM_CAP_RETRY_MIN_MS = 1_000
 const TEAM_CAP_RETRY_MAX_MS = 60 * 60 * 1_000
 
 function pickCapRetryDelayMs(retryAfterMs: number | null, refillPerSecond: number): number {
-    // The 1x-2x jitter spreads re-claims so a parked backlog does not wake on the same
-    // instant. Falls back to one token interval when the limiter reported no horizon
-    // (an error-path denial).
-    const baseMs = retryAfterMs ?? 1000 / refillPerSecond
-    const clampedMs = Math.min(Math.max(baseMs, TEAM_CAP_RETRY_MIN_MS), TEAM_CAP_RETRY_MAX_MS)
+    // A denial with no horizon means the limiter itself failed, not that the cap was reached.
+    // Valkey recovers in seconds, but a daily cap paces in hours, so that bucket's refill is the
+    // wrong clock for this wake. Use the token-bucket cadence, which has a much shorter ceiling.
+    if (retryAfterMs === null) {
+        return pickTokenBucketRetryDelayMs(refillPerSecond)
+    }
+    // The 1x-2x jitter spreads re-claims so a parked backlog does not wake on the same instant.
+    const clampedMs = Math.min(Math.max(retryAfterMs, TEAM_CAP_RETRY_MIN_MS), TEAM_CAP_RETRY_MAX_MS)
     return Math.floor(clampedMs * (1 + Math.random()))
 }
 
