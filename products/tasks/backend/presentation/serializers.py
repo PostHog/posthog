@@ -2037,7 +2037,7 @@ class TaskListQuerySerializer(serializers.Serializer):
     search = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="Case-insensitive substring search over task title and description. A numeric value also matches the task number. An empty value disables the filter.",
+        help_text="Case-insensitive substring search over task title and the first 4000 characters of the description. A numeric value also matches the task number. An empty value disables the filter.",
     )
     status = serializers.ChoiceField(
         required=False,
