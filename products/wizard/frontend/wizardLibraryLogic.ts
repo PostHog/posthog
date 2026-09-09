@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -19,6 +20,7 @@ import type {
     WizardRunApi,
     WizardRunCreateRequestApi,
 } from './generated/api.schemas'
+import { wizardEventProperties, wizardRunEventProperties } from './wizardAnalytics'
 import { wizardRunDetailsLogic } from './wizardRunDetailsLogic'
 import { WIZARD_LOCAL_RUNS_VISIBLE, wizardCommand } from './wizardRunDisplay'
 import { wizardRunsLogic } from './wizardRunsLogic'
@@ -209,8 +211,33 @@ export const wizardLibraryLogic = kea<wizardLibraryLogicType>([
         createRunRequest: [
             null as WizardRunApi | null,
             {
-                createRunRequest: async ({ projectId, body }: { projectId: string; body: WizardRunCreateRequestApi }) =>
-                    wizardRunsCreate(projectId, body),
+                createRunRequest: async ({
+                    projectId,
+                    body,
+                }: {
+                    projectId: string
+                    body: WizardRunCreateRequestApi
+                }) => {
+                    const properties = {
+                        ...wizardEventProperties(projectId, body.environment),
+                        program_id: body.program_id,
+                        wizard_version: body.wizard_version,
+                        version: body.wizard_version,
+                        workspace_type: body.workspace.type,
+                    }
+                    posthog.capture('wizard run create requested', properties)
+                    try {
+                        const run = await wizardRunsCreate(projectId, body)
+                        posthog.capture('wizard run create succeeded', wizardRunEventProperties(run))
+                        return run
+                    } catch (error) {
+                        posthog.capture('wizard run create failed', {
+                            ...properties,
+                            http_status: error instanceof ApiError ? error.status : null,
+                        })
+                        throw error
+                    }
+                },
             },
         ],
     })),
@@ -290,6 +317,13 @@ export const wizardLibraryLogic = kea<wizardLibraryLogicType>([
                 return
             }
 
+            posthog.capture(
+                'wizard library opened',
+                wizardEventProperties(
+                    values.currentProjectId,
+                    WIZARD_LOCAL_RUNS_VISIBLE ? values.libraryEnvironment : 'cloud'
+                )
+            )
             actions.loadRegistry()
             actions.loadIntegrations()
 
@@ -308,9 +342,17 @@ export const wizardLibraryLogic = kea<wizardLibraryLogicType>([
             actions.setLibraryEnvironment(environment)
         },
         copyCommand: () => {
+            const program = values.selectedProgram
             if (values.selectedProgramCommand) {
                 void copyToClipboard(values.selectedProgramCommand, 'Wizard command').then((copied) => {
                     if (copied) {
+                        posthog.capture('wizard command copied', {
+                            ...wizardEventProperties(values.currentProjectId, 'local'),
+                            program_id: program?.id,
+                            wizard_version: program?.wizard_version,
+                            version: program?.wizard_version,
+                            command: program?.command[0] ?? 'default',
+                        })
                         actions.markCommandCopied()
                     }
                 })
@@ -321,6 +363,7 @@ export const wizardLibraryLogic = kea<wizardLibraryLogicType>([
                 return
             }
 
+            posthog.capture('wizard run retry selected', wizardRunEventProperties(run))
             // Resolve the program only after the registry (re)loads, so a stale or absent
             // selection can never start an unrelated program.
             cache.pendingRunAgainProgramId = run.program.id
