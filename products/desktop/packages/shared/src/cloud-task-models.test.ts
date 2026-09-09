@@ -284,6 +284,16 @@ describe("buildCloudTaskConfigOptions", () => {
       expect.objectContaining({ value: "deepseek-ai/deepseek-v4-flash-0731" }),
     );
   });
+
+  it.each(["claude", "codex"] as const)(
+    "keeps a usable default model when the gateway answers with an empty catalog (%s)",
+    (adapter) => {
+      const modelOption = buildCloudTaskConfigOptions([], adapter).find(
+        (option) => option.id === "model",
+      );
+      expect(modelOption?.currentValue).not.toBe("");
+    },
+  );
 });
 
 describe("adapterForModelId", () => {

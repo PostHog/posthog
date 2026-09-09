@@ -489,7 +489,7 @@ export function buildCloudTaskConfigOptions(
       ? (modelOptions.find((option) => option.value === DEFAULT_CODEX_MODEL)
           ?.value ??
         modelOptions[0]?.value ??
-        "")
+        DEFAULT_CODEX_MODEL)
       : DEFAULT_GATEWAY_MODEL;
   const preferredModelId = modelOptions.some(
     (option) => option.value === defaultModel,
