@@ -17,6 +17,12 @@ import { TileId, WebAnalyticsTile } from './common'
 import { getNewInsightSourceFactory, webTileInsightName } from './insightsUtils'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
+interface SavedTileInsight {
+    /** The query the save sent, so a later click can tell whether the tile still matches. */
+    query: QuerySchema
+    insight: QueryBasedInsightModel
+}
+
 interface SaveTileAsInsightPayload {
     query: QuerySchema
     name: string
@@ -31,9 +37,9 @@ export interface webAnalyticsAddToDashboardLogicValues {
     combinedTiles: WebAnalyticsTile[] // webAnalyticsModalLogic
     canAddTileToDashboard: (tileId: TileId, tabId?: string) => boolean
     isAddToDashboardModalOpen: boolean
-    lastSavedQuery: QuerySchema | null
     savedInsight: QueryBasedInsightModel | null
     savedInsightLoading: boolean
+    savedInsightsByTile: Record<string, SavedTileInsight>
     savingTileKey: string | null
 }
 
@@ -110,13 +116,17 @@ export const webAnalyticsAddToDashboardLogic = kea<webAnalyticsAddToDashboardLog
                 closeAddToDashboardModal: () => false,
             },
         ],
-        // The query the last successful save sent. The reuse check compares against this, not
-        // against the server-returned insight.query, because the API normalizes the stored node
-        // and a comparison against that would save a duplicate insight on every click.
-        lastSavedQuery: [
-            null as QuerySchema | null,
+        // Every insight saved this session, keyed by tile, so returning to a tile after adding
+        // another one still reuses its insight. The entry keeps the query the save sent rather
+        // than the server-returned insight.query, because the API normalizes the stored node and
+        // a comparison against that would save a duplicate insight on every click.
+        savedInsightsByTile: [
+            {} as Record<string, SavedTileInsight>,
             {
-                saveTileAsInsightSuccess: (state, { payload }) => payload?.query ?? state,
+                saveTileAsInsightSuccess: (state, { savedInsight, payload }) =>
+                    savedInsight && payload
+                        ? { ...state, [payload.tileKey]: { query: payload.query, insight: savedInsight } }
+                        : state,
             },
         ],
         savingTileKey: [
@@ -163,17 +173,20 @@ export const webAnalyticsAddToDashboardLogic = kea<webAnalyticsAddToDashboardLog
                 intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
             })
 
-            // Re-clicking with an unchanged query reuses the saved insight instead of littering
-            // saved insights with duplicates.
-            if (values.savedInsight && objectsEqual(values.lastSavedQuery, source.query)) {
-                actions.openAddToDashboardModal()
+            const tileKey = webTileKey(tileId, tabId)
+
+            // Clicking a tile whose query has not changed reuses the insight it already saved,
+            // instead of littering saved insights with duplicates.
+            const saved = values.savedInsightsByTile[tileKey]
+            if (saved && objectsEqual(saved.query, source.query)) {
+                actions.saveTileAsInsightSuccess(saved.insight)
                 return
             }
 
             actions.saveTileAsInsight({
                 query: source.query,
                 name: webTileInsightName(source.title),
-                tileKey: webTileKey(tileId, tabId),
+                tileKey,
             })
         },
         saveTileAsInsightSuccess: ({ savedInsight }) => {

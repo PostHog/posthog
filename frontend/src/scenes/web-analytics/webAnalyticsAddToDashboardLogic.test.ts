@@ -96,6 +96,33 @@ describe('webAnalyticsAddToDashboardLogic', () => {
         expect(createSpy).toHaveBeenCalledTimes(1)
     })
 
+    // Regression: the reuse check used to hold one tile's query, so adding a second tile and
+    // returning to the first saved a second insight under the same generated name.
+    it("reuses each tile's own insight after another tile was added", async () => {
+        createSpy.mockImplementation((insight: any) =>
+            Promise.resolve({ id: createSpy.mock.calls.length, short_id: insight.name, ...insight })
+        )
+
+        logic.actions.addTileToDashboard(TileId.PATHS, 'PATH')
+        await expectLogic(logic).toDispatchActions(['saveTileAsInsightSuccess'])
+        logic.actions.closeAddToDashboardModal()
+
+        logic.actions.addTileToDashboard(TileId.SOURCES, 'CHANNEL')
+        await expectLogic(logic).toDispatchActions(['saveTileAsInsightSuccess'])
+        logic.actions.closeAddToDashboardModal()
+        expect(createSpy).toHaveBeenCalledTimes(2)
+
+        await expectLogic(logic, () => {
+            logic.actions.addTileToDashboard(TileId.PATHS, 'PATH')
+        })
+            .toDispatchActions(['openAddToDashboardModal'])
+            .toNotHaveDispatchedActions(['saveTileAsInsight'])
+
+        expect(createSpy).toHaveBeenCalledTimes(2)
+        // The picker has to open on the tile that was clicked, not on the one saved last.
+        expect(logic.values.savedInsight?.short_id).toBe(createSpy.mock.calls[0][0].name)
+    })
+
     it('keeps the picker closed when the save fails', async () => {
         createSpy.mockRejectedValue(new Error('nope'))
 
