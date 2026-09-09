@@ -105,6 +105,23 @@ class TestMetricCheckAPI(APIBaseTest):
         assert "definition" not in row and "values" not in row
         assert self.client.delete(f"{self.url}/{check['id']}/").status_code == 204
 
+    def test_a_metric_that_leaves_hogql_still_takes_presentation_edits(self) -> None:
+        check = self._create()
+        self.metric.definition = {"kind": "MarkdownDefinition", "content": "Signups per day"}
+        self.metric.save(update_fields=["definition"])
+
+        paused = self.client.patch(f"{self.url}/{check['id']}/", {"enabled": False, "description": "paused"})
+
+        assert paused.status_code == status.HTTP_200_OK, paused.content
+        assert paused.json()["enabled"] is False
+        assert paused.json()["description"] == "paused"
+        # The assertion itself still cannot be rewritten against a definition that is no longer there.
+        rewritten = self.client.patch(
+            f"{self.url}/{check['id']}/", {"config": {"query": "SELECT * FROM {metric} WHERE signups < 10"}}
+        )
+        assert rewritten.status_code == status.HTTP_400_BAD_REQUEST, rewritten.content
+        assert rewritten.json()["detail"] == "Metric checks require a live HogQL definition."
+
     def test_metric_manual_run_and_nested_history(self) -> None:
         check = self._create()
         with patch(START_SUITE, return_value=MagicMock(start_workflow=AsyncMock())):

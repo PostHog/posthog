@@ -55,6 +55,12 @@ _ASSERTION_FIELDS = ("check_type", "column_name", "config")
 _EDITABLE_FIELDS = (*_UPSERTABLE_FIELDS, *_ASSERTION_FIELDS)
 
 
+def edits_the_assertion(fields: Iterable[str]) -> bool:
+    """Whether a write proposes a new assertion, rather than only presentation fields."""
+    requested = set(fields)
+    return any(field in requested for field in _ASSERTION_FIELDS)
+
+
 def _subject_fk(subject_type: str, subject_uuid: str | UUID) -> dict[str, Any]:
     """The FK kwargs for whichever subject kind this is."""
     if subject_type == SubjectType.TABLE:
@@ -276,6 +282,17 @@ def _commit_edit(
 def _candidate_definition(
     team: Team, check: DataQualityCheck, requested: dict[str, Any], editor: User | None
 ) -> _CandidateDefinition:
+    if not edits_the_assertion(requested):
+        # A presentation-only edit asserts nothing new, so the stored definition is kept as it is
+        # rather than revalidated. A subject can stop supporting its check after the check exists (a
+        # metric moves off a HogQL definition), and revalidating here would block the very edit that
+        # settles it: turning the check off.
+        return _CandidateDefinition(
+            check_type=check.check_type,
+            column_name=check.column_name,
+            config=check.config,
+            fingerprint=check.fingerprint,
+        )
     check_type = requested.get("check_type", check.check_type)
     column_name = requested.get("column_name", check.column_name)
     parsed = validate_check(

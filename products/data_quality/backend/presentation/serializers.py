@@ -157,6 +157,13 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
         return str(obj.subject_uuid) if obj.subject_uuid else None
 
     def validate(self, attrs: dict) -> dict:
+        # An edit that touches only presentation fields (enabled, name, description, owner, ...) is
+        # not judged against the stored assertion. A subject can stop supporting its check after the
+        # check exists, and holding the edit to the assertion would leave the owner unable to turn
+        # the check off.
+        if self.instance is not None and not api.edits_the_assertion(attrs):
+            return attrs
+
         def resolved(field: str) -> str:
             return attrs.get(field) or getattr(self.instance, field, None) or ""
 
