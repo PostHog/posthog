@@ -2,6 +2,7 @@ import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { CANVAS_DRAG_TYPE } from "@posthog/ui/features/canvas/canvasDrag";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import type { TaskStatusInput } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import {
   beginSidebarPeek,
@@ -139,6 +140,7 @@ beforeEach(() => {
   mocks.openBrowserTab.mockClear();
   useSidebarStore.setState({ listItemMetadataFields: [] });
   usePendingCanvasDeleteStore.setState({ pending: {} });
+  useArchivingTasksStore.setState({ archivingTaskIds: new Set() });
   useTaskSelectionStore.setState({
     selectedTaskIds: [],
     lastClickedId: null,
@@ -146,7 +148,32 @@ beforeEach(() => {
 });
 
 describe("ChannelItemRow", () => {
-  // This table keeps task state labels consistent across all task rows.
+  it("dims an archiving task and blocks its row actions", () => {
+    const pendingActions = {
+      ...actions,
+      open: vi.fn(),
+      togglePin: vi.fn(),
+      archive: vi.fn(),
+    };
+    useArchivingTasksStore.getState().startArchiving("task-1");
+    renderInList(
+      <ChannelItemRow
+        actions={pendingActions}
+        isActive={false}
+        item={item()}
+      />,
+    );
+
+    const row = screen.getByRole("button");
+    expect(row.className).toContain("opacity-50");
+    expect(row.draggable).toBe(false);
+
+    fireEvent.click(row);
+    fireEvent.contextMenu(row);
+    expect(pendingActions.open).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
   it.each([
     ["a permission prompt", { needsPermission: true }, "Needs your input"],
     [
