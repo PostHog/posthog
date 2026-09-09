@@ -46,15 +46,22 @@ SELECT
         argMin(distinct_id, timestamp)
     ) AS first_distinct_id,
     round(
-        CASE
-            WHEN countIf(toFloat(properties.$ai_latency) > 0 AND event != '$ai_generation') = 0
-                 AND countIf(toFloat(properties.$ai_latency) > 0 AND event = '$ai_generation') > 0
-            THEN sumIf(toFloat(properties.$ai_latency),
-                       event = '$ai_generation' AND toFloat(properties.$ai_latency) > 0)
-            ELSE sumIf(toFloat(properties.$ai_latency),
-                       properties.$ai_parent_id IS NULL
-                       OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id))
-        END, 2
+        coalesce(
+            -- The root $ai_trace event reports the wall-clock latency of the whole trace,
+            -- so the events it contains are already inside that number. Adding them again
+            -- counts the same time twice.
+            nullIf(maxIf(toFloat(properties.$ai_latency),
+                         event = '$ai_trace' AND toFloat(properties.$ai_latency) > 0), 0),
+            CASE
+                WHEN countIf(toFloat(properties.$ai_latency) > 0 AND event != '$ai_generation') = 0
+                     AND countIf(toFloat(properties.$ai_latency) > 0 AND event = '$ai_generation') > 0
+                THEN sumIf(toFloat(properties.$ai_latency),
+                           event = '$ai_generation' AND toFloat(properties.$ai_latency) > 0)
+                ELSE sumIf(toFloat(properties.$ai_latency),
+                           properties.$ai_parent_id IS NULL
+                           OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id))
+            END
+        ), 2
     ) AS total_latency,
     sumIf(toFloat(properties.$ai_input_tokens),
           event IN ('$ai_generation', '$ai_embedding')) AS input_tokens,
