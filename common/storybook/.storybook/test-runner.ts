@@ -208,6 +208,12 @@ export default {
     },
 
     async preVisit(page, context) {
+        // One page serves every story in the file, and the color scheme `takeSnapshotWithTheme`
+        // emulates is a page-level override that outlives a navigation. Without this reset the dark
+        // pass leaves the next story to mount under a dark scheme, which a component that reads the
+        // media query once at mount would keep for its light snapshot. This runs before the story
+        // renders, so it cannot affect the snapshot the story goes on to produce.
+        await page.emulateMedia({ colorScheme: null })
         await page.route(/\/(embedded|shared)\//, (route) =>
             route.fulfill({ status: 200, contentType: 'text/html', body: EMBED_STUB_HTML })
         )
