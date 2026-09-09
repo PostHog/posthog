@@ -572,8 +572,8 @@ importers:
         specifier: ^3.0.2
         version: 3.0.3(react-native-svg@15.15.5(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6))(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6)
       posthog-react-native:
-        specifier: ^4.67.3
-        version: 4.67.3(604eb56a6918d5c695b6cd493ea29f1c)
+        specifier: ^4.68.2
+        version: 4.68.2(604eb56a6918d5c695b6cd493ea29f1c)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -13964,8 +13964,8 @@ packages:
       rxjs:
         optional: true
 
-  posthog-react-native@4.67.3:
-    resolution: {integrity: sha512-fJDwgWlYQyor6+hy3M1G1hEHyw1t9O2GMJZoLQmiOqDZS+YcEbyqrxbvSKOPsS+0WBlHEz+kIm2kJMt8stX3Tw==}
+  posthog-react-native@4.68.2:
+    resolution: {integrity: sha512-1e+6Ftwb3PaFSfq9Wo/MUYHKsFXdnL4tqoYmBX4JAqMEo++WyEApNBirhdKwIAcUysxAqM9sfWvIhXPBGnNrgQ==}
     hasBin: true
     peerDependencies:
       '@posthog/react-native-plugin': '>= 2.4.3'
@@ -20983,7 +20983,11 @@ snapshots:
 
   '@posthog/core@1.51.0':
     dependencies:
-      '@posthog/types': 1.409.1
+      '@posthog/types': 1.409.2
+
+  '@posthog/core@1.51.1':
+    dependencies:
+      '@posthog/types': 1.409.2
 
   '@posthog/core@1.51.1':
     dependencies:
@@ -30076,10 +30080,10 @@ snapshots:
     optionalDependencies:
       rxjs: 7.8.2
 
-  posthog-react-native@4.67.3(604eb56a6918d5c695b6cd493ea29f1c):
+  posthog-react-native@4.68.2(604eb56a6918d5c695b6cd493ea29f1c):
     dependencies:
-      '@posthog/core': 1.51.0
-      '@posthog/types': 1.409.1
+      '@posthog/core': 1.51.1
+      '@posthog/types': 1.409.2
     optionalDependencies:
       '@posthog/react-native-plugin': 2.5.2(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6)
       '@react-native-async-storage/async-storage': 2.2.0(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))
