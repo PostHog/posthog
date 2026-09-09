@@ -1,3 +1,5 @@
+from typing import Literal
+
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -29,15 +31,13 @@ from products.context_layer.backend.presentation.serializers import (
     WikiTreeSerializer,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.models import Channel
-from products.tasks.backend.repository_config_analytics import capture_space_context_changed
 
 # Ordinary task runs can land wiki commits with nothing but the writer lock
 # pacing them, so a runaway sandbox agent gets a hard daily ceiling per run.
 RUN_COMMITS_PER_DAY_CAP = 20
 
 
-def _context_actor_type(request: Request) -> str:
+def _context_actor_type(request: Request) -> Literal["user_or_api", "task_agent", "loop_agent"]:
     access_token = get_oauth_access_token(request)
     token_scopes = set((getattr(access_token, "scope", "") or "").split())
     if LOOP_CONTEXT_INTERNAL_SCOPE in token_scopes:
@@ -66,27 +66,16 @@ def _capture_context_page_update(
         team_id = int(path_parts[1])
     except ValueError:
         return
-    channel = (
-        Channel.objects.unscoped()
-        .select_related("team")
-        .filter(id=channel_id, team_id=team_id, team__organization_id=organization_id)
-        .first()
-    )
-    if channel is None:
-        return
     actor_type = _context_actor_type(request)
-    capture_space_context_changed(
-        team=channel.team,
-        user_id=getattr(request.user, "id", None),
+    tasks_facade.capture_context_wiki_changed(
+        organization_id=organization_id,
+        team_id=team_id,
         channel_id=channel_id,
-        action="published",
-        source="user" if actor_type == "user_or_api" else "agent",
-        previous_version=None,
-        content_bytes=content_bytes,
-        base_version_provided=base_version_provided,
-        storage="context_wiki",
+        user_id=getattr(request.user, "id", None),
         actor_type=actor_type,
         is_first_version=is_first_version,
+        content_bytes=content_bytes,
+        base_version_provided=base_version_provided,
     )
 
 

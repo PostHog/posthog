@@ -302,7 +302,7 @@ class TestContextLayerAPI(APIBaseTest):
         page = self.client.get(f"{self.base_url}/pages/", {"path": path}).json()
 
         updated_content = f"{page['content']}\n## Direction\n\nImprove activation.\n"
-        with patch("products.context_layer.backend.presentation.views.capture_space_context_changed") as capture:
+        with patch("products.tasks.backend.repository_config_analytics.posthoganalytics.capture") as capture:
             response = self.client.put(
                 f"{self.base_url}/pages/",
                 {
@@ -314,20 +314,26 @@ class TestContextLayerAPI(APIBaseTest):
             )
 
         assert response.status_code == 200, response.content
-        capture.assert_called_once()
-        properties = dict(capture.call_args.kwargs)
-        assert properties.pop("team") == self.team
+        rows = [
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.kwargs.get("event") == "space_context_changed"
+        ]
+        assert len(rows) == 1
+        properties = rows[0]
         assert properties == {
-            "user_id": self.user.id,
+            "team_id": self.team.id,
             "channel_id": str(channel.id),
             "action": "published",
             "source": "user",
-            "previous_version": None,
-            "content_bytes": len(updated_content.encode("utf-8")),
-            "base_version_provided": True,
             "storage": "context_wiki",
             "actor_type": "user_or_api",
+            "previous_version": None,
+            "new_version": None,
             "is_first_version": False,
+            "content_bytes": len(updated_content.encode("utf-8")),
+            "previous_content_bytes": None,
+            "base_version_provided": True,
         }
 
     def test_page_write_with_stale_base_head_returns_409_with_current_head(self, _flag) -> None:
