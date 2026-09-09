@@ -396,7 +396,8 @@ export interface loginLogicMeta {
         linkedSocialProviders: (
             precheckResponse: PrecheckResponseType,
             precheckTrusted: boolean,
-            showsSocialLoginButtons: boolean
+            showsSocialLoginButtons: boolean,
+            preflight: PreflightStatus | null
         ) => SSOProvider[]
     }
 }
@@ -694,15 +695,22 @@ export const loginLogic = kea<loginLogicType>([
                 precheckResponse.email === login.email,
         ],
         // Providers this account is proven to have, and can reach from the page as it stands. Copy
-        // that points at the social button row must not outlive that row.
+        // that points at the social button row must not outlive that row, so apply the check the row
+        // itself makes: a provider needs an enabled button, and a failed preflight request leaves the
+        // row with no buttons at all.
         linkedSocialProviders: [
-            (s) => [s.precheckResponse, s.precheckTrusted, s.showsSocialLoginButtons],
+            (s) => [s.precheckResponse, s.precheckTrusted, s.showsSocialLoginButtons, s.preflight],
             (
                 precheckResponse: PrecheckResponseType,
                 precheckTrusted: boolean,
-                showsSocialLoginButtons: boolean
+                showsSocialLoginButtons: boolean,
+                preflight: PreflightStatus | null
             ): SSOProvider[] =>
-                precheckTrusted && showsSocialLoginButtons ? (precheckResponse.social_providers ?? []) : [],
+                precheckTrusted && showsSocialLoginButtons
+                    ? (precheckResponse.social_providers ?? []).filter(
+                          (provider) => preflight?.available_social_auth_providers[provider]
+                      )
+                    : [],
         ],
     })),
     listeners(({ values, actions }) => ({

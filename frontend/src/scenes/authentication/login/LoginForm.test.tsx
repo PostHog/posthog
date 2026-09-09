@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -78,6 +79,38 @@ describe('LoginForm', () => {
         it('shows one hint', async () => {
             expect(await screen.findByText(shown)).toBeInTheDocument()
             expect(screen.queryByText(hidden)).not.toBeInTheDocument()
+        })
+    })
+
+    describe('after a failed password login with a failed preflight request', () => {
+        beforeEach(async () => {
+            // The preflight request fails on purpose, so keep its expected error out of the output
+            silenceKeaLoadersErrors()
+            useMocks({
+                get: {
+                    '/api/users/@me/': () => [401, { detail: 'Not authenticated' }],
+                    '/_preflight': () => [500, {}],
+                },
+                post: {
+                    '/api/login/precheck': () => [
+                        200,
+                        { saml_available: false, password_login_available: true, social_providers: ['google-oauth2'] },
+                    ],
+                    '/api/login': () => [401, { code: 'invalid_credentials', detail: 'Invalid email or password.' }],
+                },
+            })
+            await submitAWrongPassword()
+        })
+
+        afterEach(() => {
+            resumeKeaLoadersErrors()
+            cleanup()
+        })
+
+        it('shows no hint, because the page has no provider button to point at', async () => {
+            expect(await screen.findByText(/Invalid email or password/)).toBeInTheDocument()
+            expect(screen.queryByText(PROVIDER_HINT)).not.toBeInTheDocument()
+            expect(screen.queryByText(REGION_HINT)).not.toBeInTheDocument()
         })
     })
 })
