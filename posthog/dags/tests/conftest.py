@@ -14,10 +14,13 @@ from unittest.mock import patch
 
 from django.conf import settings
 
+import psycopg2
+import psycopg2.extensions
 from clickhouse_driver import Client
 from psycopg.types.json import Jsonb
 
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
+from posthog.dags.clickhouse_cleanup import PG_CLEANUP_QUEUE_TABLE
 
 # Import the shared Dagster PostgreSQL fixtures so they apply to all tests
 # in this directory. Direct import (rather than pytest_plugins) is required
@@ -26,7 +29,7 @@ from posthog.dags.tests.dagster_pg_fixtures import (  # noqa: F401
     _dagster_postgres_instance,
     _use_postgres_dagster_instance,
 )
-from posthog.persons_db import persons_db_connection
+from posthog.persons_db import persons_db_connection, persons_db_url
 
 
 def insert_flag_evaluations(rows: list[tuple[int, str, str | UUID, str | UUID, datetime]], client: Client) -> None:
@@ -114,3 +117,16 @@ def isolated_clickhouse_cluster() -> Iterator[ClickhouseCluster]:
 def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
     with isolated_clickhouse_cluster() as clickhouse_cluster:
         yield clickhouse_cluster
+
+
+@pytest.fixture
+def persons_database() -> Iterator[psycopg2.extensions.connection]:
+    """A writer connection to the test persons DB with the cleanup queue emptied."""
+    conn = psycopg2.connect(persons_db_url(writer=True))
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(f"TRUNCATE {PG_CLEANUP_QUEUE_TABLE}")
+        conn.commit()
+        yield conn
+    finally:
+        conn.close()
