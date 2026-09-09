@@ -1060,6 +1060,7 @@ class LazyComputationExecutor:
         start: datetime,
         end: datetime,
         run_insert: Callable[[Team, PreaggregationJob], int | None] | None = None,
+        end_is_data_horizon: bool = False,
     ) -> LazyComputationResult:
         """
         Execute computation jobs for the given query and time range.
@@ -1076,6 +1077,12 @@ class LazyComputationExecutor:
                         default AST-based run_computation_insert with query_info. Returns the
                         number of rows it wrote, or None when it can't report one — see the
                         empty-insert branch below for what a 0 buys.
+            end_is_data_horizon: True when the caller's INSERT stores no rows past
+                        `end` (it bakes `end` into its own filters), so a job for the
+                        final day must not claim past it. Leave False when the INSERT
+                        fills whole daily windows regardless of `end` — there the
+                        full-day claim is truthful, and clamping would create a new
+                        partial-tail job for every distinct `end` a user submits.
         """
         insert_fn = run_insert or (lambda t, j: run_lazy_computation_insert(t, j, query_info))
         query_hash = compute_query_hash(query_info)
@@ -1093,13 +1100,14 @@ class LazyComputationExecutor:
 
         had_ready_at_start: bool | None = None
 
-        # Set when `end` falls on a past UTC day; the create loop then clamps job
-        # claims to it so a truncated build cannot mark unstored hours as covered.
-        # Some callers pass a naive `end`; treat it as UTC like the window math does.
+        # Set when `end` is a data horizon on a past UTC day; the create loop then
+        # clamps job claims to it so a truncated build cannot mark unstored hours
+        # as covered. Some callers pass a naive `end`; treat it as UTC like the
+        # window math does.
         now_utc = django_timezone.now()
         today_start_utc = datetime(now_utc.year, now_utc.month, now_utc.day, tzinfo=UTC)
         end_utc = end if end.tzinfo is not None else end.replace(tzinfo=UTC)
-        historical_end = end_utc if end_utc < today_start_utc else None
+        historical_end = end_utc if end_is_data_horizon and end_utc < today_start_utc else None
 
         def _log_execution(outcome: str, result: LazyComputationResult) -> None:
             if outcome == "check_miss":
@@ -1551,6 +1559,7 @@ def ensure_precomputed(
     run_inserts: bool = True,
     empty_result_ttl_seconds: int | None = None,
     empty_result_max_age_seconds: int | None = None,
+    end_is_data_horizon: bool = False,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1616,6 +1625,10 @@ def ensure_precomputed(
                       hash covers only the substituted AST — so modifiers must never
                       change what the query computes, only how it executes (e.g.
                       `sessionIdPushdown`, which is semantics-preserving by design).
+        end_is_data_horizon: Set True when the insert query bakes `time_range_end` into
+                      its own filters (usually as a sentinel placeholder), so it stores
+                      no rows past it. Job claims then clamp to a historical end instead
+                      of claiming the full final day. See LazyComputationExecutor.execute.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -1721,7 +1734,14 @@ def ensure_precomputed(
         stale_while_revalidate_seconds=stale_while_revalidate_seconds,
         run_inserts=run_inserts,
     )
-    return executor.execute(team, query_info, time_range_start, time_range_end, run_insert=_run_manual_insert)
+    return executor.execute(
+        team,
+        query_info,
+        time_range_start,
+        time_range_end,
+        run_insert=_run_manual_insert,
+        end_is_data_horizon=end_is_data_horizon,
+    )
 
 
 def _resolve_insert_query(insert_query: str | ast.SelectQuery, placeholders: dict[str, ast.Expr]) -> ast.SelectQuery:

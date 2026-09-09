@@ -758,7 +758,11 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
         mid_day_end = datetime(2024, 1, 3, 12, tzinfo=UTC)
 
         first = LazyComputationExecutor().execute(
-            team=self.team, query_info=query_info, start=datetime(2024, 1, 1, tzinfo=UTC), end=mid_day_end
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=mid_day_end,
+            end_is_data_horizon=True,
         )
 
         assert first.ready is True
@@ -771,7 +775,11 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
         ]
 
         second = LazyComputationExecutor().execute(
-            team=self.team, query_info=query_info, start=datetime(2024, 1, 1, tzinfo=UTC), end=mid_day_end
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=mid_day_end,
+            end_is_data_horizon=True,
         )
 
         assert second.ready is True
@@ -782,6 +790,7 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
             query_info=query_info,
             start=datetime(2024, 1, 1, tzinfo=UTC),
             end=datetime(2024, 1, 4, tzinfo=UTC),
+            end_is_data_horizon=True,
         )
 
         assert third.ready is True
@@ -806,11 +815,40 @@ class TestExecuteComputationJobs(ClickhouseTestMixin, BaseTest):
                 query_info=query_info,
                 start=datetime(2024, 1, 1, tzinfo=UTC),
                 end=datetime(2024, 1, 3, 12, tzinfo=UTC),
+                end_is_data_horizon=True,
             )
 
         assert result.ready is True
         assert len(result.job_ids) == 1
         job = PreaggregationJob.objects.get(id=result.job_ids[0])
+        assert job.time_range_end == datetime(2024, 1, 4, tzinfo=UTC)
+
+    def test_historical_mid_day_end_without_horizon_flag_keeps_full_day_claim(self):
+        query_info = LazyComputationQuery(
+            query=self._make_computation_query(), table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC"
+        )
+
+        first = LazyComputationExecutor().execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 3, 12, tzinfo=UTC),
+        )
+        second = LazyComputationExecutor().execute(
+            team=self.team,
+            query_info=query_info,
+            start=datetime(2024, 1, 1, tzinfo=UTC),
+            end=datetime(2024, 1, 3, 12, 30, tzinfo=UTC),
+        )
+
+        assert first.ready is True
+        assert second.ready is True
+        # Whole-day inserts stay valid for any end inside the day, so a varied
+        # user-supplied end must reuse the full-day job instead of creating a
+        # new partial-tail job per distinct end.
+        assert len(first.job_ids) == 1
+        assert second.job_ids == first.job_ids
+        job = PreaggregationJob.objects.get(id=first.job_ids[0])
         assert job.time_range_end == datetime(2024, 1, 4, tzinfo=UTC)
 
     def test_takes_over_expired_pending_job(self):
