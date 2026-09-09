@@ -21,15 +21,10 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownKeyType, FunnelStepWithConversionMetrics } from '~/types'
 
-import {
-    type FunnelTrendsCounts,
-    formatFunnelTrendsCounts,
-} from 'products/product_analytics/frontend/insights/funnels/shared/funnelTrendsCounts'
-
 import { buildFunnelTrendsActorsQuery } from './funnelTrendsTableUtils'
 
 /** Runtime shape of a `funnelDataLogic.indexedSteps` row when the funnel is in trends mode. */
-type FunnelTrendSeries = FunnelTrendsCounts & {
+type FunnelTrendSeries = {
     id: number
     colorIndex: number
     data: number[]
@@ -128,13 +123,7 @@ export function FunnelTrendsTable(): JSX.Element | null {
                     />
                 ),
                 render: (_, row) => {
-                    const counts = formatFunnelTrendsCounts(row, index)
-                    const value = (
-                        <>
-                            {`${humanFriendlyNumber(row.data[index] ?? 0, 1)}%`}
-                            {counts && <span className="block text-xs text-secondary">{counts}</span>}
-                        </>
-                    )
+                    const value = `${humanFriendlyNumber(row.data[index] ?? 0, 1)}%`
                     const cell = canOpenPersonModal ? (
                         <ValueInspectorButton onClick={() => openModalForCell(row, index)}>
                             {value}
