@@ -22,6 +22,7 @@ from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.session_query_runner import SessionQueryRunner
 from posthog.models.team import Team
@@ -385,7 +386,7 @@ def build_session_skip_result(allows_na: bool, skip_reason: str) -> EvaluationAc
     return result
 
 
-@dataclass
+@frozen
 class ExecuteSessionEvaluationInputs:
     evaluation: dict[str, Any]
     team_id: int

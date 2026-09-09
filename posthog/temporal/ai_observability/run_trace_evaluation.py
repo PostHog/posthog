@@ -30,6 +30,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
 from posthog.api.capture import CaptureInternalError
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models.team import Team
@@ -139,7 +140,7 @@ class RunTraceEvaluationInputs:
         }
 
 
-@dataclass
+@frozen
 class ExecuteTraceEvaluationInputs:
     evaluation: dict[str, Any]
     team_id: int
@@ -617,7 +618,7 @@ async def execute_trace_hog_eval_activity(inputs: ExecuteTraceEvaluationInputs) 
     return finalize_hog_eval_result(result, evaluation=evaluation, allows_na=allows_na, unit_label="trace")
 
 
-@dataclass
+@frozen
 class EmitTraceEvaluationEventInputs:
     evaluation: dict[str, Any]
     team_id: int

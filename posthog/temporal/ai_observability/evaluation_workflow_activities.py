@@ -50,7 +50,7 @@ def backfill_verdict_timestamp(
     return unit_timestamp + timedelta(microseconds=int.from_bytes(digest[:8], "big") % 1_000_000)
 
 
-@dataclass
+@frozen
 class RunEvaluationInputs:
     evaluation_id: str
     event_data: dict[str, Any]
@@ -229,7 +229,7 @@ async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabled
     await database_sync_to_async(_send)()
 
 
-@dataclass
+@frozen
 class EmitEvaluationEventInputs:
     evaluation: dict[str, Any]
     event_data: dict[str, Any]

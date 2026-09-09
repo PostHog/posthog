@@ -327,7 +327,7 @@ def resolve_settle_plan(settle: dict[str, Any] | None, target: str = "trace") ->
     return SettlePlan(strategy="fixed_window", primary_seconds=window, max_age_seconds=window)
 
 
-@dataclass
+@frozen
 class RunAggregateEvaluationInputs:
     evaluation_id: str
     team_id: int

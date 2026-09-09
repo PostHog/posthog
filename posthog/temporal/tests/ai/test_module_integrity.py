@@ -201,6 +201,7 @@ class TestAIObservabilityModuleIntegrity:
             "AIObservabilityEvaluationClusteringCoordinatorWorkflow",
             "AIObservabilityEvaluationClusteringWorkflow",
             "RunEvaluationWorkflow",
+            "EvaluationBackfillWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in LLM_ANALYTICS_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -250,6 +251,10 @@ class TestAIObservabilityModuleIntegrity:
             "emit_evaluation_event_activity",
             "emit_internal_telemetry_activity",
             "emit_eval_signal_activity",
+            "prepare_evaluation_backfill_tick_activity",
+            "find_evaluation_backfill_candidates_activity",
+            "advance_evaluation_backfill_cursor_activity",
+            "fail_evaluation_backfill_activity",
         ]
         actual_activity_names = [a.__name__ for a in LLM_ANALYTICS_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (
