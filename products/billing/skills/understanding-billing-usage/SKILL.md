@@ -268,9 +268,22 @@ What to tell them:
   that was already reported are normally never counted at all, so imported volume can be
   lower than the customer's own export suggests.
 
-The `historical_migration` flag is not exposed in HogQL, so neither you nor the customer
-can filter events by it. To size an import, query the event timestamp range the customer
-imported and compare it with their source export.
+To size an import, filter on the properties the importer writes. The internal
+`historical_migration` column is not exposed in HogQL, but that does not mean an import
+cannot be filtered. The importer also writes ordinary event properties, and HogQL reaches
+those through `properties`.
+
+- Every managed migration stamps `$import_job_id` on the events it writes, with the
+  migration's own id as the value. Filter `properties.$import_job_id` to that id for an
+  exact per-migration count. The Mixpanel, Amplitude, and S3 import paths all do this.
+- Mixpanel and Amplitude imports also write `historical_migration` as an event property,
+  which is queryable and separate from the column of the same name. Amplitude's generated
+  identify events carry only that property and no `$import_job_id`, so match on both
+  markers for an Amplitude import.
+- Exclude the event names listed above when the count is meant to be billable volume.
+- Fall back to the event timestamp range only when no job id is available, and say that
+  the result is an upper bound. That range also holds live events and any earlier import
+  over the same dates.
 
 Do not tell a customer that a paid plan waives imported volume. Route pricing questions
 about whether historic volume should be exempt to the billing team instead of answering
