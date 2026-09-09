@@ -10,7 +10,7 @@ from django.test.utils import CaptureQueriesContext
 from parameterized import parameterized
 
 from products.canvas.backend.models import Sketchpad, SketchpadOp, SketchpadRecord
-from products.canvas.backend.presentation.serializers import SketchpadAppendOpsSerializer
+from products.canvas.backend.presentation.sketchpad.serializers import SketchpadAppendOpsSerializer
 from products.tasks.backend.models import Channel
 
 FRAGMENT = {"id": "note", "x": 0, "y": 0, "w": 360, "h": 240, "code": "export default () => null"}
@@ -142,7 +142,7 @@ class TestSketchpadValidationEndpoint(APIBaseTest):
                         "op": {"type": "add_fragment", "fragment": {**FRAGMENT, "id": "one", "code": "different"}},
                     }
                 ],
-                "actor": {"kind": "agent", "task_id": "another-task"},
+                "actor": {"kind": "agent", "task_id": "00000000-0000-4000-8000-000000000001"},
             },
             format="json",
         )
@@ -160,7 +160,7 @@ class TestSketchpadValidationEndpoint(APIBaseTest):
         data = compact.json()
         assert len(data["source_versions"]) == 1
         assert self.client.post(f"{url}compiled/", {"refs": ["invalid"]}, format="json").status_code == 400
-        with patch("products.canvas.backend.sketchpad_compiler.compile_sketchpad_fragments.apply_async"):
+        with patch("products.canvas.backend.sketchpad.compiler.compile_sketchpad_fragments.apply_async"):
             compiled = self.client.post(f"{url}compiled/", {"refs": list(data["source_versions"])}, format="json")
         assert compiled.status_code == 200
         assert compiled.json() == {"results": {}}
@@ -199,7 +199,6 @@ class TestSketchpadValidationEndpoint(APIBaseTest):
                         key=str(fragment["id"]),
                         value=fragment,
                         position=index,
-                        seq=index + 1,
                     )
                     for index, fragment in enumerate(items)
                 ]

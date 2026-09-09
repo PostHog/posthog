@@ -1,5 +1,6 @@
 from collections.abc import Mapping, Sequence
 from typing import Any
+from uuid import UUID
 
 from django.db import transaction
 
@@ -7,7 +8,7 @@ from posthog.dataclasses import frozen
 from posthog.models.user import User
 
 from products.canvas.backend.models import Sketchpad, SketchpadOp
-from products.canvas.backend.sketchpad_records import SketchpadRecords, hydrate_ops
+from products.canvas.backend.sketchpad.records import SketchpadRecords, hydrate_ops
 
 
 @frozen
@@ -17,28 +18,11 @@ class SketchpadAppendResult:
     head_seq: int
 
 
-def sketchpad_actor_name(user: User | None) -> str | None:
-    if user is None:
-        return None
-    return user.first_name or user.email
-
-
-def sketchpad_actor_person(user: User | None, user_id: int | None = None) -> dict[str, Any]:
-    if user is None:
-        return {"user_id": user_id, "user_uuid": None, "user_name": None, "user_email": None}
-    return {
-        "user_id": user.pk,
-        "user_uuid": str(user.uuid),
-        "user_name": sketchpad_actor_name(user),
-        "user_email": user.email,
-    }
-
-
 def append_ops(
     sketchpad: Sketchpad,
     ops: Sequence[Mapping[str, Any]],
     actor_kind: str,
-    actor_task_id: str | None,
+    actor_task_id: UUID | None,
     user: User | None,
 ) -> SketchpadAppendResult:
     appended: list[SketchpadOp] = []

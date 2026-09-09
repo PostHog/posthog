@@ -1,7 +1,7 @@
 import json
-import time
 import shutil
 import subprocess
+from datetime import timedelta
 from functools import lru_cache, partial
 from hashlib import sha256
 from uuid import uuid4
@@ -9,6 +9,7 @@ from uuid import uuid4
 from django.db import transaction
 from django.db.models import QuerySet
 from django.db.models.fields.json import KeyTextTransform
+from django.utils import timezone
 
 from celery import shared_task
 from pydantic import BaseModel, ConfigDict, Field
@@ -16,7 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from posthog.tasks.utils import CeleryQueue
 
 from products.canvas.backend.contract import CANVAS_BUILDER_DIR
-from products.canvas.backend.models import Sketchpad, SketchpadRecord
+from products.canvas.backend.facade.enums import SketchpadRecordKind
+from products.canvas.backend.models import Sketchpad, SketchpadCompileJob, SketchpadRecord
 
 MAX_BATCH_SIZE = 256
 MAX_BATCH_BYTES = 4 * 1024 * 1024
@@ -40,7 +42,9 @@ def compiler_version() -> str:
 
 def active_sources(records: QuerySet[SketchpadRecord]) -> QuerySet[SketchpadRecord, str]:
     return (
-        records.filter(kind="fragment").annotate(ref=KeyTextTransform("codeRef", "value")).values_list("ref", flat=True)
+        records.filter(kind=SketchpadRecordKind.FRAGMENT)
+        .annotate(ref=KeyTextTransform("codeRef", "value"))
+        .values_list("ref", flat=True)
     )
 
 
@@ -49,7 +53,7 @@ def compiled_fragments(sketchpad: Sketchpad, refs: list[str]) -> dict[str, Compi
     version = compiler_version()
     ready: dict[str, CompiledFragment] = {}
     size = 0
-    cached = records.filter(kind="compiled", key__in=refs, value__compiler=version)
+    cached = records.filter(kind=SketchpadRecordKind.COMPILED, key__in=refs, value__compiler=version)
     for row in cached.iterator(chunk_size=8):
         artifact = CompiledFragment.model_validate(row.value["artifact"])
         size += len(artifact.code.encode())
@@ -57,30 +61,32 @@ def compiled_fragments(sketchpad: Sketchpad, refs: list[str]) -> dict[str, Compi
             break
         ready[row.key] = artifact
     missing = set(refs) - ready.keys()
-    jobs = records.filter(kind="compile", key="job")
-    if not missing or jobs.filter(value__expires__gt=time.time()).exists():
+    jobs = SketchpadCompileJob.objects.for_team(sketchpad.team_id).filter(sketchpad=sketchpad)
+    if not missing or jobs.filter(expires_at__gt=timezone.now()).exists():
         return ready
     with transaction.atomic():
         locked = Sketchpad.objects.for_team(sketchpad.team_id).select_for_update().get(pk=sketchpad.pk, deleted=False)
-        if jobs.filter(value__expires__gt=time.time()).exists():
+        if jobs.filter(expires_at__gt=timezone.now()).exists():
             return ready
         missing -= set(cached.values_list("key", flat=True))
         queued = list(
-            records.filter(kind="source", key__in=missing)
+            records.filter(kind=SketchpadRecordKind.SOURCE, key__in=missing)
             .filter(key__in=active_sources(records))
             .values_list("key", flat=True)[:MAX_BATCH_SIZE]
         )
         if not queued:
             return ready
         job = str(uuid4())
-        records.update_or_create(
+        jobs.update_or_create(
             team_id=sketchpad.team_id,
             sketchpad=sketchpad,
-            kind="compile",
-            key="job",
             defaults={
-                "seq": locked.head_seq,
-                "value": {"refs": queued, "compiler": version, "job": job, "expires": time.time() + 120},
+                "job": job,
+                "refs": queued,
+                "requested_seq": locked.head_seq,
+                "compiler_version": version,
+                "expires_at": timezone.now() + timedelta(seconds=120),
+                "started_at": None,
             },
         )
         transaction.on_commit(
@@ -98,18 +104,18 @@ def compile_sketchpad_fragments(team_id: int, sketchpad_id: str, job: str, versi
     if version != compiler_version():
         return
     records = SketchpadRecord.objects.for_team(team_id).filter(sketchpad_id=sketchpad_id)
-    jobs = records.filter(kind="compile", key="job", value__job=job)
+    jobs = SketchpadCompileJob.objects.for_team(team_id).filter(sketchpad_id=sketchpad_id, job=job)
     with transaction.atomic():
         if not Sketchpad.objects.for_team(team_id).select_for_update().filter(pk=sketchpad_id, deleted=False).exists():
             return
-        queued = jobs.filter(value__expires__gt=time.time() + 75, value__started__isnull=True).first()
+        queued = jobs.filter(expires_at__gt=timezone.now() + timedelta(seconds=75), started_at__isnull=True).first()
         if queued is None:
             return
-        queued.value["started"] = True
-        queued.save(update_fields=["value"])
+        queued.started_at = timezone.now()
+        queued.save(update_fields=["started_at", "updated_at"])
     sources: dict[str, str] = {}
     size = 0
-    rows = records.filter(kind="source", key__in=queued.value["refs"]).filter(key__in=active_sources(records))
+    rows = records.filter(kind=SketchpadRecordKind.SOURCE, key__in=queued.refs).filter(key__in=active_sources(records))
     for row in rows.iterator(chunk_size=8):
         size += len(row.value.encode())
         if size > MAX_BATCH_BYTES:
@@ -141,9 +147,8 @@ def compile_sketchpad_fragments(team_id: int, sketchpad_id: str, job: str, versi
                 SketchpadRecord(
                     team_id=team_id,
                     sketchpad_id=sketchpad_id,
-                    kind="compiled",
+                    kind=SketchpadRecordKind.COMPILED,
                     key=ref,
-                    seq=queued.seq,
                     value={"compiler": version, "artifact": artifact.model_dump()},
                 )
                 for ref, artifact in results.items()
@@ -151,6 +156,6 @@ def compile_sketchpad_fragments(team_id: int, sketchpad_id: str, job: str, versi
             ],
             update_conflicts=True,
             unique_fields=["sketchpad", "kind", "key"],
-            update_fields=["value", "seq"],
+            update_fields=["value", "updated_at"],
         )
         jobs.delete()

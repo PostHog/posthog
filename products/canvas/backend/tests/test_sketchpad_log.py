@@ -1,20 +1,25 @@
+from datetime import timedelta
+
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from products.canvas.backend.models import Sketchpad, SketchpadOp, SketchpadRecord
-from products.canvas.backend.presentation.serializers import (
-    SketchpadLogEntrySerializer,
+from products.canvas.backend.presentation.sketchpad.serializers import (
+    SketchpadHydratedLogEntrySerializer,
     SketchpadOpsPageSerializer,
     SketchpadSerializer,
 )
-from products.canvas.backend.sketchpad_compiler import compile_sketchpad_fragments, compiled_fragments
-from products.canvas.backend.sketchpad_log import append_ops
+from products.canvas.backend.sketchpad.compiler import compile_sketchpad_fragments, compiled_fragments
+from products.canvas.backend.sketchpad.log import append_ops
+from products.canvas.backend.sketchpad.records import with_sketchpad_records
 from products.tasks.backend.models import Channel
 
 
@@ -37,7 +42,7 @@ class TestSketchpadLog(BaseTest):
         )
         records = SketchpadRecord.objects.for_team(self.team.id).filter(sketchpad=sketchpad)
         ref = records.get(kind="source").key
-        with patch("products.canvas.backend.sketchpad_compiler.compile_sketchpad_fragments.apply_async") as enqueue:
+        with patch("products.canvas.backend.sketchpad.compiler.compile_sketchpad_fragments.apply_async") as enqueue:
             with self.captureOnCommitCallbacks(execute=True):
                 for _ in range(5):
                     assert compiled_fragments(sketchpad, [ref]) == {}
@@ -46,7 +51,7 @@ class TestSketchpadLog(BaseTest):
             result = compiled_fragments(sketchpad, [ref])[ref]
             assert result.error is None
             assert result.imports == ["react/jsx-runtime"]
-            with patch("products.canvas.backend.sketchpad_compiler.subprocess.run") as run:
+            with patch("products.canvas.backend.sketchpad.compiler.subprocess.run") as run:
                 compile_sketchpad_fragments(*enqueue.call_args.kwargs["args"])
                 assert not run.called
             assert records.filter(kind="compiled").count() == 1
@@ -84,13 +89,15 @@ class TestSketchpadLog(BaseTest):
             sketchpad, [{"op_id": str(index), "op": op} for index, op in enumerate(ops)], "user", None, self.user
         )
         sketchpad.refresh_from_db()
-        data = SketchpadSerializer(sketchpad).data
+        data = SketchpadSerializer(
+            with_sketchpad_records(Sketchpad.objects.for_team(self.team.id), self.team.id).get(pk=sketchpad.pk)
+        ).data
         snapshot = data["snapshot"]
         assert snapshot["fragments"][0]["z"] == 1
         assert data["source_versions"][snapshot["fragments"][0]["codeRef"]] == fragment["code"]
         assert snapshot["state"] == {"text": {"__field": "text", "entries": {"a": {"k": "a", "v": "A"}}, "removed": []}}
         assert SketchpadRecord.objects.for_team(self.team.id).filter(sketchpad=sketchpad, kind="source").count() == 2
-        history = SketchpadLogEntrySerializer(
+        history = SketchpadHydratedLogEntrySerializer(
             SketchpadOp.objects.for_team(self.team.id)
             .filter(sketchpad=sketchpad)
             .select_related("actor_user")
@@ -111,7 +118,12 @@ class TestSketchpadLog(BaseTest):
             )
         sketchpad.refresh_from_db()
         assert sketchpad.head_seq == 5
-        assert SketchpadSerializer(sketchpad).data["snapshot"] == snapshot
+        assert (
+            SketchpadSerializer(
+                with_sketchpad_records(Sketchpad.objects.for_team(self.team.id), self.team.id).get(pk=sketchpad.pk)
+            ).data["snapshot"]
+            == snapshot
+        )
 
     def test_batch_preserves_order_and_retries_without_new_writes(self) -> None:
         channel = Channel.objects.for_team(self.team.id).create(team_id=self.team.id, name="general")
@@ -131,7 +143,12 @@ class TestSketchpadLog(BaseTest):
         assert sum('INSERT INTO "posthog_sketchpad_op"' in query["sql"] for query in queries) == 1
         assert not any("SELECT" in query["sql"] and '"snapshot"' in query["sql"] for query in queries)
         sketchpad.refresh_from_db()
-        assert SketchpadSerializer(sketchpad).data["snapshot"] == snapshot
+        assert (
+            SketchpadSerializer(
+                with_sketchpad_records(Sketchpad.objects.for_team(self.team.id), self.team.id).get(pk=sketchpad.pk)
+            ).data["snapshot"]
+            == snapshot
+        )
         assert sketchpad.head_seq == 2
         assert SketchpadOp.objects.for_team(self.team.id).filter(sketchpad=sketchpad).count() == 2
 
@@ -151,7 +168,12 @@ class TestSketchpadLog(BaseTest):
             self.user,
         )
         sketchpad.refresh_from_db()
-        assert SketchpadSerializer(sketchpad).data["snapshot"] == restored
+        assert (
+            SketchpadSerializer(
+                with_sketchpad_records(Sketchpad.objects.for_team(self.team.id), self.team.id).get(pk=sketchpad.pk)
+            ).data["snapshot"]
+            == restored
+        )
         assert sketchpad.head_seq == 3
 
     def test_moves_do_not_read_or_write_source_or_state_and_history_still_loads(self) -> None:
@@ -181,8 +203,9 @@ class TestSketchpadLog(BaseTest):
         assert records.filter(kind="source").count() == 1
         stored_ops = SketchpadOp.objects.for_team(self.team.id).filter(sketchpad=sketchpad).order_by("seq")
         assert "code" not in stored_ops.get(seq=1).op["fragment"]
+        before = {(row.kind, row.key): row.updated_at for row in records}
 
-        with CaptureQueriesContext(connection) as queries:
+        with freeze_time(timezone.now() + timedelta(seconds=1)), CaptureQueriesContext(connection) as queries:
             append_ops(
                 sketchpad,
                 [{"op_id": "move", "op": {"type": "update_fragment", "id": "one", "patch": {"x": 80}}}],
@@ -195,11 +218,13 @@ class TestSketchpadLog(BaseTest):
         assert "export default" not in sql
         assert "large-state-" not in sql
         assert '"snapshot"' not in sql
-        assert records.get(kind="state", key="large").seq == 3
-        assert records.get(kind="fragment", key="two").seq == 2
-        assert records.get(kind="fragment", key="one").seq == 4
+        assert records.get(kind="state", key="large").updated_at == before[("state", "large")]
+        assert records.get(kind="fragment", key="two").updated_at == before[("fragment", "two")]
+        assert records.get(kind="fragment", key="one").updated_at > before[("fragment", "one")]
         sketchpad.refresh_from_db()
-        data = SketchpadSerializer(sketchpad).data
+        data = SketchpadSerializer(
+            with_sketchpad_records(Sketchpad.objects.for_team(self.team.id), self.team.id).get(pk=sketchpad.pk)
+        ).data
         snapshot = data["snapshot"]
         assert [fragment["id"] for fragment in snapshot["fragments"]] == ["one", "two"]
         assert snapshot["fragments"][0]["x"] == 80
@@ -212,7 +237,7 @@ class TestSketchpadLog(BaseTest):
         for entry in page["results"][:2]:
             assert "code" not in entry["op"]["fragment"]
             assert page["source_versions"][entry["op"]["fragment"]["codeRef"]] == code
-        history = SketchpadLogEntrySerializer(stored_ops.select_related("actor_user"), many=True).data
+        history = SketchpadHydratedLogEntrySerializer(stored_ops.select_related("actor_user"), many=True).data
         assert history[0]["op"]["fragment"]["code"] == code
         assert "codeRef" not in history[0]["op"]["fragment"]
         append_ops(
@@ -257,7 +282,9 @@ class TestSketchpadLog(BaseTest):
         }
         for index, op in enumerate([initial, seed, edit, seed]):
             append_ops(sketchpad, [{"op_id": str(index), "op": op}], "user", None, self.user)
-        data = SketchpadSerializer(sketchpad).data
+        data = SketchpadSerializer(
+            with_sketchpad_records(Sketchpad.objects.for_team(self.team.id), self.team.id).get(pk=sketchpad.pk)
+        ).data
         assert data["snapshot"]["state"]["text"] == {
             "__field": kind,
             "entries": {"b" if kind == "text" else "seed-0": {"k": "b", "v": "B"}},
@@ -266,7 +293,17 @@ class TestSketchpadLog(BaseTest):
         append_ops(sketchpad, [{"op_id": "reset", "op": {**initial, "value": "C"}}], "user", None, self.user)
         with self.assertRaises(ValidationError):
             append_ops(sketchpad, [{"op_id": "stale-seed", "op": seed}], "user", None, self.user)
-        assert SketchpadSerializer(sketchpad).data["snapshot"]["state"]["text"] == "C"
+        assert (
+            SketchpadSerializer(
+                with_sketchpad_records(Sketchpad.objects.for_team(self.team.id), self.team.id).get(pk=sketchpad.pk)
+            ).data["snapshot"]["state"]["text"]
+            == "C"
+        )
         append_ops(sketchpad, [{"op_id": "reset-again", "op": initial}], "user", None, self.user)
         append_ops(sketchpad, [{"op_id": "new-seed", "op": seed}], "user", None, self.user)
-        assert SketchpadSerializer(sketchpad).data["snapshot"]["state"]["text"]["entries"]["seed-0"]["v"] == "A"
+        assert (
+            SketchpadSerializer(
+                with_sketchpad_records(Sketchpad.objects.for_team(self.team.id), self.team.id).get(pk=sketchpad.pk)
+            ).data["snapshot"]["state"]["text"]["entries"]["seed-0"]["v"]
+            == "A"
+        )

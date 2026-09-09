@@ -1500,8 +1500,6 @@ export const sketchpadsOpsAppendBodyOpsItemOpOneSevenRemoveItemMax = 64
 
 export const sketchpadsOpsAppendBodyOpsItemOpOneSevenRemoveMax = 2000
 
-export const sketchpadsOpsAppendBodyActorOneTaskIdMax = 64
-
 export const SketchpadsOpsAppendBody = /* @__PURE__ */ zod.object({
     ops: zod
         .array(
@@ -1513,7 +1511,7 @@ export const SketchpadsOpsAppendBody = /* @__PURE__ */ zod.object({
                 op: zod
                     .union([
                         zod.object({
-                            type: zod.enum(['add_fragment']),
+                            type: zod.literal('add_fragment'),
                             fragment: zod.object({
                                 id: zod
                                     .string()
@@ -1546,7 +1544,7 @@ export const SketchpadsOpsAppendBody = /* @__PURE__ */ zod.object({
                             }),
                         }),
                         zod.object({
-                            type: zod.enum(['update_fragment']),
+                            type: zod.literal('update_fragment'),
                             id: zod.string(),
                             patch: zod.object({
                                 title: zod.string().max(sketchpadsOpsAppendBodyOpsItemOpOneTwoPatchTitleMax).optional(),
@@ -1578,20 +1576,20 @@ export const SketchpadsOpsAppendBody = /* @__PURE__ */ zod.object({
                             }),
                         }),
                         zod.object({
-                            type: zod.enum(['remove_fragment']),
+                            type: zod.literal('remove_fragment'),
                             id: zod.string(),
                         }),
                         zod.object({
-                            type: zod.enum(['bring_to_front']),
+                            type: zod.literal('bring_to_front'),
                             id: zod.string(),
                         }),
                         zod.object({
-                            type: zod.enum(['set_state']),
+                            type: zod.literal('set_state'),
                             key: zod.string().min(1).max(sketchpadsOpsAppendBodyOpsItemOpOneFiveKeyMax),
                             value: zod.unknown(),
                         }),
                         zod.object({
-                            type: zod.enum(['restore']),
+                            type: zod.literal('restore'),
                             snapshot: zod.object({
                                 schemaVersion: zod.literal(1),
                                 fragments: zod
@@ -1646,7 +1644,7 @@ export const SketchpadsOpsAppendBody = /* @__PURE__ */ zod.object({
                                 .optional(),
                         }),
                         zod.object({
-                            type: zod.enum(['edit_field']),
+                            type: zod.literal('edit_field'),
                             key: zod.string().min(1).max(sketchpadsOpsAppendBodyOpsItemOpOneSevenKeyMax),
                             kind: zod.enum(['text', 'list']),
                             initialValue: zod.unknown().optional(),
@@ -1681,11 +1679,7 @@ export const SketchpadsOpsAppendBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'user for a direct edit, agent for a change made by an agent.\n\n\* `user` - User\n\* `agent` - Agent'
                 ),
-            task_id: zod
-                .string()
-                .max(sketchpadsOpsAppendBodyActorOneTaskIdMax)
-                .nullish()
-                .describe('Id of the agent task making the change, if any.'),
+            task_id: zod.uuid().nullish().describe('Id of the agent task making the change, if any.'),
         })
         .describe('Who is making the change.'),
 })

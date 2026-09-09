@@ -1816,54 +1816,6 @@ export interface SketchpadActorApi {
     task_id: string | null
 }
 
-export type SketchpadAddFragmentTypeEnumApi =
-    (typeof SketchpadAddFragmentTypeEnumApi)[keyof typeof SketchpadAddFragmentTypeEnumApi]
-
-export const SketchpadAddFragmentTypeEnumApi = {
-    AddFragment: 'add_fragment',
-} as const
-
-export type SketchpadUpdateFragmentTypeEnumApi =
-    (typeof SketchpadUpdateFragmentTypeEnumApi)[keyof typeof SketchpadUpdateFragmentTypeEnumApi]
-
-export const SketchpadUpdateFragmentTypeEnumApi = {
-    UpdateFragment: 'update_fragment',
-} as const
-
-export type SketchpadRemoveFragmentTypeEnumApi =
-    (typeof SketchpadRemoveFragmentTypeEnumApi)[keyof typeof SketchpadRemoveFragmentTypeEnumApi]
-
-export const SketchpadRemoveFragmentTypeEnumApi = {
-    RemoveFragment: 'remove_fragment',
-} as const
-
-export type SketchpadBringToFrontTypeEnumApi =
-    (typeof SketchpadBringToFrontTypeEnumApi)[keyof typeof SketchpadBringToFrontTypeEnumApi]
-
-export const SketchpadBringToFrontTypeEnumApi = {
-    BringToFront: 'bring_to_front',
-} as const
-
-export type SketchpadSetStateTypeEnumApi =
-    (typeof SketchpadSetStateTypeEnumApi)[keyof typeof SketchpadSetStateTypeEnumApi]
-
-export const SketchpadSetStateTypeEnumApi = {
-    SetState: 'set_state',
-} as const
-
-export type SketchpadRestoreTypeEnumApi = (typeof SketchpadRestoreTypeEnumApi)[keyof typeof SketchpadRestoreTypeEnumApi]
-
-export const SketchpadRestoreTypeEnumApi = {
-    Restore: 'restore',
-} as const
-
-export type SketchpadEditFieldTypeEnumApi =
-    (typeof SketchpadEditFieldTypeEnumApi)[keyof typeof SketchpadEditFieldTypeEnumApi]
-
-export const SketchpadEditFieldTypeEnumApi = {
-    EditField: 'edit_field',
-} as const
-
 export type SketchpadFieldKindEnumApi = (typeof SketchpadFieldKindEnumApi)[keyof typeof SketchpadFieldKindEnumApi]
 
 export const SketchpadFieldKindEnumApi = {
@@ -1873,7 +1825,7 @@ export const SketchpadFieldKindEnumApi = {
 
 export type SketchpadReadOperationApi =
     | {
-          type: SketchpadAddFragmentTypeEnumApi
+          type: 'add_fragment'
           fragment: {
               /**
                * @minLength 1
@@ -1911,7 +1863,7 @@ export type SketchpadReadOperationApi =
           }
       }
     | {
-          type: SketchpadUpdateFragmentTypeEnumApi
+          type: 'update_fragment'
           id: string
           patch: {
               /** @maxLength 120 */
@@ -1944,15 +1896,15 @@ export type SketchpadReadOperationApi =
           }
       }
     | {
-          type: SketchpadRemoveFragmentTypeEnumApi
+          type: 'remove_fragment'
           id: string
       }
     | {
-          type: SketchpadBringToFrontTypeEnumApi
+          type: 'bring_to_front'
           id: string
       }
     | {
-          type: SketchpadSetStateTypeEnumApi
+          type: 'set_state'
           /**
            * @minLength 1
            * @maxLength 128
@@ -1961,7 +1913,7 @@ export type SketchpadReadOperationApi =
           value: unknown
       }
     | {
-          type: SketchpadRestoreTypeEnumApi
+          type: 'restore'
           snapshot: {
               schemaVersion: 1
               fragments?: {
@@ -2006,7 +1958,7 @@ export type SketchpadReadOperationApi =
           expectedSeq?: number
       }
     | {
-          type: SketchpadEditFieldTypeEnumApi
+          type: 'edit_field'
           /**
            * @minLength 1
            * @maxLength 128
@@ -2032,7 +1984,7 @@ export type SketchpadReadOperationApi =
           remove?: string[]
       }
 
-export interface SketchpadReadLogEntryApi {
+export interface SketchpadLogEntryApi {
     /** Position in the sketchpad's log, starting at 1. */
     readonly seq: number
     /** Id the client chose for the op. */
@@ -2047,7 +1999,7 @@ export interface SketchpadReadLogEntryApi {
 
 export interface SketchpadOpsPageApi {
     /** Ops in ascending seq order. */
-    results: SketchpadReadLogEntryApi[]
+    results: SketchpadLogEntryApi[]
     /** Seq of the newest op in the sketchpad's log. */
     head_seq: number
     /** Fragment source text keyed by SHA-256, once per page. */
@@ -2056,7 +2008,7 @@ export interface SketchpadOpsPageApi {
 
 export type SketchpadOperationApi =
     | {
-          type: SketchpadAddFragmentTypeEnumApi
+          type: 'add_fragment'
           fragment: {
               /**
                * @minLength 1
@@ -2094,7 +2046,7 @@ export type SketchpadOperationApi =
           }
       }
     | {
-          type: SketchpadUpdateFragmentTypeEnumApi
+          type: 'update_fragment'
           id: string
           patch: {
               /** @maxLength 120 */
@@ -2127,15 +2079,15 @@ export type SketchpadOperationApi =
           }
       }
     | {
-          type: SketchpadRemoveFragmentTypeEnumApi
+          type: 'remove_fragment'
           id: string
       }
     | {
-          type: SketchpadBringToFrontTypeEnumApi
+          type: 'bring_to_front'
           id: string
       }
     | {
-          type: SketchpadSetStateTypeEnumApi
+          type: 'set_state'
           /**
            * @minLength 1
            * @maxLength 128
@@ -2144,7 +2096,7 @@ export type SketchpadOperationApi =
           value: unknown
       }
     | {
-          type: SketchpadRestoreTypeEnumApi
+          type: 'restore'
           snapshot: {
               schemaVersion: 1
               fragments?: {
@@ -2189,7 +2141,7 @@ export type SketchpadOperationApi =
           expectedSeq?: number
       }
     | {
-          type: SketchpadEditFieldTypeEnumApi
+          type: 'edit_field'
           /**
            * @minLength 1
            * @maxLength 128
@@ -2233,7 +2185,6 @@ export interface SketchpadActorInputApi {
     kind: SketchpadActorKindEnumApi
     /**
      * Id of the agent task making the change, if any.
-     * @maxLength 64
      * @nullable
      */
     task_id?: string | null
@@ -2253,7 +2204,7 @@ export interface SketchpadAppendedOpApi {
     seq: number
 }
 
-export interface SketchpadLogEntryApi {
+export interface SketchpadHydratedLogEntryApi {
     /** Position in the sketchpad's log, starting at 1. */
     readonly seq: number
     /** Id the client chose for the op. */
@@ -2262,7 +2213,7 @@ export interface SketchpadLogEntryApi {
     readonly actor: SketchpadActorApi
     /** When the server recorded the op. */
     readonly created_at: string
-    /** The op itself. */
+    /** The op with fragment source text. */
     readonly op: SketchpadOperationApi
 }
 
@@ -2270,7 +2221,7 @@ export interface SketchpadAppendResultApi {
     /** One entry per submitted op, in order. */
     results: SketchpadAppendedOpApi[]
     /** Accepted log entries for repeated operation IDs. */
-    replayed: SketchpadLogEntryApi[]
+    replayed: SketchpadHydratedLogEntryApi[]
     /** Seq of the newest op after this append. */
     head_seq: number
 }

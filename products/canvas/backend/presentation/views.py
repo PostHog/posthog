@@ -2,24 +2,21 @@ import json
 from typing import Any, cast
 from uuid import UUID
 
-from django.contrib.postgres.expressions import ArraySubquery
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
-from django.db.models import Count, Func, JSONField, OuterRef, Q, QuerySet, Subquery
-from django.db.models.functions import Coalesce, JSONObject
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import serializers, status, viewsets
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
 
-from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.event_usage import report_user_action
@@ -29,7 +26,7 @@ from posthog.models.user import User
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
-from products.canvas.backend import build_service, error_reports, sketchpad_log
+from products.canvas.backend import build_service, error_reports
 from products.canvas.backend.actions import CANVAS_ACTIONS, canvas_actions_disabled
 from products.canvas.backend.capabilities import declared_actions, declared_connectors, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
@@ -44,16 +41,7 @@ from products.canvas.backend.facade.api import (
     validate_layout,
     validate_layout_references,
 )
-from products.canvas.backend.models import (
-    Canvas,
-    CanvasBuild,
-    CanvasHomePreference,
-    CanvasSourceVersion,
-    CanvasState,
-    Sketchpad,
-    SketchpadOp,
-    SketchpadRecord,
-)
+from products.canvas.backend.models import Canvas, CanvasBuild, CanvasHomePreference, CanvasSourceVersion, CanvasState
 from products.canvas.backend.presentation.serializers import (
     CanvasActionInvokeSerializer,
     CanvasActionResultSerializer,
@@ -97,20 +85,8 @@ from products.canvas.backend.presentation.serializers import (
     CanvasValidateRequestSerializer,
     CanvasValidateResponseSerializer,
     CanvasVersionSerializer,
-    SketchpadAppendOpsSerializer,
-    SketchpadAppendResultSerializer,
-    SketchpadCompiledResponseSerializer,
-    SketchpadCompileSerializer,
-    SketchpadCreateSerializer,
-    SketchpadOpsPageSerializer,
-    SketchpadOpsQuerySerializer,
-    SketchpadSerializer,
-    SketchpadSummarySerializer,
-    SketchpadWriteSerializer,
     canvas_url,
 )
-from products.canvas.backend.sketchpad_compiler import compiled_fragments
-from products.canvas.backend.sketchpad_records import with_sketchpad_records
 from products.canvas.backend.source import apply_source_edits, has_errors, validate_source_project
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -2073,154 +2049,3 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             canvas_name=canvas.name or "Canvas",
             canvas_url=canvas_url(canvas),
         )
-
-
-class SketchpadViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
-    scope_object = "canvas"
-    queryset = Sketchpad.objects.unscoped().select_related("created_by")
-    serializer_class = SketchpadSerializer
-    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
-    scope_object_read_actions = ["list", "retrieve", "ops", "compiled"]
-    scope_object_write_actions = ["create", "partial_update", "destroy", "append_ops"]
-
-    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        queryset = super().safely_get_queryset(queryset)
-        if self.action in {"ops", "append_ops", "compiled"}:
-            queryset = queryset.select_related(None)
-        if self.action == "retrieve":
-            queryset = with_sketchpad_records(queryset, self.team_id)
-        if self.action == "list":
-            channel_id = self.request.query_params.get("channel")
-            if channel_id:
-                try:
-                    channel_id = str(UUID(channel_id))
-                except ValueError:
-                    return queryset.none()
-                queryset = queryset.filter(channel_id=channel_id)
-            newest = SketchpadOp.objects.for_team(self.team_id).filter(sketchpad_id=OuterRef("pk")).order_by("-seq")
-            records = SketchpadRecord.objects.for_team(self.team_id).filter(
-                sketchpad_id=OuterRef("pk"), kind="fragment"
-            )
-            count = records.order_by().values("sketchpad_id").annotate(total=Count("pk")).values("total")
-            preview = (
-                records.order_by("position", "key")
-                .annotate(box=JSONObject(x="value__x", y="value__y", w="value__w", h="value__h"))
-                .values("box")[: SketchpadSummarySerializer.MAX_PREVIEW_BOXES]
-            )
-            queryset = queryset.annotate(
-                last_actor_user_id=Subquery(newest.values("actor_user_id")[:1]),
-                last_actor_kind=Subquery(newest.values("actor_kind")[:1]),
-                fragment_count=Coalesce(Subquery(count), 0),
-                preview_fragments=Func(ArraySubquery(preview), function="to_jsonb", output_field=JSONField()),
-            )
-        return queryset.order_by("-updated_at")
-
-    def get_throttles(self) -> list[BaseThrottle]:
-        if self.action == "append_ops":
-            return [*super().get_throttles(), SketchpadAppendOpsThrottle()]
-        return super().get_throttles()
-
-    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
-        if self.action == "list":
-            return SketchpadSummarySerializer
-        return SketchpadSerializer
-
-    @validated_request(
-        SketchpadCompileSerializer,
-        responses={200: OpenApiResponse(response=SketchpadCompiledResponseSerializer)},
-        operation_id="sketchpads_compiled_create",
-    )
-    @action(methods=["POST"], detail=True)
-    def compiled(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
-        results = compiled_fragments(self.get_object(), request.validated_data["refs"])
-        return Response({"results": {ref: artifact.model_dump() for ref, artifact in results.items()}})
-
-    @extend_schema(request=SketchpadCreateSerializer, responses={201: SketchpadSerializer})
-    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        payload = SketchpadCreateSerializer(data=request.data)
-        payload.is_valid(raise_exception=True)
-        channel_id = payload.validated_data["channel_id"]
-        user = self._request_user()
-        if not tasks_facade.channel_exists(self.team_id, channel_id, user.id if user else None):
-            return Response({"detail": "Channel not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
-        self._validate_sandbox_channel(channel_id, self._sandbox_task_id(request))
-        sketchpad = Sketchpad.objects.create(
-            team_id=self.team_id,
-            channel_id=channel_id,
-            name=payload.validated_data["name"],
-            created_by=self._request_user(),
-        )
-        return Response(SketchpadSerializer(sketchpad).data, status=status.HTTP_201_CREATED)
-
-    @extend_schema(request=SketchpadWriteSerializer, responses={204: None})
-    def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        sketchpad = self.get_object()
-        payload = SketchpadWriteSerializer(data=request.data)
-        payload.is_valid(raise_exception=True)
-        data = payload.validated_data
-        update_fields: list[str] = []
-        if "name" in data:
-            sketchpad.name = data["name"]
-            update_fields.append("name")
-        if "channel_id" in data:
-            channel_id = data["channel_id"]
-            user = self._request_user()
-            if not tasks_facade.channel_exists(self.team_id, channel_id, user.id if user else None):
-                return Response({"detail": "Channel not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
-            self._validate_sandbox_channel(channel_id, self._sandbox_task_id(request))
-            if channel_id != sketchpad.channel_id and sketchpad.pinned_at is not None:
-                sketchpad.pinned_at = None
-                update_fields.append("pinned_at")
-            sketchpad.channel_id = channel_id
-            update_fields.append("channel_id")
-        if "pinned" in data:
-            sketchpad.pinned_at = timezone.now() if data["pinned"] else None
-            update_fields.append("pinned_at")
-        if update_fields:
-            sketchpad.save(update_fields=[*update_fields, "updated_at"])
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-    def perform_destroy(self, instance: Sketchpad) -> None:
-        instance.deleted = True
-        instance.save(update_fields=["deleted", "updated_at"])
-
-    @validated_request(
-        query_serializer=SketchpadOpsQuerySerializer,
-        responses={200: OpenApiResponse(response=SketchpadOpsPageSerializer)},
-        operation_id="sketchpads_ops_retrieve",
-    )
-    @action(methods=["GET"], detail=True)
-    def ops(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
-        sketchpad = self.get_object()
-        since = request.validated_query_data["since"]
-        limit = request.validated_query_data["limit"]
-        rows = list(
-            SketchpadOp.objects.for_team(self.team_id)
-            .filter(sketchpad=sketchpad, seq__gt=since, seq__lte=sketchpad.head_seq)
-            .select_related("actor_user")
-            .order_by("seq")[:limit]
-        )
-        return Response(SketchpadOpsPageSerializer(instance={"results": rows, "head_seq": sketchpad.head_seq}).data)
-
-    @validated_request(
-        SketchpadAppendOpsSerializer,
-        responses={
-            200: OpenApiResponse(response=SketchpadAppendResultSerializer),
-            400: OpenApiResponse(
-                description="An op is not a JSON object, has an unknown type, or is over the size cap."
-            ),
-        },
-        operation_id="sketchpads_ops_append",
-    )
-    @ops.mapping.post
-    def append_ops(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
-        sketchpad = self.get_object()
-        data = request.validated_data
-        result = sketchpad_log.append_ops(
-            sketchpad,
-            data["ops"],
-            data["actor"]["kind"],
-            data["actor"].get("task_id"),
-            self._request_user(),
-        )
-        return Response(SketchpadAppendResultSerializer(instance=result).data)

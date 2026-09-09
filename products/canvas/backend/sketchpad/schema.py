@@ -48,49 +48,51 @@ FRAGMENT_PROPERTIES = {
     "surface": {"type": "string", "enum": ["card", "plain"]},
     "hidden": {"type": "boolean"},
 }
-FRAGMENT_SCHEMA = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["id", "x", "y", "w", "h", "code"],
-    "properties": FRAGMENT_PROPERTIES,
-}
-SNAPSHOT_PROPERTIES = {
-    "schemaVersion": {"type": "integer", "enum": [1]},
-    "fragments": {"type": "array", "items": FRAGMENT_SCHEMA},
-    "state": {"type": "object", "propertyNames": STATE_KEY_SCHEMA, "additionalProperties": STATE_VALUE_SCHEMA},
-}
-SNAPSHOT_SCHEMA = {
-    "type": "object",
-    "required": ["schemaVersion"],
-    "properties": SNAPSHOT_PROPERTIES,
-}
-READ_SNAPSHOT_SCHEMA: dict[str, Any] = {
-    **SNAPSHOT_SCHEMA,
-    "properties": {
-        **SNAPSHOT_PROPERTIES,
-        "fragments": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "required": ["id", "x", "y", "w", "h", "codeRef"],
-                "properties": {
-                    **{key: value for key, value in FRAGMENT_PROPERTIES.items() if key != "code"},
-                    "codeRef": {"type": "string", "minLength": 64, "maxLength": 64},
-                },
-                "additionalProperties": False,
-            },
+
+
+def fragment_schema(*, hydrated: bool) -> dict[str, Any]:
+    properties = dict(FRAGMENT_PROPERTIES)
+    code_key = "code" if hydrated else "codeRef"
+    if not hydrated:
+        properties.pop("code")
+        properties["codeRef"] = {"type": "string", "minLength": 64, "maxLength": 64}
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["id", "x", "y", "w", "h", code_key],
+        "properties": properties,
+    }
+
+
+def snapshot_schema(*, hydrated: bool) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "required": ["schemaVersion"],
+        "properties": {
+            "schemaVersion": {"type": "integer", "enum": [1]},
+            "fragments": {"type": "array", "items": fragment_schema(hydrated=hydrated)},
+            "state": {"type": "object", "propertyNames": STATE_KEY_SCHEMA, "additionalProperties": STATE_VALUE_SCHEMA},
         },
-    },
-}
+    }
+
+
+def patch_schema(fragment: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **fragment,
+        "required": [],
+        "properties": {key: value for key, value in fragment["properties"].items() if key != "id"},
+    }
+
+
+FRAGMENT_SCHEMA = fragment_schema(hydrated=True)
+READ_FRAGMENT_SCHEMA = fragment_schema(hydrated=False)
+SNAPSHOT_SCHEMA = snapshot_schema(hydrated=True)
+READ_SNAPSHOT_SCHEMA = snapshot_schema(hydrated=False)
 OP_PROPERTIES: dict[str, dict[str, Any]] = {
     "add_fragment": {"fragment": FRAGMENT_SCHEMA},
     "update_fragment": {
         "id": {"type": "string"},
-        "patch": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {key: value for key, value in FRAGMENT_PROPERTIES.items() if key != "id"},
-        },
+        "patch": patch_schema(FRAGMENT_SCHEMA),
     },
     "remove_fragment": {"id": {"type": "string"}},
     "bring_to_front": {"id": {"type": "string"}},
@@ -123,21 +125,14 @@ OP_SCHEMAS: dict[str, dict[str, Any]] = {
             "type",
             *(key for key in properties if key not in {"insert", "remove", "initialValue", "expectedSeq"}),
         ],
-        "properties": {"type": {"type": "string", "enum": [kind]}, **properties},
+        "properties": {"type": {"type": "string", "const": kind}, **properties},
     }
     for kind, properties in OP_PROPERTIES.items()
 }
 OP_SCHEMA = {"oneOf": list(OP_SCHEMAS.values())}
-READ_FRAGMENT_SCHEMA = READ_SNAPSHOT_SCHEMA["properties"]["fragments"]["items"]
 READ_OP_PROPERTIES = {
     "add_fragment": {"fragment": READ_FRAGMENT_SCHEMA},
-    "update_fragment": {
-        "patch": {
-            **READ_FRAGMENT_SCHEMA,
-            "required": [],
-            "properties": {key: value for key, value in READ_FRAGMENT_SCHEMA["properties"].items() if key != "id"},
-        },
-    },
+    "update_fragment": {"patch": patch_schema(READ_FRAGMENT_SCHEMA)},
     "restore": {"snapshot": READ_SNAPSHOT_SCHEMA},
 }
 READ_OP_SCHEMA = {
