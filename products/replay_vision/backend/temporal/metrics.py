@@ -60,7 +60,7 @@ REPLAY_VISION_MISSION_PASSES = Counter(
 
 REPLAY_VISION_VERIFICATION_OUTCOMES = Counter(
     "replay_vision_verification_outcomes_total",
-    "Verify-positives results per verified monitor `yes`: agreed, tiebreak_kept, tiebreak_flipped, no_cache, draw_failed",
+    "Verify-positives results per verified monitor `yes`: agreed, tiebreak_kept, tiebreak_flipped, no_cache, no_budget, draw_failed",
     ["scanner_type", "mode", "outcome"],
 )
 

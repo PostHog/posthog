@@ -1,11 +1,17 @@
+import datetime as dt
+import dataclasses
 from typing import Any, cast
 
 import pytest
+from freezegun import freeze_time
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.utils import timezone
 
 import httpx
 from google.genai.errors import APIError
 from pydantic import BaseModel
+from temporalio.testing import ActivityEnvironment
 
 from posthog.dataclasses import frozen
 
@@ -13,6 +19,7 @@ from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _maybe_create_video_cache,
     _MissionOutcome,
+    _remaining_verify_budget_seconds,
     _run_mission,
     _run_mission_attempts,
     _run_pass,
@@ -437,6 +444,7 @@ class TestVerifyPositives:
         allow_inconclusive: bool = False,
         cached: bool = True,
         emits_signals: bool = False,
+        budget_seconds: float | None = None,
     ) -> _ScanRun:
         # `answers[0]` is the first pass; the rest are the verify draws in order.
         scanner = MonitorScanner(
@@ -478,6 +486,7 @@ class TestVerifyPositives:
             ),
             patch(f"{_MODULE}._delete_video_cache", new=fake_delete),
             patch(f"{_MODULE}._run_steps", new=fake_run_steps),
+            patch(f"{_MODULE}._remaining_verify_budget_seconds", return_value=budget_seconds),
         ):
             outcome = await _run_mission(
                 scanner=scanner,
@@ -554,6 +563,8 @@ class TestVerifyPositives:
                 ["yes", "no", APIError(429, {"error": {"message": "quota", "status": "RESOURCE_EXHAUSTED"}})],
                 "draw_failed",
             ),
+            # `asyncio.wait_for` raises this when a draw runs past the activity budget.
+            (["yes", TimeoutError()], "draw_failed"),
         ],
     )
     async def test_a_failed_draw_keeps_the_first_verdict_and_never_raises(
@@ -580,6 +591,46 @@ class TestVerifyPositives:
             mode="enforce", draws=["yes"], resolved_verdict="yes", served_verdict="yes", skipped_reason="no_cache"
         )
         assert run.counted == {("enforce", "no_cache"): 1.0}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("budget_seconds,draws_taken", [(0.0, 0), (-5.0, 0), (30.0, 1)])
+    async def test_a_draw_never_starts_past_the_activity_budget(self, budget_seconds: float, draws_taken: int) -> None:
+        # The activity timeout would fail the whole scan, first verdict included, so a draw with no time left is skipped.
+        run = await self._scan(mode="enforce", answers=["yes", "yes"], budget_seconds=budget_seconds)
+        assert len(run.calls) == 2 + draws_taken
+        assert cast(MonitorOutput, run.outcome.finalized).verdict == "yes"
+        if draws_taken == 0:
+            assert run.outcome.verification == VerificationRecord(
+                mode="enforce", draws=["yes"], resolved_verdict="yes", served_verdict="yes", skipped_reason="no_budget"
+            )
+            assert run.counted == {("enforce", "no_budget"): 1.0}
+        else:
+            assert run.counted == {("enforce", "agreed"): 1.0}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "start_to_close,elapsed,expected",
+        [
+            (dt.timedelta(minutes=20), dt.timedelta(minutes=5), 14 * 60.0),
+            (dt.timedelta(minutes=20), dt.timedelta(minutes=19, seconds=30), -30.0),
+            (None, dt.timedelta(minutes=5), None),
+        ],
+    )
+    async def test_remaining_budget_reads_the_activity_timeout(
+        self, start_to_close: dt.timedelta | None, elapsed: dt.timedelta, expected: float | None
+    ) -> None:
+        now = timezone.now()
+        env = ActivityEnvironment()
+        env.info = dataclasses.replace(env.info, start_to_close_timeout=start_to_close, started_time=now - elapsed)
+
+        async def read_budget() -> float | None:
+            return _remaining_verify_budget_seconds()
+
+        with freeze_time(now):
+            assert await env.run(read_budget) == expected
+
+    def test_remaining_budget_is_unbounded_outside_an_activity(self) -> None:
+        assert _remaining_verify_budget_seconds() is None
 
     @pytest.mark.asyncio
     async def test_verify_draws_are_blind_core_only_turns_over_the_live_cache(self) -> None:

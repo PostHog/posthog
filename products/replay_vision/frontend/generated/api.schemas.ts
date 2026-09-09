@@ -537,7 +537,7 @@ export interface VerificationRecordApi {
     /** The verdict `model_output` carries: the resolved one under `enforce`, the first draw under `shadow`. */
     served_verdict: string
     /**
-     * Why verification stopped early (`no_cache`, `draw_failed`), leaving the first pass in place. Null when every draw ran.
+     * Why verification stopped early (`no_cache`, `no_budget`, `draw_failed`), leaving the first pass in place. Null when every draw ran.
      * @nullable
      */
     skipped_reason: string | null

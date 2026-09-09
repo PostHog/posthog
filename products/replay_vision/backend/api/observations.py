@@ -144,7 +144,7 @@ class VerificationRecordSerializer(serializers.Serializer):
     )
     skipped_reason = serializers.CharField(
         allow_null=True,
-        help_text="Why verification stopped early (`no_cache`, `draw_failed`), leaving the first pass in place. Null when every draw ran.",
+        help_text="Why verification stopped early (`no_cache`, `no_budget`, `draw_failed`), leaving the first pass in place. Null when every draw ran.",
     )
 
 

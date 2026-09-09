@@ -78,6 +78,8 @@ _MAX_LLM_ATTEMPTS = 2  # one initial call + one re-prompt with the validation er
 _MAX_MISSION_ATTEMPTS = 2
 # Snapshot `verify_positives` values that draw; anything else (including a typo) behaves as `off`.
 _VERIFY_MODES = ("shadow", "enforce")
+# Activity time kept free of verify draws, so assembling and returning the result never races the timeout.
+_VERIFY_BUDGET_RESERVE_SECONDS = 60.0
 # Cache TTL: a scan is a handful of turns and finishes in minutes; well under this.
 _VIDEO_CACHE_TTL = "900s"
 
@@ -457,8 +459,8 @@ async def _verify_positive_verdict(
     """Re-draw the core step until a majority of up to three draws settles a `yes` verdict.
 
     Every draw is a fresh conversation over the same cached video and preamble, so it never sees the first pass or
-    its reasoning. Verification only ever tightens a scan that already succeeded: without a cache, or when a draw
-    fails for any reason, the first verdict stands and the record says why.
+    its reasoning. Verification only ever tightens a scan that already succeeded: without a cache, without time left
+    in the activity budget, or when a draw fails for any reason, the first verdict stands and the record says why.
     """
     draws = [first]
     skipped_reason: str | None = None
@@ -467,9 +469,15 @@ async def _verify_positive_verdict(
     else:
         # Draw 2 confirms the first pass; draw 3 runs only when draw 2 disagrees.
         for index in (2, 3):
+            # An activity timeout fires outside the `except` below and fails the whole scan, first verdict included.
+            # Capping each draw at the remaining budget turns that into a `draw_failed` the first pass survives.
+            budget = _remaining_verify_budget_seconds()
+            if budget is not None and budget <= 0:
+                skipped_reason = "no_budget"
+                break
             verify_step = replace(core_step, name=f"{STEP_CORE}_verify_{index}")
             try:
-                outputs = await run(steps=[verify_step], cache_name=cache.name)
+                outputs = await asyncio.wait_for(run(steps=[verify_step], cache_name=cache.name), timeout=budget)
                 draw = outputs[verify_step.name]
                 if not isinstance(draw, MonitorLlmResponse):
                     raise TypeError(f"verify draw returned {type(draw).__name__}")
@@ -504,6 +512,18 @@ async def _verify_positive_verdict(
         skipped_reason=skipped_reason,
     )
     return served, record
+
+
+def _remaining_verify_budget_seconds() -> float | None:
+    """Seconds a verify draw may take before the activity's start-to-close timeout, or None when there is no timeout
+    (the eval suite calls `run_scan` outside an activity)."""
+    if not activity.in_activity():
+        return None
+    info = activity.info()
+    if info.start_to_close_timeout is None:
+        return None
+    elapsed = (timezone.now() - info.started_time).total_seconds()
+    return info.start_to_close_timeout.total_seconds() - elapsed - _VERIFY_BUDGET_RESERVE_SECONDS
 
 
 def _majority_verdict(draws: list[MonitorLlmResponse], scanner: MonitorScanner) -> MonitorVerdict:
