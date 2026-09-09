@@ -25,7 +25,6 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-  Spinner,
   Textarea,
 } from "@posthog/quill";
 import type { InboxReportActionSurface } from "@posthog/shared/analytics-events";
@@ -46,6 +45,7 @@ import {
 } from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { openTaskInput, useOpenTask } from "@posthog/ui/router/useOpenTask";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useQueryClient } from "@tanstack/react-query";

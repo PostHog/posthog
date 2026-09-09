@@ -116,6 +116,25 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS)
 
+    def test_list_event_definitions_filtered_by_tag_pages_in_sql(self):
+        # The tag filter used to read every definition in the project to collect ids. It now pages in
+        # SQL, so the page has to stay bounded, the count has to cover every match, and a definition
+        # that carries two of the filtered tags must still appear once.
+        bulk_url = f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/"
+        tagged_names = ["installed_app", "purchase"]
+        ids = [str(EventDefinition.objects.get(team=self.demo_team, name=name).id) for name in tagged_names]
+        self.client.post(bulk_url, {"ids": ids, "action": "add", "tags": ["billing"]})
+        self.client.post(bulk_url, {"ids": ids[:1], "action": "add", "tags": ["revenue"]})
+
+        response = self.client.get(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/",
+            data={"tags": '["billing", "revenue"]', "limit": "1"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["count"] == len(tagged_names)
+        assert [result["name"] for result in response.json()["results"]] == ["installed_app"]
+
     @parameterized.expand(
         [
             ("limit", "limit=9223372036854775808"),

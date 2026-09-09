@@ -1925,7 +1925,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ],
         ]
     )
-    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query", wraps=execute_hogql_query)
+    @patch(
+        "products.product_analytics.backend.hogql_queries.trends.trends_query_runner.execute_hogql_query",
+        wraps=execute_hogql_query,
+    )
     def test_insight_refreshing_query(self, properties_filter, spy_execute_hogql_query) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
 
@@ -2091,7 +2094,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ],
         ]
     )
-    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.execute_hogql_query", wraps=execute_hogql_query)
+    @patch(
+        "products.product_analytics.backend.hogql_queries.trends.trends_query_runner.execute_hogql_query",
+        wraps=execute_hogql_query,
+    )
     def test_insight_refreshing_query_async(self, properties_filter, spy_execute_hogql_query) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
 

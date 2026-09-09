@@ -23,9 +23,13 @@ export function ProvisioningView({ taskId }: ProvisioningViewProps) {
     <div className="h-full">
       <div className="flex h-full flex-col gap-2 p-3">
         <div className="flex items-center gap-2">
-          <Spinner size={14} />
-          <span className="font-medium text-[13px]">Loading</span>
+          <Spinner size="sm" />
+          <span className="font-medium text-[13px]">Preparing worktree</span>
         </div>
+        <p className="m-0 text-gray-11 text-sm">
+          Creating a separate checkout for this task. Setup output appears
+          below.
+        </p>
         <div className="min-h-0 flex-1 rounded-(--radius-2) border border-(--gray-a5) bg-(--color-surface)">
           <pre
             ref={scrollRef}
