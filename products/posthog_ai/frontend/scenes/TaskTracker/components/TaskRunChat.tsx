@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { type RefObject, useEffect, useRef } from 'react'
+import { type MutableRefObject, type RefObject, useEffect, useRef } from 'react'
 
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
@@ -24,6 +24,7 @@ import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraf
 import { RunEscapeBoundary, type RunEscapeBoundaryProps } from '../../../components/RunEscapeBoundary'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
 import { runCancellationLogic } from '../../../logics/runCancellationLogic'
+import type { RunContinuationHandoff } from '../../../logics/runInteractionLogic'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 
 export interface TaskRunChatProps {
@@ -36,7 +37,7 @@ export interface TaskRunChatProps {
      */
     streamKey?: string
     /** Called after a fresh run starts, in addition to the `taskDetailSceneLogic` re-pointing below. */
-    onRunStarted?: (runId: string) => void
+    onRunStarted?: (runId: string, handoff?: RunContinuationHandoff) => void
     escapeScope?: RunEscapeBoundaryProps['scope']
     initialDraft?: string
     onDraftAdopted?: () => void
@@ -61,9 +62,10 @@ export function TaskRunChat({
     onDraftAdopted,
     autoFocus,
 }: TaskRunChatProps): JSX.Element {
-    const { setSelectedRunId, loadTaskRuns } = useActions(taskDetailSceneLogic({ taskId }))
+    const { setSelectedRunId, loadTaskRuns, continueWithRun } = useActions(taskDetailSceneLogic({ taskId }))
     const { selectedRun, task } = useValues(taskDetailSceneLogic({ taskId }))
     const { user } = useValues(userLogic)
+    const flushDraftRef = useRef<() => void>(() => {})
     // Staff can view tasks they don't own (support/debugging); those are read-only — hide the composer so
     // they can't try to drive a run they can't control (the backend rejects the write anyway).
     const readOnly = !!user?.is_staff && !!task?.created_by && task.created_by.id !== user.id
@@ -73,16 +75,27 @@ export function TaskRunChat({
         streamKey,
         initialDraft,
         onDraftAdopted,
-        currentModel: selectedRun?.state?.model,
-        currentEffort: selectedRun?.state?.reasoning_effort,
-        currentMode: selectedRun?.state?.initial_permission_mode,
+        flushDraft: () => flushDraftRef.current(),
+        currentModel:
+            selectedRun?.model ?? (typeof selectedRun?.state?.model === 'string' ? selectedRun.state.model : undefined),
+        currentEffort:
+            selectedRun?.reasoning_effort ??
+            (typeof selectedRun?.state?.reasoning_effort === 'string' ? selectedRun.state.reasoning_effort : undefined),
+        currentMode:
+            typeof selectedRun?.state?.initial_permission_mode === 'string'
+                ? selectedRun.state.initial_permission_mode
+                : undefined,
         currentRuntimeAdapter: selectedRun?.runtime_adapter,
-        onRunStarted: (newRunId) => {
-            setSelectedRunId(newRunId, taskId)
-            loadTaskRuns()
+        onRunStarted: (newRunId, handoff) => {
+            if (handoff) {
+                continueWithRun(handoff)
+            } else {
+                setSelectedRunId(newRunId, taskId)
+                loadTaskRuns()
+            }
             // The embedded panel renders from its own creation state, so it must be re-pointed
             // when a fresh run starts.
-            onRunStarted?.(newRunId)
+            onRunStarted?.(newRunId, handoff)
         },
     }
 
@@ -93,6 +106,7 @@ export function TaskRunChat({
                 readOnly={readOnly}
                 escapeScope={escapeScope}
                 autoFocus={autoFocus}
+                flushDraftRef={flushDraftRef}
             />
         </BindLogic>
     )
@@ -103,11 +117,13 @@ function TaskRunChatContent({
     readOnly,
     escapeScope,
     autoFocus,
+    flushDraftRef,
 }: {
     logicProps: RunInteractionLogicProps
     readOnly: boolean
     escapeScope: RunEscapeBoundaryProps['scope']
     autoFocus?: boolean
+    flushDraftRef: MutableRefObject<() => void>
 }): JSX.Element {
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const { handleEscape } = useActions(runInteractionLogic(logicProps))
@@ -144,7 +160,12 @@ function TaskRunChatContent({
                     <RunSurface.Composer isStopping={!!cancellationState}>
                         {/* The composer owns the per-keystroke draft in an isolated child so typing never re-renders
                         the thread/virtualizer rendered as its sibling above — that cascade is what made the input lag. */}
-                        <LiveComposer logicProps={logicProps} textAreaRef={textAreaRef} autoFocus={autoFocus} />
+                        <LiveComposer
+                            logicProps={logicProps}
+                            textAreaRef={textAreaRef}
+                            autoFocus={autoFocus}
+                            flushDraftRef={flushDraftRef}
+                        />
                     </RunSurface.Composer>
                 )}
             </RunEscapeBoundary>
@@ -156,10 +177,12 @@ function LiveComposer({
     logicProps,
     textAreaRef,
     autoFocus,
+    flushDraftRef,
 }: {
     logicProps: RunInteractionLogicProps
     textAreaRef: RefObject<HTMLTextAreaElement>
     autoFocus?: boolean
+    flushDraftRef: MutableRefObject<() => void>
 }): JSX.Element {
     const {
         composerForm,
@@ -193,6 +216,9 @@ function LiveComposer({
     } = useActions(runInteractionLogic(logicProps))
 
     const draft = useDebouncedDraft(composerForm.draft, (value) => setComposerFormValues({ draft: value }))
+    useEffect(() => {
+        flushDraftRef.current = draft.flush
+    }, [flushDraftRef, draft.flush])
 
     return (
         <>
@@ -204,7 +230,12 @@ function LiveComposer({
                 textAreaRef={textAreaRef}
                 value={draft.value}
                 onChange={draft.onChange}
-                onSubmit={() => draft.submit(submitComposerForm)}
+                onSubmit={() =>
+                    draft.submit(() => {
+                        submitComposerForm()
+                        return runInteractionLogic(logicProps).values.composerForm.draft
+                    })
+                }
                 loading={isSubmitting}
                 stopLoading={!!cancellationState}
                 isTurnActive={isBusy}

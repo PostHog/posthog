@@ -23,7 +23,8 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 
-import { Task, TaskRun } from '../../../types/taskTypes'
+import { Task } from '../../../types/taskTypes'
+import type { SelectedTaskRun } from '../taskDetailSceneLogic'
 import { TaskDebugLogsMenu } from './TaskDebugLogsMenu'
 import { TaskDebugLogsPanelToggle } from './TaskDebugLogsPanelToggle'
 import { TaskPanelSkeleton, TaskRunMetadataSkeleton } from './taskDetailSkeletons'
@@ -34,7 +35,7 @@ export interface TaskRunSceneShellProps {
     /** The loaded task, or `null` while loading (or during an optimistic create, before it exists). */
     task: Task | null
     /** The run whose metadata heads the thread, or `null` while loading. */
-    selectedRun: TaskRun | null
+    selectedRun: SelectedTaskRun | null
     /** Drives the title/panel/metadata skeletons — the single unified loading affordance for the header. */
     isHeaderLoading: boolean
     /** Title-bar action buttons (or their skeleton). Supplied by the caller so the shell stays presentational. */

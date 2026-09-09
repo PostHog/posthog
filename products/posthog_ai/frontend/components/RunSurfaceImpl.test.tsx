@@ -76,7 +76,21 @@ function renderLiveWithComposer(statusOrOverrides: RunStatus | null | Parameters
 function DraftComposer(): JSX.Element {
     const [saved, setSaved] = useState('')
     const draft = useDebouncedDraft(saved, setSaved)
-    return <textarea data-attr="draft" value={draft.value} onChange={(event) => draft.onChange(event.target.value)} />
+    return (
+        <>
+            <textarea data-attr="draft" value={draft.value} onChange={(event) => draft.onChange(event.target.value)} />
+            <button
+                onClick={() =>
+                    draft.submit(() => {
+                        setSaved('')
+                        return ''
+                    })
+                }
+            >
+                Send draft
+            </button>
+        </>
+    )
 }
 
 describe('RunSurface', () => {
@@ -121,6 +135,20 @@ describe('RunSurface', () => {
     })
 
     describe('Composer slot', () => {
+        it('clears a draft sent before its debounce commits', () => {
+            jest.useFakeTimers()
+            try {
+                render(<DraftComposer />)
+                fireEvent.change(screen.getByTestId('draft'), { target: { value: 'Continue' } })
+                fireEvent.click(screen.getByRole('button', { name: 'Send draft' }))
+                expect(screen.getByTestId('draft')).toHaveValue('')
+                act(() => jest.runOnlyPendingTimers())
+                expect(screen.getByTestId('draft')).toHaveValue('')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it.each<RunStatus>(['queued', 'in_progress'])(
             'renders the composer children for an active run (%s)',
             (status) => {

@@ -158,6 +158,9 @@ async function openRunDeepLink(page: Page, teamId: string): Promise<void> {
         const ph = (window as unknown as { posthog?: { reloadFeatureFlags?: () => void } }).posthog
         ph?.reloadFeatureFlags?.()
     })
+    await expect(page.getByRole('heading', { name: 'Run surface e2e task', exact: true })).toBeVisible({
+        timeout: 40000,
+    })
 }
 
 test.describe('Task run surface', () => {
@@ -190,6 +193,168 @@ test.describe('Task run surface', () => {
         await openRunDeepLink(page, workspace!.team_id)
 
         await expect(page.getByText('Agent error')).toBeVisible({ timeout: 20000 })
+    })
+
+    test('resuming a finished sandbox keeps the thread and pending message visible', async ({ page }) => {
+        const successorId = '0190a000-0000-4000-8000-0000000000c3'
+        const successor = { ...makeRun('queued'), id: successorId, state: { resume_from_run_id: RUN_ID } }
+        let acceptRun!: () => void
+        const runAccepted = new Promise<void>((resolve) => {
+            acceptRun = resolve
+        })
+        let startAgent!: () => void
+        const agentStarted = new Promise<void>((resolve) => {
+            startAgent = resolve
+        })
+
+        await routeTasksApi(page, {
+            runStatus: 'completed',
+            logs: {
+                status: 200,
+                body: toJsonl([
+                    {
+                        type: 'notification',
+                        notification: {
+                            method: '_posthog/progress',
+                            params: {
+                                group: `setup:${RUN_ID}`,
+                                step: 'agent',
+                                status: 'completed',
+                                label: 'Started agent',
+                            },
+                        },
+                    },
+                    agentMessageFrame('m1', 'The earlier answer stays here.'),
+                    {
+                        type: 'notification',
+                        notification: {
+                            method: 'session/update',
+                            params: {
+                                update: {
+                                    sessionUpdate: 'usage_update',
+                                    used: 12000,
+                                    size: 1000000,
+                                    cost: { amount: 0.04, currency: 'USD' },
+                                },
+                            },
+                        },
+                    },
+                ]),
+            },
+            stream: { mode: 'hang' },
+        })
+        await page.addInitScript(() => {
+            let appContext: { current_user?: { organization?: { is_ai_data_processing_approved?: boolean } } }
+            Object.defineProperty(window, 'POSTHOG_APP_CONTEXT', {
+                configurable: true,
+                get: () => appContext,
+                set: (value: typeof appContext) => {
+                    if (value.current_user?.organization) {
+                        value.current_user.organization.is_ai_data_processing_approved = true
+                    }
+                    appContext = value
+                },
+            })
+        })
+        await page.route(
+            (url) => url.pathname.endsWith(`/tasks/${TASK_ID}/`),
+            fulfillJson({ ...makeTask('completed'), created_by: null })
+        )
+        await page.route(
+            (url) => url.pathname.endsWith(`/tasks/${TASK_ID}/warm/`),
+            fulfillJson({ run_id: successorId, task_id: TASK_ID })
+        )
+        await page.route(
+            (url) => url.pathname.endsWith(`/tasks/${TASK_ID}/run/`),
+            async (route) => {
+                await runAccepted
+                await fulfillJson({ ...makeTask('queued'), latest_run: successor })(route)
+            }
+        )
+        await page.route((url) => url.pathname.endsWith(`/runs/${successorId}/`), fulfillJson(successor))
+        await page.route(
+            (url) => url.pathname.endsWith(`/runs/${successorId}/stream_token/`),
+            fulfillJson({ token: 'e2e-token', stream_base_url: null })
+        )
+        await page.route(
+            (url) => new RegExp(`/runs/${successorId}/stream/?$`).test(url.pathname),
+            async (route) => {
+                await agentStarted
+                await route.fulfill({
+                    contentType: 'text/event-stream',
+                    body:
+                        toSse([
+                            {
+                                type: 'notification',
+                                notification: {
+                                    method: '_posthog/progress',
+                                    params: {
+                                        group: `setup:${successorId}`,
+                                        step: 'sandbox',
+                                        status: 'completed',
+                                        label: 'Restored sandbox',
+                                    },
+                                },
+                            },
+                            {
+                                type: 'notification',
+                                notification: {
+                                    method: '_posthog/progress',
+                                    params: {
+                                        group: `setup:${successorId}`,
+                                        step: 'agent',
+                                        status: 'completed',
+                                        label: 'Started agent',
+                                    },
+                                },
+                            },
+                            {
+                                type: 'notification',
+                                notification: { method: '_posthog/run_started', params: { runId: successorId } },
+                            },
+                            {
+                                type: 'notification',
+                                notification: {
+                                    method: '_posthog/user_message',
+                                    params: { content: 'Continue with the next step.' },
+                                },
+                            },
+                            agentMessageFrame('m2', 'The next step is ready.'),
+                        ]) + 'data: {"type":"task_run_state","status":"completed"}\n\n',
+                })
+            }
+        )
+
+        await openRunDeepLink(page, workspace!.team_id)
+        await expect(page.getByText('The earlier answer stays here.', { exact: true })).toBeVisible({ timeout: 30000 })
+        await expect(page.getByTestId('max-sandbox-context-usage')).toBeVisible()
+        await expect(page.getByText('Started agent', { exact: true })).toHaveCount(0)
+        const composer = page.getByTestId('sandbox-composer-input')
+        await composer.fill('Continue with the next step.')
+        await page.getByTestId('sandbox-composer-send').click()
+        await expect(page.getByText('Continue with the next step.', { exact: true })).toHaveCount(1)
+        await expect(page.getByText('Setting up sandbox', { exact: false })).toBeVisible()
+        await expect(composer).toHaveValue('')
+        await expect(page.getByTestId('max-sandbox-context-usage')).toHaveCount(0)
+        await expect(page.getByTestId('sandbox-composer-send')).toBeDisabled()
+        await expect(page.getByTestId('run-log-skeleton')).toHaveCount(0)
+
+        await composer.fill('Keep this newer draft.')
+        acceptRun()
+        await expect(page.getByTestId('sandbox-composer-send')).toBeEnabled()
+        await expect(composer).toHaveValue('Keep this newer draft.')
+        await expect(page.getByTestId('max-sandbox-context-usage')).toHaveCount(0)
+        await expect(page.getByText('The earlier answer stays here.', { exact: true })).toBeVisible()
+        await expect(page.getByText('Continue with the next step.', { exact: true })).toHaveCount(1)
+        await expect(page.getByText('Setting up sandbox', { exact: false })).toBeVisible()
+        await expect(page.getByTestId('run-log-skeleton')).toHaveCount(0)
+
+        startAgent()
+        await expect(page.getByText('The next step is ready.', { exact: true })).toBeVisible()
+        await expect(page.getByText('Continue with the next step.', { exact: true })).toHaveCount(1)
+        await expect(page.getByText('Restored sandbox', { exact: true })).toHaveCount(0)
+        await expect(page.getByText('Started agent', { exact: true })).toHaveCount(0)
+        await expect(composer).toHaveValue('Keep this newer draft.')
     })
 
     test('live stream drop shows the reconnecting banner', async ({ page }) => {

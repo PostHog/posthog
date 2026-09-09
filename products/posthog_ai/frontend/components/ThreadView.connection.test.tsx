@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
 import { initKeaTests } from '~/test/init'
@@ -26,7 +26,7 @@ describe('ThreadView connection state', () => {
         render(
             <Provider>
                 <BindLogic logic={runStreamLogic} props={props}>
-                    <ThreadView virtualized={false} />
+                    <ThreadView virtualized={false} showContextUsage />
                 </BindLogic>
             </Provider>
         )
@@ -74,5 +74,64 @@ describe('ThreadView connection state', () => {
     it('shows no connection banner on a fresh mount', () => {
         expect(screen.queryByText('Reconnecting to agent')).toBeNull()
         expect(screen.queryByText('Connection lost')).toBeNull()
+    })
+
+    it('hides context usage and cost during an optimistic resume and restores them on failure', async () => {
+        act(() => {
+            logic.actions.setContextUsage({ used: 12000, size: 1000000, cost: 0.04 })
+            logic.actions.handleTerminalStatus({ status: 'completed', replayedFromHistory: true })
+        })
+        await waitFor(() => expect(screen.getByTestId('max-sandbox-context-usage')).toBeVisible())
+
+        act(() => logic.actions.startOptimisticResume('Continue'))
+        await waitFor(() => expect(screen.queryByTestId('max-sandbox-context-usage')).toBeNull())
+        expect(screen.getByText('Setting up sandbox')).toBeVisible()
+
+        act(() => logic.actions.rollbackOptimisticResume())
+        await waitFor(() => expect(screen.getByTestId('max-sandbox-context-usage')).toBeVisible())
+        expect(screen.getByText('$0.04')).toBeVisible()
+    })
+
+    it('uses one main indicator for streamed sandbox startup without leaving completed setup rows', async () => {
+        act(() => {
+            logic.actions.sseOpened()
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/progress', {
+                    group: 'setup:run-1',
+                    step: 'sandbox',
+                    status: 'in_progress',
+                    label: 'Restoring sandbox',
+                })
+            )
+        })
+        await waitFor(() => expect(screen.getAllByText('Setting up sandbox')).toHaveLength(1))
+        expect(screen.queryByText('Restoring sandbox')).toBeNull()
+
+        act(() => {
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/progress', {
+                    group: 'setup:run-1',
+                    step: 'sandbox',
+                    status: 'completed',
+                    label: 'Restored sandbox',
+                })
+            )
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/progress', {
+                    group: 'setup:run-1',
+                    step: 'agent',
+                    status: 'completed',
+                    label: 'Started agent',
+                })
+            )
+        })
+        expect(screen.getAllByText('Setting up sandbox')).toHaveLength(1)
+        expect(screen.queryByText('Restored sandbox')).toBeNull()
+        expect(screen.queryByText('Started agent')).toBeNull()
+
+        act(() => logic.actions.ingestAcpFrame(notification('_posthog/run_started', {})))
+        await waitFor(() => expect(screen.queryByText('Setting up sandbox')).toBeNull())
+        expect(screen.queryByText('Restored sandbox')).toBeNull()
+        expect(screen.queryByText('Started agent')).toBeNull()
     })
 })
