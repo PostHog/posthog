@@ -21,9 +21,18 @@ class TestRecipeValidation(SimpleTestCase):
                 "SELECT person_id AS distinct_id, count() AS c FROM events GROUP BY person_id -- reads from {anchors}",
             ),
             ("in_a_string_literal", "SELECT e.person_id AS distinct_id, '{anchors}' AS marker FROM events e"),
+            (
+                "behind_a_cte",
+                "WITH base AS (SELECT concat(person_id, 'x') AS person_id, cutoff_ts FROM {anchors}) "
+                "SELECT b.person_id AS distinct_id FROM base b",
+            ),
+            (
+                "in_a_derived_table",
+                "SELECT b.person_id AS distinct_id FROM (SELECT person_id, cutoff_ts FROM {anchors}) b",
+            ),
         ]
     )
-    def test_anchors_placeholder_must_be_a_table_source(self, _name, sql):
+    def test_anchors_placeholder_must_be_the_top_level_table_source(self, _name, sql):
         # labeling substitutes {anchors} in code position only; without it as a table the SQL
         # runs with no per-user T0 cutoff (target leakage).
         with self.assertRaises(RecipeValidationError) as ctx:
@@ -41,6 +50,12 @@ class TestRecipeValidation(SimpleTestCase):
                 "SELECT e.person_id AS distinct_id FROM {anchors} a LEFT JOIN events e ON e.person_id = a.person_id",
             ),
             ("selected_twice", "SELECT a.person_id AS distinct_id, a.person_id AS distinct_id FROM {anchors} a"),
+            (
+                "implicit_second_output",
+                "SELECT a.person_id AS distinct_id, e.distinct_id FROM {anchors} a "
+                "LEFT JOIN events e ON e.person_id = a.person_id",
+            ),
+            ("wildcard_output", "SELECT a.person_id AS distinct_id, a.* FROM {anchors} a"),
         ]
     )
     def test_feature_sql_requires_the_anchor_person_id_aliased_as_distinct_id(self, _name, sql):
@@ -78,6 +93,33 @@ class TestRecipeValidation(SimpleTestCase):
     @parameterized.expand(
         [
             (
+                "label_cte_joined",
+                "SELECT a.person_id AS distinct_id, lu.positive AS p FROM {anchors} a JOIN labeled_users lu ON lu.person_id = a.person_id",
+            ),
+            (
+                "label_cte_in_subquery",
+                "SELECT a.person_id AS distinct_id, (SELECT count() FROM labeled_anchors) AS n FROM {anchors} a",
+            ),
+            (
+                "label_cte_redefined",
+                "WITH labeled_users AS (SELECT 1 AS x) SELECT a.person_id AS distinct_id FROM {anchors} a",
+            ),
+        ]
+    )
+    def test_feature_sql_rejects_training_wrapper_relations(self, _name, sql):
+        with self.assertRaises(RecipeValidationError) as ctx:
+            validate_feature_sql(sql)
+        assert "training wrapper" in str(ctx.exception)
+
+    @parameterized.expand([("label", "__label"), ("fold", "__fold")])
+    def test_feature_sql_rejects_reserved_output_names(self, _name, column):
+        with self.assertRaises(RecipeValidationError) as ctx:
+            validate_feature_sql(f"SELECT a.person_id AS distinct_id, 1 AS {column} FROM {{anchors}} a")
+        assert column in str(ctx.exception)
+
+    @parameterized.expand(
+        [
+            (
                 "bound_to_cutoff_ts",
                 "SELECT a.person_id AS distinct_id, "
                 "dateDiff('day', max(e.timestamp), fromUnixTimestamp(a.cutoff_ts)) AS days_since_last_event "
@@ -91,9 +133,9 @@ class TestRecipeValidation(SimpleTestCase):
                 "- toIntervalDay({lookback_days}) GROUP BY a.person_id",
             ),
             (
-                "anchors_behind_a_cte",
-                "WITH base AS (SELECT person_id, cutoff_ts FROM {anchors}) "
-                "SELECT b.person_id AS distinct_id, b.cutoff_ts AS t FROM base b",
+                "own_cte_over_events",
+                "WITH recent AS (SELECT person_id, count() AS n FROM events GROUP BY person_id) "
+                "SELECT a.person_id AS distinct_id, r.n FROM {anchors} a LEFT JOIN recent r ON r.person_id = a.person_id",
             ),
             ("unaliased_anchors", "SELECT person_id AS distinct_id FROM {anchors}"),
         ]

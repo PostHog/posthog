@@ -46,6 +46,14 @@ _ANCHORS = "anchors"
 _PERSON_ID = "person_id"
 _DISTINCT_ID = "distinct_id"
 
+# build_training_features_sql nests the feature query inside a WITH scope that defines these
+# relations. They carry the label, so a feature query that reads one of them selects the outcome
+# directly at training time; at inference they do not exist and the query fails.
+_TRAINING_CTE_NAMES: frozenset[str] = frozenset({"user_window", "user_t0", "labeled_users", "labeled_anchors"})
+# The training wrapper appends these columns to the feature rows, so a feature query that emits
+# them makes the label lookup ambiguous.
+_RESERVED_OUTPUT_NAMES: frozenset[str] = frozenset({"__label", "__fold"})
+
 
 class RecipeValidationError(ValueError):
     """Raised when an agent-supplied recipe fails a server-side safety check."""
@@ -69,15 +77,25 @@ def validate_feature_sql(feature_sql: str) -> None:
     # The framework substitutes {anchors} with the per-user (person_id, cutoff_ts) table. The
     # parser only produces a Placeholder node for the placeholder in code position, so a
     # '{anchors}' string literal or a commented-out placeholder does not count: the query would
-    # run with no per-user T0 cutoff and read the outcome window (target leakage).
-    if not _reads_anchors_table(node):
+    # run with no per-user T0 cutoff and read the outcome window (target leakage). It has to sit
+    # in the top-level FROM: behind a CTE or a derived table the anchor key can be transformed
+    # and renamed back to person_id, which nothing below can trace.
+    anchors_join = _top_level_anchors_join(node)
+    if anchors_join is None:
         raise RecipeValidationError(
-            "feature_sql must read FROM the {anchors} placeholder table (columns person_id, "
-            "cutoff_ts) so features are cut off at each user's T0 and cannot leak the outcome window."
+            "feature_sql must read FROM the {anchors} placeholder table in its top-level FROM "
+            '(e.g. "FROM {anchors} a LEFT JOIN events e ON ..."; columns person_id, cutoff_ts) so '
+            "features are cut off at each user's T0 and cannot leak the outcome window."
         )
-    problem = _distinct_id_problem(node)
+    problem = _output_problem(node, anchors_alias=anchors_join.alias)
     if problem:
         raise RecipeValidationError(problem)
+    cte_reads = _training_cte_reads(node)
+    if cte_reads:
+        raise RecipeValidationError(
+            f"feature_sql must not reference {', '.join(sorted(cte_reads))}: the training wrapper "
+            "defines those relations and they carry the label. Read the anchors through {anchors} only."
+        )
     wall_clock = _wall_clock_reads(node)
     if wall_clock:
         raise RecipeValidationError(
@@ -106,15 +124,24 @@ class _WallClockReads(TraversingVisitor):
         super().visit_field(node)
 
 
-class _AnchorsTables(TraversingVisitor):
+class _TrainingCteReads(TraversingVisitor):
     def __init__(self) -> None:
         super().__init__()
-        self.found = False
+        self.names: set[str] = set()
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
-        if _is_anchors_placeholder(node.table):
-            self.found = True
+        if isinstance(node.table, ast.Field) and node.table.chain:
+            self._check(str(node.table.chain[0]))
         super().visit_join_expr(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        for name in node.ctes or {}:
+            self._check(name)
+        super().visit_select_query(node)
+
+    def _check(self, name: str) -> None:
+        if name.lower() in _TRAINING_CTE_NAMES:
+            self.names.add(name)
 
 
 def _is_anchors_placeholder(node: ast.Expr | None) -> bool:
@@ -128,52 +155,70 @@ def _wall_clock_reads(node: ast.SelectQuery) -> set[str]:
     return visitor.names
 
 
-def _reads_anchors_table(node: ast.SelectQuery) -> bool:
-    """True when ``{anchors}`` is a table source somewhere in the query, subqueries included."""
-    visitor = _AnchorsTables()
+def _training_cte_reads(node: ast.SelectQuery) -> set[str]:
+    """Every training-wrapper relation the query reads or redefines, subqueries included."""
+    visitor = _TrainingCteReads()
     visitor.visit(node)
-    return visitor.found
+    return visitor.names
 
 
-def _top_level_anchors_alias(node: ast.SelectQuery) -> tuple[bool, str | None]:
-    """Whether ``{anchors}`` sits in the top-level FROM, and the alias it carries there."""
+def _top_level_anchors_join(node: ast.SelectQuery) -> ast.JoinExpr | None:
+    """The top-level FROM entry whose table is ``{anchors}``, or None when it is not there."""
     join = node.select_from
     while join is not None:
         if _is_anchors_placeholder(join.table):
-            return True, join.alias
+            return join
         join = join.next_join
-    return False, None
+    return None
 
 
-def _distinct_id_problem(node: ast.SelectQuery) -> str | None:
+def _output_problem(node: ast.SelectQuery, *, anchors_alias: str | None) -> str | None:
     """
-    Why the SELECT does not key each row as the anchor's own ``person_id AS distinct_id``, or
-    None when it does.
+    Why the top-level SELECT does not produce the columns the training join needs, or None.
 
-    The training join and materialization read that exact column, so the value must be the
-    raw anchor key: an expression over it (``toString``, ``concat``) or another relation's
-    ``person_id`` is unique enough to pass the row check yet joins to no label.
+    The join reads ``distinct_id`` and appends ``__label`` / ``__fold``, so the output must
+    name ``distinct_id`` exactly once as the anchors table's own ``person_id`` field (an
+    expression over it or a joined table's key is unique enough to pass the row check yet
+    joins to no label), must not reuse the appended names, and must list every column: a
+    wildcard hides both.
     """
-    columns = [col for col in node.select or [] if isinstance(col, ast.Alias) and col.alias == _DISTINCT_ID]
-    if not columns:
+    names: list[str] = []
+    distinct_id_expr: ast.Expr | None = None
+    for col in node.select or []:
+        if isinstance(col, ast.Alias):
+            names.append(col.alias)
+            if col.alias == _DISTINCT_ID:
+                distinct_id_expr = col.expr
+        elif isinstance(col, ast.Field) and col.chain:
+            name = str(col.chain[-1])
+            if name == "*":
+                return (
+                    "feature_sql must list its output columns explicitly. A wildcard (*) can hide a second "
+                    "distinct_id or a reserved column."
+                )
+            names.append(name)
+    reserved = sorted(name for name in names if name in _RESERVED_OUTPUT_NAMES)
+    if reserved:
         return (
-            'feature_sql must select the anchor person_id aliased as distinct_id (e.g. "SELECT '
-            'a.person_id AS distinct_id, ..."). Materialization and the training join read that '
-            "exact column, so each row keys one person."
+            f"feature_sql must not output {', '.join(reserved)}: the training wrapper appends "
+            "those columns to every feature row."
         )
-    if len(columns) > 1:
-        return f"feature_sql selects distinct_id {len(columns)} times. Select it exactly once."
-    expr = columns[0].expr
-    if not isinstance(expr, ast.Field) or str(expr.chain[-1]) != _PERSON_ID:
+    occurrences = names.count(_DISTINCT_ID)
+    if occurrences > 1:
+        return f"feature_sql outputs distinct_id {occurrences} times. Output it exactly once."
+    expected = [anchors_alias, _PERSON_ID] if anchors_alias else [_PERSON_ID]
+    if distinct_id_expr is None:
         return (
-            "distinct_id must be the anchor person_id column itself (a.person_id AS distinct_id), not "
-            "an expression over it. The training join compares it to the anchor key as is."
+            f'feature_sql must select {".".join(expected)} AS distinct_id (e.g. "SELECT '
+            f'{".".join(expected)} AS distinct_id, ..."). Materialization and the training join '
+            "read that exact column, so each row keys one person."
         )
-    anchored, alias = _top_level_anchors_alias(node)
-    if not anchored:
-        return None
-    expected = [alias, _PERSON_ID] if alias else [_PERSON_ID]
-    if [str(part) for part in expr.chain] != expected:
+    if not isinstance(distinct_id_expr, ast.Field) or str(distinct_id_expr.chain[-1]) != _PERSON_ID:
+        return (
+            f"distinct_id must be the anchor person_id column itself ({'.'.join(expected)} AS distinct_id), "
+            "not an expression over it. The training join compares it to the anchor key as is."
+        )
+    if [str(part) for part in distinct_id_expr.chain] != expected:
         return (
             f"distinct_id must be {'.'.join(expected)}, the person_id of the {{anchors}} table, not "
             "another relation's person_id. A joined table's key is null or missing for anchors it "
