@@ -1,17 +1,7 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconFilter } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCheckbox,
-    LemonInput,
-    LemonMenuItems,
-    LemonMenuOverlay,
-    LemonTable,
-    LemonTableColumns,
-    Link,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -20,42 +10,20 @@ import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { columnValueFilter } from '../columnValueFilter'
 import { getAccountRelatedUserAdminUrl } from './accountRelatedUserAdminUrl'
 import { accountRelatedUsersLogic, AccountOrganizationMember, PAGE_SIZE } from './accountRelatedUsersLogic'
 import { AccountsEvents } from './constants'
 
 // Highest access first, matching the table's default sort direction for the column.
-const LEVEL_FILTER_OPTIONS: OrganizationMembershipLevel[] = [
+const LEVEL_FILTER_OPTIONS = [
     OrganizationMembershipLevel.Owner,
     OrganizationMembershipLevel.Admin,
     OrganizationMembershipLevel.Member,
-]
-
-function LevelFilterOverlay({
-    levels,
-    onChange,
-}: {
-    levels: OrganizationMembershipLevel[]
-    onChange: (levels: OrganizationMembershipLevel[]) => void
-}): JSX.Element {
-    const items: LemonMenuItems = [
-        {
-            title: 'Show only',
-            items: LEVEL_FILTER_OPTIONS.map((level) => ({
-                icon: <LemonCheckbox checked={levels.includes(level)} className="pointer-events-none" />,
-                label: capitalizeFirstLetter(membershipLevelToName.get(level) ?? 'Unknown'),
-                'data-attr': 'customer-analytics-account-users-level-option',
-                onClick: () =>
-                    onChange(
-                        levels.includes(level)
-                            ? levels.filter((selected) => selected !== level)
-                            : LEVEL_FILTER_OPTIONS.filter((option) => levels.includes(option) || option === level)
-                    ),
-            })),
-        },
-    ]
-    return <LemonMenuOverlay items={items} />
-}
+].map((level) => ({
+    value: level,
+    label: capitalizeFirstLetter(membershipLevelToName.get(level) ?? 'Unknown'),
+}))
 
 export function AccountRelatedUsersExpansion({
     externalId,
@@ -98,9 +66,12 @@ export function AccountRelatedUsersExpansion({
             key: 'level',
             sorter: true,
             defaultSortOrder: -1,
-            more: <LevelFilterOverlay levels={levels} onChange={setLevels} />,
-            moreIcon: <IconFilter />,
-            moreFilterCount: levels.length,
+            ...columnValueFilter<AccountOrganizationMember, OrganizationMembershipLevel>({
+                options: LEVEL_FILTER_OPTIONS,
+                selected: levels,
+                onChange: setLevels,
+                'data-attr': 'customer-analytics-account-users-level-option',
+            }),
             render: (_, member) => capitalizeFirstLetter(membershipLevelToName.get(member.level) ?? 'Unknown'),
         },
         {
