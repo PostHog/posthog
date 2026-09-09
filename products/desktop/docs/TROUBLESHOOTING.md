@@ -10,6 +10,24 @@ Desktop logs are stored in `~/.posthog-code/logs/main.log` (`logs-dev/main.log` 
 Match the task and run IDs before using those diagnostics to change authentication, MCP connections, or startup hooks.
 The adapter uses the existing desktop logger. It does not enable verbose SDK logging or change the startup timeout.
 
+### Capture SDK diagnostics on macOS
+
+If the debug directory is empty or the application log has no Claude diagnostics, enable SDK logging for one launch:
+
+1. Quit PostHog completely with **Command-Q**. An existing application process will not receive the new environment variable.
+2. Run this command in Terminal:
+
+   ```sh
+   DEBUG_CLAUDE_AGENT_SDK=1 /Applications/PostHog.app/Contents/MacOS/PostHog > "$HOME/Desktop/posthog-startup.log" 2>&1
+   ```
+
+3. Reproduce the timeout once, then quit PostHog.
+4. Check `posthog-startup.log` on the Desktop. If it contains an `SDK debug logs:` line, collect the file at that path too.
+
+Use the printed path instead of assuming `~/.claude/debug`: Desktop can use its own Claude configuration directory.
+These logs can contain prompts and tool output. Share them only through a private support channel, not in a public issue or pull request.
+Launch PostHog normally afterward to stop this temporary debug capture.
+
 ## Black screen during development
 
 If the app launches but renders a blank/black screen, it's almost always a stale Vite cache.
