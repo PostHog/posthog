@@ -48,11 +48,13 @@ interface ImagePreviewDragState {
 const IMAGE_TILE_HORIZONTAL_DRAG_FACTOR = 2
 const IMAGE_TILE_POSITION_STEP = 10
 const MAX_IMAGE_UPLOAD_SIZE_BYTES = 4 * 1024 * 1024
-const IMAGE_UPLOAD_ERROR_MESSAGES = {
-    NOT_AN_IMAGE: 'File is not an image',
-    UNSUPPORTED_TYPE: 'This image format is not supported',
-    TOO_LARGE: 'Image exceeds the maximum file size',
-} as const
+const IMAGE_UPLOAD_TOASTS: Record<string, string> = {
+    'File is not an image': 'Upload an image file.',
+    'This image format is not supported': 'Choose a PNG, JPG, GIF, WebP, or AVIF image.',
+    'Image exceeds the maximum file size': 'Image must be 4 MB or smaller.',
+    [IMAGE_DECODE_ERROR_MESSAGE]: 'That image could not be read. Try a different file.',
+}
+const GENERIC_IMAGE_UPLOAD_TOAST = 'We could not upload that image. Try again.'
 const SUPPORTED_IMAGE_UPLOAD_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/avif']
 
 export function ImageTileModal({
@@ -131,17 +133,7 @@ export function ImageTileModal({
         },
         onError: (detail) => {
             posthog.capture('dashboard image tile upload failed')
-            if (detail === IMAGE_UPLOAD_ERROR_MESSAGES.NOT_AN_IMAGE) {
-                lemonToast.error('Upload an image file.')
-            } else if (detail === IMAGE_UPLOAD_ERROR_MESSAGES.UNSUPPORTED_TYPE) {
-                lemonToast.error('Choose a PNG, JPG, GIF, WebP, or AVIF image.')
-            } else if (detail === IMAGE_UPLOAD_ERROR_MESSAGES.TOO_LARGE) {
-                lemonToast.error('Image must be 4 MB or smaller.')
-            } else if (detail === IMAGE_DECODE_ERROR_MESSAGE) {
-                lemonToast.error('That image could not be read. Try a different file.')
-            } else {
-                lemonToast.error('We could not upload that image. Try again.')
-            }
+            lemonToast.error(IMAGE_UPLOAD_TOASTS[detail] ?? GENERIC_IMAGE_UPLOAD_TOAST)
         },
     })
     const imageOperationInProgress = isTextTileSubmitting || uploading
