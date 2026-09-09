@@ -1412,6 +1412,7 @@ describe('exec tool', () => {
             ['property-definitions', 'read-data-schema'],
             ['query-generate-hogql-from-question', 'execute-sql'],
             ['query-run', 'execute-sql'],
+            ['self-driving-inbox-get', 'inbox-reports-list'],
         ])('throws redirect when calling deprecated %s', async (deprecated, replacement) => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: `call ${deprecated} {}` })).rejects.toThrow(

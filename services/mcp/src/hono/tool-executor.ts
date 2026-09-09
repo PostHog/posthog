@@ -79,11 +79,10 @@ interface ExecMetricState {
  *
  * MCP gives the executor no way to prove that a call came from the app, so this reads
  * connection state instead of call provenance. In tools mode the model calls tools
- * directly, which makes the two indistinguishable, so suppression still applies there and
- * a UI app loaded that way still gets nothing. To fix that case, pass `forceUiDataToMeta`
- * and `includeUiResponseMeta` together, which moves the app payload to `_meta` instead of
- * widening what the model reads. `buildToolResultPayload` writes that payload only when
- * both flags are set.
+ * directly, which makes the two indistinguishable, so suppression still applies there.
+ * A UI app loaded that way still renders, because `buildToolResultPayload` moves the app
+ * payload to the app-only `_meta` key whenever it suppresses `structuredContent` for a
+ * tool that has a UI resource, without widening what the model reads.
  */
 function shouldSuppressStructuredContent(args: {
     isCliModeEnabled: boolean
