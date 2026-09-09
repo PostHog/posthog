@@ -185,7 +185,7 @@ def _live_subjects(team_id: int) -> _LiveSubjects:
     return _LiveSubjects(
         table_ids=frozenset(warehouse_facade.all_queryable_table_names(team_id)),
         view_ids=frozenset(UUID(view_id) for view_id in data_modeling_facade.all_saved_query_names(team_id)),
-        metric_ids=frozenset(metric.id for metric in data_catalog_facade.live_metric_summaries(team_id)),
+        metric_ids=frozenset(data_catalog_facade.live_metric_ids(team_id)),
     )
 
 

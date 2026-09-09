@@ -57,6 +57,15 @@ def live_metric_summaries(team_id: int) -> list[MetricSummary]:
     return [_summary(metric) for metric in metrics]
 
 
+def live_metric_ids(team_id: int) -> list[UUID]:
+    """The ids of this team's metrics that still exist, as one query.
+
+    Reads one column, so a caller that only needs to know which metrics are alive never hydrates a
+    definition or the free text beside it.
+    """
+    return list(Metric.objects.for_team(team_id).filter(deleted=False).values_list("id", flat=True))
+
+
 def metric_names_for_ids(team_id: int, metric_ids: Collection[UUID]) -> dict[UUID, str]:
     """The current name of each of these metrics, as one query. A deleted or missing one is absent.
 
