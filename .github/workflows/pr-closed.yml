@@ -68,10 +68,18 @@ jobs:
             # merge ref, which would execute PR-modified tools/hogbox-preview with
             # the hogland token below. Cleanup only needs the SDK + a destroy call,
             # so master's copy is correct and removes that exec vector.
+            #
+            # The teardown imports only tools/hogbox-preview and the external
+            # posthog-hogland SDK, so a sparse blobless checkout of that one
+            # directory replaces a full clone of the monorepo.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               if: steps.gate.outputs.had_preview == 'true'
               with:
                   ref: ${{ github.event.repository.default_branch }}
+                  sparse-checkout: |
+                      tools/hogbox-preview/
+                  sparse-checkout-cone-mode: false
+                  filter: blob:none
             - name: Connect to Tailscale (tag:hogland-ci)
               if: steps.gate.outputs.had_preview == 'true'
               uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
