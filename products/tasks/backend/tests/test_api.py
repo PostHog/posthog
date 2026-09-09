@@ -13068,6 +13068,36 @@ class TestCloudUsageGate(BaseTaskAPITest):
         task.save()
         return task
 
+    def _create_pr_task(
+        self,
+        *,
+        relationship: str = "implementation",
+        link_other_report: bool = False,
+        report_in_other_team: bool = False,
+    ) -> Task:
+        # The Inbox "Create PR" shape: a report-linked task that resolved a repository, plus the
+        # `SignalReportTask` row `record_report_task` writes on the manual and auto-start paths.
+        from products.signals.backend.models import SignalReport, SignalReportTask
+
+        report_team = (
+            Team.objects.create(organization=self.organization, name="Report Team")
+            if report_in_other_team
+            else self.team
+        )
+        report = SignalReport.objects.create(team=report_team)
+        task = self.create_task()
+        task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+        task.signal_report = report
+        task.repository = "posthog/posthog"
+        task.save()
+        SignalReportTask.objects.create(
+            team=self.team,
+            report=SignalReport.objects.create(team=self.team) if link_other_report else report,
+            task=task,
+            relationship=relationship,
+        )
+        return task
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_run_without_code_access_returns_403_before_usage_check(self, mock_gate, mock_workflow):
@@ -13296,6 +13326,27 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertFalse(tasks_facade.task_exempt_from_code_access(task.id, self.team.id))
 
+    @parameterized.expand(
+        [
+            ("implementation_link", "implementation", False, False, True),
+            ("discussion_label", "discussion", False, False, False),
+            ("link_to_another_report", "implementation", True, False, False),
+            ("report_in_another_team", "implementation", False, True, False),
+        ]
+    )
+    def test_exemption_for_create_pr_task_needs_a_team_scoped_implementation_link(
+        self, _name, relationship, link_other_report, report_in_other_team, expected
+    ):
+        # The relationship label is client input, so it only entitles a run when the row is
+        # scoped to this team and to the report the task itself links.
+        task = self._create_pr_task(
+            relationship=relationship,
+            link_other_report=link_other_report,
+            report_in_other_team=report_in_other_team,
+        )
+
+        self.assertEqual(tasks_facade.task_exempt_from_code_access(task.id, self.team.id), expected)
+
     def test_create_signal_report_task_ignores_channel_repository(self):
         from products.signals.backend.models import SignalReport
         from products.tasks.backend.models import Channel
@@ -13507,6 +13558,26 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(response.status_code, expected_status)
         mock_gate.assert_called_once()
         self.assertEqual(TaskRun.objects.filter(task=task).exists(), expected_status == status.HTTP_200_OK)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
+    def test_run_report_create_pr_task_bypasses_code_access(self, _mock_gate, mock_workflow):
+        # "Create PR" holds a repository by design, so the repo-less Inbox exemption cannot cover
+        # it. The implementation link is what entitles the run, and it runs while the Desktop
+        # policy denies the organization, because auto-start opens the same PR run for the same
+        # report from the server without consulting the gate.
+        self.set_tasks_feature_flag(False)
+        task = self._create_pr_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(TaskRun.objects.filter(task=task).exists())
+        mock_workflow.assert_called_once()
 
 
 class TestGetPosthogCodeUsage(TestCase):
