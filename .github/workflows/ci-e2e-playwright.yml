@@ -20,7 +20,7 @@ on:
                 type: string
                 default: ''
             ai_repeat_each:
-                description: 'Repetitions of each AI case (use 10 with zero retries for stability validation).'
+                description: 'AI mode: 1 for normal CI (30 minutes), 10 for stability (90 minutes, zero retries).'
                 required: false
                 type: string
                 default: '1'
@@ -547,8 +547,34 @@ jobs:
         needs: [changes]
         if: ${{ !cancelled() && needs.changes.outputs.aiShouldRun == 'true' }}
         runs-on: depot-ubuntu-24.04-8
-        timeout-minutes: 90
+        timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.ai_repeat_each == '10' && 90 || 30 }}
         steps:
+            - name: Select AI run mode
+              id: mode
+              env:
+                  AI_REPETITIONS: ${{ inputs.ai_repeat_each || '1' }}
+                  AI_RETRIES: ${{ inputs.playwright_retries }}
+              run: |
+                  if [[ "$AI_REPETITIONS" != '1' && "$AI_REPETITIONS" != '10' ]]; then
+                      echo '::error::AI repetitions must be 1 (normal) or 10 (stability).'
+                      exit 1
+                  fi
+                  if [[ "$AI_REPETITIONS" == '10' ]]; then
+                      if [[ -n "$AI_RETRIES" && "$AI_RETRIES" != '0' ]]; then
+                          echo '::error::AI stability runs require zero retries.'
+                          exit 1
+                      fi
+                      AI_RETRIES=0
+                  else
+                      AI_RETRIES="${AI_RETRIES:-1}"
+                  fi
+                  if [[ ! "$AI_RETRIES" =~ ^[0-9]+$ ]]; then
+                      echo '::error::Playwright retries must be a non-negative integer.'
+                      exit 1
+                  fi
+                  echo "repetitions=$AI_REPETITIONS" >> "$GITHUB_OUTPUT"
+                  echo "retries=$AI_RETRIES" >> "$GITHUB_OUTPUT"
+
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -594,8 +620,8 @@ jobs:
             - name: Run isolated AI suite
               if: steps.tooling.outputs.available == 'true'
               env:
-                  AI_RETRIES: ${{ inputs.playwright_retries || '1' }}
-                  AI_REPETITIONS: ${{ inputs.ai_repeat_each || '1' }}
+                  AI_RETRIES: ${{ steps.mode.outputs.retries }}
+                  AI_REPETITIONS: ${{ steps.mode.outputs.repetitions }}
               run: |
                   .codex/with-flox env CI=true python -m products.posthog_ai.frontend.e2e.ci \
                       --retries "$AI_RETRIES" --repeat-each "$AI_REPETITIONS" --image-cache /tmp/ai-e2e-image-cache

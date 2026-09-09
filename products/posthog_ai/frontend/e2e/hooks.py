@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import ExitStack
 from typing import cast
@@ -13,48 +12,30 @@ from .controller import Controller
 def install_hooks(stack: ExitStack, controller: Controller, image_id: str) -> None:
     from django.db import transaction
 
-    import posthoganalytics
-    from posthoganalytics.metrics_capture import PostHogMetrics
     from pydantic import JsonValue
     from requests import Response
-    from temporalio.client import Client, WorkflowHandle
+    from temporalio.client import WorkflowHandle
     from temporalio.service import RPCError, RPCStatusCode
 
-    from products.tasks.backend.constants import (
-        SANDBOX_EVENT_INGEST_FEATURE_FLAG,
-        WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
-        WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
-    )
+    from posthog.temporal.oauth import PosthogMcpScopes
+
     from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
-    from products.tasks.backend.models import TaskRun
     from products.tasks.backend.presentation.views.api import TaskRunViewSet
-    from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
+    from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
+    from products.tasks.backend.temporal.process_task.activities.start_agent_server import _LaunchParams, _prepare_launch
 
     proxy = TaskRunViewSet._proxy_command_to_agent_server
 
-    def trace_registration[**P, R](original: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
-        async def registered(*args: P.args, **kwargs: P.kwargs) -> R:
-            attempt = controller.attempt
-            workflow = args[1] if len(args) > 1 else kwargs.get("workflow")
-            if workflow != "process-task" or attempt is None:
-                return await original(*args, **kwargs)
-            argument = args[2] if len(args) > 2 else kwargs.get("arg")
-            run = await TaskRun.objects.aget(id=cast(ProcessTaskInput, argument).run_id)
-            if run.team_id != attempt.team.id:
-                raise ValueError("Workflow does not belong to the active attempt")
-            attempt.run_id = str(run.id)
-            attempt.task_id = str(run.task_id)
-            attempt.workflow_id = str(kwargs["id"])
-            attempt.run_created.set()
-            fault = attempt.faults["registration"]
-            if generation := fault.reach(str(run.id)):
-                await asyncio.to_thread(fault.wait_for_release, generation)
-            handle = await original(*args, **kwargs)
-            fault.record("registered", run_id=str(run.id))
-            attempt.workflow_registered.set()
-            return handle
-
-        return registered
+    def prepared(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbox_id: str) -> _LaunchParams:
+        params = _prepare_launch(ctx, scopes, sandbox_id)
+        attempt = controller.attempt
+        if attempt is None or ctx.run_id != attempt.run_id:
+            raise ValueError("Agent launch belongs to another attempt")
+        attempt.agent_configuration = {
+            "event_ingest_url": params.event_ingest_url,
+            "event_ingest_keep_stream_open": params.event_ingest_keep_stream_open,
+        }
+        return params
 
     def trace_signal[**P, R](original: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
         async def signalled(*args: P.args, **kwargs: P.kwargs) -> R:
@@ -105,14 +86,6 @@ def install_hooks(stack: ExitStack, controller: Controller, image_id: str) -> No
             sandbox_token_param=sandbox_token_param,
         )
 
-    def flag(key: str, *args: object, **kwargs: object) -> bool | None:
-        if key in {WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG, WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG}:
-            return False
-        if key in {"tasks", SANDBOX_EVENT_INGEST_FEATURE_FLAG, "tasks-stream-via-proxy"}:
-            return key != "tasks-stream-via-proxy"
-        return False
-
-    stack.enter_context(patch.object(Client, "start_workflow", trace_registration(Client.start_workflow)))
     stack.enter_context(
         patch("products.tasks.backend.logic.services.workflow_dispatch.execute_after_commit", transaction.on_commit)
     )
@@ -120,12 +93,9 @@ def install_hooks(stack: ExitStack, controller: Controller, image_id: str) -> No
     stack.enter_context(patch.object(WorkflowHandle, "signal", trace_signal(WorkflowHandle.signal)))
     stack.enter_context(patch.object(TaskRunViewSet, "_proxy_command_to_agent_server", staticmethod(proxied)))
     stack.enter_context(patch.object(DockerSandbox, "_ensure_image_exists", return_value=image_id))
-    stack.enter_context(patch.object(posthoganalytics, "feature_enabled", flag))
-    stack.enter_context(patch.object(posthoganalytics, "get_feature_flag", return_value=False))
-    stack.enter_context(patch.object(posthoganalytics.Client, "get_flags_decision", return_value={"flags": {}}))
-    stack.enter_context(patch.object(posthoganalytics.Client, "_get_flags_decision", return_value={"flags": {}}))
-    stack.enter_context(patch.object(posthoganalytics.Client, "_enqueue", return_value=None))
-    stack.enter_context(patch.object(PostHogMetrics, "_capture", return_value=None))
+    stack.enter_context(
+        patch("products.tasks.backend.temporal.process_task.activities.start_agent_server._prepare_launch", prepared)
+    )
     stack.enter_context(
         patch(
             "products.tasks.backend.logic.services.code_usage_gate._gateway_usage_url",

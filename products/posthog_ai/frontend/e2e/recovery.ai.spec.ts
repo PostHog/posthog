@@ -23,6 +23,8 @@ for (const provider of ['claude', 'codex'] as const) {
             await expect(page.getByTestId('run-startup-stop')).toBeVisible()
             await fault.release()
             await expect(page.getByText('First response received.', { exact: true })).toBeVisible()
+            await ai.reconnectStream(page)
+            await expect(page.getByText('First response received.', { exact: true })).toHaveCount(1)
             await send(page, followup)
             await expect(page.getByText('Follow-up response received.', { exact: true })).toBeVisible()
             await page.reload()

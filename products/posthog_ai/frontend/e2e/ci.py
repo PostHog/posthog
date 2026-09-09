@@ -55,7 +55,8 @@ def main() -> int:
     )
 
     def run(*command: str) -> None:
-        subprocess.run(command, cwd=root, check=True)
+        with monitor.stage(" ".join(command[:2])):
+            subprocess.run(command, cwd=root, check=True)
 
     services = ("db", "redis7", "kafka", "clickhouse", "objectstorage", "temporal")
     monitor = ResourceMonitor()
@@ -71,11 +72,12 @@ def main() -> int:
             backups = root / ".postgres-backups"
             backups.mkdir(exist_ok=True)
             shutil.copyfile(root / "schema.sql.gz", backups / "schema-latest.sql.gz")
-            restored = subprocess.run(
-                ["hogli", "db:restore-schema-fresh"],
-                cwd=root,
-                env={**os.environ, "TARGET_DB": "posthog_ai_e2e"},
-            )
+            with monitor.stage("schema_restore"):
+                restored = subprocess.run(
+                    ["hogli", "db:restore-schema-fresh"],
+                    cwd=root,
+                    env={**os.environ, "TARGET_DB": "posthog_ai_e2e"},
+                )
             if restored.returncode:
                 sys.stderr.write("Schema restore failed; applying migrations to the fresh database.\n")
                 run("dropdb", "--if-exists", "posthog_ai_e2e")
@@ -92,10 +94,12 @@ def main() -> int:
         run("pnpm", "--filter=@posthog/frontend", "build")
         run("python", "manage.py", "collectstatic", "--noinput")
         run("pnpm", "--filter=@posthog/playwright", "exec", "playwright", "install", "chromium", "--with-deps")
-        return subprocess.run(
-            ["hogli", "test:e2e:ai", "--attach", *sys.argv[1:]],
-            cwd=root,
-        ).returncode
+        with monitor.stage("suite"):
+            return subprocess.run(
+                ["hogli", "test:e2e:ai", "--attach", *sys.argv[1:]],
+                cwd=root,
+                env={**os.environ, "AI_E2E_SCHEMA_TEMPLATE": "posthog_ai_e2e"},
+            ).returncode
     finally:
         (output / "metrics.json").write_text(json.dumps(monitor.finish(), indent=2))
         with (output / "docker.log").open("w") as log:

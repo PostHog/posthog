@@ -246,6 +246,26 @@ class Controller:
     def control(self, method: str, path: str, body: dict[str, JsonValue]) -> JsonValue:
         if path == "health" and method == "GET":
             return {"ready": True}
+        if path == "dispatcher/error":
+            self.record_error(str(body["error"]))
+            return {"ok": True}
+        if path == "dispatcher/register":
+            from products.tasks.backend.models import TaskRun
+
+            attempt = self.attempt
+            if attempt is None:
+                raise ValueError("Dispatcher registration outside an attempt")
+            run = TaskRun.objects.for_team(attempt.team.id).get(id=str(body["run_id"]))
+            if str(run.task_id) != attempt.task_id:
+                raise ValueError("Dispatcher registration belongs to another task")
+            attempt.run_id = str(run.id)
+            attempt.workflow_id = str(body["workflow_id"])
+            attempt.dispatch_finished.clear()
+            attempt.run_created.set()
+            fault = attempt.faults["registration"]
+            if generation := fault.reach(str(run.id)):
+                fault.wait_for_release(generation)
+            return {"attempt_id": attempt.id}
         if path == "attempt" and method == "POST":
             with self.lock:
                 if self.attempt is not None:
@@ -259,7 +279,18 @@ class Controller:
                 return self.attempt.public()
         attempt_id, operation = path.split("/", 1)
         attempt = self.require_attempt(attempt_id)
-        if operation == "configure":
+        if operation.startswith("dispatcher/"):
+            if body.get("run_id") != attempt.run_id or body.get("workflow_id") != attempt.workflow_id:
+                raise ValueError("Dispatcher observation belongs to another run")
+            attempt.dispatch_finished.set()
+            if operation == "dispatcher/registered":
+                attempt.faults["registration"].record("registered", run_id=attempt.run_id)
+                attempt.workflow_registered.set()
+            elif operation == "dispatcher/failed":
+                attempt.errors.append(f"Dispatcher registration failed: {body['error']}")
+            else:
+                raise ValueError("Unexpected dispatcher observation")
+        elif operation == "configure":
             steps = body["steps"]
             if not isinstance(steps, list):
                 raise ValueError("Expected response steps")
@@ -310,6 +341,7 @@ class Controller:
             finally:
                 attempt.cleanup()
                 self.attempt = None
+            attempt.verify_proxy_ingest()
         else:
             raise ValueError(f"Unexpected controller operation {operation}")
         return {"ok": True}

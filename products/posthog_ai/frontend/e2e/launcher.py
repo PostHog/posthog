@@ -3,12 +3,14 @@ from __future__ import annotations
 import os
 import sys
 import json
+import socket
 import asyncio
 import logging
+import secrets
 import argparse
 import subprocess
 import logging.config
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from pathlib import Path
 from uuid import uuid4
@@ -23,7 +25,11 @@ def build_skills() -> None:
 
     organization = Organization.objects.create(name=f"Synthetic AI E2E build {uuid4().hex}")
     try:
-        team = Team.objects.create(organization=organization, name="Synthetic skill rendering project")
+        team = Team.objects.create(
+            id=secrets.randbelow(1_000_000_000) + 1_000_000_000,
+            organization=organization,
+            name="Synthetic skill rendering project",
+        )
         with patch("products.posthog_ai.scripts.hogql_example._cached_team", team):
             build_local_skills(set_bind_mount_env=True)
     finally:
@@ -35,7 +41,7 @@ def main() -> int:
     parser.add_argument(
         "--attach",
         action="store_true",
-        help="Use provisioned databases and Temporal; never start or stop those services",
+        help="Reuse provisioned infrastructure; still create and remove an isolated application database",
     )
     parser.add_argument("--retries", type=int)
     parser.add_argument("--repeat-each", type=int, default=1)
@@ -43,6 +49,8 @@ def main() -> int:
     parser.add_argument("--prepare-only", action="store_true")
     parser.add_argument("--image-cache", type=Path)
     args = parser.parse_args()
+    if args.repeat_each < 1 or (args.retries is not None and args.retries < 0):
+        parser.error("Repetitions must be positive and retries cannot be negative")
     root = Path(__file__).resolve().parents[4]
     output = root / "products/posthog_ai/frontend/e2e/artifacts" / uuid4().hex
     output.mkdir(parents=True)
@@ -79,7 +87,7 @@ def main() -> int:
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
     ).decode()
 
-    from products.posthog_ai.eval_harness.harness.django_env import EvalDatabase, setup_django
+    from products.posthog_ai.eval_harness.harness.django_env import NullDbBlocker, setup_django
 
     setup_django()
 
@@ -90,16 +98,18 @@ def main() -> int:
     from products.posthog_ai.eval_harness.harness.ports import PERSONHOG_ROUTER_PORT
     from products.posthog_ai.eval_harness.harness.services import (
         ensure_personhog_binaries,
-        start_mcp_server,
         start_personhog,
     )
     from products.posthog_ai.eval_harness.harness.temporal_env import start_temporal_env, temporal_client_target
 
     from .controller import Controller
+    from .database import isolated_database
     from .egress import restrict_egress
+    from .flags import flag_values, install_flags
     from .hooks import install_hooks
     from .image import build_image
     from .metrics import ResourceMonitor
+    from .processes import Processes
 
     log_config = deepcopy(settings.LOGGING)
     log_config["disable_existing_loggers"] = False
@@ -117,15 +127,26 @@ def main() -> int:
     monitor = ResourceMonitor()
     try:
         with ExitStack() as stack:
+            processes = Processes(stack, root, output)
             if not args.attach:
                 subprocess.run(["hogli", "services:ready", "-y"], cwd=root, check=True)
-                database = EvalDatabase(keepdb=True)
-                database.setup()
-                stack.callback(database.teardown)
+            with monitor.stage("database"):
+                stack.enter_context(isolated_database(root))
+            if not args.attach:
+                from posthog.conftest import _django_db_setup
+
+                stack.enter_context(contextmanager(_django_db_setup)(True, NullDbBlocker()))
                 ensure_personhog_binaries()
                 stack.callback(start_personhog())
             controller = Controller(output)
             stack.callback(controller.close)
+            install_flags(stack, output, controller.record_error)
+            with socket.socket() as proxy_socket, socket.socket() as mcp_socket:
+                proxy_socket.bind(("127.0.0.1", 0))
+                mcp_socket.bind(("127.0.0.1", 0))
+                proxy_port = proxy_socket.getsockname()[1]
+                mcp_port = mcp_socket.getsockname()[1]
+            proxy_url = f"http://127.0.0.1:{proxy_port}"
             os.environ["ANTHROPIC_BASE_URL"] = f"{controller.url}/title"
             gateway = controller.url.replace("127.0.0.1", "host.docker.internal")
             overrides = {
@@ -147,7 +168,11 @@ def main() -> int:
                 "AI_GATEWAY_URL": f"{controller.url}/v1",
                 "AI_GATEWAY_API_KEY": "synthetic-gateway-key",
                 "TASKS_TASK_QUEUE": f"ai-e2e-{uuid4().hex}",
-                "AGENT_PROXY_BASE_URL": None,
+                "TASKS_REDIS_URL": settings.REDIS_URL,
+                "TASKS_AGENT_PROXY_INGEST_URL": proxy_url.replace("127.0.0.1", "host.docker.internal"),
+                "TASKS_AGENT_PROXY_PUBLIC_URL": proxy_url,
+                "TASKS_AGENT_PROXY_INTERNAL_URL": proxy_url,
+                "AGENT_PROXY_CALLBACK_SECRET": controller.token,
                 "CACHES": {
                     alias: {
                         "BACKEND": "django_redis.cache.RedisCache",
@@ -203,7 +228,8 @@ def main() -> int:
             if archive and archive.exists():
                 subprocess.run(["docker", "load", "--input", str(archive)], check=True)
             DockerSandbox._build_image_if_needed(DEFAULT_IMAGE_NAME, _base_dockerfile_path())
-            image_id = build_image(root, output)
+            with monitor.stage("sandbox_image"):
+                image_id = build_image(root, output)
             if archive and not archive.exists():
                 archive.parent.mkdir(parents=True, exist_ok=True)
                 provenance = json.loads((output / "image-provenance.json").read_text())
@@ -223,13 +249,73 @@ def main() -> int:
                 override_settings(
                     SANDBOX_API_URL=server.url.replace("127.0.0.1", "host.docker.internal"),
                     SITE_URL=server.url,
-                    SANDBOX_MCP_URL="http://host.docker.internal:18787/mcp",
+                    SANDBOX_MCP_URL=f"http://host.docker.internal:{mcp_port}/mcp",
                     POSTHOG_CONNECT_BASE_URL_DEV=server.url,
                     POSTHOG_CONNECT_OAUTH_CLIENT_ID_DEV="synthetic-ai-e2e-connection",
                     POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_DEV=controller.token,
                 )
             )
-            stack.callback(start_mcp_server(server.url, feature_flags={"posthog-connect": True}))
+            with monitor.stage("agent_proxy_build"):
+                subprocess.run(["pnpm", "--filter=@posthog/agent-proxy", "build"], cwd=root, check=True)
+            with monitor.stage("mcp_build"):
+                subprocess.run(["pnpm", "--filter=@posthog/mcp", "build:hono"], cwd=root, check=True)
+            with monitor.stage("agent_proxy_startup"):
+                processes.start(
+                    "agent-proxy",
+                    ["node", "services/agent-proxy/dist/agent-proxy-server.mjs"],
+                    {
+                        **os.environ,
+                        "NODE_ENV": "production",
+                        "HOST": "0.0.0.0",
+                        "PORT": str(proxy_port),
+                        "TASKS_REDIS_URL": settings.REDIS_URL,
+                        "SANDBOX_JWT_PUBLIC_KEY": signing_key.public_key().public_bytes(
+                            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+                        ).decode(),
+                        "SANDBOX_JWT_PUBLIC_KEY_SECONDARY": "",
+                        "AGENT_PROXY_DJANGO_CALLBACK_URL": server.url,
+                        "AGENT_PROXY_CALLBACK_SECRET": controller.token,
+                        "TASKS_AGENT_PROXY_CORS_ORIGINS": server.url,
+                        "AGENT_PROXY_LOG_LEVEL": "info",
+                        "SHUTDOWN_GRACE_MS": "1000",
+                        "SHUTDOWN_PRESTOP_DELAY_MS": "0",
+                    },
+                )
+                processes.ready_http(f"{proxy_url}/_readyz")
+            with monitor.stage("mcp_startup"):
+                processes.start(
+                    "mcp",
+                    ["node", "services/mcp/dist/hono-server.mjs"],
+                    {
+                        **os.environ,
+                        "NODE_ENV": "development",
+                        "HOST": "0.0.0.0",
+                        "PORT": str(mcp_port),
+                        "REDIS_URL": settings.REDIS_URL,
+                        "POSTHOG_API_BASE_URL": server.url,
+                        "MCP_APPS_BASE_URL": f"http://127.0.0.1:{mcp_port}",
+                        "POSTHOG_MCP_APPS_ANALYTICS_BASE_URL": server.url,
+                        "FEATURE_FLAG_OVERRIDES": json.dumps(flag_values("mcp")),
+                    },
+                )
+                processes.ready_http(f"http://127.0.0.1:{mcp_port}/readyz")
+            dispatcher_output = output / "dispatcher"
+            dispatcher_output.mkdir()
+            with monitor.stage("dispatcher_startup"):
+                processes.start(
+                    "dispatcher",
+                    [sys.executable, "-m", "products.posthog_ai.frontend.e2e.dispatcher"],
+                    dict(os.environ),
+                    configuration=json.dumps(
+                        {
+                            "controller": controller.url,
+                            "token": controller.token,
+                            "output": str(dispatcher_output),
+                            "settings": {key: value for key, value in overrides.items() if key != "LOGGING"},
+                        }
+                    ).encode(),
+                )
+                processes.ready(lambda: (dispatcher_output / "dispatcher-ready").exists())
             restrict_egress(stack, controller)
             stack.callback(controller.finish_active_attempt)
             env = {
@@ -238,6 +324,7 @@ def main() -> int:
                 "AI_E2E_TOKEN": controller.token,
                 "AI_E2E_BASE_URL": server.url,
                 "AI_E2E_OUTPUT": str(output),
+                "AI_E2E_PROXY_URL": proxy_url,
             }
             command = [
                 "pnpm",
@@ -254,8 +341,9 @@ def main() -> int:
                 command.append(f"--retries={args.retries}")
             if args.grep:
                 command.extend(["--grep", args.grep])
-            result = subprocess.run(command, cwd=root, env=env)
-            return result.returncode or int(bool(controller.errors))
+            with monitor.stage("browser"):
+                result = processes.run_browser(command, env)
+        return result or int(bool(controller.errors))
     finally:
         if "controller" in locals():
             (output / "controller-errors.json").write_text(json.dumps(controller.errors, indent=2))

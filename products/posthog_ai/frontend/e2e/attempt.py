@@ -6,6 +6,7 @@ import threading
 from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
+from time import monotonic
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -38,6 +39,8 @@ class Attempt:
         self.workflow_id: str | None = None
         self.run_created = threading.Event()
         self.workflow_registered = threading.Event()
+        self.dispatch_finished = threading.Event()
+        self.dispatch_finished.set()
         self.signal_not_found = threading.Event()
         self.signal_accepted = threading.Event()
         self.worker_ready = threading.Event()
@@ -47,6 +50,7 @@ class Attempt:
         self.title_requests = 0
         self.sdk_titles: list[str] = []
         self.tool_executions = 0
+        self.agent_configuration: dict[str, JsonValue] = {}
 
     def seed(self) -> None:
         from django.db import transaction
@@ -80,6 +84,7 @@ class Attempt:
                 OrganizationMembership.Level.OWNER,
             )
             self.team = Team.objects.create(
+                id=secrets.randbelow(1_000_000_000) + 1_000_000_000,
                 organization=self.organization, name="Synthetic workspace", completed_snippet_onboarding=True
             )
             self.user.current_organization = self.organization
@@ -109,6 +114,7 @@ class Attempt:
                 },
             )
             self.connected_team = Team.objects.create(
+                id=secrets.randbelow(1_000_000_000) + 1_000_000_000,
                 organization=self.organization, name="Synthetic connected project", completed_snippet_onboarding=True
             )
             self.connected_user = User.objects.create_and_join(
@@ -238,9 +244,14 @@ class Attempt:
             "title_requests": self.title_requests,
             "sdk_titles": self.sdk_titles,
             "tool_executions": self.tool_executions,
+            "agent_configuration": self.agent_configuration,
         }
 
     def verify(self) -> None:
+        from django.conf import settings
+
+        from products.tasks.backend.models import TaskRun, TaskWorkflowDispatch
+
         if self.errors:
             raise AssertionError(self.errors)
         if self.title_requests != 1:
@@ -250,6 +261,39 @@ class Attempt:
         self.replay.verify()
         for fault in self.faults.values():
             fault.verify()
+        dispatches = TaskWorkflowDispatch.objects.for_team(self.team.id).filter(task_run_id=self.run_id)
+        if dispatches.count() != 1 or dispatches.get().status != TaskWorkflowDispatch.Status.ACCEPTED:
+            raise AssertionError("Expected one accepted durable workflow dispatch")
+        run = TaskRun.objects.for_team(self.team.id).get(id=self.run_id)
+        if run.state.get("sandbox_event_ingest_enabled") is not True:
+            raise AssertionError("Run did not capture sandbox event ingest")
+        if self.agent_configuration != {
+            "event_ingest_url": settings.TASKS_AGENT_PROXY_INGEST_URL,
+            "event_ingest_keep_stream_open": True,
+        }:
+            raise AssertionError(f"Unexpected agent streaming configuration: {self.agent_configuration}")
+
+    def verify_proxy_ingest(self) -> None:
+        path = self.output.parent / "agent-proxy.log"
+        deadline = monotonic() + 10
+        while monotonic() < deadline:
+            entries: list[dict[str, JsonValue]] = []
+            for line in path.read_text().splitlines():
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(entry, dict) and entry.get("run") == self.run_id:
+                    entries.append(entry)
+            (self.output / "proxy-ingest.json").write_text(json.dumps(entries, indent=2))
+            if any(
+                entry.get("event") in {"ingest", "ingest:client_disconnect"}
+                and int(str(entry.get("accepted", 0))) > 0
+                for entry in entries
+            ):
+                return
+            threading.Event().wait(0.1)
+        raise AssertionError("Agent-proxy did not report ingesting events for this run")
 
     def capture(self) -> None:
         import subprocess
@@ -313,6 +357,8 @@ class Attempt:
 
         for fault in self.faults.values():
             fault.release()
+        if not self.dispatch_finished.wait(15):
+            raise RuntimeError("Dispatcher registration survived barrier release")
         for thread in self.threads:
             thread.join(timeout=95)
             if thread.is_alive():

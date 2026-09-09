@@ -10,7 +10,9 @@ It uses the real application and sandbox agent with synthetic model responses. C
 flowchart LR
     Browser[Playwright / real chat UI] --> Django[Django ASGI / auth / tasks API]
     Django --> DB[(Postgres / Redis / object storage)]
-    Django --> Registration[Registration barrier]
+    Django --> Outbox[(Durable workflow outbox)]
+    Outbox --> Dispatcher[Real workflow dispatcher]
+    Dispatcher --> Registration[Registration barrier]
     Registration --> Temporal[Real Temporal]
     Django -->|real signals, including NOT_FOUND| Temporal
     Temporal --> Worker[Isolated tasks worker / startup barrier]
@@ -20,8 +22,9 @@ flowchart LR
     Agent --> Models[Provider SSE replay server]
     Agent --> MCP[Real MCP server]
     MCP --> Django
-    Agent -->|real event ingest| Django
-    Django -->|real SSE| Browser
+    Agent -->|signed event ingest| AgentProxy[Source-built agent-proxy]
+    AgentProxy -->|real SSE| Browser
+    AgentProxy -->|authenticated callbacks| Django
     Test[Test's TypeScript sequence] --> Controller[Test-only controller]
     Controller --> Registration
     Controller --> Worker
@@ -36,11 +39,23 @@ It does not start the eval engine or require Braintrust credentials.
 Only model responses and peripheral external services are simulated. Model discovery, Anthropic token counting, and Django
 title generation have explicit handlers. Claude SDK session titles also use an independent, correlated handler.
 Billing reads and membership updates use local endpoints. Analytics capture is disabled.
-Feature flags select synchronous workflow dispatch and Django streaming, so the failure boundaries remain consistent.
+Feature flags select durable asynchronous workflow dispatch and agent-proxy streaming.
 
-The launcher installs wrappers in its own process. Workflow code contains no E2E branches.
+The launcher installs wrappers in its own process and the dispatcher child. Workflow code contains no E2E branches.
 After database setup, the launcher sets `TEST=False` and clears cached Redis clients so task streams use real Redis.
 Django's unit-test commit shortcut is replaced with `transaction.on_commit`: a browser and worker need to observe committed rows.
+
+### Flag profile
+
+`flags.json` is the committed source of truth for browser, backend, and MCP overrides. Each entry declares its boolean
+value and consumers. The profile enables tasks, sequenced ingest, proxy streaming, keep-stream-open, all three durable
+dispatch flags, and PostHog connections. The MCP profile also enables markdown notebooks. Other task switches have explicit
+false entries. CI never fetches live flag definitions or evaluates real users' targeting rules.
+
+Backend single-flag and bulk evaluations share the same values. An undeclared Tasks or PostHog AI flag records a test
+failure even if the application catches an evaluation error. Unrelated flags remain false. Add an explicit manifest entry
+when introducing a flag on the exercised path; do not enable every flag. `effective-flags.json` and
+`flag-evaluations.ndjson` record the profile and observed backend decisions without user targeting properties.
 
 ## Response storage and replay
 
@@ -100,7 +115,7 @@ an arm that never fired. Teardown fails if any required fault was missed.
 
 | Control        | Boundary                                                                        | What remains live                                     |
 | -------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| `registration` | Immediately before the real `Client.start_workflow` call, after the run commits | Temporal and the unmodified signal call               |
+| `registration` | In the dispatcher child, immediately before real `Client.start_workflow`       | Outbox claiming, leases, Temporal, and signals         |
 | `worker`       | Before starting the attempt's tasks worker                                      | Temporal registration and signal acceptance           |
 | `approval`     | Before forwarding the targeted `permission_response`                            | Agent session, approval card, and tool implementation |
 
@@ -118,6 +133,10 @@ Wait for `wait/not_found`, then release registration.
 The frontend retries `503 warm_run_activation_unavailable` with the signed token that pins the original run and message.
 Assert the answer, send a follow-up, reload, and assert each message and answer appears once.
 Assert there is still exactly one task and one run, matching the seeded identities.
+Before the follow-up, abort only the browser's proxy transport and wait for its real reconnect with `Last-Event-ID`.
+The original application cancellation signal remains active, so the normal stream recovery loop handles the disconnect.
+The follow-up and reload assertions reject missing or duplicate messages. Every case rejects Django SSE fallback and checks
+that the dispatcher accepted its outbox row, the agent received ingest/keep-open settings, and agent-proxy ingested events.
 
 ### Worked example: approval rejection
 
@@ -143,12 +162,28 @@ Run from the repository root:
 .codex/with-flox hogli test:e2e:ai --attach --repeat-each 10 --retries 0
 ```
 
-Local mode prepares the eval databases, personhog, and an isolated Temporal server. Attach mode uses already provisioned databases and
-Temporal; it still owns Django ASGI, the MCP process, and the isolated tasks worker. Configure database URLs, ClickHouse,
+Every launch creates and drops its own application database, including attach mode. This is necessary because the real
+dispatcher claims outbox rows across all teams; a unique Temporal queue cannot isolate a shared application database.
+Local mode prepares eval auxiliary stores, personhog, and an isolated Temporal server. Attach mode reuses provisioned
+Postgres infrastructure, auxiliary stores, and Temporal; it owns Django ASGI, MCP, agent-proxy, the dispatcher, and the tasks worker.
+Configure database URLs, ClickHouse,
 and personhog before entering attach mode. Pass environment overrides after the wrapper, for example
 `.codex/with-flox env DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog hogli test:e2e:ai --attach`.
 The launcher prepares frontend dependencies, including Quill's generated assets, before building a missing frontend bundle.
 Run the frontend build after changing frontend code.
+The configured Postgres role must be able to create and drop databases. `DATABASE_URL` supplies connection credentials;
+attach mode does not dispatch work from that URL's original database. Synthetic projects use randomized IDs to avoid
+reusing the same tenant keys in shared auxiliary stores after a fresh application database is created.
+
+Agent-proxy and MCP compile once per launch and run without development watchers on allocated ports. The proxy receives
+the launch's RSA public key, local Redis URL, exact browser origin, and authenticated Django callback configuration.
+All three `TASKS_AGENT_PROXY_*_URL` settings point to that proxy, using the Docker-reachable hostname for sandbox ingest.
+The dispatcher receives the same database, Temporal queue, and backend profile through its test bootstrap. Control requests
+authenticate with the launch token and validate the active attempt, task, and run before releasing registration.
+
+Readiness waits are bounded to 60 seconds and service exits fail the browser runner promptly. Owned process groups receive
+SIGTERM, a ten-second grace period, then SIGKILL. The proxy's drain grace is reduced for suite teardown. Logs remain in the
+artifact directory after database cleanup. SIGTERM to the launcher enters the same cleanup path as an interrupted browser run.
 
 Each launch creates `artifacts/<launch-id>/`. Before cleanup it captures browser traces/screenshots, the consumed fixture
 steps, fault timeline, run records, persisted stream, container and agent-server logs, service logs, and image provenance.
@@ -156,6 +191,8 @@ steps, fault timeline, run records, persisted stream, container and agent-server
 100 ms, covering Docker services on the dedicated CI runner. `artifacts/ci/metrics.json` includes provisioning and builds;
 the launch's metrics cover the launcher lifecycle. Runner memory includes the operating system and other processes, so
 local measurements on a shared devbox are not isolated suite measurements.
+The metrics also contain stage durations for provisioning commands, database preparation, image and service builds,
+service readiness, and browser execution. Proxy ingest evidence is captured after the sandbox closes its upload stream.
 
 Teardown releases outstanding barriers, terminates only the owned workflow, ends the owned run's stream, stops its worker,
 removes its sandbox containers, and deletes its synthetic database resources, run storage, and Redis stream keys.
@@ -178,17 +215,26 @@ The existing `ci-e2e-playwright.yml` contains the isolated AI job. One browser w
 The AI job reuses the backend's schema cache only when its migration, dependency, Postgres image, and routing fingerprint
 matches. The existing schema restore helper seeds migration defaults; migrations still run afterwards. A miss or failed
 restore falls back to the full migration history.
+The provisioner leaves that empty, migrated database as a template. `AI_E2E_SCHEMA_TEMPLATE=posthog_ai_e2e` is a CI-only
+handoff to the launcher, which rejects a template containing tasks and clones it into its launch-owned database. This
+avoids repeating schema restore and migrations for the browser phase. Standalone launches restore and migrate their own database.
 
 Regular Playwright discovery and spec selection exclude `*.ai.spec.ts`; the AI config selects them explicitly. The AI path filter
 covers frontend, tasks, agent, MCP, harness, and build inputs. Older checkouts missing the tooling skip the new job's steps.
 The existing required check includes AI failures and prerequisite failures. Normal triggers and the regular suite's
 selection, reporting, and retry behavior remain in place. The AI job also defaults to one CI retry.
+The job runs alongside regular Playwright, with one AI browser worker and one active sandbox. It does not create a provider
+matrix or duplicate stack setup. The normal AI job timeout is 30 minutes, including provisioning and artifact steps.
 
-For runner validation, dispatch the workflow on the tested branch with `playwright_retries=0` and `ai_repeat_each=10`.
+For runner validation, dispatch the workflow on the tested branch with `ai_repeat_each=10`. This selects a 90-minute job
+and forces zero AI retries; an explicit nonzero retry override is rejected. `ai_repeat_each=1` selects the normal job.
 This runs all six runtime/case combinations ten times. Retain the workflow URL, commit, image provenance, runtime, and peak
 memory with the review evidence. A local repetition run does not substitute for this runner validation.
 
 ### Runner validation: 2026-09-07
+
+This historical result used synchronous dispatch and Django streaming. It does not validate the proxy/dispatcher profile.
+That profile still requires its own CI repetition run and cold/warm normal-job timing evidence.
 
 [CI run 34134228895](https://github.com/PostHog/posthog/actions/runs/34134228895/job/101781375259) passed all 60 executions
 at commit `491dac51e71767e71912410b0f7e281893268e84`, with zero retries, one browser worker, and one active sandbox.

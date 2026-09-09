@@ -3,6 +3,8 @@ from __future__ import annotations
 import time
 import resource
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -13,6 +15,7 @@ class ResourceMonitor:
         self.started = time.monotonic()
         self.peak_used_bytes = 0
         self.total_bytes = 0
+        self.stages: list[dict[str, str | float]] = []
         self.stopped = threading.Event()
         self.thread = threading.Thread(target=self._monitor, daemon=True)
         self.thread.start()
@@ -29,16 +32,25 @@ class ResourceMonitor:
             self._sample()
             self.stopped.wait(self.interval)
 
-    def finish(self) -> dict[str, float | int]:
+    @contextmanager
+    def stage(self, name: str) -> Iterator[None]:
+        started = time.monotonic()
+        try:
+            yield
+        finally:
+            self.stages.append({"name": name, "seconds": time.monotonic() - started})
+
+    def finish(self) -> dict[str, float | int | list[dict[str, str | float]]]:
         self.stopped.set()
         self.thread.join(timeout=5)
         if self.thread.is_alive():
             raise RuntimeError("Resource monitor did not stop")
         self._sample()
-        metrics: dict[str, float | int] = {
+        metrics: dict[str, float | int | list[dict[str, str | float]]] = {
             "runtime_seconds": time.monotonic() - self.started,
             "launcher_peak_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
             "child_peak_rss_kib": resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss,
+            "stages": self.stages,
         }
         if self.total_bytes:
             metrics.update(
