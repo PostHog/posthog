@@ -188,7 +188,7 @@
             "type": "Numeric"
         },
         "$ai_cache_creation_input_tokens": {
-            "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
+            "description": "The number of tokens created in the cache for the input prompt.",
             "examples": [
                 23
             ],
@@ -1604,7 +1604,7 @@
             "label": "External click URL"
         },
         "$feature_flag": {
-            "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try \"Active feature flags\".",
+            "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called and $experiment_exposure events. If you want to filter other events, try \"Active feature flags\".",
             "examples": [
                 "beta-feature"
             ],
@@ -2271,6 +2271,22 @@
                 "feature-flag-get-all"
             ],
             "label": "MCP listed tool names"
+        },
+        "$mcp_llm_model": {
+            "description": "The model used by the MCP client for this tool call. Taken from recognized client metadata when available, otherwise from the agent's self-reported llm_model argument. MCP does not attest model identity, so use this for analytics rather than billing or access control.",
+            "examples": [
+                "claude-sonnet-5",
+                "gpt-5.6-sol"
+            ],
+            "label": "MCP model"
+        },
+        "$mcp_llm_model_source": {
+            "description": "How the model identifier was obtained. client_metadata means the MCP client supplied recognized metadata. self_reported means the agent filled the injected llm_model argument. Both sources are unverified.",
+            "examples": [
+                "client_metadata",
+                "self_reported"
+            ],
+            "label": "MCP model source"
         },
         "$mcp_missing_scope": {
             "description": "The API scope the PostHog API said was missing when it refused an MCP request. Only set on $mcp_auth_failed with reason insufficient_scope, and only when the API named a specific scope.",
@@ -3538,25 +3554,53 @@
             "label": "Web vitals CLS measure event details"
         },
         "$web_vitals_CLS_value": {
-            "label": "Web vitals CLS value"
+            "description": "Cumulative layout shift, a score without a unit, usually between 0 and 1. Do not plot it on the same axis as the millisecond metrics, and aggregate it with a percentile such as P90 rather than a count or an average. CLS is only final when the page is hidden, so it lands on a later $web_vitals event than LCP and FCP, and the metric counts are not comparable.",
+            "examples": [
+                0.01,
+                0.1,
+                0.25
+            ],
+            "label": "Web vitals CLS value",
+            "type": "Numeric"
         },
         "$web_vitals_FCP_event": {
             "label": "Web vitals FCP measure event details"
         },
         "$web_vitals_FCP_value": {
-            "label": "Web vitals FCP value"
+            "description": "First contentful paint, in milliseconds: the time until the browser paints the first text or image. Aggregate it with a percentile such as P90, as the web analytics web vitals tab does, rather than a count or an average. Each $web_vitals event only carries the metrics that were ready when it was sent, so the four metrics sit on different sets of events and their counts are not comparable.",
+            "examples": [
+                800,
+                1500,
+                3000
+            ],
+            "label": "Web vitals FCP value",
+            "type": "Numeric"
         },
         "$web_vitals_INP_event": {
             "label": "Web vitals INP measure event details"
         },
         "$web_vitals_INP_value": {
-            "label": "Web vitals INP value"
+            "description": "Interaction to next paint, in milliseconds: how long the page takes to respond to a user interaction. Aggregate it with a percentile such as P90, as the web analytics web vitals tab does, rather than a count or an average. INP is only final when the page is hidden, so it lands on a later $web_vitals event than LCP and FCP. A page with no user interaction has no INP value at all, so the metric counts are not comparable.",
+            "examples": [
+                50,
+                200,
+                500
+            ],
+            "label": "Web vitals INP value",
+            "type": "Numeric"
         },
         "$web_vitals_LCP_event": {
             "label": "Web vitals LCP measure event details"
         },
         "$web_vitals_LCP_value": {
-            "label": "Web vitals LCP value"
+            "description": "Largest contentful paint, in milliseconds: the time until the largest text or image in the viewport is painted. Aggregate it with a percentile such as P90, as the web analytics web vitals tab does, rather than a count or an average. Each $web_vitals event only carries the metrics that were ready when it was sent, so the four metrics sit on different sets of events and their counts are not comparable.",
+            "examples": [
+                1200,
+                2500,
+                4000
+            ],
+            "label": "Web vitals LCP value",
+            "type": "Numeric"
         },
         "$web_vitals_allowed_metrics": {
             "description": "Allowed web vitals metrics config.",
@@ -4051,6 +4095,12 @@
             "label": "Exception",
             "primary_property": "$exception_types"
         },
+        "$experiment_exposure": {
+            "description": "When a user is exposed to an experiment variant.",
+            "ignored_in_assistant": true,
+            "label": "Experiment exposure",
+            "primary_property": "$feature_flag"
+        },
         "$feature_enrollment_update": {
             "description": "When a user enrolls with a feature.",
             "description_llm": "When a user opts in or out of a beta feature. This event is specific to the PostHog Early Access Features product, and is only relevant if the project is using this product.",
@@ -4174,7 +4224,7 @@
             "label": "Session recording snapshot"
         },
         "$web_vitals": {
-            "description": "Automatically captured web vitals data.",
+            "description": "Automatically captured web vitals data. One event only carries the metrics that were ready when it was sent, so LCP, FCP, INP, and CLS are spread over different events.",
             "label": "Web vitals"
         },
         "$workflows_email_blocked": {
@@ -4526,6 +4576,22 @@
             ],
             "label": "MCP listed tool names"
         },
+        "$mcp_llm_model": {
+            "description": "The model used by the MCP client for this tool call. Taken from recognized client metadata when available, otherwise from the agent's self-reported llm_model argument. MCP does not attest model identity, so use this for analytics rather than billing or access control.",
+            "examples": [
+                "claude-sonnet-5",
+                "gpt-5.6-sol"
+            ],
+            "label": "MCP model"
+        },
+        "$mcp_llm_model_source": {
+            "description": "How the model identifier was obtained. client_metadata means the MCP client supplied recognized metadata. self_reported means the agent filled the injected llm_model argument. Both sources are unverified.",
+            "examples": [
+                "client_metadata",
+                "self_reported"
+            ],
+            "label": "MCP model source"
+        },
         "$mcp_missing_scope": {
             "description": "The API scope the PostHog API said was missing when it refused an MCP request. Only set on $mcp_auth_failed with reason insufficient_scope, and only when the API named a specific scope.",
             "examples": [
@@ -4839,7 +4905,7 @@
             "type": "Numeric"
         },
         "$ai_cache_creation_input_tokens": {
-            "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
+            "description": "The number of tokens created in the cache for the input prompt.",
             "examples": [
                 23
             ],
@@ -6263,7 +6329,7 @@
             "type": "String"
         },
         "$feature_flag": {
-            "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try \"Active feature flags\".",
+            "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called and $experiment_exposure events. If you want to filter other events, try \"Active feature flags\".",
             "examples": [
                 "beta-feature"
             ],
@@ -7347,6 +7413,22 @@
                 "feature-flag-get-all"
             ],
             "label": "MCP listed tool names"
+        },
+        "$mcp_llm_model": {
+            "description": "The model used by the MCP client for this tool call. Taken from recognized client metadata when available, otherwise from the agent's self-reported llm_model argument. MCP does not attest model identity, so use this for analytics rather than billing or access control.",
+            "examples": [
+                "claude-sonnet-5",
+                "gpt-5.6-sol"
+            ],
+            "label": "MCP model"
+        },
+        "$mcp_llm_model_source": {
+            "description": "How the model identifier was obtained. client_metadata means the MCP client supplied recognized metadata. self_reported means the agent filled the injected llm_model argument. Both sources are unverified.",
+            "examples": [
+                "client_metadata",
+                "self_reported"
+            ],
+            "label": "MCP model source"
         },
         "$mcp_missing_scope": {
             "description": "The API scope the PostHog API said was missing when it refused an MCP request. Only set on $mcp_auth_failed with reason insufficient_scope, and only when the API named a specific scope.",
@@ -8599,25 +8681,53 @@
             "label": "Web vitals CLS measure event details"
         },
         "$web_vitals_CLS_value": {
-            "label": "Web vitals CLS value"
+            "description": "Cumulative layout shift, a score without a unit, usually between 0 and 1. Do not plot it on the same axis as the millisecond metrics, and aggregate it with a percentile such as P90 rather than a count or an average. CLS is only final when the page is hidden, so it lands on a later $web_vitals event than LCP and FCP, and the metric counts are not comparable.",
+            "examples": [
+                0.01,
+                0.1,
+                0.25
+            ],
+            "label": "Web vitals CLS value",
+            "type": "Numeric"
         },
         "$web_vitals_FCP_event": {
             "label": "Web vitals FCP measure event details"
         },
         "$web_vitals_FCP_value": {
-            "label": "Web vitals FCP value"
+            "description": "First contentful paint, in milliseconds: the time until the browser paints the first text or image. Aggregate it with a percentile such as P90, as the web analytics web vitals tab does, rather than a count or an average. Each $web_vitals event only carries the metrics that were ready when it was sent, so the four metrics sit on different sets of events and their counts are not comparable.",
+            "examples": [
+                800,
+                1500,
+                3000
+            ],
+            "label": "Web vitals FCP value",
+            "type": "Numeric"
         },
         "$web_vitals_INP_event": {
             "label": "Web vitals INP measure event details"
         },
         "$web_vitals_INP_value": {
-            "label": "Web vitals INP value"
+            "description": "Interaction to next paint, in milliseconds: how long the page takes to respond to a user interaction. Aggregate it with a percentile such as P90, as the web analytics web vitals tab does, rather than a count or an average. INP is only final when the page is hidden, so it lands on a later $web_vitals event than LCP and FCP. A page with no user interaction has no INP value at all, so the metric counts are not comparable.",
+            "examples": [
+                50,
+                200,
+                500
+            ],
+            "label": "Web vitals INP value",
+            "type": "Numeric"
         },
         "$web_vitals_LCP_event": {
             "label": "Web vitals LCP measure event details"
         },
         "$web_vitals_LCP_value": {
-            "label": "Web vitals LCP value"
+            "description": "Largest contentful paint, in milliseconds: the time until the largest text or image in the viewport is painted. Aggregate it with a percentile such as P90, as the web analytics web vitals tab does, rather than a count or an average. Each $web_vitals event only carries the metrics that were ready when it was sent, so the four metrics sit on different sets of events and their counts are not comparable.",
+            "examples": [
+                1200,
+                2500,
+                4000
+            ],
+            "label": "Web vitals LCP value",
+            "type": "Numeric"
         },
         "$web_vitals_allowed_metrics": {
             "description": "Allowed web vitals metrics config.",

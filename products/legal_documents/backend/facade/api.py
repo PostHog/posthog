@@ -9,9 +9,11 @@ output, and never leaks ORM instances or QuerySets across the boundary.
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import timedelta
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import QuerySet
 from django.utils import timezone
 
 import structlog
@@ -21,6 +23,7 @@ from posthog.models.organization import Organization
 from posthog.ph_client import ph_scoped_capture
 
 from .. import logic
+from ..logic import SIGNED_BAA_ANNOTATION as SIGNED_BAA_ANNOTATION
 from ..logic.pandadoc import (
     PandaDocError,
     verify_webhook_signature as _verify_pandadoc_webhook_signature,
@@ -82,6 +85,26 @@ def get_signed_pdf_download_url(document_id: UUID, organization_id: UUID) -> str
 
 def has_qualifying_baa_addon(organization: Organization) -> bool:
     return logic.has_qualifying_baa_addon(organization)
+
+
+def has_signed_baa(organization_id: UUID) -> bool:
+    """
+    True once the organization has a countersigned BAA on file. This is the
+    standing HIPAA gate: it decides whether AI training stays locked off, so it
+    must read the signature state rather than a cached flag.
+
+    One query per call. Use `annotate_signed_baa` when serializing a list, and
+    keep this for a single organization and for validating a write.
+    """
+    return logic.has_signed_baa(organization_id)
+
+
+def annotate_signed_baa(queryset: QuerySet[Organization]) -> QuerySet[Organization]:
+    """
+    Add the signed-BAA flag to an Organization queryset as `SIGNED_BAA_ANNOTATION`,
+    so serializing N organizations costs one query rather than N.
+    """
+    return logic.annotate_signed_baa(queryset)
 
 
 def verify_pandadoc_webhook_signature(*, secret: str, body: bytes, signature: str) -> bool:
@@ -293,6 +316,37 @@ def archive_signed_pdf(document_id: UUID) -> None:
     logic.mark_signed_pdf_stored(document)
 
 
+def _time_since_touched(document: LegalDocument) -> timedelta:
+    # updated_at is nullable on the model.
+    return timezone.now() - (document.updated_at or document.created_at)
+
+
+def _recreate_lost_envelope(document: LegalDocument) -> bool:
+    """
+    PandaDoc no longer has the envelope for a row still out for signature, so
+    the customer can never be emailed from it. Confirms the envelope is truly
+    gone before superseding it, records that in error tracking, then creates a
+    fresh envelope from the row's own data.
+    """
+    if not logic.confirm_pandadoc_envelope_gone(document):
+        return False
+    lost_pandadoc_document_id = document.pandadoc_document_id
+    logger.warning(
+        "legal_document_pandadoc_envelope_lost",
+        document_id=str(document.id),
+        pandadoc_document_id=lost_pandadoc_document_id,
+    )
+    capture_exception(
+        Exception("PandaDoc envelope no longer exists for a legal document still out for signature"),
+        additional_properties={
+            "legal_document_id": str(document.id),
+            "pandadoc_document_id": lost_pandadoc_document_id,
+            "organization_id": str(document.organization_id),
+        },
+    )
+    return logic.retry_pandadoc_envelope(document)
+
+
 def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
     """
     Safety net for the whole completion path. Polls PandaDoc for every row we
@@ -305,16 +359,19 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
     Each row is processed independently: `list_pending_signature_documents` is
     ordered oldest-first, so one row that deterministically errors (a bad
     PandaDoc response, a DB hiccup) must not block every row behind it on every
-    15-minute tick.
+    15-minute tick. Also retries envelope creation for rows whose PandaDoc
+    envelope disappeared or was never created.
     """
     newly_signed = 0
     drafts_resent = 0
+    envelopes_recreated = 0
     errors = 0
     pending_seen = 0
     # PandaDoc allows 100 downloads a minute across the whole account, shared with
     # live signings. Staggering one archive per second keeps a backlog drain from
     # starving a customer signing right now, and holds regardless of worker count.
     scheduled_archives = 0
+    recreate_attempts = 0
     signed_this_run: set[UUID] = set()
     # One scoped client for the whole loop, not one per row: this runs in a Celery
     # worker, where the global client's background flush may never run before the
@@ -334,12 +391,23 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
                         signed_this_run.add(document.id)
                 elif (
                     pandadoc_status == logic.PANDADOC_DRAFT_STATUS
-                    and timezone.now() - document.created_at >= logic.RECONCILE_DRAFT_MIN_AGE
+                    and _time_since_touched(document) >= logic.RECONCILE_DRAFT_MIN_AGE
                 ):
                     if logic.send_pandadoc_envelope(document):
                         drafts_resent += 1
                     else:
                         errors += 1
+                elif (
+                    pandadoc_status == logic.PANDADOC_ENVELOPE_MISSING
+                    and _time_since_touched(document) >= logic.RECONCILE_RECREATE_MIN_AGE
+                    and recreate_attempts < logic.RECONCILE_MAX_RECREATES_PER_RUN
+                ):
+                    if logic.claim_pandadoc_envelope_retry(document):
+                        recreate_attempts += 1
+                        if _recreate_lost_envelope(document):
+                            envelopes_recreated += 1
+                        else:
+                            errors += 1
             except Exception as exc:
                 errors += 1
                 logger.exception("legal_document_reconcile_pending_row_failed", document_id=str(document.id))
@@ -354,6 +422,29 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
             processed=pending_seen,
             cap=logic.RECONCILE_MAX_PER_RUN,
         )
+
+    for document in logic.list_pending_documents_missing_envelope():
+        if recreate_attempts >= logic.RECONCILE_MAX_RECREATES_PER_RUN:
+            logger.warning(
+                "legal_document_reconcile_recreate_cap_reached",
+                attempted=recreate_attempts,
+                cap=logic.RECONCILE_MAX_RECREATES_PER_RUN,
+            )
+            break
+        if _time_since_touched(document) < logic.RECONCILE_RECREATE_MIN_AGE:
+            continue
+        try:
+            if not logic.claim_pandadoc_envelope_retry(document):
+                continue
+            recreate_attempts += 1
+            if logic.retry_pandadoc_envelope(document):
+                envelopes_recreated += 1
+            else:
+                errors += 1
+        except Exception as exc:
+            errors += 1
+            logger.exception("legal_document_reconcile_missing_envelope_row_failed", document_id=str(document.id))
+            capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
 
     # Rows this run just signed and already scheduled an archive for above.
     # excluding them here is what keeps the archive from being `.delay()`'d twice.
@@ -372,5 +463,6 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
         newly_signed=newly_signed,
         archives_requeued=archives_requeued,
         drafts_resent=drafts_resent,
+        envelopes_recreated=envelopes_recreated,
         errors=errors,
     )

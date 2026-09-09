@@ -58,7 +58,16 @@ function register(
     Renderer: ComponentType<ToolRendererProps>
 ): void {
     registerToolRenderers(
-        keys.map((key): ToolRegistryEntry => ({ key, displayName, icon, Renderer, requiresPostHogOrigin: true }))
+        keys.map(
+            (key): ToolRegistryEntry => ({
+                key,
+                displayName,
+                icon,
+                Renderer,
+                requiresPostHogOrigin: true,
+                keepVisible: true,
+            })
+        )
     )
 }
 
@@ -141,6 +150,7 @@ registerToolRenderers(
             icon,
             Renderer: QueryRenderer,
             requiresPostHogOrigin: true,
+            keepVisible: true,
         })
     )
 )

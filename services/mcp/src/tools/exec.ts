@@ -3,12 +3,18 @@ import { z } from 'zod'
 
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
-import { ExecCommandError, findRecoverableApiError, PostHogApiError, ToolInputValidationError } from '@/lib/errors'
+import {
+    ExecCommandError,
+    type ExecCommandErrorReason,
+    findRecoverableApiError,
+    PostHogApiError,
+    ToolInputValidationError,
+} from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 import { formatResponse } from '@/lib/response'
 
-import type { ExecHelpCatalog } from './exec-help'
+import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import { getToolDefinitions, type FlagGatedTool, type ScopeGatedTool } from './toolDefinitions'
@@ -115,9 +121,26 @@ export interface ExecCommandMeta {
 
 export type ExecCommandTracker = (meta: ExecCommandMeta) => void
 
+/**
+ * Session-scoped skill-usage markers backing the skills-first gate. Product
+ * `call`s in a session that ran no `learn` load are rejected with a retryable
+ * instruction — interaction-time enforcement of the SKILLS FIRST prompt section,
+ * which agents demonstrably rationalize their way past when it is advisory only.
+ * `call --no-skills` acknowledges that no skill applies and opens the gate for
+ * the rest of the session.
+ */
+export interface SkillsSessionState {
+    hasLearned(): Promise<boolean>
+    markLearned(): Promise<void>
+    hasAcknowledgedNoSkills(): Promise<boolean>
+    markAcknowledgedNoSkills(): Promise<void>
+}
+
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
-    helpCatalog?: ExecHelpCatalog
+    learnCatalog?: ExecLearnCatalog
+    /** Present only when skill distribution is enabled and the client has a session. */
+    skillsSession?: SkillsSessionState
     /**
      * Client is an inline-exec UI-app host that renders MCP UI apps on the exec
      * response (Claude Code, Cowork). Gets the same UI-app payload treatment as the
@@ -141,6 +164,77 @@ export interface ExecToolOptions {
     flagGatedTools?: FlagGatedTool[]
 }
 
+const CALL_USAGE = 'Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>'
+
+const SKILLS_GATE_MESSAGE =
+    'No skills loaded this session. Run `learn -s "<task keywords>"` and load the matching skills first — they carry the thresholds, schemas, and query patterns this task needs. If no skill applies, re-run this exact command as `call --no-skills ...`.'
+
+/**
+ * Plain errors out of the learn catalog are agent mistakes — unknown names, bad
+ * line ranges, empty queries — so type them to keep them out of the `internal`
+ * bucket ops alerts on. Anything that already carries its own class (an API
+ * failure, a source outage, an exec error) propagates untouched.
+ */
+function classifyLearnError(error: unknown): unknown {
+    if (!(error instanceof Error) || error.constructor !== Error) {
+        return error
+    }
+    const reason: ExecCommandErrorReason = error.message.startsWith('Unknown ') ? 'unknown_learn_topic' : 'usage'
+    return new ExecCommandError(error.message, reason)
+}
+
+/**
+ * True when a `learn` input loads skill content (a qualified `source:skill` read,
+ * including file reads within a skill). Generic guide reads, listings, searches,
+ * and describes don't count — a guide is not a skill, and opening the gate on
+ * `learn analytics` would restore exactly the bypass the gate exists to catch.
+ *
+ * Uses the dispatcher's quote-aware tokenizer so a quoted flag (`learn '-s' ...`)
+ * or quoted identifier (`learn 'posthog:x'`) resolves the same way it dispatches —
+ * a naive whitespace split disagrees on both. An unterminated quote can't be a
+ * skill load (and `execute` would have thrown first), so it returns false.
+ */
+function isSkillLoad(rest: string): boolean {
+    let tokens: string[]
+    try {
+        tokens = tokenizeLearnInput(rest)
+    } catch {
+        return false
+    }
+    if (tokens[0] === 'skills' || tokens[0] === '-s' || tokens[0] === '-d') {
+        return false
+    }
+    return tokens.some((token) => QUALIFIED_IDENTIFIER.test(token))
+}
+
+/**
+ * Returns the gate rejection message, or undefined when the call may proceed.
+ * A session-store hiccup opens the gate — enforcement must never break tools.
+ */
+async function resolveSkillsGate(
+    session: SkillsSessionState | undefined,
+    noSkillsFlag: boolean
+): Promise<string | undefined> {
+    if (!session) {
+        return undefined
+    }
+    try {
+        if (noSkillsFlag) {
+            await session.markAcknowledgedNoSkills()
+            return undefined
+        }
+        if (await session.hasLearned()) {
+            return undefined
+        }
+        if (await session.hasAcknowledgedNoSkills()) {
+            return undefined
+        }
+        return SKILLS_GATE_MESSAGE
+    } catch {
+        return undefined
+    }
+}
+
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
     return z.object({
         command: z.string().describe(commandReference),
@@ -156,10 +250,11 @@ function parseCommand(input: string): { verb: string; rest: string } {
     return { verb: trimmed.slice(0, idx), rest: trimmed.slice(idx + 1).trim() }
 }
 
-function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; rest: string } {
+function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; noSkills: boolean; rest: string } {
     let rest = input.trim()
     let forceJson = false
     let confirmed = false
+    let noSkills = false
 
     while (rest) {
         const parsed = parseCommand(rest)
@@ -173,10 +268,15 @@ function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean
             rest = parsed.rest
             continue
         }
+        if (parsed.verb === '--no-skills') {
+            noSkills = true
+            rest = parsed.rest
+            continue
+        }
         break
     }
 
-    return { forceJson, confirmed, rest }
+    return { forceJson, confirmed, noSkills, rest }
 }
 
 // Extracts the inner tool name from an exec `call` command, e.g.
@@ -360,6 +460,12 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
             .join('\n')
         return `Tool "query-run" was removed. Pick the typed query tool that matches your intent, or use "execute-sql" for arbitrary HogQL. Available query-* tools:\n${queryTools}`
     },
+    // Folded into "inbox-reports-list", which already served the same endpoint.
+    // Spell out the filter renames: the replacement declares no required
+    // parameters, so an old array filter sent to it is silently dropped and the
+    // caller gets an unfiltered list instead of an error.
+    'self-driving-inbox-get': () =>
+        'Tool "self-driving-inbox-get" was removed. Use "inbox-reports-list", which lists the same reports. For the old default, pass { "view": "actionable", "use_priority_preference": true, "sort": "priority", "limit": 10 }. The array filters became comma-separated strings: `priorities` is now `priority`, `source_products` is now `source_product`, and `scouts` is now `scout`. `view`, `scope`, `teammate_uuid`, `search`, and `offset` keep their names.',
 }
 
 /**
@@ -401,6 +507,66 @@ function looksLikeUnwrappedPayload(
     // Every remaining complaint sits under the wrapper: the nested schema read the
     // content and rejected specific fields, so the nesting itself was the mistake.
     return wrapped.error.issues.every((issue) => issue.path.length > 1 && String(issue.path[0]) === key)
+}
+
+/**
+ * Rebuilds a flattened payload under the wrapper the schema wanted, so the call the caller meant runs.
+ *
+ * Naming the mistake in the rejection still costs a round trip, and the flattened shape is the most
+ * common rejection on the tools built this way.
+ *
+ * Keys the outer schema declares beside the wrapper stay at the top level. Folding a sibling such as
+ * `baselineDateRange` into `query` would have the nested schema strip it, and the caller would get a
+ * different query than it asked for without being told.
+ *
+ * Every key that moves inside must be one the wrapper declares. A wrapper that defaults its own
+ * fields parses `{"dateRagne": ...}` into a full set of defaults, so accepting that rebuild would run
+ * an unfiltered query and return plausible but wrong rows instead of reporting the typo.
+ *
+ * Returns undefined unless the rebuilt payload parses, so a payload malformed for some other reason
+ * keeps its own rejection.
+ */
+export function rewrapFlattenedArguments(
+    error: z.ZodError,
+    input: unknown,
+    schema: ZodObjectAny | undefined
+): Record<string, unknown> | undefined {
+    if (!schema || !isRecord(input) || error.issues.length !== 1) {
+        return undefined
+    }
+    const issue = error.issues[0]!
+    if (issue.code !== 'invalid_type' || !('input' in issue) || issue.input !== undefined) {
+        return undefined
+    }
+    if (!looksLikeUnwrappedPayload(issue.path, input, schema)) {
+        return undefined
+    }
+
+    const key = String(issue.path[0])
+    const siblings = topLevelFieldNames(schema)
+    const rebuilt: Record<string, unknown> = {}
+    const nested: Record<string, unknown> = {}
+    for (const [name, value] of Object.entries(input)) {
+        if (name !== key && siblings.has(name)) {
+            rebuilt[name] = value
+        } else {
+            nested[name] = value
+        }
+    }
+    const declared = wrapperFieldNames(schema, key)
+    const nestedNames = Object.keys(nested)
+    if (nestedNames.length === 0 || !nestedNames.every((name) => declared.has(name))) {
+        return undefined
+    }
+    rebuilt[key] = nested
+
+    return schema.safeParse(rebuilt).success ? rebuilt : undefined
+}
+
+function topLevelFieldNames(schema: ZodObjectAny): ReadonlySet<string> {
+    const root = inputJsonSchema(schema)
+    const properties = isRecord(root) ? root['properties'] : undefined
+    return new Set(isRecord(properties) ? Object.keys(properties) : [])
 }
 
 /**
@@ -933,37 +1099,27 @@ export function createExecTool(
 
             switch (verb) {
                 case 'learn': {
-                    const helpCatalog = options.helpCatalog
-                    if (!helpCatalog) {
+                    const learnCatalog = options.learnCatalog
+                    if (!learnCatalog) {
                         // `learn` is only advertised when a catalog exists, so without one
                         // it's an unsupported verb rather than a misuse of a real command.
                         throw new ExecCommandError(
-                            'The learning catalog is not available for this client.',
+                            'The learn command is not available for this client.',
                             'unknown_command'
                         )
                     }
-                    if (!rest) {
-                        return JSON.stringify(helpCatalog.list())
+                    let learnResult: string
+                    try {
+                        learnResult = await learnCatalog.execute(rest)
+                    } catch (error) {
+                        throw classifyLearnError(error)
                     }
-                    const topicIds = [...new Set(rest.split(/\s+/))]
-                    const entries = topicIds.map((topicId) => helpCatalog.get(topicId))
-                    const unknownTopicIds = topicIds.filter((_, index) => entries[index] === undefined)
-                    if (unknownTopicIds.length > 0) {
-                        const available = helpCatalog
-                            .list()
-                            .map((item) => item.id)
-                            .join(', ')
-                        const unknownTopics = unknownTopicIds.map((topicId) => `"${topicId}"`).join(', ')
-                        throw new ExecCommandError(
-                            `Unknown learning topic${unknownTopicIds.length === 1 ? '' : 's'}: ${unknownTopics}. Available: ${available}`,
-                            'unknown_learn_topic'
-                        )
+                    // Only skill loads count as "learned" — a search whose results are
+                    // then ignored is exactly the bypass the gate exists to catch.
+                    if (options.skillsSession && isSkillLoad(rest)) {
+                        await options.skillsSession.markLearned().catch(() => undefined)
                     }
-                    const resolvedEntries = entries.filter((entry) => entry !== undefined)
-                    if (resolvedEntries.length === 1) {
-                        return resolvedEntries[0]!.content
-                    }
-                    return resolvedEntries.map((entry) => `## ${entry.title}\n\n${entry.content}`).join('\n\n')
+                    return learnResult
                 }
 
                 case 'tools': {
@@ -1169,19 +1325,23 @@ export function createExecTool(
 
                 case 'call': {
                     if (!rest) {
-                        throw new ExecCommandError('Usage: call [--json] [--confirm] <tool_name> <json_input>', 'usage')
+                        throw new ExecCommandError(CALL_USAGE, 'usage')
                     }
                     if (!context) {
                         // Deliberately untyped: a wiring fault, not an agent mistake, so it
                         // belongs in the `internal` bucket its siblings are kept out of.
                         throw new Error('Cannot call PostHog tools without an API context')
                     }
-                    const { forceJson, confirmed, rest: callArgs } = parseCallFlags(rest)
+                    const { forceJson, confirmed, noSkills, rest: callArgs } = parseCallFlags(rest)
                     if (!callArgs) {
-                        throw new ExecCommandError('Usage: call [--json] [--confirm] <tool_name> <json_input>', 'usage')
+                        throw new ExecCommandError(CALL_USAGE, 'usage')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
                     const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, toolName)
+                    const gateMessage = await resolveSkillsGate(options.skillsSession, noSkills)
+                    if (gateMessage) {
+                        throw new ExecCommandError(gateMessage, 'skills_gate')
+                    }
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new ExecCommandError(
                             `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`,
@@ -1225,7 +1385,14 @@ export function createExecTool(
                     // otherwise bad input reaches the HTTP layer and builds URLs like
                     // `.../actions/undefined/`, a misleading 404 that hides the offending
                     // field. Dispatch the parsed output so coerced values and defaults apply.
-                    const validation = toolSchema.safeParse(input, { reportInput: true })
+                    let validation = toolSchema.safeParse(input, { reportInput: true })
+                    if (!validation.success) {
+                        const rewrapped = rewrapFlattenedArguments(validation.error, input, toolSchema)
+                        if (rewrapped) {
+                            input = rewrapped
+                            validation = toolSchema.safeParse(input, { reportInput: true })
+                        }
+                    }
                     if (!validation.success) {
                         const message = formatInputValidationError(tool.name, validation.error, input, tool.schema)
                         trackInnerCall?.(tool.name, {
@@ -1359,7 +1526,7 @@ export function createExecTool(
 
                 default:
                     throw new ExecCommandError(
-                        `Unknown command: "${verb}". Supported commands: ${options.helpCatalog ? 'learn, ' : ''}tools, search, info, schema, call`,
+                        `Unknown command: "${verb}". Supported commands: ${options.learnCatalog ? 'learn, ' : ''}tools, search, info, schema, call`,
                         'unknown_command'
                     )
             }

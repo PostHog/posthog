@@ -3,7 +3,11 @@ import type {
   ToolCallContent,
   ToolCallLocation,
 } from "@agentclientprotocol/sdk";
-import { mcpToolKey, posthogToolMeta } from "@posthog/shared";
+import {
+  mcpToolKey,
+  omitNullCallToolResultFields,
+  posthogToolMeta,
+} from "@posthog/shared";
 import { APP_SERVER_NOTIFICATIONS } from "./protocol";
 import { readTokenUsage } from "./token-usage";
 
@@ -508,6 +512,19 @@ function commandLocations(item: AppServerItem): ToolCallLocation[] | undefined {
   return paths.map((path) => ({ path }));
 }
 
+function toolCallMeta(
+  item: AppServerItem,
+  tool: ToolDescriptor,
+): ReturnType<typeof posthogToolMeta> | undefined {
+  if (item.type === "collabAgentToolCall") {
+    return posthogToolMeta({ toolName: collabAgentToolName(item.tool) });
+  }
+  if (tool.mcp) {
+    return posthogToolMeta({ toolName: mcpToolKey(tool.mcp), mcp: tool.mcp });
+  }
+  return undefined;
+}
+
 function mapItem(
   sessionId: string,
   item: AppServerItem,
@@ -517,6 +534,7 @@ function mapItem(
   if (!tool || !item.id) {
     return null;
   }
+  const meta = toolCallMeta(item, tool);
 
   if (!completed) {
     return {
@@ -529,20 +547,7 @@ function mapItem(
         status: "in_progress",
         ...(tool.rawInput !== undefined ? { rawInput: tool.rawInput } : {}),
         ...(tool.locations?.length ? { locations: tool.locations } : {}),
-        ...(item.type === "collabAgentToolCall"
-          ? {
-              _meta: posthogToolMeta({
-                toolName: collabAgentToolName(item.tool),
-              }),
-            }
-          : tool.mcp
-            ? {
-                _meta: posthogToolMeta({
-                  toolName: mcpToolKey(tool.mcp),
-                  mcp: tool.mcp,
-                }),
-              }
-            : {}),
+        ...(meta ? { _meta: meta } : {}),
       },
     };
   }
@@ -555,6 +560,15 @@ function mapItem(
       toolCallId: item.id,
       status: mapStatus(item.status),
       ...(content ? { content } : {}),
+      ...(meta ? { _meta: meta } : {}),
+      // rawOutput lets the desktop MCP Apps host render UI resources, not just text.
+      // The strip is source hygiene, not app validity: `toCallToolResult` owns
+      // the schema-valid result an app receives. Stripping here keeps the nulls
+      // out of stored transcripts and McpAppsService events, so a delivery path
+      // that skips `toCallToolResult` cannot carry them either.
+      ...(item.type === "mcpToolCall" && item.result !== undefined
+        ? { rawOutput: omitNullCallToolResultFields(item.result) }
+        : {}),
     },
   };
 }
