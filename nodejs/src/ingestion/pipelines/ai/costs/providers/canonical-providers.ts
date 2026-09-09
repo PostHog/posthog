@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-09-08 20:01:53 UTC
+// Generated at: 2026-09-09 20:03:26 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -30,6 +30,7 @@ export type CanonicalProvider =
     | 'azure-global'
     | 'azure-swedencentral'
     | 'azure-us'
+    | 'baidu-fast'
     | 'baidu-fp4'
     | 'baidu-fp8'
     | 'baseten-fast'
@@ -96,6 +97,7 @@ export type CanonicalProvider =
     | 'inceptron-fp4'
     | 'inceptron-int4'
     | 'io-net-fp16'
+    | 'io-net-fp4'
     | 'io-net-fp8'
     | 'ionstream-fp4'
     | 'ionstream-fp8'
