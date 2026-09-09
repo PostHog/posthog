@@ -87,6 +87,15 @@ describe('ReferenceLine', () => {
             expect(queryByText('50')).toBeNull()
         })
 
+        it('stays inert to hover when showValueOnHover is false', () => {
+            const { container, getByText, queryByText } = renderInChart(
+                <ReferenceLine value={50} label="Target" showValueOnHover={false} />
+            )
+            expect(container.querySelector('[data-attr="hog-chart-reference-line-hit-area"]')).toBeNull()
+            fireEvent.mouseEnter(getByText('Target'))
+            expect(queryByText('Target: 50')).toBeNull()
+        })
+
         it('anchors the label at the start when labelPosition="start"', () => {
             const { getByText } = renderInChart(<ReferenceLine value={50} label="T" labelPosition="start" />)
             const label = getByText('T') as HTMLDivElement
