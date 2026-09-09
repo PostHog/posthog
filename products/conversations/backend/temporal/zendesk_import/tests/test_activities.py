@@ -627,7 +627,7 @@ def _zendesk_allocation_ticket(team: Team) -> _BuiltTicket:
     return _BuiltTicket(
         ticket=Ticket(
             team=team,
-            widget_session_id="zendesk-lock-bridge",
+            widget_session_id="zendesk-allocation",
             distinct_id="requester@example.com",
             channel_source=Channel.EMAIL,
         ),
@@ -650,6 +650,9 @@ class TestZendeskTicketNumberAllocationConcurrency(NonAtomicBaseTest):
         def hold_allocation_lock() -> None:
             close_old_connections()
             try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET lock_timeout = '10s'")
+                    cursor.execute("SET statement_timeout = '15s'")
                 with transaction.atomic():
                     Ticket.objects.lock_ticket_number_allocation(self.team.id)
                     lock_acquired.set()
@@ -673,13 +676,13 @@ class TestZendeskTicketNumberAllocationConcurrency(NonAtomicBaseTest):
                     _persist_ticket_batch(self.team, [built], {})
             finally:
                 with connection.cursor() as cursor:
-                    cursor.execute("SET lock_timeout = 0")
+                    cursor.execute("RESET lock_timeout")
                 release_lock.set()
             lock_future.result(timeout=5)
 
     def test_import_does_not_lock_the_team_row(self) -> None:
-        # Holding Team FOR UPDATE still blocks ticket inserts via FK. Pause before bulk_create
-        # so the probe measures the allocation lock, not that foreign-key wait.
+        # A ticket insert takes KEY SHARE on the Team row for its FK. Pause before bulk_create
+        # so that lock does not make the Team FOR UPDATE probe fail.
         paused = Event()
         resume = Event()
         real_bulk_create = type(Ticket.objects).bulk_create
@@ -693,6 +696,9 @@ class TestZendeskTicketNumberAllocationConcurrency(NonAtomicBaseTest):
         def persist() -> None:
             close_old_connections()
             try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET lock_timeout = '10s'")
+                    cursor.execute("SET statement_timeout = '15s'")
                 _persist_ticket_batch(self.team, [_zendesk_allocation_ticket(self.team)], {})
             finally:
                 close_old_connections()
@@ -711,9 +717,10 @@ class TestZendeskTicketNumberAllocationConcurrency(NonAtomicBaseTest):
                         Team.objects.select_for_update().get(id=self.team.id)
                 finally:
                     with connection.cursor() as cursor:
-                        cursor.execute("SET lock_timeout = 0")
+                        cursor.execute("RESET lock_timeout")
                     resume.set()
                 future.result(timeout=5)
+        self.assertTrue(Ticket.objects.filter(team=self.team, widget_session_id="zendesk-allocation").exists())
 
 
 class TestZendeskImportJobUpdates(BaseTest):

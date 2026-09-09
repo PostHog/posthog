@@ -1726,15 +1726,18 @@ class TestTicketNumberAllocationConcurrency(NonAtomicBaseTest):
         resume = Event()
         real_create = type(Ticket.objects).create
 
-        def pausing_create(manager, **kwargs):
+        def pausing_create(manager, *args, **kwargs):
             paused.set()
             if not resume.wait(timeout=5):
                 raise TimeoutError("test did not resume allocation")
-            return real_create(manager, **kwargs)
+            return real_create(manager, *args, **kwargs)
 
         def allocate() -> None:
             close_old_connections()
             try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SET lock_timeout = '10s'")
+                    cursor.execute("SET statement_timeout = '15s'")
                 Ticket.objects.create_with_number(
                     team=self.team,
                     channel_source=Channel.WIDGET,
@@ -1758,9 +1761,10 @@ class TestTicketNumberAllocationConcurrency(NonAtomicBaseTest):
                         Team.objects.select_for_update().get(id=self.team.id)
                 finally:
                     with connection.cursor() as cursor:
-                        cursor.execute("SET lock_timeout = 0")
+                        cursor.execute("RESET lock_timeout")
                     resume.set()
                 future.result(timeout=5)
+        self.assertTrue(Ticket.objects.filter(team=self.team, widget_session_id="session-team-lock").exists())
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
