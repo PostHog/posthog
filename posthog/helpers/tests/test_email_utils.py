@@ -114,6 +114,37 @@ class TestEmailLookupHandler(TestCase):
         if found_user is not None:
             self.assertEqual(found_user.id, in_use.id)
 
+    @parameterized.expand(
+        [
+            # Postgres `UPPER` folds these onto ASCII but `LOWER` leaves them alone, so signup's
+            # duplicate check accepts them as separate accounts. Resolution has to agree.
+            ("dotless_i", "ceo@ıbm.com", "ceo@ibm.com"),
+            ("long_s", "meſsage@example.com", "message@example.com"),
+        ]
+    )
+    def test_homoglyph_address_does_not_capture_another_account(
+        self, _name: str, homoglyph_email: str, ascii_email: str
+    ) -> None:
+        established = User(email=ascii_email, first_name="Established", last_name="Account")
+        established.set_password("testpass123")
+        established.last_login = timezone.now() - timedelta(days=30)
+        established.save()
+
+        # Signed in more recently, so it would win the tie-break if the two folded together.
+        homoglyph = User(email=homoglyph_email, first_name="Homoglyph", last_name="Account")
+        homoglyph.set_password("testpass123")
+        homoglyph.last_login = timezone.now()
+        homoglyph.save()
+
+        found_ascii = EmailLookupHandler.get_user_by_email(ascii_email)
+        found_homoglyph = EmailLookupHandler.get_user_by_email(homoglyph_email)
+
+        self.assertIsNotNone(found_ascii)
+        self.assertIsNotNone(found_homoglyph)
+        if found_ascii is not None and found_homoglyph is not None:
+            self.assertEqual(found_ascii.id, established.id)
+            self.assertEqual(found_homoglyph.id, homoglyph.id)
+
 
 class TestEmailValidationHelper(TestCase):
     def test_user_exists_no_user(self):

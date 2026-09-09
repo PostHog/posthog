@@ -1,1 +1,1 @@
-1351_email_iexact_indexes
+1351_email_lookup_indexes
