@@ -22,7 +22,7 @@ from products.billing_alerts.backend.temporal.types import (
     EvaluateBillingAlertBatchActivityInputs,
 )
 
-BILLING_ALERT_BATCH_SIZE = 50
+BILLING_ALERT_BATCH_SIZE = 300
 BILLING_ALERT_BATCH_EXECUTION_TIMEOUT = dt.timedelta(minutes=70)
 
 
