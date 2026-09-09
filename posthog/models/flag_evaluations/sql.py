@@ -259,8 +259,6 @@ SETTINGS kafka_skip_broken_messages = 100
 """
 )
 
-DROP_KAFKA_FLAG_EVALUATIONS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_FLAG_EVALUATIONS_TABLE}"
-
 # The Kafka JSONEachRow parser fills missing fields with the type's zero value, so
 # a DateTime64 column reads as epoch when a producer omits it.
 _EPOCH_DT64 = "toDateTime64('1970-01-01 00:00:00', 6, 'UTC')"
@@ -288,5 +286,3 @@ AS SELECT
 FROM {settings.CLICKHOUSE_DATABASE}.{KAFKA_FLAG_EVALUATIONS_TABLE}
 """
 )
-
-DROP_FLAG_EVALUATIONS_MV_SQL = f"DROP TABLE IF EXISTS {FLAG_EVALUATIONS_MV_TABLE}"

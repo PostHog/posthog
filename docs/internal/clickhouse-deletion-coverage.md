@@ -103,7 +103,7 @@ That decision predates this document; the older `posthog/models/async_deletion/d
 
 ### Property removal does not reach `flag_evaluations`
 
-`person_properties` and `group0..group4_properties` no longer exist on the table: migration `0315_flag_evaluations_drop_property_columns` dropped them, since no Insight or Hog function used either as a breakdown or a filter. Event `properties` and `person_id` are still sent.
+`person_properties` and `group0..group4_properties` no longer exist on the table: no Insight or Hog function used either as a breakdown or a filter, so the ClickHouse team dropped them directly on both prod clusters, and `posthog/models/flag_evaluations/sql.py` no longer declares them, so any environment built from the migrations matches. Event `properties` and `person_id` are still sent.
 Because the table can no longer hold person properties, only the event-`properties` half of a request can match rows here.
 
 The events property-removal path rewrites rows in a staging table and resets each affected materialized column with `ALTER TABLE … UPDATE <col> = ''`.
