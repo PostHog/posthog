@@ -438,8 +438,6 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         data = []
         days = []
         labels = []
-        # The rate alone cannot tell a large conversion from a small one, so the counts it divides
-        # travel with it. Both arrays are index-aligned with `data`.
         reached_from_step_count = []
         reached_to_step_count = []
         for row in summary:

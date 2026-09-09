@@ -54,9 +54,7 @@ export interface InsightSeriesTooltipProps<Meta extends InsightSeriesMetaBase> {
     /** Override the auto-derived date header — stickiness passes an interval-count integer
      *  rather than a date, so the default calendar formatter would produce the wrong label. */
     altTitle?: string | ((tooltipData: SeriesDatum[], formattedDate: string) => React.ReactNode)
-    /** Override the value formatter. The pie chart passes slice share alongside the raw count, and
-     *  funnel trends the converted/entered counts behind the rate. The entry gives access to the
-     *  series meta, which holds per-series data that the row value alone cannot supply. */
+    /** Override the value formatter: pie slice share, or the funnel counts behind a rate from the entry's meta. */
     renderCount?: (value: number, entry: InsightSeriesTooltipEntry<Meta>) => string
     /** Override the row label — lifecycle uses the status name rather than the event name. */
     renderSeriesOverride?: (datum: SeriesDatum) => React.ReactNode

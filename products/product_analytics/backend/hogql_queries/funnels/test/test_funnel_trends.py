@@ -3437,9 +3437,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         # First Touchpoint (just "one")
         results = FunnelsQueryRunner(query=funnels_query, team=self.team).calculate().results
 
-        # This test is about breakdown attribution. The per-period conversion counts that a
-        # summarized result also carries are covered by
-        # test_summarized_results_include_conversion_counts.
+        # Attribution is what this test covers, and the per-period counts have their own test.
         results = [{key: value for key, value in result.items() if key not in _TRENDS_COUNT_KEYS} for result in results]
 
         self.assertEqual(

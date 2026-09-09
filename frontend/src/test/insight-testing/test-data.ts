@@ -287,8 +287,7 @@ export interface FunnelStepData {
     breakdown_value?: string | number
     // The funnels runner tags compare rows with `compare_label` (it doesn't set `compare`).
     compare_label?: 'current' | 'previous'
-    // Per-period conversion counts, index-aligned with `data`. Optional so a fixture can also
-    // stand in for a result the query cache filled before the runner returned counts.
+    // Per-period conversion counts, index-aligned with `data`. Absent where a fixture stands in for a cached result.
     reached_from_step_count?: number[]
     reached_to_step_count?: number[]
 }
