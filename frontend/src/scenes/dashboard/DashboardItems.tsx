@@ -36,7 +36,7 @@ import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { insightsModel } from '~/models/insightsModel'
-import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
+import { DashboardLayoutSize, DashboardPlacement, DashboardType } from '~/types'
 
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
@@ -84,7 +84,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         dashboard,
         tiles,
         layouts,
-        dashboardMode,
         layoutEditMode,
         placement,
         isRefreshingQueued,
@@ -94,7 +93,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         dashboardStreaming,
         dashboardLoading,
         effectiveEditBarFilters,
-        effectiveDashboardVariableOverrides,
+        currentDashboardVariables,
         effectiveBreakdownColors,
         dataColorThemeId,
         canEditDashboard,
@@ -119,7 +118,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         moveToDashboard,
         copyToDashboard,
         setTileOverride,
-        setDashboardMode,
+        setDashboardEditing,
         setAddWidgetModalOpen,
         setPendingInsertion,
         openTextTileModal,
@@ -291,8 +290,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         ]
     )
 
-    const showResizeHandles = layoutEditMode && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
-    const showEditingControls = isEditablePlacement || layoutEditMode
+    const showResizeHandles =
+        canEditDashboard && layoutEditMode && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
+    const showEditingControls = isEditablePlacement || (canEditDashboard && layoutEditMode)
     const showDetailsControls =
         placement !== DashboardPlacement.Export &&
         placement !== DashboardPlacement.Public &&
@@ -300,20 +300,20 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const dragConfig = useMemo(
         () => ({
-            enabled: layoutEditMode && !isMobileView,
+            enabled: canEditDashboard && layoutEditMode && !isMobileView,
             handle: '.CardMeta,.DashboardTileCard__body,.WidgetCard__header,.drag-handle',
             cancel: 'a,table,button,input,.Popover',
             bounded: true,
         }),
-        [layoutEditMode, isMobileView]
+        [canEditDashboard, layoutEditMode, isMobileView]
     )
 
     const resizeConfig = useMemo(
         () => ({
-            enabled: layoutEditMode && !isMobileView && !isLayoutZoomToggled,
+            enabled: canEditDashboard && layoutEditMode && !isMobileView && !isLayoutZoomToggled,
             handles: ['s', 'e', 'se', 'n', 'w', 'nw', 'ne', 'sw'] as const,
         }),
-        [layoutEditMode, isMobileView, isLayoutZoomToggled]
+        [canEditDashboard, layoutEditMode, isMobileView, isLayoutZoomToggled]
     )
 
     useResizeHandleScrollbarPassThrough(layoutEditMode && !isMobileView)
@@ -322,12 +322,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         () =>
             canEnterEditModeFromEdge
                 ? (e: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => {
-                      setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardEdgeHover)
+                      setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.CardEdgeHover)
                       // continue the press into a live resize so the user doesn't have to release and grab again
                       continueResizeGestureInEditMode(e, edge)
                   }
                 : undefined,
-        [canEnterEditModeFromEdge, setDashboardMode]
+        [canEnterEditModeFromEdge, setDashboardEditing]
     )
 
     const onDragHandleMouseDown = useMemo(
@@ -354,12 +354,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                       }
                       e.preventDefault()
                       e.stopPropagation()
-                      setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardDragHandle)
+                      setDashboardEditing({ filters: true, layout: true }, DashboardEventSource.CardDragHandle)
                       // continue the press into a live drag so the user doesn't have to release and grab again
                       continueDragGestureInEditMode(e)
                   }
                 : undefined,
-        [canEnterEditModeFromEdge, setDashboardMode]
+        [canEnterEditModeFromEdge, setDashboardEditing]
     )
 
     const requireDashboardId = useCallback(
@@ -621,7 +621,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
                                         isResizing={resizingTileId === tile.id.toString()}
                                         filtersOverride={effectiveEditBarFilters}
-                                        variablesOverride={effectiveDashboardVariableOverrides}
+                                        variablesOverride={currentDashboardVariables}
                                         // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
                                         breakdownColorOverride={effectiveBreakdownColors}
                                         dataColorThemeId={dataColorThemeId}
@@ -693,7 +693,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         placement={placement}
                                         dashboardId={dashboard?.id}
                                         canEditDashboard={canEditDashboard}
-                                        isDashboardEditMode={dashboardMode === DashboardMode.Edit}
+                                        isDashboardEditMode={layoutEditMode}
                                         result={runResult?.result}
                                         error={getDashboardWidgetFetchDisplayError(
                                             runResult?.error ?? refreshState?.error
