@@ -7,11 +7,12 @@ description: >
   current CI or master status, or mentions a failing check, GitHub Actions run,
   Depot runner, workflow, job, shard, merge queue kick, flaky test, lint failure, typecheck
   failure, snapshot diff, migration check, generated types drift, or skills
-  build failure. Start with the `hogli ci:insights` digest (cross-run CI history
-  from engineering analytics), then guides read-only inspection, failure
-  classification, smallest local reproduction with hogli, and safe reporting
-  without rerunning CI or posting to GitHub. Running unattended as the
-  "Master-red diagnosis" workflow: see references/master-red-incident.md.
+  build failure. Interactive runs start with the `hogli ci:insights` digest
+  (cross-run CI history from engineering analytics), then use read-only
+  inspection, failure classification, the smallest local reproduction with
+  hogli, and safe reporting without rerunning CI or posting to GitHub. Running
+  unattended as the "Master-red diagnosis" workflow: see
+  references/master-red-incident.md for its sandbox-compatible first step.
 ---
 
 # Debugging PostHog CI failures
@@ -22,12 +23,16 @@ Find the first meaningful failure, classify it, reproduce the smallest useful
 case locally when appropriate, and report the result. Avoid public-visible or
 irreversible actions unless the user explicitly asks.
 
-Always start with the `hogli ci:insights` digest. It aggregates across runs and
-branches, which `gh` cannot do cheaply, and tells you whether a failure is
-likely trunk-borne, gate-only, or isolated to a small set of branches. `gh` is
-authoritative for one run's current state and attribution. Use the digest to
-decide _what_ to inspect; use `gh` to confirm _whose_ failure it is and exactly
-what failed in a given run.
+For an interactive investigation, start with the `hogli ci:insights` digest.
+It aggregates across runs and branches, which `gh` cannot do cheaply, and tells
+you whether a failure is likely trunk-borne, gate-only, or isolated to a small
+set of branches. `gh` is authoritative for one run's current state and
+attribution. Use the digest to decide _what_ to inspect; use `gh` to confirm
+_whose_ failure it is and exactly what failed in a given run.
+
+The unattended Master-red workflow is the exception.
+Follow [its reference](references/master-red-incident.md), which defines a first
+step that works in the task sandbox.
 
 This skill triages and classifies. Once a failure is confirmed flaky, hand off
 to the `fixing-flaky-tests` skill, which owns local reproduction, root-cause
@@ -68,7 +73,7 @@ overwrite unrelated work.
 
 ## Workflow
 
-### 1. Start with CI insights (always first)
+### 1. Start with CI insights for interactive investigations
 
 `hogli ci:insights` reads PostHog's own engineering analytics — the cross-run
 failure history a single run can't show. Consult it before any raw `gh` log
