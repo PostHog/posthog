@@ -49,9 +49,26 @@ knowledge_base:
             - files: '.agents/security.md'
               applyTo: '**/*'
 
+            # Comment conventions. These apply to every language, so the entry is
+            # repository-wide. The document is small.
+            - files: '.agents/skills/writing-code-comments/SKILL.md'
+              applyTo: '**/*'
+
             # General frontend and backend conventions.
             - files: '.claude/commands/conventions.md'
               applyTo: 'posthog/**,frontend/src/**,products/**'
+
+            # Test conventions. These set the bar for whether a test earns its place.
+            - files: '.agents/skills/writing-tests/SKILL.md'
+              applyTo: '**/test_*.py,**/tests/**/*.py,**/*.test.ts,**/*.test.tsx,playwright/**/*.ts'
+
+            # Voice and word choices for text a person reads.
+            - files: '.agents/skills/writing-user-facing-copy/SKILL.md'
+              applyTo: 'frontend/src/**,products/**/frontend/**,posthog/templates/**'
+
+            # Python dataclass house rules.
+            - files: '.agents/skills/writing-dataclasses/SKILL.md'
+              applyTo: '**/*.py'
 
             # Person-data access rules.
             - files: 'docs/internal/person-data-access.md'
@@ -66,7 +83,7 @@ knowledge_base:
               applyTo: 'posthog/api/**,frontend/src/**,products/**/backend/**,products/**/frontend/**'
 
             # MCP implementation.
-            - files: 'docs/published/handbook/engineering/ai/implementing-mcp-tools.md,.agents/skills/implementing-mcp-tools/SKILL.md'
+            - files: 'docs/published/handbook/engineering/ai/implementing-mcp-tools.md,.agents/skills/implementing-mcp-tools/SKILL.md,.agents/skills/implementing-mcp-ui-apps/SKILL.md'
               applyTo: 'services/mcp/**,products/**/mcp/**'
 
             # Django migrations.
@@ -77,20 +94,40 @@ knowledge_base:
             - files: 'posthog/clickhouse/migrations/README.md,docs/published/handbook/engineering/databases/clickhouse-event-table-migrations.md,.agents/skills/clickhouse-migrations/SKILL.md'
               applyTo: 'posthog/clickhouse/migrations/**'
 
+            # ClickHouse and HogQL query writing.
+            - files: '.agents/skills/writing-clickhouse-queries/SKILL.md'
+              applyTo: 'posthog/hogql/**,posthog/hogql_queries/**'
+
             # Frontend implementation conventions.
-            - files: '.agents/skills/writing-kea-logics/SKILL.md,.agents/skills/writing-ui-components/SKILL.md'
+            - files: '.agents/skills/writing-kea-logics/SKILL.md,.agents/skills/writing-ui-components/SKILL.md,.agents/skills/using-kea-disposables/SKILL.md,.agents/skills/placing-product-frontend-code/SKILL.md'
               applyTo: 'frontend/src/**,products/**/frontend/**'
+
+            # Feature flags in Storybook stories.
+            - files: '.agents/skills/setting-feature-flags-in-storybook/SKILL.md'
+              applyTo: '**/*.stories.tsx'
+
+            # The taxonomic filter, which is easy to break from the outside.
+            - files: '.agents/skills/modifying-taxonomic-filter/SKILL.md'
+              applyTo: 'frontend/src/lib/components/TaxonomicFilter/**'
 
             # Django REST Framework endpoints.
             - files: '.agents/skills/improving-drf-endpoints/SKILL.md'
               applyTo: 'posthog/api/**,products/**/backend/**/api.py,products/**/backend/api/**'
+
+            # In-app notifications sent from backend code.
+            - files: '.agents/skills/sending-notifications/SKILL.md'
+              applyTo: 'posthog/**/*.py,products/**/backend/**/*.py'
+
+            # The personhog coordination protocol, where a mistake is hard to see.
+            - files: '.agents/skills/reviewing-personhog-protocol/SKILL.md,.agents/skills/adding-personhog-rpc/SKILL.md'
+              applyTo: 'posthog/personhog_client/**,rust/personhog-coordination/**,rust/personhog-test-harness/**'
 
             # Charts.
             - files: '.agents/skills/working-with-charts/SKILL.md,packages/quill/packages/charts/src/docs/**/*.md'
               applyTo: 'packages/quill/packages/charts/**'
 
             # Desktop.
-            - files: '.agents/skills/posthog-desktop/SKILL.md,products/desktop/docs/ARCHITECTURE.md,products/desktop/docs/CONVENTIONS.md,products/desktop/docs/TESTING.md'
+            - files: '.agents/skills/posthog-desktop/SKILL.md,products/desktop/.claude/skills/storybook-stories/SKILL.md,products/desktop/docs/ARCHITECTURE.md,products/desktop/docs/CONVENTIONS.md,products/desktop/docs/TESTING.md'
               applyTo: 'products/desktop/**'
 
             # Product-specific implementation guidance.
@@ -99,6 +136,18 @@ knowledge_base:
 
             - files: 'products/endpoints/skills/auditing-endpoints/SKILL.md,products/endpoints/skills/consuming-endpoints-from-client-code/SKILL.md,products/endpoints/skills/copying-endpoints-across-projects/SKILL.md,products/endpoints/skills/creating-an-endpoint/SKILL.md,products/endpoints/skills/managing-endpoint-versions/SKILL.md'
               applyTo: 'products/endpoints/**/*'
+
+            # GitHub Actions. A workflow edit reaches every open pull request at once.
+            - files: '.agents/skills/authoring-ci-workflows/SKILL.md,.agents/skills/gating-production-deploys/SKILL.md'
+              applyTo: '.github/workflows/**,.github/actions/**'
+
+            # Eval suites, cases, scorers, and harness code.
+            - files: '.agents/skills/writing-evals/SKILL.md'
+              applyTo: 'products/posthog_ai/evals/**,products/**/evals/**,ee/hogai/eval/**'
+
+            # Skill authoring.
+            - files: '.agents/skills/writing-skills/SKILL.md'
+              applyTo: '**/skills/**/SKILL.md'
 
             # Architecture and design documents, wherever they live. Each one applies
             # to its own directory and below, so the scope follows the document.
