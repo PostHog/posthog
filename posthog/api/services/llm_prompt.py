@@ -152,6 +152,9 @@ def resolve_versions_page(
         LLMPrompt.objects.filter(team=team, name=prompt_name, deleted=False)
         .select_related("created_by")
         .prefetch_related("labels")
+        # The version summary carries no content, and each of these two JSON columns holds up to
+        # MAX_PROMPT_PAYLOAD_BYTES per row, so loading them costs a page of history in memory.
+        .defer("prompt", "config")
         .order_by("-version", "-created_at", "-id")
     )
 
@@ -171,6 +174,8 @@ def get_prompt_labels(team: Team, prompt_name: str) -> QuerySet[LLMPromptLabel]:
     return (
         LLMPromptLabel.objects.filter(team=team, prompt_name=prompt_name)
         .select_related("prompt", "created_by")
+        # A label reads only the version number off the row it points at.
+        .defer("prompt__prompt", "prompt__config")
         .order_by("name")
     )
 

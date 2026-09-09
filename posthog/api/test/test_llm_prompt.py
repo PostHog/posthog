@@ -680,6 +680,37 @@ class TestLLMPromptAPI(APIBaseTest):
         assert [prompt["version"] for prompt in data["versions"]] == [1]
         assert data["has_more"] is False
 
+    def test_resolve_prompt_by_name_reads_content_columns_once_for_the_selected_version(self):
+        for version in range(1, 6):
+            self.create_prompt_version(
+                name="paged-prompt",
+                version=version,
+                prompt=f"v{version}",
+                config={"model": "test-model"},
+                is_latest=version == 5,
+            )
+        LLMPromptLabel.objects.create(
+            team=self.team,
+            name="production",
+            prompt_name="paged-prompt",
+            prompt=LLMPrompt.objects.get(team=self.team, name="paged-prompt", version=2),
+            created_by=self.user,
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/paged-prompt/")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["prompt"]["prompt"] == "v5"
+        assert [entry["version"] for entry in data["versions"]] == [5, 4, 3, 2, 1]
+        assert [entry["version"] for entry in data["versions"] if entry["labels"] == ["production"]] == [2]
+        assert [(entry["name"], entry["version"]) for entry in data["labels"]] == [("production", 2)]
+        # Only the selected version needs its content. The version page and the labels join the same
+        # table, so without a defer they would pull both JSON columns for every row they touch.
+        content_queries = [q for q in queries.captured_queries if '"posthog_llmprompt"."prompt"' in q["sql"]]
+        assert len(content_queries) == 1
+
     def test_resolve_prompt_by_name_rejects_offset_with_before_version(self):
         self.create_prompt_version(name="paged-prompt", version=1, prompt="v1", is_latest=True)
 
