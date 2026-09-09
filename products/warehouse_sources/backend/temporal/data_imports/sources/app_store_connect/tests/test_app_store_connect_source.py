@@ -42,12 +42,13 @@ def _resolve_friendly_error(error_message: str) -> str | None:
     return None
 
 
-def _config(vendor_number: str | None = "85234567") -> AppStoreConnectSourceConfig:
+def _config(vendor_number: str | None = "85234567", app_ids: str | None = None) -> AppStoreConnectSourceConfig:
     return AppStoreConnectSourceConfig(
         issuer_id="57246542-96fe-1a63-e053-0824d011072a",
         key_id="2X9R4HXF34",
         private_key="-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----",
         vendor_number=vendor_number,
+        app_ids=app_ids,
     )
 
 
@@ -75,6 +76,7 @@ class TestAppStoreConnectSource:
             ("key_id", SourceFieldInputConfigType.TEXT, True, False),
             ("private_key", SourceFieldInputConfigType.TEXTAREA, True, True),
             ("vendor_number", SourceFieldInputConfigType.TEXT, False, False),
+            ("app_ids", SourceFieldInputConfigType.TEXT, False, False),
         ]
     )
     def test_credential_fields(
@@ -182,6 +184,18 @@ class TestAppStoreConnectSource:
         assert (created, create_error) == (True, None)
         assert per_schema is False
         assert schema_error is not None
+
+    def test_unreadable_app_ids_are_named_and_block_the_source(self) -> None:
+        with (
+            patch(f"{SOURCE_MODULE}.check_credentials", return_value=(200, None)),
+            patch(f"{SOURCE_MODULE}.check_app_ids", return_value=["999", "1000"]),
+        ):
+            valid, error = AppStoreConnectSource().validate_credentials(_config(app_ids="999,1000"), team_id=1)
+
+        # Saved as-is the source would sync nothing, so the ids that resolve to no app are named here
+        # rather than surfacing as an empty table after the first sync.
+        assert valid is False
+        assert error is not None and "999, 1000" in error
 
     def test_report_schema_without_a_vendor_number_fails_before_probing(self) -> None:
         with patch(f"{SOURCE_MODULE}.check_credentials") as mocked:

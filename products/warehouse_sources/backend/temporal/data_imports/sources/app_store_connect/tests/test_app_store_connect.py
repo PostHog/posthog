@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_
     app_store_connect_source,
     check_credentials,
     get_rows,
+    parse_app_ids,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.settings import (
     APP_STORE_CONNECT_ENDPOINTS,
@@ -462,6 +463,61 @@ class TestAppFanoutEndpoints:
         assert [row["id"] for row in rows] == ["R1", "R2", "R3"]
 
 
+class TestAppIdFilter:
+    def _api(self) -> _FakeApi:
+        return _FakeApi(
+            {
+                f"{BASE_URL}/v1/apps": _page([_resource("apps", "A1"), _resource("apps", "A2")]),
+                f"{BASE_URL}/v1/apps/A1/customerReviews": _page([_resource("customerReviews", "R1", rating=5)]),
+                f"{BASE_URL}/v1/apps/A2/customerReviews": _page([_resource("customerReviews", "R3", rating=1)]),
+            }
+        )
+
+    @parameterized.expand(
+        [
+            ("unset", None, frozenset()),
+            ("blank", "   ", frozenset()),
+            ("single", "A1", frozenset({"A1"})),
+            ("comma_separated", "A1,A2", frozenset({"A1", "A2"})),
+            ("comma_and_space_separated", " A1 , A2 ", frozenset({"A1", "A2"})),
+            ("space_separated", "A1 A2", frozenset({"A1", "A2"})),
+            ("trailing_comma", "A1,", frozenset({"A1"})),
+        ]
+    )
+    def test_parses_the_filter_field(self, _name: str, raw: str | None, expected: frozenset[str]) -> None:
+        assert parse_app_ids(raw) == expected
+
+    def test_fanout_visits_only_the_selected_apps(self) -> None:
+        api = self._api()
+
+        rows = _collect("customer_reviews", api, _FakeManager(), app_ids="A1")
+
+        assert [(row["app_id"], row["id"]) for row in rows] == [("A1", "R1")]
+        assert f"{BASE_URL}/v1/apps/A2/customerReviews" not in [url for url, _ in api.calls]
+
+    def test_blank_filter_still_visits_every_app(self) -> None:
+        rows = _collect("customer_reviews", self._api(), _FakeManager(), app_ids="")
+
+        assert [row["app_id"] for row in rows] == ["A1", "A2"]
+
+    def test_apps_table_drops_the_unselected_apps(self) -> None:
+        rows = _collect("apps", self._api(), _FakeManager(), app_ids="A2")
+
+        assert [row["id"] for row in rows] == ["A2"]
+
+    def test_filter_matching_no_app_fails_with_the_curated_message(self) -> None:
+        with pytest.raises(ValueError, match="match an app this API key can read"):
+            _collect("customer_reviews", self._api(), _FakeManager(), app_ids="A9")
+
+    def test_unreadable_id_is_warned_about_while_the_readable_ones_sync(self) -> None:
+        logger = MagicMock()
+
+        rows = _collect("customer_reviews", self._api(), _FakeManager(), logger=logger, app_ids="A1,A9")
+
+        assert [row["app_id"] for row in rows] == ["A1"]
+        assert "A9" in logger.warning.call_args[0][0]
+
+
 def _responded_review(review_id: str, response_id: str) -> dict[str, Any]:
     review = _resource("customerReviews", review_id, rating=5)
     review["relationships"]["response"] = {"data": {"type": "customerReviewResponses", "id": response_id}}
@@ -672,6 +728,22 @@ def _collect_analytics(
 
 
 class TestAnalyticsReportStreams:
+    def test_a_report_request_is_started_only_on_a_selected_app(self) -> None:
+        api = _FakeAnalyticsApi(
+            {
+                APPS_URL: _page([_resource("apps", "A1"), _resource("apps", "A2")]),
+                REQUESTS_URL: _page([]),
+                f"{BASE_URL}/v1/apps/A2/analyticsReportRequests": _page([]),
+            }
+        )
+
+        _collect_analytics(api, _FakeManager(), app_ids="A1")
+
+        # Creating the ONGOING request is this source's only write to the customer's account, so an
+        # app the source's app id filter excludes must never be listed, let alone mutated.
+        assert [post[1]["data"]["relationships"]["app"]["data"]["id"] for post in api.posts] == ["A1"]
+        assert f"{BASE_URL}/v1/apps/A2/analyticsReportRequests" not in [url for url, _ in api.calls]
+
     def test_full_chain_parses_daily_instances_into_keyed_rows(self) -> None:
         segment_1 = _gzip_csv("Date,App Name,App Apple Identifier,Sessions\n2026-07-31,Example,123,5\n")
         segment_2 = _gzip_csv("Date,App Name,App Apple Identifier,Sessions\n2026-08-01,Example,123,7\n")

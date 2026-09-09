@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 
 import jwt
 import requests
+import structlog
 from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
@@ -68,6 +69,7 @@ ANALYTICS_ROWS_PER_BATCH = 2000
 _PEM_HEADER = "-----BEGIN PRIVATE KEY-----"
 _PEM_FOOTER = "-----END PRIVATE KEY-----"
 _NON_ALNUM = re.compile(r"[^0-9a-z]+")
+_APP_ID_SEPARATOR = re.compile(r"[,\s]+")
 
 
 class AppStoreConnectAuthError(Exception):
@@ -102,6 +104,14 @@ APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR = (
 APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR = (
     "Your App Store Connect analytics report request stopped because of inactivity. Apple needs a "
     "new request, which only an Admin key can create. Give the key the Admin role, then reconnect."
+)
+
+# The source's app id filter selected none of the apps the key can see. Every retry lists the same
+# apps and filters to the same empty set, so the sync can only ever write an empty table until the
+# user corrects the field. `AppStoreConnectSource.get_non_retryable_errors` matches on this text.
+APP_STORE_CONNECT_NO_MATCHING_APPS_ERROR = (
+    "None of the app IDs in your App Store Connect source settings match an app this API key can "
+    "read. Check the IDs, or clear the field to sync every app."
 )
 
 # A sales or subscription report sync started without a vendor number. `/v1/salesReports` can't be
@@ -609,15 +619,58 @@ def _load_resume(
     return manager.load_state() if manager.can_resume() else None
 
 
-def _list_app_ids(
+def parse_app_ids(raw: str | None) -> frozenset[str]:
+    """Split the source's optional app id filter into ids.
+
+    An empty result means the source syncs every app the key can read, which is what a blank field
+    has always done.
+    """
+    if not raw:
+        return frozenset()
+    return frozenset(part for part in _APP_ID_SEPARATOR.split(raw.strip()) if part)
+
+
+def list_all_app_ids(
     session: requests.Session,
     token_provider: AppStoreConnectTokenProvider,
     logger: FilteringBoundLogger,
 ) -> list[str]:
+    """Every app id the key can read, in the order Apple returns them."""
     app_ids: list[str] = []
     for page in _iter_pages(session, token_provider, logger, f"{BASE_URL}/v1/apps", {}):
         app_ids.extend(str(resource["id"]) for resource in page.resources if resource.get("id"))
     return app_ids
+
+
+def _list_app_ids(
+    session: requests.Session,
+    token_provider: AppStoreConnectTokenProvider,
+    logger: FilteringBoundLogger,
+    app_ids: frozenset[str],
+) -> list[str]:
+    """The app ids a fan-out or analytics walk visits, after the source's app id filter.
+
+    Discovery order is preserved, because the fan-out resume bookmark finds its place by index in
+    this list.
+    """
+    discovered = list_all_app_ids(session, token_provider, logger)
+    if not app_ids:
+        return discovered
+
+    selected = [app_id for app_id in discovered if app_id in app_ids]
+
+    unknown = sorted(app_ids.difference(discovered))
+    if unknown:
+        # Not fatal on its own: the remaining ids still sync. A key that lost access to one app of
+        # several must not stop the other apps from syncing.
+        logger.warning(
+            f"App Store Connect: app id filter names apps this key cannot read, skipping them. "
+            f"app_ids={','.join(unknown)}"
+        )
+
+    if not selected:
+        raise ValueError(APP_STORE_CONNECT_NO_MATCHING_APPS_ERROR)
+    return selected
 
 
 def _get_collection(
@@ -627,6 +680,7 @@ def _get_collection(
     logger: FilteringBoundLogger,
     manager: ResumableSourceManager[AppStoreConnectResumeConfig],
     failures: _ParseFailureCounter,
+    app_ids: frozenset[str],
 ) -> Iterator[list[dict[str, Any]]]:
     resume = _load_resume(manager)
     resumed_url = resume.next_url if resume is not None else None
@@ -636,6 +690,11 @@ def _get_collection(
 
     for page in _iter_pages(session, token_provider, logger, url, params):
         rows = _page_rows(config, page, failures)
+        if app_ids and config.app_id_column:
+            # Filtered here rather than through a query param, because Apple's per-resource filter
+            # support varies by endpoint and an unsupported filter is a hard 400. The app list is
+            # small, so dropping rows after the walk costs nothing.
+            rows = [row for row in rows if str(row.get(config.app_id_column)) in app_ids]
         if rows:
             yield rows
         # Save AFTER yielding so a crash re-fetches the page we just emitted rather than skipping it;
@@ -651,8 +710,9 @@ def _get_app_fanout(
     logger: FilteringBoundLogger,
     manager: ResumableSourceManager[AppStoreConnectResumeConfig],
     failures: _ParseFailureCounter,
+    selected_app_ids: frozenset[str],
 ) -> Iterator[list[dict[str, Any]]]:
-    app_ids = _list_app_ids(session, token_provider, logger)
+    app_ids = _list_app_ids(session, token_provider, logger, selected_app_ids)
     resume = _load_resume(manager)
 
     start = 0
@@ -1132,8 +1192,11 @@ def _get_analytics_report(
     failures: _ParseFailureCounter,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
+    selected_app_ids: frozenset[str],
 ) -> Iterator[list[dict[str, Any]]]:
-    app_ids = _list_app_ids(session, token_provider, logger)
+    # Filtering before the loop below also keeps `_ensure_report_request` away from the excluded
+    # apps, so an unselected app never gets an ONGOING analytics report request created on it.
+    app_ids = _list_app_ids(session, token_provider, logger, selected_app_ids)
     resume = _load_resume(manager)
     resumed_date = _to_date(resume.processing_date) if resume is not None else None
     watermark = _to_date(db_incremental_field_last_value) if should_use_incremental_field else None
@@ -1255,6 +1318,27 @@ def check_credentials(issuer_id: str, key_id: str, private_key: str) -> tuple[in
         return None, None
 
 
+def check_app_ids(issuer_id: str, key_id: str, private_key: str, app_ids: str | None) -> list[str]:
+    """Return the configured app ids that match no app the key can read.
+
+    An empty list means the filter is usable, or that no filter is set. A probe that cannot reach
+    Apple also returns an empty list, so a network failure reports the unrelated credential problem
+    instead of a misleading "unknown app id".
+    """
+    wanted = parse_app_ids(app_ids)
+    if not wanted:
+        return []
+
+    logger = structlog.get_logger(__name__)
+    try:
+        token_provider = AppStoreConnectTokenProvider(issuer_id, key_id, private_key)
+        discovered = list_all_app_ids(_make_session(private_key), token_provider, logger)
+    except Exception:
+        return []
+
+    return sorted(wanted.difference(discovered))
+
+
 def get_rows(
     issuer_id: str,
     key_id: str,
@@ -1265,17 +1349,23 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[AppStoreConnectResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    app_ids: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = APP_STORE_CONNECT_ENDPOINTS[endpoint]
     session = _make_session(private_key)
     token_provider = AppStoreConnectTokenProvider(issuer_id, key_id, private_key)
     failures = _ParseFailureCounter(logger, endpoint)
+    selected_app_ids = parse_app_ids(app_ids)
 
     try:
         if config.kind == "collection":
-            yield from _get_collection(session, config, token_provider, logger, resumable_source_manager, failures)
+            yield from _get_collection(
+                session, config, token_provider, logger, resumable_source_manager, failures, selected_app_ids
+            )
         elif config.kind == "app_fanout":
-            yield from _get_app_fanout(session, config, token_provider, logger, resumable_source_manager, failures)
+            yield from _get_app_fanout(
+                session, config, token_provider, logger, resumable_source_manager, failures, selected_app_ids
+            )
         elif config.kind == "analytics_report":
             yield from _get_analytics_report(
                 session,
@@ -1290,8 +1380,11 @@ def get_rows(
                 failures,
                 should_use_incremental_field,
                 db_incremental_field_last_value,
+                selected_app_ids,
             )
         else:  # "sales_report"
+            # `/v1/salesReports` is keyed on the vendor number and returns one file covering every
+            # app under it, so the app id filter cannot narrow it.
             yield from _get_sales_report(
                 session,
                 config,
@@ -1323,6 +1416,7 @@ def app_store_connect_source(
     resumable_source_manager: ResumableSourceManager[AppStoreConnectResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    app_ids: Optional[str] = None,
 ) -> SourceResponse:
     config = APP_STORE_CONNECT_ENDPOINTS[endpoint]
 
@@ -1338,6 +1432,7 @@ def app_store_connect_source(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
+            app_ids=app_ids,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,
