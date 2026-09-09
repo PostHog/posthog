@@ -333,13 +333,23 @@ def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
 LEGACY_OPERATOR_DEFAULT_FILTER_TYPES = frozenset({"person", "person_metadata"})
 
 
+def _is_legacy_person_filter(prop: dict) -> bool:
+    if prop.get("type") in LEGACY_OPERATOR_DEFAULT_FILTER_TYPES:
+        return True
+    # A filter that omits `type` as well is a person filter too: with an operator it
+    # validates as `person`, and without one it validates as `hogql`, which reads the
+    # key as an expression instead of a property. A `{}` placeholder keeps no operator,
+    # so it stays an `empty` filter.
+    return "type" not in prop and "key" in prop
+
+
 def parse_actor_property_filters(raw_properties: Optional[str]) -> list[dict]:
     """Read the `properties` query parameter of a person or cohort actors endpoint."""
     if not raw_properties:
         return []
     properties = json.loads(raw_properties)
     for prop in properties:
-        if prop.get("type") in LEGACY_OPERATOR_DEFAULT_FILTER_TYPES:
+        if _is_legacy_person_filter(prop):
             prop.setdefault("operator", "exact")
     return properties
 

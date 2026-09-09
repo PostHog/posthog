@@ -2653,7 +2653,13 @@ email@example.org,
         )
         self.assertEqual(len(response.json()["results"]), 1, response)
 
-    def test_filter_by_hogql_prop(self):
+    @parameterized.expand(
+        [
+            ("hogql", {"type": "hogql", "key": "properties.$browser = 'Safari'"}),
+            ("type_less_person", {"key": "$browser", "value": "Safari"}),
+        ]
+    )
+    def test_filter_by_prop_without_an_operator(self, _name: str, prop: dict):
         for i in range(5):
             _create_person(
                 team=self.team,
@@ -2673,10 +2679,7 @@ email@example.org,
         )
         cohort.calculate_people_ch(pending_version=0)
 
-        response = self.client.get(
-            f"/api/cohort/{cohort.pk}/persons?properties=%s"
-            % (json.dumps([{"type": "hogql", "key": "properties.$browser = 'Safari'"}]))
-        )
+        response = self.client.get(f"/api/cohort/{cohort.pk}/persons?properties=%s" % (json.dumps([prop])))
         self.assertEqual(response.status_code, 200, response.json())
         self.assertEqual(len(response.json()["results"]), 1, response)
 
