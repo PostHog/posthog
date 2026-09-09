@@ -470,12 +470,12 @@ describe('EmailService', () => {
         })
 
         describe('workflow sending rate limit', () => {
-            let claimUpTo: jest.Mock
+            let claimOrReserve: jest.Mock
             let limitedService: EmailService
             let limitedSendSpy: jest.SpyInstance
 
             beforeEach(() => {
-                claimUpTo = jest.fn().mockResolvedValue(1)
+                claimOrReserve = jest.fn().mockResolvedValue({ granted: 1, retryAfterMs: null })
                 limitedService = new EmailService(
                     {
                         sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -493,7 +493,7 @@ describe('EmailService', () => {
                     new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
                     new RecipientsManagerService(hub.postgres),
                     undefined,
-                    { claimUpTo } as unknown as RateLimiterService
+                    { claimOrReserve } as unknown as RateLimiterService
                 )
                 limitedSendSpy = jest.spyOn(limitedService.sesV2Client!, 'send') as any
                 limitedSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
@@ -502,8 +502,14 @@ describe('EmailService', () => {
                 }
             })
 
-            it('reschedules without sending when the bucket denies a token', async () => {
-                claimUpTo.mockResolvedValue(0)
+            it.each([
+                // A reserved slot parks the send at the slot plus at most 250ms of spread.
+                ['at the reserved slot', 5000, 5000, 5250],
+                // No reserved slot (error-path denial) falls back to the clamped token
+                // interval: 120/minute refills every 500ms, clamped to [1s, 2s] jittered.
+                ['on the clamped token interval when no slot was reserved', null, 1000, 2000],
+            ])('reschedules a denied send %s', async (_name, retryAfterMs, minDelayMs, maxDelayMs) => {
+                claimOrReserve.mockResolvedValue({ granted: 0, retryAfterMs })
 
                 const before = Date.now()
                 const result = await limitedService.executeSendEmail(invocation)
@@ -515,10 +521,9 @@ describe('EmailService', () => {
                 // The reschedule must carry the email payload forward: without queueParameters the
                 // retry has nothing to send and the throttled email is dropped rather than delayed.
                 expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
-                // 120/minute refills a token every 500ms, so the clamped jittered wake lands in [1s, 2s].
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
-                expect(scheduledMs).toBeGreaterThanOrEqual(before + 1000)
-                expect(scheduledMs).toBeLessThan(before + 3000)
+                expect(scheduledMs).toBeGreaterThanOrEqual(before + minDelayMs)
+                expect(scheduledMs).toBeLessThan(before + maxDelayMs + 1000)
                 // No business metric on a pacing delay — the eventual send produces email_sent.
                 expect(result.metrics ?? []).toEqual([])
             })
@@ -526,14 +531,17 @@ describe('EmailService', () => {
             it('claims one token scoped to the workflow and sends when granted', async () => {
                 const result = await limitedService.executeSendEmail(invocation)
 
-                expect(claimUpTo).toHaveBeenCalledWith({
-                    key: `@posthog/workflow-email-rate/${team.id}/function-1`,
-                    requested: 1,
-                    // Burst capacity is ~1s of budget (not the count), so the first period can't
-                    // send ~2x the limit and an idle-expired bucket can't re-burst.
-                    capacity: 2,
-                    refillPerSecond: 2,
-                })
+                expect(claimOrReserve).toHaveBeenCalledWith(
+                    {
+                        key: `@posthog/workflow-email-rate/${team.id}/function-1`,
+                        requested: 1,
+                        // Burst capacity is ~1s of budget (not the count), so the first period can't
+                        // send ~2x the limit and an idle-expired bucket can't re-burst.
+                        capacity: 2,
+                        refillPerSecond: 2,
+                    },
+                    60 * 60 * 1000
+                )
                 expect(result.finished).toBe(true)
                 expect(limitedSendSpy).toHaveBeenCalled()
             })
@@ -550,17 +558,17 @@ describe('EmailService', () => {
 
                 const result = await limitedService.executeSendEmail(invocation)
 
-                expect(claimUpTo).not.toHaveBeenCalled()
+                expect(claimOrReserve).not.toHaveBeenCalled()
                 expect(result.finished).toBe(true)
                 expect(limitedSendSpy).toHaveBeenCalled()
             })
 
             it('skips the limit for test sends', async () => {
-                claimUpTo.mockResolvedValue(0)
+                claimOrReserve.mockResolvedValue({ granted: 0, retryAfterMs: 5000 })
 
                 const result = await limitedService.executeSendEmail(invocation, true)
 
-                expect(claimUpTo).not.toHaveBeenCalled()
+                expect(claimOrReserve).not.toHaveBeenCalled()
                 expect(result.finished).toBe(true)
                 expect(limitedSendSpy).toHaveBeenCalled()
             })

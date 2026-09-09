@@ -110,12 +110,12 @@ function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
     return Math.floor(baseMs * (1 + Math.random()))
 }
 
-// Bounds for the tier-cap retry delay. The floor keeps second-scale refills from churning
-// the queue. The ceiling bounds how stale the computed wake time can get: capacity can
-// appear earlier than computed (a tier raise, or an idle bucket expiring back to full
-// capacity), and a parked job only notices when it wakes.
-const TEAM_CAP_RETRY_MIN_MS = 1_000
-const TEAM_CAP_RETRY_MAX_MS = 60 * 60 * 1_000
+// Bounds for the cap retry delay (tier caps and the per-workflow limit). The floor keeps
+// second-scale refills from churning the queue. The ceiling bounds how stale the computed
+// wake time can get: capacity can appear earlier than computed (a limit raise, or an idle
+// bucket expiring back to full capacity), and a parked job only notices when it wakes.
+const CAP_RETRY_MIN_MS = 1_000
+const CAP_RETRY_MAX_MS = 60 * 60 * 1_000
 
 function pickCapRetryDelayMs(retryAfterMs: number | null, refillPerSecond: number): number {
     // A denial with no horizon means the limiter itself failed, not that the cap was reached.
@@ -125,8 +125,18 @@ function pickCapRetryDelayMs(retryAfterMs: number | null, refillPerSecond: numbe
         return pickTokenBucketRetryDelayMs(refillPerSecond)
     }
     // The 1x-2x jitter spreads re-claims so a parked backlog does not wake on the same instant.
-    const clampedMs = Math.min(Math.max(retryAfterMs, TEAM_CAP_RETRY_MIN_MS), TEAM_CAP_RETRY_MAX_MS)
+    const clampedMs = Math.min(Math.max(retryAfterMs, CAP_RETRY_MIN_MS), CAP_RETRY_MAX_MS)
     return Math.floor(clampedMs * (1 + Math.random()))
+}
+
+function pickReservedRetryDelayMs(retryAfterMs: number | null, refillPerSecond: number): number {
+    // A reserved slot is exclusive, so it needs no contention jitter; the small additive
+    // spread only de-syncs callers that were capped at the same horizon. Falls back to the
+    // clamped token interval when the limiter could not reserve (an error-path denial).
+    if (retryAfterMs === null) {
+        return pickTokenBucketRetryDelayMs(refillPerSecond)
+    }
+    return Math.max(retryAfterMs, CAP_RETRY_MIN_MS) + Math.floor(Math.random() * 250)
 }
 
 const teamEmailCapDelayedTotal = new Counter({
@@ -425,13 +435,16 @@ export class EmailService {
                 // A near-empty bucket keeps every window at ~count and spreads sends evenly, which
                 // is what the pacing is for.
                 const capacity = Math.max(1, Math.ceil(refillPerSecond))
-                const granted = await this.workflowEmailRateLimiter.claimUpTo({
-                    key: `@posthog/workflow-email-rate/${invocation.teamId}/${invocation.functionId}`,
-                    requested: 1,
-                    capacity,
-                    refillPerSecond,
-                })
-                if (granted === 0) {
+                const claim = await this.workflowEmailRateLimiter.claimOrReserve(
+                    {
+                        key: `@posthog/workflow-email-rate/${invocation.teamId}/${invocation.functionId}`,
+                        requested: 1,
+                        capacity,
+                        refillPerSecond,
+                    },
+                    CAP_RETRY_MAX_MS
+                )
+                if (claim.granted === 0) {
                     workflowEmailRateLimitedTotal.inc()
                     result.finished = false
                     // Re-attach the email payload before rescheduling. createInvocationResult cleared
@@ -440,7 +453,7 @@ export class EmailService {
                     // send. Mirrors the fetch-retry (`result.invocation.queueParameters = params`) and
                     // queue-routing paths, which re-attach the same way.
                     result.invocation.queueParameters = params
-                    const retryDelayMs = pickTokenBucketRetryDelayMs(refillPerSecond)
+                    const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, refillPerSecond)
                     result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
                     addLog(
                         'info',

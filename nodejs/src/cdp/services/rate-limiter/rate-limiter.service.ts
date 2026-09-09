@@ -34,32 +34,40 @@ const claimLatency = new Histogram({
 })
 
 // Atomic "claim up to" token-bucket script.
-//   KEYS[1]      = bucket hash key (stores `ts` and `pool`)
+//   KEYS[1]      = bucket hash key (stores `ts`, `pool`, and the `resv` slot cursor)
 //   ARGV[1]      = requested tokens (integer)
 //   ARGV[2]      = pool capacity (max tokens the bucket can hold)
 //   ARGV[3]      = refill rate (tokens per second)
 //   ARGV[4]      = TTL seconds — bucket auto-expires when idle so cold-start
 //                  gives full capacity rather than a stale negative pool.
+//   ARGV[5]      = reserve-on-deny horizon in ms; 0 disables reservation.
 //
 // `now` is sourced via `redis.call('TIME')` so all pods share a single
 // monotonic clock — NTP drift between workers can't over- or under-refill
 // the bucket on this code path.
 //
-// Returns the number of tokens granted (0..requested).
+// Returns {granted, retryAfterMs}. A full denial with ARGV[5] > 0 also advances
+// the bucket's `resv` slot cursor by requested/refill and returns the caller's
+// distance to that slot, so each denied caller parks for a distinct time instead
+// of every caller re-claiming against the same next token. The cursor never
+// advances past the horizon; callers beyond it get the horizon back and
+// re-contend when they wake.
 const CLAIM_UP_TO_LUA = `
 local key = KEYS[1]
 local requested = tonumber(ARGV[1])
 local capacity = tonumber(ARGV[2])
 local refillPerSecond = tonumber(ARGV[3])
 local ttlSeconds = tonumber(ARGV[4])
+local reserveOnDenyMaxMs = tonumber(ARGV[5])
 
 local time = redis.call('TIME')
 -- TIME returns {seconds, microseconds}; flatten to epoch ms.
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
 
-local existing = redis.call('hmget', key, 'ts', 'pool')
+local existing = redis.call('hmget', key, 'ts', 'pool', 'resv')
 local rawTs = existing[1]
 local rawPool = existing[2]
+local rawResv = existing[3]
 
 local available
 if rawTs == false then
@@ -92,7 +100,21 @@ local tokensAfter = available - granted
 redis.call('hset', key, 'ts', now, 'pool', tokensAfter)
 redis.call('expire', key, ttlSeconds)
 
-return granted
+if granted > 0 or reserveOnDenyMaxMs <= 0 or refillPerSecond <= 0 then
+    return {granted, 0}
+end
+
+local slotMs = (requested / refillPerSecond) * 1000
+local base = now
+if rawResv ~= false and tonumber(rawResv) > now then
+    base = tonumber(rawResv)
+end
+local slotAt = base + slotMs
+if slotAt - now > reserveOnDenyMaxMs then
+    return {0, reserveOnDenyMaxMs}
+end
+redis.call('hset', key, 'resv', slotAt)
+return {0, math.ceil(slotAt - now)}
 `
 
 // Atomic all-or-nothing claim across two buckets. Same refill math as CLAIM_UP_TO_LUA per bucket,
@@ -217,6 +239,31 @@ export class RateLimiterService {
      * the worker's empty-batch sleep instead of crashing.
      */
     public async claimUpTo(req: ClaimRequest): Promise<number> {
+        return (await this.evalClaim(req, 0)).granted
+    }
+
+    /**
+     * Like claimUpTo, but a full denial also reserves the caller's place in line.
+     * The bucket keeps a "next free slot" cursor; each denial advances it by
+     * requested/refill and returns how long to park until the reserved slot. That
+     * gives every denied caller a distinct wake time, so a backlog spreads itself
+     * over future refill instead of the whole backlog re-claiming against the same
+     * next token on every retry. The cursor never advances past `reserveOnDenyMs`,
+     * so a backlog deeper than the horizon re-contends there instead of reserving
+     * unboundedly far out. The slot is a place in line, not a guarantee — the wake
+     * must still claim. `retryAfterMs` is null on grants and on error-path denials.
+     */
+    public async claimOrReserve(
+        req: ClaimRequest,
+        reserveOnDenyMs: number
+    ): Promise<{ granted: number; retryAfterMs: number | null }> {
+        return await this.evalClaim(req, reserveOnDenyMs)
+    }
+
+    private async evalClaim(
+        req: ClaimRequest,
+        reserveOnDenyMs: number
+    ): Promise<{ granted: number; retryAfterMs: number | null }> {
         const endTimer = claimLatency.startTimer({ limiter: this.config.name })
         const ttlSeconds = req.ttlSeconds ?? 3600
         try {
@@ -232,30 +279,34 @@ export class RateLimiterService {
                         String(req.requested),
                         String(req.capacity),
                         String(req.refillPerSecond),
-                        String(ttlSeconds)
+                        String(ttlSeconds),
+                        String(reserveOnDenyMs)
                     )
             )
 
-            const granted = Number(result)
+            const [granted, retryAfterMs] = Array.isArray(result) ? result.map(Number) : [NaN, NaN]
             if (!Number.isFinite(granted) || granted < 0) {
                 logger.warn('🪙', `RateLimiterService(${this.config.name}) returned invalid grant`, {
                     key: req.key,
                     raw: result,
                 })
                 claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
-                return 0
+                return { granted: 0, retryAfterMs: null }
             }
 
             const outcome = granted === 0 ? 'denied' : granted < req.requested ? 'granted_partial' : 'granted_full'
             claimCounter.inc({ limiter: this.config.name, result: outcome })
-            return granted
+            return {
+                granted,
+                retryAfterMs: Number.isFinite(retryAfterMs) && retryAfterMs > 0 ? retryAfterMs : null,
+            }
         } catch (err) {
             logger.warn('🪙', `RateLimiterService(${this.config.name}) claim threw`, {
                 key: req.key,
                 error: String(err),
             })
             claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
-            return 0
+            return { granted: 0, retryAfterMs: null }
         } finally {
             endTimer()
         }

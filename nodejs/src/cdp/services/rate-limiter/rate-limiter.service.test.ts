@@ -275,4 +275,50 @@ describe('RateLimiterService', () => {
             expect(claim).toEqual({ granted: false, deniedIndex: null, retryAfterMs: null })
         })
     })
+
+    describe('claimOrReserve', () => {
+        const RESERVE_KEY = `${KEY}/reserve`
+        const req = { key: RESERVE_KEY, requested: 1, capacity: 2, refillPerSecond: 2 }
+
+        it('grants normally without reserving a slot', async () => {
+            const claim = await limiter.claimOrReserve(req, 60_000)
+            expect(claim).toEqual({ granted: 1, retryAfterMs: null })
+        })
+
+        it('hands successive denials distinct, later slots', async () => {
+            // Drain the bucket so every claim below is a full denial. At 2 tokens/s each
+            // reservation advances the slot cursor by 500ms, so three denied callers park
+            // at three different times instead of all retrying against the next token.
+            await limiter.claimUpTo({ ...req, requested: 2 })
+
+            const first = await limiter.claimOrReserve(req, 60_000)
+            const second = await limiter.claimOrReserve(req, 60_000)
+            const third = await limiter.claimOrReserve(req, 60_000)
+
+            expect(first.granted).toBe(0)
+            expect(first.retryAfterMs).toBeGreaterThan(0)
+            // Strictly later each time; the spacing is ~500ms minus wall-clock elapsed
+            // between calls, so bound it loosely rather than exactly.
+            expect(second.retryAfterMs!).toBeGreaterThan(first.retryAfterMs!)
+            expect(third.retryAfterMs!).toBeGreaterThan(second.retryAfterMs!)
+            expect(third.retryAfterMs!).toBeLessThanOrEqual(1_500)
+        })
+
+        it('stops advancing the cursor at the horizon', async () => {
+            // Slot interval 1s with a 1s horizon: the first denial can reserve the one
+            // slot inside the horizon; everyone after gets the horizon back unchanged
+            // (and un-reserved), so a deep backlog re-contends there instead of the
+            // cursor running away.
+            const slowReq = { key: `${RESERVE_KEY}/capped`, requested: 1, capacity: 1, refillPerSecond: 1 }
+            await limiter.claimUpTo({ ...slowReq })
+
+            const first = await limiter.claimOrReserve(slowReq, 1_000)
+            const second = await limiter.claimOrReserve(slowReq, 1_000)
+            const third = await limiter.claimOrReserve(slowReq, 1_000)
+
+            expect(first.retryAfterMs).toBeLessThanOrEqual(1_000)
+            expect(second.retryAfterMs).toBe(1_000)
+            expect(third.retryAfterMs).toBe(1_000)
+        })
+    })
 })
