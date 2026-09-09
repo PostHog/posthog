@@ -42,8 +42,8 @@ export const Default = {
             <Button variant="primary">Primary</Button>
             <Button variant="secondary">Secondary</Button>
             <Button variant="outline">Outline</Button>
-            <Button variant="destructive">Destructive</Button>
             <Button variant="destructive-outline">Destructive outline</Button>
+            <Button variant="destructive">Destructive</Button>
             <Button variant="link">Link</Button>
         </div>
     ),
@@ -161,22 +161,30 @@ export const InteractionStates = {
     parameters: {
         pseudo: {
             hover: ['#secondary-hover', '#destructive-outline-hover'],
+            active: '#destructive-outline-active',
             focusVisible: '#destructive-outline-focus',
         },
     },
     render: () => (
-        <div className="flex flex-wrap gap-2">
-            <Button variant="secondary">Secondary resting</Button>
-            <Button id="secondary-hover" variant="secondary">
-                Secondary hover
-            </Button>
-            <Button variant="destructive-outline">Destructive outline resting</Button>
-            <Button id="destructive-outline-hover" variant="destructive-outline">
-                Destructive outline hover
-            </Button>
-            <Button id="destructive-outline-focus" variant="destructive-outline">
-                Destructive outline focus
-            </Button>
+        <div className="flex flex-col gap-2 items-start">
+            <div className="flex flex-wrap gap-2">
+                <Button variant="secondary">Secondary resting</Button>
+                <Button id="secondary-hover" variant="secondary">
+                    Secondary hover
+                </Button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+                <Button variant="destructive-outline">Destructive outline resting</Button>
+                <Button id="destructive-outline-hover" variant="destructive-outline">
+                    Destructive outline hover
+                </Button>
+                <Button id="destructive-outline-active" variant="destructive-outline">
+                    Destructive outline active
+                </Button>
+                <Button id="destructive-outline-focus" variant="destructive-outline">
+                    Destructive outline focus
+                </Button>
+            </div>
         </div>
     ),
 } satisfies Story

@@ -146,7 +146,7 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         ring: [oklch(0.446, 0.03, 257), oklch(0.709, 0, 0), 'border-ring'],
 
         // ── Interactive fills for default button / interactive elements ───────────
-        // Relative overlays on `--foreground` so hover/active/selected/expanded keep
+        // Relative overlays on `--foreground` so hover/selected/expanded keep
         // the same contrast against any surface (background, muted, card, etc.).
         // Fixed-alpha gray fills were invisible on `bg-muted` because muted is
         // itself a near-gray; mixing with foreground flips correctly per theme.
@@ -164,11 +164,6 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
             'color-mix(in oklab, var(--foreground) 4%, transparent)',
             'color-mix(in oklab, var(--foreground) 7%, transparent)',
             'bg-fill-hover',
-        ],
-        'fill-active': [
-            'color-mix(in oklab, var(--foreground) 6%, transparent)',
-            'color-mix(in oklab, var(--foreground) 10%, transparent)',
-            'bg-fill-active',
         ],
     } as const
 }
@@ -234,7 +229,6 @@ const THEME_DERIVED_TOKENS: ReadonlySet<string> = new Set([
     // Transitive: reference var(--foreground) / var(--muted) — must also live
     // on `*` to re-evaluate on local overrides.
     'fill-hover',
-    'fill-active',
     'fill-expanded',
     'fill-selected',
 ])
