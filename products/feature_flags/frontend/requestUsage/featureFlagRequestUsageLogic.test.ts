@@ -1,10 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { dayjs } from 'lib/dayjs'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import * as api from '../generated/api'
-import { csvCell, featureFlagRequestUsageLogic } from './featureFlagRequestUsageLogic'
+import { MAX_RANGE_DAYS, csvCell, featureFlagRequestUsageLogic } from './featureFlagRequestUsageLogic'
 
 describe('featureFlagRequestUsageLogic', () => {
     let logic: ReturnType<typeof featureFlagRequestUsageLogic.build>
@@ -125,6 +127,32 @@ describe('featureFlagRequestUsageLogic', () => {
         logic.actions.setDates('-7d', null)
 
         await expectLogic(logic).toMatchValues({ isHourlyAvailable: true })
+    })
+
+    it.each([
+        ['day' as const, '2026-08-01T00:00:00', '2026-09-01T00:00:00', MAX_RANGE_DAYS.day],
+        ['hour' as const, '2026-08-01T00:00:00', '2026-08-09T00:00:00', MAX_RANGE_DAYS.hour],
+    ])(
+        'requests the longest allowed %s range without overshooting the limit',
+        async (interval, dateFrom, dateTo, maximumDays) => {
+            const listUsage = jest.spyOn(api, 'featureFlagRequestUsageList')
+            logic.actions.setDates(dateFrom, dateTo)
+            logic.actions.setInterval(interval)
+            await expectLogic(logic).toFinishAllListeners()
+
+            const params = listUsage.mock.calls.at(-1)?.[1]
+            expect(logic.values.isRangeTooLong).toBe(false)
+            expect(dayjs(params?.date_to).diff(dayjs(params?.date_from), 'day', true)).toEqual(maximumDays)
+        }
+    )
+
+    it('skips the request when the selected range is longer than the API allows', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => logic.actions.setDates('2026-06-01', '2026-09-01'))
+            .toDispatchActions(['setDates'])
+            .toNotHaveDispatchedActions(['loadUsageResponse'])
+            .toMatchValues({ isRangeTooLong: true })
     })
 
     it('fills empty hourly buckets with zero', async () => {
