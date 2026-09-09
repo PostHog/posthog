@@ -5,7 +5,10 @@ from unittest import mock
 
 from posthog.schema import DateRange, HogQLFilters, HogQLQueryModifiers, HogQLVariable
 
+from posthog.hogql import ast
+from posthog.hogql.database.models import ExpressionField, StringDatabaseField
 from posthog.hogql.errors import QueryError
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.manifest import (
     TrinoCatalogManifest,
@@ -168,3 +171,28 @@ def test_accepts_content_free_filters_and_null_modifiers() -> None:
 def test_rejects_tables_absent_from_manifest() -> None:
     with pytest.raises(QueryError, match="Unknown table `saved_query`"):
         transpile_hogql_to_trino("SELECT * FROM saved_query", manifest=_manifest(_events()))
+
+
+def test_manifest_preserves_curated_physical_names_and_computed_fields() -> None:
+    created_at_field = ExpressionField(name="created_at", expr=parse_expr("toDateTime(created)"), isolate_scope=True)
+    fields = {
+        "customer_id": StringDatabaseField(name="customer"),
+        "created_at": created_at_field,
+    }
+    table = TrinoManifestTable(
+        logical_name="billing.subscriptions",
+        locator=("catalog", "imports", "subscriptions"),
+        columns=(
+            TrinoManifestColumn(name="customer", type=DatabaseSerializedFieldType.STRING),
+            TrinoManifestColumn(name="created", type=DatabaseSerializedFieldType.INTEGER),
+        ),
+        field_overrides=fields,
+    )
+    result = transpile_hogql_to_trino(
+        "SELECT customer_id AS customer_id, created_at AS created_at FROM billing.subscriptions",
+        manifest=_manifest(table),
+    )
+
+    assert '"billing__subscriptions"."customer" AS "customer_id"' in result.sql
+    assert 'from_unixtime(CAST("billing__subscriptions"."created" AS DOUBLE))' in result.sql
+    assert isinstance(created_at_field.expr, ast.Call)
