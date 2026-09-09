@@ -115,3 +115,23 @@ class TestResumeNodes(BaseTest):
         self.assertEqual(resume_nodes([node], by="api"), 0)
         node.refresh_from_db()
         self.assertIsNone(suspension_reset_at(node, ENGINE))
+
+
+class TestSuspensionClearedOnRevert(BaseTest):
+    def test_revert_clears_the_suspension_and_stamps_a_watermark(self) -> None:
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="reverted_model",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            is_materialized=True,
+        )
+        node = sync_saved_query_to_dag(saved_query)
+        assert node is not None
+        mark_node_suspended(node, engine=ENGINE, reason="boom", job_id=str(uuid4()))
+        node.save()
+
+        saved_query.revert_materialization()
+
+        node.refresh_from_db()
+        self.assertEqual(suspension_state(node), {})
+        self.assertIsNotNone(suspension_reset_at(node, ENGINE))

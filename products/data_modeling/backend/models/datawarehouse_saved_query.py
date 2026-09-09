@@ -346,6 +346,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             )
 
     def revert_materialization(self):
+        from products.data_modeling.backend.logic.node_suspension import resume_saved_query
         from products.data_modeling.backend.logic.schedule_reconcile import apply_saved_query_frequency_target
         from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
 
@@ -372,6 +373,18 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
             logger.exception(
                 "failed_to_clear_frequency_target_on_revert",
+                team_id=self.team_id,
+                saved_query_id=str(self.id),
+            )
+
+        # The circuit breaker suspended a materialization that no longer exists, so the marker
+        # would outlive it and keep reporting a view its owner stopped themselves.
+        try:
+            resume_saved_query(self, by="revert")
+        except Exception as e:
+            capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
+            logger.exception(
+                "failed_to_clear_suspension_on_revert",
                 team_id=self.team_id,
                 saved_query_id=str(self.id),
             )

@@ -171,20 +171,15 @@ def suspension_state_for_saved_query(saved_query: "DataWarehouseSavedQuery") -> 
 
 
 def suspended_saved_query_ids_by_team(engine: str) -> dict[int, list[str]]:
-    """Every still-materialized saved query with a node suspended on this engine, grouped by team.
+    """Every saved query with a node suspended on this engine, grouped by team.
 
     Cross-team on purpose: the daily digest classifies the whole fleet in one pass rather than one
     query per team. Duplicate DAGs give a query several nodes, so the ids are deduplicated.
-
-    `revert_materialization` leaves the marker behind, so a view someone reverted after it was
-    suspended keeps one forever. Reporting that view would tell its team we stopped materializing
-    something they stopped themselves.
     """
     by_team: dict[int, set[str]] = {}
     nodes = (
         Node.objects.filter(
             saved_query_id__isnull=False,
-            saved_query__is_materialized=True,
             properties__system__suspended__has_key=str(engine),
         )
         .exclude(saved_query__deleted=True)

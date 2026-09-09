@@ -59,9 +59,8 @@ from products.batch_exports.backend.models.batch_export import (
 )
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
+from products.data_modeling.backend.facade.api import mark_node_suspended, sync_saved_query_to_dag
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
-from products.data_modeling.backend.logic.node_suspension import mark_node_suspended
-from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
 
 
 def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> tuple[Organization, User]:
@@ -2508,17 +2507,17 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 "enforced",
                 True,
                 DataModelingJobEngine.CLICKHOUSE,
-                True,
+                False,
                 [("suspended_view", True), ("retrying_view", False)],
                 True,
             ),
-            ("not_enforced", False, DataModelingJobEngine.CLICKHOUSE, True, [("retrying_view", False)], False),
-            ("shadow_marker_only", True, DataModelingJobEngine.DUCKGRES, True, [("retrying_view", False)], False),
+            ("not_enforced", False, DataModelingJobEngine.CLICKHOUSE, False, [("retrying_view", False)], False),
+            ("shadow_marker_only", True, DataModelingJobEngine.DUCKGRES, False, [("retrying_view", False)], False),
             (
                 "reverted_after_suspension",
                 True,
                 DataModelingJobEngine.CLICKHOUSE,
-                False,
+                True,
                 [("retrying_view", False)],
                 False,
             ),
@@ -2530,7 +2529,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         _name: str,
         enforced: bool,
         marker_engine: str,
-        materialized: bool,
+        revert: bool,
         expected_rows: list[tuple[str, bool]],
         expected_has_suspended: bool,
     ) -> None:
@@ -2544,7 +2543,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             name="suspended_view",
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
             sync_frequency_interval=dt.timedelta(hours=1),
-            is_materialized=materialized,
+            is_materialized=True,
         )
         DataModelingJob.objects.create(
             team=self.team,
@@ -2562,6 +2561,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             job_id=str(uuid.uuid4()),
         )
         node.save()
+
+        if revert:
+            suspended.revert_materialization()
 
         retrying = DataWarehouseSavedQuery.objects.create(
             team=self.team,
