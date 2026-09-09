@@ -5639,6 +5639,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "pending_external_followups_generation": 7,
                 "sandbox_gone": False,
                 "ai_stage": "research",
+                "scout_skill_name": "signals-scout-errors",
                 "self_driving_head_branch": "posthog-self-driving/real-3f9a2c",
                 "runtime_adapter": "claude",
                 "provider": "anthropic",
@@ -5706,6 +5707,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "sandbox_gone": True,
                     # implementation provenance is what the self-driving review carve-outs trust
                     "ai_stage": "implementation",
+                    # the scout the run's spend is billed to; a forged value moves that spend
+                    # onto another scout's per-scout cost numbers
+                    "scout_skill_name": "signals-scout-general",
                     # the stamped branch is the unforgeable run->PR link; a writable value re-aims it
                     "self_driving_head_branch": "posthog-self-driving/attacker-000000",
                     "runtime_adapter": "codex",
@@ -5753,6 +5757,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["same_run_resume_idle"] is False
         assert run.state["handoff_resumed"] is True
         assert run.state["handoff_resume_idle"] is False
+        assert run.state["scout_skill_name"] == "signals-scout-errors"
         assert run.state["workflow_id"] == "wf-real"
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
@@ -6130,6 +6135,31 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertIn("log_url", data)
         self.assertIsNotNone(data["log_url"])
         self.assertTrue(data["log_url"].startswith("http"))
+
+    def test_retrieve_run_serves_the_sandbox_its_attribution_stamps(self):
+        # The in-sandbox agent server reads these back off this endpoint and forwards them to
+        # the LLM gateway, which lifts them onto the run's $ai_generation events. A stamp the
+        # public-state filter drops silently loses that attribution. Sandbox credentials, which
+        # share the same server-owned run state, must not ride along.
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={
+                "ai_stage": "scout:custom",
+                "scout_skill_name": "signals-scout-errors",
+                "sandbox_connect_token": "connect-token",
+            },
+        )
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        state = response.json()["state"]
+        self.assertEqual(state["ai_stage"], "scout:custom")
+        self.assertEqual(state["scout_skill_name"], "signals-scout-errors")
+        self.assertNotIn("sandbox_connect_token", state)
 
     def test_list_runs_only_returns_task_runs(self):
         task1 = self.create_task("Task 1")
