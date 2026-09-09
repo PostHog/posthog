@@ -53,7 +53,7 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
             raise AuthFailed(self, "OIDC requires one configured identity provider for this email domain.")
         self.strategy.session_set("oidc_config_id", str(configs[0].id))
         self.strategy.session_set("oidc_email", email)
-        self.strategy.session_set("oidc_organization_id", configs[0].organization_id)
+        self.strategy.session_set("oidc_organization_id", str(configs[0].organization_id))
         return super().auth_url()
 
     def oidc_endpoint(self) -> str:
@@ -73,7 +73,11 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
                 raise AuthFailed(self, "OIDC discovery requires HTTPS endpoints.")
         return document
 
-    def get_key_and_secret(self) -> tuple[str, str]:  # nosemgrep: semgrep.rules.devex.tuple-return-prefer-dataclass -- social-auth passes this tuple directly to requests basic auth
+    def get_key_and_secret(
+        self,
+    ) -> tuple[
+        str, str
+    ]:  # nosemgrep: semgrep.rules.devex.tuple-return-prefer-dataclass -- social-auth passes this tuple directly to requests basic auth
         config = self.identity_provider_config
         return config.oidc_client_id, config.oidc_credentials["client_secret"]
 
