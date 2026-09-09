@@ -82,18 +82,25 @@ describe('organizationLogic', () => {
     describe('projectCreationUpgradeReason', () => {
         // Guards the dead end this selector exists to prevent: without the entitlement check the
         // create-project scene renders the form to an org at its plan limit, and the submit 403s.
-        const cases: [string, number, number | undefined, boolean][] = [
-            ['plan has room', 1, 2, false],
-            ['plan limit reached', 2, 2, true],
-            ['plan has no limit', 12, undefined, false],
+        const projectsEntitlement = (limit?: number): Record<string, unknown>[] => [
+            { key: AvailableFeature.ORGANIZATIONS_PROJECTS, limit },
         ]
-        test.each(cases)('%s', (_name, projectCount, limit, expectsUpgrade) => {
+        const cases: [string, number, Record<string, unknown>[], boolean][] = [
+            ['plan has room', 1, projectsEntitlement(2), false],
+            ['plan limit reached', 2, projectsEntitlement(2), true],
+            ['plan has no limit', 12, projectsEntitlement(), false],
+            // No entitlement is how a self-hosted instance without a license reports itself. The
+            // backend still grants the first project there, so the scene must not paywall it.
+            ['no entitlement and no project yet', 0, [], false],
+            ['no entitlement and a project already', 1, [], true],
+        ]
+        test.each(cases)('%s', (_name, projectCount, availableProductFeatures, expectsUpgrade) => {
             window.POSTHOG_APP_CONTEXT = {
                 current_user: {
                     organization: {
                         ...MOCK_DEFAULT_ORGANIZATION,
                         projects: Array.from({ length: projectCount }, (_, index) => ({ id: index + 1 })),
-                        available_product_features: [{ key: AvailableFeature.ORGANIZATIONS_PROJECTS, limit }],
+                        available_product_features: availableProductFeatures,
                     },
                 },
             } as unknown as AppContext

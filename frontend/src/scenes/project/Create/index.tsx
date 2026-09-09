@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -18,12 +19,34 @@ export const scene: SceneExport = {
 }
 
 export function ProjectCreate(): JSX.Element {
-    const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
+    const { currentOrganization, projectCreationForbiddenReason, projectCreationUpgradeReason } =
+        useValues(organizationLogic)
+    const { preflight } = useValues(preflightLogic)
 
     if (projectCreationForbiddenReason) {
         return (
             <LemonBanner type="warning" className="mt-5">
                 {projectCreationForbiddenReason}
+            </LemonBanner>
+        )
+    }
+
+    // Give the inline scene a working exit (Cancel + close) so a failed create doesn't trap the user.
+    const createForm = (
+        <CreateProjectModal isVisible inline onClose={() => router.actions.push(urls.projectHomepage())} />
+    )
+
+    // The plan check lives in one selector, so the scene can't paywall a create the backend accepts.
+    if (!projectCreationUpgradeReason) {
+        return <div className="mt-5">{createForm}</div>
+    }
+
+    // PayGateMini shows nothing where paid features are hidden, so state the reason rather than
+    // leaving the scene blank.
+    if (preflight?.instance_preferences?.disable_paid_fs) {
+        return (
+            <LemonBanner type="warning" className="mt-5">
+                {projectCreationUpgradeReason}
             </LemonBanner>
         )
     }
@@ -37,8 +60,7 @@ export function ProjectCreate(): JSX.Element {
             featureDetail="create-project-scene"
             className="mt-5"
         >
-            {/* Give the inline scene a working exit (Cancel + close) so a failed create doesn't trap the user. */}
-            <CreateProjectModal isVisible inline onClose={() => router.actions.push(urls.projectHomepage())} />
+            {createForm}
         </PayGateMini>
     )
 }
