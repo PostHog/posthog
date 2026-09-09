@@ -257,16 +257,6 @@ export function buildWorkflowTree(workflow: Pick<HogFlow, 'actions' | 'edges'>):
     return buildSequence(trigger?.id, null, null, new Set())
 }
 
-export function countWorkflowTreeNodes(sequence: WorkflowTreeSequence): number {
-    return sequence.nodes.reduce(
-        (total, node) =>
-            total +
-            1 +
-            node.branches.reduce((branchTotal, branch) => branchTotal + countWorkflowTreeNodes(branch.sequence), 0),
-        0
-    )
-}
-
 export function isWorkflowTreeComplete(workflow: Pick<HogFlow, 'actions' | 'edges'>): boolean {
     const actionIds = new Set<string>()
     collectWorkflowTreeActionIds(buildWorkflowTree(workflow), actionIds)
