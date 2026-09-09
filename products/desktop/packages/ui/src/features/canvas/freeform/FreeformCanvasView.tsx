@@ -615,6 +615,7 @@ export function FreeformCanvasView({
       if (method !== "agentRequest") {
         return handleFreeformDataRequest(method, payload, queryClient, {
           dashboardId,
+          sourceVersionId: displayedVersionId ?? undefined,
         });
       }
       const input = canvasAgentRequestInputSchema.parse(payload);
@@ -630,7 +631,7 @@ export function FreeformCanvasView({
         agentRequestPromiseRef.current = { resolve, reject };
       });
     },
-    [queryClient, dashboardId],
+    [queryClient, dashboardId, displayedVersionId],
   );
   const cancelAgentRequest = useCallback(() => {
     agentRequestPromiseRef.current?.reject(new Error("Agent request canceled"));

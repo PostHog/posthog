@@ -16359,6 +16359,9 @@
                     "enum": ["top", "bottom", "left", "right"],
                     "type": "string"
                 },
+                "metric": {
+                    "$ref": "#/definitions/MetricChartSettings"
+                },
                 "pie": {
                     "$ref": "#/definitions/PieChartSettings"
                 },
@@ -30835,6 +30838,10 @@
         "IntegrationFilter": {
             "additionalProperties": false,
             "properties": {
+                "includeNonIntegrated": {
+                    "description": "Keep rows that no integration reports cost for, such as organic, email or an unmapped source. Defaults to true.",
+                    "type": "boolean"
+                },
                 "integrationSourceIds": {
                     "description": "Selected integration source IDs to filter by (e.g., table IDs or source map IDs)",
                     "items": {
@@ -37613,6 +37620,44 @@
                 "threads"
             ],
             "type": "string"
+        },
+        "MetricChartSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "changeDecreaseColor": {
+                    "description": "Change pill color when the series went down. Defaults to red.",
+                    "type": "string"
+                },
+                "changeIncreaseColor": {
+                    "description": "Change pill color when the series went up. Defaults to green.",
+                    "type": "string"
+                },
+                "colorByDirection": {
+                    "default": false,
+                    "description": "Color the sparkline by whether the series went up or down.",
+                    "type": "boolean"
+                },
+                "lineDecreaseColor": {
+                    "description": "Sparkline color when the series went down. Defaults to red.",
+                    "type": "string"
+                },
+                "lineIncreaseColor": {
+                    "description": "Sparkline color when the series went up. Defaults to green.",
+                    "type": "string"
+                },
+                "showChange": {
+                    "default": true,
+                    "description": "Show the change pill comparing the first point to the latest point.",
+                    "type": "boolean"
+                },
+                "summary": {
+                    "default": "latest",
+                    "description": "Which value the resting headline shows: the latest point, the total, or the average of the returned points.",
+                    "enum": ["total", "average", "latest"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
         },
         "MetricPropertyFilter": {
             "additionalProperties": false,
