@@ -2,7 +2,7 @@ import { useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonSegmentedButton, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackUserPicker } from 'lib/integrations/SlackIntegrationHelpers'
@@ -12,6 +12,8 @@ import type {
     SignalScoutOutputDestinationsApi,
     SignalScoutSlackDestinationApi,
 } from 'products/signals/frontend/generated/api.schemas'
+
+import { ScoutSlackDestinationSummary } from './ScoutSlackDestinationSummary'
 
 // Mirrors MAX_SCOUT_SLACK_DM_TARGETS on the backend serializer.
 const MAX_DM_RECIPIENTS = 5
@@ -24,6 +26,10 @@ interface ScoutSlackDestinationProps {
     onChange: (outputDestinations: SignalScoutOutputDestinationsApi) => void
 }
 
+/**
+ * Slack delivery for one scout in its settings form: collapsed by default, with the target it
+ * posts to in the header, so a scout that never posts to Slack costs one line.
+ */
 export function ScoutSlackDestination({
     destination,
     disabledReason,
@@ -36,6 +42,7 @@ export function ScoutSlackDestination({
         ? integrations.find((integration) => integration.id === destination.integration_id)
         : undefined
     const selectedIntegration = configuredIntegration ?? (integrations.length === 1 ? integrations[0] : null)
+    const workspacesLoading = integrationsLoading && slackIntegrations === undefined
 
     const hasChannel = Boolean(destination?.channel)
     const hasUsers = Boolean(destination?.users?.length)
@@ -116,15 +123,12 @@ export function ScoutSlackDestination({
         onChange({})
     }
 
-    return (
-        <div className="flex flex-col gap-2 border-t border-primary pt-2">
-            <div className="flex flex-col min-w-0">
-                <span className="text-xs text-default">Slack destination</span>
-                <span className="text-[11.5px] text-muted">
-                    Post each scout run's output to a channel, or send it as a direct message
-                </span>
-            </div>
-            {integrationsLoading && slackIntegrations === undefined ? (
+    const body = (
+        <div className="flex flex-col gap-2">
+            <span className="text-[11.5px] text-muted">
+                Post each scout run's output to a channel, or send it as a direct message
+            </span>
+            {workspacesLoading ? (
                 <span className="text-xs text-muted">Loading Slack workspaces…</span>
             ) : integrations.length === 0 ? (
                 <Link to={urls.settings('environment-integrations', 'integration-slack')}>
@@ -223,6 +227,34 @@ export function ScoutSlackDestination({
                     )}
                 </div>
             )}
+        </div>
+    )
+
+    return (
+        <div className="border-t border-primary pt-2">
+            <LemonCollapse
+                embedded
+                size="small"
+                panels={[
+                    {
+                        key: 'slack-destination',
+                        dataAttr: 'scout-slack-destination',
+                        header: (
+                            <div className="flex flex-1 items-center justify-between gap-2">
+                                <span className="text-xs text-default">Slack destination</span>
+                                <div className="flex flex-wrap items-center gap-1">
+                                    <ScoutSlackDestinationSummary
+                                        destination={destination}
+                                        workspaces={integrations}
+                                        loading={workspacesLoading}
+                                    />
+                                </div>
+                            </div>
+                        ),
+                        content: body,
+                    },
+                ]}
+            />
         </div>
     )
 }

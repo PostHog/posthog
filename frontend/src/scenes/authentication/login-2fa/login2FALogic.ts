@@ -6,7 +6,7 @@ import { loaders } from 'kea-loaders'
 
 import api, { ApiError } from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { handleLoginRedirect } from 'scenes/authentication/login/loginLogic'
+import { redirectAfterLogin } from 'scenes/authentication/login/loginLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 
@@ -287,9 +287,7 @@ export const login2FALogic = kea<login2FALogicType>([
     })),
     listeners(({ values }) => ({
         submitTwofactortokenSuccess: () => {
-            handleLoginRedirect()
-            // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
-            window.location.reload()
+            redirectAfterLogin()
         },
         beginPasskey2FASuccess: () => {
             // The loader returns null on user cancellation to avoid surfacing
@@ -299,9 +297,7 @@ export const login2FALogic = kea<login2FALogicType>([
             if (values.passkey2FAWasCancelled) {
                 return
             }
-            handleLoginRedirect()
-            // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
-            window.location.reload()
+            redirectAfterLogin()
         },
     })),
     afterMount(({ actions }) => {

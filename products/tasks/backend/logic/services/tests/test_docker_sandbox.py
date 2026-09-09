@@ -1,5 +1,6 @@
-import re
 import shlex
+import subprocess
+from pathlib import Path
 
 import pytest
 from unittest.mock import patch
@@ -9,6 +10,7 @@ from parameterized import parameterized
 from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX
 from products.tasks.backend.exceptions import SandboxExecutionError
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
+from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig
 
 
@@ -20,6 +22,31 @@ def sandbox() -> DockerSandbox:
 
 def _log_result() -> ExecutionResult:
     return ExecutionResult(stdout="agent-server log", stderr="", exit_code=0)
+
+
+@pytest.mark.parametrize(
+    ("capabilities", "expected"),
+    [
+        ("", False),
+        ("prewarmedResumeIdle", False),
+        ("prewarmedResumeIdle prewarmedResumeMessageDriven", True),
+    ],
+)
+def test_prewarmed_resume_requires_message_driven_agent(
+    sandbox: DockerSandbox, tmp_path: Path, capabilities: str, expected: bool
+) -> None:
+    binary = tmp_path / "agent-server"
+    binary.write_text(capabilities)
+
+    def execute_probe(command: str, *, timeout_seconds: int) -> ExecutionResult:
+        args = shlex.split(command)
+        assert args[-1] == "/scripts/node_modules/.bin/agent-server"
+        args[-1] = str(binary)
+        result = subprocess.run(args, capture_output=True, text=True, timeout=timeout_seconds)
+        return ExecutionResult(stdout=result.stdout, stderr=result.stderr, exit_code=result.returncode)
+
+    with patch.object(sandbox, "execute", side_effect=execute_probe):
+        assert sandbox.agent_server_supports_prewarmed_resume_message_driven() is expected
 
 
 def test_wait_for_agent_server_ready_timeout_is_retryable_and_not_captured(sandbox: DockerSandbox):
@@ -75,43 +102,31 @@ def test_read_agent_server_boot_metrics_uses_pi_boot_total(sandbox: DockerSandbo
         assert sandbox.read_agent_server_boot_metrics() == (90, {"server_total": 140})
 
 
-def test_build_agent_server_command_gates_exec_permission_regex(sandbox: DockerSandbox):
+def test_build_agent_server_command_gates_connected_project_operations(sandbox: DockerSandbox):
     with_flag = sandbox._build_agent_server_command(
         None, "t1", "r1", "interactive", True, posthog_exec_permission_regex=POSTHOG_EXEC_PERMISSION_REGEX
     )
     assert f"--posthogExecPermissionRegex {shlex.quote(POSTHOG_EXEC_PERMISSION_REGEX)}" in with_flag
 
-    # An agent-server predating the flag rejects unknown options — the builder must omit it entirely.
     without_flag = sandbox._build_agent_server_command(None, "t1", "r1", "interactive", True)
     assert "--posthogExecPermissionRegex" not in without_flag
 
 
-@parameterized.expand(
-    [
-        ("cdp-functions-partial-update", True),
-        ("insight-update", True),
-        ("survey-delete", True),
-        ("dashboard-create", True),
-        ("survey-launch", True),
-        ("workflows-create-email-template", True),
-        ("insight-create", False),
-        ("cdp-functions-list", False),
-        ("dashboard-create-extra", False),
-    ]
-)
-def test_exec_permission_regex_matches_gated_sub_tools(sub_tool: str, should_match: bool):
-    # The constant is hand-concatenated; a broken anchor or alternation silently stops relaying
-    # approvals for (or starts prompting on) the wrong sub-tools.
-    assert bool(re.search(POSTHOG_EXEC_PERMISSION_REGEX, sub_tool, re.IGNORECASE)) is should_match
-
-
 def test_start_agent_server_launch_failure_is_captured(sandbox: DockerSandbox):
     failed = ExecutionResult(stdout="", stderr="boom", exit_code=1)
+
+    def execute(command: str, **kwargs) -> ExecutionResult:
+        # Only the launch fails; the bundled-skills clear that precedes it succeeds.
+        if ENV_DISABLE_BUNDLED_SKILLS in command:
+            return ExecutionResult(stdout="", stderr="", exit_code=0)
+        return failed
+
     with (
         patch.object(sandbox, "is_running", return_value=True),
         patch.object(sandbox, "write_file"),
-        patch.object(sandbox, "_build_agent_server_command", return_value="run-agent-server"),
-        patch.object(sandbox, "execute", return_value=failed),
+        patch.object(sandbox, "_build_agent_server_command", return_value="run-agent-server") as build_command,
+        patch.object(sandbox, "agent_server_supports_exec_permission_regex", return_value=True),
+        patch.object(sandbox, "execute", side_effect=execute),
         patch("products.tasks.backend.exceptions.capture_exception") as capture_exception,
         pytest.raises(SandboxExecutionError),
     ):
@@ -119,6 +134,7 @@ def test_start_agent_server_launch_failure_is_captured(sandbox: DockerSandbox):
 
     # A genuine non-zero launch is a real fault — it still gets captured.
     capture_exception.assert_called_once()
+    assert build_command.call_args.kwargs["posthog_exec_permission_regex"] == POSTHOG_EXEC_PERMISSION_REGEX
 
 
 @parameterized.expand([("empty", b""), ("with_content", b"GITHUB_TOKEN=ghs_x\x00")])

@@ -19,11 +19,6 @@ _B = "products.data_warehouse.backend."
 _LAZY = {
     "CreateTableResult": "logic.data_load.create_table",
     "create_table_from_saved_query": "logic.data_load.create_table",
-    "delete_saved_query_schedule": "logic.data_load.saved_query_service",
-    "pause_saved_query_schedule": "logic.data_load.saved_query_service",
-    "saved_query_workflow_exists": "logic.data_load.saved_query_service",
-    "trigger_saved_query_schedule": "logic.data_load.saved_query_service",
-    "unpause_saved_query_schedule": "logic.data_load.saved_query_service",
     "a_unpause_external_data_schedule": "logic.data_load.service",
     "bulk_create_external_data_job_schedules": "logic.data_load.service",
     "bulk_delete_external_data_schedules": "logic.data_load.service",

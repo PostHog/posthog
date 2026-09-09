@@ -161,6 +161,56 @@ export interface ExperimentRecordingsFilterContext {
 }
 
 /**
+ * What the recordings list came back with, and — when it came back with nothing — the cause the tab
+ * can name from what it already holds. A large share of tab visits show an empty list and nothing
+ * says why, so the facets are carried alongside `empty_reason` to tell a project with replay off
+ * apart from an experiment too young to have recordings, or a filter that matched nothing.
+ * Carries the same facets as `experiment recording opened`, so an empty list and an opened recording
+ * are comparable per facet.
+ */
+export interface ExperimentRecordingsListRenderedContext extends ExperimentRecordingsFilterContext {
+    result_count: number
+    /** Null when the list has rows. One of the tab's `ExperimentReplayListEmptyReason` values. */
+    empty_reason: string | null
+    /** Null when the experiment has not launched. */
+    days_since_start: number | null
+    /** Null while the experiment runs. */
+    days_since_end: number | null
+    /**
+     * The project's current replay retention setting, null when it has none. A recording expires on
+     * the period it was stored under, so this is the assumption `ended_past_retention` was decided
+     * on rather than proof of what expired.
+     */
+    retention_period: string | null
+    replay_opt_in: boolean
+    /**
+     * Whether any duration filter was applied. Replay applies a default floor to every list, so
+     * this is true on nearly every render and separates almost nothing. A dashboard tile reads it,
+     * so its meaning is frozen; the four properties below are what answers whether the floor is
+     * why the list came back empty.
+     */
+    duration_filter_active: boolean
+    /** Which duration the floor measures: `active_seconds`, `duration`, or `inactive_seconds`. */
+    duration_filter_key: string | null
+    /** The floor's threshold in seconds. */
+    duration_filter_seconds: number | null
+    /** `gt` for a floor, `lt` for a ceiling. The viewer can flip it in the playlist filter bar. */
+    duration_filter_operator: string | null
+    /**
+     * How many duration filters were applied. The three properties above describe the first, so a
+     * count above one says they describe part of the set rather than all of it.
+     */
+    duration_filter_count: number
+    /**
+     * Whether the applied filter differs from replay's default floor, which counts removing the
+     * filter as a difference. The three properties above are null when the viewer removed it.
+     */
+    duration_filter_customized: boolean
+    /** Whether the exposure event is ever seen with a session id. Null while the check is out. */
+    exposure_linkable: boolean | null
+}
+
+/**
  * What the behavior comparison found, captured each time the shelf loads. The card counts are what
  * say whether the feature finds anything in the wild: all zeros on most experiments would mean the
  * evidence floors are set too high to ever show a card.
@@ -193,6 +243,17 @@ export interface ExperimentWatchLoadFailedContext {
 export interface ExperimentWatchEmptyActionContext {
     empty_reason: string | null
     /** 'exposure_docs' or 'replay_settings'. */
+    action: string
+}
+
+/**
+ * An action on the empty recordings list was taken. Joined to `empty_reason` on
+ * `experiment recordings list rendered`, this says which explanations people act on.
+ */
+export interface ExperimentRecordingsEmptyActionContext {
+    /** One of the tab's `ExperimentReplayListEmptyReason` values. */
+    empty_reason: string | null
+    /** One of the tab's `ExperimentRecordingsEmptyAction` values. */
     action: string
 }
 
@@ -243,12 +304,21 @@ export interface ExperimentRecordingsBucketFailedContext {
 // by `version` (1 = legacy, 2 = context-first redesign) and `flow_variant`. Stamping properties
 // instead of renaming keeps every existing dashboard and alert on the v1 events working. The
 // redesign's v2 events live in `scenes/onboarding/onboardingEventUsageLogic`.
+// `entry_point` names the surface the flow starts on. It rides along with every funnel event, not
+// only `started`, so a breakdown by entry point stays populated for the whole funnel.
+export type OnboardingEntryPoint = 'product_selection' | 'welcome'
+
 export type OnboardingEventProperties = {
+    entry_point: OnboardingEntryPoint
     flow_variant: 'context_first' | 'legacy'
     version: 1 | 2
 }
 
-const LEGACY_ONBOARDING_EVENT_PROPS: OnboardingEventProperties = { version: 1, flow_variant: 'legacy' }
+const LEGACY_ONBOARDING_EVENT_PROPS: OnboardingEventProperties = {
+    version: 1,
+    flow_variant: 'legacy',
+    entry_point: 'product_selection',
+}
 
 function retentionWindowDays(metric: ExperimentRetentionMetric): number | undefined {
     const unitToDays: Record<string, number> = { day: 1, week: 7, month: 30 }
@@ -1351,6 +1421,20 @@ export interface eventUsageLogicActions {
         context: ExperimentRecordingsBucketLoadedContext
         experimentId: ExperimentIdType
     }
+    reportExperimentRecordingsEmptyActionClicked: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsEmptyActionContext
+    ) => {
+        context: ExperimentRecordingsEmptyActionContext
+        experimentId: ExperimentIdType
+    }
+    reportExperimentRecordingsListRendered: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsListRenderedContext
+    ) => {
+        context: ExperimentRecordingsListRenderedContext
+        experimentId: ExperimentIdType
+    }
     reportExperimentRecordingsTabViewed: (
         experimentId: ExperimentIdType,
         context: ExperimentRecordingsTabContext
@@ -1507,6 +1591,19 @@ export interface eventUsageLogicActions {
     }
     reportFeatureFlagCopySuccess: () => {
         value: true
+    }
+    reportFeatureFlagCreatedInAdditionalProjects: (
+        targetCount: number,
+        createdCount: number,
+        overwrittenCount: number,
+        pendingApprovalCount: number,
+        failedCount: number
+    ) => {
+        createdCount: number
+        failedCount: number
+        overwrittenCount: number
+        pendingApprovalCount: number
+        targetCount: number
     }
     reportFeatureFlagScheduleFailure: (error: any) => {
         error: any
@@ -1701,6 +1798,13 @@ export interface eventUsageLogicActions {
         selfDriving: boolean | undefined
         surface: IntegrationConnectSurface
     }
+    reportIntegrationConnectRejected: (
+        kind: string,
+        error: string
+    ) => {
+        error: string
+        kind: string
+    }
     reportInviteMembersButtonClicked: () => {
         value: true
     }
@@ -1723,6 +1827,15 @@ export interface eventUsageLogicActions {
     reportMarketingAnalyticsOnboardingViewed: () => {}
     reportMediaPreviewUploaded: (source: string) => {
         source: string
+    }
+    reportNavItemClicked: (
+        item: string,
+        section: string,
+        itemType?: string | null
+    ) => {
+        item: string
+        itemType: string | null | undefined
+        section: string
     }
     reportNavbarStarredItemAdded: (
         itemType: string,
@@ -1803,11 +1916,7 @@ export interface eventUsageLogicActions {
         recommendationSource: string
         selected: boolean
     }
-    reportOnboardingStarted: (
-        entrypoint: string,
-        properties?: OnboardingEventProperties
-    ) => {
-        entrypoint: string
+    reportOnboardingStarted: (properties?: OnboardingEventProperties) => {
         properties: OnboardingEventProperties | undefined
     }
     reportOnboardingStepCompleted: (
@@ -2277,6 +2386,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             surface,
             selfDriving,
         }),
+        reportIntegrationConnectRejected: (kind: string, error: string) => ({ kind, error }),
         reportPersonalIntegrationConnectClicked: (kind: string) => ({ kind }),
         reportGroupPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
@@ -2800,6 +2910,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experimentId: ExperimentIdType,
             context: ExperimentRecordingsBucketFailedContext
         ) => ({ experimentId, context }),
+        reportExperimentRecordingsListRendered: (
+            experimentId: ExperimentIdType,
+            context: ExperimentRecordingsListRenderedContext
+        ) => ({ experimentId, context }),
+        reportExperimentRecordingsEmptyActionClicked: (
+            experimentId: ExperimentIdType,
+            context: ExperimentRecordingsEmptyActionContext
+        ) => ({ experimentId, context }),
         reportExperimentRecordingOpened: (
             experimentId: ExperimentIdType,
             context: ExperimentRecordingsFilterContext
@@ -2902,6 +3020,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             projectCount,
             failedCount,
         }),
+        reportFeatureFlagCreatedInAdditionalProjects: (
+            targetCount: number,
+            createdCount: number,
+            overwrittenCount: number,
+            pendingApprovalCount: number,
+            failedCount: number
+        ) => ({ targetCount, createdCount, overwrittenCount, pendingApprovalCount, failedCount }),
         reportFeatureFlagsBulkArchived: (archivedCount: number, pendingApprovalCount: number, failedCount: number) => ({
             archivedCount,
             pendingApprovalCount,
@@ -2968,8 +3093,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportProductTourListViewed: true,
         reportProductUnsubscribed: (product: string) => ({ product }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
-        reportOnboardingStarted: (entrypoint: string, properties?: OnboardingEventProperties) => ({
-            entrypoint,
+        reportOnboardingStarted: (properties?: OnboardingEventProperties) => ({
             properties,
         }),
         reportOnboardingStepCompleted: (
@@ -3165,6 +3289,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportUsageMetricCreated: () => true,
         reportUsageMetricUpdated: () => true,
         reportUsageMetricDeleted: () => true,
+        // left nav
+        reportNavItemClicked: (item: string, section: string, itemType?: string | null) => ({
+            item,
+            section,
+            itemType,
+        }),
         // navbar starred
         reportNavbarStarredItemAdded: (itemType: string, itemName: string) => ({
             itemType,
@@ -3214,6 +3344,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 // self-driving runs and everyone else, so it resolves this; surfaces that are
                 // self-driving by construction leave it unset rather than assert a constant.
                 self_driving: selfDriving,
+            })
+        },
+        // Counts connect attempts the provider sent back without a code. `integration_connect_clicked`
+        // only says the user started, so without this the drop-off is invisible outside session
+        // recordings — and `access_denied` in particular hides a workspace waiting on an admin.
+        reportIntegrationConnectRejected: ({ kind, error }) => {
+            posthog.capture('integration_connect_rejected', {
+                integration_kind: kind,
+                error,
             })
         },
         // Personal integrations are a separate table with their own connect surface, so they get
@@ -4035,6 +4174,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ...context,
             })
         },
+        reportExperimentRecordingsListRendered: ({ experimentId, context }) => {
+            posthog.capture('experiment recordings list rendered', {
+                experiment_id: experimentId,
+                ...context,
+            })
+        },
+        reportExperimentRecordingsEmptyActionClicked: ({ experimentId, context }) => {
+            posthog.capture('experiment recordings empty state action clicked', {
+                experiment_id: experimentId,
+                ...context,
+            })
+        },
         reportExperimentRecordingOpened: ({ experimentId, context }) => {
             posthog.capture('experiment recording opened', {
                 experiment_id: experimentId,
@@ -4213,6 +4364,21 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('feature flags bulk copied', {
                 flag_count: flagCount,
                 project_count: projectCount,
+                failed_count: failedCount,
+            })
+        },
+        reportFeatureFlagCreatedInAdditionalProjects: ({
+            targetCount,
+            createdCount,
+            overwrittenCount,
+            pendingApprovalCount,
+            failedCount,
+        }) => {
+            posthog.capture('feature flag created in additional projects', {
+                target_count: targetCount,
+                created_count: createdCount,
+                overwritten_count: overwrittenCount,
+                pending_approval_count: pendingApprovalCount,
                 failed_count: failedCount,
             })
         },
@@ -4465,9 +4631,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 product_key: productKey,
             })
         },
-        reportOnboardingStarted: ({ entrypoint, properties }) => {
+        reportOnboardingStarted: ({ properties }) => {
             posthog.capture('onboarding started', {
-                entry_point: entrypoint,
                 ...LEGACY_ONBOARDING_EVENT_PROPS,
                 ...properties,
             })
@@ -4818,6 +4983,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
             const eventName = delay ? 'person profile analyzed' : 'person profile viewed'
             posthog.capture(eventName, { delay })
+        },
+        reportNavItemClicked: ({ item, section, itemType }) => {
+            posthog.capture('nav item clicked', {
+                item,
+                section,
+                item_type: itemType ?? null,
+            })
         },
         reportNavbarStarredItemAdded: ({ itemType, itemName }) => {
             posthog.capture('navbar starred item added', {

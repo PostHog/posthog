@@ -1,16 +1,21 @@
 import uuid
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import serializers, status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -384,6 +389,203 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.json()["count"] == len(expected_names)
         assert sorted(r["name"] for r in response.json()["results"]) == sorted(expected_names)
 
+    # --- Search ---
+
+    def test_search_skills_orders_fields_by_relevance_and_skips_non_markdown_file_contents(self):
+        self.create_skill(name="needle", description="Exact name match.", body="# Exact")
+        self.create_skill(name="needle-name", description="Partial name match.", body="# Name")
+        self.create_skill(name="description-skill", description="Contains the needle here.", body="# Description")
+        self.create_skill(name="body-skill", description="Body match.", body="# Body\nContains the needle here.")
+
+        path_skill = self.create_skill(name="file-path-skill", description="Path match.", body="# Path")
+        LLMSkillFile.objects.create(
+            skill=path_skill,
+            path="references/needle-guide.txt",
+            content="No matching content.",
+        )
+        content_skill = self.create_skill(name="file-content-skill", description="File match.", body="# File")
+        LLMSkillFile.objects.create(
+            skill=content_skill,
+            path="references/guide.md",
+            content="# Guide\nContains the needle here.",
+            content_type="text/markdown",
+        )
+        script_skill = self.create_skill(name="script-content-skill", description="Script match.", body="# Script")
+        LLMSkillFile.objects.create(
+            skill=script_skill,
+            path="scripts/run.py",
+            content="print('needle')",
+            content_type="text/x-python",
+        )
+
+        response = self.client.get(self._url("search?query=NeEdLe"))
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert [result["name"] for result in results] == [
+            "needle",
+            "needle-name",
+            "description-skill",
+            "body-skill",
+            "file-path-skill",
+            "file-content-skill",
+        ]
+        assert [result["matches"][0]["matched_field"] for result in results] == [
+            "name",
+            "name",
+            "description",
+            "body",
+            "file_path",
+            "file_content",
+        ]
+        assert results[3]["matches"][0]["path"] == "SKILL.md"
+        assert results[5]["matches"][0]["line"] == 2
+
+    def test_search_skills_limits_file_queries_to_remaining_matches(self):
+        path_skill = self.create_skill(name="path-skill", body="# Path\nContains needle.")
+        content_skill = self.create_skill(name="content-skill", description="Contains needle.")
+        for index in range(3):
+            LLMSkillFile.objects.create(
+                skill=path_skill,
+                path=f"references/needle-{index}.txt",
+                content="Unused file content.",
+            )
+            LLMSkillFile.objects.create(
+                skill=content_skill,
+                path=f"references/guide-{index}.md",
+                content="# Guide\nContains needle.",
+                content_type="text/markdown",
+            )
+
+        with CaptureQueriesContext(connection) as captured_queries:
+            response = self.client.get(self._url("search?query=needle"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["matches"][-1]["matched_field"] for result in response.json()["results"]] == [
+            "file_content",
+            "file_path",
+        ]
+        file_queries = [
+            query["sql"]
+            for query in captured_queries.captured_queries
+            if query["sql"].lstrip().startswith('SELECT "llm_analytics_llmskillfile".')
+        ]
+        assert file_queries
+        assert all("LIMIT 1" in query for query in file_queries), "\n---\n".join(file_queries)
+        path_queries = [
+            query
+            for query in file_queries
+            if query.lstrip().startswith('SELECT "llm_analytics_llmskillfile"."path" AS "path" FROM ')
+        ]
+        assert len(path_queries) == 2
+
+    def test_search_skills_returns_only_latest_active_ordinary_skills_for_the_current_team(self):
+        self.create_skill(name="current-skill", body="Contains boundary-match.")
+        self.create_skill(name="scout-skill", body="Contains boundary-match.", category="scout")
+        self.create_skill(name="deleted-skill", body="Contains boundary-match.", deleted=True)
+        self.create_skill(name="versioned-skill", body="Old boundary-match.", version=1, is_latest=False)
+        self.create_skill(name="versioned-skill", body="Latest content.", version=2, is_latest=True)
+
+        other_team = self.create_team_with_organization(self.organization)
+        LLMSkill.objects.create(
+            team=other_team,
+            name="other-team-skill",
+            description="Other team.",
+            body="Contains boundary-match.",
+            created_by=self.user,
+        )
+
+        response = self.client.get(self._url("search?query=boundary-match"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["name"] for result in response.json()["results"]] == ["current-skill"]
+
+    @parameterized.expand(
+        [
+            ("read_scope_allowed", ["llm_skill:read"], status.HTTP_200_OK),
+            ("unrelated_scope_denied", ["dashboard:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_search_skills_pak_scope_end_to_end(self, _label, scopes, expected_status):
+        self.create_skill(name="scope-search-skill")
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self.client.get(self._url("search?query=scope"))
+
+        assert response.status_code == expected_status
+
+    @parameterized.expand(
+        [
+            (f"{auth_method}_{window.lower()}", auth_method, window)
+            for auth_method in ["personal_key", "oauth", "session"]
+            for window in ["Burst", "Sustained"]
+        ]
+    )
+    def test_search_skills_throttles_each_auth_method(self, _label: str, auth_method: str, window: str) -> None:
+        self.create_skill(name="throttle-search-skill")
+        self.client.logout()
+        if auth_method == "personal_key":
+            token = self.create_personal_api_key_with_scopes(["llm_skill:read"])
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        elif auth_method == "oauth":
+            app = OAuthApplication.objects.create(
+                name="Skill search throttle test",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                algorithm="RS256",
+                redirect_uris="https://example.com/callback",
+                organization=self.organization,
+                user=self.user,
+            )
+            access_token = OAuthAccessToken.objects.create(
+                user=self.user,
+                application=app,
+                token="pha_skill_search_throttle_test",
+                scope="llm_skill:read",
+                expires=timezone.now() + timedelta(hours=1),
+                scoped_teams=[self.team.id],
+            )
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        else:
+            self.client.force_login(self.user)
+
+        period = "minute" if window == "Burst" else "hour"
+        with (
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=False),
+            patch(f"products.skills.backend.api.skills.SkillSearch{window}Throttle.rate", new=f"1/{period}"),
+            patch("rest_framework.throttling.SimpleRateThrottle.timer", return_value=1000) as timer,
+        ):
+            url = self._url("search?query=throttle")
+            first = self.client.get(url)
+            assert first.status_code == status.HTTP_200_OK, first.content
+            assert first.json()["results"][0]["name"] == "throttle-search-skill"
+            blocked = self.client.get(url)
+            assert blocked.status_code == status.HTTP_429_TOO_MANY_REQUESTS, blocked.content
+            assert int(blocked["Retry-After"]) > 0
+
+            assert self.client.get(self._url("name/throttle-search-skill")).status_code == status.HTTP_200_OK
+
+            if auth_method == "personal_key":
+                second_key = self.create_personal_api_key_with_scopes(["llm_skill:read"])
+                self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {second_key}")
+                assert self.client.get(url).status_code == status.HTTP_200_OK
+                self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            elif auth_method == "oauth":
+                self.client.credentials()
+                self.client.force_login(self.user)
+                assert self.client.get(url).status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+            timer.return_value += 60 if window == "Burst" else 3600
+            assert self.client.get(url).status_code == status.HTTP_200_OK
+
+            other_user = User.objects.create_and_join(self.organization, "throttle-other@example.com", None)
+            self.client.credentials()
+            self.client.force_login(other_user)
+            assert self.client.get(url).status_code == status.HTTP_200_OK
+
     # --- Get by name ---
 
     def test_get_skill_by_name(self):
@@ -457,9 +659,9 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         files = response.json()["files"]
         assert len(files) == 2
-        paths = {f["path"] for f in files}
-        assert "scripts/setup.sh" in paths
-        assert "references/guide.md" in paths
+        manifest = {f["path"]: (f["line_count"], f["char_count"]) for f in files}
+        assert manifest["scripts/setup.sh"] == (2, len("#!/bin/bash\necho hi"))
+        assert manifest["references/guide.md"] == (1, len("# Guide"))
 
     def test_get_skill_not_found(self):
         response = self.client.get(self._url("name/nonexistent"))
@@ -1006,6 +1208,84 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    # --- Rename ---
+
+    def test_rename_moves_every_version_with_its_files_and_owners(self):
+        v1 = self.create_skill(name="typoo", version=1, is_latest=False)
+        v2 = self.create_skill(name="typoo", version=2)
+        LLMSkillFile.objects.create(skill=v2, path="scripts/run.sh", content="#!/bin/bash")
+        member = User.objects.create_and_join(self.organization, "rename-owner@example.com", None)
+        set_skill_owners(self.team, "typoo", [member])
+        updated_at_before = v2.updated_at
+
+        response = self.client.post(
+            self._url("name/typoo/rename"),
+            data={"new_name": "typo-free"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["name"] == "typo-free"
+        # A rename is not an edit: the version history carries over intact rather than restarting.
+        assert data["version"] == 2
+        assert data["version_count"] == 2
+        assert not LLMSkill.objects.filter(team=self.team, name="typoo", deleted=False).exists()
+        assert sorted(
+            LLMSkill.objects.filter(team=self.team, name="typo-free", deleted=False).values_list("version", flat=True)
+        ) == [1, 2]
+        assert [f["path"] for f in data["files"]] == ["scripts/run.sh"]
+        assert [o.email for o in resolve_skill_owners(self.team, "typo-free")] == [member.email]
+        assert resolve_skill_owners(self.team, "typoo") == []
+        # The marketplace plugin version is max(updated_at) across the team, so the rename has to
+        # advance it or installs keep the old directory name.
+        v1.refresh_from_db()
+        v2.refresh_from_db()
+        assert v2.updated_at > updated_at_before
+        assert v1.name == "typo-free"
+
+    def test_rename_to_an_existing_name_is_rejected(self):
+        self.create_skill(name="source")
+        self.create_skill(name="taken")
+
+        response = self.client.post(
+            self._url("name/source/rename"),
+            data={"new_name": "taken"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert LLMSkill.objects.filter(team=self.team, name="source", deleted=False).exists()
+
+    @parameterized.expand(
+        [
+            ("out_of_scout", "signals-scout-churn", "churn-watch"),
+            ("into_scout", "churn-watch", "signals-scout-churn"),
+            ("into_review_hog", "churn-watch", "review-hog-perspective-churn"),
+        ]
+    )
+    def test_rename_touching_a_product_owned_prefix_is_rejected(self, _name: str, old_name: str, new_name: str):
+        self.create_skill(name=old_name)
+
+        response = self.client.post(
+            self._url(f"name/{old_name}/rename"),
+            data={"new_name": new_name},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert LLMSkill.objects.filter(team=self.team, name=old_name, deleted=False).exists()
+        assert not LLMSkill.objects.filter(team=self.team, name=new_name).exists()
+
+    def test_rename_of_a_missing_skill_is_not_found(self):
+        response = self.client.post(
+            self._url("name/nope/rename"),
+            data={"new_name": "still-nope"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     # --- Get file ---
 
     def test_get_file_by_path(self):
@@ -1524,6 +1804,56 @@ class TestSkillAccessControlRBAC(APIBaseTest):
             organization_member=membership,
         )
 
+    @parameterized.expand([("none",), ("viewer",)])
+    def test_search_filters_object_permissions_before_limiting_results(self, resource_access: str) -> None:
+        self._grant_llm_skill_access(resource_access)
+        membership = OrganizationMembership.objects.get(user=self.member, organization=self.organization)
+        self.skill.body = "Follow search-marker instructions."
+        self.skill.save(update_fields=["body"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_skill",
+            resource_id=str(self.skill.id),
+            access_level="viewer",
+            organization_member=membership,
+        )
+        for index in range(10):
+            restricted = LLMSkill.objects.create(
+                team=self.team,
+                name=f"search-marker-{index}",
+                description="Restricted description.",
+                body="Restricted search-marker instructions.",
+                created_by=self.user,
+            )
+            AccessControl.objects.create(
+                team=self.team,
+                resource="llm_skill",
+                resource_id=str(restricted.id),
+                access_level="none",
+                organization_member=membership,
+            )
+
+        response = self.client.get(self._url("search"), {"query": "search-marker"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "count": 1,
+            "results": [
+                {
+                    "name": self.skill.name,
+                    "description": self.skill.description,
+                    "matches": [
+                        {
+                            "matched_field": "body",
+                            "path": "SKILL.md",
+                            "line": 1,
+                            "excerpt": self.skill.body,
+                        }
+                    ],
+                }
+            ],
+        }
+
     @parameterized.expand(
         [
             ("list",),
@@ -1539,12 +1869,19 @@ class TestSkillAccessControlRBAC(APIBaseTest):
         [
             ("create",),
             ("update_by_name",),
+            ("rename",),
         ]
     )
     def test_member_without_skill_access_cannot_write(self, action):
         if action == "create":
             response = self.client.post(
                 self._url(), data={"name": "new-skill", "description": "d", "body": "x"}, format="json"
+            )
+        elif action == "rename":
+            response = self.client.post(
+                self._url(f"name/{self.skill.name}/rename"),
+                data={"new_name": "renamed-fractals"},
+                format="json",
             )
         else:
             response = self.client.patch(
@@ -1655,6 +1992,97 @@ class TestSkillAccessControlRBAC(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_201_CREATED
+
+    def _other_skill_with_object_grant(self) -> LLMSkill:
+        other = LLMSkill.objects.create(
+            team=self.team,
+            name="theirs",
+            description="d",
+            body="# x\n",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_skill",
+            resource_id=str(other.id),
+            access_level="editor",
+            organization_member=OrganizationMembership.objects.get(user=self.member, organization=self.organization),
+        )
+        return other
+
+    @parameterized.expand(
+        [
+            ("read by name", "get", "name/make-fractals", None),
+            ("resolve by name", "get", "resolve/name/make-fractals", None),
+            ("export", "get", "name/make-fractals/export", None),
+            ("update by name", "patch", "name/make-fractals", {"description": "d2", "base_version": 1}),
+            ("archive", "post", "name/make-fractals/archive", {}),
+            ("duplicate", "post", "name/make-fractals/duplicate", {"new_name": "copy"}),
+            ("rename", "post", "name/make-fractals/rename", {"new_name": "renamed-fractals"}),
+            ("create file", "post", "name/make-fractals/files", {"path": "notes.md", "content": "x"}),
+            ("delete file", "delete", "name/make-fractals/files/SKILL.md", None),
+            ("rename file", "post", "name/make-fractals/files-rename", {"old_path": "a.md", "new_path": "b.md"}),
+        ]
+    )
+    def test_an_object_level_grant_on_one_skill_does_not_reach_another(self, _label, method, path, data):
+        self._other_skill_with_object_grant()
+
+        call = getattr(self.client, method)
+        response = call(self._url(path)) if data is None else call(self._url(path), data=data, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_an_object_level_grant_reaches_the_skill_it_was_granted_on(self):
+        other = self._other_skill_with_object_grant()
+
+        response = self.client.patch(
+            self._url(f"name/{other.name}"),
+            data={"description": "d2", "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    @parameterized.expand(
+        [(access, endpoint) for access in ("none", "viewer") for endpoint in ("list", "body", "file", "id")]
+    )
+    def test_list_and_reads_respect_individual_skill_grants(self, resource_access: str, endpoint: str) -> None:
+        self._grant_llm_skill_access(resource_access)
+        membership = OrganizationMembership.objects.get(user=self.member, organization=self.organization)
+        restricted = LLMSkill.objects.create(
+            team=self.team,
+            name="aaa-restricted",
+            description="Restricted description",
+            body="Restricted instructions",
+            created_by=self.user,
+        )
+        for skill, access in [(self.skill, "viewer"), (restricted, "none")]:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="llm_skill",
+                resource_id=str(skill.id),
+                access_level=access,
+                organization_member=membership,
+            )
+            LLMSkillFile.objects.create(skill=skill, path="reference.md", content=f"Reference for {skill.name}")
+
+        if endpoint == "list":
+            response = self.client.get(self._url(), {"limit": "1", "order_by": "name"})
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["count"] == 1
+            assert [skill["name"] for skill in response.json()["results"]] == [self.skill.name]
+            return
+
+        allowed_status = status.HTTP_302_FOUND if endpoint == "id" else status.HTTP_200_OK
+        for skill, expected_status in [(self.skill, allowed_status), (restricted, status.HTTP_403_FORBIDDEN)]:
+            name = str(skill.id) if endpoint == "id" else skill.name
+            suffix = "/files/reference.md" if endpoint == "file" else ""
+            version_params: list[dict[str, int]] = [{}, {"version": 1}]
+            for params in version_params:
+                response = self.client.get(self._url(f"name/{name}{suffix}"), params)
+                assert response.status_code == expected_status, (endpoint, skill.name, params, response.content)
 
     def test_org_admin_has_full_access_without_explicit_grant(self):
         membership = OrganizationMembership.objects.get(user=self.member, organization=self.organization)

@@ -160,6 +160,8 @@ export interface ThreadItem {
     contextSize?: number
     /** For `task_notification` items — the milestone summary. */
     summary?: string
+    /** For `turn_separator` items — the turn's gateway trace id (`$ai_trace_id` on its generations). */
+    traceId?: string
     /** For `progress` items — backend-supplied group id, scoped to the task run. */
     progressGroup?: string
     /** For `progress` items — ordered setup/runtime progress rows. */
@@ -169,14 +171,6 @@ export interface ThreadItem {
      * copyable rows carrying a send's attached trusted/untrusted context blocks.
      */
     debugLevel?: string
-}
-
-/** One PostHog product the agent grounded an answer in, accumulated across the whole session. */
-export interface ResourceProduct {
-    /** Wire product id, e.g. 'product_analytics'. The local taxonomy maps it to an icon + label. */
-    id: string
-    /** Wire-supplied label; falls back to the local taxonomy label when absent. */
-    label?: string
 }
 
 /**
@@ -239,6 +233,7 @@ export interface RunArtifacts {
  */
 export interface PermissionRequestRecord {
     requestId: string
+    sourceRunId?: string
     toolCallId: string
     /** Canonical ACP tool name (`mcp__posthog__exec`, or a built-in like `Bash`) — drives the default permission policy. */
     toolName: string

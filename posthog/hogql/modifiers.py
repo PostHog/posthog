@@ -1,6 +1,4 @@
-from typing import TYPE_CHECKING, Optional
-
-import posthoganalytics
+from typing import TYPE_CHECKING, Optional, overload
 
 from posthog.cloud_utils import is_cloud
 from posthog.schema_enums import (
@@ -9,6 +7,7 @@ from posthog.schema_enums import (
     InlineCohortCalculation,
     MaterializationMode,
     PersonsArgMaxVersion,
+    PersonsOnEventsMode,
     PropertyGroupsMode,
     SessionsV2JoinMode,
     SessionTableVersion,
@@ -22,6 +21,18 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
 
+@overload
+def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode) -> PersonsOnEventsMode: ...
+@overload
+def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode | None) -> PersonsOnEventsMode | None: ...
+def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode | None) -> PersonsOnEventsMode | None:
+    if persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
+        # PERSON_ID_OVERRIDE_PROPERTIES_JOINED is not implemented in legacy insights
+        # It's functionally the same as DISABLED, just slower - hence aliasing to DISABLED
+        return PersonsOnEventsMode.DISABLED
+    return persons_on_events_mode
+
+
 def create_default_modifiers_for_user(
     user: "User", team: "Team", modifiers: Optional["HogQLQueryModifiers"] = None
 ) -> "HogQLQueryModifiers":
@@ -31,16 +42,6 @@ def create_default_modifiers_for_user(
         modifiers = HogQLQueryModifiers()
     else:
         modifiers = modifiers.model_copy()
-
-    modifiers.useMaterializedViews = posthoganalytics.feature_enabled(
-        "data-modeling",
-        str(user.distinct_id),
-        person_properties={
-            "email": user.email,
-        },
-        only_evaluate_locally=True,
-        send_feature_flag_events=False,
-    )
 
     return create_default_modifiers_for_team(team, modifiers)
 

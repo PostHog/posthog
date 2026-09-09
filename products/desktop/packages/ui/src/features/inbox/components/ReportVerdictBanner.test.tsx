@@ -10,21 +10,27 @@ const {
   discussReport,
   invalidateQueries,
   openExternalUrl,
+  openTaskInput,
   openTask,
   setQueryData,
   useDiscussReport,
   useReportTasks,
+  useInboxReportArtefacts,
   openResolveDialog,
+  fireAction,
 } = vi.hoisted(() => ({
   createPrReport: vi.fn(),
   discussReport: vi.fn(),
   invalidateQueries: vi.fn(),
   openExternalUrl: vi.fn(),
+  openTaskInput: vi.fn(),
   openTask: vi.fn(),
   setQueryData: vi.fn(),
   useDiscussReport: vi.fn(),
   useReportTasks: vi.fn(),
+  useInboxReportArtefacts: vi.fn(),
   openResolveDialog: vi.fn(),
+  fireAction: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-query", async (importOriginal) => {
@@ -77,14 +83,15 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxReportResolveAction", () => ({
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxReports", () => ({
-  useInboxReportArtefacts: () => ({ data: { results: [] } }),
+  useInboxReportArtefacts,
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useReportActionTracker", () => ({
-  useReportActionTracker: () => vi.fn(),
+  useReportActionTracker: () => fireAction,
 }));
 
 vi.mock("@posthog/ui/router/useOpenTask", () => ({
+  openTaskInput,
   useOpenTask: () => openTask,
 }));
 
@@ -142,6 +149,21 @@ const runningImplementationTask = {
   startedAt: "2026-08-26T00:00:00.000Z",
 } satisfies ReportTaskData;
 
+const repoArtefacts = {
+  count: 1,
+  results: [
+    {
+      id: "repo-selection-1",
+      type: "repo_selection",
+      created_at: "2026-08-26T00:00:00.000Z",
+      content: {
+        repository: "PostHog/posthog",
+        reason: "The report concerns this repository.",
+      },
+    },
+  ],
+};
+
 describe("ReportVerdictBanner", () => {
   let onDiscussionCreated: ((task: Task) => void) | undefined;
 
@@ -151,13 +173,19 @@ describe("ReportVerdictBanner", () => {
       startedTaskIdByReport: {},
     });
     useReportTasks.mockReturnValue({ data: [], isLoading: false });
+    useInboxReportArtefacts.mockReturnValue({
+      data: repoArtefacts,
+      isLoading: false,
+    });
     createPrReport.mockReset();
     discussReport.mockReset();
     discussReport.mockResolvedValue(undefined);
     invalidateQueries.mockReset();
     openExternalUrl.mockReset();
+    openTaskInput.mockReset();
     openTask.mockReset();
     openResolveDialog.mockReset();
+    fireAction.mockReset();
     setQueryData.mockReset();
     onDiscussionCreated = undefined;
     useDiscussReport.mockImplementation(
@@ -222,6 +250,120 @@ describe("ReportVerdictBanner", () => {
     render(<ReportVerdictBanner report={report} initialEngagementOnly />);
 
     expect(screen.queryByText("Ask about it")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["ready", "immediately_actionable"],
+    ["ready", "requires_human_input"],
+    ["pending_input", "requires_human_input"],
+  ] as const)(
+    "opens the task composer for a %s report that is %s",
+    async (status, actionability) => {
+      const user = userEvent.setup();
+      render(
+        <ReportVerdictBanner report={{ ...report, status, actionability }} />,
+      );
+
+      expect(screen.queryByText("Create PR")).not.toBeInTheDocument();
+      await user.click(screen.getByText("Implement"));
+
+      expect(openTaskInput).toHaveBeenCalledWith({
+        initialPrompt: "Implement the recommended next step in this report.",
+        initialCloudRepository: "PostHog/posthog",
+        channelId: "general-channel",
+        reportAssociation: {
+          reportId: report.id,
+          title: report.title,
+        },
+      });
+      expect(fireAction).toHaveBeenCalledWith("implement");
+      expect(createPrReport).not.toHaveBeenCalled();
+    },
+  );
+
+  it("waits for the report repository before opening the task composer", async () => {
+    const user = userEvent.setup();
+    useInboxReportArtefacts.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+    });
+    const actionableReport = {
+      ...report,
+      actionability: "immediately_actionable" as const,
+    };
+    const { rerender } = render(
+      <ReportVerdictBanner report={actionableReport} />,
+    );
+
+    const implementLabel = screen.getByText("Implement");
+    expect(implementLabel.closest("button")).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    await user.click(implementLabel);
+    expect(openTaskInput).not.toHaveBeenCalled();
+
+    useInboxReportArtefacts.mockReturnValue({
+      data: repoArtefacts,
+      isLoading: false,
+    });
+    rerender(<ReportVerdictBanner report={actionableReport} />);
+
+    await user.click(screen.getByText("Implement"));
+    expect(openTaskInput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialCloudRepository: "PostHog/posthog",
+        channelId: "general-channel",
+      }),
+    );
+  });
+
+  it("opens the composer when artefacts are unavailable", async () => {
+    const user = userEvent.setup();
+    useInboxReportArtefacts.mockReturnValue({
+      data: { count: 0, results: [], unavailableReason: "request_failed" },
+      isLoading: false,
+    });
+
+    render(
+      <ReportVerdictBanner
+        report={{ ...report, actionability: "immediately_actionable" }}
+      />,
+    );
+
+    await user.click(screen.getByText("Implement"));
+    expect(openTaskInput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialCloudRepository: null,
+        channelId: "general-channel",
+      }),
+    );
+  });
+
+  it("opens the task composer when the report selected no repository", async () => {
+    const user = userEvent.setup();
+    useInboxReportArtefacts.mockReturnValue({
+      data: { count: 0, results: [] },
+      isLoading: false,
+    });
+    render(
+      <ReportVerdictBanner
+        report={{
+          ...report,
+          status: "pending_input",
+          actionability: "requires_human_input",
+        }}
+      />,
+    );
+
+    await user.click(screen.getByText("Implement"));
+
+    expect(openTaskInput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialCloudRepository: null,
+        channelId: "general-channel",
+      }),
+    );
   });
 
   it("uses the PR shortcut to open an existing PR", async () => {

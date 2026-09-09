@@ -201,6 +201,7 @@ type SceneMainTitleProps = {
      * @default false
      */
     actions?: JSX.Element
+    hideProductSetupButton?: boolean
     /**
      * If provided, the back button will be forced to this breadcrumb
      * @default undefined
@@ -246,6 +247,7 @@ export function SceneTitleSection({
     noBorder = false,
     noPadding = false,
     actions,
+    hideProductSetupButton = false,
     forceBackTo,
     className,
     onGenerateMetadata,
@@ -267,7 +269,7 @@ export function SceneTitleSection({
     // Product auto-selection is handled by SceneContent via globalSetupLogic
     const effectiveActions = (
         <>
-            <ProductSetupButton />
+            {!hideProductSetupButton && <ProductSetupButton />}
             {actions}
         </>
     )
@@ -469,7 +471,6 @@ export function SceneName({
 
     const [isEditing, setIsEditing] = useState(forceEdit)
     const containerRef = useRef<HTMLDivElement>(null)
-    const nameInputRef = useRef<HTMLTextAreaElement>(null)
 
     const textClasses =
         'text-lg font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
@@ -520,21 +521,8 @@ export function SceneName({
         onChange && canEdit ? (
             <>
                 {isEditing ? (
-                    <div
-                        ref={containerRef}
-                        className="flex items-center gap-1 w-full"
-                        data-attr="scene-name-edit-row"
-                        onMouseDown={(e) => {
-                            // A press on the row around the field leaves the gesture unclaimed by the page,
-                            // which some browsers read as a window drag instead of a text selection.
-                            if (e.target === e.currentTarget) {
-                                e.preventDefault()
-                                nameInputRef.current?.focus()
-                            }
-                        }}
-                    >
+                    <div ref={containerRef} className="flex items-center gap-1 w-full" data-attr="scene-name-edit-row">
                         <TextareaPrimitive
-                            ref={nameInputRef}
                             variant="default"
                             name="name"
                             value={name || ''}
