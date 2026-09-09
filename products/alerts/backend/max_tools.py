@@ -105,6 +105,10 @@ UPSERT_ALERT_TOOL_DESCRIPTION = dedent("""
     - To view alerts for a specific insight, direct the user to /insights/{insightShortId}/alerts
     """).strip()
 
+FORECAST_ALERT_UPDATE_UNSUPPORTED_MESSAGE = (
+    "Forecast alerts can only be turned off here. Open the alert on its insight to change its forecast settings."
+)
+
 
 class CreateAlertAction(BaseModel):
     action: Literal["create"] = "create"
@@ -160,6 +164,11 @@ class UpdateAlertAction(BaseModel):
     series_index: int | None = Field(default=None, description="New series index to monitor")
     enabled: bool | None = Field(default=None, description="Enable or disable the alert")
     skip_weekend: bool | None = Field(default=None, description="Whether to skip weekend checks")
+
+
+def _only_turns_alert_off(action: UpdateAlertAction) -> bool:
+    other_fields_set = action.model_dump(exclude={"action", "alert_id", "enabled"}, exclude_none=True)
+    return action.enabled is False and not other_fields_set
 
 
 UpsertAlertAction = Union[CreateAlertAction, UpdateAlertAction]
@@ -328,6 +337,14 @@ class UpsertAlertTool(MaxTool):
                 return f"Alert '{action.alert_id}' not found.", {"error": "alert_not_found"}
 
             await self.check_object_access(alert, "editor", resource="alert", action="edit")
+
+            # This tool has no forecast fields and does not run the forecast configuration rules
+            # that the alerts API applies, such as a cadence no finer than the insight interval and
+            # an absolute threshold for a breach alert. A write from here can therefore only break
+            # those rules, after which the scheduler disables the alert. Turning the alert off is
+            # the one change that stays valid.
+            if alert.forecast_config and not _only_turns_alert_off(action):
+                return FORECAST_ALERT_UPDATE_UNSUPPORTED_MESSAGE, {"error": "unsupported_update"}
 
             if interval_msg := await self._validate_interval_entitlement(
                 action.calculation_interval,
