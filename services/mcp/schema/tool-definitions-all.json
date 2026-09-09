@@ -102,7 +102,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_entitlement": "access_control"
+        "feature_entitlement": "role_based_access"
     },
     "access-control-role-properties-list": {
         "description": "The property rules configured for a role: which person and event properties the role's members cannot see (`none`), can only read (`read`), or can read and write (`read_write`).",
@@ -117,7 +117,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_entitlement": "access_control"
+        "feature_entitlement": "role_based_access"
     },
     "access-control-roles-list": {
         "description": "For every role in the organization, the access it grants in the project: to the project itself and to each tool. Per entry, `access_level` is the role's own stored rule, `effective_access_level` is what the role's members get from it, and `inherited_access` says where that level comes from when the role has no rule of its own. Pass `role_id` for one role.",
@@ -132,7 +132,7 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_entitlement": "access_control"
+        "feature_entitlement": "role_based_access"
     },
     "account-relationship-definitions-create": {
         "description": "Create a Customer Analytics account relationship definition — a team-defined relationship type between a PostHog user and an account, such as CSM or Onboarding manager. Provide `name` (required, unique within the team), optional `description` explaining what the relationship means, and `is_single_holder` (default true) controlling whether only one user can hold the relationship per account at a time. Definitions are team-scoped and shared across all accounts; assign a user to a specific account with `accounts-relationships-create`.",
