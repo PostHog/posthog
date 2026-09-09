@@ -647,6 +647,20 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_person_property_mutation_log]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_person_property_mutation_log
+  (
+      team_id Int64,
+      uuid UUID,
+      properties String
+  )
+  ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_person_property_mutation_log', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_plugin_log_entries]
   '''
   
@@ -2952,6 +2966,20 @@
   
   '''
 # ---
+# name: test_create_table_query[kafka_person_property_mutation_log]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_person_property_mutation_log
+  (
+      team_id Int64,
+      uuid UUID,
+      properties String
+  )
+  ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_person_property_mutation_log', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100
+  
+  '''
+# ---
 # name: test_create_table_query[kafka_plugin_log_entries]
   '''
   
@@ -5087,6 +5115,57 @@
           -- created_at,
           version
       FROM `posthog_test`.`kafka_person_overrides`
+  
+  '''
+# ---
+# name: test_create_table_query[person_property_mutation_log]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS person_property_mutation_log
+  (
+      team_id Int64,
+      event_uuid UUID,
+      properties String,
+      ingested_at DateTime('UTC')
+  )
+  ENGINE = Distributed('aux', 'posthog_test', 'person_property_mutation_log_data')
+  
+  '''
+# ---
+# name: test_create_table_query[person_property_mutation_log_data]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS person_property_mutation_log_data
+  (
+      team_id Int64,
+      event_uuid UUID,
+      properties String,
+      ingested_at DateTime('UTC')
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_property_mutation_log_data', '{replica}-{shard}', ingested_at)
+  PARTITION BY toDate(ingested_at)
+  ORDER BY (team_id, event_uuid)
+  TTL ingested_at + INTERVAL 30 DAY
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query[person_property_mutation_log_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS person_property_mutation_log_mv
+  TO person_property_mutation_log
+  AS SELECT
+      team_id,
+      uuid AS event_uuid,
+      concat('{', arrayStringConcat(arrayMap(
+          property -> concat(toJSONString(property.1), ':', property.2),
+          arrayFilter(property -> property.1 IN ('$set', '$set_once', '$unset'),
+              JSONExtractKeysAndValuesRaw(source.properties))
+      ), ','), '}') AS properties,
+      toDateTime(_timestamp, 'UTC') AS ingested_at
+  FROM kafka_person_property_mutation_log AS source
+  WHERE JSONHas(source.properties, '$set') OR JSONHas(source.properties, '$set_once') OR JSONHas(source.properties, '$unset')
   
   '''
 # ---
@@ -11754,6 +11833,24 @@
       -- the newest known mapping for it in the table. Query side we will need to
       -- ensure that we are always querying the latest version of the mapping.
       ORDER BY (team_id, old_person_id)
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[person_property_mutation_log_data]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS person_property_mutation_log_data
+  (
+      team_id Int64,
+      event_uuid UUID,
+      properties String,
+      ingested_at DateTime('UTC')
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_property_mutation_log_data', '{replica}-{shard}', ingested_at)
+  PARTITION BY toDate(ingested_at)
+  ORDER BY (team_id, event_uuid)
+  TTL ingested_at + INTERVAL 30 DAY
+  SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
   
   '''
 # ---

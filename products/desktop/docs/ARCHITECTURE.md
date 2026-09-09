@@ -46,6 +46,40 @@ The chat displays the submitted prompt with the current startup status until
 initialization ends and the transcript or error state takes over. The waiting
 message and composer use the same outer gutters and column width as the live chat.
 
+Local startup retries retain the original prompt and run configuration after a
+failure. A failed replacement keeps its session when available, or restores the
+previous session with an error. A later retry can send the original prompt.
+A retry without a session reports failure instead of successful recovery.
+
+Claude initialization includes the repository's `SessionStart` hooks. These hooks
+can prepare a new worktree and install dependencies before the SDK becomes ready.
+An observed setup hook gets a separate, bounded wait of ten minutes. Startup with
+no active setup hooks keeps its 30-second timeout. Hook progress does not extend
+the hook deadline. Startup phase changes and failures use the desktop log path,
+without recording hook commands or output. The renderer subscribes before starting
+an agent, so it can show active setup hooks while `session/new` is still pending.
+Startup subscriptions end on success or failure. Updates from an older run cannot
+change the current run's startup phase. Startup events do not count as conversation
+history during recovery.
+
+Worktree creation shows its own preparation screen and setup output. Agent startup
+shows one status line beside a spinner: "Starting local agent" or "Running
+repository setup". The submitted prompt stays visible. Prompt retention is
+normal behavior and needs no extra message. These are observed phases, not
+estimated progress percentages.
+
+Desktop does not disable repository hooks, change repository settings, or share
+ignored dependency files between worktrees. Each worktree runs its configured
+setup in its own directory. A new worktree can need setup that an existing
+checkout has already completed. Setup time is not a connection failure while an
+observed hook remains within its deadline. The same rule applies to ordinary
+checkouts with slow hooks; it does not depend on a repository name or toolchain.
+
+A connected local session only waits for its first prompt when the session still
+has a prompt to send. A task description or an existing run does not imply that a
+prompt is pending. This lets an empty session open after a failed startup instead
+of keeping it in the loading view. Opening it does not resend the description.
+
 New cloud runs seed the full user message before subscribing to setup progress.
 The chat renders that message immediately, including its space context chip.
 Reopened transcripts reconcile the plain initial prompt with its context-bearing
