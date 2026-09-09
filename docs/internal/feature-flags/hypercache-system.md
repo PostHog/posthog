@@ -350,22 +350,33 @@ the tier rather than at the cluster, but the label does not prove the entry is g
 go to the replica, so replication lag reads as absence too. Confirm it in step 2 before you
 rebuild anything.
 
-**2. Compare the two clusters for one affected team.** Django writes the dedicated instance
+**2. Compare the endpoints for one affected team.** Django writes the dedicated instance
 and mirrors to the shared one, and the reader serves from the shared copy, so the two can
 disagree. Take a team id from a reader `Cache hit for flag definitions` record with
 `source="s3"`. It logs at info, carries `team_id`, and names a team the alert is counting.
 The absent-ETag record carries the key but logs at debug, so production does not keep it.
 
+Query the shared replica first.
+That endpoint answered the read the metric counted, and the shared primary can hold a key the replica does not.
+`REDIS_READER_URL` can be unset, in which case reads go to `REDIS_URL` and the first two commands return the same answer.
+
 ```bash
-# Shared cluster, which the reader serves from
+# Shared replica, the endpoint the reader served from
+redis-cli -u "$REDIS_READER_URL" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
+
+# Shared primary, which the mirror writes
 redis-cli -u "$REDIS_URL" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
 
 # Dedicated cluster, which Django writes first
 redis-cli -u "$FLAGS_REDIS_URL" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
 ```
 
-Present on the dedicated cluster and absent on the shared one isolates the fault to the
-mirror rather than to the writer. Absent on both means the entry was never built or has
+Absent on the shared replica and present on the shared primary is replication lag, not a lost entry.
+Rebuilding fixes nothing.
+Check replication lag on the shared cluster instead, and expect the alert to clear on its own.
+
+Present on the dedicated cluster and absent on both shared endpoints isolates the fault to the
+mirror rather than to the writer. Absent everywhere means the entry was never built or has
 aged out; rebuild it with `update_flag_caches` and look at step 3.
 
 A shared copy that is absent while the dedicated copy is present does not come back on its
