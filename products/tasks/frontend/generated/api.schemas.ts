@@ -4451,6 +4451,40 @@ export interface PinnedTaskIdsResponseApi {
     task_ids: string[]
 }
 
+export interface RepoRoutingRuleApi {
+    readonly id: string
+    /**
+     * Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters.
+     * @maxLength 300
+     */
+    rule_text: string
+    /**
+     * Target repository as owner/repo, e.g. 'posthog/posthog.com'.
+     * @maxLength 255
+     */
+    repository: string
+    readonly priority: number
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PatchedRepoRoutingRuleApi {
+    readonly id?: string
+    /**
+     * Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters.
+     * @maxLength 300
+     */
+    rule_text?: string
+    /**
+     * Target repository as owner/repo, e.g. 'posthog/posthog.com'.
+     * @maxLength 255
+     */
+    repository?: string
+    readonly priority?: number
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
 export interface TaskRepositoriesResponseApi {
     /** Distinct repositories in use by non-deleted, non-internal tasks for the current team. */
     repositories: string[]

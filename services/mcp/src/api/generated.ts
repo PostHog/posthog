@@ -67991,6 +67991,23 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
     }
 
+    export interface PatchedRepoRoutingRule {
+      readonly id?: string;
+      /**
+         * Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters.
+         * @maxLength 300
+         */
+      rule_text?: string;
+      /**
+         * Target repository as owner/repo, e.g. 'posthog/posthog.com'.
+         * @maxLength 255
+         */
+      repository?: string;
+      readonly priority?: number;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+    }
+
     export interface PatchedReviewBlindSpotsConfigSelect {
       /** Set true to make this the single blind-spots skill that runs on the user's PR reviews. Only true is accepted — the blind-spot check is single-active, so you switch by selecting a different skill, not by deactivating the current one. */
       active?: boolean;
@@ -76629,6 +76646,23 @@ export namespace Schemas {
       open_to_merge_series_granularity: string;
       /** Bucket width of the ready_to_merge_series trend: 'hour', 'day', or 'week'. */
       ready_to_merge_series_granularity: string;
+    }
+
+    export interface RepoRoutingRule {
+      readonly id: string;
+      /**
+         * Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters.
+         * @maxLength 300
+         */
+      rule_text: string;
+      /**
+         * Target repository as owner/repo, e.g. 'posthog/posthog.com'.
+         * @maxLength 255
+         */
+      repository: string;
+      readonly priority: number;
+      readonly created_at: string;
+      readonly updated_at: string;
     }
 
     export type ReportPriority = typeof ReportPriority[keyof typeof ReportPriority];
