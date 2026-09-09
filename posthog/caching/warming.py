@@ -12,7 +12,7 @@ from celery.canvas import chain
 from prometheus_client import Counter, Gauge
 
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.errors import TableAccessDeniedError
+from posthog.hogql.errors import ExposedHogQLError, TableAccessDeniedError
 
 from posthog.api.services.query import process_query_dict
 from posthog.caching.utils import largest_teams
@@ -295,5 +295,22 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                     error=e,
                     properties={"insight_id": insight.pk, "dashboard_id": dashboard_id},
                 )
+            elif isinstance(e, ExposedHogQLError):
+                # The query itself is wrong, and only its author can correct it. Report it as an
+                # event so it stays with the team instead of becoming an issue in our error tracking.
+                with ph_scoped_capture() as capture_ph_event:
+                    capture_ph_event(
+                        distinct_id=str(insight.team.uuid),
+                        event="cache warming - insight query error",
+                        properties={
+                            "insight_id": insight.pk,
+                            "insight_short_id": insight.short_id,
+                            "dashboard_id": dashboard_id,
+                            "team_id": insight.team_id,
+                            "organization_id": str(insight.team.organization_id),
+                            "error_code": e.code_name,
+                            "error": str(e),
+                        },
+                    )
             else:
                 capture_exception(e)
