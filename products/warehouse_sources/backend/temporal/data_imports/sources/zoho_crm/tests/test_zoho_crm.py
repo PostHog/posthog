@@ -59,6 +59,13 @@ def _response(status_code: int = 200, body: Optional[dict[str, Any]] = None) -> 
     return response
 
 
+def _no_content_response(status_code: int) -> mock.MagicMock:
+    """An empty-bodied Zoho response: reading it as JSON fails, as it does against the real API."""
+    response = _response(status_code)
+    response.json.side_effect = requests.exceptions.JSONDecodeError("Expecting value", "", 0)
+    return response
+
+
 def _token_response(api_domain: str = "https://www.zohoapis.com") -> mock.MagicMock:
     return _response(200, {"access_token": "access-token", "api_domain": api_domain, "expires_in": 3600})
 
@@ -191,13 +198,14 @@ class TestZohoCRMClient:
         assert response.status_code == 200
         assert session.post.call_count == 2
 
+    @pytest.mark.parametrize("status_code", [204, 304])
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_204_is_returned_without_raising(self, make_session: mock.MagicMock) -> None:
-        no_content = _response(204)
-        no_content.raise_for_status.side_effect = AssertionError("204 must not be treated as an error")
+    def test_no_content_is_returned_without_raising(self, make_session: mock.MagicMock, status_code: int) -> None:
+        no_content = _no_content_response(status_code)
+        no_content.raise_for_status.side_effect = AssertionError(f"{status_code} must not be treated as an error")
         make_session.return_value = _session([no_content])
 
-        assert _client().get("/crm/v8/Leads").status_code == 204
+        assert _client().get("/crm/v8/Leads").status_code == status_code
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_session_disables_sample_capture_and_redacts_credentials(self, make_session: mock.MagicMock) -> None:
@@ -231,9 +239,10 @@ class TestReadableFieldNames:
 
         assert readable_field_names(_client(), "v8", "Leads") == ["Last_Name", "No_View_Type"]
 
+    @pytest.mark.parametrize("status_code", [204, 304])
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_204_metadata_yields_no_projection(self, make_session: mock.MagicMock) -> None:
-        make_session.return_value = _session([_response(204)])
+    def test_no_content_metadata_yields_no_projection(self, make_session: mock.MagicMock, status_code: int) -> None:
+        make_session.return_value = _session([_no_content_response(status_code)])
 
         assert readable_field_names(_client(), "v8", "Leads") == []
 
@@ -326,9 +335,10 @@ class TestGetRows:
         assert list(get_rows(_client(), "v8", "Leads", FakeResumeManager(), mock.MagicMock())) == []
         assert session.get.call_count == 2
 
+    @pytest.mark.parametrize("status_code", [204, 304])
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_204_module_response_yields_nothing(self, make_session: mock.MagicMock) -> None:
-        session = _session([_fields_response(1), _response(204)])
+    def test_no_content_module_response_yields_nothing(self, make_session: mock.MagicMock, status_code: int) -> None:
+        session = _session([_fields_response(1), _no_content_response(status_code)])
         make_session.return_value = session
 
         assert list(get_rows(_client(), "v8", "Leads", FakeResumeManager(), mock.MagicMock())) == []

@@ -124,10 +124,7 @@ import { createEventIdSource } from "../utils/event-id";
 import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
 import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
-import {
-  ClaudeTokenEventRedactor,
-  redactClaudeTokens,
-} from "../utils/redact-claude-tokens";
+import { redactSecrets, SecretEventRedactor } from "../utils/redact-secrets";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
 import { AgentBootTracker } from "./boot-phases";
 import {
@@ -277,6 +274,12 @@ interface BuiltPrompt {
 export const PREWARMED_RESUME_IDLE_CAPABILITY = "prewarmedResumeIdle";
 export const CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE =
   "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.";
+export const MESSAGE_DRIVEN_RESUME_CAPABILITY = "prewarmedResumeMessageDriven";
+
+export interface PreparedInitialTaskMessage {
+  taskRun: TaskRun;
+  action: "wait" | "idle" | "resume" | "initial";
+}
 
 function hiddenTextBlock(text: string): ContentBlock {
   return {
@@ -511,7 +514,7 @@ export class AgentServer {
   private initializingSseController: SseController | null = null;
   private initializingTelemetry: OtelRunTelemetry | undefined;
   private pendingEvents: Record<string, unknown>[] = [];
-  private tokenEventRedactor = new ClaudeTokenEventRedactor();
+  private eventRedactor = new SecretEventRedactor();
   /** ACP notifications emitted by newSession/resumeSession before this.session is assigned. */
   private preSessionEvents: Record<string, unknown>[] = [];
   private deliveredMessageIds = new Set<string>();
@@ -728,7 +731,10 @@ export class AgentServer {
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
         boot,
-        capabilities: [PREWARMED_RESUME_IDLE_CAPABILITY],
+        capabilities: [
+          PREWARMED_RESUME_IDLE_CAPABILITY,
+          MESSAGE_DRIVEN_RESUME_CAPABILITY,
+        ],
       });
     });
 
@@ -1110,7 +1116,7 @@ export class AgentServer {
   async reportFatalError(error: unknown): Promise<void> {
     if (error instanceof CredentialRelayError && error.code === "cancelled")
       return;
-    const errorMessage = redactClaudeTokens(
+    const errorMessage = redactSecrets(
       error instanceof CredentialRelayError
         ? CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE
         : error instanceof Error
@@ -1521,18 +1527,20 @@ export class AgentServer {
           }
 
           this.recordTurnUsage(result.usage);
-          this.broadcastTurnComplete(
-            result.stopReason,
-            this.promptResultTraceId(result),
-          );
+          const turnTraceId = this.promptResultTraceId(result);
+          this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
           if (result.stopReason === "end_turn") {
             // Relay the response to Slack. For follow-ups this is the primary
             // delivery path — the HTTP caller only handles reactions. Echo the
-            // initiating message's id so the backend can attribute the answer.
-            this.relayAgentResponse(commandSession.payload, messageId).catch(
-              (err) =>
-                this.logger.debug("Failed to relay follow-up response", err),
+            // initiating message's id so the backend can attribute the answer,
+            // and the turn's trace id so a rating on the reply names the turn.
+            this.relayAgentResponse(
+              commandSession.payload,
+              messageId,
+              turnTraceId,
+            ).catch((err) =>
+              this.logger.debug("Failed to relay follow-up response", err),
             );
           }
 
@@ -1557,6 +1565,9 @@ export class AgentServer {
           const outcome = {
             stopReason: result.stopReason,
             ...(assistantMessage && { assistant_message: assistantMessage }),
+            // The caller posts this answer itself when the relay above found no
+            // message to send, so it needs the turn's trace id on the same terms.
+            ...(turnTraceId && { trace_id: turnTraceId }),
           };
           resolveDelivery(outcome);
           return outcome;
@@ -2294,6 +2305,13 @@ export class AgentServer {
     this.evaluatedPrUrls.clear();
     this.prAttributionChain = Promise.resolve();
 
+    // Assigning this.session admits /command requests. Restore context and choose the startup
+    // action first so a forwarded message cannot be overtaken by a second startup decision.
+    const initialTaskMessage = await this.prepareInitialTaskMessage(
+      payload,
+      preTaskRun,
+    );
+
     this.shutdownController.signal.throwIfAborted();
     this.initializingConnection = null;
     this.session = {
@@ -2333,7 +2351,11 @@ export class AgentServer {
     this.logger.debug(
       `Agent version: ${this.config.version ?? packageJson.version}`,
     );
-    await logAgentshRuntimeInfo(this.logger);
+    // The version probe spawns a process, so it runs beside the startup turn. Its records reach
+    // the run log through the session logger installed above.
+    void logAgentshRuntimeInfo(this.logger).catch((error) =>
+      this.logger.debug("Failed to read agentsh runtime info", error),
+    );
     this.logger.debug(`Initial permission mode: ${initialPermissionMode}`);
 
     // Lifecycle handshake: clients gate "agent is ready to accept user
@@ -2382,7 +2404,7 @@ export class AgentServer {
       );
 
     await this.runStartupTurn(() =>
-      this.sendInitialTaskMessage(payload, preTaskRun),
+      this.sendInitialTaskMessage(payload, initialTaskMessage),
     );
   }
 
@@ -2691,12 +2713,10 @@ export class AgentServer {
     });
   }
 
-  private async sendInitialTaskMessage(
+  private async prepareInitialTaskMessage(
     payload: JwtPayload,
     prefetchedRun?: TaskRun | null,
-  ): Promise<void> {
-    if (!this.session) return;
-
+  ): Promise<PreparedInitialTaskMessage> {
     let taskRun = prefetchedRun ?? null;
     try {
       const refresh = await withTimeout(
@@ -2712,8 +2732,17 @@ export class AgentServer {
       });
     }
 
-    const taskRunState = taskRun?.state as Record<string, unknown> | undefined;
-    const prewarmed = taskRunState?.prewarmed === true;
+    if (!taskRun) {
+      throw new Error(
+        "Could not load task run to determine its initial prompt",
+      );
+    }
+    const taskRunState = taskRun.state;
+    const prewarmed = taskRunState.prewarmed === true;
+    const sameRunResume =
+      taskRunState.same_run_resume === true ||
+      taskRunState.handoff_resumed === true ||
+      this.getResumeRunId(taskRun) === payload.run_id;
     const hasPendingUserPrompt =
       (typeof taskRunState?.pending_user_message === "string" &&
         taskRunState.pending_user_message.trim().length > 0) ||
@@ -2735,29 +2764,54 @@ export class AgentServer {
       }
     }
 
-    // `await_user_message` is the marker the backend clears on activation. `prewarmed` is permanent
-    // provenance that outlives it, so idling on that alone would strand a run whose first message
-    // was already delivered — every later reinitialization would wait for a message nobody sends.
-    const awaitsFirstMessage = taskRunState?.await_user_message === true;
-    if (prewarmed && awaitsFirstMessage && !hasPendingUserPrompt) {
-      this.prewarmedRun = true;
-      this.logger.debug(
-        "Prewarmed run awaits its forwarded first message, skipping initial message",
-      );
+    this.prewarmedRun = prewarmed;
+    // Activation clears await_user_message when Temporal accepts the signal, before the agent
+    // receives it. Only an explicit same-run restart transfers startup ownership back to the agent.
+    const awaitsForwardedMessage =
+      prewarmed && !sameRunResume && !hasPendingUserPrompt;
+    // The forwarded message owns the startup turn only while the run waits for it. When startup
+    // sends the pending prompt itself, the next message is a normal follow-up, so a steer during
+    // that turn must reach the agent instead of being declined.
+    this.prewarmedStartupTurnPending = awaitsForwardedMessage;
+    if (awaitsForwardedMessage) {
+      return { taskRun, action: "wait" };
+    }
+
+    if (!hasPendingUserPrompt && process.env.POSTHOG_RESUME_IDLE === "1") {
+      return { taskRun, action: "idle" };
+    }
+    return {
+      taskRun,
+      action:
+        this.nativeResume || this.resumeState?.conversation.length
+          ? "resume"
+          : "initial",
+    };
+  }
+
+  private async sendInitialTaskMessage(
+    payload: JwtPayload,
+    { taskRun, action }: PreparedInitialTaskMessage,
+  ): Promise<void> {
+    if (!this.session) return;
+    if (action === "wait") {
+      this.logger.debug("Prewarmed run awaits its forwarded first message");
+      return;
+    }
+    if (action === "idle") {
+      await this.settleIdleResume(payload);
+      return;
+    }
+    if (action === "resume") {
+      if (this.nativeResume) {
+        await this.sendResumeContinuation(payload, taskRun);
+      } else {
+        await this.sendResumeMessage(payload, taskRun);
+      }
       return;
     }
 
-    if (this.nativeResume) {
-      if (await this.settleIdleResume(payload, taskRun)) return;
-      await this.sendResumeContinuation(payload, taskRun);
-      return;
-    }
-
-    if (this.resumeState && this.resumeState.conversation.length > 0) {
-      await this.sendResumeMessage(payload, taskRun);
-      return;
-    }
-
+    const prewarmed = taskRun.state.prewarmed === true;
     let promptDispatched = false;
     let releaseSelfDelivery: (() => void) | undefined;
     try {
@@ -2837,13 +2891,11 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      this.broadcastTurnComplete(
-        result.stopReason,
-        this.promptResultTraceId(result),
-      );
+      const turnTraceId = this.promptResultTraceId(result);
+      this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
       if (result.stopReason === "end_turn") {
-        await this.relayAgentResponse(payload);
+        await this.relayAgentResponse(payload, undefined, turnTraceId);
       }
 
       await this.finalizeRunTelemetry(payload);
@@ -2864,72 +2916,71 @@ export class AgentServer {
   private async sendResumeMessage(
     payload: JwtPayload,
     taskRun: TaskRun | null,
-  ): Promise<void> {
-    if (!this.session || !this.resumeState) return;
+    reservedMessageId?: string,
+  ): Promise<boolean> {
+    if (!this.session || !this.resumeState) return false;
     const resumeState = this.resumeState;
-    taskRun = await this.refreshTaskRunForResume(payload, taskRun);
+    return await this.runStartupTurn(() =>
+      this.runResumeTurn(
+        payload,
+        taskRun,
+        "Resume message",
+        async () => {
+          const conversationSummary = formatConversationForResume(
+            resumeState.conversation,
+          );
 
-    await this.runStartupTurn(() =>
-      this.runResumeTurn(payload, taskRun, "Resume message", async () => {
-        const conversationSummary = formatConversationForResume(
-          resumeState.conversation,
-        );
+          const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
 
-        const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
+          let resumePromptBlocks: ContentBlock[];
+          let resumePromptMeta: Record<string, unknown> | undefined;
+          let resumePromptMessageId: string | undefined;
+          if (pendingUserPrompt?.prompt.length) {
+            resumePromptMeta = pendingUserPrompt.meta;
+            resumePromptMessageId = pendingUserPrompt.messageId;
+            resumePromptBlocks = [
+              hiddenTextBlock(
+                "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
+                  `Here is the conversation history from the previous session:\n\n` +
+                  `${conversationSummary}\n\n` +
+                  `The user has sent a new message:\n\n`,
+              ),
+              ...pendingUserPrompt.prompt,
+              hiddenTextBlock(
+                "\n\nRespond to the user's new message above. You have full context from the previous session.",
+              ),
+            ];
+          } else {
+            resumePromptBlocks = [
+              hiddenTextBlock(
+                "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
+                  `Here is the conversation history from the previous session:\n\n` +
+                  `${conversationSummary}\n\n` +
+                  `Continue from where you left off. The user is waiting for your response.`,
+              ),
+            ];
+          }
 
-        let resumePromptBlocks: ContentBlock[];
-        let resumePromptMeta: Record<string, unknown> | undefined;
-        let resumePromptMessageId: string | undefined;
-        if (pendingUserPrompt?.prompt.length) {
-          resumePromptMeta = pendingUserPrompt.meta;
-          resumePromptMessageId = pendingUserPrompt.messageId;
-          resumePromptBlocks = [
-            hiddenTextBlock(
-              "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
-                `Here is the conversation history from the previous session:\n\n` +
-                `${conversationSummary}\n\n` +
-                `The user has sent a new message:\n\n`,
-            ),
-            ...pendingUserPrompt.prompt,
-            hiddenTextBlock(
-              "\n\nRespond to the user's new message above. You have full context from the previous session.",
-            ),
-          ];
-        } else {
-          resumePromptBlocks = [
-            hiddenTextBlock(
-              "You are resuming a previous conversation. Use the current workspace contents together with the preserved conversation history below.\n\n" +
-                `Here is the conversation history from the previous session:\n\n` +
-                `${conversationSummary}\n\n` +
-                `Continue from where you left off. The user is waiting for your response.`,
-            ),
-          ];
-        }
+          this.logger.debug("Sending resume message", {
+            taskId: payload.task_id,
+            conversationTurns: resumeState.conversation.length,
+            promptLength: promptBlocksToText(resumePromptBlocks).length,
+            hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
+          });
 
-        this.logger.debug("Sending resume message", {
-          taskId: payload.task_id,
-          conversationTurns: resumeState.conversation.length,
-          promptLength: promptBlocksToText(resumePromptBlocks).length,
-          hasPendingUserMessage: !!pendingUserPrompt?.prompt.length,
-        });
-
-        return {
-          prompt: resumePromptBlocks,
-          ...(resumePromptMeta ? { meta: resumePromptMeta } : {}),
-          messageId: resumePromptMessageId,
-        };
-      }),
+          return {
+            prompt: resumePromptBlocks,
+            ...(resumePromptMeta ? { meta: resumePromptMeta } : {}),
+            messageId: resumePromptMessageId,
+          };
+        },
+        reservedMessageId ? { reservedMessageId } : {},
+      ),
     );
   }
 
-  private async settleIdleResume(
-    payload: JwtPayload,
-    taskRun: TaskRun | null,
-  ): Promise<boolean> {
-    if (!this.session || process.env.POSTHOG_RESUME_IDLE !== "1") return false;
-
-    const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
-    if (pendingUserPrompt?.prompt.length) return false;
+  private async settleIdleResume(payload: JwtPayload): Promise<void> {
+    if (!this.session) return;
 
     this.logger.debug("Idle resume settled without a turn", {
       taskId: payload.task_id,
@@ -2938,19 +2989,15 @@ export class AgentServer {
       warm: this.nativeResume?.warm,
     });
 
-    this.resumeState = null;
-    this.nativeResume = null;
-
     this.broadcastTurnComplete("end_turn");
     await this.session.logWriter.flushAll();
-    return true;
   }
 
   private async preparePrewarmedResumePrompt(
     payload: JwtPayload,
     prompt: ContentBlock[],
   ): Promise<{ prompt: ContentBlock[]; consumed: boolean }> {
-    if (!this.prewarmedRun) {
+    if (!this.prewarmedRun && process.env.POSTHOG_RESUME_IDLE !== "1") {
       return { prompt, consumed: false };
     }
 
@@ -3066,8 +3113,6 @@ export class AgentServer {
     taskRun: TaskRun | null,
   ): Promise<void> {
     if (!this.session) return;
-    taskRun = await this.refreshTaskRunForResume(payload, taskRun);
-
     await this.runStartupTurn(() =>
       this.runResumeTurn(
         payload,
@@ -3078,10 +3123,9 @@ export class AgentServer {
           const prompt: ContentBlock[] = pendingUserPrompt?.prompt.length
             ? pendingUserPrompt.prompt
             : [
-                {
-                  type: "text",
-                  text: "Continue from where you left off. The user is waiting for your response.",
-                },
+                hiddenTextBlock(
+                  "Continue from where you left off. The user is waiting for your response.",
+                ),
               ];
           this.logger.debug("Sending resume continuation", {
             taskId: payload.task_id,
@@ -3128,6 +3172,7 @@ export class AgentServer {
   private async retryOversizedResumeOnFreshSession(
     payload: JwtPayload,
     taskRun: TaskRun | null,
+    reservedMessageId?: string,
   ): Promise<boolean> {
     if (this.oversizedResumeRetried || !this.session) {
       return false;
@@ -3172,8 +3217,7 @@ export class AgentServer {
     }
 
     try {
-      await this.sendResumeMessage(payload, taskRun);
-      return true;
+      return await this.sendResumeMessage(payload, taskRun, reservedMessageId);
     } finally {
       this.resumeState = null;
       this.nativeResume = null;
@@ -3185,24 +3229,41 @@ export class AgentServer {
     taskRun: TaskRun | null,
     logLabel: string,
     buildPrompt: () => Promise<BuiltPrompt>,
-    opts: { retryOnOversizedPrompt?: boolean } = {},
-  ): Promise<void> {
-    if (!this.session) return;
+    opts: {
+      retryOnOversizedPrompt?: boolean;
+      reservedMessageId?: string;
+    } = {},
+  ): Promise<boolean> {
+    if (!this.session) return false;
 
     let promptDispatched = false;
+    let heldMessageId = opts.reservedMessageId;
     let releaseSelfDelivery: (() => void) | undefined;
     try {
       const builtPrompt = await buildPrompt();
 
-      this.session.logWriter.resetTurnMessages(payload.run_id);
       const acpSessionId = this.session.acpSessionId;
       if (!acpSessionId) {
         throw new Error("Agent session is missing its ACP session ID");
       }
 
-      if (builtPrompt.messageId) {
+      // The fresh-session retry rebuilds the same pending message. It reuses the reservation
+      // that the failed attempt still holds, because a second reservation reads as a duplicate
+      // delivery and sends nothing.
+      if (
+        builtPrompt.messageId &&
+        builtPrompt.messageId !== opts.reservedMessageId
+      ) {
+        if (
+          this.deliveredMessageIds.has(builtPrompt.messageId) ||
+          this.inFlightMessageDeliveries.has(builtPrompt.messageId)
+        ) {
+          return false;
+        }
         releaseSelfDelivery = this.beginSelfDelivery(builtPrompt.messageId);
+        heldMessageId = builtPrompt.messageId;
       }
+      this.session.logWriter.resetTurnMessages(payload.run_id);
       promptDispatched = true;
 
       const result = await this.promptWithUpstreamRetry({
@@ -3226,13 +3287,11 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      this.broadcastTurnComplete(
-        result.stopReason,
-        this.promptResultTraceId(result),
-      );
+      const turnTraceId = this.promptResultTraceId(result);
+      this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
       if (result.stopReason === "end_turn") {
-        await this.relayAgentResponse(payload);
+        await this.relayAgentResponse(payload, undefined, turnTraceId);
       }
 
       await this.finalizeRunTelemetry(payload);
@@ -3241,12 +3300,18 @@ export class AgentServer {
       if (this.session) {
         await this.session.logWriter.flushAll();
       }
+      // The retry owns the outcome only when it sends a prompt. If it sends nothing, this turn
+      // must still report the failure, so the run does not stay in progress with no answer.
       if (
         opts.retryOnOversizedPrompt &&
         isPromptTooLongError(error) &&
-        (await this.retryOversizedResumeOnFreshSession(payload, taskRun))
+        (await this.retryOversizedResumeOnFreshSession(
+          payload,
+          taskRun,
+          heldMessageId,
+        ))
       ) {
-        return;
+        return true;
       }
       if (promptDispatched) {
         await this.clearPendingInitialPromptState(payload, taskRun);
@@ -3255,6 +3320,7 @@ export class AgentServer {
     } finally {
       releaseSelfDelivery?.();
     }
+    return promptDispatched;
   }
 
   private getInitialPromptOverride(taskRun: TaskRun): string | null {
@@ -4901,7 +4967,7 @@ ${commonInstructions}
     errorMessage?: string,
     options?: { errorCategory?: AgentErrorClassification },
   ): Promise<void> {
-    errorMessage = redactClaudeTokens(errorMessage);
+    errorMessage = redactSecrets(errorMessage);
     const currentSession = this.session;
     const sessionMatchesRun = currentSession?.payload.run_id === payload.run_id;
     const terminalErrorMessage = errorMessage ?? "Agent error";
@@ -5426,6 +5492,7 @@ ${commonInstructions}
   private async relayAgentResponse(
     payload: JwtPayload,
     messageId?: string,
+    traceId?: string | null,
   ): Promise<void> {
     if (!this.session) {
       return;
@@ -5471,6 +5538,7 @@ ${commonInstructions}
         message,
         messageParts,
         messageId,
+        traceId,
       );
     } catch (error) {
       this.logger.debug("Failed to relay initial agent response to Slack", {
@@ -5922,7 +5990,7 @@ ${commonInstructions}
   }
 
   private broadcastEvent(event: Record<string, unknown>): void {
-    for (const redacted of this.tokenEventRedactor.redact(event)) {
+    for (const redacted of this.eventRedactor.redact(event)) {
       this.deliverEvent(redacted);
     }
   }

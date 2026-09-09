@@ -123,6 +123,10 @@ describe("buildSandboxDocument", () => {
     expect(imports["react/jsx-runtime"]).toContain("esm.sh");
   });
 
+  it("treats null connector options as an omitted refresh value", () => {
+    expect(buildSandboxDocument()).toContain("refresh: options?.refresh");
+  });
+
   it("inlines the external-anchor resolver into the bootstrap", () => {
     const html = buildSandboxDocument();
     expect(html).toContain(
