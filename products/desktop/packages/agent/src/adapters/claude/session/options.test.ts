@@ -131,6 +131,16 @@ describe("buildSessionOptions", () => {
     },
   );
 
+  it("removes built-in tools from sketchpad sessions", () => {
+    const options = buildSessionOptions({
+      ...makeParams(),
+      sketchpadId: "board",
+      userProvidedOptions: { tools: ["Bash"] },
+    });
+
+    expect(options.tools).toEqual([]);
+  });
+
   it("preserves caller-provided agents alongside defaults", () => {
     const params = makeParams();
     const options = buildSessionOptions({
