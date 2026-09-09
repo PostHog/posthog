@@ -2,7 +2,11 @@ from datetime import timedelta
 
 from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
+
+from parameterized import parameterized
 
 from posthog.models import User
 
@@ -70,6 +74,34 @@ class TestObservationLabels(_VisionAPITestCase):
         self.assertFalse(properties["is_correct"])
         self.assertTrue(properties["has_feedback"])
         self.assertEqual(properties["source"], "web")
+        # `is_new` is what separates rated sessions from rating activity in the funnel.
+        self.assertTrue(properties["is_new"])
+        self.assertTrue(properties["verdict_changed"])
+
+    @parameterized.expand(
+        [
+            ("unchanged", {"is_correct": False, "feedback": "wrong"}, False, None),
+            ("verdict_flipped", {"is_correct": True, "feedback": "wrong"}, True, True),
+            ("feedback_only", {"is_correct": False, "feedback": "wrong again"}, True, False),
+        ]
+    )
+    def test_resaving_a_label_only_reports_a_real_change(
+        self, _name: str, payload: dict, expect_event: bool, expect_verdict_changed: bool | None
+    ) -> None:
+        # The feedback box autosaves as the user types and resends the whole label, so an unchanged
+        # re-save is the common case. Reporting it counted one rated session several times over.
+        self.client.post(self._label_url(self.observation), {"is_correct": False, "feedback": "wrong"}, format="json")
+        with patch("posthoganalytics.capture") as capture:
+            resp = self.client.post(self._label_url(self.observation), payload, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        rated = [
+            call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_observation_rated"
+        ]
+        self.assertEqual(len(rated), 1 if expect_event else 0)
+        if expect_event:
+            properties = rated[0].kwargs["properties"]
+            self.assertFalse(properties["is_new"])
+            self.assertEqual(properties["verdict_changed"], expect_verdict_changed)
 
     def test_label_write_denied_without_scanner_editor_access_on_session_route(self) -> None:
         # The session route's get_object only checks the observation row; label writes must object-check the scanner.
@@ -106,9 +138,39 @@ class TestObservationLabels(_VisionAPITestCase):
 
     def test_delete_removes_label(self) -> None:
         self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")
-        resp = self.client.delete(self._label_url(self.observation))
+        with patch("posthoganalytics.capture") as capture:
+            resp = self.client.delete(self._label_url(self.observation))
         self.assertEqual(resp.status_code, 204)
         self.assertFalse(ReplayObservationLabel.objects.filter(observation=self.observation).exists())
+        # Un-rating has to be reported, or the rated-session count only ever grows.
+        removed = [
+            call
+            for call in capture.call_args_list
+            if call.kwargs.get("event") == "replay_vision_observation_rating_removed"
+        ]
+        self.assertEqual(len(removed), 1)
+
+    def test_delete_locks_the_observation_like_the_write_path(self) -> None:
+        self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")
+        with CaptureQueriesContext(connection) as queries:
+            self.client.delete(self._label_url(self.observation))
+        # Unlocked, a concurrent re-rate reads the old label, this delete reports the removal, and the
+        # re-rate then writes identical values and reports nothing, leaving a label counted as removed.
+        locked = [q["sql"] for q in queries.captured_queries if "FOR UPDATE" in q["sql"] and "observation" in q["sql"]]
+        self.assertEqual(len(locked), 1)
+
+    def test_deleting_a_label_that_never_existed_reports_nothing(self) -> None:
+        with patch("posthoganalytics.capture") as capture:
+            resp = self.client.delete(self._label_url(self.observation))
+        self.assertEqual(resp.status_code, 204)
+        self.assertEqual(
+            [
+                call
+                for call in capture.call_args_list
+                if call.kwargs.get("event") == "replay_vision_observation_rating_removed"
+            ],
+            [],
+        )
 
     def test_labeled_filter_splits_labeled_from_unlabeled(self) -> None:
         unlabeled = self._create_observation(self.scanner, "sess-2")

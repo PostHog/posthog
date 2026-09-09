@@ -232,7 +232,7 @@ _QUERY_FILTER_KEYS = (
 )
 
 
-def _scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
+def scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
     """Config choices at save time, so launch dashboards can see whether the defaults get changed.
     Filter *values* stay out: they can carry customer data (URLs, emails)."""
     query = scanner.query if isinstance(scanner.query, dict) else {}
@@ -796,7 +796,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             # It names the calling surface when the caller is not the app, since only the UI knows
             # how the form was filled.
             {
-                **_scanner_lifecycle_properties(scanner),
+                **scanner_lifecycle_properties(scanner),
                 "creation_flow_variant": _goal_flow_variant(user, team),
                 "creation_method": _reported_creation_method(self.context, creation_method),
             },
@@ -848,7 +848,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             report_user_action(
                 user,
                 "replay_vision_scanner_enabled" if scanner.enabled else "replay_vision_scanner_disabled",
-                _scanner_lifecycle_properties(scanner),
+                scanner_lifecycle_properties(scanner),
                 team=team,
                 request=request,
             )
@@ -857,7 +857,12 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             report_user_action(
                 user,
                 "replay_vision_scanner_edited",
-                {**_scanner_lifecycle_properties(scanner), "edited_fields": changed_fields},
+                {
+                    **scanner_lifecycle_properties(scanner),
+                    "edited_fields": changed_fields,
+                    # Applying a recommendation edits the scanner too, and reports itself as such.
+                    "edit_source": "manual",
+                },
                 team=team,
                 request=request,
             )
@@ -1684,7 +1689,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
     def perform_destroy(self, instance: ReplayScanner) -> None:
         # Snapshot lifecycle props before the row is deleted.
-        properties = _scanner_lifecycle_properties(instance)
+        properties = scanner_lifecycle_properties(instance)
         super().perform_destroy(instance)
         report_user_action(
             cast(User, self.request.user),
@@ -1754,7 +1759,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         report_user_action(
             user,
             "replay_vision_scanner_duplicated",
-            {**_scanner_lifecycle_properties(scanner), "source_scanner_id": str(source.id)},
+            {**scanner_lifecycle_properties(scanner), "source_scanner_id": str(source.id)},
             team=self.team,
             request=request,
         )
