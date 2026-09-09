@@ -13,6 +13,12 @@ export interface ProductEmptyStateStoryOptions {
     config?: Partial<ProductEmptyStateConfig>
     /** Extra msw handlers, merged over the defaults (same path wins), e.g. to drive the product's status indicator into a specific state */
     mocks?: Mocks
+    /**
+     * Render inside a fixed-width column instead of filling the canvas. The empty state's
+     * breakpoints read its own width, so this pins the layout a snapshot captures - use it
+     * to cover a narrow scene (side panel open, or a small window) at a stable size.
+     */
+    containerWidth?: number
 }
 
 /**
@@ -29,7 +35,7 @@ export interface ProductEmptyStateStoryOptions {
 export function productEmptyStateStory(
     emptyState: SceneProductEmptyState,
     mode: ProductEmptyStateMode,
-    { config, mocks }: ProductEmptyStateStoryOptions = {}
+    { config, mocks, containerWidth }: ProductEmptyStateStoryOptions = {}
 ): ProductEmptyStateStory {
     return {
         // Empty states show a persistent "listening for data" spinner (and animated preview)
@@ -37,6 +43,13 @@ export function productEmptyStateStory(
         parameters: { testOptions: { waitForLoadersToDisappear: false } },
         args: { config: { ...emptyState.config, ...config }, mode },
         decorators: [
+            // The snapshot root is inline-block. Give the query container a width so
+            // inline-size containment cannot collapse that root to zero.
+            (Story) => (
+                <div style={{ width: containerWidth ?? 'calc(100vw - 2rem)' }}>
+                    <Story />
+                </div>
+            ),
             mswDecorator({
                 ...mocks,
                 post: {
