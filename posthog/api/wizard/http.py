@@ -617,11 +617,11 @@ class SetupWizardViewSet(viewsets.ViewSet):
             organization_id=str(team.organization_id),
             team_id=team.id,
         )
-        mints_per_day = override.mints_per_day
-        if mints_per_day is None:
-            mints_per_day = wizard_tier_limits(posture).mints_per_day
+        mints_per_week = override.mints_per_week
+        if mints_per_week is None:
+            mints_per_week = wizard_tier_limits(posture).mints_per_week
         try:
-            reserved = reserve_wizard_mint(request, self, limit=mints_per_day)
+            reserved = reserve_wizard_mint(request, self, limit=mints_per_week)
         except exceptions.Throttled as e:
             # The reservation raises after check_throttles ran, so the throttled()
             # hook never sees it.

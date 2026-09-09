@@ -270,12 +270,12 @@ class TestWizardPosture:
 
 
 class TestWizardTierLimits:
-    @override_settings(WIZARD_GATEWAY_TIERS={"new": {"cap_usd": "5", "mints_per_day": 2, "ttl_seconds": "3600"}})
+    @override_settings(WIZARD_GATEWAY_TIERS={"new": {"cap_usd": "5", "mints_per_week": 2, "ttl_seconds": "3600"}})
     def test_a_configured_tier_is_read_field_by_field(self):
         assert wizard_tier_limits("new") == WizardTierLimits(
             cap_usd=Decimal("5.000000"),
             max_cap_usd=_TIER_FLOORS["new"].max_cap_usd,
-            mints_per_day=2,
+            mints_per_week=2,
             ttl_seconds=3600,
         )
         assert wizard_tier_limits("paid") == _TIER_FLOORS["paid"]
@@ -292,9 +292,9 @@ class TestWizardTierLimits:
         [
             {"new": "lots"},
             # A non-dict entry that would satisfy `"cap_usd" in raw`.
-            {"new": ["cap_usd", "mints_per_day", "ttl_seconds"]},
-            {"new": {"cap_usd": "999", "mints_per_day": 0, "ttl_seconds": True}},
-            {"new": {"cap_usd": "NaN", "mints_per_day": "two", "ttl_seconds": -1}},
+            {"new": ["cap_usd", "mints_per_week", "ttl_seconds"]},
+            {"new": {"cap_usd": "999", "mints_per_week": 0, "ttl_seconds": True}},
+            {"new": {"cap_usd": "NaN", "mints_per_week": "two", "ttl_seconds": -1}},
             [],
             "not a dict",
         ],
@@ -317,8 +317,8 @@ class TestTieredMint:
         with override_settings(
             **MINT_SETTINGS,
             WIZARD_GATEWAY_TIERS={
-                "new": {"cap_usd": "5", "mints_per_day": 2, "ttl_seconds": 3600},
-                "paid": {"cap_usd": "10", "mints_per_day": 10},
+                "new": {"cap_usd": "5", "mints_per_week": 2, "ttl_seconds": 3600},
+                "paid": {"cap_usd": "10", "mints_per_week": 10},
             },
             WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM={"ai-observability": "12"},
         ):
@@ -362,18 +362,18 @@ class TestParseLimitOverride:
         "raw,expected",
         [
             (
-                {"cap_usd": "30", "mints_per_day": 100},
-                WizardLimitOverride(cap_usd=Decimal("30.000000"), mints_per_day=100),
+                {"cap_usd": "30", "mints_per_week": 100},
+                WizardLimitOverride(cap_usd=Decimal("30.000000"), mints_per_week=100),
             ),
             (
-                '{"cap_usd": 12.5, "mints_per_day": "50"}',
-                WizardLimitOverride(cap_usd=Decimal("12.500000"), mints_per_day=50),
+                '{"cap_usd": 12.5, "mints_per_week": "50"}',
+                WizardLimitOverride(cap_usd=Decimal("12.500000"), mints_per_week=50),
             ),
-            ({"mints_per_day": 100}, WizardLimitOverride(cap_usd=None, mints_per_day=100)),
-            ({"cap_usd": "lots", "mints_per_day": 100}, WizardLimitOverride(cap_usd=None, mints_per_day=100)),
+            ({"mints_per_week": 100}, WizardLimitOverride(cap_usd=None, mints_per_week=100)),
+            ({"cap_usd": "lots", "mints_per_week": 100}, WizardLimitOverride(cap_usd=None, mints_per_week=100)),
             (
-                {"cap_usd": "30", "mints_per_day": 0},
-                WizardLimitOverride(cap_usd=Decimal("30.000000"), mints_per_day=None),
+                {"cap_usd": "30", "mints_per_week": 0},
+                WizardLimitOverride(cap_usd=Decimal("30.000000"), mints_per_week=None),
             ),
             (None, NO_OVERRIDE),
             ("not json", NO_OVERRIDE),
@@ -390,7 +390,7 @@ class TestParseLimitOverride:
 
     @pytest.mark.parametrize("mints", [0, -1, 151, 2.5, "2.5", "abc", True, None])
     def test_mints_outside_the_bounds_are_ignored(self, mints):
-        assert parse_limit_override({"mints_per_day": mints}) == NO_OVERRIDE
+        assert parse_limit_override({"mints_per_week": mints}) == NO_OVERRIDE
 
 
 class TestWizardLimitOverride:
@@ -403,7 +403,7 @@ class TestWizardLimitOverride:
                 distinct_id="d1", email="eng@posthog.com", organization_id="org_1", team_id=7
             )
 
-        assert override == WizardLimitOverride(cap_usd=Decimal("30.000000"), mints_per_day=None)
+        assert override == WizardLimitOverride(cap_usd=Decimal("30.000000"), mints_per_week=None)
         get_payload.assert_called_once_with(
             "wizard-gateway-limit-override",
             "d1",
@@ -472,9 +472,9 @@ class TestWizardConfigRejectCounter:
     def _count(field: str) -> float:
         return WIZARD_GATEWAY_CONFIG_REJECTS.labels(field=field)._value.get()
 
-    @override_settings(WIZARD_GATEWAY_TIERS={"new": {"cap_usd": "999", "mints_per_day": 0, "ttl_seconds": -1}})
+    @override_settings(WIZARD_GATEWAY_TIERS={"new": {"cap_usd": "999", "mints_per_week": 0, "ttl_seconds": -1}})
     def test_each_rejected_tier_field_is_counted_on_its_own_label(self):
-        fields = ("cap_usd", "mints_per_day", "ttl_seconds")
+        fields = ("cap_usd", "mints_per_week", "ttl_seconds")
         before = {f: self._count(f) for f in fields}
         wizard_tier_limits("new")
         assert {f: self._count(f) for f in fields} == {f: before[f] + 1 for f in fields}
@@ -489,7 +489,7 @@ class TestWizardConfigRejectCounter:
 
     @override_settings(WIZARD_GATEWAY_TIERS={"new": {"cap_usd": "5"}})
     def test_a_readable_tier_counts_nothing(self):
-        fields = ("cap_usd", "mints_per_day", "ttl_seconds", "max_cap_usd", "max_cap_usd_below_cap", "tiers_json")
+        fields = ("cap_usd", "mints_per_week", "ttl_seconds", "max_cap_usd", "max_cap_usd_below_cap", "tiers_json")
         before = {f: self._count(f) for f in fields}
         wizard_tier_limits("new")
         assert {f: self._count(f) for f in fields} == before
@@ -518,3 +518,17 @@ class TestWizardConfigRejectCounter:
         before = self._count("override_payload")
         assert parse_limit_override("{not json") == NO_OVERRIDE
         assert self._count("override_payload") == before + 1
+
+    def test_the_retired_daily_key_still_applies_and_is_counted(self):
+        # The live override flag's payload still spells it mints_per_day, so
+        # dropping the key outright would silently stop applying every override.
+        before = self._count("mints_per_day_retired_key")
+        assert parse_limit_override({"mints_per_day": 100}) == WizardLimitOverride(cap_usd=None, mints_per_week=100)
+        assert self._count("mints_per_day_retired_key") == before + 1
+
+    def test_the_weekly_key_wins_and_counts_no_retirement(self):
+        before = self._count("mints_per_day_retired_key")
+        assert parse_limit_override({"mints_per_week": 7, "mints_per_day": 100}) == WizardLimitOverride(
+            cap_usd=None, mints_per_week=7
+        )
+        assert self._count("mints_per_day_retired_key") == before

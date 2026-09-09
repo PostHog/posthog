@@ -20,10 +20,16 @@ from rest_framework.test import APIRequestFactory
 from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 from posthog.cloud_utils import get_api_host
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
-from posthog.llm.wizard_gateway_token import WizardGatewayMintError
+from posthog.llm.wizard_gateway_token import _TIER_FLOORS, WizardGatewayMintError
 from posthog.models import Organization, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import SetupWizardGatewayTokenRateThrottle, refund_wizard_mint, reserve_wizard_mint
+
+# Derived, not written out: these cases assert the ceiling binds, not its value.
+# Every floor populates every field; the Optional is there for partial overrides.
+_active_mints = _TIER_FLOORS["active"].mints_per_week
+assert _active_mints is not None
+_ACTIVE_MINTS_PER_WEEK: int = _active_mints
 
 
 class SetupWizardTests(APIBaseTest):
@@ -760,7 +766,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         self.addCleanup(blocklist_patch.stop)
 
     def _ordinary_account(self):
-        """APIBaseTest's fresh org is the `new` posture, whose daily ceiling is
+        """APIBaseTest's fresh org is the `new` posture, whose weekly ceiling is
         tighter than the one these throttle-accounting cases assume."""
         self.team.ingested_event = True
         self.team.save(update_fields=["ingested_event"])
@@ -822,7 +828,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
             "posture": "new",
         }
 
-    @override_settings(DEBUG=False, WIZARD_GATEWAY_TIERS={"new": {"mints_per_day": 2}})
+    @override_settings(DEBUG=False, WIZARD_GATEWAY_TIERS={"new": {"mints_per_week": 2}})
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
@@ -845,7 +851,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert refused.json()["code"] == "throttled"
         assert mock_mint.call_count == 2
 
-    @override_settings(DEBUG=False, WIZARD_GATEWAY_TIERS={"new": {"mints_per_day": 2}})
+    @override_settings(DEBUG=False, WIZARD_GATEWAY_TIERS={"new": {"mints_per_week": 2}})
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
@@ -854,7 +860,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         self, mock_authentication, mock_flag, mock_mint, mock_authorized
     ):
         self._mock_oauth(mock_authentication)
-        self.mock_limit_payload.return_value = {"mints_per_day": 3}
+        self.mock_limit_payload.return_value = {"mints_per_week": 3}
 
         for _ in range(3):
             ok = self.client.post(
@@ -1063,7 +1069,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         self, mock_authentication, mock_flag, mock_authorized, mock_mint, mock_key
     ):
         self._mock_oauth(mock_authentication)
-        self.mock_limit_payload.return_value = {"mints_per_day": 7}
+        self.mock_limit_payload.return_value = {"mints_per_week": 7}
 
         for _ in range(7):
             ok = self.client.post(
@@ -1178,20 +1184,20 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert self._reserved_counter_value() == 0
 
         with patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=self.MINTED) as mock_mint:
-            for _ in range(5):
+            for _ in range(_ACTIVE_MINTS_PER_WEEK):
                 ok = self.client.post(
                     self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
                 )
                 assert ok.status_code == status.HTTP_201_CREATED
             # The ceiling counts issued tokens, so the 20 refunded failures bought
-            # nothing: the sixth mint is refused even though 25 requests preceded it.
+            # nothing: the next mint is refused on the issued count alone.
             refused = self.client.post(
                 self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
             )
 
         assert refused.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-        assert mock_mint.call_count == 5
-        assert self._reserved_counter_value() == 6
+        assert mock_mint.call_count == _ACTIVE_MINTS_PER_WEEK
+        assert self._reserved_counter_value() == _ACTIVE_MINTS_PER_WEEK + 1
 
     @patch.object(SetupWizardGatewayTokenRateThrottle, "get_cache_key", return_value="refund-test-key")
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
@@ -1291,7 +1297,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         self._mock_oauth(mock_authentication)
         before = _gateway_token_outcome("throttled")
 
-        for _ in range(5):
+        for _ in range(_ACTIVE_MINTS_PER_WEEK):
             self.client.post(
                 self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
             )

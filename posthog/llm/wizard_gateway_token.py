@@ -51,13 +51,13 @@ WIZARD_PRODUCT = "wizard"
 WizardPosture = Literal["new", "active", "paid"]
 _NEW_ORGANIZATION_AGE = timedelta(days=7)
 
-# Payload: {"cap_usd": "30", "mints_per_day": 100}. A person flag: email,
+# Payload: {"cap_usd": "30", "mints_per_week": 100}. A person flag: email,
 # organization_id, and team_id ride as person properties so one flag can target
 # engineers by email and candidates by org id.
 WIZARD_GATEWAY_LIMIT_OVERRIDE_FLAG = "wizard-gateway-limit-override"
 
 # Above this a value only widens a fat-finger; the gateway's mint rate bounds the fleet.
-_MAX_MINTS_PER_DAY = 150
+_MAX_MINTS_PER_WEEK = 150
 
 
 @frozen
@@ -65,7 +65,7 @@ class WizardLimitOverride:
     """Limits the override flag grants a user; None keeps the configured default."""
 
     cap_usd: Decimal | None = None
-    mints_per_day: int | None = None
+    mints_per_week: int | None = None
 
 
 NO_OVERRIDE = WizardLimitOverride()
@@ -92,7 +92,7 @@ def wizard_limit_override(
             "wizard_gateway_token: limit override applied",
             team_id=team_id,
             cap_usd=str(override.cap_usd),
-            mints_per_day=override.mints_per_day,
+            mints_per_week=override.mints_per_week,
         )
     return override
 
@@ -109,7 +109,7 @@ def parse_limit_override(raw: object) -> WizardLimitOverride:
     if not isinstance(raw, dict):
         return NO_OVERRIDE
     cap, mints = _parse_limit_fields(raw, source="limit override")
-    return WizardLimitOverride(cap_usd=cap, mints_per_day=mints)
+    return WizardLimitOverride(cap_usd=cap, mints_per_week=mints)
 
 
 def _parse_limit_fields(raw: dict, *, source: str) -> tuple[Decimal | None, int | None]:
@@ -117,13 +117,19 @@ def _parse_limit_fields(raw: dict, *, source: str) -> tuple[Decimal | None, int 
     if "cap_usd" in raw and cap is None:
         logger.warning(f"wizard_gateway_token: {source} cap_usd out of contract, ignored", cap=str(raw["cap_usd"]))
         WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="cap_usd").inc()
-    mints = _parse_mints_per_day(raw["mints_per_day"]) if "mints_per_day" in raw else None
-    if "mints_per_day" in raw and mints is None:
+    # mints_per_day is the retired spelling and is still live in the override
+    # flag's payload, so it is read until that payload is updated. Counted so the
+    # fallback can be retired on evidence rather than on assumption.
+    key = "mints_per_week" if "mints_per_week" in raw else "mints_per_day"
+    if key == "mints_per_day" and key in raw:
+        WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="mints_per_day_retired_key").inc()
+    mints = _parse_mints_per_week(raw[key]) if key in raw else None
+    if key in raw and mints is None:
         logger.warning(
-            f"wizard_gateway_token: {source} mints_per_day out of contract, ignored",
-            mints_per_day=str(raw["mints_per_day"]),
+            f"wizard_gateway_token: {source} {key} out of contract, ignored",
+            mints=str(raw[key]),
         )
-        WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="mints_per_day").inc()
+        WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="mints_per_week").inc()
     return cap, mints
 
 
@@ -134,7 +140,7 @@ class WizardTierLimits:
 
     cap_usd: Decimal | None = None
     max_cap_usd: Decimal | None = None
-    mints_per_day: int | None = None
+    mints_per_week: int | None = None
     ttl_seconds: int | None = None
 
 
@@ -146,19 +152,19 @@ _TIER_FLOORS: dict[str, WizardTierLimits] = {
     "new": WizardTierLimits(
         cap_usd=Decimal("6").quantize(_CAP_QUANTUM),
         max_cap_usd=Decimal("6").quantize(_CAP_QUANTUM),
-        mints_per_day=2,
+        mints_per_week=5,
         ttl_seconds=_MAX_TTL_SECONDS,
     ),
     "active": WizardTierLimits(
         cap_usd=Decimal("7").quantize(_CAP_QUANTUM),
         max_cap_usd=Decimal("12").quantize(_CAP_QUANTUM),
-        mints_per_day=5,
+        mints_per_week=15,
         ttl_seconds=_MAX_TTL_SECONDS,
     ),
     "paid": WizardTierLimits(
         cap_usd=Decimal("10").quantize(_CAP_QUANTUM),
         max_cap_usd=Decimal("12").quantize(_CAP_QUANTUM),
-        mints_per_day=10,
+        mints_per_week=30,
         ttl_seconds=_MAX_TTL_SECONDS,
     ),
 }
@@ -220,7 +226,7 @@ def wizard_tier_limits(posture: WizardPosture) -> WizardTierLimits:
     return WizardTierLimits(
         cap_usd=cap if cap is not None else floor.cap_usd,
         max_cap_usd=max_cap if max_cap is not None else floor.max_cap_usd,
-        mints_per_day=mints if mints is not None else floor.mints_per_day,
+        mints_per_week=mints if mints is not None else floor.mints_per_week,
         ttl_seconds=ttl if ttl is not None else floor.ttl_seconds,
     )
 
@@ -251,13 +257,13 @@ def _parse_ttl(raw: object) -> int | None:
     return raw
 
 
-def _parse_mints_per_day(raw: object) -> int | None:
-    # bool is an int subclass: True would read as one mint a day.
+def _parse_mints_per_week(raw: object) -> int | None:
+    # bool is an int subclass: True would read as one mint a week.
     if isinstance(raw, bool):
         return None
     if isinstance(raw, str) and raw.strip().isdigit():
         raw = int(raw)
-    if not isinstance(raw, int) or raw < 1 or raw > _MAX_MINTS_PER_DAY:
+    if not isinstance(raw, int) or raw < 1 or raw > _MAX_MINTS_PER_WEEK:
         return None
     return raw
 
