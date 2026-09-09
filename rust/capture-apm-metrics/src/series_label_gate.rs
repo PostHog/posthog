@@ -38,6 +38,11 @@ const REDIS_BUCKET_SECS: i64 = 3600;
 /// below the pull's `since` because of clock skew. The next pull starts this
 /// much earlier; members already in the cache are a no-op.
 const PULL_OVERLAP_SECS: i64 = 60;
+/// Members per `ZRANGEBYSCORE ... LIMIT` call. Small enough that one call is
+/// a short, non-blocking read on Redis and a small reply here; large enough
+/// that a full seed of millions of series takes hundreds of calls, not tens
+/// of thousands.
+const PULL_PAGE_SIZE: usize = 50_000;
 const WRITER_CHANNEL_CAPACITY: usize = 10_000;
 const WRITER_BATCH_SIZE: usize = 500;
 const WRITER_FLUSH_INTERVAL: Duration = Duration::from_secs(1);
@@ -234,14 +239,21 @@ impl SeriesLabelGate {
     }
 
     /// Read every series labelled by any pod in the current window. Runs once
-    /// before the service accepts traffic; a failure leaves the cache empty.
-    pub async fn seed_from_redis(&self, client: &dyn Client, timeout: Duration) {
+    /// before the service accepts traffic. `budget` bounds the wait: when it
+    /// runs out the pages already merged stay and the service starts with a
+    /// partial cache, which only means more labelled rows until the next pulls
+    /// fill the gap.
+    pub async fn seed_from_redis(&self, client: &dyn Client, budget: Duration) {
         let now = (self.clock)();
         match self
-            .pull_from_redis(client, now - self.window_secs, timeout)
+            .pull_from_redis(client, now - self.window_secs, budget)
             .await
         {
             Ok(merged) => info!("Seeded series label cache with {merged} series from Redis"),
+            Err(PullError::Timeout { merged }) => warn!(
+                "Series label cache seed hit its {}s budget after {merged} series, starting with a partial cache",
+                budget.as_secs()
+            ),
             Err(e) => warn!("Could not seed series label cache from Redis, starting empty: {e}"),
         }
     }
@@ -249,28 +261,68 @@ impl SeriesLabelGate {
     /// Merge the series with a score at or after `since` into the cache. A
     /// series this pod already knows keeps its exact local timestamp; a series
     /// another pod labelled is recorded as seen now. Returns how many were new.
+    ///
+    /// Reads in pages and merges each page as it arrives, so a `budget` that
+    /// runs out loses only the pages not yet read.
     pub async fn pull_from_redis(
         &self,
         client: &dyn Client,
         since: i64,
-        timeout: Duration,
+        budget: Duration,
+    ) -> Result<usize, PullError> {
+        self.pull_pages(client, since, PULL_PAGE_SIZE, budget).await
+    }
+
+    async fn pull_pages(
+        &self,
+        client: &dyn Client,
+        since: i64,
+        page_size: usize,
+        budget: Duration,
     ) -> Result<usize, PullError> {
         let now = (self.clock)();
-        let read = async {
-            let mut members = Vec::new();
-            for key in bucket_keys(since.max(now - self.window_secs), now) {
-                members.extend(
-                    client
-                        .zrangebyscore(key, since.to_string(), "+inf".to_string())
-                        .await?,
-                );
-            }
-            Ok::<_, CustomRedisError>(members)
-        };
-        let members = tokio::time::timeout(timeout, read)
-            .await
-            .map_err(|_| PullError::Timeout)??;
+        let deadline = tokio::time::Instant::now() + budget;
+        let min = since.to_string();
+        let mut merged = 0usize;
+        let mut cache_full = 0u64;
 
+        for key in bucket_keys(since.max(now - self.window_secs), now) {
+            let mut offset = 0usize;
+            loop {
+                if tokio::time::Instant::now() >= deadline {
+                    self.record_pull(merged, cache_full);
+                    return Err(PullError::Timeout { merged });
+                }
+                let page = client.zrangebyscore_limit(
+                    key.clone(),
+                    min.clone(),
+                    "+inf".to_string(),
+                    offset as isize,
+                    page_size as isize,
+                );
+                let page = match tokio::time::timeout_at(deadline, page).await {
+                    Ok(page) => page?,
+                    Err(_) => {
+                        self.record_pull(merged, cache_full);
+                        return Err(PullError::Timeout { merged });
+                    }
+                };
+                let page_len = page.len();
+                let (page_merged, page_full) = self.merge_members(page, now);
+                merged += page_merged;
+                cache_full += page_full;
+                if page_len < page_size {
+                    break;
+                }
+                offset += page_len;
+            }
+        }
+
+        self.record_pull(merged, cache_full);
+        Ok(merged)
+    }
+
+    fn merge_members(&self, members: Vec<String>, now: i64) -> (usize, u64) {
         let mut merged = 0usize;
         let mut cache_full = 0u64;
         for member in members {
@@ -290,11 +342,14 @@ impl SeriesLabelGate {
             });
             merged += 1;
         }
+        (merged, cache_full)
+    }
+
+    fn record_pull(&self, merged: usize, cache_full: u64) {
         counter!("capture_metrics_series_redis_pulled").increment(merged as u64);
         if cache_full > 0 {
             counter!("capture_metrics_series_cache_full", "source" => "pull").increment(cache_full);
         }
-        Ok(merged)
     }
 
     /// Repeat [`Self::pull_from_redis`] every `interval`, each time reading only
@@ -319,6 +374,7 @@ impl SeriesLabelGate {
                         since = started - PULL_OVERLAP_SECS;
                     }
                     Err(e) => {
+                        // `since` stays put, so the next tick re-reads the gap.
                         counter!("capture_metrics_series_redis_pull_failed").increment(1);
                         debug!("Series label pull from Redis failed: {e}");
                     }
@@ -439,8 +495,8 @@ fn zadd_commands(batch: &[SeenSeries], ttl_secs: u64) -> Vec<PipelineCommand> {
 pub enum PullError {
     #[error("redis error: {0}")]
     Redis(#[from] CustomRedisError),
-    #[error("timed out")]
-    Timeout,
+    #[error("timed out after merging {merged} series")]
+    Timeout { merged: usize },
 }
 
 /// `series_fingerprint` is computed without the token, and ClickHouse tables
@@ -658,6 +714,58 @@ mod tests {
         let mut rows = vec![row(2), row(2)];
         gate.apply("token-a", &mut rows);
         assert_stripped(&rows[1]);
+    }
+
+    #[tokio::test]
+    async fn pull_reads_a_bucket_in_pages_and_merges_each_page() {
+        let (gate, _, _) = gate(true, false);
+        let mut client = MockRedisClient::new();
+        for key in bucket_keys(START - WINDOW.as_secs() as i64, START) {
+            client = client.zrangebyscore_ret(&key, vec![]);
+        }
+        let members: Vec<String> = (1..=5).map(|k| k.to_string()).collect();
+        let client = client.zrangebyscore_ret(&bucket_key(START), members);
+
+        let merged = gate
+            .pull_pages(&client, START - 60, 2, Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert_eq!(merged, 5);
+        assert_eq!(gate.cache_len(), 5);
+
+        // 5 members at 2 per page: pages of 2, 2, 1. The short last page ends
+        // the walk without an extra empty read.
+        let pages = client
+            .get_calls()
+            .into_iter()
+            .filter(|c| c.op == "zrangebyscore_limit" && c.key == bucket_key(START))
+            .count();
+        assert_eq!(pages, 3);
+    }
+
+    #[tokio::test]
+    async fn pull_stops_reading_once_the_budget_is_gone() {
+        let (gate, _, _) = gate(true, false);
+        let mut client = MockRedisClient::new();
+        for key in bucket_keys(START - WINDOW.as_secs() as i64, START) {
+            client = client.zrangebyscore_ret(&key, vec![]);
+        }
+        let client = client.zrangebyscore_ret(&bucket_key(START), vec!["1".into(), "2".into()]);
+
+        // A spent budget stops the walk before the next page is requested and
+        // reports what was merged so far.
+        let result = gate
+            .pull_pages(&client, START - 60, 1, Duration::ZERO)
+            .await;
+        assert!(matches!(result, Err(PullError::Timeout { merged: 0 })));
+        assert_eq!(gate.cache_len(), 0);
+        assert!(client.get_calls().is_empty());
+
+        let merged = gate
+            .pull_pages(&client, START - 60, 1, Duration::from_secs(5))
+            .await
+            .unwrap();
+        assert_eq!(merged, 2);
     }
 
     #[tokio::test]

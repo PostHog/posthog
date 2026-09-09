@@ -23,10 +23,15 @@ pub struct Config {
     #[envconfig(from = "METRICS_SERIES_REDIS_TIMEOUT_MS", default = "250")]
     pub metrics_series_redis_timeout_ms: u64,
 
-    /// The pull reads the whole recent series set, so it gets a longer budget
-    /// than a single write batch.
-    #[envconfig(from = "METRICS_SERIES_REDIS_SEED_TIMEOUT_MS", default = "5000")]
+    /// Total time the service waits at startup for the series cache seed. When
+    /// it runs out the service starts with the pages read so far.
+    #[envconfig(from = "METRICS_SERIES_REDIS_SEED_TIMEOUT_MS", default = "15000")]
     pub metrics_series_redis_seed_timeout_ms: u64,
+
+    /// Budget for one periodic pull. Each pull reads only the series labelled
+    /// since the previous one, so it is much smaller than the seed.
+    #[envconfig(from = "METRICS_SERIES_REDIS_PULL_TIMEOUT_MS", default = "5000")]
+    pub metrics_series_redis_pull_timeout_ms: u64,
 
     #[envconfig(from = "METRICS_SERIES_REDIS_PULL_INTERVAL_SECS", default = "60")]
     pub metrics_series_redis_pull_interval_secs: u64,

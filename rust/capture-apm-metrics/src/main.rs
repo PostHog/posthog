@@ -99,14 +99,15 @@ async fn start_series_label_gate(config: &Config) -> Arc<SeriesLabelGate> {
     };
 
     let redis_timeout = Duration::from_millis(config.metrics_series_redis_timeout_ms);
-    let seed_timeout = Duration::from_millis(config.metrics_series_redis_seed_timeout_ms);
+    let seed_budget = Duration::from_millis(config.metrics_series_redis_seed_timeout_ms);
+    let pull_timeout = Duration::from_millis(config.metrics_series_redis_pull_timeout_ms);
     let pull_interval = Duration::from_secs(config.metrics_series_redis_pull_interval_secs);
     let client: Arc<dyn Client> = match RedisClient::with_config(
         redis_url,
         CompressionConfig::disabled(),
         RedisValueFormat::Utf8,
-        Some(seed_timeout),
-        Some(seed_timeout),
+        Some(pull_timeout),
+        Some(pull_timeout),
     )
     .await
     {
@@ -122,8 +123,8 @@ async fn start_series_label_gate(config: &Config) -> Arc<SeriesLabelGate> {
     };
 
     let (gate, rx) = SeriesLabelGate::new(window, enabled, limits);
-    gate.seed_from_redis(client.as_ref(), seed_timeout).await;
-    gate.spawn_redis_puller(Arc::clone(&client), pull_interval, seed_timeout);
+    gate.seed_from_redis(client.as_ref(), seed_budget).await;
+    gate.spawn_redis_puller(Arc::clone(&client), pull_interval, pull_timeout);
     gate.spawn_pruner();
     spawn_redis_writer(client, rx, redis_timeout, window);
     gate

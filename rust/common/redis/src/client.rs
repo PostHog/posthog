@@ -363,6 +363,19 @@ impl Client for RedisClient {
         Ok(results)
     }
 
+    async fn zrangebyscore_limit(
+        &self,
+        k: String,
+        min: String,
+        max: String,
+        offset: isize,
+        count: isize,
+    ) -> Result<Vec<String>, CustomRedisError> {
+        let mut conn = self.conn();
+        let results = conn.zrangebyscore_limit(k, min, max, offset, count).await?;
+        Ok(results)
+    }
+
     async fn zadd(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError> {
         let mut conn = self.conn();
         conn.zadd::<_, _, _, ()>(k, member, score).await?;
