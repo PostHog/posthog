@@ -1132,6 +1132,9 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // Restore unsent content for retry, preserving send order — draft content goes back ahead of
                     // anything typed during the failed send, queue content re-stages ahead of anything staged since.
                     if (source === 'draft') {
+                        // Land the pending keystroke first: writing the draft cancels the composer's debounced
+                        // sync, so text typed inside that window would be dropped rather than merged behind.
+                        props.flushDraft?.()
                         actions.setComposerFormValues({
                             draft: values.composerForm.draft ? `${content}\n\n${values.composerForm.draft}` : content,
                         })

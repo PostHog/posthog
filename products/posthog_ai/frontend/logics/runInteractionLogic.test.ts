@@ -1183,6 +1183,47 @@ describe('runInteractionLogic', () => {
         expect(logic.values.composerForm.draft).toBe('ship it\n\nnext thought')
     })
 
+    it('flushes a keystroke still buffered in the composer before restoring a failed draft send', async () => {
+        // The composer debounces its writes to kea, so text typed in the last moments of an in-flight send
+        // is still local. Restoring the failed message cancels that pending sync, so it has to be landed
+        // first or it is dropped instead of merged behind the retry.
+        let pendingKeystroke = ''
+        const attached = runInteractionLogic({
+            taskId: TASK_ID,
+            runId: 'flush-run',
+            onRunStarted,
+            flushDraft: () => {
+                if (pendingKeystroke) {
+                    attached.actions.setComposerFormValues({ draft: pendingKeystroke })
+                    pendingKeystroke = ''
+                }
+            },
+        })
+        const unmount = attached.mount()
+        try {
+            let rejectSend: () => void = () => {}
+            ;(tasksRunsCommandCreate as jest.Mock).mockReturnValue(
+                new Promise<void>((_, reject) => {
+                    rejectSend = () => reject(new Error('boom'))
+                })
+            )
+
+            attached.actions.setComposerFormValues({ draft: 'ship it' })
+            attached.actions.submitComposerForm()
+            expect(attached.values.composerForm.draft).toBe('')
+
+            pendingKeystroke = 'next thought'
+
+            await expectLogic(attached, () => {
+                rejectSend()
+            }).toFinishAllListeners()
+
+            expect(attached.values.composerForm.draft).toBe('ship it\n\nnext thought')
+        } finally {
+            unmount()
+        }
+    })
+
     it('keeps a follow-up typed during an in-flight queue flush instead of clearing it with the send', async () => {
         let resolveSend: () => void = () => {}
         ;(tasksRunsCommandCreate as jest.Mock).mockReturnValue(
