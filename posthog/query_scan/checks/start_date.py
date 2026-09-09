@@ -8,6 +8,8 @@ and compares that to the rows the query read.
 Nothing on master evaluates an expression like ``now() - interval 30 day`` to a date, so the
 evaluator here is new. It stays deliberately small: it covers the forms that appear in a
 date filter and returns ``None`` for everything else, and a ``None`` only widens the range.
+A form the evaluator does not cover is still a start date, so it is kept apart from a bound
+that reads another column, which is the one ClickHouse cannot skip data with.
 """
 
 from datetime import UTC, date, datetime, timedelta
@@ -16,10 +18,16 @@ from typing import Literal
 from dateutil.relativedelta import relativedelta
 
 from posthog.hogql import ast
-from posthog.hogql.helpers.timestamp_visitor import is_time_or_interval_constant
 
 from posthog.dataclasses import frozen
-from posthog.query_scan.tree import EventsRead, collect_conditions, find_events_reads, is_column_of, strip_aliases
+from posthog.query_scan.tree import (
+    EventsRead,
+    collect_conditions,
+    depends_on_data,
+    find_events_reads,
+    is_column_of,
+    strip_aliases,
+)
 
 StartDateClass = Literal["bound", "column", "none"]
 StartDateReason = Literal["column", "filters"]
@@ -66,6 +74,14 @@ _INTERVAL_UNITS_AS_RELATIVE = {
     "toIntervalYear": 12,
 }
 
+# ``subtractDays(now(), 7)`` is ClickHouse's shorthand for ``now() - interval 7 day``, so each
+# one maps to the sign it applies and the interval function that builds the amount.
+_SHIFT_FUNCTIONS: dict[str, tuple[int, str]] = {
+    f"{prefix}{unit}s": (sign, f"toInterval{unit}")
+    for prefix, sign in (("add", 1), ("subtract", -1))
+    for unit in ("Second", "Minute", "Hour", "Day", "Week", "Month", "Quarter", "Year")
+}
+
 _CLASS_ORDER: tuple[StartDateClass, ...] = ("none", "column", "bound")
 
 _BoundSide = Literal["lower", "upper"]
@@ -82,12 +98,14 @@ class StartDateOutcome:
 
 @frozen(eq=False)
 class _TimestampBound:
-    """One bound a condition puts on a read's timestamp column. ``value`` is None when the bound
-    is not a fixed point in time."""
+    """One bound a condition puts on a read's timestamp column. ``value`` is None when the
+    evaluator could not produce it, which ``data_dependent`` tells apart: a bound against a
+    column has no fixed value at all, one against an unsupported fixed expression does."""
 
     side: _BoundSide
     value: datetime | None
     clause: ast.Expr
+    data_dependent: bool
 
 
 @frozen(eq=False)
@@ -137,23 +155,30 @@ def _bounds_for_read(read: EventsRead, conditions: list[ast.Expr], now: datetime
     lowers: list[datetime] = []
     uppers: list[datetime] = []
     unevaluable_lower: ast.Expr | None = None
+    has_fixed_lower = False
 
     for term in conditions:
         for bound in _timestamp_bounds(term, read, now):
-            if bound.value is None:
-                if bound.side == "lower" and unevaluable_lower is None:
+            if bound.value is not None:
+                if bound.side == "lower":
+                    lowers.append(bound.value)
+                else:
+                    uppers.append(bound.value)
+            elif bound.side == "lower" and bound.data_dependent:
+                if unevaluable_lower is None:
                     unevaluable_lower = bound.clause
-                continue
-            if bound.side == "lower":
-                lowers.append(bound.value)
-            else:
-                uppers.append(bound.value)
+            elif bound.side == "lower":
+                has_fixed_lower = True
 
     if lowers:
         # Several lower bounds narrow each other, so the effective one is the latest.
         return _ReadBounds(
             classification="bound", clause=None, lower=max(lowers), upper=min(uppers) if uppers else None
         )
+    if has_fixed_lower:
+        # The query does bound the read at a fixed point in time, so ClickHouse can skip data
+        # with it. Only its value is out of reach, which leaves the range open at the bottom.
+        return _ReadBounds(classification="bound", clause=None, lower=None, upper=min(uppers) if uppers else None)
     if unevaluable_lower is not None:
         return _ReadBounds(
             classification="column",
@@ -167,8 +192,8 @@ def _bounds_for_read(read: EventsRead, conditions: list[ast.Expr], now: datetime
 def _timestamp_bounds(term: ast.Expr, read: EventsRead, now: datetime) -> list[_TimestampBound]:
     """Bounds this top-level term puts on the read's timestamp column.
 
-    A ``None`` value means the term bounds the column but against something that is not a
-    fixed point in time, so ClickHouse cannot skip data with it.
+    A ``None`` value means the evaluator could not produce one, either because the term bounds
+    the column against the data or because the fixed expression it uses is not supported.
     """
     term = strip_aliases(term)
 
@@ -177,11 +202,17 @@ def _timestamp_bounds(term: ast.Expr, read: EventsRead, now: datetime) -> list[_
         if term.negated or truncations is None:
             return []
         return [
-            _TimestampBound(side="lower", value=_evaluate_datetime(term.low, now), clause=term),
+            _TimestampBound(
+                side="lower",
+                value=_evaluate(term.low, now),
+                clause=term,
+                data_dependent=depends_on_data(term.low),
+            ),
             _TimestampBound(
                 side="upper",
-                value=_end_of_interval(_evaluate_datetime(term.high, now), truncations),
+                value=_end_of_interval(_evaluate(term.high, now), truncations),
                 clause=term,
+                data_dependent=depends_on_data(term.high),
             ),
         ]
 
@@ -195,7 +226,8 @@ def _timestamp_bounds(term: ast.Expr, read: EventsRead, now: datetime) -> list[_
         sides = _bound_sides(term.op, flipped=flipped)
         if not sides:
             return []
-        value = _evaluate_datetime(value_side, now)
+        value = _evaluate(value_side, now)
+        data_dependent = depends_on_data(value_side)
         # A truncation only moves a timestamp backwards, so it leaves a lower bound alone and
         # widens an upper one.
         return [
@@ -203,6 +235,7 @@ def _timestamp_bounds(term: ast.Expr, read: EventsRead, now: datetime) -> list[_
                 side=side,
                 value=_end_of_interval(value, truncations) if side == "upper" else value,
                 clause=term,
+                data_dependent=data_dependent,
             )
             for side in sides
         ]
@@ -267,22 +300,12 @@ def _end_of_interval(value: datetime | None, truncations: frozenset[str]) -> dat
     return _truncate(name, value) + _TRUNCATION_PERIODS[name]
 
 
-def _evaluate_datetime(expr: ast.Expr, now: datetime) -> datetime | None:
-    """A fixed point in time for ``expr``, or ``None`` when it is not one.
-
-    ``is_time_or_interval_constant`` gates this: it already knows which shapes hold no
-    column reference, so the evaluator below only has to produce the value.
-    """
-    try:
-        if not is_time_or_interval_constant(expr):
-            return None
-    except Exception:
-        # The visitor raises on node kinds it does not model. Those are not fixed points either.
-        return None
-    return _evaluate(expr, now)
-
-
 def _evaluate(expr: ast.Expr, now: datetime) -> datetime | None:
+    """The fixed point in time ``expr`` stands for, or ``None`` for a shape not covered here.
+
+    Every form below bottoms out in a constant or in ``now()``, so a value can only come back
+    for an expression that holds no column.
+    """
     expr = strip_aliases(expr)
 
     if isinstance(expr, ast.TypeCast | ast.TryCast):
@@ -310,6 +333,13 @@ def _evaluate(expr: ast.Expr, now: datetime) -> datetime | None:
     if expr.name in _MONOTONE_DATE_FUNCTIONS and expr.args:
         value = _evaluate(expr.args[0], now)
         return _truncate(expr.name, value) if value is not None else None
+    if expr.name in _SHIFT_FUNCTIONS and len(expr.args) == 2:
+        sign, interval_function = _SHIFT_FUNCTIONS[expr.name]
+        moment = _evaluate(expr.args[0], now)
+        interval = _interval(interval_function, expr.args[1])
+        if moment is None or interval is None:
+            return None
+        return moment + interval * sign
     return None
 
 
@@ -338,13 +368,17 @@ def _evaluate_interval(expr: ast.Expr) -> timedelta | relativedelta | None:
     expr = strip_aliases(expr)
     if not isinstance(expr, ast.Call) or not expr.args:
         return None
-    amount = strip_aliases(expr.args[0])
+    return _interval(expr.name, expr.args[0])
+
+
+def _interval(interval_function: str, amount: ast.Expr) -> timedelta | relativedelta | None:
+    amount = strip_aliases(amount)
     if not isinstance(amount, ast.Constant) or not isinstance(amount.value, int):
         return None
-    if expr.name in _INTERVAL_UNITS_AS_DELTA:
-        return timedelta(**{_INTERVAL_UNITS_AS_DELTA[expr.name]: amount.value})
-    if expr.name in _INTERVAL_UNITS_AS_RELATIVE:
-        return relativedelta(months=_INTERVAL_UNITS_AS_RELATIVE[expr.name] * amount.value)
+    if interval_function in _INTERVAL_UNITS_AS_DELTA:
+        return timedelta(**{_INTERVAL_UNITS_AS_DELTA[interval_function]: amount.value})
+    if interval_function in _INTERVAL_UNITS_AS_RELATIVE:
+        return relativedelta(months=_INTERVAL_UNITS_AS_RELATIVE[interval_function] * amount.value)
     return None
 
 

@@ -203,6 +203,30 @@ class TestStartDateCheck(QueryScanCheckTest):
                 date(2026, 2, 1),
             ),
             (
+                "a constant date function",
+                "SELECT count() FROM events WHERE timestamp >= toDate('2026-01-01')",
+                "bound",
+                date(2026, 1, 1),
+            ),
+            (
+                "the shorthand for an interval",
+                "SELECT count() FROM events WHERE timestamp >= subtractDays(now(), 7)",
+                "bound",
+                date(2026, 3, 8),
+            ),
+            (
+                "the shorthand for a month interval",
+                "SELECT count() FROM events WHERE timestamp >= subtractMonths(now(), 2)",
+                "bound",
+                date(2026, 1, 15),
+            ),
+            (
+                "a fixed expression the evaluator does not cover",
+                "SELECT count() FROM events WHERE timestamp >= fromUnixTimestamp(1767225600)",
+                "bound",
+                None,
+            ),
+            (
                 "compared to another column",
                 "SELECT count() FROM events WHERE timestamp > toDateTime(properties.signup_time)",
                 "column",

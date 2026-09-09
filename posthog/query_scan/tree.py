@@ -91,6 +91,16 @@ def contains_column_of(expr: ast.Expr, read: EventsRead, column: str) -> bool:
     return finder.found
 
 
+def depends_on_data(expr: ast.Expr) -> bool:
+    """Whether the value of ``expr`` comes from the data, through a column or a subquery.
+
+    Anything else is fixed when the query is planned, whatever shape it has.
+    """
+    finder = _DataReferenceFinder()
+    finder.visit(expr)
+    return finder.found
+
+
 def resolve_to_table_column(type_: ast.Type | None) -> tuple[ast.TableType, str] | None:
     """Follow a field's type down to the database table column it exports, or ``None``.
 
@@ -208,6 +218,24 @@ class _ConditionCollector(TraversingVisitor):
             reaching.add(id(enclosing))
             current = enclosing
         return reaching
+
+
+class _DataReferenceFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.found = True
+
+    def visit_property_access(self, node: ast.PropertyAccess) -> None:
+        self.found = True
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        self.found = True
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        self.found = True
 
 
 class _ColumnFinder(TraversingVisitor):
