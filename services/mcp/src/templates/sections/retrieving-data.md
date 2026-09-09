@@ -23,7 +23,7 @@ Bare "retention" and "customers" are catalog terms that may have several approve
 By insight type:
 
 - "Count / rate / latency / cost of a named thing" -> `metric-list` first; run a matching governed metric before any insight query
-- "How many / how much / over time / compare periods" -> `query-trends`
+- "How many / how much / over time / compare periods" -> `metric-list` first, then `query-trends` if no approved metric matches
 - "Conversion rate / drop-off / funnel / step completion" -> `query-funnel`
 - "Do users come back / cohort retention / churn" -> `query-retention` after catalog routing
 - "How frequently / how many days per week / power users" -> `query-stickiness`
