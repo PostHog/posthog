@@ -410,6 +410,21 @@ class _LogsImpactRequestSerializer(serializers.Serializer):
     )
 
 
+class _LogsImpactTopValueSerializer(serializers.Serializer):
+    value = serializers.CharField(help_text="The session ID or person distinct ID.")
+    count = serializers.IntegerField(
+        help_text="Approximate number of matching logs that carry this value (topK estimate)."
+    )
+
+
+class _LogsImpactGroupKeySerializer(serializers.Serializer):
+    source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
+        choices=list(GROUP_SOURCES),
+        help_text='Attribute map the key lives in, in the group-by endpoint\'s vocabulary: "log" or "resource".',
+    )
+    key = serializers.CharField(help_text="The attribute key that carries the ID on most matching logs.")
+
+
 class _LogsImpactResponseSerializer(serializers.Serializer):
     total = serializers.IntegerField(help_text="Number of log entries matching the filters.")
     logsWithSessionId = serializers.IntegerField(
@@ -423,6 +438,28 @@ class _LogsImpactResponseSerializer(serializers.Serializer):
     )
     users = serializers.IntegerField(
         help_text="Estimated number of unique distinct IDs across the matching logs (HyperLogLog, about 1-2% error)."
+    )
+    topSessions = _LogsImpactTopValueSerializer(
+        many=True,
+        help_text="Top session IDs on the matching logs, ordered by log count descending (topK, at most 5).",
+    )
+    topUsers = _LogsImpactTopValueSerializer(
+        many=True,
+        help_text="Top person distinct IDs on the matching logs, ordered by log count descending (topK, at most 5).",
+    )
+    sessionGroupKey = _LogsImpactGroupKeySerializer(
+        allow_null=True,
+        help_text=(
+            "The dimension that carries the session ID on most matching logs. Group by this dimension to "
+            "drill into the sessions behind the counts. Null when no matching log carries a session ID."
+        ),
+    )
+    personGroupKey = _LogsImpactGroupKeySerializer(
+        allow_null=True,
+        help_text=(
+            "The dimension that carries the person distinct ID on most matching logs. Group by this dimension to "
+            "drill into the users behind the counts. Null when no matching log carries a distinct ID."
+        ),
     )
 
 
