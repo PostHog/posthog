@@ -1,10 +1,10 @@
 # PostHog metrics agent
 
-A small deployable image that scrapes the Prometheus `/metrics` endpoints you already expose and forwards them to PostHog as OTLP metrics.
+A small deployable image that scrapes the Prometheus `/metrics` endpoints you already expose, or pulls metrics from Google Cloud Monitoring, and forwards them to PostHog as OTLP metrics.
 Use it when you want PostHog Metrics without touching application code: no PostHog SDK, no exporter changes.
 
 Under the hood it is the OpenTelemetry Collector (contrib distribution, pinned) with a PostHog-rendered config:
-prometheus receiver → memory_limiter + batch → otlphttp exporter pointed at PostHog ingestion.
+prometheus and/or googlecloudmonitoring receiver → memory_limiter + batch → otlphttp exporter pointed at PostHog ingestion.
 Exemplars survive the trip: counters and histograms scraped with OpenMetrics exemplars (`trace_id`/`span_id`) become clickable trace links in the PostHog Metrics UI.
 
 ## Quickstart (Docker)
@@ -21,22 +21,89 @@ EU cloud: set `POSTHOG_HOST=https://eu.i.posthog.com`.
 
 ## Environment variables
 
-| Variable              | Required | Default                    | Meaning                                                                 |
-| --------------------- | -------- | -------------------------- | ----------------------------------------------------------------------- |
-| `POSTHOG_API_KEY`     | yes      | —                          | Project API key, sent as `Authorization: Bearer`                        |
-| `POSTHOG_HOST`        | no       | `https://us.i.posthog.com` | PostHog ingestion origin                                                |
-| `SCRAPE_TARGETS`      | yes\*    | —                          | Comma-separated `host:port` list to scrape                              |
-| `SCRAPE_INTERVAL`     | no       | `15s`                      | Scrape interval                                                         |
-| `SCRAPE_METRICS_PATH` | no       | `/metrics`                 | Metrics path on the targets                                             |
-| `SCRAPE_JOB_NAME`     | no       | `posthog-metrics-agent`    | Prometheus job name; becomes `service_name` on every metric in PostHog  |
-| `POSTHOG_DEBUG`       | no       | unset                      | `1`/`true`: also log exported batches to the container's stdout         |
-| `POSTHOG_INGEST_PATH` | no       | `/i/v1/metrics`            | Advanced: override the ingest route (used by tests)                     |
-| `SHARD_COUNT`         | no       | `1`                        | Size of an agent fleet; above 1 each instance scrapes only its share    |
-| `SHARD_INDEX`         | no       | from hostname ordinal      | This instance's index in `0..SHARD_COUNT-1` (see Scaling out)           |
-| `PERSIST_QUEUE`       | no       | unset                      | `1`/`true`: buffer undelivered batches to disk so restarts lose nothing |
-| `QUEUE_DIR`           | no       | `/var/lib/posthog-agent`   | Where the persistent queue is stored                                    |
+| Variable                         | Required | Default                    | Meaning                                                                          |
+| -------------------------------- | -------- | -------------------------- | -------------------------------------------------------------------------------- |
+| `POSTHOG_API_KEY`                | yes      | —                          | Project API key, sent as `Authorization: Bearer`                                 |
+| `POSTHOG_HOST`                   | no       | `https://us.i.posthog.com` | PostHog ingestion origin                                                         |
+| `SCRAPE_TARGETS`                 | yes\*    | —                          | Comma-separated `host:port` list to scrape                                       |
+| `SCRAPE_INTERVAL`                | no       | `15s`                      | Scrape interval                                                                  |
+| `SCRAPE_METRICS_PATH`            | no       | `/metrics`                 | Metrics path on the targets                                                      |
+| `SCRAPE_JOB_NAME`                | no       | `posthog-metrics-agent`    | Prometheus job name; becomes `service_name` on every metric in PostHog           |
+| `GCP_PROJECT_ID`                 | no       | unset                      | GCP project to pull Cloud Monitoring metrics from; setting it enables the source |
+| `GCP_METRICS`                    | yes\*\*  | —                          | Comma-separated metric types to pull                                             |
+| `GCP_METRIC_FILTERS`             | yes\*\*  | —                          | **Semicolon**-separated metric descriptor filters                                |
+| `GCP_COLLECTION_INTERVAL`        | no       | `60s`                      | Pull interval. The collector rejects values under `60s`                          |
+| `GCP_SERVICE_NAME`               | no       | `google-cloud-monitoring`  | `service_name` set on every pulled metric in PostHog                             |
+| `GOOGLE_APPLICATION_CREDENTIALS` | no       | unset                      | Path to a service account JSON key. Omit on GKE Workload Identity / GCE          |
+| `POSTHOG_DEBUG`                  | no       | unset                      | `1`/`true`: also log exported batches to the container's stdout                  |
+| `POSTHOG_INGEST_PATH`            | no       | `/i/v1/metrics`            | Advanced: override the ingest route (used by tests)                              |
+| `SHARD_COUNT`                    | no       | `1`                        | Size of an agent fleet; above 1 each instance scrapes only its share             |
+| `SHARD_INDEX`                    | no       | from hostname ordinal      | This instance's index in `0..SHARD_COUNT-1` (see Scaling out)                    |
+| `PERSIST_QUEUE`                  | no       | unset                      | `1`/`true`: buffer undeliverable batches to disk so restarts lose nothing        |
+| `QUEUE_DIR`                      | no       | `/var/lib/posthog-agent`   | Where the persistent queue is stored                                             |
 
-\* not required when you mount your own scrape configs, see below.
+\* not required when you mount your own scrape configs (see Escape hatches) or set `GCP_PROJECT_ID`.
+\*\* with `GCP_PROJECT_ID`: at least one of `GCP_METRICS`, `GCP_METRIC_FILTERS`, or a mounted `gcp_metrics_list.yaml`. Filters are separated by `;`, **not** `,`, because filter expressions can contain commas (e.g. `one_of("a", "b")`).
+
+## Pull metrics from Google Cloud Monitoring
+
+Google Cloud Monitoring cannot push OTLP by itself, so the agent polls it: when `GCP_PROJECT_ID` is set, the agent calls the Cloud Monitoring `timeSeries.list` API for the metric types you list and forwards the points to PostHog, in the same pipeline as any Prometheus scrape.
+
+Use each path for what it is for:
+
+- **Prometheus scrape** — anything that exposes a `/metrics` endpoint (your apps, exporters).
+- **Direct OTLP** — application code you control (PostHog SDK `posthog.metrics`, or an OpenTelemetry exporter pointed at PostHog).
+- **Cloud Monitoring pull** — metrics only Google has: Cloud SQL, GKE, Cloud Run, load balancers, Pub/Sub, and the other managed services.
+
+```sh
+# The service account needs roles/monitoring.viewer (monitoring.timeSeries.list).
+# The key file must be readable by the agent's uid 10001 (chmod 644 sa.json).
+docker run -d --name posthog-gcp-agent \
+  -e POSTHOG_API_KEY=<your project API key> \
+  -e GCP_PROJECT_ID=<gcp-project-id> \
+  -e GCP_METRICS=compute.googleapis.com/instance/cpu/utilization,cloudsql.googleapis.com/database/cpu/utilization \
+  -v "$PWD/sa.json:/etc/gcp/sa.json:ro" \
+  -e GOOGLE_APPLICATION_CREDENTIALS=/etc/gcp/sa.json \
+  posthog/metrics-agent:latest
+```
+
+For a prefix of metric types instead of an explicit list, use a filter:
+
+```sh
+-e GCP_METRIC_FILTERS='metric.type = starts_with("compute.googleapis.com/instance/cpu/")'
+```
+
+Both sources in one agent is fine — add `SCRAPE_TARGETS` as usual and the two receivers share the pipeline.
+
+On GKE, skip the key file and use Workload Identity instead. Create a GCP service account with `roles/monitoring.viewer`, let the agent's Kubernetes service account use it, and annotate:
+
+```sh
+gcloud iam service-accounts add-iam-policy-binding agent@<gcp-project-id>.iam.gserviceaccount.com \
+  --role roles/iam.workloadIdentityUser \
+  --member "serviceAccount:<gcp-project-id>.svc.id.goog[<namespace>/<k8s-service-account>]"
+```
+
+```yaml
+# helm values
+scrape:
+    annotationDiscovery: false
+gcp:
+    projectId: <gcp-project-id>
+    metrics:
+        - compute.googleapis.com/instance/cpu/utilization
+serviceAccount:
+    annotations:
+        iam.gke.io/gcp-service-account: agent@<gcp-project-id>.iam.gserviceaccount.com
+```
+
+(Outside Workload Identity, put the JSON key in a Secret and set `gcp.credentialsSecret.name`; the chart mounts it and sets `GOOGLE_APPLICATION_CREDENTIALS` for you.)
+
+Notes:
+
+- `GCP_COLLECTION_INTERVAL` defaults to `60s`, the collector's minimum (Cloud Sampling period for most metrics; lower values are rejected). Each `metrics_list` entry costs one `timeSeries.list` API call per interval — prefer a `metric_descriptor_filter` prefix over a long name list, and raise the interval for large lists (Cloud Monitoring API quota applies).
+- Not compatible with sharding (`SHARD_COUNT` > 1 / Helm `shards` > 1): every shard would pull the same series. Run a separate single-instance agent (or Helm release) for Cloud Monitoring.
+- The pulled metrics get `service_name = google-cloud-monitoring` (override with `GCP_SERVICE_NAME`) so they group cleanly in the Metrics UI.
+- The upstream receiver is alpha: metric naming and resource attributes can change across collector versions, and on restart there is no checkpoint, so a gap of up to one pull interval is possible.
 
 ## Scaling out (sharding)
 
@@ -59,7 +126,8 @@ Checked in this order:
 
 1. **Full config override**: mount a complete collector config at `/etc/posthog/config.yaml`. It is used verbatim (`${env:POSTHOG_API_KEY}`-style references still resolve). This is how the Helm chart drives the image.
 2. **Custom scrape configs**: mount a YAML list of Prometheus `scrape_configs` at `/etc/posthog/scrape_configs.yaml` to replace the env-generated job while keeping the PostHog exporter wiring. Tip: add `scrape_protocols: [OpenMetricsText1.0.0, OpenMetricsText0.0.1, PrometheusText0.0.4]` to each job so exemplars keep flowing.
-3. Otherwise the scrape job is rendered from `SCRAPE_TARGETS`.
+3. **Custom Cloud Monitoring metric list**: mount a raw `metrics_list` YAML list at `/etc/posthog/gcp_metrics_list.yaml` to control exactly which metric types and filters the `googlecloudmonitoring` receiver pulls (requires `GCP_PROJECT_ID`).
+4. Otherwise the scrape job is rendered from `SCRAPE_TARGETS` and the Cloud Monitoring source from `GCP_PROJECT_ID` + `GCP_METRICS` / `GCP_METRIC_FILTERS`.
 
 ## Exemplars (metric ↔ trace linking)
 
@@ -70,7 +138,7 @@ Checked in this order:
 ## Notes and limits
 
 - One `service_name` per scrape job: Prometheus `job_name` maps to `service_name` in PostHog and target labels cannot override it. Run one agent (or one mounted scrape job) per logical service if you need distinct service names.
-- Don't run bare replicas of one agent — they all scrape the same targets and double-count. To scale, use a sharded fleet (see Scaling out) so each instance takes a disjoint slice.
+- Don't run bare replicas of one agent — they all scrape the same targets (and pull the same Cloud Monitoring series) and double-count. To scale scraping, use a sharded fleet (see Scaling out) so each instance takes a disjoint slice. Cloud Monitoring is not shardable: run one puller.
 - Metrics are rate limited server side per project; keep label cardinality sane (avoid user IDs, request IDs and the like as label values).
 - Health endpoint for probes: `:13133`.
 - The agent exposes its own metrics (scrape success, queue depth, points sent/dropped) at `:8888/metrics` — point your monitoring at it, or scrape it with the agent itself.
@@ -85,7 +153,8 @@ tests/render/run.sh
 # Helm chart render + behavior tests (needs helm):
 tests/helm/run.sh
 
-# Integration smoke test (builds the image; asserts exemplars survive scrape -> OTLP):
+# Integration smoke test (builds the image; asserts exemplars survive scrape -> OTLP,
+# and validates the rendered configs — including the GCP source — with the real collector):
 tests/integration/run.sh
 
 # Durability: scrape through a simulated outage, hard-kill, assert nothing lost:
@@ -119,3 +188,5 @@ FROM posthog.metrics
 WHERE service_name = 'agent-e2e'
 GROUP BY 1, 2
 ```
+
+The Google Cloud Monitoring source is covered by the render goldens and the offline collector `validate` step in the integration suite; a live pull needs real GCP credentials and cannot run in CI. To verify it end to end, run the agent with a service account (see above) and check for rows with `service_name = 'google-cloud-monitoring'` in the same query.
