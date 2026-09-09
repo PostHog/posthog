@@ -46,8 +46,13 @@ PG_APPLICATION_NAME = "person_pg_cleanup_drain"
 # Server-side cap on DeleteTombstonedPersonsRequest.person_uuids.
 RPC_MAX_UUIDS = 1000
 
-# personhog-replica runs each delete chunk under this statement timeout. A client deadline below
-# it would abandon a delete the server keeps running, then retry it on top.
+# personhog-replica splits a request into chunks of REPLICA_CHUNK_SIZE uuids and runs them one
+# after another, each under REPLICA_CHUNK_STATEMENT_TIMEOUT_SECONDS per statement. The client
+# deadline has to cover every chunk in the request, or the client abandons a delete the server
+# keeps running and then retries it on top. REPLICA_CHUNK_SIZE mirrors the production
+# BULK_CHUNK_SIZE; the server default of 200 would allow a shorter deadline, so 100 is the
+# conservative choice.
+REPLICA_CHUNK_SIZE = 100
 REPLICA_CHUNK_STATEMENT_TIMEOUT_SECONDS = 30.0
 
 RETRY_BACKOFF_CAP_SECONDS = 60.0
@@ -80,8 +85,9 @@ class DrainConfig(dagster.Config):
         "writer slows down, the drain slows down with it.",
     )
     rpc_timeout_seconds: float = pydantic.Field(
-        default=60.0,
-        description="Deadline per personhog request. Must exceed the replica's 30 s chunk statement timeout.",
+        default=120.0,
+        description="Deadline per personhog request. Must exceed 30 s for every chunk of 100 uuids the request "
+        "holds, so the client never gives up on a delete the replica is still running.",
     )
     max_runtime_seconds: int = pydantic.Field(
         default=4 * 3600,
@@ -108,10 +114,11 @@ class DrainConfig(dagster.Config):
             raise ValueError(f"page_size must be between 1 and {RPC_MAX_UUIDS}")
         if not 1 <= self.rpc_batch_size <= RPC_MAX_UUIDS:
             raise ValueError(f"rpc_batch_size must be between 1 and {RPC_MAX_UUIDS}")
-        if self.rpc_timeout_seconds <= REPLICA_CHUNK_STATEMENT_TIMEOUT_SECONDS:
+        if self.rpc_timeout_seconds <= minimum_rpc_timeout_seconds(self.rpc_batch_size):
             raise ValueError(
-                f"rpc_timeout_seconds must exceed the replica's {REPLICA_CHUNK_STATEMENT_TIMEOUT_SECONDS:.0f} s "
-                "chunk statement timeout"
+                f"rpc_timeout_seconds must exceed {minimum_rpc_timeout_seconds(self.rpc_batch_size):.0f} s for "
+                f"rpc_batch_size={self.rpc_batch_size}: the replica runs one {REPLICA_CHUNK_STATEMENT_TIMEOUT_SECONDS:.0f} s "
+                f"chunk per {REPLICA_CHUNK_SIZE} uuids, one after another"
             )
         if self.max_persons < 0 or self.pause_ms < 0 or self.latency_multiplier < 0 or self.blocked_retry_hours < 0:
             raise ValueError("max_persons, pause_ms, latency_multiplier and blocked_retry_hours must not be negative")
@@ -204,6 +211,11 @@ def chunks_for_page(rows: Sequence[QueueRow], rpc_batch_size: int) -> list[Chunk
     ]
 
 
+def minimum_rpc_timeout_seconds(rpc_batch_size: int) -> float:
+    chunks = -(-rpc_batch_size // REPLICA_CHUNK_SIZE)
+    return REPLICA_CHUNK_STATEMENT_TIMEOUT_SECONDS * chunks
+
+
 def is_retryable_pg_error(exc: BaseException) -> bool:
     # Serialization failure and deadlock: the statement can simply run again.
     return isinstance(exc, psycopg2.Error) and getattr(exc, "pgcode", None) in {"40001", "40P01"}
@@ -286,9 +298,15 @@ def _delete_queue_rows(cursor: psycopg2.extensions.cursor, chunk: Chunk, person_
 def _mark_blocked(cursor: psycopg2.extensions.cursor, chunk: Chunk, person_uuids: Sequence[str]) -> None:
     if not person_uuids:
         return
+    # Same deleted_at guard as the delete: a row the sweep re-queued mid-flight belongs to a newer
+    # tombstone, and stamping it blocked on this stale answer would park it for the retry window.
     cursor.execute(
-        f"UPDATE {PG_CLEANUP_QUEUE_TABLE} SET blocked_at = now() WHERE team_id = %s AND person_uuid = ANY(%s::uuid[])",
-        (chunk.team_id, list(person_uuids)),
+        f"""
+        UPDATE {PG_CLEANUP_QUEUE_TABLE}
+        SET blocked_at = now()
+        WHERE team_id = %s AND deleted_at = %s AND person_uuid = ANY(%s::uuid[])
+        """,
+        (chunk.team_id, chunk.deleted_at, list(person_uuids)),
     )
 
 
