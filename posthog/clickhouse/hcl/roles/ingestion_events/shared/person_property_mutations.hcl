@@ -8,6 +8,7 @@ database "posthog" {
       topic_list = "clickhouse_events_json"
       group_name = "clickhouse_person_property_mutation_log"
       format = "JSONEachRow"
+      skip_broken_messages = 100
     }
   }
   materialized_view "person_property_mutation_log_mv" {
