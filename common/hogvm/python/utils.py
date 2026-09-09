@@ -71,6 +71,9 @@ def _format_regex_error(error: Exception) -> str:
 
 
 def _compile_regex(pattern: str, case_insensitive: bool = False) -> Any:
+    # re2 matches in linear time, unlike Python's backtracking re engine. It also makes the character
+    # classes ASCII-only, so `\w+` extracts "caf" from "café" and `^\w+$` does not match "Müller".
+    # The =~ operator, like(), the Node VM and ClickHouse all use re2, so the Hog surfaces agree.
     try:
         return re2.compile(pattern, options=_CASE_INSENSITIVE_OPTS) if case_insensitive else re2.compile(pattern)
     except re2.error as e:
@@ -88,7 +91,7 @@ def regex_match(string: Any, pattern: Any, case_insensitive: bool = False) -> bo
 
 def regex_extract(string: Any, pattern: Any) -> str:
     # Matches ClickHouse extract(): first capture group if the pattern has groups, else the whole
-    # match, else empty. re2 matches in linear time, unlike Python's backtracking re engine.
+    # match, else empty.
     if string is None or pattern is None:
         return ""
     haystack = str(string)

@@ -1225,6 +1225,21 @@ class TestBytecodeExecute:
         assert result == expected
         assert elapsed < 1.0
 
+    @parameterized.expand(
+        [
+            ("extractRegex", "café", r"\w+", "caf"),
+            ("extractRegex", "日本語", r"\w+", ""),
+            ("match", "Müller", r"^\w+$", False),
+            ("match", "١٢٣", r"\d+", False),
+        ]
+    )
+    def test_regex_character_classes_are_ascii_only(
+        self, fn_name: str, subject: str, pattern: str, expected: bool | str
+    ) -> None:
+        # The linear-time test cannot pin this, because another linear-time engine could restore the
+        # Unicode classes and still run fast. Python's re engine gives "café", a match, and true here.
+        assert STL[fn_name].fn([subject, pattern], None, None, 5.0) == expected
+
     def test_sortable_semver(self):
         # Basic semver parsing
         assert self._run("sortableSemver('1.2.3')") == [1, 2, 3]
