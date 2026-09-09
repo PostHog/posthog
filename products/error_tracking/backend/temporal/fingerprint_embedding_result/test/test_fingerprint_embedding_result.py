@@ -190,8 +190,7 @@ class TestFingerprintEmbeddingResultActivity:
     @pytest.mark.parametrize(
         "error,expect_captured",
         [
-            # A worker draining mid-merge cancels the activity, which Temporal retries on a fresh
-            # worker. Nothing broke, so it must not reach error tracking.
+            # A drain cancels the activity, and Temporal retries it on a fresh worker.
             (CancelledError("Cancelled"), False),
             (OperationalError("server closed the connection unexpectedly"), False),
             (ValueError("boom"), True),

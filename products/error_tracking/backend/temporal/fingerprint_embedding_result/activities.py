@@ -301,8 +301,7 @@ def merge_similar_fingerprints(
         )
     except Exception as err:
         # A drained worker raises a cancellation straight into this thread, usually while the
-        # merge waits on a row lock, so the trace looks like a database fault. Ask the shared
-        # filter instead of reading the trace.
+        # merge waits on a row lock, so the trace looks like a database fault.
         if not is_expected_activity_failure(err):
             _capture_activity_exception(
                 err,

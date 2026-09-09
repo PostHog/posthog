@@ -152,9 +152,8 @@ def generate_issue_created_embedding_activity(
         raise
 
 
-# capture_exceptions=False on the three activities below: they add no properties of their own, so
-# the shared activity interceptor is the better reporter. It knows which failures are expected,
-# and it reports each defect once.
+# The three activities below add no properties of their own, so the shared activity interceptor
+# is the better reporter: it knows which failures are expected.
 @activity.defn
 @posthoganalytics.scoped(capture_exceptions=False)
 @close_db_connections

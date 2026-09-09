@@ -110,11 +110,8 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             return await super().execute_activity(input)
         except Exception as e:
             if is_expected_activity_failure(e):
-                # A saturated connection pool clears on its own and Temporal retries the activity,
-                # so a burst of them would otherwise mint a fresh error tracking issue per module
-                # for a condition nobody can action per-activity. Log it instead, and leave the
-                # retry to Temporal — a pool problem that outlives the retries surfaces as a
-                # workflow failure.
+                # A pool problem that outlives the retries surfaces as a workflow failure, so a
+                # log here is enough. Capturing would mint an issue per module for one condition.
                 if is_transient_db_error(e):
                     await logger.awarning(
                         "Transient database error in activity %s, leaving retry to Temporal",
