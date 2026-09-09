@@ -76,7 +76,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-06-11',
         featureFlags: {
-            [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
             [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'empty-state',
             [FEATURE_FLAGS.INBOX_REDESIGN]: true,
         },
@@ -115,7 +114,6 @@ export const Settings: Story = {
 // The layout the flag replaces: one tab per report list, the Runs and Configuration tabs, and the
 // setup rail. Story parameters replace the meta's, so the meta-level flags are re-listed.
 const LEGACY_FLAGS = {
-    [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
     [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'empty-state',
     [FEATURE_FLAGS.INBOX_REDESIGN]: false,
 }
@@ -162,7 +160,6 @@ export const Empty: Story = {
 export const EmptyControl: Story = {
     parameters: {
         featureFlags: {
-            [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
             [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'control',
             [FEATURE_FLAGS.INBOX_REDESIGN]: true,
         },

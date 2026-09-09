@@ -49,7 +49,6 @@ const meta: Meta<typeof ScoutsRoster> = {
         viewMode: 'story',
         mockDate: '2026-06-11',
         featureFlags: {
-            [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
             [FEATURE_FLAGS.INBOX_REDESIGN]: true,
             [FEATURE_FLAGS.SCOUTS_SUGGESTIONS_UI]: true,
         },

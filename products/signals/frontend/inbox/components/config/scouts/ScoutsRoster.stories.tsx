@@ -18,7 +18,7 @@ const meta: Meta<typeof ScoutsRoster> = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-11',
-        featureFlags: { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true, [FEATURE_FLAGS.INBOX_REDESIGN]: true },
+        featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: true },
         testOptions: { waitForLoadersToDisappear: false },
     },
     decorators: [
@@ -62,7 +62,7 @@ export const LargeFleet: Story = {
 
 // The table roster with the redesign flag off. Story parameters replace the meta's, so the
 // meta-level flag is re-listed.
-const LEGACY_FLAGS = { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true, [FEATURE_FLAGS.INBOX_REDESIGN]: false }
+const LEGACY_FLAGS = { [FEATURE_FLAGS.INBOX_REDESIGN]: false }
 
 export const RosterLegacy: Story = {
     parameters: { featureFlags: LEGACY_FLAGS },
