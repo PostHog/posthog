@@ -12,7 +12,7 @@ const formatCount = (count: number, total: number): string => {
 }
 
 // Define a type for the color classes to ensure type safety
-type ColorClass = 'bg-brand-blue' | 'bg-warning' | 'bg-success' | 'bg-danger'
+type ColorClass = 'bg-brand-blue' | 'bg-warning' | 'bg-success' | 'bg-danger' | 'bg-muted'
 
 export interface StackedBarSegment {
     count: number
@@ -25,7 +25,7 @@ type StackedBarSize = 'md' | 'sm'
 
 const SIZE_CONFIG: Record<StackedBarSize, { bar: string; label: string; legend: string }> = {
     md: { bar: 'h-10', label: 'leading-10 text-base', legend: 'text-secondary' },
-    sm: { bar: 'h-8', label: 'leading-8 text-sm', legend: 'text-xs text-secondary' },
+    sm: { bar: 'h-2', label: '', legend: 'text-sm' },
 }
 
 export function StackedBarSkeleton({
@@ -37,15 +37,21 @@ export function StackedBarSkeleton({
 }): JSX.Element {
     const sizeClasses = SIZE_CONFIG[size]
     return (
-        <div className={clsx('flex flex-col gap-2', className)}>
+        <div className={clsx('@container/stacked-bar flex flex-col gap-2', className)}>
             <div className={clsx('relative w-full flex mx-auto', sizeClasses.bar)}>
                 <LemonSkeleton className={clsx('w-1/4 rounded-r-none opacity-60', sizeClasses.bar)} />
                 <LemonSkeleton className={clsx('w-1/2 rounded-none opacity-80', sizeClasses.bar)} />
                 <LemonSkeleton className={clsx('w-1/4 rounded-l-none opacity-100', sizeClasses.bar)} />
             </div>
-            <div className="flex items-center gap-4 justify-center">
+            <div
+                className={clsx(
+                    size === 'sm'
+                        ? 'grid grid-cols-1 @min-[48rem]/stacked-bar:grid-cols-3 gap-x-4 gap-y-2'
+                        : 'flex flex-wrap items-center gap-4 justify-center'
+                )}
+            >
                 {Array.from({ length: 3 }).map((_, index) => (
-                    <div key={index} className="flex items-center gap-2">
+                    <div key={index} className="flex items-center gap-2 min-w-0">
                         <LemonSkeleton className="size-3 rounded-full" />
                         <LemonSkeleton className="h-4 w-20" />
                     </div>
@@ -77,7 +83,7 @@ export function StackedBar({
     }
 
     return (
-        <div className={clsx('flex flex-col gap-2', className)}>
+        <div className={clsx('@container/stacked-bar flex flex-col gap-2', className)}>
             <div className={clsx('relative w-full mx-auto', sizeClasses.bar)}>
                 {segments.map(({ count, label, colorClass, tooltip }, index) => {
                     const percentage = (count / total) * 100
@@ -92,7 +98,7 @@ export function StackedBar({
                         <div
                             key={`stacked-bar-${label}`}
                             className={clsx(
-                                'text-white text-center absolute cursor-pointer',
+                                'text-white text-center absolute',
                                 sizeClasses.bar,
                                 colorClass,
                                 isFirst || isOnly ? 'rounded-l' : '',
@@ -104,14 +110,16 @@ export function StackedBar({
                                 left: `${left}%`,
                             }}
                         >
-                            <span
-                                className={clsx(
-                                    'inline-flex font-semibold max-w-full px-1 truncate',
-                                    sizeClasses.label
-                                )}
-                            >
-                                {barValueFormatter(count, total)}
-                            </span>
+                            {size !== 'sm' && (
+                                <span
+                                    className={clsx(
+                                        'inline-flex font-semibold max-w-full px-1 truncate',
+                                        sizeClasses.label
+                                    )}
+                                >
+                                    {barValueFormatter(count, total)}
+                                </span>
+                            )}
                         </div>
                     )
 
@@ -129,17 +137,41 @@ export function StackedBar({
                     )
                 })}
             </div>
-            <div className="w-full flex justify-center">
-                <div className="flex flex-wrap justify-center items-center gap-x-8 gap-y-2">
+            <div className="w-full">
+                <div
+                    className={clsx(
+                        size === 'sm'
+                            ? 'grid grid-cols-1 @min-[48rem]/stacked-bar:grid-cols-3 gap-x-4 gap-y-2'
+                            : 'flex flex-wrap justify-center gap-x-8 gap-y-2'
+                    )}
+                >
                     {segments.map(
                         ({ count, label, colorClass }) =>
-                            count > 0 && (
-                                <div key={`stacked-bar-legend-${label}`} className="flex items-center gap-2">
-                                    <div className={clsx('size-3 rounded-full', colorClass)} />
-                                    <span className={clsx('font-semibold', sizeClasses.legend)}>{`${label} (${(
-                                        (count / total) *
-                                        100
-                                    ).toFixed(1)}%)`}</span>
+                            (size === 'sm' || count > 0) && (
+                                <div key={`stacked-bar-legend-${label}`} className="flex items-center gap-2 min-w-0">
+                                    <div
+                                        className={clsx(
+                                            'shrink-0 rounded-full',
+                                            size === 'sm' ? 'size-2' : 'size-3',
+                                            colorClass
+                                        )}
+                                    />
+                                    {size === 'sm' ? (
+                                        <div className="flex flex-1 flex-wrap items-baseline justify-between gap-x-2">
+                                            <span className="text-secondary">{label}</span>
+                                            <span className="tabular-nums whitespace-nowrap">
+                                                <span className="font-semibold">{humanFriendlyNumber(count)}</span>{' '}
+                                                <span className="text-secondary ml-2">
+                                                    {((count / total) * 100).toFixed(1)}%
+                                                </span>
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <span className={clsx('font-semibold', sizeClasses.legend)}>{`${label} (${(
+                                            (count / total) *
+                                            100
+                                        ).toFixed(1)}%)`}</span>
+                                    )}
                                 </div>
                             )
                     )}
