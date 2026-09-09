@@ -524,6 +524,8 @@ jobs:
             # the SDK into an ephemeral env. posthog-hogland is first-party and
             # exempted from the 7-day soak in [tool.uv].
             - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
               id: uv
               if: steps.token.outcome == 'success'
               continue-on-error: true
@@ -802,6 +804,8 @@ jobs:
                   echo "::add-mask::$token"
                   echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
             - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
               continue-on-error: true
             - name: Destroy preview box + pen
               continue-on-error: true

@@ -61,6 +61,8 @@ jobs:
               with:
                   clean: false
             - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
             - run: uv run .github/scripts/check-dagster-paths.py
 
     # Job to decide if we should run dagster ci
@@ -372,6 +374,8 @@ jobs:
 
             - name: Install uv
               uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
 
             - name: Download the last published durations
               # The selector's full-run cutoff and shard sizing read .test_durations,
@@ -527,10 +531,6 @@ jobs:
             - name: Install uv
               id: setup-uv
               uses: ./.github/actions/setup-uv
-              with:
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'

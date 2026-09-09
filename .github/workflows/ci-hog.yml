@@ -101,10 +101,6 @@ jobs:
             - name: Install uv
               id: setup-uv
               uses: ./.github/actions/setup-uv
-              with:
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -212,10 +208,6 @@ jobs:
             - name: Install uv
               id: setup-uv-hogql-python
               uses: ./.github/actions/setup-uv
-              with:
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv-hogql-python.outputs.cache-hit != 'true'
               run: |

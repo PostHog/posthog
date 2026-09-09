@@ -36,6 +36,8 @@ jobs:
                   python-version: '3.13.13'
 
             - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
 
             - name: Verify tag matches package version
               shell: bash

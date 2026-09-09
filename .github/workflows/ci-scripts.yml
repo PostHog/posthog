@@ -79,6 +79,8 @@ jobs:
 
             - name: Install uv
               uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
 
             # The preinstalled python3 runs these standalone tests, so no
             # setup-python step. defusedxml + opentelemetry + tools/owners are

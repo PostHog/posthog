@@ -45,6 +45,8 @@ jobs:
 
             - name: Install uv
               uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
 
             - name: Cleanup specific PR droplet
               if: inputs.pr_number != ''

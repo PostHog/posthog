@@ -73,6 +73,8 @@ jobs:
 
             - name: Install uv
               uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
 
             - name: Install dependencies
               run: uv sync --frozen --dev

@@ -96,8 +96,6 @@ jobs:
 
             - name: Install uv
               uses: ./.github/actions/setup-uv
-              with:
-                  enable-cache: true
 
             - name: Install system dependencies
               # protobuf-compiler (protoc) is needed to build personhog-router: its

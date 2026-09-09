@@ -27,6 +27,8 @@ jobs:
 
             - name: Install uv
               uses: ./.depot/actions/setup-uv
+              with:
+                  enable-cache: false
 
             - name: Find newest Backend CI run with timing artifacts
               id: find-backend-run

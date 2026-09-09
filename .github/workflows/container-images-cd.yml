@@ -590,6 +590,8 @@ jobs:
 
             - name: Install uv for dependency analysis
               uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
 
             - name: Check for Python dependency changes that affect analytics platform temporal worker
               id: check_python_changes_analytics_platform_temporal_worker

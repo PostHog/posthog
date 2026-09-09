@@ -73,6 +73,8 @@ jobs:
 
             - name: Install uv
               uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
 
             - name: Create venv with test dependencies
               # Versions are read straight from the repo's pyproject.toml so parity is

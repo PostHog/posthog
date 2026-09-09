@@ -85,6 +85,8 @@ jobs:
             # tach, so no Python project sync is needed. A missing uv widens those
             # products to every backend lane rather than failing the job.
             - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
               continue-on-error: true
 
             # Split from the computation below so the cargo steps can be skipped

@@ -206,10 +206,6 @@ jobs:
 
             - name: Install uv
               uses: ./.github/actions/setup-uv
-              with:
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
@@ -427,10 +423,6 @@ jobs:
 
             - name: Install uv
               uses: ./.github/actions/setup-uv
-              with:
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install SAML (python3-saml) dependencies
               shell: bash

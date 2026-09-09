@@ -70,10 +70,6 @@ jobs:
 
             - name: Install uv # Needed for formatting generated code and running scripts
               uses: ./.github/actions/setup-uv
-              with:
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Mint setup-action GitHub token
               id: setup-gh-token

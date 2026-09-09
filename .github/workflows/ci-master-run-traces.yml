@@ -74,6 +74,8 @@ jobs:
                   skip-token-revoke: true
 
             - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
 
             # Deliberately not continue-on-error: a red tick is what holds the watermark
             # at the last clean one, so the next tick re-covers the window. This workflow

@@ -95,8 +95,6 @@ jobs:
               if: steps.gate.outputs.enabled == 'true'
               uses: ./.github/actions/setup-uv
               with:
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
                   save-cache: false
 
             - name: Install python dependencies

@@ -253,6 +253,8 @@ jobs:
               continue-on-error: true
             - name: Install uv
               uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
             - name: Set environment variables from previous job
               run: |
                   echo "PREVIEW_MODE=${{ github.event_name == 'pull_request' && needs.wait-for-docker-image.outputs.preview-mode || 'false' }}" >> $GITHUB_ENV

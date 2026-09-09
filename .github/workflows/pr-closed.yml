@@ -110,6 +110,8 @@ jobs:
             # uv (repo convention): --no-project skips the monorepo sync, --with
             # pins the first-party SDK (exempted from the 7-day soak in [tool.uv]).
             - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
               if: steps.gate.outputs.had_preview == 'true'
             - name: Destroy preview box + pen
               if: steps.gate.outputs.had_preview == 'true'
