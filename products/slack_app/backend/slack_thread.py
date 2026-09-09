@@ -176,10 +176,11 @@ class SlackThreadHandler:
         """Whether an answer is delivered as a Slack `markdown` block rather than converted to
         `mrkdwn` first. Memoized like the sibling gates, because the flag is evaluated remotely.
 
-        Public because the relay asks the same question before it prepares the answer: the
-        conversion it runs and the size it chunks to both depend on the block the answer lands in.
-        That call sits outside the try blocks the posting methods wrap themselves in, so a failed
-        integration lookup is answered here rather than left to fail the relay.
+        The one place the gate is read. The relay asks before it prepares the answer, because
+        the conversion it runs and the size it chunks to both depend on the block the answer
+        lands in, and then passes the result to `post_thread_message`. That call sits outside
+        the try blocks the posting methods wrap themselves in, so a failed integration lookup
+        is answered here rather than left to fail the relay.
         """
         if self._markdown_flag is None:
             try:
@@ -637,19 +638,23 @@ class SlackThreadHandler:
             blocks.append(feedback)
         return blocks
 
-    def post_thread_message(self, text: str, with_footer: bool = False) -> None:
+    def post_thread_message(self, text: str, with_footer: bool = False, *, markdown: bool = False) -> None:
         """Post a plain message in the existing thread.
 
         ``with_footer`` closes the message with the provenance footer, for the last
         chunk of a non-streamed answer — the streamed path appends its own instead.
         `_answer_blocks` decides what the answer is carried in.
+
+        ``markdown`` says the text is the agent's Markdown, for a caller that already read
+        `renders_markdown`. It defaults off so a message of our own wording, which carries no
+        Markdown worth rendering, never reaches the flag lookup behind that gate.
         """
         # Text past the block's character cap can only be posted as plain text, which carries
         # no blocks at all. Dropping the footer there costs a line of provenance, while keeping
         # it would cost the whole message. The menu and the thumbs go with it.
-        markdown = len(text) <= SLACK_MARKDOWN_TEXT_MAX_LEN and self.renders_markdown()
-        text_limit = SLACK_MARKDOWN_TEXT_MAX_LEN if markdown else _SECTION_TEXT_LIMIT
-        footer = self._footer_block() if with_footer and len(text) <= text_limit else None
+        markdown = markdown and len(text) <= SLACK_MARKDOWN_TEXT_MAX_LEN
+        fits_in_a_block = markdown or len(text) <= _SECTION_TEXT_LIMIT
+        footer = self._footer_block() if with_footer and fits_in_a_block else None
         blocks = self._answer_blocks(text, footer, markdown=markdown)
         try:
             self._post_in_thread(text=text, blocks=blocks)

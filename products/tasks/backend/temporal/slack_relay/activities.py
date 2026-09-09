@@ -509,7 +509,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
             prefix = mention_prefix if index == 0 else ""
             # This relay carries one agent answer, split only to fit Slack's length cap, so
             # the last chunk is where the turn ends and the footer belongs.
-            handler.post_thread_message(f"{prefix}{chunk}", with_footer=index == len(chunks) - 1)
+            handler.post_thread_message(f"{prefix}{chunk}", with_footer=index == len(chunks) - 1, markdown=markdown)
         if has_pending_slack_files and not compose_with_charts:
             deliver_pending_slack_file_artifacts(task_run)
 

@@ -1,7 +1,7 @@
 """Building a Slack `markdown` block, which renders Markdown instead of Slack's own `mrkdwn`.
 
 Shared by every surface that has Markdown to deliver, so the block's character budget is
-stated in one place and cannot drift between them.
+stated once rather than per product.
 """
 
 from __future__ import annotations
@@ -11,13 +11,8 @@ from __future__ import annotations
 SLACK_MARKDOWN_TEXT_MAX_LEN = 11500
 
 
-def truncate_slack_text(text: str, limit: int) -> str:
-    """Keep text below the block's character limit with headroom."""
-    if len(text) <= limit:
-        return text
-    return text[: limit - 1].rstrip() + "…"
-
-
 def slack_markdown_block(text: str) -> dict:
-    """The Slack block that renders Markdown."""
+    """The block Slack renders Markdown in. The caller is responsible for `text` being safe to
+    show and within `SLACK_MARKDOWN_TEXT_MAX_LEN`, because Slack rejects the whole message
+    otherwise."""
     return {"type": "markdown", "text": text}

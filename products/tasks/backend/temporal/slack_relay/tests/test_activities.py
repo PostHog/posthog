@@ -579,7 +579,7 @@ class TestRelaySlackMessage(TestCase):
         artifact.refresh_from_db()
         self.assertEqual(artifact.versions[0]["delivery_status"], "pending")
         self.assertEqual(artifact.location["delivery_status"], "pending")
-        mock_post.assert_called_once_with("<@U123> Here's the trend.", with_footer=True)
+        mock_post.assert_called_once_with("<@U123> Here's the trend.", with_footer=True, markdown=False)
 
 
 class TestMarkdownToSlackMrkdwn(unittest.TestCase):
@@ -1033,5 +1033,5 @@ class TestRelaySlackMessageChunking(TestCase):
             )
         )
 
-        mock_post.assert_called_once_with("<@U456> Here you go.", with_footer=True)
+        mock_post.assert_called_once_with("<@U456> Here you go.", with_footer=True, markdown=False)
         mock_post_footer.assert_not_called()

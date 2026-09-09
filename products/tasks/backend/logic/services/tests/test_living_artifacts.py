@@ -24,7 +24,7 @@ from products.tasks.backend.logic.services.living_artifacts import (
     ArtifactCommit,
     DocumentConnectorUnavailable,
     _answer_block_text,
-    _answer_blocks,
+    _answer_text_blocks,
     _chart_card_blocks,
     _post_composed_answer_message,
     _SlackImageCard,
@@ -719,7 +719,7 @@ class TestChartCardBlockBuilders(SimpleTestCase):
     def test_sections_split_below_the_cap_of_the_block_they_land_in(
         self, _name, markdown, block_type, cap, expected_lengths
     ):
-        blocks = _answer_blocks(["a" * 6500, "short"], markdown=markdown)
+        blocks = _answer_text_blocks(["a" * 6500, "short"], markdown=markdown)
         self.assertEqual([b["type"] for b in blocks], [block_type] * len(expected_lengths))
         self.assertEqual([len(_answer_block_text(b)) for b in blocks], expected_lengths)
         self.assertTrue(all(len(_answer_block_text(b)) <= cap for b in blocks))
@@ -729,7 +729,7 @@ class TestChartCardBlockBuilders(SimpleTestCase):
         # A hard character slice can cut a converted entity like `<url|text>` in half;
         # the split must land on whitespace when any is available in the window.
         words = "word " * 1300  # 6500 chars of 5-char words
-        blocks = _answer_blocks([words.strip()], markdown=False)
+        blocks = _answer_text_blocks([words.strip()], markdown=False)
         self.assertGreater(len(blocks), 1)
         for block in blocks:
             text = block["text"]["text"]
@@ -740,7 +740,7 @@ class TestChartCardBlockBuilders(SimpleTestCase):
         # Tables convert to fenced blocks before this re-split, so a cut inside one would
         # leave an unclosed fence in one block and a stray closer in the next.
         table = "| cell | cell |\n" * 250
-        blocks = _answer_blocks([f"{_SLACK_CODE_FENCE}\n{table}{_SLACK_CODE_FENCE}"], markdown=False)
+        blocks = _answer_text_blocks([f"{_SLACK_CODE_FENCE}\n{table}{_SLACK_CODE_FENCE}"], markdown=False)
         self.assertGreater(len(blocks), 1)
         for block in blocks:
             text = block["text"]["text"]
@@ -753,7 +753,7 @@ class TestChartCardBlockBuilders(SimpleTestCase):
         # After a fence is closed and reopened, the only whitespace in the window can be
         # the reopen prefix's own newline — cutting there consumes nothing of the content.
         section = f"{_SLACK_CODE_FENCE}\n{'x' * 8000}\n{_SLACK_CODE_FENCE}"
-        blocks = _answer_blocks([section], markdown=False)
+        blocks = _answer_text_blocks([section], markdown=False)
         self.assertGreater(len(blocks), 1)
         for block in blocks:
             text = block["text"]["text"]
