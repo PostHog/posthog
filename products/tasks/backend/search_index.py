@@ -9,6 +9,7 @@ from django.db.models import Q, Value
 from django.db.models.functions import Concat, Lower, Trim
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
@@ -254,7 +255,11 @@ def rebuild_team_search_index(team_id: int) -> None:
     environment_ids = Team.objects.filter(Q(id=canonical_team_id) | Q(parent_team_id=canonical_team_id)).values_list(
         "id", flat=True
     )
-    TaskSearchDocument.objects.for_team(canonical_team_id, canonical=True).delete()
+    # Rewrite every document first, then drop only the rows this pass did not touch.
+    # A delete at the start empties the projection that the task list search reads, so
+    # the team gets no search results while the rebuild runs, and none after it stops
+    # early. `updated_at` is auto_now, so every rewritten row moves to or past this mark.
+    rebuild_started_at = timezone.now()
     for task_id in Task.objects.filter(team_id__in=environment_ids).values_list("id", flat=True).iterator():
         index_task(task_id, include_related=False, canonical_team_id=canonical_team_id)
     for run_id in TaskRun.objects.filter(team_id__in=environment_ids).values_list("id", flat=True).iterator():
@@ -269,6 +274,9 @@ def rebuild_team_search_index(team_id: int) -> None:
         index_channel(channel_id, canonical_team_id=canonical_team_id)
     for canvas_id in Canvas.objects.for_team(canonical_team_id, canonical=True).values_list("id", flat=True).iterator():
         index_canvas(canvas_id, canonical_team_id=canonical_team_id)
+    TaskSearchDocument.objects.for_team(canonical_team_id, canonical=True).filter(
+        updated_at__lt=rebuild_started_at
+    ).delete()
 
 
 def _touches(update_fields, fields: set[str]) -> bool:
