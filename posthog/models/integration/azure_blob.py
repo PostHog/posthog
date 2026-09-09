@@ -144,6 +144,7 @@ def validate_azure_blob_connection_string(connection_string: str) -> None:
     for endpoint in explicit_endpoints + derived_endpoints:
         if validation_applies and not endpoint.lower().startswith("https://"):
             raise ValueError("Endpoints in the connection string must use https")
-        allowed, error = is_url_allowed(endpoint)
-        if not allowed:
-            raise EndpointNotAllowedError(f"Invalid endpoint found in connection string: {error}")
+        if validation_applies:
+            allowed, error = is_url_allowed(endpoint)
+            if not allowed:
+                raise EndpointNotAllowedError(f"Invalid endpoint found in connection string: {error}")
