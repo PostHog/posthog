@@ -102,25 +102,25 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
         # The harness fragments are HogQL text from mcp_harness; parse them to AST and inject
         # as placeholders so nothing is string-interpolated. The token is computed once as a
         # column in the inner query and the label buckets that column, per mcp_harness's contract.
-        # The outer SELECT projects uuid so the ORDER BY tie-break resolves to a real column.
-        # Without it HogQL synthesizes the sort column, and the alias it picks changes when the
-        # person columns read from the event row, so ClickHouse rejects the sort. The response
-        # maps positions 0 to 6, so nothing reads this last column.
+        # The sort keys carry their own names because an outer ORDER BY on a name that the events
+        # table also defines makes HogQL synthesize a suffixed column, such as `uuid_0`, while the
+        # sort description still asks for `uuid`, and ClickHouse then rejects the sort. Naming the
+        # timestamp separately also stops the outer projection from shadowing it, so the sort
+        # compares timestamps rather than the strings the outer column holds.
         return parse_select(
             """
             SELECT
-                toString(timestamp) AS timestamp,
+                toString(sort_ts) AS timestamp,
                 intent,
                 {harness_label} AS harness,
                 session_id,
                 distinct_id,
                 person_email,
-                person_name,
-                uuid
+                person_name
             FROM (
                 SELECT
-                    timestamp,
-                    uuid,
+                    timestamp AS sort_ts,
+                    uuid AS sort_uuid,
                     {report_text} AS intent,
                     {conversation_id} AS session_id,
                     distinct_id,
@@ -131,7 +131,7 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
                 FROM events
                 WHERE {where}
             )
-            ORDER BY timestamp DESC, uuid DESC
+            ORDER BY sort_ts DESC, sort_uuid DESC
             LIMIT {limit} OFFSET {offset}
             """,
             placeholders={
