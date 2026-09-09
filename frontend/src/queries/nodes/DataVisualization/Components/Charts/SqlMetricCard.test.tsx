@@ -52,10 +52,38 @@ describe('SqlMetricCard', () => {
         })
 
         await waitFor(() => expect(screen.getByText('$1,500')).toBeInTheDocument())
-        expect(screen.getByText('2026-01-03')).toBeInTheDocument()
+        expect(screen.getByText('Jan 3, 2026')).toBeInTheDocument()
         expect(container.querySelector('[data-attr="metric-card-sparkline"]')).toBeInTheDocument()
 
         hoverAtIndex(getHogChart(container).element, 1, 3)
-        await waitFor(() => expect(screen.getByText('2026-01-02')).toBeInTheDocument())
+        await waitFor(() => expect(screen.getByText('Jan 2, 2026')).toBeInTheDocument())
+    })
+
+    it('applies the metric settings for the headline and change pill', async () => {
+        renderDataVisualization({
+            query: buildDataVisualizationQuery({
+                display: ChartDisplayType.Metric,
+                chartSettings: {
+                    xAxis: { column: 'day' },
+                    yAxis: [{ column: 'revenue' }],
+                    metric: { summary: 'total', showChange: false },
+                },
+            }),
+            response: {
+                columns: ['day', 'revenue'],
+                types: [
+                    ['day', 'Date'],
+                    ['revenue', 'Float64'],
+                ],
+                results: [
+                    ['2026-01-01', 1000],
+                    ['2026-01-02', 1500],
+                ],
+            },
+        })
+
+        await waitFor(() => expect(screen.getByText('2500')).toBeInTheDocument())
+        expect(screen.getByText('Total')).toBeInTheDocument()
+        expect(screen.queryByText('+50%')).not.toBeInTheDocument()
     })
 })

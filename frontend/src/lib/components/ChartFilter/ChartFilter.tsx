@@ -4,7 +4,14 @@ import { IconGlobe, IconGraph, IconPieChart, IconRetentionHeatmap, IconTrends } 
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Icon123, IconAreaChart, IconCumulativeChart, IconDonutChart, IconTableChart } from 'lib/lemon-ui/icons'
+import {
+    Icon123,
+    IconAreaChart,
+    IconCumulativeChart,
+    IconDonutChart,
+    IconTableChart,
+    IconTrendingUp,
+} from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -140,7 +147,7 @@ export function ChartFilter(): JSX.Element {
                     ? [
                           {
                               value: ChartDisplayType.Metric,
-                              icon: <IconTrends />,
+                              icon: <IconTrendingUp />,
                               label: 'Metric',
                               labelInMenu: (
                                   <ChartFilterOptionLabel

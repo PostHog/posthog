@@ -4,7 +4,7 @@ import { IconGraph, IconLifecycle, IconPieChart, IconScatter, IconTrends } from 
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Icon123, IconAreaChart, IconHeatmap, IconTableChart } from 'lib/lemon-ui/icons'
+import { Icon123, IconAreaChart, IconHeatmap, IconTableChart, IconTrendingUp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ChartDisplayType } from '~/types'
@@ -78,17 +78,6 @@ export function getTableDisplayOptions(
                     icon: <Icon123 />,
                     label: 'Big number',
                 },
-                ...(metricInsightEnabled
-                    ? [
-                          {
-                              value: ChartDisplayType.Metric,
-                              icon: <IconTrends />,
-                              label: 'Metric',
-                              disabledReason:
-                                  numericalColumns.length === 0 ? 'Requires at least one numeric column' : undefined,
-                          },
-                      ]
-                    : []),
             ],
         },
         {
@@ -102,6 +91,17 @@ export function getTableDisplayOptions(
                         ? 'Requires at least two columns, including one numeric column'
                         : undefined,
                 },
+                ...(metricInsightEnabled
+                    ? [
+                          {
+                              value: ChartDisplayType.Metric,
+                              icon: <IconTrendingUp />,
+                              label: 'Metric',
+                              disabledReason:
+                                  numericalColumns.length === 0 ? 'Requires at least one numeric column' : undefined,
+                          },
+                      ]
+                    : []),
                 {
                     value: ChartDisplayType.ActionsBar,
                     icon: <IconGraph />,
