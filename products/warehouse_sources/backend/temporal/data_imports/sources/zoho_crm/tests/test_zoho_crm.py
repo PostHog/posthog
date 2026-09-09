@@ -7,6 +7,10 @@ from unittest import mock
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientNonRetryableError,
+    RESTClientRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.settings import ZOHO_CRM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.zoho_crm import (
@@ -56,6 +60,15 @@ def _response(status_code: int = 200, body: Optional[dict[str, Any]] = None) -> 
     response.status_code = status_code
     response.ok = 200 <= status_code < 400
     response.json.return_value = body if body is not None else {}
+    return response
+
+
+def _undecodable_response(content: bytes, url: str = "https://www.zohoapis.com/crm/v8/Leads?page=1") -> mock.MagicMock:
+    """A 2xx whose body `response.json()` refuses, as `requests` reports it."""
+    response = _response(200)
+    response.json.side_effect = requests.exceptions.JSONDecodeError("Expecting value", "", 0)
+    response.content = content
+    response.url = url
     return response
 
 
@@ -170,6 +183,20 @@ class TestZohoCRMClient:
             client.mint_access_token()
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_non_json_token_body_is_non_retryable(self, make_session: mock.MagicMock) -> None:
+        # The accounts host answers with a login or error page when the account does not live in
+        # the picked data center; retrying that page can never mint a token.
+        make_session.return_value = _session(
+            [],
+            post_responses=[
+                _undecodable_response(b"<html><body>Sign in</body></html>", "https://accounts.zoho.com/oauth/v2/token")
+            ],
+        )
+
+        with pytest.raises(RESTClientNonRetryableError):
+            _client().mint_access_token()
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_authorization_header_uses_the_zoho_scheme(self, make_session: mock.MagicMock) -> None:
         session = _session([_response(200, {"modules": []})])
         make_session.return_value = session
@@ -234,6 +261,13 @@ class TestReadableFieldNames:
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_204_metadata_yields_no_projection(self, make_session: mock.MagicMock) -> None:
         make_session.return_value = _session([_response(204)])
+
+        assert readable_field_names(_client(), "v8", "Leads") == []
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_empty_metadata_body_yields_no_projection(self, make_session: mock.MagicMock) -> None:
+        # An empty body is a complete "no fields" answer, so the module reads without a projection.
+        make_session.return_value = _session([_undecodable_response(b"")])
 
         assert readable_field_names(_client(), "v8", "Leads") == []
 
@@ -419,6 +453,38 @@ class TestGetRows:
         assert _get_params(session, 0)["type"] == "AllUsers"
         assert "sort_by" not in _get_params(session, 0)
         assert "fields" not in _get_params(session, 0)
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_empty_records_body_stops_pagination_without_crashing(self, make_session: mock.MagicMock) -> None:
+        # An empty body is a complete "no data" answer, so pagination stops and the sync ends
+        # cleanly instead of failing with an unclassified decoder error.
+        session = _session([_fields_response(1), _undecodable_response(b"")])
+        make_session.return_value = session
+        manager = FakeResumeManager()
+
+        assert list(get_rows(_client(), "v8", "Leads", manager, mock.MagicMock())) == []
+        assert manager.cleared is True
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_non_json_records_body_is_non_retryable(self, make_session: mock.MagicMock) -> None:
+        # An HTML error or login page on a 2xx cannot become data, so it must fail at once, and
+        # the message must not carry the query string.
+        make_session.return_value = _session(
+            [_fields_response(1), _undecodable_response(b"<!DOCTYPE html><html><body>Sign in</body></html>")]
+        )
+
+        with pytest.raises(RESTClientNonRetryableError) as exc:
+            list(get_rows(_client(), "v8", "Leads", FakeResumeManager(), mock.MagicMock()))
+
+        assert str(exc.value) == "Non-JSON response from https://www.zohoapis.com/crm/v8/Leads"
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_truncated_records_body_stays_retryable(self, make_session: mock.MagicMock) -> None:
+        # A body that starts as JSON is a partial read, so a retry can still get the page.
+        make_session.return_value = _session([_fields_response(1), _undecodable_response(b'{"data": [{"id": "1"}')])
+
+        with pytest.raises(RESTClientRetryableError):
+            list(get_rows(_client(), "v8", "Leads", FakeResumeManager(), mock.MagicMock()))
 
 
 class TestValidateCredentials:
