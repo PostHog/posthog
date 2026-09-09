@@ -1825,9 +1825,9 @@ snapshots:
     components-product-empty-state--early-access-features-needs-setup--light:
         hash: v1.k794b7964.563633a4174e6b82faff11a7d2c874fb50a28882f4b4657fdcab70cdb88b479f.mEBCqNYE4cD9VvOJqQs8Z50S9eRIL1HOnu9MNHbIoPQ
     components-product-empty-state--empty-no-action--dark:
-        hash: v1.k794b7964.01f56e9e0d751a5c0fd6cd2adee993fd8d3b1edce8c3db666da93336ca655590.zbVyer02lJY_tFXGrLIB2hZO_hwO2JxrCpe-IqphV4U
+        hash: v1.k794b7964.6d07321d951e9c7bf3bf7de4b49b599f16a8584340cb77a78e270a5010218db0.bnlqCCe_LJ1XmziLkFnZ9-hsJTDknXFwdqF7_foBC7A
     components-product-empty-state--empty-no-action--light:
-        hash: v1.k794b7964.b5d3c521caacfe06bfcfb89d804c837739a3f79939cf0bbcd03816efda6e996e.YAL5mcFzZzzKkSykVs51A2VnsgflSQytExobzaRe-f4
+        hash: v1.k794b7964.45c59fd202ecac44444ee767f2a1f83d402a8be9a2efde2524250a523646fe39.B_5Ra_bXUmrcMfNogUoeXxjntTGRMsVzOs1xxIGZb2c
     components-product-empty-state--empty-with-action--dark:
         hash: v1.k794b7964.6fb2d5feff1fa62c3ed888268602b4eb017f75d33178538542ee4a6d28072fc3.6uOkXnAq1kHhkU8QtOWmFY2eJik3PqRUQegVam-OCGI
     components-product-empty-state--empty-with-action--light:
