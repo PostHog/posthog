@@ -542,9 +542,9 @@ tools:
             idempotent: true
         title: List available task run models
         description: >
-            List the models a task run may use, each with its runtime adapter and the reasoning efforts it supports.
-            Use the returned identifiers when setting task run default preferences or creating a run. An empty list
-            means the model catalogue is temporarily unavailable, not that no models exist.
+            List the models a task run may use, each with its runtime adapter and the reasoning efforts it supports. Use
+            the returned identifiers when setting task run default preferences or creating a run. An empty list means
+            the model catalogue is temporarily unavailable, not that no models exist.
     tasks-partial-update:
         operation: tasks_partial_update
         enabled: false
