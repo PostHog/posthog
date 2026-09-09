@@ -2,12 +2,20 @@ import { Handle, Position } from '@xyflow/react'
 import clsx from 'clsx'
 import React, { useCallback, useState } from 'react'
 
-import { IconActivity, IconClockRewind, IconPencil, IconPlay, IconPlayFilled, IconTarget } from '@posthog/icons'
+import {
+    IconActivity,
+    IconClockRewind,
+    IconPauseFilled,
+    IconPencil,
+    IconPlay,
+    IconPlayFilled,
+    IconTarget,
+} from '@posthog/icons'
 import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
-import { DataModelingJobStatus, DataModelingNode } from '~/types'
+import { DataModelingNode } from '~/types'
 
 import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
@@ -29,6 +37,7 @@ export type LineageNodeShape = Pick<
     | 'upstream_count'
     | 'downstream_count'
     | 'user_tag'
+    | 'suspended'
 >
 
 export interface LineageNodeState {
@@ -57,13 +66,29 @@ export interface LineageNodeData extends Record<string, unknown> {
     handles: NodeHandle[]
 }
 
-function StatusDot({ status }: { status?: DataModelingJobStatus }): JSX.Element {
+function StatusDot({ node }: { node: LineageNodeShape }): JSX.Element {
+    const suspension = Object.values(node.suspended ?? {})[0]
+    if (suspension) {
+        return (
+            <Tooltip
+                title={
+                    <div className="flex flex-col gap-1">
+                        <div>Suspended after repeated failures</div>
+                        <div className="opacity-75">{suspension.reason}</div>
+                    </div>
+                }
+                interactive
+            >
+                <IconPauseFilled className="text-warning text-sm" />
+            </Tooltip>
+        )
+    }
     return (
-        <Tooltip title={status ?? 'Not run yet'}>
+        <Tooltip title={node.last_run_status ?? 'Not run yet'}>
             <div
                 className={clsx(
                     'rounded-full w-3 h-3 border-1 border-primary',
-                    status ? statusBackgroundClass(status) : 'bg-surface-primary'
+                    node.last_run_status ? statusBackgroundClass(node.last_run_status) : 'bg-surface-primary'
                 )}
             />
         </Tooltip>
@@ -134,7 +159,7 @@ function MetadataBar({ node }: { node: LineageNodeShape }): JSX.Element {
                     <Tooltip title="This node has not been run yet">Never</Tooltip>
                 )}
             </div>
-            <StatusDot status={node.last_run_status} />
+            <StatusDot node={node} />
         </div>
     )
 }

@@ -10,6 +10,8 @@ import { urls } from 'scenes/urls'
 
 import { DataModelingNode } from '~/types'
 
+import { NodeSuspensionApi } from 'products/data_modeling/frontend/generated/api.schemas'
+
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { DataWarehouseSavedQuery } from '../../types'
 
@@ -32,6 +34,7 @@ export interface modelsSceneLogicValues {
     savedQueryIdToNodeId: Record<string, string>
     failingNodes: DataModelingNode[]
     suspendedNodes: DataModelingNode[]
+    suspensionBySavedQueryId: Record<string, NodeSuspensionApi | undefined>
 }
 
 export interface modelsSceneLogicActions {
@@ -59,6 +62,7 @@ export interface modelsSceneLogicMeta {
         savedQueryIdToNodeId: (nodes: DataModelingNode[]) => Record<string, string>
         failingNodes: (nodes: DataModelingNode[]) => DataModelingNode[]
         suspendedNodes: (nodes: DataModelingNode[]) => DataModelingNode[]
+        suspensionBySavedQueryId: (nodes: DataModelingNode[]) => Record<string, NodeSuspensionApi | undefined>
         dataQualityTabEnabled: (featureFlags: FeatureFlagsSet) => boolean
     }
 }
@@ -124,6 +128,18 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
             (s) => [s.nodes],
             (nodes: DataModelingNode[]): DataModelingNode[] =>
                 nodes.filter((node) => Object.keys(node.suspended ?? {}).length > 0),
+        ],
+        suspensionBySavedQueryId: [
+            (s) => [s.suspendedNodes],
+            (suspendedNodes: DataModelingNode[]): Record<string, NodeSuspensionApi | undefined> => {
+                const map: Record<string, NodeSuspensionApi | undefined> = {}
+                for (const node of suspendedNodes) {
+                    if (node.saved_query_id) {
+                        map[node.saved_query_id] = Object.values(node.suspended ?? {})[0]
+                    }
+                }
+                return map
+            },
         ],
         dataQualityTabEnabled: [
             (s) => [s.featureFlags],

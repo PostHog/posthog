@@ -1,4 +1,6 @@
-import { IconInfo } from '@posthog/icons'
+import { Fragment } from 'react'
+
+import { IconChevronDown, IconChevronRight, IconInfo } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { DataModelingNodeType } from '~/types'
@@ -16,32 +18,33 @@ export interface NodeTypeLegendProps {
     onToggleCollapse: () => void
 }
 
-/** Explains what each node color on the canvas means. */
+/** Legend for the marks the canvas draws on each node. Grows upward, so its toggle never moves. */
 export function NodeTypeLegend({ collapsed, onToggleCollapse }: NodeTypeLegendProps): JSX.Element {
     return (
-        // The button comes last so it keeps the same spot on the canvas, and the panel opens above it.
-        <div className="flex flex-col items-start gap-1">
+        <div className="flex flex-col bg-surface-primary border rounded shadow-sm overflow-hidden">
             {!collapsed && (
-                <div className="flex flex-col gap-2 p-2 max-w-64 bg-surface-primary border rounded shadow-sm">
-                    <div className="text-xs font-semibold text-secondary">Node types</div>
-                    {LEGEND_ENTRIES.map(({ type, description }) => {
-                        return (
-                            <div key={type} className="flex gap-2 items-baseline">
+                <div className="grid grid-cols-[max-content_1fr] items-center gap-x-2 gap-y-2 p-2 max-w-72">
+                    {LEGEND_ENTRIES.map(({ type, description }) => (
+                        <Fragment key={type}>
+                            <span className="justify-self-start">
                                 <NodeTypeTag type={type} />
-                                <div className="text-xs text-secondary text-balance min-w-0">{description}</div>
-                            </div>
-                        )
-                    })}
+                            </span>
+                            <span className="text-xs text-secondary">{description}</span>
+                        </Fragment>
+                    ))}
                 </div>
             )}
             <LemonButton
                 size="small"
-                type="secondary"
+                fullWidth
                 icon={<IconInfo />}
+                sideIcon={collapsed ? <IconChevronRight /> : <IconChevronDown />}
                 onClick={onToggleCollapse}
-                tooltip={collapsed ? 'Show node types' : 'Hide node types'}
                 data-attr="lineage-legend-toggle"
-            />
+                tooltip={collapsed ? 'Show what each node type means' : 'Hide the legend'}
+            >
+                Node types
+            </LemonButton>
         </div>
     )
 }

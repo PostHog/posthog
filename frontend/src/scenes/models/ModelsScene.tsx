@@ -31,7 +31,8 @@ export const scene: SceneExport = {
 }
 
 export function ModelsScene(): JSX.Element {
-    const { savedQueryIdToNodeId, activeTab, dataQualityTabEnabled } = useValues(modelsSceneLogic)
+    const { savedQueryIdToNodeId, activeTab, dataQualityTabEnabled, suspensionBySavedQueryId } =
+        useValues(modelsSceneLogic)
 
     const getViewUrl = useCallback(
         (view: DataWarehouseSavedQuery): string => {
@@ -59,7 +60,7 @@ export function ModelsScene(): JSX.Element {
             key: 'models',
             label: 'Models',
             link: urls.models('models'),
-            content: <ViewsTab getViewUrl={getViewUrl} />,
+            content: <ViewsTab getViewUrl={getViewUrl} suspensionByViewId={suspensionBySavedQueryId} />,
             'data-attr': 'models-tab-models',
         },
         {

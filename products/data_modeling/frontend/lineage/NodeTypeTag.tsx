@@ -7,7 +7,7 @@ export function NodeTypeTag({ type }: { type: DataModelingNodeType }): JSX.Eleme
     const { label, color } = NODE_TYPE_TAG_SETTINGS[type]
     return (
         <span
-            className="text-[10px] lowercase tracking-wide px-1 rounded border-1"
+            className="text-[10px] lowercase tracking-wide px-1 rounded border-1 whitespace-nowrap"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 color,

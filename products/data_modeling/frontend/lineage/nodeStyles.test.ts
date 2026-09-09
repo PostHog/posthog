@@ -5,7 +5,7 @@ describe('nodeStyles', () => {
         it.each([
             ['Completed', 'bg-success'],
             ['Failed', 'bg-danger'],
-            ['Running', 'bg-brand-blue'],
+            ['Running', 'bg-warning'],
             ['Cancelled', 'bg-muted'],
             ['Skipped', 'bg-muted'],
             ['Modified', 'bg-warning'],

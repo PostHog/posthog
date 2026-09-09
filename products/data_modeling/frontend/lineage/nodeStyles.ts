@@ -26,7 +26,7 @@ export const STATUS_TAG_SETTINGS: Record<string, LemonTagType> = {
  * brand orange when filled, one hue off danger red. A mark with no text needs its own palette.
  */
 export const STATUS_MARK_BACKGROUNDS: Record<string, string> = {
-    Running: 'bg-brand-blue',
+    Running: 'bg-warning',
     Completed: 'bg-success',
     Failed: 'bg-danger',
     Cancelled: 'bg-muted',

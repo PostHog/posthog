@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { Fragment } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { DataModelingNodeType } from '~/types'
@@ -15,17 +17,23 @@ import { NodeTypeLegend } from 'products/data_modeling/frontend/lineage/NodeType
 
 import { LINEAGE_FILTER_TYPES, modelsLineageLogic } from '../modelsLineageLogic'
 
+const SEARCH_SYNTAX: { syntax: string; meaning: string }[] = [
+    { syntax: '+name', meaning: 'The model and everything it depends on' },
+    { syntax: 'name+', meaning: 'The model and everything that depends on it' },
+    { syntax: '+name+', meaning: 'Both sides' },
+]
+
 const SEARCH_HELP = (
-    <div className="flex flex-col gap-1">
-        <div>Type a name to highlight matching models.</div>
-        <div>
-            <code>+name</code> keeps the model and everything it depends on.
-        </div>
-        <div>
-            <code>name+</code> keeps the model and everything that depends on it.
-        </div>
-        <div>
-            <code>+name+</code> keeps both sides.
+    <div className="flex flex-col gap-2 max-w-72">
+        <p className="m-0">Type a name to highlight matching models.</p>
+        <p className="m-0">Add a plus to hide everything else:</p>
+        <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 items-baseline">
+            {SEARCH_SYNTAX.map(({ syntax, meaning }) => (
+                <Fragment key={syntax}>
+                    <code className="rounded border border-current/40 px-1 text-xs whitespace-nowrap">{syntax}</code>
+                    <span>{meaning}</span>
+                </Fragment>
+            ))}
         </div>
     </div>
 )
@@ -37,6 +45,7 @@ const TYPE_OPTIONS = LINEAGE_FILTER_TYPES.map((type) => ({
 
 export function ModelsLineageTab(): JSX.Element {
     const {
+        nodes,
         nodesLoading,
         edgesLoading,
         searchTerm,
@@ -79,7 +88,9 @@ export function ModelsLineageTab(): JSX.Element {
                 </div>
                 {isFiltered && (
                     <>
-                        <span className="text-xs text-secondary">Showing {visibleNodes.length} models</span>
+                        <span className="text-xs text-secondary">
+                            Showing {pluralize(visibleNodes.length, 'model')} of {nodes.length}
+                        </span>
                         <LemonButton size="xsmall" onClick={resetFilters} data-attr="models-lineage-reset-filters">
                             Clear filters
                         </LemonButton>

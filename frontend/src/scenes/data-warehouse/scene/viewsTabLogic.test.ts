@@ -23,10 +23,6 @@ describe('viewsTabLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/warehouse_saved_queries/': { count: views.length, results: views },
-                '/api/environments/:team_id/warehouse_saved_queries/:id/dependencies/': {
-                    upstream_count: 1,
-                    downstream_count: 0,
-                },
                 '/api/environments/:team_id/warehouse_saved_queries/:id/run_history/': (req) => {
                     runHistoryRequests.push(String(req.params.id))
                     return [200, { run_history: [] }]

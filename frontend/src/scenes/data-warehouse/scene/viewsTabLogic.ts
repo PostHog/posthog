@@ -8,11 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
-import {
-    DataWarehouseSavedQuery,
-    DataWarehouseSavedQueryDependencies,
-    DataWarehouseSavedQueryRunHistory,
-} from '~/types'
+import { DataWarehouseSavedQuery, DataWarehouseSavedQueryRunHistory } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type {
@@ -35,8 +31,6 @@ export interface viewsTabLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     accessControlModalOpen: boolean
     currentPage: number
-    dependenciesMap: Record<string, DataWarehouseSavedQueryDependencies>
-    dependenciesMapLoading: boolean
     editingAccessControlView: DataWarehouseSavedQuery | null
     enrichedViews: DataWarehouseSavedQuery[]
     filteredViews: DataWarehouseSavedQuery[]
@@ -74,27 +68,6 @@ export interface viewsTabLogicActions {
     }
     deleteView: (viewId: string) => {
         viewId: string
-    }
-    loadDependencies: (viewIds: string[]) => {
-        viewIds: string[]
-    }
-    loadDependenciesFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadDependenciesSuccess: (
-        dependenciesMap: Record<string, DataWarehouseSavedQueryDependencies>,
-        payload?: {
-            viewIds: string[]
-        }
-    ) => {
-        dependenciesMap: Record<string, DataWarehouseSavedQueryDependencies>
-        payload?: {
-            viewIds: string[]
-        }
     }
     loadRunHistory: (viewIds: string[]) => {
         viewIds: string[]
@@ -142,7 +115,6 @@ export interface viewsTabLogicMeta {
         viewsLoading: (dataWarehouseSavedQueriesLoading: boolean) => boolean
         enrichedViews: (
             dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
-            dependenciesMap: Record<string, DataWarehouseSavedQueryDependencies>,
             runHistoryMap: Record<string, DataWarehouseSavedQueryRunHistory[]>
         ) => DataWarehouseSavedQuery[]
         filteredViews: (
@@ -185,7 +157,6 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         setPage: (page: number) => ({ page }),
         deleteView: (viewId: string) => ({ viewId }),
         runMaterialization: (viewId: string) => ({ viewId }),
-        loadDependencies: (viewIds: string[]) => ({ viewIds }),
         loadRunHistory: (viewIds: string[]) => ({ viewIds }),
         loadVisibleData: true,
         openAccessControlModal: (view: DataWarehouseSavedQuery) => ({ view }),
@@ -228,35 +199,6 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         ],
     }),
     loaders(({ values }) => ({
-        dependenciesMap: [
-            {} as Record<string, DataWarehouseSavedQueryDependencies>,
-            {
-                loadDependencies: async ({ viewIds }) => {
-                    const viewsToLoad = viewIds.filter((id) => !values.dependenciesMap[id])
-                    if (viewsToLoad.length === 0) {
-                        return values.dependenciesMap
-                    }
-
-                    const results = await Promise.all(
-                        viewsToLoad.map(async (viewId) => {
-                            try {
-                                const data = await api.dataWarehouseSavedQueries.dependencies(viewId)
-                                return { viewId, data }
-                            } catch (error) {
-                                console.error(`Failed to load dependencies for view ${viewId}:`, error)
-                                return { viewId, data: { upstream_count: 0, downstream_count: 0 } }
-                            }
-                        })
-                    )
-
-                    const newMap = { ...values.dependenciesMap }
-                    results.forEach(({ viewId, data }) => {
-                        newMap[viewId] = data
-                    })
-                    return newMap
-                },
-            },
-        ],
         runHistoryMap: [
             {} as Record<string, DataWarehouseSavedQueryRunHistory[]>,
             {
@@ -290,16 +232,13 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
     selectors({
         viewsLoading: [(s) => [s.dataWarehouseSavedQueriesLoading], (loading: boolean): boolean => loading],
         enrichedViews: [
-            (s) => [s.dataWarehouseSavedQueries, s.dependenciesMap, s.runHistoryMap],
+            (s) => [s.dataWarehouseSavedQueries, s.runHistoryMap],
             (
                 queries: DataWarehouseSavedQuery[],
-                dependenciesMap: Record<string, DataWarehouseSavedQueryDependencies>,
                 runHistoryMap: Record<string, DataWarehouseSavedQueryRunHistory[]>
             ): DataWarehouseSavedQuery[] =>
                 queries.map((query) => ({
                     ...query,
-                    upstream_dependency_count: dependenciesMap[query.id]?.upstream_count,
-                    downstream_dependency_count: dependenciesMap[query.id]?.downstream_count,
                     run_history: query.is_materialized ? runHistoryMap[query.id] : undefined,
                 })),
         ],
@@ -368,7 +307,6 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
             if (visible.length === 0) {
                 return
             }
-            actions.loadDependencies(visible.map((view) => view.id))
             const materializedIds = visible.filter((view) => view.is_materialized).map((view) => view.id)
             if (materializedIds.length > 0) {
                 actions.loadRunHistory(materializedIds)

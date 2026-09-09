@@ -7,7 +7,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { urls } from 'scenes/urls'
@@ -21,6 +21,7 @@ import {
     DataWarehouseSavedQueryRunHistory,
 } from '~/types'
 
+import { NodeSuspensionApi } from 'products/data_modeling/frontend/generated/api.schemas'
 import { STATUS_TAG_SETTINGS, statusBackgroundClass } from 'products/data_modeling/frontend/lineage/nodeStyles'
 
 import { TableCertificationTag } from '../TableCertificationBadge'
@@ -81,21 +82,27 @@ function RunHistoryDisplay({
     )
 }
 
-function DependencyCount({ count, loading }: { count?: number; loading?: boolean }): JSX.Element {
-    if (count === undefined) {
-        return loading ? <Spinner className="text-sm" /> : <span className="text-muted">-</span>
-    }
-    return <span>{count}</span>
-}
-
-function StatusCell({ view }: { view: DataWarehouseSavedQuery }): JSX.Element {
+function StatusCell({
+    view,
+    suspension,
+}: {
+    view: DataWarehouseSavedQuery
+    suspension?: NodeSuspensionApi
+}): JSX.Element {
     if (!view.is_materialized) {
         return <span className="text-muted">-</span>
     }
-    const suspension = Object.values(view.suspended ?? {})[0]
     if (suspension) {
         return (
-            <Tooltip title={suspension.reason} interactive>
+            <Tooltip
+                title={
+                    <div className="flex flex-col gap-1">
+                        <div>Scheduled runs stopped after this model failed repeatedly.</div>
+                        <div className="opacity-75">{suspension.reason}</div>
+                    </div>
+                }
+                interactive
+            >
                 <LemonTag type="warning">Suspended</LemonTag>
             </Tooltip>
         )
@@ -116,9 +123,11 @@ function StatusCell({ view }: { view: DataWarehouseSavedQuery }): JSX.Element {
 interface ViewsTabProps {
     /** Optional function to build the URL when clicking on a view. Defaults to SQL editor. */
     getViewUrl?: (view: DataWarehouseSavedQuery) => string
+    /** Saved query id -> suspension. List responses carry no suspension, so the scene passes it in. */
+    suspensionByViewId?: Record<string, NodeSuspensionApi | undefined>
 }
 
-export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
+export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {}): JSX.Element {
     const {
         filteredViews,
         visibleViews,
@@ -126,7 +135,6 @@ export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
         searchTerm,
         typeFilter,
         currentPage,
-        dependenciesMapLoading,
         runHistoryMapLoading,
         accessControlModalOpen,
         editingAccessControlView,
@@ -165,22 +173,32 @@ export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
             render: (_, view) => {
                 const { to, description } = viewLink(view)
                 return (
-                    <div className="flex items-center gap-2">
-                        <LemonTableLink to={to} title={view.name} description={description} />
-                        <Tooltip title={VIEW_TYPE_TOOLTIP}>
-                            <LemonTag type={view.is_materialized ? 'highlight' : 'default'}>
-                                {view.is_materialized ? 'Materialized' : 'View'}
-                            </LemonTag>
-                        </Tooltip>
-                        <TableCertificationTag certification={viewsMapById[view.id]?.certification} />
-                    </div>
+                    <LemonTableLink
+                        to={to}
+                        title={
+                            <>
+                                {view.name}
+                                <Tooltip title={VIEW_TYPE_TOOLTIP}>
+                                    <LemonTag
+                                        type={view.is_materialized ? 'highlight' : 'option'}
+                                        size="small"
+                                        className="mr-1"
+                                    >
+                                        {view.is_materialized ? 'Materialized' : 'View'}
+                                    </LemonTag>
+                                </Tooltip>
+                                <TableCertificationTag certification={viewsMapById[view.id]?.certification} />
+                            </>
+                        }
+                        description={description}
+                    />
                 )
             },
         } as ViewColumn,
         {
             title: 'Status',
             key: 'status',
-            render: (_, view) => <StatusCell view={view} />,
+            render: (_, view) => <StatusCell view={view} suspension={suspensionByViewId?.[view.id]} />,
         } as ViewColumn,
         {
             title: 'Last run',
@@ -207,22 +225,7 @@ export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
                     <span className="text-muted">-</span>
                 ),
         } as ViewColumn,
-        {
-            title: 'Upstream',
-            key: 'upstream_dependency_count',
-            tooltip: 'Number of immediate upstream dependencies',
-            render: (_, view) => (
-                <DependencyCount count={view.upstream_dependency_count} loading={dependenciesMapLoading} />
-            ),
-        } as ViewColumn,
-        {
-            title: 'Downstream',
-            key: 'downstream_dependency_count',
-            tooltip: 'Number of immediate downstream dependencies',
-            render: (_, view) => (
-                <DependencyCount count={view.downstream_dependency_count} loading={dependenciesMapLoading} />
-            ),
-        } as ViewColumn,
+        createdByColumn<DataWarehouseSavedQuery>() as ViewColumn,
         createdAtColumn<DataWarehouseSavedQuery>() as ViewColumn,
         {
             key: 'actions',
