@@ -146,7 +146,7 @@ The built-in PostHog widgets (insights, dashboards, recordings, error tracking, 
 
 ## Seam 5 (advanced) — build a custom UI on the run primitives
 
-The same facade exposes the machinery for rendering and driving an agent run yourself: `ReadonlyRunSurface` (lazy read-only embed), the `RunSurface` compound (`Root` plus `.Thread` / `.Composer` / `.Resources` / `.ContextUsage` slots), `EmbeddedRunner` (the whole `/tasks` product inline), and the Tier 2 primitives — `Thread` atoms, `Composer.*`, permission and question surfaces — over `runStreamLogic` and `runInteractionLogic`.
+The same facade exposes the machinery for rendering and driving an agent run yourself: `ReadonlyRunSurface` (lazy read-only embed), the `RunSurface` compound (`Root` plus `.Thread` / `.Composer` / `.ContextUsage` slots), `EmbeddedRunner` (the whole `/tasks` product inline), and the Tier 2 primitives — `Thread` atoms, `Composer.*`, permission and question surfaces — over `runStreamLogic` and `runInteractionLogic`.
 
 **Avoid this unless you know exactly what you're doing.** Seams 1–4 are what a product integration needs. This one means owning stream binding, composer and queue state, permission routing, and the eager-vs-lazy choice that decides whether your surface doubles someone's bundle. There is no default layout, so you compose one.
 
