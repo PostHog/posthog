@@ -2676,6 +2676,9 @@ class TestScoutRunTokenCosts(BaseTest):
         query.assert_called_once()
         called = query.call_args.kwargs
         assert called["origin_product"] == "signals_scout"
+        # The HogQL escaper dispatches on the exact class, so a `TextChoices` member in the constant
+        # raises before the query runs. Equality alone does not catch that.
+        assert type(called["origin_product"]) is str
         assert called["task_run_ids"] == [run.task_run_id]
         # The window has to open before the run did, or the sum finds none of its generations.
         assert called["generated_after"] < run.created_at
