@@ -5768,6 +5768,30 @@ snapshots:
         hash: v1.k794b7964.9e7a12c3094416ddf703121095bc7eba5189420cab88d6967618bf43139069fe.UZSvEld_DwpzTPi6QpbRfxOtDYP7S_gR0F03DJcFMpM
     products-workflows-steps-delay--fixed-duration--light:
         hash: v1.k794b7964.f394f1e00c55c84136a291d5acb646dc12e0b27951a99e493137f7bad05a2082.zj4h9BHlkIR9RBHiB6nkO0QjDgPC1UKa08uSHemhjSQ
+    products-workflows-template-card--ai--dark:
+        hash: v1.k794b7964.5ca1cd71851625754d87c675688f56c0feb039ade940912f8df2ddd171d89d83.5SQmAn1fsl5RQ572BttZHT0wNAtJeZRNP0OqajxrUMc
+    products-workflows-template-card--ai--light:
+        hash: v1.k794b7964.5a31f5a57fe751ed5a9ec04bca6f2d5f62e2fbd86179cee3454db11924f21be1.GEdQ_SUwmnx3J9sqhog7T_uNJYnC5ph5eiKOwoYui-A
+    products-workflows-template-card--basic--dark:
+        hash: v1.k794b7964.5e92df62c57af26cdce62c752d1520bc51346a86f584de4915711155f46c30ef.9yCP2MeM_W_Gw2LyPZV1mkP_IvvWpHDA1e-sna1BFSw
+    products-workflows-template-card--basic--light:
+        hash: v1.k794b7964.fcad6a84112c48e0c1178e59477421d96950329743fce424d13a9798a207bd75.WQYkIoH-tZPH9NEwyfbOyEm79f7bcqGlX9DUaxNGcgE
+    products-workflows-template-card--blank--dark:
+        hash: v1.k794b7964.23ca3e9c4eb925a659ce4553dda6c27955f48bafba4fc1355c3d7c0cefcec862.M-USb6QCbLNLEHpio3NNncnc1FRh-JSo7oV0XEosD1Y
+    products-workflows-template-card--blank--light:
+        hash: v1.k794b7964.10249e46871b8b2f8382d2af9c62214098bf6a1a8f4baed3f2cdea8a43d45914.pDn78avyYvuB8i7MQotDOvokbWJUDneghYCfxxv7M0Q
+    products-workflows-template-card--longest-description--dark:
+        hash: v1.k794b7964.11dc07a26fd819ad4c9c5b41131c626fe54262f12a0fe8b033fdbbb694bc9988.WdUl8hdamKaJUeScrYS9KGkYYv1r0sUApsJRzZBsZo4
+    products-workflows-template-card--longest-description--light:
+        hash: v1.k794b7964.8ca8ae54cf847387bcab9cdea9a3f313158da6f3cf091b551e42cf21dd13e2df._bJpmDR8Vk8OSIsYIzzDA0Ip_q9y1c5hwwcC06giQWA
+    products-workflows-template-card--narrow--dark:
+        hash: v1.k794b7964.02cd68ad28118eef7360a8d93cdb71a3aa80b3bf23d71788bb4c1cd02b647a98.YodJ5IXVT3EoRbzZ0Zw52XiuRcb0hUV8BJbxi3gu3YY
+    products-workflows-template-card--narrow--light:
+        hash: v1.k794b7964.f14ce1bd1533072e19f0dd4136807a43502ba958d1c01970552955bb0bd16505.BRimZEFm-Oh0wDZSnWuwP_gCiXgS6mV9DhkaUopQxFI
+    products-workflows-template-card--picker--dark:
+        hash: v1.k794b7964.ded75abe4e8eb09bccf9b970188d13b022bf0c43636e887273791b72a4636ee2.R28mwGSEfFH1ZxrFl4cRA-zpg5RprlDTRSu96cg-v20
+    products-workflows-template-card--picker--light:
+        hash: v1.k794b7964.59e165d7ede2cc4e3138b95c64a7329134a16e722ff2fe224f8bf700e81d544c.SRWbL89CbOMgwObgHB8qGt_63Lh4SB0-2of7YS3PlQw
     queries-webvitals--web-vitals--dark:
         hash: v1.k794b7964.2ae778a0c5fdba3c69dfcbd3e9589c3c3d9cc2f0fef2eefd304c565be7e9a7c9.hH71byl33sIAdRCgaPk1lDOev0qooW1xhv0AL_yrIvg
     queries-webvitals--web-vitals--light:
