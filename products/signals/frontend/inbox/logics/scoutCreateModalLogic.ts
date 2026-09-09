@@ -194,8 +194,9 @@ function scoutNameError(name: string): string | undefined {
     if (validationError) {
         return validationError
     }
-    if (RESERVED_SCOUT_NAMES.has(normalizedName.toLowerCase())) {
-        return `'${normalizedName.toLowerCase()}' is reserved by the inbox. Pick another name.`
+    // `validateSkillName` has already rejected anything but lowercase, so no folding is needed here.
+    if (RESERVED_SCOUT_NAMES.has(normalizedName)) {
+        return `'${normalizedName}' is reserved by the inbox. Pick another name.`
     }
     return undefined
 }
