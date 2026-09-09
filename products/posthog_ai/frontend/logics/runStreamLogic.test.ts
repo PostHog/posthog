@@ -22,7 +22,6 @@ import {
     MAX_CUMULATIVE_RECONNECT_ATTEMPTS,
     MAX_HISTORY_FETCH_ATTEMPTS,
     MAX_SSE_RECONNECT_ATTEMPTS,
-    mergeResourceProducts,
     mergeRunArtifacts,
     parsePermissionRequestFrame,
     reconnectDelayMs,
@@ -2529,62 +2528,6 @@ describe('runStreamLogic', () => {
         })
     })
 
-    describe('mergeResourceProducts', () => {
-        it('unions by id, preserves first-seen order, and tolerates empty/idless input', () => {
-            const first = mergeResourceProducts([], [{ id: 'product_analytics', label: 'Product analytics' }])
-            expect(first).toEqual([{ id: 'product_analytics', label: 'Product analytics' }])
-
-            const second = mergeResourceProducts(first, [
-                { id: 'product_analytics', label: 'dup' },
-                { id: 'session_replay', label: 'Session replay' },
-                { label: 'no id' },
-                { id: '' },
-            ])
-            expect(second.map((p) => p.id)).toEqual(['product_analytics', 'session_replay'])
-            // First-seen label wins for an id already present.
-            expect(second[0].label).toEqual('Product analytics')
-        })
-    })
-
-    describe('_posthog/resources_used handling', () => {
-        it('unions products into resourcesUsed by id in first-seen order', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.ingestAcpFrame(
-                    notification('_posthog/resources_used', {
-                        products: [
-                            { id: 'product_analytics', label: 'Product analytics' },
-                            { id: 'session_replay', label: 'Session replay' },
-                        ],
-                    })
-                )
-                logic.actions.ingestAcpFrame(
-                    notification('_posthog/resources_used', {
-                        products: [
-                            { id: 'session_replay', label: 'Session replay' },
-                            { id: 'sql', label: 'SQL' },
-                        ],
-                    })
-                )
-            }).toFinishAllListeners()
-
-            expect(logic.values.resourcesUsed.map((p) => p.id)).toEqual(['product_analytics', 'session_replay', 'sql'])
-        })
-
-        it('survives bootstrap replay without double-counting (same frame twice → one entry set)', async () => {
-            const frame = notification('_posthog/resources_used', {
-                products: [{ id: 'product_analytics', label: 'Product analytics' }],
-            })
-            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([frame as any, frame as any])
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
-
-            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
-            await flushPromises()
-
-            // Content-dedup drops the identical replay; the union would dedup by id regardless.
-            expect(logic.values.resourcesUsed.map((p) => p.id)).toEqual(['product_analytics'])
-        })
-    })
-
     describe('_posthog/usage_update handling', () => {
         it('folds the Codex split frames (used + cost, then breakdown) into contextUsage', async () => {
             await expectLogic(logic, () => {
@@ -2799,16 +2742,12 @@ describe('runStreamLogic', () => {
     })
 
     describe('reset clears notification state', () => {
-        it('clears resourcesUsed, contextUsage, and sdkSession on reset', async () => {
+        it('clears contextUsage and sdkSession on reset', async () => {
             await expectLogic(logic, () => {
-                logic.actions.ingestAcpFrame(
-                    notification('_posthog/resources_used', { products: [{ id: 'sql', label: 'SQL' }] })
-                )
                 logic.actions.ingestAcpFrame(notification('_posthog/usage_update', { used: { inputTokens: 1 } }))
                 logic.actions.ingestAcpFrame(notification('_posthog/sdk_session', { adapter: 'codex' }))
             }).toFinishAllListeners()
 
-            expect(logic.values.resourcesUsed).toHaveLength(1)
             expect(logic.values.contextUsage).not.toBeNull()
             expect(logic.values.sdkSession).not.toBeNull()
 
@@ -2816,20 +2755,8 @@ describe('runStreamLogic', () => {
                 logic.actions.reset()
             }).toFinishAllListeners()
 
-            expect(logic.values.resourcesUsed).toEqual([])
             expect(logic.values.contextUsage).toBeNull()
             expect(logic.values.sdkSession).toBeNull()
-        })
-
-        it('keeps resourcesUsed across markTurnComplete (accumulates over the session)', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.ingestAcpFrame(
-                    notification('_posthog/resources_used', { products: [{ id: 'sql', label: 'SQL' }] })
-                )
-                logic.actions.markTurnComplete()
-            }).toFinishAllListeners()
-
-            expect(logic.values.resourcesUsed.map((p) => p.id)).toEqual(['sql'])
         })
     })
 
