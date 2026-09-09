@@ -1102,6 +1102,9 @@ tools:
         description:
             'DEPRECATED: renamed to scout-run-now. This alias forwards to the same endpoint and will be removed. Call
             scout-run-now directly with the same arguments.'
+    signals-scout-runs-costs:
+        operation: signals_scout_runs_costs
+        enabled: false
     signals-scout-runs-emission-reports:
         operation: signals_scout_runs_emission_reports
         enabled: true

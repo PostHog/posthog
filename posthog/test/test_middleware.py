@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core.cache import cache
-from django.http import HttpResponse, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.test import (
     Client as DjangoClient,
     RequestFactory,
@@ -26,13 +26,14 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.middleware import app_csp_header_name, per_request_logging_context_middleware
+from posthog.middleware import CSPMiddleware, app_csp_header_name, per_request_logging_context_middleware
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
 
 from products.actions.backend.models.action import Action
+from products.canvas.backend.artifacts import CANVAS_ARTIFACT_RESPONSE_MARKER
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -1950,6 +1951,39 @@ class TestCSPMiddleware(APIBaseTest):
         assert "Content-Security-Policy" not in embedded
         assert "frame-ancestors" in embedded["Content-Security-Policy-Report-Only"]
 
+    @parameterized.expand(
+        [
+            ("custom_policy", "/", False, "default-src 'self'", True),
+            ("canvas", "/", True, "sandbox allow-scripts; default-src 'none'", False),
+            ("custom_admin", "/admin/", False, "default-src *", True),
+            ("marked_admin", "/admin/", True, "default-src *", True),
+            ("marker_without_policy", "/", True, None, True),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_html_response_with_view_managed_csp(
+        self, _name: str, path: str, canvas_artifact: bool, policy: str | None, expects_reporting: bool
+    ) -> None:
+        def view(_request: HttpRequest) -> HttpResponse:
+            response = HttpResponse("<html><body>artifact</body></html>", content_type="text/html; charset=utf-8")
+            if policy is not None:
+                response["Content-Security-Policy"] = policy
+            if canvas_artifact:
+                setattr(response, CANVAS_ARTIFACT_RESPONSE_MARKER, True)
+            return response
+
+        response = CSPMiddleware(view)(RequestFactory().get(path))
+
+        if path == "/admin/":
+            assert "frame-ancestors 'none'" in response["Content-Security-Policy"]
+            assert "default-src *" not in response["Content-Security-Policy"]
+        elif policy is not None:
+            assert response["Content-Security-Policy"] == policy
+        else:
+            assert "Content-Security-Policy" not in response
+        assert ("Content-Security-Policy-Report-Only" in response) == (expects_reporting and path != "/admin/")
+        assert ("Reporting-Endpoints" in response) == expects_reporting
+
     @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
     def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):
         # Browsers only deliver crash reports to the endpoint named `default`, so dropping or
@@ -2494,9 +2528,9 @@ class TestPerRequestLoggingContextMiddlewareMcpHeaders(APIBaseTest):
 
 
 class TestAppCspHeaderName(SimpleTestCase):
-    def _request(self, path: str, *, distinct_id: str | None = "abc"):
+    def _request(self, path: str, *, distinct_id: str | None = "abc", email: str = "someone@posthog.com"):
         request = RequestFactory().get(path)
-        request.user = MagicMock(is_authenticated=distinct_id is not None, distinct_id=distinct_id)
+        request.user = MagicMock(is_authenticated=distinct_id is not None, distinct_id=distinct_id, email=email)
         return request
 
     @parameterized.expand(
@@ -2534,6 +2568,13 @@ class TestAppCspHeaderName(SimpleTestCase):
     @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=False)
     def test_ordinary_page_stays_report_only_without_the_flag(self, _mock_flag):
         assert app_csp_header_name(self._request("/")) == "Content-Security-Policy-Report-Only"
+
+    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
+    def test_the_flag_lookup_carries_the_email_for_local_evaluation(self, mock_flag):
+        # Local evaluation cannot resolve a condition on email unless the caller supplies it, so a
+        # staff-only rollout would enforce nothing.
+        app_csp_header_name(self._request("/", email="staff@posthog.com"))
+        assert mock_flag.call_args.kwargs["person_properties"] == {"email": "staff@posthog.com"}
 
     @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
     def test_anonymous_request_stays_report_only(self, mock_flag):

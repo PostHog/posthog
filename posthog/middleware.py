@@ -1196,8 +1196,17 @@ def csp_enforcement_enabled(request) -> bool:
     try:
         # Local evaluation only. A network call here would sit in the path of every HTML response,
         # and an unevaluable flag returns None, which leaves the policy report-only.
+        #
+        # Local evaluation holds the flag's conditions but not the person's properties, so a
+        # condition on `email` cannot resolve unless the caller supplies it. Without this the
+        # staff-only rollout every other flag here uses would return None and enforce nothing.
         return bool(
-            posthoganalytics.feature_enabled(CSP_ENFORCE_APP_POLICY_FLAG, distinct_id, only_evaluate_locally=True)
+            posthoganalytics.feature_enabled(
+                CSP_ENFORCE_APP_POLICY_FLAG,
+                distinct_id,
+                person_properties={"email": user.email} if user.email else {},
+                only_evaluate_locally=True,
+            )
         )
     except Exception:
         return False
@@ -1289,6 +1298,8 @@ class CSPMiddleware:
                     f'posthog="{admin_report_endpoint}", default="{admin_report_endpoint}"'
                 )
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
+        elif getattr(response, "_posthog_canvas_artifact", False) and "Content-Security-Policy" in response.headers:
+            return response
         else:
             resource_url = "https://*.posthog.com"
             if settings.DEBUG or settings.TEST:

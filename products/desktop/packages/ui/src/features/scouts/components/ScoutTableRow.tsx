@@ -23,7 +23,6 @@ import {
   type ScoutRunOutcome,
   scoutCreatorDisplayName,
   scoutRunOutcomeLabel,
-  scoutSkillSlug,
 } from "@posthog/core/scouts/scoutPresentation";
 import {
   Avatar,
@@ -122,7 +121,6 @@ function ScoutTableRowInner({
 }) {
   const { openAgent } = useAgentsPageActions();
   const { runNow, isStarting } = useScoutRunNow(config, "fleet_list");
-  const slug = scoutSkillSlug(config.skill_name);
   const name = prettifyScoutSkillName(config.skill_name);
   const latest = rollup?.latestRun ?? null;
   const latestOutcome = latest ? deriveRunOutcome(latest, now) : null;
@@ -148,7 +146,7 @@ function ScoutTableRowInner({
           />
           <AgentNameLink
             config={config}
-            onOpen={() => openAgent(slug)}
+            onOpen={() => openAgent(config.skill_name)}
             dataAttr="scout-row-open"
           />
           <span className="sr-only @xl:not-sr-only @xl:contents">
@@ -249,7 +247,7 @@ function ScoutTableRowInner({
               Run now
             </DropdownMenuItem>
             <DropdownMenuItem
-              onClick={() => openAgent(slug, { tab: "settings" })}
+              onClick={() => openAgent(config.skill_name, { tab: "settings" })}
             >
               <GearSixIcon size={13} />
               Settings
