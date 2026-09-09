@@ -140,9 +140,12 @@ export function PropertyValue({
     // options jumping around as the user types, we keep the initially loaded options
     // in state and show those first, then any new options based on user input after
     const [initialSuggestedValues, setInitialSuggestedValues] = useState<{
+        // The property these values were loaded for. The reset effect below runs after the render
+        // that changes `propertyKey`, so a reader must compare the key to know they are stale.
+        propertyKey: string
         set: Set<string>
         orderedKeys: string[]
-    }>({ set: new Set(), orderedKeys: [] })
+    }>({ propertyKey, set: new Set(), orderedKeys: [] })
     const currentSearchInput = useRef<string>('')
     // Every value the suggestion list has offered for this property. A search replaces the
     // loaded values, but the dropdown can still show the older list, so a value the user
@@ -221,22 +224,24 @@ export function PropertyValue({
             setInitialSuggestedValues((prev) => {
                 // Merge new keys into existing ones so that values already shown are never removed
                 // from under the user's cursor when a background refresh arrives with a different list.
-                const merged = [...prev.orderedKeys]
-                const existingSet = new Set(prev.orderedKeys)
+                // Values held for a different property are dropped instead of merged.
+                const isSameProperty = prev.propertyKey === propertyKey
+                const merged = isSameProperty ? [...prev.orderedKeys] : []
+                const existingSet = new Set(merged)
                 for (const key of newKeys) {
                     if (!existingSet.has(key)) {
                         merged.push(key)
                         existingSet.add(key)
                     }
                 }
-                return { set: existingSet, orderedKeys: merged }
+                return { propertyKey, set: existingSet, orderedKeys: merged }
             })
         }
-    }, [propertyOptions?.status, propertyOptions?.values, propertyOptions?.searchInput])
+    }, [propertyOptions?.status, propertyOptions?.values, propertyOptions?.searchInput, propertyKey])
 
     // reset the suggested and offered values when propertyKey changes
     useEffect(() => {
-        setInitialSuggestedValues({ set: new Set(), orderedKeys: [] })
+        setInitialSuggestedValues({ propertyKey, set: new Set(), orderedKeys: [] })
         offeredValues.current = new Set()
     }, [propertyKey])
 
@@ -246,7 +251,9 @@ export function PropertyValue({
             return staticValues
         }
         const options = propertyOptions?.values || []
-        if (initialSuggestedValues.set.size === 0) {
+        // Stale values must not become options, because the offered set below would then keep
+        // them and count them as suggestions of the new property.
+        if (initialSuggestedValues.propertyKey !== propertyKey || initialSuggestedValues.set.size === 0) {
             return options
         }
 
@@ -276,7 +283,7 @@ export function PropertyValue({
         }
 
         return [...suggestedOptions, ...otherOptions]
-    }, [propertyOptions?.values, initialSuggestedValues, staticValues])
+    }, [propertyOptions?.values, initialSuggestedValues, staticValues, propertyKey])
 
     useEffect(() => {
         for (const option of displayOptions) {

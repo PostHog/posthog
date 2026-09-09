@@ -264,6 +264,54 @@ describe('PropertyValue', () => {
         })
     })
 
+    it('trims a typed value that only the previous property offered', async () => {
+        // Some callers change `propertyKey` without remounting the editor. The values offered for
+        // the previous property must not count as suggestions of the new one, or a value the user
+        // types for the new property keeps whitespace that only a suggestion may keep.
+        const valuesForKey: Record<string, { results: { name: string }[]; refreshing: boolean }> = {
+            company_name: { results: [{ name: 'Acme Corp ' }], refreshing: false },
+            city: { results: [{ name: 'Springfield' }], refreshing: false },
+        }
+        const respondToKey = ({ request }: { request: Request }): (typeof valuesForKey)[string] =>
+            valuesForKey[new URL(request.url).searchParams.get('key') ?? ''] ?? { results: [], refreshing: false }
+        useMocks({
+            get: {
+                '/api/event/values': respondToKey,
+                '/api/environments/:team/events/values': respondToKey,
+            },
+        })
+
+        const onSet = jest.fn()
+        const editor = (propertyKey: string): JSX.Element => (
+            <Provider>
+                <PropertyValue
+                    propertyKey={propertyKey}
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                />
+            </Provider>
+        )
+
+        const { rerender } = render(editor('company_name'))
+        const user = userEvent.setup()
+        await user.click(screen.getByRole('textbox'))
+        // The default matcher trims, so this finds the option by its visible label
+        await screen.findByText('Acme Corp', undefined, { timeout: 3000 })
+
+        rerender(editor('city'))
+        await screen.findByText('Springfield', undefined, { timeout: 3000 })
+
+        await user.click(screen.getByRole('textbox'))
+        await user.paste('Acme Corp ')
+        await user.keyboard('{Enter}')
+
+        await waitFor(() => {
+            expect(onSet).toHaveBeenLastCalledWith(['Acme Corp'])
+        })
+    })
+
     it('allows text when a polymorphic property overrides a globally inferred numeric type', async () => {
         propertyDefinitionsModel.actions.updatePropertyDefinitions({
             'event/current_value': {
