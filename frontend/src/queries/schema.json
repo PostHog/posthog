@@ -8593,6 +8593,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -8699,6 +8702,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -8828,6 +8834,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -8950,6 +8959,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -9588,6 +9600,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -9698,6 +9713,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -12533,6 +12551,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -13835,6 +13856,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -14018,6 +14042,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -19197,6 +19224,9 @@
                                     },
                                     "type": "object"
                                 },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
+                                },
                                 "significance_code": {
                                     "$ref": "#/definitions/ExperimentSignificanceCode"
                                 },
@@ -19270,6 +19300,9 @@
                                         "type": "number"
                                     },
                                     "type": "object"
+                                },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
                                 },
                                 "significance_code": {
                                     "$ref": "#/definitions/ExperimentSignificanceCode"
@@ -24706,6 +24739,9 @@
                     "const": "ExperimentExposureQuery",
                     "type": "string"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "sample_ratio_mismatch": {
                     "$ref": "#/definitions/SampleRatioMismatch"
                 },
@@ -24949,6 +24985,9 @@
                         "type": "number"
                     },
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "significance_code": {
                     "$ref": "#/definitions/ExperimentSignificanceCode"
@@ -25511,6 +25550,9 @@
                     },
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "significance_code": {
                     "$ref": "#/definitions/ExperimentSignificanceCode"
                 },
@@ -25994,6 +26036,9 @@
                         "type": "number"
                     },
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "significance_code": {
                     "$ref": "#/definitions/ExperimentSignificanceCode"
@@ -30519,6 +30564,9 @@
                     },
                     "type": "array"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "series": {
                     "items": {
                         "additionalProperties": false,
@@ -31535,6 +31583,9 @@
                         "type": "number"
                     },
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "significance_code": {
                     "$ref": "#/definitions/ExperimentSignificanceCode"
@@ -38706,6 +38757,9 @@
                     "description": "Whether exposures were served from the precomputation system",
                     "type": "boolean"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "variant_results": {
                     "anyOf": [
                         {
@@ -41189,6 +41243,9 @@
                             },
                             "type": "array"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "series": {
                             "items": {
                                 "additionalProperties": false,
@@ -42157,6 +42214,9 @@
                             },
                             "type": "object"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "significance_code": {
                             "$ref": "#/definitions/ExperimentSignificanceCode"
                         },
@@ -42230,6 +42290,9 @@
                                 "type": "number"
                             },
                             "type": "object"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "significance_code": {
                             "$ref": "#/definitions/ExperimentSignificanceCode"
@@ -42322,6 +42385,9 @@
                             },
                             "type": "object"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "significance_code": {
                             "$ref": "#/definitions/ExperimentSignificanceCode"
                         },
@@ -42385,6 +42451,9 @@
                         "kind": {
                             "const": "ExperimentExposureQuery",
                             "type": "string"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "sample_ratio_mismatch": {
                             "$ref": "#/definitions/SampleRatioMismatch"
@@ -45175,6 +45244,9 @@
                             },
                             "type": "object"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "significance_code": {
                             "$ref": "#/definitions/ExperimentSignificanceCode"
                         },
@@ -45248,6 +45320,9 @@
                                 "type": "number"
                             },
                             "type": "object"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "significance_code": {
                             "$ref": "#/definitions/ExperimentSignificanceCode"
@@ -46972,6 +47047,9 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "questions": {
                             "items": {
                                 "type": "string"
@@ -47479,6 +47557,9 @@
                         "olderTraceId": {
                             "description": "ID of the older trace (chronologically before current)",
                             "type": "string"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
@@ -53233,6 +53314,9 @@
         "SuggestedQuestionsQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "questions": {
                     "items": {
                         "type": "string"
@@ -54422,6 +54506,9 @@
                 "olderTraceId": {
                     "description": "ID of the older trace (chronologically before current)",
                     "type": "string"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",

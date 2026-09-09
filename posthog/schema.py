@@ -2629,17 +2629,6 @@ class QueryResponseAlternative7(BaseModel):
     stdout: str | None = None
 
 
-class QueryResponseAlternative79(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    questions: list[str]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
 class QueryScanRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3004,17 +2993,6 @@ class SubscriptionFreeTierLimit(RootModel[Literal[5]]):
     root: Literal[5] = Field(5, description="Subscriptions a free-tier team may create.")
 
 
-class SuggestedQuestionsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    questions: list[str]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
 class SuggestedTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3063,30 +3041,6 @@ class TimelineEntry(BaseModel):
     events: list[EventType]
     recording_duration_s: float | None = Field(default=None, description="Duration of the recording in seconds.")
     sessionId: str | None = Field(default=None, description="Session ID. None means out-of-session events")
-
-
-class TraceNeighborsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    newerTimestamp: str | None = Field(default=None, description="Timestamp of the newer trace")
-    newerTraceId: str | None = Field(
-        default=None,
-        description="ID of the newer trace (chronologically after current)",
-    )
-    olderTimestamp: str | None = Field(default=None, description="Timestamp of the older trace")
-    olderTraceId: str | None = Field(
-        default=None,
-        description="ID of the older trace (chronologically before current)",
-    )
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
 
 
 class TrendsFilterLegacy(BaseModel):
@@ -5272,22 +5226,6 @@ class ExperimentApiMetric(BaseModel):
     uuid: str | None = Field(default=None, description="Unique identifier. Auto-generated if omitted.")
 
 
-class ExperimentExposureQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    bias_risk: BiasRisk | None = None
-    date_range: DateRange
-    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    sample_ratio_mismatch: SampleRatioMismatch | None = None
-    timeseries: list[ExperimentExposureTimeSeries]
-    total_exposures: dict[str, float]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
 class ExperimentMetricBaseProperties(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6678,22 +6616,6 @@ class QueryResponseAlternative10(BaseModel):
     )
 
 
-class QueryResponseAlternative21(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    bias_risk: BiasRisk | None = None
-    date_range: DateRange
-    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
-    sample_ratio_mismatch: SampleRatioMismatch | None = None
-    timeseries: list[ExperimentExposureTimeSeries]
-    total_exposures: dict[str, float]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
 class QueryResponseAlternative31(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6701,30 +6623,6 @@ class QueryResponseAlternative31(BaseModel):
     data: dict[str, Any]
     error: ExternalQueryError | None = None
     status: ExternalQueryStatus
-
-
-class QueryResponseAlternative86(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    newerTimestamp: str | None = Field(default=None, description="Timestamp of the newer trace")
-    newerTraceId: str | None = Field(
-        default=None,
-        description="ID of the newer trace (chronologically after current)",
-    )
-    olderTimestamp: str | None = Field(default=None, description="Timestamp of the older trace")
-    olderTraceId: str | None = Field(
-        default=None,
-        description="ID of the older trace (chronologically before current)",
-    )
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
 
 
 class QueryScanSummary(BaseModel):
@@ -7574,15 +7472,16 @@ class StickinessQueryResponse(BaseModel):
     )
 
 
-class SuggestedQuestionsQuery(BaseModel):
+class SuggestedQuestionsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    kind: Literal["SuggestedQuestionsQuery"] = "SuggestedQuestionsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    response: SuggestedQuestionsQueryResponse | None = None
-    tags: QueryLogTags | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    query_scan: QueryScanSummary | None = None
+    questions: list[str]
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    )
 
 
 class SurveyAnalysisQuestionGroup(BaseModel):
@@ -7934,6 +7833,31 @@ class ThresholdDetectorConfig(BaseModel):
     )
     type: Literal["threshold"] = "threshold"
     upper_bound: float | None = Field(default=None, description="Upper bound - values above this are anomalies")
+
+
+class TraceNeighborsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    newerTimestamp: str | None = Field(default=None, description="Timestamp of the newer trace")
+    newerTraceId: str | None = Field(
+        default=None,
+        description="ID of the newer trace (chronologically after current)",
+    )
+    olderTimestamp: str | None = Field(default=None, description="Timestamp of the older trace")
+    olderTraceId: str | None = Field(
+        default=None,
+        description="ID of the older trace (chronologically before current)",
+    )
+    query_scan: QueryScanSummary | None = None
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    )
 
 
 class TraceQueryResponse(BaseModel):
@@ -11911,6 +11835,7 @@ class CachedExperimentExposureQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -14311,6 +14236,7 @@ class CachedSuggestedQuestionsQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -14409,6 +14335,7 @@ class CachedTraceNeighborsQueryResponse(BaseModel):
         description="ID of the older trace (chronologically before current)",
     )
     query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -17441,6 +17368,23 @@ class ExperimentBreakdownResult(BaseModel):
     )
 
 
+class ExperimentExposureQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bias_risk: BiasRisk | None = None
+    date_range: DateRange
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    query_scan: QueryScanSummary | None = None
+    sample_ratio_mismatch: SampleRatioMismatch | None = None
+    timeseries: list[ExperimentExposureTimeSeries]
+    total_exposures: dict[str, float]
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    )
+
+
 class FunnelCorrelationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -19245,6 +19189,7 @@ class NewExperimentQueryResponse(BaseModel):
         default=None,
         description="Whether exposures were served from the precomputation system",
     )
+    query_scan: QueryScanSummary | None = None
     variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian]
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
@@ -19639,6 +19584,7 @@ class QueryResponseAlternative5(BaseModel):
     compare: list[CompareItem] | None = None
     day: list[DayItem] | None = None
     interval: list[IntervalItem] | None = None
+    query_scan: QueryScanSummary | None = None
     series: list[Series] | None = None
     status: list[StatusItem] | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
@@ -20075,6 +20021,23 @@ class QueryResponseAlternative16(BaseModel):
             " warnings when a system-table query filters out objects the user can't"
             " access."
         ),
+    )
+
+
+class QueryResponseAlternative21(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bias_risk: BiasRisk | None = None
+    date_range: DateRange
+    kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
+    query_scan: QueryScanSummary | None = None
+    sample_ratio_mismatch: SampleRatioMismatch | None = None
+    timeseries: list[ExperimentExposureTimeSeries]
+    total_exposures: dict[str, float]
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
     )
 
 
@@ -22747,6 +22710,18 @@ class QueryResponseAlternative78(BaseModel):
     )
 
 
+class QueryResponseAlternative79(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    query_scan: QueryScanSummary | None = None
+    questions: list[str]
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    )
+
+
 class QueryResponseAlternative80(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -22946,6 +22921,31 @@ class QueryResponseAlternative83(BaseModel):
             " warnings when a system-table query filters out objects the user can't"
             " access."
         ),
+    )
+
+
+class QueryResponseAlternative86(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    newerTimestamp: str | None = Field(default=None, description="Timestamp of the newer trace")
+    newerTraceId: str | None = Field(
+        default=None,
+        description="ID of the newer trace (chronologically after current)",
+    )
+    olderTimestamp: str | None = Field(default=None, description="Timestamp of the older trace")
+    olderTraceId: str | None = Field(
+        default=None,
+        description="ID of the older trace (chronologically before current)",
+    )
+    query_scan: QueryScanSummary | None = None
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
     )
 
 
@@ -24349,6 +24349,17 @@ class SidebarConfiguration(BaseModel):
     sections: SidebarSectionsConfiguration | None = None
 
 
+class SuggestedQuestionsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["SuggestedQuestionsQuery"] = "SuggestedQuestionsQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    response: SuggestedQuestionsQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class SurveyCreationSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -25617,6 +25628,7 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
     last_refresh: AwareDatetime
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -25652,6 +25664,7 @@ class CachedNewExperimentQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     next_allowed_client_refresh: AwareDatetime
     query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -26869,6 +26882,7 @@ class InsightActorsQueryOptionsResponse(BaseModel):
     compare: list[CompareItem] | None = None
     day: list[DayItem] | None = None
     interval: list[IntervalItem] | None = None
+    query_scan: QueryScanSummary | None = None
     series: list[Series] | None = None
     status: list[StatusItem] | None = None
     warnings: list[DataWarehouseSyncWarning] | None = Field(
@@ -29807,6 +29821,7 @@ class ExperimentQueryResponse(BaseModel):
     )
     p_value: float | None = None
     probability: dict[str, float] | None = None
+    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode | None = None
     significant: bool | None = None
     stats_version: int | None = None
@@ -29830,6 +29845,7 @@ class LegacyExperimentQueryResponse(BaseModel):
     )
     p_value: float
     probability: dict[str, float]
+    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode
     significant: bool
     stats_version: int | None = None
@@ -29865,6 +29881,7 @@ class QueryResponseAlternative20(BaseModel):
     )
     p_value: float | None = None
     probability: dict[str, float] | None = None
+    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode | None = None
     significant: bool | None = None
     stats_version: int | None = None
@@ -29997,6 +30014,7 @@ class CachedExperimentQueryResponse(BaseModel):
     p_value: float | None = None
     probability: dict[str, float] | None = None
     query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -30034,6 +30052,7 @@ class CachedExperimentTrendsQueryResponse(BaseModel):
     p_value: float
     probability: dict[str, float]
     query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -30071,6 +30090,7 @@ class CachedLegacyExperimentQueryResponse(BaseModel):
     p_value: float
     probability: dict[str, float]
     query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -30097,6 +30117,7 @@ class Response17(BaseModel):
     kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
     p_value: float
     probability: dict[str, float]
+    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode
     significant: bool
     stats_version: int | None = None
@@ -30199,6 +30220,7 @@ class ExperimentTrendsQueryResponse(BaseModel):
     kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
     p_value: float
     probability: dict[str, float]
+    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode
     significant: bool
     stats_version: int | None = None
@@ -30251,6 +30273,7 @@ class QueryResponseAlternative18(BaseModel):
     insight: list[list[dict[str, Any]]]
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
     probability: dict[str, float]
+    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode
     significant: bool
     stats_version: int | None = None
@@ -30272,6 +30295,7 @@ class QueryResponseAlternative19(BaseModel):
     kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
     p_value: float
     probability: dict[str, float]
+    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode
     significant: bool
     stats_version: int | None = None
@@ -30292,6 +30316,7 @@ class QueryResponseAlternative54(BaseModel):
     insight: list[list[dict[str, Any]]]
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
     probability: dict[str, float]
+    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode
     significant: bool
     stats_version: int | None = None
@@ -30313,6 +30338,7 @@ class QueryResponseAlternative55(BaseModel):
     kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
     p_value: float
     probability: dict[str, float]
+    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode
     significant: bool
     stats_version: int | None = None
@@ -30565,6 +30591,7 @@ class CachedExperimentFunnelsQueryResponse(BaseModel):
     next_allowed_client_refresh: AwareDatetime
     probability: dict[str, float]
     query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -30590,6 +30617,7 @@ class Response16(BaseModel):
     insight: list[list[dict[str, Any]]]
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
     probability: dict[str, float]
+    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode
     significant: bool
     stats_version: int | None = None
@@ -30648,6 +30676,7 @@ class ExperimentFunnelsQueryResponse(BaseModel):
     insight: list[list[dict[str, Any]]]
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
     probability: dict[str, float]
+    query_scan: QueryScanSummary | None = None
     significance_code: ExperimentSignificanceCode
     significant: bool
     stats_version: int | None = None

@@ -4416,6 +4416,7 @@ export interface Response16Api {
     insight: Response16ApiInsightItemItem[][]
     kind?: 'ExperimentFunnelsQuery'
     probability: Response16ApiProbability
+    query_scan?: QueryScanSummaryApi | null
     significance_code: ExperimentSignificanceCodeApi
     significant: boolean
     stats_version?: number | null
@@ -4445,6 +4446,7 @@ export interface Response17Api {
     kind?: 'ExperimentTrendsQuery'
     p_value: number
     probability: Response17ApiProbability
+    query_scan?: QueryScanSummaryApi | null
     significance_code: ExperimentSignificanceCodeApi
     significant: boolean
     stats_version?: number | null
@@ -5602,6 +5604,7 @@ export interface ExperimentQueryResponseApi {
         | null
     p_value?: number | null
     probability?: ExperimentQueryResponseApiProbability
+    query_scan?: QueryScanSummaryApi | null
     significance_code?: ExperimentSignificanceCodeApi | null
     significant?: boolean | null
     stats_version?: number | null
@@ -7078,6 +7081,7 @@ export interface ExperimentFunnelsQueryResponseApi {
     insight: ExperimentFunnelsQueryResponseApiInsightItemItem[][]
     kind?: 'ExperimentFunnelsQuery'
     probability: ExperimentFunnelsQueryResponseApiProbability
+    query_scan?: QueryScanSummaryApi | null
     significance_code: ExperimentSignificanceCodeApi
     significant: boolean
     stats_version?: number | null
@@ -7115,6 +7119,7 @@ export interface ExperimentTrendsQueryResponseApi {
     kind?: 'ExperimentTrendsQuery'
     p_value: number
     probability: ExperimentTrendsQueryResponseApiProbability
+    query_scan?: QueryScanSummaryApi | null
     significance_code: ExperimentSignificanceCodeApi
     significant: boolean
     stats_version?: number | null

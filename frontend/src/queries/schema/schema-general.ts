@@ -5317,6 +5317,7 @@ export interface ExperimentTrendsQueryResponse {
     credible_intervals: Record<string, [number, number]>
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
+    query_scan?: QueryScanSummary
 }
 
 export type CachedExperimentTrendsQueryResponse = CachedQueryResponse<ExperimentTrendsQueryResponse>
@@ -5334,6 +5335,7 @@ export interface ExperimentFunnelsQueryResponse {
     stats_version?: integer
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
+    query_scan?: QueryScanSummary
 }
 
 export type CachedExperimentFunnelsQueryResponse = CachedQueryResponse<ExperimentFunnelsQueryResponse>
@@ -5728,6 +5730,7 @@ export interface ExperimentQueryResponse {
 
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
+    query_scan?: QueryScanSummary
 }
 
 // Strongly typed variants of ExperimentQueryResponse for better type safety
@@ -5744,6 +5747,7 @@ export interface LegacyExperimentQueryResponse {
     credible_intervals: Record<string, [number, number]>
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
+    query_scan?: QueryScanSummary
 }
 
 export interface ExperimentActorsQuery extends InsightActorsQueryBase {
@@ -5837,6 +5841,7 @@ export interface NewExperimentQueryResponse {
     is_precomputed?: boolean
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
+    query_scan?: QueryScanSummary
 }
 
 export interface ExperimentExposureTimeSeries {
@@ -5869,6 +5874,7 @@ export interface ExperimentExposureQueryResponse {
     bias_risk?: BiasRisk
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
+    query_scan?: QueryScanSummary
 }
 
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
@@ -6109,6 +6115,7 @@ export interface InsightActorsQueryOptionsResponse {
     }[]
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
+    query_scan?: QueryScanSummary
 }
 export const insightActorsQueryOptionsResponseKeys: string[] = [
     'day',
@@ -6721,6 +6728,7 @@ export interface SuggestedQuestionsQueryResponse {
     questions: string[]
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
+    query_scan?: QueryScanSummary
 }
 
 export type CachedSuggestedQuestionsQueryResponse = CachedQueryResponse<SuggestedQuestionsQueryResponse>
@@ -7061,6 +7069,7 @@ export interface TraceNeighborsQueryResponse {
     timings?: QueryTiming[]
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
+    query_scan?: QueryScanSummary
 }
 
 export interface TraceNeighborsQuery extends DataNode<TraceNeighborsQueryResponse> {

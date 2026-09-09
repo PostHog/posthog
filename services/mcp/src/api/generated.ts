@@ -5711,6 +5711,7 @@ export namespace Schemas {
       metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | null;
       p_value?: number | null;
       probability?: ExperimentQueryResponseProbability;
+      query_scan?: QueryScanSummary | null;
       significance_code?: ExperimentSignificanceCode | null;
       significant?: boolean | null;
       stats_version?: number | null;
@@ -7258,6 +7259,7 @@ export namespace Schemas {
       insight: Response16InsightItemItem[][];
       kind?: 'ExperimentFunnelsQuery';
       probability: Response16Probability;
+      query_scan?: QueryScanSummary | null;
       significance_code: ExperimentSignificanceCode;
       significant: boolean;
       stats_version?: number | null;
@@ -7280,6 +7282,7 @@ export namespace Schemas {
       kind?: 'ExperimentTrendsQuery';
       p_value: number;
       probability: Response17Probability;
+      query_scan?: QueryScanSummary | null;
       significance_code: ExperimentSignificanceCode;
       significant: boolean;
       stats_version?: number | null;
@@ -8566,6 +8569,7 @@ export namespace Schemas {
       insight: ExperimentFunnelsQueryResponseInsightItemItem[][];
       kind?: 'ExperimentFunnelsQuery';
       probability: ExperimentFunnelsQueryResponseProbability;
+      query_scan?: QueryScanSummary | null;
       significance_code: ExperimentSignificanceCode;
       significant: boolean;
       stats_version?: number | null;
@@ -8603,6 +8607,7 @@ export namespace Schemas {
       kind?: 'ExperimentTrendsQuery';
       p_value: number;
       probability: ExperimentTrendsQueryResponseProbability;
+      query_scan?: QueryScanSummary | null;
       significance_code: ExperimentSignificanceCode;
       significant: boolean;
       stats_version?: number | null;
@@ -35917,6 +35922,7 @@ export namespace Schemas {
       bias_risk?: BiasRisk | null;
       date_range: DateRange;
       kind?: 'ExperimentExposureQuery';
+      query_scan?: QueryScanSummary | null;
       sample_ratio_mismatch?: SampleRatioMismatch | null;
       timeseries: ExperimentExposureTimeSeries[];
       total_exposures: ExperimentExposureQueryResponseTotalExposures;
@@ -44824,6 +44830,7 @@ export namespace Schemas {
       compare?: CompareItem[] | null;
       day?: DayItem[] | null;
       interval?: IntervalItem[] | null;
+      query_scan?: QueryScanSummary | null;
       series?: Series[] | null;
       status?: StatusItem[] | null;
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
@@ -46262,6 +46269,7 @@ export namespace Schemas {
       olderTimestamp?: string | null;
       /** ID of the older trace (chronologically before current) */
       olderTraceId?: string | null;
+      query_scan?: QueryScanSummary | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
@@ -73558,6 +73566,7 @@ export namespace Schemas {
     }
 
     export interface SuggestedQuestionsQueryResponse {
+      query_scan?: QueryScanSummary | null;
       questions: string[];
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
       warnings?: DataWarehouseSyncWarning[] | null;
@@ -73772,6 +73781,7 @@ export namespace Schemas {
       compare?: CompareItem[] | null;
       day?: DayItem[] | null;
       interval?: IntervalItem[] | null;
+      query_scan?: QueryScanSummary | null;
       series?: Series[] | null;
       status?: StatusItem[] | null;
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
@@ -74079,6 +74089,7 @@ export namespace Schemas {
       insight: QueryResponseAlternative18InsightItemItem[][];
       kind?: 'ExperimentFunnelsQuery';
       probability: QueryResponseAlternative18Probability;
+      query_scan?: QueryScanSummary | null;
       significance_code: ExperimentSignificanceCode;
       significant: boolean;
       stats_version?: number | null;
@@ -74101,6 +74112,7 @@ export namespace Schemas {
       kind?: 'ExperimentTrendsQuery';
       p_value: number;
       probability: QueryResponseAlternative19Probability;
+      query_scan?: QueryScanSummary | null;
       significance_code: ExperimentSignificanceCode;
       significant: boolean;
       stats_version?: number | null;
@@ -74129,6 +74141,7 @@ export namespace Schemas {
       metric?: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric | null;
       p_value?: number | null;
       probability?: QueryResponseAlternative20Probability;
+      query_scan?: QueryScanSummary | null;
       significance_code?: ExperimentSignificanceCode | null;
       significant?: boolean | null;
       stats_version?: number | null;
@@ -74144,6 +74157,7 @@ export namespace Schemas {
       bias_risk?: BiasRisk | null;
       date_range: DateRange;
       kind?: 'ExperimentExposureQuery';
+      query_scan?: QueryScanSummary | null;
       sample_ratio_mismatch?: SampleRatioMismatch | null;
       timeseries: ExperimentExposureTimeSeries[];
       total_exposures: QueryResponseAlternative21TotalExposures;
@@ -75038,6 +75052,7 @@ export namespace Schemas {
       insight: QueryResponseAlternative54InsightItemItem[][];
       kind?: 'ExperimentFunnelsQuery';
       probability: QueryResponseAlternative54Probability;
+      query_scan?: QueryScanSummary | null;
       significance_code: ExperimentSignificanceCode;
       significant: boolean;
       stats_version?: number | null;
@@ -75060,6 +75075,7 @@ export namespace Schemas {
       kind?: 'ExperimentTrendsQuery';
       p_value: number;
       probability: QueryResponseAlternative55Probability;
+      query_scan?: QueryScanSummary | null;
       significance_code: ExperimentSignificanceCode;
       significant: boolean;
       stats_version?: number | null;
@@ -75594,6 +75610,7 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative79 {
+      query_scan?: QueryScanSummary | null;
       questions: string[];
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
       warnings?: DataWarehouseSyncWarning[] | null;
@@ -75710,6 +75727,7 @@ export namespace Schemas {
       olderTimestamp?: string | null;
       /** ID of the older trace (chronologically before current) */
       olderTraceId?: string | null;
+      query_scan?: QueryScanSummary | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
