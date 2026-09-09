@@ -19,6 +19,7 @@ from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    MAX_NUMERIC_SCALE,
     BillingLimitsWillBeReachedException,
     BinaryColumnReporter,
     SchemaColumnTypeChangedException,
@@ -26,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     _to_list_array,
     align_incoming_decimals_to_delta,
     apply_enabled_columns_projection,
+    build_pyarrow_decimal_type,
     conditional_lru_cache_async,
     evolve_pyarrow_schema,
     hex_encode_id_binary_columns,
@@ -591,6 +593,28 @@ def test_get_max_decimal_type_returns_correct_decimal_type(
 ):
     result = _get_max_decimal_type(decimals)
     assert result == expected
+
+
+@pytest.mark.parametrize(
+    "precision,scale,expected",
+    [
+        (10, 2, pa.decimal128(10, 2)),
+        (38, 32, pa.decimal128(38, 32)),
+        (39, 2, pa.decimal256(39, 2)),
+        (76, 32, pa.decimal256(76, 32)),
+        # Past decimal256's 76-digit budget the declared scale survives, so a wide money column
+        # keeps its decimal places instead of collapsing to scale 0.
+        (98, 20, pa.decimal256(76, 20)),
+        # Delta caps the scale we are willing to store, so a scale above it is clamped.
+        (100, 60, pa.decimal256(76, MAX_NUMERIC_SCALE)),
+    ],
+)
+def test_build_pyarrow_decimal_type(
+    precision: int,
+    scale: int,
+    expected: pa.Decimal128Type | pa.Decimal256Type,
+):
+    assert build_pyarrow_decimal_type(precision, scale) == expected
 
 
 def test_table_from_py_list_with_ipv4_address():

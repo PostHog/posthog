@@ -1011,7 +1011,10 @@ def build_pyarrow_decimal_type(precision: int, scale: int) -> pa.Decimal128Type 
     elif precision <= 76:
         return pa.decimal256(precision, scale)
     else:
-        return pa.decimal256(76, max(0, 76 - (precision - scale)))
+        # Clamp a precision past decimal256's 76-digit budget, but keep the declared scale. Deriving
+        # the scale from the lost integer digits collapses a wide money column to scale 0, which
+        # drops every fractional digit the column actually uses.
+        return pa.decimal256(76, min(scale, MAX_NUMERIC_SCALE))
 
 
 def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | pa.Decimal256Type:
