@@ -13,7 +13,6 @@ const DEVICE_CODE_TIMEOUT_MS = 15 * 60_000;
 
 interface CodexCloudSectionProps {
   cloudSubscriptionOn: boolean;
-  onConnected: () => void;
 }
 
 function planWindowLabel(window: {
@@ -30,15 +29,12 @@ function planWindowLabel(window: {
 
 export function CodexCloudSection({
   cloudSubscriptionOn,
-  onConnected,
 }: CodexCloudSectionProps): ReactElement {
   const hostTRPC = useHostTRPC();
   const queryClient = useQueryClient();
   const [awaitingLogin, setAwaitingLogin] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Cloud tasks sign in to their own ChatGPT account, separate from the local
-  // codex login, so this reads a different status from the local card.
   const statusQuery =
     hostTRPC.agent.codexCloudSubscriptionStatus.queryOptions();
   const { data: status } = useQuery({
@@ -89,8 +85,8 @@ export function CodexCloudSection({
   useEffect(() => {
     if (!awaitingLogin || !connected) return;
     setAwaitingLogin(false);
-    onConnected();
-  }, [awaitingLogin, connected, onConnected]);
+    track(ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_CONNECTED);
+  }, [awaitingLogin, connected]);
 
   const code = awaitingLogin ? deviceLogin.data?.userCode : undefined;
   const verificationUrl = deviceLogin.data?.verificationUrl;

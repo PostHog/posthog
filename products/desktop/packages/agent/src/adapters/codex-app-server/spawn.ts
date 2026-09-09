@@ -6,10 +6,6 @@ import { applyContextWikiEnv } from "../../context-wiki";
 import type { ContextWikiEnv, ProcessSpawnedCallback } from "../../types";
 import { Logger } from "../../utils/logger";
 
-/**
- * A live ChatGPT access token plus the workspace hints codex needs to route
- * requests. Codex holds these in memory only and writes no auth file.
- */
 export interface ChatgptAuthTokens {
   accessToken: string;
   chatgptAccountId?: string;
@@ -43,16 +39,7 @@ export interface CodexOptions {
   binaryPath?: string;
   codexHome?: string;
   useMachineAuth?: boolean;
-  /**
-   * Run on the user's own ChatGPT plan with a relayed access token. Codex keeps
-   * the token in memory only, so the user's local login stays the sole owner of
-   * the refresh chain.
-   */
   chatgptAuthTokens?: ChatgptAuthTokens;
-  /**
-   * Answers codex's refresh request after a 401. Codex waits ten seconds, so
-   * this must resolve fast or the turn fails.
-   */
   refreshChatgptAuthTokens?: () => Promise<ChatgptAuthTokens>;
   /** Extra codex `-c key=value` config overrides. */
   configOverrides?: Record<string, string | number>;
@@ -73,15 +60,11 @@ export interface CodexAppServerProcessOptions {
   apiKey?: string;
   codexHome?: string;
   useMachineAuth?: boolean;
-  /**
-   * The host signs this process in with a relayed ChatGPT access token, so pin
-   * the ChatGPT login method and keep an ambient API key from taking over.
-   */
+  /** Pins the ChatGPT login so an ambient API key cannot take over. */
   useChatgptAuthTokens?: boolean;
   /**
-   * CODEX_HOME for the ChatGPT account that cloud tasks use. It is separate
-   * from the user's own `~/.codex`, so a `codex logout` on their machine cannot
-   * remove it, and a rotation in a sandbox cannot reach their own login.
+   * CODEX_HOME for the account cloud tasks use. Separate from the user's own
+   * `~/.codex`, so neither login can break the other.
    */
   accountHome?: string;
   /** Guidance appended to Codex's base prompt via `developer_instructions`. */
@@ -187,8 +170,7 @@ export function buildAppServerArgs(
     args.push("-c", `model_provider="openai"`);
     args.push("-c", `forced_login_method="chatgpt"`);
     args.push("-c", `history.persistence="none"`);
-    // Keep the cloud account's tokens in its own home rather than the shared OS
-    // key store, so the two logins never read each other.
+    // A file in that home, not the shared OS key store, keeps the two apart.
     if (options.accountHome) {
       args.push("-c", `cli_auth_credentials_store="file"`);
     }

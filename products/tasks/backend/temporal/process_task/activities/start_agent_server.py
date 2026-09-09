@@ -587,8 +587,7 @@ def _invoke_start_agent_server(
 
 
 def _subscription_health_kwargs(ctx: TaskProcessingContext) -> dict[str, str]:
-    """Own-subscription runs wait longer for health: the sandbox blocks on a token
-    relayed from the user's Desktop before the agent server answers."""
+    """The sandbox waits for a token from Desktop, so health takes longer."""
     return {
         f"{adapter}_model_access": "own-subscription"
         for adapter, access in (("claude", ctx.claude_model_access), ("codex", ctx.codex_model_access))

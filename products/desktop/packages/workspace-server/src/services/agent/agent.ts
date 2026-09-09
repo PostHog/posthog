@@ -539,10 +539,6 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   private codexLogin?: CodexLoginSession;
   private codexDeviceLogin?: CodexDeviceLoginSession;
 
-  /**
-   * Cloud tasks sign in to their own CODEX_HOME. A `codex logout` on the user's
-   * machine then cannot remove the credential cloud runs depend on.
-   */
   private cloudAccountHome(): string {
     return getCloudAccountCodexHome(this.storagePaths.appDataPath);
   }
@@ -668,10 +664,6 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     };
   }
 
-  /**
-   * Hands a live access token to the caller that relays it into a cloud run.
-   * Desktop keeps the refresh token and stays the only holder of it.
-   */
   async readCodexSubscriptionTokens(
     force?: boolean,
   ): Promise<CodexSubscriptionTokensResult> {

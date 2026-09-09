@@ -662,8 +662,7 @@ container
       ),
   )
   .inSingletonScope();
-// Codex on this machine owns the ChatGPT refresh token; the cloud path only
-// ever borrows a live access token from it, so nothing is stored here.
+// Codex owns the refresh token, so nothing is stored here.
 container
   .bind(CODEX_SUBSCRIPTION_TOKEN_SOURCE)
   .toDynamicValue((ctx) => ({

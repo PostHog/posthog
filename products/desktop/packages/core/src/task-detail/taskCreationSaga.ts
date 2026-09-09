@@ -108,8 +108,7 @@ export class TaskCreationSaga extends Saga<
     const codexCloudModelAccess = isPiRuntime
       ? undefined
       : input.codexCloudModelAccess;
-    // A run on the user's own plan needs Desktop for its whole life, so it
-    // cannot adopt a warm sandbox that was started for gateway billing.
+    // A warm sandbox was started for gateway billing, so a plan run cannot use it.
     const ownSubscriptionCloudRun =
       claudeCloudModelAccess === "own-subscription" ||
       codexCloudModelAccess === "own-subscription";

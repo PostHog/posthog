@@ -283,9 +283,7 @@ export interface CodexAppServerAgentOptions {
   processCallbacks?: ProcessSpawnedCallback;
   logger?: Logger;
   onStructuredOutput?: (output: Record<string, unknown>) => Promise<void>;
-  /** Run on the user's own ChatGPT plan instead of the PostHog gateway. */
   chatgptAuthTokens?: ChatgptAuthTokens;
-  /** Supplies a rotated access token when codex reports a 401. */
   refreshChatgptAuthTokens?: () => Promise<ChatgptAuthTokens>;
   /** Test seam: build the JSON-RPC client (defaults to spawning the process). */
   rpcFactory?: (handlers: AppServerClientHandlers) => AppServerRpc;
@@ -2349,11 +2347,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
    * string is rejected); richer ones (AskUserQuestion / permission profile / elicitation) go
    * to `handleServerRequest`. Whatever we return is sent back as the JSON-RPC result.
    */
-  /**
-   * Signs codex in with a relayed access token. This login mode forces
-   * ephemeral storage inside codex, so the sandbox never writes an auth file
-   * and never holds a refresh token.
-   */
+  /** Codex forces memory-only storage in this mode, so no auth file is written. */
   private async loginWithChatgptAuthTokens(): Promise<void> {
     if (!this.chatgptAuthTokens) return;
     await this.rpc.request(APP_SERVER_METHODS.ACCOUNT_LOGIN_START, {

@@ -199,24 +199,6 @@ export function CodexSubscriptionSettings(): ReactElement | null {
       description="Choose where to use your ChatGPT plan. Model use counts toward your plan limits."
     >
       <div className="flex flex-col gap-5 pt-2">
-        {loggedIn ? (
-          <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
-            <span
-              className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-(--green-9)"
-              aria-hidden
-            />
-            {connectedAccountLabel(status)}
-            <span aria-hidden>&middot;</span>
-            <button
-              type="button"
-              className="cursor-pointer hover:underline"
-              disabled={signOut.isPending}
-              onClick={() => signOut.mutate()}
-            >
-              Sign out
-            </button>
-          </span>
-        ) : null}
         {subscription.flagEnabled ? (
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between gap-3">
@@ -245,16 +227,28 @@ export function CodexSubscriptionSettings(): ReactElement | null {
             <span className="text-muted-foreground text-xs">
               Run local and worktree Codex sessions on your ChatGPT plan.
             </span>
+            {loggedIn ? (
+              <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
+                <span
+                  className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-(--green-9)"
+                  aria-hidden
+                />
+                {connectedAccountLabel(status)}
+                <span aria-hidden>&middot;</span>
+                <button
+                  type="button"
+                  className="cursor-pointer hover:underline"
+                  disabled={signOut.isPending}
+                  onClick={() => signOut.mutate()}
+                >
+                  Sign out
+                </button>
+              </span>
+            ) : null}
           </div>
         ) : null}
         <CodexCloudSection
           cloudSubscriptionOn={subscription.cloudSubscriptionOn}
-          onConnected={() => {
-            track(ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_CONNECTED);
-            void queryClient.invalidateQueries({
-              queryKey: statusQuery.queryKey,
-            });
-          }}
         />
       </div>
     </SettingsCardRow>

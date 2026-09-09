@@ -20,7 +20,6 @@ const REQUEST_TIMEOUT_MS = 10_000;
 
 interface CodexAccountOptions {
   binaryPath: string;
-  /** Use the cloud account's own CODEX_HOME instead of the user's `~/.codex`. */
   accountHome?: string;
   logger?: Logger;
   processCallbacks?: ProcessSpawnedCallback;
@@ -44,10 +43,6 @@ export interface CodexLoginStatus {
   planType?: string;
 }
 
-/**
- * Device-code login. Unlike the browser flow, the user reads a code off the
- * card and types it into ChatGPT, so no local redirect listener is needed.
- */
 export interface CodexDeviceLoginSession {
   verificationUrl: string;
   userCode: string;
@@ -55,11 +50,6 @@ export interface CodexDeviceLoginSession {
   cancel: () => Promise<void>;
 }
 
-/**
- * A live ChatGPT access token plus the workspace hints codex needs to route
- * requests. The refresh token stays with the local codex, which owns the
- * rotation; a second holder would break the chain for both.
- */
 export interface CodexSubscriptionTokens {
   accessToken: string;
   /** Codex rejects a `chatgptAuthTokens` login without this. */
@@ -67,7 +57,6 @@ export interface CodexSubscriptionTokens {
   chatgptPlanType?: string;
 }
 
-/** The two rolling windows OpenAI enforces against a ChatGPT plan. */
 export interface CodexRateLimitWindow {
   usedPercent: number;
   windowDurationMins?: number;
@@ -125,11 +114,7 @@ export async function startCodexChatgptLogin(
   };
 }
 
-/**
- * Device-code login for cloud tasks. The user must first turn on device code
- * login in their ChatGPT security settings; a workspace member needs an admin
- * to turn it on for the workspace.
- */
+/** Needs device code login on in ChatGPT settings, or an admin to allow it. */
 export async function startCodexChatgptDeviceCodeLogin(
   options: CodexAccountOptions,
 ): Promise<CodexDeviceLoginSession> {
@@ -145,11 +130,6 @@ export async function startCodexChatgptDeviceCodeLogin(
   };
 }
 
-/**
- * Read a live ChatGPT access token from the user's own codex login. `force`
- * asks codex to rotate the token first, which is what a 401 in the sandbox
- * needs; without it codex answers from its cache until the token nears expiry.
- */
 export async function readCodexChatgptTokens(
   options: CodexAccountOptions & { force?: boolean },
 ): Promise<CodexSubscriptionTokens | null> {
@@ -181,7 +161,6 @@ export async function readCodexChatgptTokens(
   }
 }
 
-/** Remaining plan allowance, so a task can show it before it spends any. */
 export async function readCodexRateLimits(
   options: CodexAccountOptions,
 ): Promise<CodexRateLimits | null> {
@@ -199,11 +178,7 @@ export async function readCodexRateLimits(
   }
 }
 
-/**
- * Codex puts the workspace id in the `https://api.openai.com/auth` claim of the
- * access token. `account/read` does not report it, so the claim is the only
- * source. A token without the claim cannot start a `chatgptAuthTokens` login.
- */
+/** `account/read` does not report the workspace id, so read it off the token. */
 function chatgptAccountIdFromToken(accessToken: string): string | undefined {
   const payload = accessToken.split(".")[1];
   if (!payload) return undefined;

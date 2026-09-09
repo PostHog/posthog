@@ -289,7 +289,6 @@ export const codexSubscriptionLoginOutput = z.object({
   authUrl: z.string(),
 });
 
-/** Device-code login shows a code instead of opening a redirect URL. */
 export const codexSubscriptionDeviceLoginOutput = z.object({
   verificationUrl: z.string(),
   userCode: z.string(),
@@ -307,7 +306,6 @@ export const codexSubscriptionTokensInput = z.object({
 export const codexSubscriptionTokensOutput = z
   .object({
     accessToken: z.string(),
-    /** Codex rejects a `chatgptAuthTokens` login without this. */
     chatgptAccountId: z.string(),
     chatgptPlanType: z.string().optional(),
   })

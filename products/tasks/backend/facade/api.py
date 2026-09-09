@@ -7200,8 +7200,7 @@ def run_task(
         codex_model_access = previous_state.codex_model_access
 
     warm_run = _idling_warm_run_for_task(task)
-    # A run on the user's own plan needs its Desktop for the whole run, so it
-    # cannot adopt a sandbox warmed for gateway billing.
+    # A warm sandbox was started for gateway billing, so a plan run cannot use it.
     if warm_run is not None and "own-subscription" in (claude_model_access, codex_model_access):
         warm_run = None
     if warm_run is not None:

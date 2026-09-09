@@ -261,10 +261,7 @@ interface CredentialRequestEventData {
   requestId: string;
   credential: RelayedCredential;
   expiresAt: string;
-  /**
-   * The sandbox saw a 401 and needs a rotated token, not the one it holds.
-   * Only the codex credential can honor this; codex owns the rotation.
-   */
+  /** The sandbox saw a 401, so codex must rotate before it answers. */
   force?: boolean;
 }
 
@@ -280,12 +277,6 @@ function isCredentialRequestEvent(
     RELAYED_CREDENTIALS.includes(candidate.credential as RelayedCredential)
   );
 }
-
-/**
- * A codex access token lives about an hour, so a short cache keeps the refresh
- * answer inside the 10 seconds codex waits without holding a stale token.
- */
-const CODEX_TOKEN_CACHE_MS = 45_000;
 
 /** Prefix marking a desktop-issued relay approval prompt, so `sendCommand` can
  *  resolve its response locally instead of POSTing it to the sandbox. */
@@ -518,7 +509,6 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
   private readonly mcpRelayExecutor: McpRelayExecutor | null;
   private readonly claudeSubscriptionTokenStore: ClaudeSubscriptionTokenStore | null;
   private readonly codexSubscriptionTokenSource: CodexSubscriptionTokenSource | null;
-  private codexTokenCache: { token: string; readAt: number } | null = null;
   private readonly streamFetch: CloudTaskFetch;
   private readonly transcriptTailWindow: number | undefined;
 
@@ -605,11 +595,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     await this.designateSubscription(input, "codex", "ChatGPT plan");
   }
 
-  /**
-   * Binds a run to the signed-in account before any token leaves this machine.
-   * The run must name this user as its subscription owner, so a teammate who
-   * can see the run still cannot spend the owner's plan allowance.
-   */
+  /** A teammate who can see the run must not spend the owner's plan. */
   private async designateSubscription(
     input: DesignateClaudeSubscriptionInput,
     adapter: "claude" | "codex",
@@ -885,22 +871,8 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         )) ?? null
       );
     }
-    const cached = this.codexTokenCache;
-    if (
-      !data.force &&
-      cached &&
-      Date.now() - cached.readAt < CODEX_TOKEN_CACHE_MS
-    ) {
-      return cached.token;
-    }
     const tokens = await this.codexSubscriptionTokenSource?.read(data.force);
-    if (!tokens) {
-      this.codexTokenCache = null;
-      return null;
-    }
-    const token = JSON.stringify(tokens);
-    this.codexTokenCache = { token, readAt: Date.now() };
-    return token;
+    return tokens ? JSON.stringify(tokens) : null;
   }
 
   private async credentialDestination(

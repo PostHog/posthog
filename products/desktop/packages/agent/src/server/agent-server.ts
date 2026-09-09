@@ -281,8 +281,6 @@ export const CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE =
   "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.";
 const chatgptAuthTokensSchema = z.object({
   accessToken: z.string().min(1),
-  // Codex rejects the login without this, so a relay that omits it is a failure,
-  // not a token we can use.
   chatgptAccountId: z.string().min(1),
   chatgptPlanType: z.string().optional(),
 });
@@ -1190,11 +1188,6 @@ export class AgentServer {
       : CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE;
   }
 
-  /**
-   * Borrows a live ChatGPT access token from the user's Desktop. The refresh
-   * path runs while codex holds a turn open and gives up after ten seconds, so
-   * it asks for less time than the session-start path.
-   */
   private async requestCodexSubscriptionTokens(
     options: { force?: boolean } = {},
   ): Promise<ChatgptAuthTokens> {
@@ -2149,8 +2142,7 @@ export class AgentServer {
         runtimeAdapter === "codex"
           ? {
               cwd: this.config.repositoryPath ?? "/tmp/workspace",
-              // The plan token and the gateway key are alternatives: pointing
-              // codex at the gateway would send the run's spend back to us.
+              // Routing a plan run through the gateway would bill us as well.
               ...(codexSubscriptionTokens
                 ? {}
                 : codexAuthFromGatewayEnv(gatewayEnv)),
