@@ -1,5 +1,7 @@
 import { render } from '@testing-library/react'
 
+import { getHogChart, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+
 import { dayjs } from 'lib/dayjs'
 
 import { makeQuota } from '../../utils/quotaTestUtils'
@@ -16,44 +18,39 @@ function series(total: number, days: number, periodStart: string): SpendSeries {
 }
 
 describe('SpendTrajectoryChart', () => {
-    const renderChart = (overrides: Parameters<typeof makeQuota>[0] = {}, spend?: SpendSeries): HTMLElement => {
-        const quota = makeQuota(overrides)
-        return render(
-            <SpendTrajectoryChart
-                quota={quota}
-                dailyCredits={spend ?? series(quota.credits_used, 5, quota.period_start)}
-                projectedTotal={quota.credits_used}
-                capReachDate={null}
-                statusVar="var(--success)"
-            />
-        ).container
-    }
-
-    // A free allocation this small sits on the axis, where the line reads as the axis and its label
-    // lands on the period end date.
-    it('hides the free-credits line when it would sit on the axis', () => {
-        const container = renderChart({ credit_limit: 240_000, credits_used: 168_000, free_monthly_credits: 1_000 })
-        expect(container.textContent).not.toContain('Free credits')
+    let cleanupJsdom: () => void
+    let cleanupRaf: () => void
+    beforeEach(() => {
+        cleanupJsdom = setupJsdom()
+        cleanupRaf = setupSyncRaf()
+    })
+    afterEach(() => {
+        cleanupRaf()
+        cleanupJsdom()
     })
 
-    it('keeps the free-credits line when it clears the axis', () => {
-        const container = renderChart({ credit_limit: 10_000, credits_used: 4_000, free_monthly_credits: 2_500 })
-        expect(container.textContent).toContain('Free credits')
-    })
-
-    // The series and the quota are fetched together, so the series can be a moment newer. Today has to
-    // read the same number the card header shows rather than the higher of the two.
-    it('reports today at the quota total even when the ledger series runs ahead', () => {
-        const quota = makeQuota({ credit_limit: 10_000, credits_used: 4_000 })
+    it('draws captioned limit and free-credit lines and labels today at the quota total', () => {
+        const quota = makeQuota({ credit_limit: 10_000, credits_used: 4_000, free_monthly_credits: 2_500 })
         const { container } = render(
             <SpendTrajectoryChart
                 quota={quota}
-                dailyCredits={series(4_400, 4, quota.period_start)}
+                dailyCredits={series(4_000, 5, quota.period_start)}
                 projectedTotal={4_000}
                 capReachDate={null}
                 statusVar="var(--success)"
             />
         )
-        expect(container.textContent).toContain('Today · 4,000')
+        const chart = getHogChart(container)
+        expect(chart.referenceLines().map((line) => line.label)).toEqual([null, null])
+        expect(container.querySelector('[data-attr="hog-chart-reference-line-hit-area"]')).toBeNull()
+        expect(container.querySelector('[data-attr="spend-trajectory-reference-label-limit"]')?.textContent).toBe(
+            'Monthly limit · 10,000'
+        )
+        expect(container.querySelector('[data-attr="spend-trajectory-reference-label-free"]')?.textContent).toBe(
+            'Free credits · 2,500'
+        )
+        expect(container.querySelector('[data-attr="spend-trajectory-marker-today"]')?.textContent).toBe(
+            'Today · 4,000'
+        )
     })
 })
