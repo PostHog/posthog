@@ -1,4 +1,9 @@
-import { ArrowsClockwise, ShieldWarning, XCircle } from "@phosphor-icons/react";
+import {
+  ArrowsClockwise,
+  Check,
+  ShieldWarning,
+  XCircle,
+} from "@phosphor-icons/react";
 import { ChatMarker, ChatMarkerContent } from "@posthog/quill";
 import { Spin, Spinner } from "@posthog/ui/primitives/Spinner";
 import { Box, Callout, Flex, Text } from "@radix-ui/themes";
@@ -183,6 +188,22 @@ export function StatusNotificationView({
           <Text className="text-[13px] text-gray-11">{message}</Text>
         </Flex>
       </Box>
+    );
+  }
+
+  if (status === "agent_started") {
+    if (chatChrome) {
+      return (
+        <ChatMarker variant="separator">
+          <ChatMarkerContent>Agent started</ChatMarkerContent>
+        </ChatMarker>
+      );
+    }
+    return (
+      <div className="my-1 flex items-center gap-2 border-gray-6 border-l-2 py-1 pl-3 dark:border-gray-8">
+        <Check size={14} className="shrink-0 text-gray-9" aria-hidden />
+        <span className="text-[13px] text-gray-11">Agent started</span>
+      </div>
     );
   }
 

@@ -41,8 +41,11 @@ export const Provisioning: Story = {
     },
   ],
   render: () => (
-    <div className="flex h-screen min-h-[420px] w-full items-end justify-center bg-background pb-10">
-      <div className="w-full max-w-xl">
+    <div className="min-h-[420px] w-full bg-background p-6">
+      <div className="mx-auto w-full max-w-[750px]">
+        <p className="mb-6 text-sm">
+          Sure. I will start by reading the setup script.
+        </p>
         <SessionProvisioningStatus
           executionTarget="local"
           taskId={PROVISIONING_TASK_ID}

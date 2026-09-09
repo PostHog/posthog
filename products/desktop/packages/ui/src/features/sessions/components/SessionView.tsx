@@ -44,8 +44,6 @@ import { PlanStatusBar } from "@posthog/ui/features/sessions/components/PlanStat
 import { QueuedMessagesDock } from "@posthog/ui/features/sessions/components/QueuedMessagesDock";
 import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
 import { RawLogsView } from "@posthog/ui/features/sessions/components/raw-logs/RawLogsView";
-import { SessionProvisioningStatus } from "@posthog/ui/features/sessions/components/SessionProvisioningStatus";
-import { SessionStartupStatus } from "@posthog/ui/features/sessions/components/SessionStartupStatus";
 import { SessionSummaryPanel } from "@posthog/ui/features/sessions/components/SessionSummaryPanel";
 import { SideQuestionCard } from "@posthog/ui/features/sessions/components/SideQuestionCard";
 import { SteerQueueToggle } from "@posthog/ui/features/sessions/components/SteerQueueToggle";
@@ -69,7 +67,6 @@ import {
   useModelConfigOptionForTask,
   usePendingPermissionsForTask,
   useSessionSelector,
-  useSessionStore,
   useThoughtLevelConfigOptionForTask,
 } from "@posthog/ui/features/sessions/sessionStore";
 import {
@@ -123,7 +120,6 @@ interface SessionViewProps {
   onRetry?: () => void;
   onNewSession?: () => void;
   isInitializing?: boolean;
-  isProvisioning?: boolean;
   isCloud?: boolean;
   slackThreadUrl?: string;
   compact?: boolean;
@@ -160,7 +156,6 @@ export function SessionView({
   onRetry,
   onNewSession,
   isInitializing = false,
-  isProvisioning = false,
   isCloud = false,
   slackThreadUrl,
   compact = false,
@@ -196,10 +191,6 @@ export function SessionView({
   const olderHistoryCursor = useSessionSelector(taskId, (session) =>
     isCloud ? (session?.transcriptWindowStart ?? 0) : 0,
   );
-  const startupPhase = useSessionStore((state) =>
-    taskId ? state.startingTaskIds[taskId]?.phase : undefined,
-  );
-  const showStartupStatus = isProvisioning || isInitializing || !isRunning;
   const isLoadingOlderHistory = useSessionSelector(
     taskId,
     (session) => session?.isLoadingOlderTranscript ?? false,
@@ -767,126 +758,96 @@ export function SessionView({
                     />
                   </PermissionDock>
                 ) : (
-                  <Box className="relative shrink-0">
-                    <Box
-                      className={`absolute inset-0 flex min-h-[66px] flex-col items-center justify-center gap-2 transition-opacity duration-200 ${
-                        showStartupStatus
-                          ? "opacity-100"
-                          : "pointer-events-none opacity-0"
-                      }`}
-                    >
-                      {isProvisioning ? (
-                        <SessionProvisioningStatus
-                          executionTarget={isCloud ? "cloud" : "local"}
-                          taskId={taskId ?? ""}
-                        />
-                      ) : (
-                        <SessionStartupStatus
-                          executionTarget={isCloud ? "cloud" : "local"}
-                          phase={startupPhase}
-                          label={
-                            isInitializing
-                              ? undefined
-                              : "Connecting to agent..."
-                          }
+                  <Box className="shrink-0">
+                    <ComposerWidth compact={compact}>
+                      {taskId && (
+                        <SessionSummaryPanel
+                          taskId={taskId}
+                          taskRunId={activeTaskRunId}
                         />
                       )}
-                    </Box>
-                    <Box
-                      className={`transition-all duration-300 ease-out ${
-                        showStartupStatus
-                          ? "pointer-events-none translate-y-4 opacity-0"
-                          : "translate-y-0 opacity-100"
-                      }`}
-                    >
-                      <ComposerWidth compact={compact}>
-                        {taskId && (
-                          <SessionSummaryPanel
-                            taskId={taskId}
-                            taskRunId={activeTaskRunId}
-                          />
-                        )}
-                        {taskId && (
-                          <SideQuestionCard
-                            taskId={taskId}
-                            taskRunId={activeTaskRunId}
-                          />
-                        )}
-                        {taskId && <QueuedMessagesDock taskId={taskId} />}
-                        <PromptInput
-                          ref={editorRef}
-                          sessionId={sessionId}
-                          placeholder="Type a message... ! for bash mode, / for skills"
-                          disabled={!isRunning}
-                          submitDisabledExternal={
-                            !isOnline ||
-                            attachmentsUploading ||
-                            attachmentUploadFailed ||
-                            spendStop !== null
-                          }
-                          clearOnSubmit={false}
-                          submitTooltipOverride={
-                            !isOnline
-                              ? "No internet connection"
-                              : attachmentsUploading
-                                ? "Uploading attachments…"
-                                : attachmentUploadFailed
-                                  ? "Attachment upload failed"
-                                  : spendStop
-                                    ? spendStopMessage(spendStop)
-                                    : undefined
-                          }
-                          isLoading={!!isPromptPending}
-                          isActiveSession={isActiveSession}
+                      {taskId && (
+                        <SideQuestionCard
                           taskId={taskId}
-                          repoPath={repoPath}
-                          modeOption={modeOption}
-                          onModeChange={
-                            modeOption ? handleModeChange : undefined
-                          }
-                          allowBypassPermissions={allowBypassPermissions}
-                          enableBashMode={!isCloudRun}
-                          modelSelector={null}
-                          reasoningSelector={
-                            thoughtOption || sessionModelOption ? (
-                              <ReasoningLevelSelector
-                                thoughtOption={thoughtOption}
-                                modelOption={sessionModelOption}
-                                adapter={adapter}
-                                contextWindowOption={contextWindowOption}
-                                fastModeOption={fastModeOption}
-                                onChange={handleThoughtChange}
-                                onConfigOptionChange={handleConfigOptionChange}
-                                disabled={!isRunning}
-                              />
-                            ) : null
-                          }
-                          messagingModeToggle={
-                            taskId ? (
-                              <SteerQueueToggle taskId={taskId} />
-                            ) : undefined
-                          }
-                          toolbarEndSlot={
-                            <ContextUsageIndicator
-                              usage={contextUsage}
-                              taskId={taskId}
-                              originProduct={task?.origin_product}
-                              focused={isActiveSession !== false}
-                            />
-                          }
-                          onToggleMessagingMode={toggleMessagingMode}
-                          onAttachmentsChange={handleAttachmentsChange}
-                          attachmentUploadStatuses={attachmentUploadStatuses}
-                          onPromptRecall={handlePromptRecall}
-                          onBeforeSubmit={handleBeforeSubmit}
-                          onSubmit={handleSubmit}
-                          onBashCommand={onBashCommand}
-                          onCancel={onCancelPrompt}
-                          isEditingQueued={isEditingQueued}
-                          onCancelEdit={cancelQueuedEdit}
+                          taskRunId={activeTaskRunId}
                         />
-                      </ComposerWidth>
-                    </Box>
+                      )}
+                      {taskId && <QueuedMessagesDock taskId={taskId} />}
+                      <PromptInput
+                        ref={editorRef}
+                        sessionId={sessionId}
+                        placeholder={
+                          isRunning
+                            ? "Type a message... ! for bash mode, / for skills"
+                            : "Waiting for the agent..."
+                        }
+                        disabled={!isRunning}
+                        submitDisabledExternal={
+                          !isOnline ||
+                          attachmentsUploading ||
+                          attachmentUploadFailed ||
+                          spendStop !== null
+                        }
+                        clearOnSubmit={false}
+                        submitTooltipOverride={
+                          !isOnline
+                            ? "No internet connection"
+                            : attachmentsUploading
+                              ? "Uploading attachments…"
+                              : attachmentUploadFailed
+                                ? "Attachment upload failed"
+                                : spendStop
+                                  ? spendStopMessage(spendStop)
+                                  : undefined
+                        }
+                        isLoading={!!isPromptPending}
+                        isActiveSession={isActiveSession}
+                        taskId={taskId}
+                        repoPath={repoPath}
+                        modeOption={modeOption}
+                        onModeChange={modeOption ? handleModeChange : undefined}
+                        allowBypassPermissions={allowBypassPermissions}
+                        enableBashMode={!isCloudRun}
+                        modelSelector={null}
+                        reasoningSelector={
+                          thoughtOption || sessionModelOption ? (
+                            <ReasoningLevelSelector
+                              thoughtOption={thoughtOption}
+                              modelOption={sessionModelOption}
+                              adapter={adapter}
+                              contextWindowOption={contextWindowOption}
+                              fastModeOption={fastModeOption}
+                              onChange={handleThoughtChange}
+                              onConfigOptionChange={handleConfigOptionChange}
+                              disabled={!isRunning}
+                            />
+                          ) : null
+                        }
+                        messagingModeToggle={
+                          taskId ? (
+                            <SteerQueueToggle taskId={taskId} />
+                          ) : undefined
+                        }
+                        toolbarEndSlot={
+                          <ContextUsageIndicator
+                            usage={contextUsage}
+                            taskId={taskId}
+                            originProduct={task?.origin_product}
+                            focused={isActiveSession !== false}
+                          />
+                        }
+                        onToggleMessagingMode={toggleMessagingMode}
+                        onAttachmentsChange={handleAttachmentsChange}
+                        attachmentUploadStatuses={attachmentUploadStatuses}
+                        onPromptRecall={handlePromptRecall}
+                        onBeforeSubmit={handleBeforeSubmit}
+                        onSubmit={handleSubmit}
+                        onBashCommand={onBashCommand}
+                        onCancel={onCancelPrompt}
+                        isEditingQueued={isEditingQueued}
+                        onCancelEdit={cancelQueuedEdit}
+                      />
+                    </ComposerWidth>
                   </Box>
                 )}
               </>

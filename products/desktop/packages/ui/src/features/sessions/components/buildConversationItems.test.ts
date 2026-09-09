@@ -300,6 +300,44 @@ describe("buildConversationItems", () => {
     expect(fullIds.slice(-tailIds.length)).toEqual(tailIds);
   });
 
+  it.each([
+    {
+      name: "while the start is still the newest thing",
+      trailing: [],
+      expected: 0,
+    },
+    {
+      name: "once the agent speaks after it",
+      trailing: [agentMessageMsg(6, "Hi")],
+      expected: 1,
+    },
+  ])(
+    "collapses a startup burst into one agent_started row $name",
+    ({ trailing, expected }) => {
+      const result = buildConversationItems(
+        [
+          userPromptMsg(1, 1, "go"),
+          statusMsg(2, "setup_hooks"),
+          statusMsg(3, "sdk_initialization"),
+          statusMsg(4, "setup_hooks"),
+          statusMsg(5, "sdk_initialization"),
+          ...trailing,
+        ],
+        false,
+      );
+      const statuses = result.items.filter(
+        (i): i is Extract<ConversationItem, { type: "session_update" }> =>
+          i.type === "session_update" && i.update.sessionUpdate === "status",
+      );
+      expect(statuses).toHaveLength(expected);
+      for (const item of statuses) {
+        expect((item.update as { status: string }).status).toBe(
+          "agent_started",
+        );
+      }
+    },
+  );
+
   it("clears the compacting spinner on a successful completion status, without duplicating the row", () => {
     // A successful compaction sends a terminal `status: compacting, isComplete:
     // true`. It must flip the existing status row, not append a second one.

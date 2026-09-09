@@ -8,6 +8,7 @@ import {
 } from "@posthog/agent/acp-extensions";
 import { extractPromptDisplayContent } from "@posthog/core/sessions/promptContent";
 import { isSteerPromptParams } from "@posthog/core/sessions/sessionEvents";
+import { isSessionStartupPhase } from "@posthog/core/sessions/sessionStartup";
 import {
   type AcpMessage,
   type AgentConversationEvent,
@@ -167,6 +168,11 @@ export interface ItemBuilder {
    *  permission request — and the resolving tool_call_update replays the raw
    *  plan-less input, so the plan is re-applied after every merge. */
   recoveredPlans: Map<string, string>;
+  /** Start of a `setup_hooks` / `sdk_initialization` burst that no content has
+   *  followed yet. One "Agent started" row stands for the whole burst, and it
+   *  is drawn only once content follows, so a start still under way is left to
+   *  the thread's live startup row. */
+  pendingAgentStart: number | null;
 }
 
 export function createItemBuilder(): ItemBuilder {
@@ -186,6 +192,7 @@ export function createItemBuilder(): ItemBuilder {
     isBackgroundTurnActive: false,
     runStartedRunIds: new Set(),
     recoveredPlans: new Map(),
+    pendingAgentStart: null,
   };
 }
 
@@ -276,9 +283,25 @@ function markThoughtCompletionInItems(
   }
 }
 
+function flushAgentStart(b: ItemBuilder) {
+  const ts = b.pendingAgentStart;
+  const turn = b.currentTurn;
+  if (ts === null || !turn) return;
+  b.pendingAgentStart = null;
+  turn.itemCount++;
+  b.items.push({
+    type: "session_update",
+    id: `${turn.id}-item-${turn.nextItemId++}`,
+    update: { sessionUpdate: "status", status: "agent_started" },
+    turnContext: turn.context,
+    timestamp: ts,
+  });
+}
+
 function pushItem(b: ItemBuilder, update: RenderItem, ts?: number) {
   const turn = b.currentTurn;
   if (!turn) return;
+  flushAgentStart(b);
   turn.itemCount++;
   b.items.push({
     type: "session_update",
@@ -910,6 +933,11 @@ function handleRuntimeStatus(
   timestamp: number,
 ): void {
   ensureImplicitTurn(b, timestamp);
+
+  if (isSessionStartupPhase(status.status)) {
+    b.pendingAgentStart ??= timestamp;
+    return;
+  }
 
   if (status.status === "refusal" || status.status === "refusal_fallback") {
     pushItem(b, {

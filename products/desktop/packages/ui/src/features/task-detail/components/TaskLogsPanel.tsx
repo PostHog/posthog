@@ -46,7 +46,6 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
   const isSuspended = suspendedTaskIds.has(taskId);
   const { restoreTask, isRestoring } = useRestoreTask();
 
-  const isProvisioning = useProvisioningStore((s) => s.activeTasks.has(taskId));
   const provisioningError = useProvisioningStore((s) => s.errors[taskId]);
   const clearProvisioning = useProvisioningStore((s) => s.clear);
 
@@ -183,7 +182,6 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
               onRetry={handleRetry}
               onNewSession={isCloud ? undefined : handleNewSession}
               isInitializing={isInitializing}
-              isProvisioning={isProvisioning}
               isCloud={isCloud}
               slackThreadUrl={slackThreadUrl}
             />
