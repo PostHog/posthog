@@ -1892,14 +1892,11 @@ async fn test_etag_graceful_degradation_without_stored_etag() {
     );
 }
 
-/// Second logical database on the local Redis, standing in for the dedicated flags cluster.
-/// The shared cache lives in database 0 (`default_test_config`), so the two do not see each
-/// other's keys.
+/// Stands in for the dedicated cluster. The shared cache is database 0, so keys cannot collide.
 const DEDICATED_REDIS_URL: &str = "redis://localhost:6379/1";
 
-/// Both the payload and the ETag must come from the dedicated cluster when the switch is on.
-/// Only the dedicated database is seeded, so a reader still pointed at shared returns 503 on the
-/// payload, and a payload that moved while the ETag stayed behind loses the ETag header.
+/// Seeds only the dedicated database: a reader left on shared 503s, and a payload that moved
+/// without its ETag loses the header.
 #[tokio::test]
 async fn test_dedicated_redis_serves_payload_and_etag() {
     use feature_flags::config::{Config, FlexBool};
@@ -1960,9 +1957,8 @@ async fn test_dedicated_redis_serves_payload_and_etag() {
     );
 }
 
-/// The split-brain 304, which is silent in production. With a different ETag in each cluster, an
-/// `If-None-Match` carrying the shared one must not match, or the endpoint pins the SDK to
-/// definitions the dedicated cluster has already moved past.
+/// The split-brain 304, which is silent in production: a shared ETag matching while the
+/// dedicated cluster holds a newer payload pins the SDK to stale definitions.
 #[tokio::test]
 async fn test_dedicated_redis_ignores_shared_etag() {
     use feature_flags::config::{Config, FlexBool};

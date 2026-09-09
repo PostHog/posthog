@@ -180,9 +180,7 @@ pub async fn serve_with_rate_limiter_clock<C>(
             *config.flag_definitions_dedicated_redis_enabled,
         );
 
-    // Reported per cache rather than as one mode string, because the caches no longer agree:
-    // flags.json, team_metadata, remote_config and auth_tokens follow only whether the dedicated
-    // client exists, while flags_with_cohorts follows its own switch.
+    // Per cache, not one mode string: flags_with_cohorts no longer agrees with the rest.
     let other_flags_caches = if dedicated_redis_client.is_some() {
         "dedicated"
     } else {
@@ -776,9 +774,6 @@ impl FlagDefinitionsCluster {
 /// client, so a stale-but-present ETag on one cluster can never match a client's `If-None-Match`
 /// while the other cluster holds a newer payload. That pairing answers 304 and pins the SDK to
 /// stale definitions with no error on any metric.
-///
-/// Enabled with no dedicated client is a misconfiguration, not a fallback. It makes a cutover
-/// look done while reads stay on shared, so it warns instead of degrading quietly.
 fn resolve_flag_definitions_redis_client(
     dedicated_redis_client: Option<&Arc<dyn Client + Send + Sync>>,
     shared_redis_client: &Arc<dyn Client + Send + Sync>,
@@ -990,9 +985,7 @@ mod tests {
         );
     }
 
-    /// An inverted toggle here moves a production read path silently, and the
-    /// enabled-without-a-dedicated-client arm is the misconfiguration that makes a cutover look
-    /// done while reads stay on shared.
+    /// An inverted toggle here moves a production read path with no other signal.
     #[rstest]
     #[case::off_with_dedicated(false, true, FlagDefinitionsCluster::Disabled)]
     #[case::on_with_dedicated(true, true, FlagDefinitionsCluster::Dedicated)]
