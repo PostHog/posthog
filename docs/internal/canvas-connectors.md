@@ -48,8 +48,8 @@ When a connection is missing or needs authorization, `connect_path` identifies t
 
 ## Host safety
 
-The canvas host must ask the viewer before it sends connector calls. Consent must be limited to the canvas version, provider, and tool. The prompt must explain that the canvas can receive private data and that declared network access can send it outside PostHog.
+The canvas host asks the viewer before it sends connector calls. Consent is limited to the canvas version, provider, and tool. The prompt explains that the canvas can receive private data and share it through its declared capabilities. A denied call stays blocked until the viewer retries from a user action.
 
-Connector caches must be authentication-scoped. Remove them when the viewer, organization, or project changes. Never write connector results into shared canvas state.
+Connector results and consent use authentication-scoped caches. Account, organization, and project changes clear these caches. Results are also separated by canvas version. Never write connector results into shared canvas state.
 
 Keep the feature flag off until the backend and a host with these checks are deployed. Verify connection failures, cancellation, account changes, and the connector activity log before increasing the rollout.
