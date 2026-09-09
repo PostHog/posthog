@@ -3243,6 +3243,12 @@ export interface CredentialApi {
  * * `Tenjin` - Tenjin
  * * `Folk` - Folk
  * * `Cybersource` - Cybersource
+ * * `FrappeCRM` - FrappeCRM
+ * * `FrappeHelpdesk` - FrappeHelpdesk
+ * * `LeadSquared` - LeadSquared
+ * * `SageAccounting` - SageAccounting
+ * * `TurboDocx` - TurboDocx
+ * * `UKG` - UKG
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4580,6 +4586,12 @@ export const ExternalDataSourceTypeEnumApi = {
     Tenjin: 'Tenjin',
     Folk: 'Folk',
     Cybersource: 'Cybersource',
+    FrappeCRM: 'FrappeCRM',
+    FrappeHelpdesk: 'FrappeHelpdesk',
+    LeadSquared: 'LeadSquared',
+    SageAccounting: 'SageAccounting',
+    TurboDocx: 'TurboDocx',
+    Ukg: 'UKG',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

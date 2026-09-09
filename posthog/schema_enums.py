@@ -2662,6 +2662,12 @@ class ExternalDataSourceType(StrEnum):
     RECALL_AI = "RecallAI"
     TENJIN = "Tenjin"
     FOLK = "Folk"
+    FRAPPE_CRM = "FrappeCRM"
+    FRAPPE_HELPDESK = "FrappeHelpdesk"
+    LEAD_SQUARED = "LeadSquared"
+    SAGE_ACCOUNTING = "SageAccounting"
+    TURBO_DOCX = "TurboDocx"
+    UKG = "UKG"
     CYBERSOURCE = "Cybersource"
 
 
