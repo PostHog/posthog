@@ -8,7 +8,13 @@ import {
     VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataTableNode, NodeKind, RecordingsQuery } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isHogQLQuery, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
+import {
+    isDataTableNode,
+    isDataVisualizationNode,
+    isHogQLQuery,
+    isInsightQueryNode,
+    isInsightVizNode,
+} from '~/queries/utils'
 import { RecordingUniversalFilters } from '~/types'
 
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
@@ -130,7 +136,9 @@ export function extractQueryResult(message: ToolCallMessage): QueryResultExtract
         isInsightQueryNode(query) ||
         isHogQLQuery(query) ||
         (isInsightVizNode(query) && isInsightQueryNode(query.source)) ||
-        (isDataVisualizationNode(query) && isHogQLQuery(query.source))
+        (isDataVisualizationNode(query) && isHogQLQuery(query.source)) ||
+        // A saved table insight arrives as a bare node; its source can be any table-readable kind.
+        (isDataTableNode(query) && typeof asRecord(query.source)?.kind === 'string')
     ) {
         renderable = query as VisualizationArtifactContent['query']
     } else if (query.kind === NodeKind.TracesQuery || query.kind === NodeKind.ActorsQuery) {
