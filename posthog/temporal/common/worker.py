@@ -57,6 +57,12 @@ from posthog.temporal.usage_report.metrics import (
     USAGE_REPORTS_LATENCY_HISTOGRAM_METRICS,
 )
 
+from products.alerts.backend.facade.temporal import (
+    ALERTS_PRODUCT_LATENCY_HISTOGRAM_BUCKETS,
+    ALERTS_PRODUCT_LATENCY_HISTOGRAM_METRICS,
+    ALERTS_PRODUCT_TASK_QUEUES,
+    AlertsProductMetricsInterceptor,
+)
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
 from products.experiments.backend.temporal.recalculation_metrics import (
     EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS,
@@ -178,6 +184,7 @@ ALL_INTERCEPTOR_CLASSES = [
     EvalReportsMetricsInterceptor,
     LogsAlertingMetricsInterceptor,
     ExperimentsRecalculationMetricsInterceptor,
+    AlertsProductMetricsInterceptor,
 ]
 
 
@@ -343,6 +350,15 @@ async def create_worker(
         )
         | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]}
     )
+    # `ALERTS_PRODUCT_LATENCY_HISTOGRAM_METRICS` retunes a Temporal built-in, so it stays scoped to
+    # the alerts queues and leaves every other fleet on the default boundaries.
+    if task_queue in ALERTS_PRODUCT_TASK_QUEUES:
+        histogram_bucket_overrides |= dict(
+            zip(
+                ALERTS_PRODUCT_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(ALERTS_PRODUCT_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
     if task_queue == settings.DATA_MODELING_TASK_QUEUE:
         histogram_bucket_overrides |= dict(
             zip(

@@ -1,3 +1,9 @@
+from products.alerts.backend.temporal.metrics import (
+    ALERTS_PRODUCT_LATENCY_HISTOGRAM_BUCKETS,
+    ALERTS_PRODUCT_LATENCY_HISTOGRAM_METRICS,
+    ALERTS_PRODUCT_TASK_QUEUES,
+    AlertsProductMetricsInterceptor,
+)
 from products.alerts.backend.temporal.workflows import (
     DELIVERY_ACTIVITIES,
     DELIVERY_WORKFLOWS,
@@ -5,4 +11,13 @@ from products.alerts.backend.temporal.workflows import (
     EVALUATION_WORKFLOWS,
 )
 
-__all__ = ["DELIVERY_ACTIVITIES", "DELIVERY_WORKFLOWS", "EVALUATION_ACTIVITIES", "EVALUATION_WORKFLOWS"]
+__all__ = [
+    "ALERTS_PRODUCT_LATENCY_HISTOGRAM_BUCKETS",
+    "ALERTS_PRODUCT_LATENCY_HISTOGRAM_METRICS",
+    "ALERTS_PRODUCT_TASK_QUEUES",
+    "AlertsProductMetricsInterceptor",
+    "DELIVERY_ACTIVITIES",
+    "DELIVERY_WORKFLOWS",
+    "EVALUATION_ACTIVITIES",
+    "EVALUATION_WORKFLOWS",
+]

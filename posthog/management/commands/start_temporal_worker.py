@@ -152,6 +152,7 @@ from posthog.temporal.weekly_digest import (
 )
 
 from products.alerts.backend.facade.temporal import (
+    ALERTS_PRODUCT_TASK_QUEUES,
     DELIVERY_ACTIVITIES as ALERTS_PRODUCT_DELIVERY_ACTIVITIES,
     DELIVERY_WORKFLOWS as ALERTS_PRODUCT_DELIVERY_WORKFLOWS,
     EVALUATION_ACTIVITIES as ALERTS_PRODUCT_EVALUATION_ACTIVITIES,
@@ -288,7 +289,10 @@ from products.wizard.backend.facade.temporal import (
 
 # When adding modules to a queue, also update the corresponding CI trigger
 # in .github/workflows/container-images-cd.yml (check_changes_*_temporal_worker)
-_task_queue_specs = [
+#
+# Without this annotation mypy joins the heterogeneous entries to `object`, and every `update()` on
+# the aggregated dicts below fails. A stricter element type rejects the decorated activity lists.
+_task_queue_specs: list[tuple[str, collections.abc.Iterable[typing.Any], collections.abc.Iterable[typing.Any]]] = [
     (
         settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
         ALERTS_PRODUCT_EVALUATION_WORKFLOWS,
@@ -575,6 +579,25 @@ def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type
     return any(wf in DATA_SYNC_WORKFLOWS for wf in workflows)
 
 
+def should_enable_otel(task_queue: str) -> bool:
+    """True when this worker traces workflow and activity execution with OTel spans.
+
+    A Max AI or tasks-agent trace spans the Django request and the Temporal activity that runs the
+    agent loop. An alerts product tick spans two queues, because evaluation starts the delivery
+    child on the delivery queue. Without the plugin, every span emitted from an activity is a root
+    span and the trace splits into disconnected pieces, so these queues do not wait for an operator
+    to flip TEMPORAL_OTEL_PLUGIN_ENABLED.
+    """
+    forced_task_queues = (
+        settings.MAX_AI_TASK_QUEUE,
+        settings.TASKS_TASK_QUEUE,
+        *ALERTS_PRODUCT_TASK_QUEUES,
+    )
+    return (
+        settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True or task_queue in forced_task_queues
+    ) and settings.OTEL_SERVICE_NAME is not None
+
+
 if settings.DEBUG:
     TASK_QUEUE_METRIC_PREFIXES = {}
 else:
@@ -733,15 +756,7 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
-        # Max AI and tasks-agent traces span the Django request and the Temporal activity that runs
-        # the agent loop. Without the OTel plugin on the worker, every span emitted from an activity
-        # is a root span and the conversation trace splits across disconnected pieces. Force-enable
-        # for both queues so investigations don't depend on an operator flipping
-        # TEMPORAL_OTEL_PLUGIN_ENABLED.
-        enable_otel = (
-            settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True
-            or task_queue in (settings.MAX_AI_TASK_QUEUE, settings.TASKS_TASK_QUEUE)
-        ) and settings.OTEL_SERVICE_NAME is not None
+        enable_otel = should_enable_otel(task_queue)
         if enable_otel is True:
             # Mypy doesn't understand we have already checked settings.OTEL_SERVICE_NAME
             initialize_otel(settings.OTEL_SERVICE_NAME, settings.TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT)  # type: ignore

@@ -43,5 +43,28 @@ The child ID includes the evaluation run ID, so repeated runs of the same evalua
 Delivery has a one-minute execution timeout for the noop.
 Real notification delivery guarantees remain undecided.
 
+## Telemetry
+
+Both queues report through `products/alerts/backend/temporal/metrics.py`:
+
+| Signal          | Where to read it                                                                          |
+| --------------- | ----------------------------------------------------------------------------------------- |
+| Metrics         | The worker's `--metrics-port`, under the `alerts_product_activity_` prefix                |
+| Structured logs | One record for each activity, with `task_queue`, `activity_type`, and `workflow_id`       |
+| Traces          | OTel spans, force-enabled for both queues, so a tick and its delivery child are one trace |
+
+`alerts_product_activity_execution_latency` carries `task_queue`, `activity_type`, and `status`, so one query separates the two fleets:
+
+```promql
+rate(alerts_product_activity_execution_latency_count{status="FAILED"}[5m])
+```
+
+Queue wait is Temporal's own `temporal_activity_schedule_to_start_latency`.
+It rises when the fleet cannot keep up with the queue, and the activity duration does not show that.
+Both queues widen its buckets to 30 minutes, because the default boundaries stop at 10 seconds.
+
+Traces need `OTEL_SERVICE_NAME`.
+Without it the worker starts, but it sends no spans.
+
 This registration does not create schedules or deploy workers.
 Schedule registration will set the evaluation workflow's 50-second execution timeout separately.
