@@ -51,4 +51,25 @@ describe('Link', () => {
         fireEvent.click(screen.getByText(text), init)
         expect(onClick).toHaveBeenCalledTimes(expectedCalls)
     })
+
+    // An untargeted docs link used to be intercepted and shown in a side panel. Once that panel went
+    // away, the same link replaced the app in the current tab, which costs the reader their place
+    // mid-onboarding.
+    const docsTargetCases: [label: string, to: string, target: string | undefined, expected: string | null][] = [
+        ['docs link with no target', 'https://posthog.com/docs/libraries/vue-js', undefined, '_blank'],
+        ['docs link on www', 'https://www.posthog.com/docs/libraries/vue-js', undefined, '_blank'],
+        ['docs link opting out', 'https://posthog.com/docs/libraries/vue-js', '_self', '_self'],
+        ['non-docs posthog.com link', 'https://posthog.com/pricing', undefined, null],
+        ['in-app link', '/insights/1', undefined, null],
+    ]
+
+    it.each(docsTargetCases)('resolves the target of a %s', (label, to, target, expected) => {
+        render(
+            <Link to={to} target={target}>
+                {label}
+            </Link>
+        )
+
+        expect(screen.getByText(label).closest('a')?.getAttribute('target')).toBe(expected)
+    })
 })

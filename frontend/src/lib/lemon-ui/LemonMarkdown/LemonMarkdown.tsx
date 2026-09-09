@@ -73,8 +73,6 @@ export interface LemonMarkdownProps {
     children: string
     /** Whether headings should just be <strong> text. Recommended for item descriptions. */
     lowKeyHeadings?: boolean
-    /** Whether to disable the docs sidebar panel behavior and always open links in a new tab */
-    disableDocsRedirect?: boolean
     /**
      * Whether to treat images as untrusted. Use for content we don't control (e.g. LLM/agent or
      * externally-sourced output), where auto-loading an image would fire a request to an arbitrary
@@ -151,7 +149,6 @@ export function extractTextFromChildren(children: React.ReactNode): string {
 const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     children,
     lowKeyHeadings = false,
-    disableDocsRedirect = false,
     disableImages = false,
     disableLinks = false,
     disableMentions = false,
@@ -181,7 +178,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                     return <>{children}</>
                 }
                 return (
-                    <Link to={href} target="_blank" targetBlankIcon disableDocsPanel={disableDocsRedirect}>
+                    <Link to={href} target="_blank" targetBlankIcon>
                         {children}
                     </Link>
                 )
@@ -265,7 +262,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                           return disableLinks ? (
                               <>{alt || src}</>
                           ) : (
-                              <Link to={src} target="_blank" targetBlankIcon disableDocsPanel>
+                              <Link to={src} target="_blank" targetBlankIcon>
                                   {alt || src}
                               </Link>
                           )
@@ -316,7 +313,6 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                   : {}),
         }),
         [
-            disableDocsRedirect,
             disableImages,
             disableLinks,
             lowKeyHeadings,
@@ -359,7 +355,6 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
 function LemonMarkdownComponent({
     children,
     lowKeyHeadings = false,
-    disableDocsRedirect = false,
     disableImages = false,
     disableLinks = false,
     disableMentions = false,
@@ -375,7 +370,6 @@ function LemonMarkdownComponent({
         <LemonMarkdownContainer className={className}>
             <LemonMarkdownRenderer
                 lowKeyHeadings={lowKeyHeadings}
-                disableDocsRedirect={disableDocsRedirect}
                 disableImages={disableImages}
                 disableLinks={disableLinks}
                 disableMentions={disableMentions}
