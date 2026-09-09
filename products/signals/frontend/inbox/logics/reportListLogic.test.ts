@@ -1,6 +1,8 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -230,6 +232,65 @@ describe('reportListLogic', () => {
 
         it('counts the rows whose pull request is still in flight, drafts included', () => {
             expect(logic.values.livePrReportIds).toEqual(['1', '5'])
+        })
+    })
+
+    // A reason now applies on one click, so the toast is the only thing between a mis-click and a
+    // report nobody sees again. Undo has to reach the restore even though the row has already left
+    // this section, which is what the report handed to `restoreReport` is for.
+    describe('dismiss', () => {
+        let logic: ReturnType<typeof reportListLogic.build>
+        let stateRequests: { reportId: string; body: Record<string, unknown> }[]
+
+        beforeEach(async () => {
+            stateRequests = []
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                    [REPORTS_URL]: () => [
+                        200,
+                        { count: 1, next: null, previous: null, results: [makeReport('report-1')] },
+                    ],
+                },
+                post: {
+                    '/api/projects/:team_id/signals/reports/:report_id/state/': async ({ request, params }) => {
+                        stateRequests.push({
+                            reportId: params.report_id as string,
+                            body: (await request.json()) as Record<string, unknown>,
+                        })
+                        return [200, {}]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = reportListLogic({
+                sectionKey: 'needs-decision',
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
+            })
+            logic.mount()
+            logic.actions.ensureLoaded()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => logic.unmount())
+
+        it('leaves an undo that restores the report it just dropped', async () => {
+            const toast = jest.spyOn(lemonToast, 'success')
+
+            logic.actions.dismissReport('report-1', { reason: 'other', note: '', correctedRepository: null })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(stateRequests).toEqual([
+                { reportId: 'report-1', body: { state: 'suppressed', dismissal_reason: 'other' } },
+            ])
+            expect(toast).toHaveBeenCalledWith('Dismissed "Report report-1"', expect.anything())
+            const button = toast.mock.calls[0][1]?.button
+            expect(button?.label).toBe('Undo')
+
+            await button?.action()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(stateRequests[1]).toEqual({ reportId: 'report-1', body: { state: 'potential' } })
         })
     })
 })

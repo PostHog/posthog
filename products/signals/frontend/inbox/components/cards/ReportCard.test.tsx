@@ -40,10 +40,11 @@ describe('ReportCard', () => {
     })
     afterEach(cleanup)
 
-    // The redesign makes the linked row the only way in and leaves the status / actionability chips
-    // to the section headers; the legacy list keeps Dismiss, the Review button, and the chips.
+    // The redesign leaves the status / actionability chips to the section headers and drops the
+    // Review button, since the row itself links to the report; the legacy list keeps all three.
+    // Dismiss stays on both, as the legacy dialog button and as the redesign's reason menu.
     it.each([[true], [false]])(
-        'with the redesign flag %p shows Review and Dismiss and chips only on the legacy list',
+        'with the redesign flag %p shows Review and the chips only on the legacy list',
         (redesign) => {
             const legacyChrome = !redesign
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
@@ -56,7 +57,7 @@ describe('ReportCard', () => {
             const { queryByText } = render(<ReportCard report={report} />)
             expect(queryByText('Review') !== null).toBe(legacyChrome)
             expect(queryByText('View report')).toBeNull()
-            expect(queryByText('Dismiss') !== null).toBe(legacyChrome)
+            expect(queryByText('Dismiss')).not.toBeNull()
             expect(queryByText('Queued') !== null).toBe(legacyChrome)
             expect(queryByText('Actionable') !== null).toBe(legacyChrome)
         }
