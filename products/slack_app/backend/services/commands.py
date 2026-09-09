@@ -15,6 +15,15 @@ MENTION_HELP_REDIRECT = (
 )
 
 
+def rule_text_too_long_message(rule_text: str) -> str:
+    from posthog.models.repo_routing_rule import RepoRoutingRule
+
+    return (
+        f"Rule not added: it is {len(rule_text)} characters and the limit is "
+        f"{RepoRoutingRule.MAX_RULE_TEXT_LENGTH}. Shorten it and try again."
+    )
+
+
 def _handle_help(
     slack: SlackIntegration,
     integration: Integration,
@@ -107,6 +116,16 @@ def _handle_rules_add(
     from posthog.models.repo_routing_rule import RepoRoutingRule
 
     from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
+
+    if len(rule_text) > RepoRoutingRule.MAX_RULE_TEXT_LENGTH:
+        post_slack_ephemeral(
+            slack.client,
+            channel=channel,
+            user=slack_user_id,
+            thread_ts=thread_ts,
+            text=rule_text_too_long_message(rule_text),
+        )
+        return
 
     all_repos = _get_full_repo_names(integration, user_id=user_id)
     if not all_repos:

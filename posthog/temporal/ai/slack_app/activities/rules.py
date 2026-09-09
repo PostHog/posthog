@@ -68,6 +68,7 @@ def create_posthog_code_routing_rule_activity(
     from posthog.models.repo_routing_rule import RepoRoutingRule
 
     from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
+    from products.slack_app.backend.services.commands import rule_text_too_long_message
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
@@ -75,6 +76,15 @@ def create_posthog_code_routing_rule_activity(
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
+
+    if len(rule_text) > RepoRoutingRule.MAX_RULE_TEXT_LENGTH:
+        post_slack_thread_reply(
+            slack.client,
+            channel=channel,
+            thread_ts=thread_ts,
+            text=rule_text_too_long_message(rule_text),
+        )
+        return
 
     all_repos = _get_full_repo_names(integration, user_id=user_id)
     matched_repo = _extract_explicit_repo(repository, all_repos)

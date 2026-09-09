@@ -32,7 +32,6 @@ logger = logging.getLogger(__name__)
 REPO_SELECTION_DUMMY_REPOSITORY = "PostHog/.github"
 
 _MAX_GITHUB_REPOS = 1000
-_MAX_RULE_TEXT_CHARS = 300
 
 # The prompt-injection guard shared by every optional guidance section rendered from stored,
 # member-written text. Keep it one definition so an edit cannot weaken one section silently.
@@ -254,12 +253,7 @@ def _routing_rules_block(team_id: int, candidate_repos: list[str]) -> str | None
         )
     if not matched:
         return None
-    lines = []
-    for i, rule in enumerate(matched, start=1):
-        # Flattened and capped: rule_text is an unbounded, member-written TextField, and one
-        # verbose rule must not dominate the prompt block.
-        rule_text = " ".join(rule.rule_text.split())[:_MAX_RULE_TEXT_CHARS]
-        lines.append(f"{i}. {rule_text} → `{rule.repository.lower()}`")
+    lines = [f"{i}. {rule.prompt_text} → `{rule.repository.lower()}`" for i, rule in enumerate(matched, start=1)]
     return "\n".join(lines)
 
 

@@ -62,6 +62,11 @@ def test_routing_rules_block_orders_filters_and_lowercases(team) -> None:
     assert block == "1. First rule → `acme/a`\n2. Second rule → `acme/b`"
 
 
+def test_prompt_text_caps_over_long_legacy_rules() -> None:
+    rule = RepoRoutingRule(rule_text="term " * 100)
+    assert len(rule.prompt_text) == RepoRoutingRule.MAX_RULE_TEXT_LENGTH
+
+
 @pytest.mark.django_db
 def test_routing_rules_block_empty_when_no_rules_match(team) -> None:
     assert _routing_rules_block(team.id, ["acme/a"]) is None
