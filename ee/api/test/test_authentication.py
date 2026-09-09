@@ -311,11 +311,18 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertIsNone(OrganizationDomain.objects.get_sso_enforcement_for_email_address("member@example.com"))
 
     def test_oidc_precheck_requires_configured_and_licensed_provider(self):
+        self.domain.sso_enforcement = "oidc"
+        self.domain.save()
+
         response = self.client.post("/api/login/precheck", {"email": "member@example.com"})
+        self.assertEqual(response.json()["sso_enforcement"], "oidc")
         self.assertTrue(response.json()["oidc_available"])
+
         self.config.oidc_credentials = {}
         self.config.save()
+
         response = self.client.post("/api/login/precheck", {"email": "member@example.com"})
+        self.assertIsNone(response.json()["sso_enforcement"])
         self.assertFalse(response.json().get("oidc_available", False))
 
 
@@ -1359,6 +1366,11 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_saml_can_be_enforced(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.SAML, "name": AvailableFeature.SAML},
+            {"key": AvailableFeature.SSO_ENFORCEMENT, "name": AvailableFeature.SSO_ENFORCEMENT},
+        ]
+        self.organization.save()
         User.objects.create_and_join(
             organization=self.organization,
             email="engineering@posthog.com",
@@ -1399,6 +1411,23 @@ YotAcSbU3p5bzd11wpyebYHB"""
             {
                 "sso_enforcement": "saml",
                 "saml_available": True,
+                "webauthn_credentials": [],
+                "password_login_available": True,
+                "social_providers": [],
+            },
+        )
+
+        config = self.organization_domain.saml_identity_provider_configs.first()
+        assert config is not None
+        config.saml_x509_cert = ""
+        config.save()
+
+        response = self.client.post("/api/login/precheck", {"email": "engineering@posthog.com"})
+        self.assertEqual(
+            response.json(),
+            {
+                "sso_enforcement": None,
+                "saml_available": False,
                 "webauthn_credentials": [],
                 "password_login_available": True,
                 "social_providers": [],

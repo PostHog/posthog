@@ -66,7 +66,7 @@ class OrganizationDomainManager(models.Manager):
 
         candidate_sso_enforcement = query["sso_enforcement"]
 
-        available_product_features = query["organization__available_product_features"]
+        available_product_features = query["organization__available_product_features"] or []
         available_product_feature_keys = [feature["key"] for feature in available_product_features]
         # Check organization has a license to enforce SSO
         if AvailableFeature.SSO_ENFORCEMENT not in available_product_feature_keys:
@@ -87,8 +87,12 @@ class OrganizationDomainManager(models.Manager):
                     organization=str(query["organization_id"]),
                 )
                 return None
+            if not IdentityProviderConfig.objects.get_is_saml_available_for_email(email):
+                return None
         elif candidate_sso_enforcement == "oidc":
             if AvailableFeature.OIDC not in available_product_feature_keys:
+                return None
+            if not IdentityProviderConfig.objects.get_is_oidc_available_for_email(email):
                 return None
         else:
             sso_providers = get_instance_available_sso_providers()
