@@ -92,6 +92,19 @@ export function inboxReportUrl(
 }
 
 /**
+ * The browser URL that opens a report with PostHog's support form ready. Used
+ * for a question only a human can answer, such as a credit for a PR that is
+ * past its refund window. The hash is the web app's support side-panel link.
+ */
+export function inboxReportSupportUrl(
+  reportId: string,
+  overrides?: LinkOverrides,
+): string | null {
+  const url = inboxReportUrl(reportId, overrides);
+  return url ? `${url}#panel=support:support:true` : null;
+}
+
+/**
  * The shareable https link for a canvas (a dashboard inside a channel):
  * `<instance>/code/canvas/<channelId>/<dashboardId>`. Opening it in a browser
  * hits a web interstitial that deep-links into the desktop app (or offers the

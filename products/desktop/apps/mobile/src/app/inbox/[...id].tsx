@@ -40,7 +40,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useUserQuery } from "@/features/auth";
+import { useAuthStore, useUserQuery } from "@/features/auth";
 import { MarkdownText } from "@/features/chat/components/MarkdownText";
 import { getReportRepository } from "@/features/inbox/api";
 import { buildCreatePrReportPrompt } from "@/features/inbox/buildCreatePrReportPrompt";
@@ -161,6 +161,7 @@ export default function ReportDetailScreen() {
   const insets = useSafeAreaInsets();
   const posthog = usePostHog();
   const refundFlagEnabled = !!useFeatureFlag(SIGNALS_PR_REFUNDS_FLAG);
+  const { cloudRegion, getCloudUrlFromRegion } = useAuthStore();
   const { data: report, isLoading, error } = useInboxReport(reportId ?? null);
   const { data: me } = useUserQuery();
   const [reportRepo, setReportRepo] = useState<string | null>(null);
@@ -466,8 +467,46 @@ export default function ReportDetailScreen() {
   // artefact carries it.
   const bannerReport = { ...report, already_addressed: alreadyAddressed };
 
-  const { canRefund: canRefundPr, disabledReason: refundDisabledReason } =
-    computeRefundEligibility(report, refundFlagEnabled);
+  const {
+    canRefund: canRefundPr,
+    disabledReason: refundDisabledReason,
+    blockedReason: refundBlockedReason,
+    hasSupportRoute: refundHasSupportRoute,
+  } = computeRefundEligibility(report, refundFlagEnabled);
+
+  // A PR past its refund window needs a credit only support can issue, so the
+  // blocked alert offers that instead of stopping at the explanation.
+  const refundSupportUrl =
+    refundHasSupportRoute && cloudRegion
+      ? `${getCloudUrlFromRegion(cloudRegion)}/#panel=support:support:true`
+      : null;
+
+  const handleRefundPress = () => {
+    if (refundBlockedReason) {
+      posthog?.capture("Inbox report refund blocked", {
+        report_id: report.id,
+        reason: refundBlockedReason,
+        has_support_route: refundSupportUrl !== null,
+        surface: "detail_pane",
+      });
+      Alert.alert(
+        "Can't refund this PR",
+        refundDisabledReason ?? undefined,
+        refundSupportUrl
+          ? [
+              { text: "Not now", style: "cancel" },
+              {
+                text: "Contact support",
+                onPress: () => openExternalUrl(refundSupportUrl),
+              },
+            ]
+          : undefined,
+      );
+      return;
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setRefundOpen(true);
+  };
 
   return (
     <>
@@ -629,18 +668,11 @@ export default function ReportDetailScreen() {
 
         {canRefundPr && (
           <Pressable
-            onPress={() => {
-              if (refundDisabledReason) {
-                Alert.alert("Can't refund this PR", refundDisabledReason);
-                return;
-              }
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              setRefundOpen(true);
-            }}
+            onPress={handleRefundPress}
             accessibilityLabel="Refund PR"
-            accessibilityState={{ disabled: refundDisabledReason !== null }}
+            accessibilityState={{ disabled: refundBlockedReason !== null }}
             className={`flex-row items-center gap-2 rounded-full border border-gray-6 bg-background px-4 py-3.5 shadow-lg active:opacity-80 ${
-              refundDisabledReason ? "opacity-50" : ""
+              refundBlockedReason ? "opacity-50" : ""
             }`}
           >
             <Receipt size={16} color={themeColors.gray[11]} weight="fill" />

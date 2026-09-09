@@ -1,24 +1,23 @@
-import { useValues } from 'kea'
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { signalsReportsRefundCreate } from 'products/signals/frontend/generated/api'
 
-import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
+import {
+    captureInboxReportAction,
+    captureInboxReportRefundBlocked,
+    InboxReportActionSurface,
+} from '../../inboxAnalytics'
 import { SignalReport, SignalReportStatus } from '../../types'
+import { refundBlockFor } from '../../utils/refundBlock'
 import { openRefundReportDialog } from '../shell/RefundReportDialog'
-
-// Copy per backend `refund_ineligibility_reason`. `already_refunded` / `billing_exempt` never
-// reach the button (it's hidden for those), so only the two visible-but-ineligible reasons map.
-const REFUND_DISABLED_REASONS: Record<string, string> = {
-    out_of_period: 'This PR was billed in a previous billing period and can no longer be refunded',
-    no_billable_pr: "This PR isn't billable, so there's nothing to refund",
-}
 
 /**
  * Shared refund handler for the inbox cards and the detail pane, mirroring `useReportDismiss`.
@@ -26,6 +25,10 @@ const REFUND_DISABLED_REASONS: Record<string, string> = {
  * dismisses the report, and (when needed) kicks off the billing credit. Offered only when the flag
  * is on and the report has a billable PR that hasn't been refunded — the server enforces the same
  * rules, so `canRefund` is purely a display gate.
+ *
+ * When the backend already knows a refund would be refused, the returned label, tooltip, and click
+ * describe the next step instead: support for a reason support can fix, a disabled explanation
+ * otherwise.
  */
 export function useReportRefund({
     report,
@@ -39,12 +42,15 @@ export function useReportRefund({
     onRefunded?: () => void
 }): {
     canRefund: boolean
+    refundLabel: string
+    refundTooltip: string
     refundDisabledReason: string | null
     isRefunding: boolean
     onRefundClick: (event: React.MouseEvent) => void
 } {
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { openSupportForm } = useActions(supportLogic)
     const [isRefunding, setIsRefunding] = useState(false)
 
     // Exempt reports ("Free" tag) were never charged, so there is nothing to refund; a report
@@ -55,12 +61,49 @@ export function useReportRefund({
         !report.refund &&
         !report.billing_exempt_reason
 
-    // Backend-owned eligibility: when the visible button would only ever 400 (e.g. the PR was
-    // billed in a previous period), disable it with the reason instead of hiding it.
-    const refundDisabledReason =
-        canRefund && report.refund_ineligibility_reason
-            ? (REFUND_DISABLED_REASONS[report.refund_ineligibility_reason] ?? "This PR can't be refunded right now")
-            : null
+    // Backend-owned eligibility: a visible button whose POST would only ever 400.
+    const blockedReason = canRefund ? (report.refund_ineligibility_reason ?? null) : null
+    const block = refundBlockFor(blockedReason)
+    const routesToSupport = !!block?.routesToSupport
+    const actionSurface = surface ?? 'list_row'
+
+    // A disabled control is never clicked, so the blocked state reports itself when it renders.
+    // Deps are the identity of that state, so a refetch of the same report stays one event.
+    useEffect(() => {
+        if (blockedReason) {
+            captureInboxReportRefundBlocked({
+                report,
+                reason: blockedReason,
+                hasSupportRoute: routesToSupport,
+                surface: actionSurface,
+            })
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [report.id, blockedReason, routesToSupport, actionSurface])
+
+    const onSupportClick = (event: React.MouseEvent): void => {
+        event.preventDefault()
+        event.stopPropagation()
+        captureInboxReportAction({
+            report,
+            actionType: 'refund_support',
+            surface: actionSurface,
+            extra: { refund_ineligibility_reason: blockedReason },
+        })
+        openSupportForm({
+            kind: 'support',
+            // Billing questions are answered on every plan, so the credit request reaches us
+            // regardless of whether the plan includes support.
+            billing_issue: true,
+            isEmailFormOpen: true,
+            message: [
+                "I'd like a credit for a self-driving PR that can no longer be refunded in the app.",
+                '',
+                `Report: ${report.title ?? report.id}`,
+                `PR: ${report.implementation_pr_url ?? 'unknown'}`,
+            ].join('\n'),
+        })
+    }
 
     const onRefundClick = (event: React.MouseEvent): void => {
         event.preventDefault()
@@ -84,7 +127,7 @@ export function useReportRefund({
                     captureInboxReportAction({
                         report,
                         actionType: 'refund',
-                        surface: surface ?? 'list_row',
+                        surface: actionSurface,
                         extra: { refund_reason: reason, ...(note ? { refund_note: note } : {}) },
                     })
                     lemonToast.success("PR refunded. You won't be charged for it.")
@@ -99,5 +142,13 @@ export function useReportRefund({
         })
     }
 
-    return { canRefund, refundDisabledReason, isRefunding, onRefundClick }
+    return {
+        canRefund,
+        refundLabel: routesToSupport ? 'Request a credit' : 'Refund',
+        refundTooltip:
+            block?.copy ?? "Refund this PR. You won't pay for it and it won't count toward your included PRs.",
+        refundDisabledReason: routesToSupport ? null : (block?.copy ?? null),
+        isRefunding,
+        onRefundClick: routesToSupport ? onSupportClick : onRefundClick,
+    }
 }

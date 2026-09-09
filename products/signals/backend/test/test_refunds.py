@@ -140,7 +140,10 @@ class TestSignalReportRefundAPI(APIBaseTest):
         report = self._report_with_pr(pr_created_at=datetime(2026, 5, 20, tzinfo=UTC))
         response = self._refund(report)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "previous billing period" in response.json()["error"]
+        error = response.json()["error"]
+        assert "earlier billing period" in error
+        # The window has closed, so the message must name the one route left rather than dead-end.
+        assert "Contact support" in error
 
     @parameterized.expand(
         [

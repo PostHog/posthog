@@ -79,29 +79,33 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         onResolved: leaveForList,
     })
 
-    const { canRefund, refundDisabledReason, isRefunding, onRefundClick } = useReportRefund({
-        report,
-        surface: 'detail_pane',
-        // Refunding dismisses the report server-side, so reconcile the lists the same way and
-        // return to the list — except for resolved reports, which stay where they are.
-        onRefunded: () => {
-            reportStateChanged()
-            if (!staysPutOnRefund) {
-                router.actions.push(urls.inbox(activeTab))
-            } else {
-                // These reports stay on this page, so refetch: the fresh copy carries `refund`,
-                // which surfaces the Refunded badge and drops Refund from the actions.
-                loadSelectedReport({ id: report.id })
-            }
-        },
-    })
+    const { canRefund, refundLabel, refundTooltip, refundDisabledReason, isRefunding, onRefundClick } = useReportRefund(
+        {
+            report,
+            surface: 'detail_pane',
+            // Refunding dismisses the report server-side, so reconcile the lists the same way and
+            // return to the list — except for resolved reports, which stay where they are.
+            onRefunded: () => {
+                reportStateChanged()
+                if (!staysPutOnRefund) {
+                    router.actions.push(urls.inbox(activeTab))
+                } else {
+                    // These reports stay on this page, so refetch: the fresh copy carries `refund`,
+                    // which surfaces the Refunded badge and drops Refund from the actions.
+                    loadSelectedReport({ id: report.id })
+                }
+            },
+        }
+    )
 
+    // Label, tooltip, and click all come from the hook: a PR the backend won't refund here is
+    // offered as a support credit request rather than a disabled button.
     const refund: ReportDetailAction = {
         key: 'refund',
-        label: 'Refund',
+        label: refundLabel,
         icon: <IconReceipt />,
         loading: isRefunding,
-        tooltip: "Refund this PR. You won't pay for it and it won't count toward your included PRs.",
+        tooltip: refundTooltip,
         disabledReason: refundDisabledReason ?? undefined,
         onClick: onRefundClick,
     }

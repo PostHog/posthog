@@ -35,6 +35,7 @@ export const INBOX_EVENTS = {
     REPORT_SCROLLED: 'Inbox report scrolled',
     REPORT_ACTION: 'Inbox report action',
     REPORT_ACTION_COMPLETED: 'Inbox report action completed',
+    REPORT_REFUND_BLOCKED: 'Inbox report refund blocked',
     REPORT_FEEDBACK: 'Inbox report feedback',
     REPORT_FEEDBACK_NOTE: 'Inbox report feedback note',
     SETTINGS_CHANGED: 'Inbox settings changed',
@@ -98,6 +99,7 @@ export type InboxReportActionType =
     | 'restore'
     | 'create_pr'
     | 'refund'
+    | 'refund_support'
     | 'open_pr'
     | 'view_diff'
     | 'show_more'
@@ -439,6 +441,27 @@ export function captureInboxReportScrolled(params: {
         rank: params.rank,
         list_size: params.listSize,
         time_since_open_ms: params.timeSinceOpenMs,
+    })
+}
+
+/**
+ * A refund control was offered but the backend already knows it would be refused, so the reader is
+ * sent to support instead. Fired when that state renders, because a disabled control is never
+ * clicked: without it, every blocked case is invisible and only lands on support as a manual credit.
+ * `reason` is the backend `refund_ineligibility_reason`.
+ */
+export function captureInboxReportRefundBlocked(params: {
+    report: SignalReport
+    reason: string
+    /** Whether support can still issue a credit for this reason. */
+    hasSupportRoute: boolean
+    surface: InboxReportActionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_REFUND_BLOCKED, {
+        ...baseReportProperties(params.report),
+        reason: params.reason,
+        has_support_route: params.hasSupportRoute,
+        surface: params.surface,
     })
 }
 

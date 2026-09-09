@@ -38,6 +38,7 @@ describe("computeRefundEligibility", () => {
     const result = computeRefundEligibility(report(overrides), flagEnabled);
     expect(result.canRefund).toBe(false);
     expect(result.disabledReason).toBeNull();
+    expect(result.hasSupportRoute).toBe(false);
   });
 
   it("offers the button for a billable, unrefunded PR", () => {
@@ -49,18 +50,26 @@ describe("computeRefundEligibility", () => {
   it.each([
     [
       "out_of_period",
-      "This PR was billed in a previous billing period and can no longer be refunded.",
+      "This PR was billed in an earlier billing period, so it can't be refunded here. Support can credit it back for you.",
+      true,
     ],
-    ["no_billable_pr", "This PR isn't billable, so there's nothing to refund."],
+    [
+      "no_billable_pr",
+      "This PR isn't billable, so there's nothing to refund.",
+      false,
+    ],
   ])(
     "surfaces backend ineligibility copy for %s while keeping the button visible",
-    (reason, copy) => {
+    (reason, copy, hasSupportRoute) => {
       const result = computeRefundEligibility(
         report({ refund_ineligibility_reason: reason }),
         true,
       );
       expect(result.canRefund).toBe(true);
       expect(result.disabledReason).toBe(copy);
+      expect(result.blockedReason).toBe(reason);
+      // Only a closed refund window has a next step, so only it may route to support.
+      expect(result.hasSupportRoute).toBe(hasSupportRoute);
     },
   );
 
@@ -71,6 +80,7 @@ describe("computeRefundEligibility", () => {
     );
     expect(result.canRefund).toBe(true);
     expect(result.disabledReason).toBe("This PR can't be refunded right now.");
+    expect(result.hasSupportRoute).toBe(false);
   });
 
   it("ignores an ineligibility reason when the button is hidden anyway", () => {
@@ -83,5 +93,6 @@ describe("computeRefundEligibility", () => {
     );
     expect(result.canRefund).toBe(false);
     expect(result.disabledReason).toBeNull();
+    expect(result.hasSupportRoute).toBe(false);
   });
 });

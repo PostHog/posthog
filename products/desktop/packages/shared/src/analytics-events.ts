@@ -724,6 +724,7 @@ export type InboxReportActionType =
   | "click_suggested_reviewer"
   | "add_suggested_reviewer"
   | "remove_suggested_reviewer"
+  | "refund_support"
   | "expand_task_section"
   | "play_session_recording"
   | "create_canvas";
@@ -883,6 +884,25 @@ export interface InboxReportActionProperties {
   has_question?: boolean;
   // True when the user submitted Create PR with extra feedback via the popover.
   has_feedback?: boolean;
+}
+
+/**
+ * A refund control was offered but the backend already knows the refund would
+ * be refused, so the reader is pointed at support instead. Fired when that
+ * state renders, because a disabled control is never clicked: without it every
+ * blocked case is invisible and only shows up as a manual support credit.
+ * Mirrors cloud's `Inbox report refund blocked`.
+ */
+export interface InboxReportRefundBlockedProperties {
+  report_id: string;
+  report_age_hours: number;
+  priority: string | null;
+  actionability: string | null;
+  /** The backend `refund_ineligibility_reason`, e.g. "out_of_period". */
+  reason: string;
+  /** Whether support can still issue a credit for this reason. */
+  has_support_route: boolean;
+  surface: InboxReportActionSurface;
 }
 
 export interface InboxReportActionResultProperties {
@@ -1665,6 +1685,7 @@ export const ANALYTICS_EVENTS = {
   INBOX_REPORT_CLOSED: "Inbox report closed",
   INBOX_REPORT_ACTION: "Inbox report action",
   INBOX_REPORT_ACTION_RESULT: "Inbox report action result",
+  INBOX_REPORT_REFUND_BLOCKED: "Inbox report refund blocked",
   INBOX_REPORT_SCROLLED: "Inbox report scrolled",
   INBOX_REPORT_FEEDBACK: "Inbox report feedback",
   INBOX_REPORT_FEEDBACK_NOTE: "Inbox report feedback note",
@@ -1877,6 +1898,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.INBOX_REPORT_CLOSED]: InboxReportClosedProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_ACTION]: InboxReportActionProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_ACTION_RESULT]: InboxReportActionResultProperties;
+  [ANALYTICS_EVENTS.INBOX_REPORT_REFUND_BLOCKED]: InboxReportRefundBlockedProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_SCROLLED]: InboxReportScrolledProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK]: InboxReportFeedbackProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE]: InboxReportFeedbackNoteProperties;
@@ -1966,6 +1988,7 @@ const INBOX_ANALYTICS_EVENT_NAMES: ReadonlySet<string> = new Set([
   ANALYTICS_EVENTS.INBOX_REPORT_CLOSED,
   ANALYTICS_EVENTS.INBOX_REPORT_ACTION,
   ANALYTICS_EVENTS.INBOX_REPORT_ACTION_RESULT,
+  ANALYTICS_EVENTS.INBOX_REPORT_REFUND_BLOCKED,
   ANALYTICS_EVENTS.INBOX_REPORT_SCROLLED,
   ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK,
   ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE,

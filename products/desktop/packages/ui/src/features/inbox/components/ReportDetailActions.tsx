@@ -160,15 +160,22 @@ export function ReportDetailActions({
             </DropdownMenuItem>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
-        {refund.canRefund && !isResolved && (
-          <DropdownMenuItem
-            disabled={refund.disabledReason !== null}
-            onClick={() => setRefundOpen(true)}
-          >
-            <ReceiptIcon size={13} />
-            Refund…
-          </DropdownMenuItem>
-        )}
+        {refund.canRefund &&
+          !isResolved &&
+          (refund.hasSupportRoute ? (
+            <DropdownMenuItem onClick={refund.requestSupportCredit}>
+              <ReceiptIcon size={13} />
+              Request a credit…
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem
+              disabled={refund.disabledReason !== null}
+              onClick={() => setRefundOpen(true)}
+            >
+              <ReceiptIcon size={13} />
+              Refund…
+            </DropdownMenuItem>
+          ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -255,9 +262,17 @@ export function ReportDetailActions({
                   variant="outline"
                   size="icon-xs"
                   className="h-7 w-7"
-                  aria-label="Refund"
-                  disabled={refund.disabledReason !== null}
-                  onClick={() => setRefundOpen(true)}
+                  aria-label={
+                    refund.hasSupportRoute ? "Request a credit" : "Refund"
+                  }
+                  disabled={
+                    !refund.hasSupportRoute && refund.disabledReason !== null
+                  }
+                  onClick={
+                    refund.hasSupportRoute
+                      ? refund.requestSupportCredit
+                      : () => setRefundOpen(true)
+                  }
                 />
               }
             >

@@ -722,7 +722,10 @@ SIGNALS_PR_REFUNDS_FEATURE_FLAG = "signals-pr-refunds"
 _REFUND_INELIGIBLE_MESSAGES = {
     REFUND_INELIGIBLE_BILLING_EXEMPT: "This report is marked never-billable, so there is nothing to refund.",
     REFUND_INELIGIBLE_NO_BILLABLE_PR: "This report has no billable implementation PR to refund.",
-    REFUND_INELIGIBLE_OUT_OF_PERIOD: "This PR was billed in a previous billing period and can no longer be refunded.",
+    REFUND_INELIGIBLE_OUT_OF_PERIOD: (
+        "This PR was billed in an earlier billing period, so it can't be refunded here. Contact support to ask "
+        "for a credit."
+    ),
 }
 
 
