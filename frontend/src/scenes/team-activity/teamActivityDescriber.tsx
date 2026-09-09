@@ -493,13 +493,12 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
                     <>{after[key as keyof typeof after] ? 'enabled' : 'disabled'} Person on Events (v2)</>
                 )
             }
-            if (key === 'sample_data_opt_out') {
-                descriptions.push(
-                    <>
-                        {after[key as keyof typeof after] ? 'disabled' : 'enabled'} sample charts before the first event
-                    </>
-                )
-            }
+        }
+        // the whole object arrives as one change, so an untouched key is still present in `after`
+        const optedOutBefore = isObject(change.before) && change.before.sample_data_opt_out === true
+        const optedOutAfter = isObject(after) && after.sample_data_opt_out === true
+        if (optedOutBefore !== optedOutAfter) {
+            descriptions.push(<>{optedOutAfter ? 'disabled' : 'enabled'} sample charts before the first event</>)
         }
         return { description: descriptions }
     },
