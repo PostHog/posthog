@@ -139,14 +139,14 @@ tools:
         enrich_url: '{id}'
         title: Update work on a signal report
         description: >
-            Start, resume, or release work on a report. Returns assignee.claim_id for the work attempt.
-            Pass claim_id on subsequent updates; stale or foreign claims are rejected. Another actor's
-            active claim requires explicit takeover=true. Add pull_requests (an array of GitHub URLs)
-            in the same call, including when starting work. Links are additive and retries are deduplicated.
-            Use release=true to end ownership without removing PRs or history. A report resolves when
-            every linked PR is closed or merged and at least one merged; it is suppressed when all closed
-            without merging. Open, draft, unknown, or no PRs do not trigger completion. Repositories without
-            a connected GitHub integration retain unknown state and require manual report resolution.
+            Start, resume, or release work on a report. Returns assignee.claim_id for the work attempt. Pass claim_id on
+            subsequent updates; stale or foreign claims are rejected. Another actor's active claim requires explicit
+            takeover=true. Add pull_requests (an array of GitHub URLs) in the same call, including when starting work.
+            Links are additive and retries are deduplicated. Use release=true to end ownership without removing PRs or
+            history. A report resolves when every linked PR is closed or merged and at least one merged; it is
+            suppressed when all closed without merging. Open, draft, unknown, or no PRs do not trigger completion.
+            Repositories without a connected GitHub integration retain unknown state and require manual report
+            resolution.
         param_overrides:
             id:
                 aliases:
@@ -193,12 +193,14 @@ tools:
         agent_note: >
             You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues
-            identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership from another actor requires `takeover=true`.
+            identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership
+            from another actor requires `takeover=true`.
 
-            If you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to
-            add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be
-            considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it
-            with inbox-reports-set-state.
+            If you create a pull request implementing the remediation, call inbox-reports-claim with the returned
+            `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and
+            cross-repository changes. Release the claim if you stop work without completing the report. If the report
+            should be considered resolved without a pull request, or PostHog cannot observe the pull request merge,
+            resolve it with inbox-reports-set-state.
         response:
             include:
                 - id
@@ -243,12 +245,14 @@ tools:
         agent_note: >
             You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
             Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues
-            identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership from another actor requires `takeover=true`.
+            identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership
+            from another actor requires `takeover=true`.
 
-            If you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to
-            add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be
-            considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it
-            with inbox-reports-set-state.
+            If you create a pull request implementing the remediation, call inbox-reports-claim with the returned
+            `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and
+            cross-repository changes. Release the claim if you stop work without completing the report. If the report
+            should be considered resolved without a pull request, or PostHog cannot observe the pull request merge,
+            resolve it with inbox-reports-set-state.
         param_overrides:
             id:
                 aliases:
