@@ -255,9 +255,10 @@ ALL_INITIAL_PERMISSION_MODE_CHOICES: list[str] = [
 ]
 
 DEFAULT_TRUSTED_DOMAINS = [
-    # PostHog Services
+    # PostHog Services. Named hosts only, for the reason on
+    # `INFRASTRUCTURE_DOMAINS`; the hosts a sandbox needs are enforced for
+    # every environment by `enforced_egress_domains`.
     "posthog.com",
-    "*.posthog.com",
     # Version Control
     "github.com",
     "www.github.com",
