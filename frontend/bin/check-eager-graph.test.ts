@@ -34,12 +34,13 @@ function runChecker(report: EagerGraphReport): number | null {
 
 describe('check-eager-graph.mjs', () => {
     it.each([
-        ['a forbidden eager import', [{ module: 'node_modules/monaco-editor/', chain: ['src/index.tsx'] }], false, 1],
-        ['a budget warning', [], true, 0],
-    ])('fails only for %s', (_, forbiddenHits, overBudget, expectedStatus) => {
+        ['a forbidden eager import', [{ module: 'node_modules/monaco-editor/', chain: ['src/index.tsx'] }], [], false, 1],
+        ['an analysis error', [], ['No output chunk found for src/index.tsx'], false, 1],
+        ['a budget warning', [], [], true, 0],
+    ])('fails only for %s', (_, forbiddenHits, errors, overBudget, expectedStatus) => {
         expect(
             runChecker({
-                errors: [],
+                errors,
                 roots: [{ root: 'src/index.tsx', forbiddenHits, largest: [], overBudget }],
                 warnings: [],
             })

@@ -125,7 +125,7 @@ function warnViolation(message) {
 function assertReport(reportFilePath) {
     if (!fs.existsSync(reportFilePath)) {
         warnViolation(`Report not found at ${reportFilePath} — did the build run the check?`)
-        return { violations: 1, forbiddenHits: 0 }
+        return { violations: 1, forbiddenHits: 0, analysisErrors: 1 }
     }
     const reportToAssert = JSON.parse(fs.readFileSync(reportFilePath, 'utf-8'))
     let violations = 0
@@ -162,11 +162,11 @@ function assertReport(reportFilePath) {
             console.info(`🟢 ${r.label}: ${formatMiB(r.bytes)} within ${formatMiB(r.budgetBytes)}`)
         }
     }
-    return { violations, forbiddenHits }
+    return { violations, forbiddenHits, analysisErrors: topLevelErrors.length }
 }
 
 if (assertReportIndex !== -1) {
-    const { violations, forbiddenHits } = assertReport(process.argv[assertReportIndex + 1])
+    const { violations, forbiddenHits, analysisErrors } = assertReport(process.argv[assertReportIndex + 1])
     if (violations) {
         console.warn(
             `\n⚠️ Eager graph check — ${violations} issue(s) above. Not failing CI: the bundle-size ` +
@@ -177,8 +177,10 @@ if (assertReportIndex !== -1) {
         // without counting as violations, so don't declare an unqualified all-clear.
         console.info('\nNo eager graph budget violations.')
     }
-    if (failForbiddenHits && forbiddenHits > 0) {
-        console.error(`\n❌ Eager graph check found ${forbiddenHits} forbidden eager import(s).`)
+    if (failForbiddenHits && (forbiddenHits > 0 || analysisErrors > 0)) {
+        console.error(
+            `\n❌ Eager graph check found ${forbiddenHits} forbidden eager import(s) and ${analysisErrors} analysis error(s).`
+        )
         process.exit(1)
     }
     process.exit(0)
