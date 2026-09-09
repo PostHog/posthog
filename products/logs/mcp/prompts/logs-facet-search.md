@@ -1,5 +1,11 @@
 Search one facet's values by substring, with cross-filtered counts.
 
+All parameters go inside `query`. Top-level fields are rejected:
+
+```json
+{ "query": { "facetField": "service_name", "facetSearch": "kafka" } }
+```
+
 Use this when you know the facet and want only the values matching a fragment — service names
 containing `kafka`, namespaces containing `prod`. To get a facet's top values instead, or several
 facets at once, use `logs-facet-values-create`.
