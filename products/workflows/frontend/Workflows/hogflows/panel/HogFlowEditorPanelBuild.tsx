@@ -20,7 +20,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { PERSON_DEPENDENT_ACTION_TYPES, workflowLogic } from '../../workflowLogic'
 import { NODE_HEIGHT, NODE_WIDTH } from '../react_flow_utils/constants'
 import { getRegisteredActionNodeCategories } from '../registry/actions/actionNodeRegistry'
-import { AI_TASK_ACTION_NODE } from '../registry/actions/tasks'
 import { StepView } from '../steps/components/StepView'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { DEFAULT_DELAY_DURATION, getDelayDescription } from '../steps/stepDelayLogic'
@@ -64,6 +63,20 @@ const PUSH_NOTIFICATION_ACTION_NODE: CreateActionType = {
     name: 'Push',
     description: 'Send a push notification to the user.',
     config: { template_id: 'template-native-push', inputs: {} },
+}
+
+const AI_TASK_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'Create AI task',
+    description: 'Start an AI agent task with instructions from this workflow.',
+    config: {
+        template_id: 'template-posthog-create-task',
+        // Pinned rather than relying on the template default: the engine only reads
+        // action.config.inputs at execution time, and this value is what turns a 409
+        // "task limit reached" reply into a graceful skip instead of a failed step.
+        inputs: { non_failure_status_codes: { value: [409] } },
+    },
+    output_variable: { key: 'task', result_path: null, label: 'Task' },
 }
 
 const RUN_SCOUT_ACTION_NODE: CreateActionType = {

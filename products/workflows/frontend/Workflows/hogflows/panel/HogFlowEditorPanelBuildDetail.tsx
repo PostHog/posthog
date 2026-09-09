@@ -364,13 +364,12 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                             )}
                                             <LemonDivider className="my-1" />
                                             <LemonButton
-                                                icon={<IconPlus />}
                                                 sideIcon={<IconExternal />}
                                                 size="small"
                                                 type="secondary"
                                                 onClick={() => setMode('variables')}
                                             >
-                                                New variable
+                                                View all workflow variables
                                             </LemonButton>
                                         </div>
                                     ),

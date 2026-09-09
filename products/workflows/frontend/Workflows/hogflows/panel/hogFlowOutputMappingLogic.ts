@@ -7,7 +7,7 @@ import type { CyclotronJobInvocationGlobals, HogFunctionTemplateType } from '../
 import { WorkflowLogicProps, sanitizeWorkflow, workflowLogic } from '../../workflowLogic'
 import { OutputMappingSuggestion } from '../hogFlowEditorLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
-import { getRegisteredActionNodes } from '../registry/actions/actionNodeRegistry'
+import { getRegisteredActionNodeCategories } from '../registry/actions/actionNodeRegistry'
 import type { HogflowTestResult } from '../steps/types'
 import { createExampleEvent } from '../testEventFactory'
 import type { HogFlowAction } from '../types'
@@ -221,9 +221,9 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                 if (!templateId) {
                     return []
                 }
-                const nodeDef = getRegisteredActionNodes().find(
-                    (n) => 'template_id' in n.config && n.config.template_id === templateId
-                )
+                const nodeDef = getRegisteredActionNodeCategories()
+                    .flatMap((c) => c.nodes)
+                    .find((n) => 'template_id' in n.config && n.config.template_id === templateId)
                 if (!nodeDef?.getOutputMappingSuggestions) {
                     return []
                 }
