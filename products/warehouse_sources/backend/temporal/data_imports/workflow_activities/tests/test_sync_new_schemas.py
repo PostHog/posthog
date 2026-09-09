@@ -3,7 +3,7 @@ import contextlib
 import pytest
 from unittest import mock
 
-from posthog.integration_secrets.errors import IntegrationServiceUnreachableError, SecretInRecoveryError
+from posthog.integration_secrets.errors import IntegrationServiceUnreachableError, SecretMissingError
 from posthog.models.integration import UndecryptedIntegrationSecretError
 
 from products.warehouse_sources.backend.models.external_data_schema import SchemaSyncResult
@@ -88,22 +88,29 @@ def test_undecrypted_integration_secret_error_is_skipped():
 
 
 @pytest.mark.parametrize(
-    "error",
-    [SecretInRecoveryError("some_key"), IntegrationServiceUnreachableError("connect timed out")],
-    ids=["reportable_secret_in_recovery", "non_reportable_service_unreachable"],
+    "error,expect_capture",
+    [
+        (IntegrationServiceUnreachableError("connect timed out"), False),
+        (SecretMissingError("some_key"), True),
+    ],
+    ids=["non_reportable_service_unreachable", "reportable_secret_missing"],
 )
-def test_integration_secrets_failure_is_skipped(error):
+def test_integration_secrets_failure_is_skipped(error, expect_capture):
     # IntegrationSecretsFailure is never the source's fault and never permanent (see its
-    # docstring), so discovery must skip quietly and let its own ~6h cadence retry — not spend
-    # this activity's retry budget or, for a `reportable=False` failure like an unreachable
-    # service, report to error tracking what the service's own availability alerting already
-    # covers.
+    # docstring), so discovery must skip quietly and let its own ~6h cadence retry, not spend this
+    # activity's retry budget. `reportable` decides whether a person hears about it: capturing an
+    # unreachable service reports once per credential read what the service's own availability
+    # alerting already covers, so every source reading through the service opens an issue on one
+    # blip. Assert the capture, because a skip alone passes even when everything is captured.
     source_mock = mock.MagicMock()
     source_mock.parse_config.return_value = {}
     source_mock.get_schemas.side_effect = error
     source_mock.get_non_retryable_errors.return_value = {}
 
-    _run_activity(source_mock)
+    with mock.patch.object(module, "capture_exception") as capture:
+        _run_activity(source_mock)
+
+    assert capture.called is expect_capture
 
 
 def test_discovery_uses_source_pinned_api_version():
