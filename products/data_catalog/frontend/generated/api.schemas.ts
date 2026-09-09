@@ -417,6 +417,13 @@ export interface DataCatalogMetricRunApi {
     compiled_query: string | null
     /** Async query status, when the run is not blocking. */
     query_status: unknown
+    /** True when the query hit its row limit and more rows exist. Narrow the window or the interval and run the metric again; do not re-derive the series by hand. */
+    has_more: boolean
+    /**
+     * Row limit applied to this run. Null for a markdown metric.
+     * @nullable
+     */
+    row_limit: number | null
     /**
      * Deep link to open the query in the app (SQL editor or insight).
      * @nullable
