@@ -7,6 +7,7 @@ import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass
 import { pngHoggie } from 'lib/brand/hoggies'
 import { SleepingHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
@@ -14,13 +15,14 @@ import { getPendingVerificationEmail, isValidVerificationCode } from 'scenes/aut
 import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 import { urls } from 'scenes/urls'
 
-import { verifyEmailLogic } from './verifyEmailLogic'
+import { type VerifyEmailReason, verifyEmailLogic } from './verifyEmailLogic'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 const HedgehogExplorer = pngHoggie(explorerPng)
 
 const NOTES: Record<string, string[]> = {
     pending: ['// one email away', '// we just hit send'],
+    send_failed: ['// the email did not go', '// give it another send'],
     success: ['// verified', '// go explore'],
     invalid: ['// nothing to verify', "// let's start again"],
 }
@@ -30,6 +32,13 @@ const CHECKLIST = [
     'Check spam and any firewalls you run',
     'Channel your inner hedgehog and peek again',
 ]
+
+// A partner hand-off drops the user here mid-flow, so say what they were doing and what happens next.
+const DEEP_LINK_NOTICE: Record<VerifyEmailReason, string> = {
+    stripe_deep_link:
+        "Stripe sent you to PostHog to set up analytics. Verify your email and we'll open your new project.",
+    partner_deep_link: "Your sign-in link needs a verified email. Verify it and we'll take you where you were going.",
+}
 
 function NotSeeingIt(): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
@@ -160,10 +169,11 @@ function VerificationCodeEntry(): JSX.Element {
 }
 
 export function VerifyEmailForm(): JSX.Element {
-    const { view, uuid, user } = useValues(verifyEmailLogic)
+    const { view, uuid, user, reason, verificationEmailSent } = useValues(verifyEmailLogic)
     const { openSupportForm } = useActions(supportLogic)
 
-    const notes = NOTES[view ?? 'pending'] ?? NOTES.pending
+    const noteKey = view === 'pending' && !verificationEmailSent ? 'send_failed' : (view ?? 'pending')
+    const notes = NOTES[noteKey] ?? NOTES.pending
     // The address that received the code. This is the new address if an email change is pending,
     // else the account address. Without a session, for example on a fresh signup, the page uses the
     // address the signup or login form stored in this browser. It stays unset in a different browser.
@@ -255,12 +265,24 @@ export function VerifyEmailForm(): JSX.Element {
                 }
             >
                 <div className="flex flex-col items-center text-center">
+                    {reason && (
+                        <LemonBanner type="info" className="w-full mb-4 text-left">
+                            {DEEP_LINK_NOTICE[reason]}
+                        </LemonBanner>
+                    )}
+                    {!verificationEmailSent && (
+                        <LemonBanner type="warning" className="w-full mb-4 text-left">
+                            We couldn't send your code just now. Open "Not seeing it?" below to send a new one.
+                        </LemonBanner>
+                    )}
                     <HedgehogMagnifyingGlass className="block w-auto mx-auto h-28" />
                     <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
-                        Check your inbox
+                        {verificationEmailSent ? 'Check your inbox' : 'Enter your code'}
                     </h1>
                     <p className="AuthScene__sub mt-2 mb-4 text-sm text-secondary text-center text-pretty">
-                        {verificationEmail ? (
+                        {!verificationEmailSent ? (
+                            <>Already have a code? Enter it below. Codes are valid for 30 minutes.</>
+                        ) : verificationEmail ? (
                             <>
                                 We sent a 6-digit code to <strong>{verificationEmail}</strong>.
                                 <br />

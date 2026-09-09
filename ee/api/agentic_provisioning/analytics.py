@@ -34,7 +34,9 @@ def capture_provisioning_event(
 
 
 def capture_deep_link_event(outcome: str, **extra: object) -> None:
-    capture_provisioning_event("deep link login", outcome, partner=None, **extra)
+    # Pinned: the Stripe namespace captures this same step under this exact name, so both
+    # partner surfaces land in one funnel.
+    capture_provisioning_event("deep_link_login", outcome, partner=None, **extra)
 
 
 def capture_auth_event(app: OAuthApplication, outcome: str, **extra: object) -> None:
