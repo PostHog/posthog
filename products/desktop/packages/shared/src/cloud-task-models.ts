@@ -1,5 +1,5 @@
 import type { Adapter } from "./adapter";
-import { getCustomCloud } from "./custom-cloud";
+import { getCustomCloud, isCustomCloudHost } from "./custom-cloud";
 import { CODEX_MODE_PRESETS } from "./execution-modes";
 import {
   customModelMeta,
@@ -121,7 +121,7 @@ export function getCloudTaskGatewayUrl(posthogHost: string): string {
   let gatewayBaseUrl: string;
   const custom = getCustomCloud();
 
-  if (custom?.gatewayUrl && url.host === new URL(custom.url).host) {
+  if (custom?.gatewayUrl && isCustomCloudHost(posthogHost)) {
     gatewayBaseUrl = custom.gatewayUrl;
   } else if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
     gatewayBaseUrl = `${url.protocol}//localhost:3308`;

@@ -4,6 +4,7 @@ export const customCloudSchema = z.object({
   url: z.string(),
   oauthClientId: z.string().optional(),
   gatewayUrl: z.string().optional(),
+  gatewayToken: z.string().optional(),
 });
 
 export type CustomCloud = z.infer<typeof customCloudSchema>;
@@ -35,7 +36,26 @@ export function normalizeCustomCloud(
     url,
     oauthClientId: input?.oauthClientId?.trim() || undefined,
     gatewayUrl: httpUrl(input?.gatewayUrl),
+    gatewayToken: input?.gatewayToken?.trim() || undefined,
   };
+}
+
+export function isCustomCloudHost(posthogHost: string): boolean {
+  const custom = getCustomCloud();
+  if (!custom) return false;
+  try {
+    return new URL(posthogHost).host === new URL(custom.url).host;
+  } catch {
+    return false;
+  }
+}
+
+export function customCloudGatewayToken(
+  posthogHost: string,
+): string | undefined {
+  return isCustomCloudHost(posthogHost)
+    ? getCustomCloud()?.gatewayToken
+    : undefined;
 }
 
 function fromEnv(): CustomCloud | null {

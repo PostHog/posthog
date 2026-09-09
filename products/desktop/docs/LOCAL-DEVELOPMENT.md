@@ -133,8 +133,13 @@ A release build does not show it.
    - `http://localhost:8237/callback` for a development build.
    - `posthog-code://callback` for a packaged build.
 2. On the sign-in screen, select **Custom cloud** in the region list.
-3. Enter the URL of the instance and the client ID of the OAuth application. The LLM gateway URL is optional.
-4. Sign in. The app keeps the values, and every child process (including the agent) receives them.
+3. Enter the URL of the instance and the client ID of the OAuth application.
+4. Sign in. The app keeps the values, and every child process (including the agent) receives the URL and the client ID.
+
+Agent runs need an LLM gateway that accepts your token. Two optional fields cover the two cases:
+
+- **LLM gateway URL**: the gateway that serves your instance. With no value, the app derives one from the host. For a host it does not know, that is the US gateway.
+- **Personal API key for the gateway**: the key of a PostHog Cloud user. Set it when your instance has no gateway of its own and you use the US or EU gateway. The app sends this key to the gateway instead of the session token of your instance, and to the gateway only. The key is encrypted at rest and never reaches the environment of a child process.
 
 The `us`, `eu`, and `dev-cloud` regions never read these values.
 For a headless run, the environment variables `POSTHOG_CUSTOM_CLOUD_URL`, `POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID`, and `POSTHOG_CUSTOM_CLOUD_GATEWAY_URL` give the same result when nothing is stored.

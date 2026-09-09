@@ -45,6 +45,16 @@ export function CustomCloudFields({
         onChange={(event) => onChange({ gatewayUrl: event.target.value })}
         onBlur={onBlur}
       />
+      <Input
+        type="password"
+        autoComplete="off"
+        placeholder="Personal API key for the gateway (optional)"
+        aria-label="Personal API key for the gateway"
+        value={draft.gatewayToken}
+        disabled={disabled}
+        onChange={(event) => onChange({ gatewayToken: event.target.value })}
+        onBlur={onBlur}
+      />
       {error && (
         <Text className="text-(--red-11) text-xs" role="alert">
           {error}

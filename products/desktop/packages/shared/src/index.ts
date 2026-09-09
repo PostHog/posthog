@@ -98,6 +98,7 @@ export {
   CUSTOM_CLOUD_ENV,
   type CustomCloud,
   configureCustomCloud,
+  customCloudGatewayToken,
   customCloudSchema,
   getCustomCloud,
   hasCustomCloud,

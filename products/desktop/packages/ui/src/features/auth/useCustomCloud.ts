@@ -13,6 +13,7 @@ const EMPTY_DRAFT: CustomCloudDraft = {
   url: "",
   oauthClientId: "",
   gatewayUrl: "",
+  gatewayToken: "",
 };
 
 const CUSTOM_CLOUD_QUERY_KEY = ["customCloud"] as const;
@@ -35,6 +36,7 @@ export function useCustomCloud() {
       url: stored.data.url,
       oauthClientId: stored.data.oauthClientId ?? "",
       gatewayUrl: stored.data.gatewayUrl ?? "",
+      gatewayToken: stored.data.gatewayToken ?? "",
     });
   }, [stored.data]);
 

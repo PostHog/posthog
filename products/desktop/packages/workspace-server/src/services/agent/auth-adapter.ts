@@ -4,7 +4,11 @@ import {
   sanitizeMcpServerName,
 } from "@posthog/agent/adapters/claude/mcp/tool-metadata";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
-import type { McpServerConnection, McpToolPolicy } from "@posthog/shared";
+import {
+  customCloudGatewayToken,
+  type McpServerConnection,
+  type McpToolPolicy,
+} from "@posthog/shared";
 import { POSTHOG_PROJECT_ID_HEADER } from "@posthog/shared/posthog-property-headers";
 import { inject, injectable } from "inversify";
 import type { AuthProxyService } from "../auth-proxy/auth-proxy";
@@ -222,7 +226,10 @@ export class AgentAuthAdapter {
    */
   async gatewayAuthToken(): Promise<string | null> {
     try {
-      return await this.getValidToken();
+      const { accessToken, apiHost } =
+        await this.authService.getValidAccessToken();
+      this.syncTokenEnvironment(accessToken);
+      return customCloudGatewayToken(apiHost) ?? accessToken;
     } catch {
       return null;
     }

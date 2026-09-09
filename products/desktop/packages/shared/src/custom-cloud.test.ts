@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   configureCustomCloud,
+  customCloudGatewayToken,
   getCustomCloud,
   hasCustomCloud,
   normalizeCustomCloud,
@@ -68,6 +69,26 @@ describe("custom cloud", () => {
         gatewayUrl: undefined,
       });
       expect(hasCustomCloud()).toBe(true);
+    });
+  });
+
+  describe("customCloudGatewayToken", () => {
+    it("returns the token for the custom host only", () => {
+      configureCustomCloud({
+        url: "https://posthog.example.com",
+        gatewayToken: "phx_custom",
+      });
+      expect(customCloudGatewayToken("https://posthog.example.com/")).toBe(
+        "phx_custom",
+      );
+      expect(customCloudGatewayToken("https://us.posthog.com")).toBeUndefined();
+    });
+
+    it("returns nothing when the custom cloud has no token", () => {
+      configureCustomCloud({ url: "https://posthog.example.com" });
+      expect(
+        customCloudGatewayToken("https://posthog.example.com"),
+      ).toBeUndefined();
     });
   });
 });
