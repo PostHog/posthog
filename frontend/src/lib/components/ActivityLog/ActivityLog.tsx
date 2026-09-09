@@ -27,7 +27,6 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { userLogic } from 'scenes/userLogic'
 
-import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
 
 import { AccessDenied } from '../AccessDenied'
@@ -49,8 +48,6 @@ const Empty = ({ scope }: { scope: string | string[] }): JSX.Element => {
 
     return (
         <ProductIntroduction
-            productName={noun.toUpperCase()}
-            productKey={ProductKey.HISTORY}
             thingName="history record"
             description={`History shows any ${noun} changes that have been made. After making changes you'll see them logged here.`}
             isEmpty={true}

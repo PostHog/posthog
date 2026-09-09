@@ -172,6 +172,43 @@ describe('RequestContext', () => {
         })
     })
 
+    // `agent-feedback` and the context-switch events capture through `trackEvent`, which
+    // reads these properties. `clientInfo` arrives on `initialize` only, so reading the
+    // request alone records no client for every call after the first.
+    describe('buildClientProperties', () => {
+        it('falls back to the session client identity mid-session', () => {
+            const ctx = new RequestContext(fakeRedis(), env, makeProps({ mcpClientName: undefined }))
+            ctx.setMcpContexts(
+                { authMethod: 'personal_api_key', mcpClientName: undefined },
+                {
+                    mcpClientName: 'claude-code',
+                    mcpClientVersion: '1.0',
+                    mcpProtocolVersion: '2025-03-26',
+                    mcpConsumer: 'plugin',
+                    mcpVendorClient: 'ClaudeCode',
+                }
+            )
+
+            expect(ctx.buildClientProperties()).toMatchObject({
+                $mcp_client_name: 'claude-code',
+                $mcp_client_version: '1.0',
+                $mcp_protocol_version: '2025-03-26',
+                $mcp_consumer: 'plugin',
+                $mcp_vendor_client: 'ClaudeCode',
+            })
+        })
+
+        it('keeps the live request identity when the call carries one', () => {
+            const ctx = new RequestContext(fakeRedis(), env, makeProps({ mcpClientName: 'cursor' }))
+            ctx.setMcpContexts(
+                { authMethod: 'personal_api_key', mcpClientName: 'cursor' },
+                { mcpClientName: 'claude-code' }
+            )
+
+            expect(ctx.buildClientProperties()).toMatchObject({ $mcp_client_name: 'cursor' })
+        })
+    })
+
     describe('getDistinctId', () => {
         it('deduplicates concurrent calls into a single API request', async () => {
             mockMe.mockResolvedValue({ success: true, data: { distinct_id: 'user-123' } })
