@@ -94,8 +94,8 @@ export const Default: Story = {
 } satisfies Story
 
 
-const RAIL_DESTINATIONS: { label: string; Icon: typeof HouseIcon; selected?: boolean }[] = [
-    { label: 'Home', Icon: HouseIcon, selected: true },
+const RAIL_DESTINATIONS: { label: string; Icon: typeof HouseIcon; current?: boolean }[] = [
+    { label: 'Home', Icon: HouseIcon, current: true },
     { label: 'Inbox', Icon: InboxIcon },
     { label: 'Activity', Icon: ActivityIcon },
     { label: 'Loops', Icon: RepeatIcon },
@@ -111,8 +111,14 @@ const NavRail = (): React.ReactElement => (
             <SearchIcon />
         </Button>
         <Separator className="my-1 w-6" />
-        {RAIL_DESTINATIONS.map(({ label, Icon, selected }) => (
-            <Button key={label} size="icon" aria-label={label} aria-selected={selected}>
+        {RAIL_DESTINATIONS.map(({ label, Icon, current }) => (
+            <Button
+                key={label}
+                size="icon"
+                aria-label={label}
+                aria-current={current ? 'page' : undefined}
+                className={current ? 'bg-fill-selected' : undefined}
+            >
                 <Icon />
             </Button>
         ))}
@@ -141,16 +147,14 @@ const Sidebar = (): React.ReactElement => (
         </div>
         <div className="flex flex-col gap-px [&_button]:w-full">
             <MenuLabel>Pinned</MenuLabel>
-            <Button left aria-selected>
-                Rebuild the nav rail
-            </Button>
+            <Button left>Rebuild the nav rail</Button>
             <Button left>Ship the layout story</Button>
         </div>
         <div className="flex flex-col gap-px [&_button]:w-full">
             <MenuLabel>Channels</MenuLabel>
             <Button left>#general</Button>
             <Button left>#design-system</Button>
-            <Button left aria-expanded>
+            <Button left aria-current="page" className="bg-fill-selected">
                 #desktop
             </Button>
             <Button left>#releases</Button>
