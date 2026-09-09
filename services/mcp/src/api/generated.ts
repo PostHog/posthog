@@ -872,6 +872,13 @@ export namespace Schemas {
       readonly last_modified_by: UserBasic;
     }
 
+    export interface AccountPresenceViewer {
+      /** PostHog user ID of the teammate viewing this account. */
+      readonly user_id: number;
+      /** Display name of the teammate viewing this account. */
+      readonly display_name: string;
+    }
+
     /**
      * A team-defined account relationship type (CSM, Onboarding manager, ...).
      */
