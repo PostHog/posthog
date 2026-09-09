@@ -5,6 +5,7 @@ from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import DatabaseHostNotAllowedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.errors import (
     classify_postgres_cdc_error,
 )
@@ -63,6 +64,11 @@ class TestClassifyPostgresCDCError:
                     "connection to server at example.invalid, port 5432 failed: FATAL:  "
                     "Failed to connect to database: {:error, :enetunreach}"
                 ),
+                CDCErrorCategory.HOST_UNREACHABLE,
+            ),
+            (
+                "database_host_not_allowed_is_non_retryable_host",
+                DatabaseHostNotAllowedError("Database host not allowed: resolves to a private address"),
                 CDCErrorCategory.HOST_UNREACHABLE,
             ),
             (

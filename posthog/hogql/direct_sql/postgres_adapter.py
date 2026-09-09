@@ -44,6 +44,7 @@ class PostgresConnectionKwargs(TypedDict, total=False):
     sslcert: str
     sslkey: str
     sslrootcert: str
+    hostaddr: str
 
 
 def is_postwh_host(host: str | None) -> bool:
@@ -159,6 +160,7 @@ class PostgresAdapter:
             with request.timings.measure("postgres_source_helpers_import"):
                 from products.warehouse_sources.backend.facade.source_management import (
                     _get_sslmode,
+                    pinned_host_kwargs,
                     source_requires_ssl,
                 )
 
@@ -202,6 +204,18 @@ class PostgresAdapter:
                         # DuckLake hosts (any region: .us/.eu/.dev.postwh.com) require SSL
                         # but do not use certificate-based auth.
                         connection_kwargs["sslmode"] = "require"
+                    # Dial only the addresses the host policy validated, the same way a sync does.
+                    connection_kwargs.update(
+                        cast(
+                            PostgresConnectionKwargs,
+                            pinned_host_kwargs(
+                                host,
+                                port=port,
+                                connect_timeout=DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS,
+                                team_id=request.team.pk,
+                            ),
+                        )
+                    )
 
                     with request.timings.measure("postgres_connect", emit_span=True):
                         try:

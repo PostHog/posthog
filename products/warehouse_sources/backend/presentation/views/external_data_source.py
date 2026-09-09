@@ -120,6 +120,7 @@ from products.warehouse_sources.backend.facade.models import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.source_management import (
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
     DEFAULT_LAG_WARNING_THRESHOLD_MB,
     PREVIEW_DEFAULT_ROWS,
@@ -254,6 +255,8 @@ REFRESH_SCHEMAS_EXPECTED_ERROR_MESSAGES = {
     "forbidden": "The source credentials do not have permission to fetch schemas.",
     "ssl/tls connection is required": "SSL/TLS is required to connect to the source.",
     "could not establish session to ssh gateway": "Could not establish an SSH tunnel to the source.",
+    # Raised by the connect-time host check of every SQL source; the map is matched on lowercased text.
+    "database host not allowed": DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
 }
 
 

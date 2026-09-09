@@ -1,6 +1,5 @@
 import socket
 from dataclasses import dataclass
-from typing import Any
 
 import pytest
 from unittest import mock
@@ -16,7 +15,6 @@ from posthog.models.integration import Integration
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
-    DATABASE_HOST_NOT_ALLOWED_ERROR,
     OAuthMixin,
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
@@ -26,11 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     open_ssh_tunnel,
     resolve_safe_host,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source import MSSQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
 
 _MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
 
@@ -161,9 +154,7 @@ class TestIsHostSafe(SimpleTestCase):
             resolution = resolve_safe_host("dual-stack.example.com", team_id=999)
 
         assert resolution.connect_host == "52.1.2.3"
-        # Every validated address travels with the result, so a client that can dial more than one
-        # keeps the failover the single pinned address gives up.
-        assert resolution.addresses == ("2600:1f16:1c4:661c:d148:b481:5246:e29d", "52.1.2.3")
+        assert resolution.addresses == ("52.1.2.3",)
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_unresolvable_host_blocked(self):
@@ -562,16 +553,8 @@ class TestDirectHostRejectionIsNonRetryable(SimpleTestCase):
 
         assert error_message_matches(str(exc.value), Any_Source_Errors.keys())
 
-    @parameterized.expand([(PostgresSource,), (MySQLSource,), (MSSQLSource,), (RedshiftSource,)])
-    def test_rejection_is_registered_by_every_direct_sql_source(self, source_class: type[SQLSource[Any]]) -> None:
-        # Schema refresh consults only the source's own registry, not `Any_Source_Errors`.
-        assert DATABASE_HOST_NOT_ALLOWED_ERROR in source_class().get_non_retryable_errors()
-
 
 class TestCheckResolvedAddresses(SimpleTestCase):
-    # A client that resolves the host itself and dials that answer validates the dialed set here.
-    # The set it checks is the set it connects to, so a record that answers public on one lookup
-    # and private on the next has nothing to slip past.
     @parameterized.expand(
         [
             ("internal_first", ["10.0.0.5", "203.0.113.5"]),
@@ -620,8 +603,6 @@ class TestCheckResolvedAddresses(SimpleTestCase):
     def test_exemptions_skip_the_check_and_keep_the_set(
         self, _name: str, deployment: str | None, host: str, team_id: int
     ) -> None:
-        # The exemptions `resolve_safe_host` grants apply here too, or a client that pins would
-        # refuse the internal-analytics teams and PostHog-managed hosts that the unpinned path allows.
         with (
             override_settings(CLOUD_DEPLOYMENT=deployment),
             patch(f"{_MIXINS_MODULE}.logger"),

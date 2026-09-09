@@ -15,8 +15,6 @@ from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
-    DATABASE_HOST_NOT_ALLOWED_ERROR,
-    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
 )
@@ -74,8 +72,6 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # Raised by `_check_direct_host`; only the customer can fix the host, so do not retry.
-            DATABASE_HOST_NOT_ALLOWED_ERROR: DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
             # Azure SQL error 40615 — the server-level firewall rejected PostHog's client IP. This
             # also surfaces "Adaptive Server connection failed" below, but that generic entry has no
             # message; keep this first so the actionable firewall guidance wins. Match the stable

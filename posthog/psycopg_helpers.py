@@ -53,6 +53,17 @@ def prefer_routable_addresses(addresses: list[str]) -> list[str]:
     return routable or addresses
 
 
+def is_resolvable_hostname(host: str) -> bool:
+    """Whether `host` is a name a resolver would look up: not empty, not a Unix socket path, not an IP literal."""
+    if not host or host.startswith("/"):
+        return False
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return True
+    return False
+
+
 def resolve_psycopg_hostaddr_with_timeout(
     host: str,
     port: int,
@@ -62,14 +73,8 @@ def resolve_psycopg_hostaddr_with_timeout(
     abort_check: Callable[[], None] | None = None,
 ) -> list[str] | None:
     """Resolve a hostname before psycopg's unbounded Python-side DNS lookup."""
-    if not host or host.startswith("/"):
+    if not is_resolvable_hostname(host):
         return None
-
-    try:
-        ipaddress.ip_address(host.strip("[]"))
-        return None
-    except ValueError:
-        pass
 
     addrinfo: list[Any] = []
     lookup_error: list[BaseException] = []

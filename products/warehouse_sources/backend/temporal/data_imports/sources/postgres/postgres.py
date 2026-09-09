@@ -4,7 +4,6 @@ import re
 import math
 import time
 import errno
-import ipaddress
 import collections
 import dataclasses
 from collections.abc import Callable, Iterator
@@ -35,7 +34,7 @@ from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_ta
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.psycopg_helpers import resolve_psycopg_hostaddr_with_timeout
+from posthog.psycopg_helpers import is_resolvable_hostname, resolve_psycopg_hostaddr_with_timeout
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -62,6 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_ERROR,
+    DatabaseHostNotAllowedError,
     check_resolved_addresses,
     open_ssh_tunnel,
 )
@@ -837,38 +837,30 @@ def _is_invalid_ssl_negotiation_response(error: BaseException) -> bool:
 _resolve_hostaddr_with_timeout = resolve_psycopg_hostaddr_with_timeout
 
 
-def pinned_host_kwargs(host: str, port: int, connect_timeout: float, team_id: int | None) -> dict[str, str]:
+def pinned_host_kwargs(host: str, *, port: int, connect_timeout: float, team_id: int | None) -> dict[str, str]:
     """Resolve `host` once, validate the answer, and return the libpq `host`/`hostaddr` pair that
     dials exactly those addresses.
 
-    Bounds psycopg's Python-side DNS lookup, which would otherwise hang the sync activity on a
-    stalled resolver until Temporal's `start_to_close_timeout`. The same lookup is the one the
-    host policy judges: the tunnel layer checks the host but yields the hostname, and a record
-    can answer public there and private on the next lookup. Validating the set libpq dials
-    leaves that record nothing to slip past. The hostname is repeated once per address because
-    libpq pairs `host` and `hostaddr` positionally; keeping the name is what preserves SNI, which
-    Neon and the Supabase pooler need, and keeping every address preserves libpq's per-address
-    failover (see `split_attempts` in psycopg/_conninfo_utils.py).
+    The hostname is repeated once per address because libpq pairs `host` and `hostaddr`
+    positionally: the name keeps carrying SNI, which Neon and the Supabase pooler need, and every
+    validated address stays in libpq's failover list. A failed lookup is refused rather than left
+    to libpq, because that retry would be a second, unvalidated lookup. A lookup that times out
+    raises `psycopg.OperationalError` unchanged so it stays retryable.
 
-    An IP literal, a Unix socket path, or an empty host has no lookup to race and comes back
-    unchanged. The SSH tunnel yields its own loopback bind address this way; the policy would
-    refuse it, and there is nothing to pin. A lookup that fails is refused rather than left to
-    libpq to retry, because that retry would be a second, unvalidated lookup. A lookup that
-    times out raises `psycopg.OperationalError` unchanged so it stays retryable.
-
-    Dev and test connect to local or fake hosts, so the lookup is skipped there. This mirrors
-    `_get_sslmode`.
+    An IP literal (the SSH tunnel's loopback bind), a Unix socket path, or an empty host has no
+    lookup to race and comes back unchanged. Dev and test connect to local or fake hosts, so the
+    lookup is skipped there, as in `_get_sslmode`.
     """
     if settings.TEST or settings.DEBUG or settings.E2E_TESTING:
         return {"host": host}
 
-    if not _is_hostname(host):
+    if not is_resolvable_hostname(host):
         return {"host": host}
 
     addresses = _resolve_hostaddr_with_timeout(host, port, connect_timeout) or []
     resolution = check_resolved_addresses(host, addresses, team_id)
     if resolution.connect_host is None:
-        raise Exception(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error}")
+        raise DatabaseHostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error}")
     if not resolution.addresses:
         # An exempt host whose lookup failed. The policy does not apply, and there is nothing to
         # pin, so libpq resolves the name itself as it did before.
@@ -878,16 +870,6 @@ def pinned_host_kwargs(host: str, port: int, connect_timeout: float, team_id: in
         "host": ",".join([host] * len(resolution.addresses)),
         "hostaddr": ",".join(resolution.addresses),
     }
-
-
-def _is_hostname(host: str) -> bool:
-    if not host or host.startswith("/"):
-        return False
-    try:
-        ipaddress.ip_address(host.strip("[]"))
-    except ValueError:
-        return True
-    return False
 
 
 def _open_connection(*, team_id: int | None = None, **connect_kwargs: Any) -> psycopg.Connection:
@@ -901,9 +883,9 @@ def _open_connection(*, team_id: int | None = None, **connect_kwargs: Any) -> ps
     connect_kwargs.update(
         pinned_host_kwargs(
             connect_kwargs["host"],
-            connect_kwargs.get("port", 5432),
-            connect_kwargs.get("connect_timeout", 15),
-            team_id,
+            port=connect_kwargs.get("port", 5432),
+            connect_timeout=connect_kwargs.get("connect_timeout", 15),
+            team_id=team_id,
         )
     )
     try:

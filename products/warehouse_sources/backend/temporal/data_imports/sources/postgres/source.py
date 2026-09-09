@@ -28,8 +28,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     FieldType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
-    DATABASE_HOST_NOT_ALLOWED_ERROR,
-    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
 )
@@ -722,8 +720,6 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "SSH server (not the database port), that the bastion is running and reachable, and "
                 "that PostHog's IP addresses are allowed through its firewall, then re-enable the sync."
             ),
-            # Raised by `_check_direct_host`; only the customer can fix the host, so do not retry.
-            DATABASE_HOST_NOT_ALLOWED_ERROR: DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
             # Raised by `SSHTunnel.get_tunnel` when `is_auth_valid()` fails — the SSH tunnel private
             # key can't be parsed, or password auth is missing a username/password. The auth config
             # is fixed, so retrying just replays the same invalid credentials. The streaming path

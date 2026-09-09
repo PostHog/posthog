@@ -29,14 +29,22 @@ _INTERNAL_IP_ERROR = (
 )
 _DNS_FAILURE_ERROR = "Host could not be resolved"
 
-# The sync registry and each SQL source's `get_non_retryable_errors` match this prefix; the rest of
-# the message carries the volatile host details.
+# The sync registry and the schema-refresh map match this prefix; the rest of the message carries
+# the volatile host details.
 DATABASE_HOST_NOT_ALLOWED_ERROR = "Database host not allowed"
 DATABASE_HOST_NOT_ALLOWED_GUIDANCE = (
     "PostHog rejected this source's database host because it either couldn't be resolved, or "
     "resolves to a private/internal address. Check the host is spelled correctly and reachable "
     "from the public internet, then re-enable the sync."
 )
+
+
+class DatabaseHostNotAllowedError(Exception):
+    """The host policy refused a database host at connect time.
+
+    The message starts with `DATABASE_HOST_NOT_ALLOWED_ERROR` so the string registries match it.
+    The type exists for classifiers that only inspect exception types, such as the CDC one.
+    """
 
 
 def is_team_allowlisted_for_internal_hosts(team_id: int) -> bool:
@@ -199,11 +207,8 @@ def _check_resolved_ips(host: str, team_id: int | None, resolved_ips: list[str])
     # That order is IPv6-first for a dual-stack host (RFC 6724), so on an IPv4-only worker the
     # pinned address is one nothing can route to and the connection can never succeed. Order by
     # what this host can actually reach before pinning.
-    return HostResolution(
-        connect_host=prefer_routable_addresses(resolved_ips)[0],
-        error=None,
-        addresses=tuple(resolved_ips),
-    )
+    routable = prefer_routable_addresses(resolved_ips)
+    return HostResolution(connect_host=routable[0], error=None, addresses=tuple(routable))
 
 
 def _log_host_check(
@@ -354,7 +359,7 @@ def _check_direct_host(config, team_id: int | None) -> None:
     """
     resolution = resolve_safe_host(config.host, team_id)
     if resolution.connect_host is None:
-        raise Exception(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error}")
+        raise DatabaseHostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error}")
 
 
 @contextmanager

@@ -22,8 +22,6 @@ from posthog.exceptions_capture import capture_exception
 from products.data_warehouse.backend.facade.api import reconcile_mysql_schemas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
-    DATABASE_HOST_NOT_ALLOWED_ERROR,
-    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
 )
@@ -266,8 +264,6 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
                 "host is spelled correctly and reachable from the public internet, then re-enable "
                 "the sync."
             ),
-            # Raised by `_check_direct_host`; only the customer can fix the host, so do not retry.
-            DATABASE_HOST_NOT_ALLOWED_ERROR: DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
             # MySQL/MariaDB error 1129 (ER_HOST_IS_BLOCKED): the server has blocked our import
             # host because aborted/interrupted connections from it exceeded `max_connect_errors`.
             # The block is server-side state that only a DB admin can clear (FLUSH HOSTS /
