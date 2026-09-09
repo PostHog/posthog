@@ -125,10 +125,16 @@ class TestIsHostSafe(SimpleTestCase):
         assert error is not None and "single hostname" in error
         getaddrinfo_mock.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("try_again", socket.EAI_AGAIN, "Temporary failure in name resolution"),
+            ("system_error", socket.EAI_SYSTEM, "System error"),
+            ("out_of_memory", socket.EAI_MEMORY, "Memory allocation failure"),
+        ]
+    )
     @override_settings(CLOUD_DEPLOYMENT="US")
-    def test_a_resolver_blip_is_reported_as_try_again(self) -> None:
-        blip = socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")
-        with patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", side_effect=blip):
+    def test_a_resolver_failure_is_reported_as_try_again(self, _name: str, errno: int, message: str) -> None:
+        with patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", side_effect=socket.gaierror(errno, message)):
             valid, error = _is_host_safe("db.example.com", team_id=999)
 
         assert not valid
@@ -184,13 +190,17 @@ class TestIsHostSafe(SimpleTestCase):
         assert resolution.connect_host == "52.1.2.3"
         assert resolution.addresses == ("52.1.2.3",)
 
+    @parameterized.expand(
+        [
+            ("no_errno", socket.gaierror("Name or service not known")),
+            ("name_or_service_not_known", socket.gaierror(socket.EAI_NONAME, "Name or service not known")),
+        ]
+    )
     @override_settings(CLOUD_DEPLOYMENT="US")
-    def test_unresolvable_host_blocked(self):
-        import socket
-
+    def test_unresolvable_host_blocked(self, _name: str, lookup_error: socket.gaierror):
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.socket.getaddrinfo",
-            side_effect=socket.gaierror("Name or service not known"),
+            side_effect=lookup_error,
         ):
             valid, error = _is_host_safe("nonexistent.invalid", team_id=999)
             assert not valid

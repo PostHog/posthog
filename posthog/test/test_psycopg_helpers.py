@@ -43,11 +43,25 @@ class TestPreferRoutableAddresses:
 
 
 class TestResolveTemporaryFailure:
-    def test_a_try_again_answer_raises_a_retryable_error_when_asked(self) -> None:
-        blip = socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")
-        with patch(f"{_HELPERS}.socket.getaddrinfo", side_effect=blip):
+    @parameterized.expand(
+        [
+            ("try_again", socket.EAI_AGAIN, "Temporary failure in name resolution"),
+            ("system_error", socket.EAI_SYSTEM, "System error"),
+            ("out_of_memory", socket.EAI_MEMORY, "Memory allocation failure"),
+        ]
+    )
+    def test_a_resolver_failure_raises_a_retryable_error_when_asked(self, _name, errno, message) -> None:
+        with patch(f"{_HELPERS}.socket.getaddrinfo", side_effect=socket.gaierror(errno, message)):
             with pytest.raises(psycopg.OperationalError, match="Temporary failure"):
                 resolve_psycopg_hostaddr_with_timeout("db.example.com", 5432, 5, raise_on_temporary_failure=True)
+
+    def test_a_name_that_does_not_exist_stays_a_refusal(self) -> None:
+        missing = socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+        with patch(f"{_HELPERS}.socket.getaddrinfo", side_effect=missing):
+            assert (
+                resolve_psycopg_hostaddr_with_timeout("db.example.com", 5432, 5, raise_on_temporary_failure=True)
+                is None
+            )
 
     def test_a_try_again_answer_is_none_by_default(self) -> None:
         blip = socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")

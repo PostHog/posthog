@@ -53,6 +53,19 @@ def prefer_routable_addresses(addresses: list[str]) -> list[str]:
     return routable or addresses
 
 
+# The resolver answers with one of these when the lookup itself failed, rather than reaching a
+# verdict on the name: the resolver was unreachable or timed out (EAI_AGAIN), or the lookup could
+# not complete locally (EAI_SYSTEM, EAI_MEMORY). A caller that refuses the host on one of these
+# blames the customer for a failure on our side, so they stay retryable. Every other code is an
+# answer about the name itself.
+_TEMPORARY_RESOLUTION_ERRNOS = frozenset({socket.EAI_AGAIN, socket.EAI_SYSTEM, socket.EAI_MEMORY})
+
+
+def is_temporary_resolution_failure(error: BaseException) -> bool:
+    """Whether a failed lookup is the resolver failing, rather than an answer about the name."""
+    return isinstance(error, socket.gaierror) and error.errno in _TEMPORARY_RESOLUTION_ERRNOS
+
+
 def is_resolvable_hostname(host: str) -> bool:
     """Whether `host` is a name a resolver would look up: not empty, not a Unix socket path, not an IP literal."""
     if not host or host.startswith("/"):
@@ -75,9 +88,9 @@ def resolve_psycopg_hostaddr_with_timeout(
 ) -> list[str] | None:
     """Resolve a hostname before psycopg's unbounded Python-side DNS lookup.
 
-    `raise_on_temporary_failure` turns a resolver "try again" answer (EAI_AGAIN) into a retryable
-    `psycopg.OperationalError` instead of `None`, for callers that treat `None` as a name that does
-    not exist.
+    `raise_on_temporary_failure` turns a resolver failure that is not an answer about the name
+    (see `is_temporary_resolution_failure`) into a retryable `psycopg.OperationalError` instead of
+    `None`, for callers that treat `None` as a name that does not exist.
     """
     if not is_resolvable_hostname(host):
         return None
@@ -105,11 +118,7 @@ def resolve_psycopg_hostaddr_with_timeout(
     if abort_check is not None:
         abort_check()
     if lookup_error:
-        if (
-            raise_on_temporary_failure
-            and isinstance(lookup_error[0], socket.gaierror)
-            and lookup_error[0].errno == socket.EAI_AGAIN
-        ):
+        if raise_on_temporary_failure and is_temporary_resolution_failure(lookup_error[0]):
             raise psycopg.OperationalError("Temporary failure resolving database host name") from lookup_error[0]
         if isinstance(lookup_error[0], OSError):
             if fail_on_resolution_error:

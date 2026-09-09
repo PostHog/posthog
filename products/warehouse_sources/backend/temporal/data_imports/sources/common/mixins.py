@@ -16,6 +16,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.models.integration import Integration
 from posthog.psycopg_helpers import (
     is_resolvable_hostname,
+    is_temporary_resolution_failure,
     prefer_routable_addresses,
     resolve_psycopg_hostaddr_with_timeout,
 )
@@ -60,7 +61,7 @@ class DatabaseHostNotAllowedError(Exception):
 
 
 class TemporaryHostResolutionError(Exception):
-    """The resolver answered "try again" (EAI_AGAIN) while the policy looked a host up.
+    """The resolver failed while the policy looked a host up, without answering about the name.
 
     Not a policy decision, so it stays a plain retryable error: no non-retryable registry
     matches its message and the CDC classifier leaves it unknown.
@@ -162,7 +163,7 @@ def resolve_safe_host(host: str, team_id: int | None) -> HostResolution:
         resolved_ips = [str(sockaddr[0]) for *_meta, sockaddr in addrinfo]
     except socket.gaierror as e:
         # A resolver blip is not a verdict on the host; refusing it would disable the schema.
-        if e.errno == socket.EAI_AGAIN:
+        if is_temporary_resolution_failure(e):
             raise TemporaryHostResolutionError(host) from e
         resolved_ips = []
     except UnicodeError:
