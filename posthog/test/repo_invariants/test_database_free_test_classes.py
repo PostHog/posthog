@@ -120,8 +120,8 @@ def collect_candidates() -> list[str]:
                 continue
             source = path.read_text(encoding="utf-8", errors="ignore")
             for match in CLASS_BASES.finditer(source):
-                for base in match.group(1).split(","):
-                    inherited.add(base.strip().split("[")[0].split(".")[-1])
+                for base_name in match.group(1).split(","):
+                    inherited.add(base_name.strip().split("[")[0].split(".")[-1])
             if not any(base in source for base in DATABASE_BASES):
                 continue
             # A bad escape sequence in some other file is that file's problem, not a
