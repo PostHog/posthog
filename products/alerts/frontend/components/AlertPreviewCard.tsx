@@ -138,6 +138,9 @@ export function AlertPreviewCard({
         isTrendsAlertConfig(config) &&
         !trendsValues?.some((value) => value !== 0)
 
+    // The missing-threshold state is reported before the generic forecast prompt. An upcoming-breach
+    // forecast with no bound keeps its Preview forecast button disabled until a bound is set, so the
+    // generic prompt would name an action the user cannot take yet.
     let body: JSX.Element | null = null
     if (forecast && alertForm.forecast_config) {
         body = (
@@ -147,16 +150,16 @@ export function AlertPreviewCard({
                 forecastConfig={alertForm.forecast_config}
             />
         )
-    } else if (alertForm.forecast_config) {
-        body = (
-            <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
-                Run Preview forecast to see it here.
-            </div>
-        )
     } else if (isUnconfiguredAbsoluteThreshold) {
         body = (
             <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
                 Set less than or more than to preview this alert.
+            </div>
+        )
+    } else if (alertForm.forecast_config) {
+        body = (
+            <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
+                Run Preview forecast to see it here.
             </div>
         )
     } else if (isBreakdownPreview && breakdownPreview && breakdownPreviewValues.length > 0) {
