@@ -50,6 +50,7 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { isObject } from 'lib/utils/guards'
 import { identifierToHuman, pluralize } from 'lib/utils/strings'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -1574,10 +1575,18 @@ const EventContent = React.memo(
             ? {
                   uuid: event.id,
                   input: event.properties.$ai_input,
-                  output: event.properties.$ai_output_choices,
+                  output: selectAiValue(event.properties.$ai_output_choices, event.properties.$ai_output),
+                  tools: event.properties.$ai_tools,
+                  traceId: trace.id,
+                  timestamp: event.createdAt,
               }
             : undefined
-        const { input: loadedInput, output: loadedOutput } = useAIData(eventData)
+        const {
+            input: loadedInput,
+            output: loadedOutput,
+            tools: loadedTools,
+            isLoading: aiDataLoading,
+        } = useAIData(eventData)
 
         const handleOpenInPlayground = (): void => {
             if (!event || !isLLMEvent(event)) {
@@ -1586,8 +1595,7 @@ const EventContent = React.memo(
 
             const model = event.properties.$ai_model
             const provider = event.properties.$ai_provider
-            const tools = event.properties.$ai_tools
-
+            const tools = Array.isArray(loadedTools) && loadedTools.every(isObject) ? loadedTools : undefined
             openInPlayground({ model, provider, input: loadedInput, output: loadedOutput, tools })
         }
 
@@ -1697,6 +1705,7 @@ const EventContent = React.memo(
                                             size="xsmall"
                                             icon={<IconPlay />}
                                             onClick={handleOpenInPlayground}
+                                            loading={aiDataLoading}
                                             tooltip="Open in Playground"
                                             data-attr="llma-playground-open-from-trace"
                                         >
