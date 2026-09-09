@@ -361,6 +361,13 @@ Present on the dedicated cluster and absent on the shared one isolates the fault
 mirror rather than to the writer. Absent on both means the entry was never built or has
 aged out; rebuild it with `update_flag_caches` and look at step 3.
 
+A shared copy that is absent while the dedicated copy is present does not come back on its
+own. Read repair is disabled for ETag-enabled namespaces, the hourly verifier reads only the
+primary, and the refresh task selects teams by an expiry score stamped from the primary, so a
+team whose dedicated entry is fresh is never revisited. The team keeps reading from S3 until
+its next flag change, or until the primary entry nears its TTL. `update_flag_caches` writes
+both tiers and ends it sooner.
+
 **3. Confirm the writer runs.** Check the success and duration signals for the
 flag-definitions refresh and verification tasks. Tasks that run at their normal cadence and
 duration while entries stay missing point back at the mirror, not at a stalled writer.
