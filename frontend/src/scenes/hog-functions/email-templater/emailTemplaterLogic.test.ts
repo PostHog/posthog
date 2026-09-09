@@ -368,6 +368,7 @@ describe('emailTemplaterLogic', () => {
         const DESIGN_NORMALIZED = { body: { id: 'stored', rows: [{ id: 'r1' }], values: { normalized: true } } }
         const DESIGN_EDITED = { body: { id: 'edited', rows: [{ id: 'r2' }] } }
         const DESIGN_EXTERNAL = { body: { id: 'external', rows: [{ id: 'r3' }] } }
+        const DESIGN_EDITED_AGAIN = { body: { id: 'edited-again', rows: [{ id: 'r4' }] } }
 
         const value = (overrides?: Partial<EmailTemplate>): EmailTemplate => ({
             ...DEFAULT_EMAIL_TEMPLATE,
@@ -494,6 +495,30 @@ describe('emailTemplaterLogic', () => {
             expect(onChange).toHaveBeenCalledTimes(1)
 
             updateProps({ design: DESIGN_EDITED })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(loadDesign).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not reload the canvas with a save response that predates the latest edit', async () => {
+            // The host saves on its own debounce, so its response carries the design the request
+            // was sent with. Two edits land while one save is on the wire.
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+            await jest.advanceTimersByTimeAsync(500)
+            editorDesign = DESIGN_EDITED_AGAIN
+            editorListeners['design:updated']()
+            await jest.advanceTimersByTimeAsync(500)
+            jest.useRealTimers()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(onChange).toHaveBeenCalledTimes(2)
+
+            // The response replays the first edit, then the host catches up with the second.
+            // Neither may reload the canvas: a reload drops the undo stack and the selection.
+            updateProps({ design: DESIGN_EDITED })
+            await expectLogic(logic).toFinishAllListeners()
+            updateProps({ design: DESIGN_EDITED_AGAIN })
             await expectLogic(logic).toFinishAllListeners()
 
             expect(loadDesign).toHaveBeenCalledTimes(1)
