@@ -34,6 +34,13 @@ export function hasInvertedThresholdBounds(
     return isFiniteThresholdBound(bounds?.lower) && isFiniteThresholdBound(bounds?.upper) && bounds.lower > bounds.upper
 }
 
+/** Whether the alert evaluates its threshold bounds. A target-by-date forecast reads its target
+ * instead, and the editor hides the bounds, so nothing on screen can answer for them. */
+export function usesThresholdBounds(alert: AlertFormType | AlertType): boolean {
+    const forecast = alert.forecast_config
+    return !forecast || forecast.condition === ForecastConditionType.FUTURE_BREACH
+}
+
 export function thresholdAlertHasBounds(alert: AlertFormType | AlertType): boolean {
     if (alert.detector_config) {
         return true
@@ -98,8 +105,8 @@ const alertFormSchema = z
         // Only the threshold and predicted-breach paths show the bounds, so both bound rules stop
         // here for a target alert. A stale bound it never reads must not block the save with an
         // error no visible field can show.
-        const usesThresholdBounds = !forecast || forecast.condition === ForecastConditionType.FUTURE_BREACH
-        if (!alert.detector_config && usesThresholdBounds && hasInvertedThresholdBounds(bounds)) {
+        const boundsInUse = usesThresholdBounds(alert as AlertFormType)
+        if (!alert.detector_config && boundsInUse && hasInvertedThresholdBounds(bounds)) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 path: ['threshold'],
@@ -115,7 +122,7 @@ const alertFormSchema = z
         }
 
         const hasNegativeRelativeBound =
-            usesThresholdBounds &&
+            boundsInUse &&
             alert.condition.type !== AlertConditionType.ABSOLUTE_VALUE &&
             [bounds?.lower, bounds?.upper].some((value) => isFiniteThresholdBound(value) && value < 0)
         if (hasNegativeRelativeBound) {

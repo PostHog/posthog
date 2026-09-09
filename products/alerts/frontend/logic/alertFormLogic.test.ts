@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
@@ -465,6 +466,37 @@ describe('alertFormLogic', () => {
         }).toFinishAllListeners()
 
         expect(createSpy.mock.calls[0][0].config.check_ongoing_interval).toBe(false)
+    })
+
+    // The server rejects an inverted pair on every threshold it receives, whatever the alert
+    // watches, while the target path hides those fields. Sending a pair the target alert never
+    // reads would fail the save with nothing on screen to correct.
+    it.each([
+        ['drops an inverted pair the target path hides', { lower: 10, upper: 5 }, {}],
+        ['keeps a usable pair the target path hides', { upper: 100 }, { upper: 100 }],
+    ] as const)('%s', async (_name, bounds, expected) => {
+        const logic = mountForm()
+        logic.actions.setAlertFormValues({
+            ...makeFormDefaults({
+                threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds } },
+                forecast_config: {
+                    type: 'ForecastConfig',
+                    engine: ForecastEngineType.PROPHET,
+                    condition: ForecastConditionType.TARGET_BY_DATE,
+                    target: 100,
+                    target_direction: ForecastTargetDirection.AT_LEAST,
+                    target_date: dayjs().add(30, 'day').format('YYYY-MM-DD'),
+                },
+            }),
+            checks: undefined,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        expect(createSpy).toHaveBeenCalledTimes(1)
+        expect(createSpy.mock.calls[0][0].threshold.configuration.bounds).toEqual(expected)
     })
 
     it('blocks save when threshold alert has no lower or upper bound', async () => {
