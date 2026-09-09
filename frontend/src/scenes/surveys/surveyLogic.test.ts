@@ -2770,3 +2770,19 @@ describe('mergeResponsesByQuestion', () => {
         expect(other[0].label).toBe('My own reason')
     })
 })
+
+describe('new survey appearance defaults', () => {
+    let logic: ReturnType<typeof surveyLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = surveyLogic({ id: 'new' })
+        logic.mount()
+    })
+
+    it('keeps the open text placeholder out of the appearance the editor saves', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.survey.appearance).not.toHaveProperty('placeholder')
+    })
+})
