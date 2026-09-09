@@ -51,7 +51,8 @@ const DUPLICATE_OFFSET = 24;
 
 export interface SketchpadStageProps {
   sketchpadId: string;
-  paneRef: React.RefObject<HTMLDivElement | null>;
+  paneRef: React.RefCallback<HTMLDivElement>;
+  paneRect: SketchpadPaneRect;
   snapshot: SketchpadSnapshot;
   getSnapshot: () => SketchpadSnapshot;
   viewport: SketchpadViewport;
@@ -73,6 +74,7 @@ export interface SketchpadStageProps {
 export function SketchpadStage({
   sketchpadId,
   paneRef,
+  paneRect,
   snapshot,
   getSnapshot,
   viewport,
@@ -96,12 +98,6 @@ export function SketchpadStage({
   const [frameHealth, setFrameHealth] =
     useState<SketchpadFrameHealth>("running");
   const [stopped, setStopped] = useState(false);
-  const [paneRect, setPaneRect] = useState<SketchpadPaneRect>({
-    left: 0,
-    top: 0,
-    width: 0,
-    height: 0,
-  });
 
   const selectedIds = useSketchpadSelectedIds();
   const highlightedIds = useSketchpadHighlightedIds();
@@ -123,7 +119,7 @@ export function SketchpadStage({
   );
 
   const pointer = useSketchpadPointer({
-    paneRef,
+    paneRect,
     viewport,
     setViewport,
     getSnapshot,
@@ -193,7 +189,7 @@ export function SketchpadStage({
   });
   frameRef.current = frame;
 
-  const { documentReady, ready, srcDoc, syncSnapshot } = frame;
+  const { ready, srcDoc, syncSnapshot } = frame;
   const setFrameViewport = frame.setViewport;
   const setFrameSelection = frame.setSelection;
 
@@ -208,8 +204,8 @@ export function SketchpadStage({
   }, [setFrameViewport, viewport]);
 
   useEffect(() => {
-    setFrameSelection(selectedIds);
-  }, [setFrameSelection, selectedIds]);
+    if (ready) setFrameSelection(selectedIds);
+  }, [setFrameSelection, selectedIds, ready]);
 
   useEffect(() => {
     if (focusedId === null) return;
@@ -256,36 +252,8 @@ export function SketchpadStage({
   );
 
   useEffect(() => {
-    setFrameCarets(frameCarets);
-  }, [setFrameCarets, frameCarets]);
-
-  useEffect(() => {
-    const pane = paneRef.current;
-    if (!pane) return;
-    const measure = (): void => {
-      const rect = pane.getBoundingClientRect();
-      const previous = paneRectRef.current;
-      const shift = rect.left - previous.left;
-      if (previous.width > 0 && shift !== 0 && focusedRef.current === null) {
-        const current = viewportRef.current;
-        setViewport({ ...current, x: current.x - shift });
-      }
-      setPaneRect({
-        left: rect.left,
-        top: rect.top,
-        width: rect.width,
-        height: rect.height,
-      });
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(pane);
-    window.addEventListener("scroll", measure, true);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("scroll", measure, true);
-    };
-  }, [paneRef, setViewport]);
+    if (ready) setFrameCarets(frameCarets);
+  }, [setFrameCarets, frameCarets, ready]);
 
   const targetsOf = useCallback((id: string): string[] => {
     const selected = selectedIdsRef.current;
@@ -326,7 +294,6 @@ export function SketchpadStage({
   const duplicateFragment = useCallback(
     (id: string): void => {
       const current = getSnapshot();
-      const taken = new Set(current.fragments.map((fragment) => fragment.id));
       const ops: SketchpadOp[] = [];
       const copyIds: string[] = [];
       let top = maxZ(current);
@@ -335,8 +302,7 @@ export function SketchpadStage({
           (fragment) => fragment.id === target,
         );
         if (!source) continue;
-        const copyId = uniqueFragmentId(taken, target);
-        taken.add(copyId);
+        const copyId = `copy-${globalThis.crypto.randomUUID()}`;
         copyIds.push(copyId);
         top += 1;
         ops.push({
@@ -390,7 +356,6 @@ export function SketchpadStage({
         onHealth={setFrameHealth}
         srcDoc={srcDoc}
         vendored={vendoredSketchpadModules}
-        documentReady={documentReady}
         inert={gestureActive}
       />
       <SketchpadHealthNotice
@@ -459,14 +424,4 @@ export function SketchpadStage({
       />
     </div>
   );
-}
-
-function uniqueFragmentId(taken: ReadonlySet<string>, id: string): string {
-  const base = `${id.replace(/-copy(-\d+)?$/, "").slice(0, 52)}-copy`;
-  if (!taken.has(base)) return base;
-  for (let index = 2; index < 1000; index++) {
-    const candidate = `${base}-${index}`;
-    if (!taken.has(candidate)) return candidate;
-  }
-  return `${base}-${Date.now()}`;
 }

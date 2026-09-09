@@ -10,7 +10,6 @@ interface SketchpadFrameProps {
   onElement: (element: SketchpadFrameElement | null) => void;
   srcDoc: string;
   vendored: boolean;
-  documentReady: boolean;
   inert: boolean;
   stopped: boolean;
   onHealth?: (health: SketchpadFrameHealth) => void;
@@ -22,7 +21,6 @@ export function SketchpadFrame({
   onElement,
   srcDoc,
   vendored,
-  documentReady,
   inert,
   stopped,
   onHealth,
@@ -30,7 +28,7 @@ export function SketchpadFrame({
   const mountRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!vendored || !documentReady || stopped) return;
+    if (!vendored || stopped) return;
     const mount = mountRef.current;
     if (!mount) return;
     const webview = createSketchpadWebview();
@@ -49,7 +47,7 @@ export function SketchpadFrame({
       webview.remove();
       onElement(null);
     };
-  }, [vendored, documentReady, stopped, onElement, onHealth]);
+  }, [vendored, stopped, onElement, onHealth]);
 
   const inertClass = inert ? "pointer-events-none" : "";
 

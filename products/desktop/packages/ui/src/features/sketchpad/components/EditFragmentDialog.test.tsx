@@ -33,13 +33,14 @@ describe("EditFragmentDialog", () => {
         h: 240,
         z: 0,
         codeVersion: 1,
+        surface: "card",
+        hidden: false,
         code: "export default () => <div>Original</div>;",
       };
       const applyLocal = vi.fn();
       const props = {
         open: true,
         fragment,
-        isPending: false,
         onOpenChange: vi.fn(),
         applyLocal,
       };

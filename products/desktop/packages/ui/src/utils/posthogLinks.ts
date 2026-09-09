@@ -91,14 +91,6 @@ export function inboxReportUrl(
   );
 }
 
-/**
- * The shareable https link for a canvas (a dashboard inside a channel):
- * `<instance>/code/canvas/<channelId>/<dashboardId>`. Opening it in a browser
- * hits a web interstitial that deep-links into the desktop app (or offers the
- * download), so the link works for anyone — app installed or not. Not
- * project-scoped: the ids are globally-unique desktop file-system row ids. The
- * inbound desktop side lives in `CanvasLinkService` / `useCanvasDeepLink`.
- */
 export function sketchpadShareUrl(
   channelId: string,
   sketchpadId: string,
@@ -110,6 +102,14 @@ export function sketchpadShareUrl(
   );
 }
 
+/**
+ * The shareable https link for a canvas (a dashboard inside a channel):
+ * `<instance>/code/canvas/<channelId>/<dashboardId>`. Opening it in a browser
+ * hits a web interstitial that deep-links into the desktop app (or offers the
+ * download), so the link works for anyone — app installed or not. Not
+ * project-scoped: the ids are globally-unique desktop file-system row ids. The
+ * inbound desktop side lives in `CanvasLinkService` / `useCanvasDeepLink`.
+ */
 export function canvasShareUrl(
   channelId: string,
   dashboardId: string,

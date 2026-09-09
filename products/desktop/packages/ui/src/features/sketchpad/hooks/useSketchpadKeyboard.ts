@@ -1,15 +1,15 @@
 import {
   fitToContent,
   type SketchpadBox,
+  type SketchpadPaneRect,
   zoomTo,
 } from "@posthog/core/sketchpad/sketchpadGeometry";
 import type { SketchpadViewport } from "@posthog/shared";
-import { readPaneRect } from "@posthog/ui/features/sketchpad/interaction/useSketchpadPointer";
 import { useEffect, useRef } from "react";
 
 export interface UseSketchpadKeyboardOptions {
   enabled?: boolean;
-  paneRef: React.RefObject<HTMLElement | null>;
+  paneRect: SketchpadPaneRect;
   fragments: readonly SketchpadBox[];
   viewport: SketchpadViewport;
   setViewport: (viewport: SketchpadViewport) => void;
@@ -44,7 +44,7 @@ export function useSketchpadKeyboard(
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
 
-      const pane = readPaneRect(current.paneRef.current);
+      const pane = current.paneRect;
 
       switch (event.key) {
         case "Delete":
@@ -57,10 +57,12 @@ export function useSketchpadKeyboard(
           current.onClearSelection();
           return;
         case "0":
+          if (pane.width === 0 || pane.height === 0) return;
           event.preventDefault();
           current.setViewport(zoomTo(current.viewport, 1, pane));
           return;
         case "1":
+          if (pane.width === 0 || pane.height === 0) return;
           event.preventDefault();
           current.setViewport(fitToContent(current.fragments, pane));
           return;

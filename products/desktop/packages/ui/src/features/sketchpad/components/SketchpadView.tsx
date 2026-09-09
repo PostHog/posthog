@@ -1,8 +1,4 @@
-import {
-  ArrowLeftIcon,
-  LinkIcon,
-  SquaresFourIcon,
-} from "@phosphor-icons/react";
+import { SquaresFourIcon } from "@phosphor-icons/react";
 import {
   clampViewport,
   clampZoom,
@@ -13,7 +9,6 @@ import {
   zoomTo,
 } from "@posthog/core/sketchpad/sketchpadGeometry";
 import {
-  Button,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -32,36 +27,23 @@ import {
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useCanvasViewedStore } from "@posthog/ui/features/canvas/stores/canvasViewedStore";
-import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
 import { useApplySketchpadToolCalls } from "@posthog/ui/features/sketchpad/hooks/useApplySketchpadToolCalls";
 import { useSketchpadApi } from "@posthog/ui/features/sketchpad/hooks/useSketchpadApi";
 import { useSketchpadCache } from "@posthog/ui/features/sketchpad/hooks/useSketchpadCache";
 import { useSketchpadKeyboard } from "@posthog/ui/features/sketchpad/hooks/useSketchpadKeyboard";
-import { useSketchpadMutations } from "@posthog/ui/features/sketchpad/hooks/useSketchpadMutations";
 import {
-  useSketchpadTaskId,
   useSketchpadViewport,
   useSketchpadViewportStore,
 } from "@posthog/ui/features/sketchpad/hooks/useSketchpadViewportStore";
 import {
-  selectSketchpadFragment,
+  SketchpadViewProvider,
   useSketchpadViewStore,
 } from "@posthog/ui/features/sketchpad/interaction/sketchpadViewStore";
 import { libraryEntry } from "@posthog/ui/features/sketchpad/library/registry";
 import { usePresenceSender } from "@posthog/ui/features/sketchpad/presence/usePresenceSender";
 import { useSketchpadPeers } from "@posthog/ui/features/sketchpad/presence/useSketchpadPeers";
 import { useSketchpadStream } from "@posthog/ui/features/sketchpad/presence/useSketchpadStream";
-import {
-  COPY_SKETCHPAD_LINK_ACTION,
-  DEFAULT_SKETCHPAD_NAME,
-} from "@posthog/ui/features/sketchpad/sketchpadCopy";
 import { useSketchpadSync } from "@posthog/ui/features/sketchpad/sync/useSketchpadSync";
-import { HeaderTitleEditor } from "@posthog/ui/features/task-detail/HeaderTitleEditor";
-import { toast } from "@posthog/ui/primitives/toast";
-import {
-  navigateToCanvases,
-  navigateToSpaceCanvases,
-} from "@posthog/ui/router/navigationBridge";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -69,34 +51,42 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
-import { readPaneRect } from "../interaction/useSketchpadPointer";
+import { useShallow } from "zustand/react/shallow";
+import { useSketchpadTaskId } from "../hooks/useSketchpadTaskLinkStore";
+import { usePaneRect } from "../interaction/usePaneRect";
 import { buildLastEdits } from "../lastEdits";
 import { EditFragmentDialog } from "./EditFragmentDialog";
 import type { FragmentLastEdit } from "./FragmentOverlay";
-import { HistoryPanel } from "./HistoryPanel";
-import { LibraryPalette } from "./LibraryPalette";
-import { PresenceFaces } from "./PresenceFaces";
-import { SketchpadChatPanel } from "./SketchpadChatPanel";
 import { SketchpadEmptyHero } from "./SketchpadEmptyHero";
+import { SketchpadHeader } from "./SketchpadHeader";
 import { SketchpadMinimap } from "./SketchpadMinimap";
+import { SketchpadSidePanel } from "./SketchpadSidePanel";
 import { SketchpadStage } from "./SketchpadStage";
 import { SketchpadToolbar } from "./SketchpadToolbar";
-import { StateInspector } from "./StateInspector";
-import { SyncChip } from "./SyncChip";
 
-const EMPTY_PANE = { left: 0, top: 0, width: 0, height: 0 };
+interface SketchpadViewProps {
+  sketchpadId: string;
+  channelId?: string;
+}
 
-export function SketchpadView({
+export function SketchpadView(props: SketchpadViewProps): ReactElement {
+  return (
+    <SketchpadViewProvider key={props.sketchpadId}>
+      <SketchpadScene {...props} />
+    </SketchpadViewProvider>
+  );
+}
+
+function SketchpadScene({
   sketchpadId,
   channelId,
 }: {
   sketchpadId: string;
   channelId?: string;
 }): ReactElement {
-  const paneRef = useRef<HTMLDivElement | null>(null);
+  const { paneRef, paneRect } = usePaneRect();
   const queryClient = useQueryClient();
   const api = useSketchpadApi();
   const authClient = useOptionalAuthenticatedClient();
@@ -133,10 +123,10 @@ export function SketchpadView({
   const fragments = state.snapshot.fragments;
   const setViewport = useCallback(
     (next: typeof viewport) => {
-      const rect = readPaneRect(paneRef.current);
+      const rect = paneRect;
       setViewportForSketchpad(
         sketchpadId,
-        rect
+        rect.width > 0 && rect.height > 0
           ? clampViewport(
               next,
               { w: rect.width, h: rect.height },
@@ -145,11 +135,26 @@ export function SketchpadView({
           : next,
       );
     },
-    [sketchpadId, fragments, setViewportForSketchpad],
+    [sketchpadId, fragments, setViewportForSketchpad, paneRect],
   );
   const taskId = useSketchpadTaskId(sketchpadId);
 
-  const view = useSketchpadViewStore();
+  const view = useSketchpadViewStore(
+    useShallow((state) => ({
+      selectedIds: state.selectedIds,
+      focusedId: state.focusedId,
+      activePanel: state.activePanel,
+      setSelection: state.setSelection,
+      clearSelection: state.clearSelection,
+      setActivePanel: state.setActivePanel,
+      setHighlightedIds: state.setHighlightedIds,
+    })),
+  );
+  const selectFragment = useCallback(
+    (id: string) => view.setSelection([id]),
+    [view.setSelection],
+  );
+
   const openOnly = view.setActivePanel;
   const markCanvasViewed = useCanvasViewedStore(
     (viewed) => viewed.markCanvasViewed,
@@ -158,8 +163,6 @@ export function SketchpadView({
     markCanvasViewed(sketchpadId, Date.now());
   }, [sketchpadId, markCanvasViewed]);
   const shareChannelId = channelId ?? state.channelId;
-  const [renaming, setRenaming] = useState(false);
-  const { renameSketchpad, isRenaming } = useSketchpadMutations();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
 
@@ -189,7 +192,8 @@ export function SketchpadView({
         z: entry.layer === "back" ? minZ(snapshot) - 1 : maxZ(snapshot) + 1,
         code: entry.code,
         codeVersion: 1,
-        ...(entry.surface ? { surface: entry.surface } : {}),
+        surface: entry.surface ?? "card",
+        hidden: false,
       };
       client.applyLocal([{ type: "add_fragment", fragment }]);
       view.setSelection([fragment.id]);
@@ -197,11 +201,11 @@ export function SketchpadView({
     [client, view],
   );
 
-  useApplySketchpadToolCalls(client, taskId, selectSketchpadFragment);
+  useApplySketchpadToolCalls(client, taskId, selectFragment);
 
   useSketchpadKeyboard({
     enabled: editingId === null && view.focusedId === null,
-    paneRef,
+    paneRect,
     fragments: state.snapshot.fragments,
     viewport,
     setViewport,
@@ -232,12 +236,15 @@ export function SketchpadView({
   const editingFragment =
     state.snapshot.fragments.find((f) => f.id === editingId) ?? null;
 
-  if (
+  const initialLoading =
     state.status === "loading" &&
     !currentUser.isError &&
     state.log.length === 0 &&
-    state.snapshot.fragments.length === 0
-  ) {
+    state.snapshot.fragments.length === 0;
+  const initialError =
+    currentUser.isError || (state.status === "error" && state.headSeq === 0);
+
+  if (initialLoading) {
     return (
       <div className="flex h-full flex-col gap-4 p-6">
         <Skeleton className="h-8 w-64" />
@@ -246,10 +253,7 @@ export function SketchpadView({
     );
   }
 
-  if (
-    currentUser.isError ||
-    (state.status === "error" && state.headSeq === 0)
-  ) {
+  if (initialError) {
     return (
       <Empty>
         <EmptyHeader>
@@ -267,98 +271,38 @@ export function SketchpadView({
   }
 
   const fitSketchpad = (): void => {
-    const rect = readPaneRect(paneRef.current);
-    if (rect) setViewport(fitToContent(state.snapshot.fragments, rect));
+    const rect = paneRect;
+    if (rect.width > 0 && rect.height > 0)
+      setViewport(fitToContent(state.snapshot.fragments, rect));
   };
   const zoomStep = (factor: number): void => {
-    const rect = readPaneRect(paneRef.current);
+    const rect = paneRect;
     setViewport(
-      rect
+      rect.width > 0 && rect.height > 0
         ? zoomAroundCenter(viewport, factor, rect)
         : { ...viewport, zoom: clampZoom(viewport.zoom * factor) },
     );
   };
   const resetZoom = (): void => {
-    const rect = readPaneRect(paneRef.current);
+    const rect = paneRect;
     setViewport(
-      rect
+      rect.width > 0 && rect.height > 0
         ? zoomTo(viewport, 1, rect)
         : { ...viewport, zoom: SKETCHPAD_FIT_MAX_ZOOM },
     );
   };
 
-  const panelOpen = view.activePanel !== null;
-
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-2.5 border-(--gray-4) border-b px-3">
-        <Button
-          variant="default"
-          size="icon-sm"
-          aria-label="Back to canvases"
-          onClick={() =>
-            channelId
-              ? navigateToSpaceCanvases(channelId)
-              : navigateToCanvases()
-          }
-        >
-          <ArrowLeftIcon />
-        </Button>
-        <h1 className="flex min-w-0 flex-1">
-          {renaming ? (
-            <HeaderTitleEditor
-              initialTitle={state.name}
-              onSubmit={(next) => {
-                setRenaming(false);
-                client?.setName(next);
-                void renameSketchpad(sketchpadId, next).catch(
-                  (error: unknown) => {
-                    client?.setName(state.name);
-                    toast.error(
-                      error instanceof Error ? error.message : String(error),
-                    );
-                  },
-                );
-              }}
-              onCancel={() => setRenaming(false)}
-              className="h-7 min-w-0 flex-1 px-1.5 font-semibold text-[15px] tracking-tight"
-            />
-          ) : (
-            <button
-              type="button"
-              title="Rename…"
-              disabled={isRenaming}
-              className="min-w-0 truncate rounded-(--radius-2) px-1.5 py-0.5 text-left font-semibold text-[15px] tracking-tight transition-colors hover:bg-(--gray-3)"
-              onClick={() => setRenaming(true)}
-            >
-              {state.name || DEFAULT_SKETCHPAD_NAME}
-            </button>
-          )}
-        </h1>
-        <div className="ml-auto flex shrink-0 items-center gap-2.5">
-          <Button
-            variant="default"
-            size="icon-sm"
-            aria-label={COPY_SKETCHPAD_LINK_ACTION}
-            title={COPY_SKETCHPAD_LINK_ACTION}
-            disabled={!shareChannelId}
-            onClick={() => {
-              if (shareChannelId) {
-                void copyCanvasLink(
-                  shareChannelId,
-                  sketchpadId,
-                  "canvas",
-                  "sketchpad",
-                );
-              }
-            }}
-          >
-            <LinkIcon />
-          </Button>
-          <PresenceFaces peers={peers} />
-          <SyncChip status={state.status} />
-        </div>
-      </header>
+      <SketchpadHeader
+        sketchpadId={sketchpadId}
+        channelId={channelId}
+        shareChannelId={shareChannelId}
+        name={state.name}
+        onNameChange={(name) => client.setName(name)}
+        peers={peers}
+        status={state.status}
+      />
 
       <div className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
@@ -377,6 +321,7 @@ export function SketchpadView({
             <SketchpadStage
               sketchpadId={sketchpadId}
               paneRef={paneRef}
+              paneRect={paneRect}
               snapshot={state.snapshot}
               getSnapshot={getSnapshot}
               viewport={viewport}
@@ -399,11 +344,11 @@ export function SketchpadView({
             <SketchpadMinimap
               fragments={view.focusedId ? [] : state.snapshot.fragments}
               viewport={viewport}
-              paneRect={readPaneRect(paneRef.current) ?? EMPTY_PANE}
+              paneRect={paneRect}
               selectedIds={view.selectedIds}
               onJump={(world) => {
-                const rect = readPaneRect(paneRef.current);
-                if (!rect) return;
+                const rect = paneRect;
+                if (rect.width === 0 || rect.height === 0) return;
                 setViewport({
                   zoom: viewport.zoom,
                   x: rect.width / 2 - world.x * viewport.zoom,
@@ -425,50 +370,24 @@ export function SketchpadView({
           </div>
         </div>
 
-        {panelOpen ? (
-          <div className="flex w-96 shrink-0 flex-col overflow-hidden">
-            {view.activePanel === "palette" ? (
-              <LibraryPalette
-                onAdd={(entry) => addFromLibrary(entry.name)}
-                onDragStateChange={setDragActive}
-                onClose={() => openOnly(null)}
-              />
-            ) : null}
-            {view.activePanel === "history" ? (
-              <HistoryPanel
-                state={state}
-                onRestore={(seq) => client?.restoreTo(seq)}
-                onHighlight={view.setHighlightedIds}
-                onLoadFullLog={() => void client?.loadFullLog()}
-                currentUserId={actorUser?.userId}
-                onClose={() => openOnly(null)}
-              />
-            ) : null}
-            {view.activePanel === "inspector" ? (
-              <StateInspector
-                state={state.snapshot.state}
-                fragments={state.snapshot.fragments}
-                onClose={() => openOnly(null)}
-              />
-            ) : null}
-            {view.activePanel === "chat" ? (
-              <SketchpadChatPanel
-                sketchpadId={sketchpadId}
-                sketchpadName={state.name}
-                snapshot={state.snapshot}
-                headSeq={state.headSeq}
-                taskId={taskId}
-                onClose={() => openOnly(null)}
-              />
-            ) : null}
-          </div>
-        ) : null}
+        <SketchpadSidePanel
+          activePanel={view.activePanel}
+          onClose={() => openOnly(null)}
+          state={state}
+          sketchpadId={sketchpadId}
+          taskId={taskId}
+          currentUserId={actorUser?.userId}
+          onAddFragment={addFromLibrary}
+          onDragStateChange={setDragActive}
+          onRestore={(seq) => client.restoreTo(seq)}
+          onHighlight={view.setHighlightedIds}
+          onLoadFullLog={() => void client.loadFullLog()}
+        />
       </div>
 
       <EditFragmentDialog
         open={editingId !== null}
         fragment={editingFragment}
-        isPending={false}
         onOpenChange={(open) => setEditingId(open ? editingId : null)}
         applyLocal={applyLocal}
       />

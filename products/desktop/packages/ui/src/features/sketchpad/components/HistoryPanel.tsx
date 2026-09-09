@@ -1,8 +1,8 @@
 import {
   groupLogEntries,
   type HistoryGroup,
-  type SketchpadSyncState,
-} from "@posthog/core/sketchpad/sketchpadSync";
+} from "@posthog/core/sketchpad/sketchpadHistory";
+import type { SketchpadSyncState } from "@posthog/core/sketchpad/sketchpadSync";
 import {
   AlertDialog,
   AlertDialogContent,

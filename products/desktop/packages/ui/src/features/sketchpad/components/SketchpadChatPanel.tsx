@@ -17,7 +17,7 @@ import { useStartSketchpadSession } from "@posthog/ui/features/sketchpad/hooks/u
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { setTaskForSketchpad } from "../hooks/useSketchpadViewportStore";
+import { setTaskForSketchpad } from "../hooks/useSketchpadTaskLinkStore";
 import { CHAT_EXAMPLES } from "../sketchpadCopy";
 
 export interface SketchpadChatPanelProps {

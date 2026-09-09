@@ -4,10 +4,7 @@ import {
 } from "@posthog/shared/analytics-events";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
-import {
-  canvasShareUrl,
-  sketchpadShareUrl,
-} from "@posthog/ui/utils/posthogLinks";
+import { canvasShareUrl } from "@posthog/ui/utils/posthogLinks";
 
 /**
  * Copy a canvas's shareable https link (`<instance>/code/canvas/<channelId>/
@@ -22,12 +19,21 @@ export async function copyCanvasLink(
   channelId: string,
   dashboardId: string,
   surface: ChannelsSurface,
-  canvasType: "canvas" | "sketchpad" = "canvas",
 ): Promise<void> {
-  const url =
-    canvasType === "sketchpad"
-      ? sketchpadShareUrl(channelId, dashboardId)
-      : canvasShareUrl(channelId, dashboardId);
+  return copyCanvasUrl(
+    canvasShareUrl(channelId, dashboardId),
+    channelId,
+    dashboardId,
+    surface,
+  );
+}
+
+export async function copyCanvasUrl(
+  url: string | null,
+  channelId: string,
+  dashboardId: string,
+  surface: ChannelsSurface,
+): Promise<void> {
   if (!url) {
     toast.error("Couldn't build a shareable link");
     return;

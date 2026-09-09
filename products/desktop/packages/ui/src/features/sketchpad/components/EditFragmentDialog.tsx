@@ -29,7 +29,6 @@ import { type ReactElement, useEffect, useRef, useState } from "react";
 interface EditFragmentDialogProps {
   open: boolean;
   fragment: SketchpadFragment | null;
-  isPending: boolean;
   onOpenChange: (open: boolean) => void;
   applyLocal: (ops: SketchpadOp[]) => void;
 }
@@ -37,7 +36,6 @@ interface EditFragmentDialogProps {
 export function EditFragmentDialog({
   open,
   fragment,
-  isPending,
   onOpenChange,
   applyLocal,
 }: EditFragmentDialogProps): ReactElement {
@@ -62,10 +60,7 @@ export function EditFragmentDialog({
   const blocked =
     trimmedCode.length > 0 ? checkFragmentCode(trimmedCode).violations : [];
   const canSubmit =
-    Boolean(fragment) &&
-    trimmedCode.length > 0 &&
-    blocked.length === 0 &&
-    !isPending;
+    Boolean(fragment) && trimmedCode.length > 0 && blocked.length === 0;
 
   const submit = (): void => {
     if (!fragment || !canSubmit) return;
@@ -79,13 +74,7 @@ export function EditFragmentDialog({
   };
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (!next && isPending) return;
-        onOpenChange(next);
-      }}
-    >
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="wide">
         <DialogHeader>
           <DialogTitle>Edit fragment</DialogTitle>
@@ -136,19 +125,10 @@ export function EditFragmentDialog({
           </Field>
         </DialogBody>
         <DialogFooter>
-          <Button
-            variant="outline"
-            disabled={isPending}
-            onClick={() => onOpenChange(false)}
-          >
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
             {DIALOG_CANCEL}
           </Button>
-          <Button
-            variant="primary"
-            loading={isPending}
-            disabled={!canSubmit}
-            onClick={submit}
-          >
+          <Button variant="primary" disabled={!canSubmit} onClick={submit}>
             {EDIT_FRAGMENT_SUBMIT}
           </Button>
         </DialogFooter>

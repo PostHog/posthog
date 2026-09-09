@@ -109,6 +109,32 @@ export function navigateToChannelDashboard(
   });
 }
 
+export function navigateToSpaceSketchpad(
+  channelId: string,
+  sketchpadId: string,
+): void {
+  void getRouterOrNull()?.navigate({
+    to: "/spaces/$channelId/sketchpads/$sketchpadId",
+    params: { channelId, sketchpadId },
+  });
+}
+
+export function navigateToSpaceCanvases(channelId: string): void {
+  void getRouterOrNull()?.navigate({
+    to: "/spaces/$channelId/canvases",
+    params: { channelId },
+  });
+}
+
+export function navigateToSketchpads(sketchpadId: string): void {
+  const router = getRouterOrNull();
+  if (!router) return;
+  void router.navigate({
+    to: "/sketchpads/$sketchpadId",
+    params: { sketchpadId },
+  });
+}
+
 export function navigateToFolderSettings(folderId: string): void {
   void getRouterOrNull()?.navigate({
     to: "/folders/$folderId",
@@ -218,32 +244,6 @@ export function navigateToLoopDetail(
     params: { loopId },
     search: options?.edit ? { edit: true } : {},
     ignoreBlocker: options?.ignoreBlocker,
-  });
-}
-
-export function navigateToSpaceSketchpad(
-  channelId: string,
-  sketchpadId: string,
-): void {
-  void getRouterOrNull()?.navigate({
-    to: "/spaces/$channelId/sketchpads/$sketchpadId",
-    params: { channelId, sketchpadId },
-  });
-}
-
-export function navigateToSpaceCanvases(channelId: string): void {
-  void getRouterOrNull()?.navigate({
-    to: "/spaces/$channelId/canvases",
-    params: { channelId },
-  });
-}
-
-export function navigateToSketchpads(sketchpadId: string): void {
-  const router = getRouterOrNull();
-  if (!router) return;
-  void router.navigate({
-    to: "/sketchpads/$sketchpadId",
-    params: { sketchpadId },
   });
 }
 

@@ -29,7 +29,7 @@ export type SketchpadGesture =
   | { kind: "resize"; id: string; handle: ResizeHandle };
 
 export interface UseSketchpadPointerOptions {
-  paneRef: React.RefObject<HTMLElement | null>;
+  paneRect: SketchpadPaneRect;
   viewport: SketchpadViewport;
   setViewport: (v: SketchpadViewport) => void;
   getSnapshot: () => SketchpadSnapshot;
@@ -74,17 +74,18 @@ interface DragState {
   sent: SketchpadRect;
 }
 
-interface PanState {
-  last: SketchpadPoint;
-  travel: number;
-}
-
 interface MarqueeState {
   start: SketchpadPoint;
   current: SketchpadPoint;
   base: string[];
   travel: number;
 }
+
+type ActiveGesture =
+  | { kind: "pan"; current: SketchpadPoint; travel: number }
+  | (MarqueeState & { kind: "marquee" })
+  | (DragState & { kind: "move"; ids: string[] })
+  | (DragState & { kind: "resize"; id: string; handle: ResizeHandle });
 
 interface PointerModifiers {
   shiftKey: boolean;
@@ -100,14 +101,24 @@ export function useSketchpadPointer(
 
   const [gesture, setGesture] = useState<SketchpadGesture>({ kind: "none" });
   const [marquee, setMarquee] = useState<SketchpadScreenRect | null>(null);
-  const drag = useRef<DragState | null>(null);
-  const pan = useRef<PanState | null>(null);
-  const marqueeRef = useRef<MarqueeState | null>(null);
-
+  const activeGesture = useRef<ActiveGesture | null>(null);
   const readPane = useCallback(
-    (): SketchpadPaneRect => readPaneRect(latest.current.paneRef.current),
+    (): SketchpadPaneRect => latest.current.paneRect,
     [],
   );
+  const finish = useCallback((): void => {
+    const active = activeGesture.current;
+    if (
+      active &&
+      (active.kind === "move" || active.kind === "resize") &&
+      active.target.hasPointerCapture(active.pointerId)
+    ) {
+      active.target.releasePointerCapture(active.pointerId);
+    }
+    activeGesture.current = null;
+    setMarquee(null);
+    setGesture({ kind: "none" });
+  }, []);
 
   const zoomOrPan = useCallback(
     (e: {
@@ -165,11 +176,6 @@ export function useSketchpadPointer(
     [zoomOrPan],
   );
 
-  const endMarquee = useCallback((): void => {
-    marqueeRef.current = null;
-    setMarquee(null);
-  }, []);
-
   const commitMarquee = useCallback(
     (state: MarqueeState): void => {
       const { viewport, getSnapshot, setSelection } = latest.current;
@@ -190,47 +196,30 @@ export function useSketchpadPointer(
 
   const continueBackground = useCallback(
     (point: SketchpadPoint, phase: "move" | "up"): void => {
-      const pane = readPane();
-      const e = { phase } as const;
-
-      const marqueeActive = marqueeRef.current;
-      if (marqueeActive) {
-        const dx = point.x - marqueeActive.current.x;
-        const dy = point.y - marqueeActive.current.y;
-        marqueeActive.current = point;
-        marqueeActive.travel += Math.abs(dx) + Math.abs(dy);
-        if (e.phase === "move") {
-          setMarquee(paneRelativeRect(marqueeActive, pane));
-          return;
+      const active = activeGesture.current;
+      if (!active || (active.kind !== "pan" && active.kind !== "marquee"))
+        return;
+      const dx = point.x - active.current.x;
+      const dy = point.y - active.current.y;
+      active.current = point;
+      active.travel += Math.abs(dx) + Math.abs(dy);
+      if (phase === "move") {
+        if (active.kind === "marquee")
+          setMarquee(paneRelativeRect(active, readPane()));
+        else {
+          const { viewport, setViewport } = latest.current;
+          setViewport(panBy(viewport, dx, dy));
         }
-        if (marqueeActive.travel <= CLICK_SLOP_PX) {
-          latest.current.setSelection(marqueeActive.base);
-        } else {
-          commitMarquee(marqueeActive);
-        }
-        endMarquee();
-        setGesture({ kind: "none" });
         return;
       }
-
-      const active = pan.current;
-      if (!active) return;
-
-      const dx = point.x - active.last.x;
-      const dy = point.y - active.last.y;
-
-      if (e.phase === "move") {
-        active.last = point;
-        active.travel += Math.abs(dx) + Math.abs(dy);
-        const { viewport, setViewport } = latest.current;
-        setViewport(panBy(viewport, dx, dy));
-        return;
+      if (active.kind === "marquee") {
+        if (active.travel <= CLICK_SLOP_PX)
+          latest.current.setSelection(active.base);
+        else commitMarquee(active);
       }
-
-      pan.current = null;
-      setGesture({ kind: "none" });
+      finish();
     },
-    [commitMarquee, endMarquee, readPane],
+    [commitMarquee, finish, readPane],
   );
 
   const onFrameBackgroundPointer = useCallback(
@@ -245,12 +234,15 @@ export function useSketchpadPointer(
         return;
       }
       if (e.button === MIDDLE_BUTTON || e.altKey) {
-        pan.current = { last: point, travel: 0 };
+        finish();
+        activeGesture.current = { kind: "pan", current: point, travel: 0 };
         setGesture({ kind: "pan" });
         return;
       }
       if (e.button !== 0) return;
-      marqueeRef.current = {
+      finish();
+      activeGesture.current = {
+        kind: "marquee",
         start: point,
         current: point,
         base: e.shiftKey ? [...latest.current.getSelectedIds()] : [],
@@ -258,25 +250,8 @@ export function useSketchpadPointer(
       };
       setGesture({ kind: "marquee" });
     },
-    [continueBackground, readPane],
+    [continueBackground, readPane, finish],
   );
-
-  const backgroundActive = gesture.kind === "pan" || gesture.kind === "marquee";
-  useEffect(() => {
-    if (!backgroundActive) return;
-    const move = (event: PointerEvent): void =>
-      continueBackground({ x: event.clientX, y: event.clientY }, "move");
-    const end = (event: PointerEvent): void =>
-      continueBackground({ x: event.clientX, y: event.clientY }, "up");
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", end);
-    window.addEventListener("pointercancel", end);
-    return () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", end);
-      window.removeEventListener("pointercancel", end);
-    };
-  }, [backgroundActive, continueBackground]);
 
   const onFrameFragmentPointerDown = useCallback(
     (
@@ -296,24 +271,20 @@ export function useSketchpadPointer(
     [],
   );
 
-  useEffect(() => {
-    const drop = (): void => {
-      if (!pan.current && !marqueeRef.current) return;
-      pan.current = null;
-      endMarquee();
-      setGesture({ kind: "none" });
-    };
-    window.addEventListener("blur", drop);
-    return () => window.removeEventListener("blur", drop);
-  }, [endMarquee]);
-
   const beginDrag = useCallback(
-    (e: React.PointerEvent, items: DragItem[], origin: SketchpadRect): void => {
+    (
+      e: React.PointerEvent,
+      items: DragItem[],
+      origin: SketchpadRect,
+      gesture: Extract<SketchpadGesture, { kind: "move" | "resize" }>,
+    ): void => {
       const target = e.currentTarget as HTMLElement;
       e.preventDefault();
       e.stopPropagation();
+      finish();
       target.setPointerCapture(e.pointerId);
-      drag.current = {
+      activeGesture.current = {
+        ...gesture,
         pointerId: e.pointerId,
         target,
         start: { x: e.clientX, y: e.clientY },
@@ -321,8 +292,9 @@ export function useSketchpadPointer(
         origin,
         sent: origin,
       };
+      setGesture(gesture);
     },
-    [],
+    [finish],
   );
 
   const startMove = useCallback(
@@ -347,8 +319,10 @@ export function useSketchpadPointer(
         const fragment = fragments.find((candidate) => candidate.id === target);
         if (fragment) items.push({ id: fragment.id, origin: boxOf(fragment) });
       }
-      beginDrag(e, items, boxOf(pressed));
-      setGesture({ kind: "move", ids: items.map((item) => item.id) });
+      beginDrag(e, items, boxOf(pressed), {
+        kind: "move",
+        ids: items.map((item) => item.id),
+      });
     },
     [beginDrag],
   );
@@ -362,19 +336,21 @@ export function useSketchpadPointer(
       if (!fragment) return;
       setSelection([id]);
       const origin = boxOf(fragment);
-      beginDrag(e, [{ id, origin }], origin);
-      setGesture({ kind: "resize", id, handle });
+      beginDrag(e, [{ id, origin }], origin, { kind: "resize", id, handle });
     },
     [beginDrag],
   );
 
   useEffect(() => {
-    const active = gesture;
-    if (active.kind !== "move" && active.kind !== "resize") return;
-
     const onPointerMove = (event: PointerEvent): void => {
-      const state = drag.current;
-      if (!state || state.pointerId !== event.pointerId) return;
+      const active = activeGesture.current;
+      if (!active) return;
+      if (active.kind === "pan" || active.kind === "marquee") {
+        continueBackground({ x: event.clientX, y: event.clientY }, "move");
+        return;
+      }
+      const state = active;
+      if (state.pointerId !== event.pointerId) return;
 
       const { viewport, applyLocal } = latest.current;
       const dx = (event.clientX - state.start.x) / viewport.zoom;
@@ -426,25 +402,35 @@ export function useSketchpadPointer(
     };
 
     const onPointerUp = (event: PointerEvent): void => {
-      const state = drag.current;
-      if (state && state.pointerId === event.pointerId) {
-        if (state.target.hasPointerCapture(event.pointerId)) {
-          state.target.releasePointerCapture(event.pointerId);
-        }
-        drag.current = null;
-      }
-      setGesture({ kind: "none" });
+      const active = activeGesture.current;
+      if (!active) return;
+      if (active.kind === "pan" || active.kind === "marquee") {
+        continueBackground({ x: event.clientX, y: event.clientY }, "up");
+      } else if (active.pointerId === event.pointerId) finish();
+    };
+    const onPointerCancel = (event: PointerEvent): void => {
+      const active = activeGesture.current;
+      if (!active) return;
+      if (
+        active.kind === "pan" ||
+        active.kind === "marquee" ||
+        active.pointerId === event.pointerId
+      )
+        finish();
     };
 
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("pointercancel", onPointerUp);
+    window.addEventListener("pointercancel", onPointerCancel);
+    window.addEventListener("blur", finish);
     return () => {
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerCancel);
+      window.removeEventListener("blur", finish);
+      finish();
     };
-  }, [gesture]);
+  }, [continueBackground, finish]);
 
   return {
     gesture,
@@ -456,25 +442,6 @@ export function useSketchpadPointer(
     startMove,
     startResize,
   };
-}
-
-export function readPaneRect(element: HTMLElement | null): SketchpadPaneRect {
-  if (!element) return { left: 0, top: 0, width: 0, height: 0 };
-  const rect = element.getBoundingClientRect();
-  return {
-    left: rect.left,
-    top: rect.top,
-    width: rect.width,
-    height: rect.height,
-  };
-}
-
-export function clientToWorld(
-  point: SketchpadPoint,
-  viewport: SketchpadViewport,
-  element: HTMLElement | null,
-): SketchpadPoint {
-  return screenToWorld(point, viewport, readPaneRect(element));
 }
 
 function boxOf(fragment: SketchpadRect): SketchpadRect {
