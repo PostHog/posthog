@@ -35,6 +35,7 @@ from posthog.tasks.alerts.utils import (
     skip_because_of_weekend,
 )
 from posthog.temporal.alerts.investigation import claim_investigation_slot, decide_investigation
+from posthog.temporal.alerts.metrics import record_due_alert_metrics
 from posthog.temporal.alerts.types import (
     AlertInfo,
     EvaluateAlertActivityInputs,
@@ -92,7 +93,13 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
             .filter(insight__deleted=False)
             .annotate(_interval_order=calculation_interval_order)
             .order_by("_interval_order", F("next_check_at").asc(nulls_first=True))
-            .only("id", "team_id", "calculation_interval", "insight_id")
+            .only("id", "team_id", "calculation_interval", "insight_id", "next_check_at")
+        )
+
+        due_alerts = list(alerts)
+        record_due_alert_metrics(
+            due_count=len(due_alerts),
+            oldest_due_at=due_alerts[0].next_check_at if due_alerts else None,
         )
 
         return [
@@ -103,7 +110,7 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
                 calculation_interval=a.calculation_interval,
                 insight_id=a.insight_id,
             )
-            for a in alerts
+            for a in due_alerts
         ]
 
     async with Heartbeater():

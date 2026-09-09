@@ -41,6 +41,7 @@ from posthog.temporal.alerts.activities import (
     notify_alert,
     prepare_alert,
     record_failed_evaluation,
+    retrieve_due_alerts,
 )
 from posthog.temporal.alerts.retry_policy import alert_timeouts
 from posthog.temporal.alerts.types import (
@@ -189,6 +190,21 @@ async def _create_alert_check(
         )
 
     return await _create()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+class TestRetrieveDueAlerts:
+    async def test_records_due_alert_metrics(self, ateam) -> None:
+        oldest_due_at = datetime(2026, 9, 9, 11, tzinfo=UTC)
+        await _create_alert(ateam, next_check_at=oldest_due_at)
+        await _create_alert(ateam, next_check_at=datetime(2026, 9, 9, 12, tzinfo=UTC))
+
+        with patch("posthog.temporal.alerts.activities.record_due_alert_metrics") as record_metrics:
+            alerts = await ActivityEnvironment().run(retrieve_due_alerts)
+
+        assert len(alerts) == 2
+        record_metrics.assert_called_once_with(due_count=2, oldest_due_at=oldest_due_at)
 
 
 @pytest.mark.asyncio
