@@ -8,7 +8,10 @@ import {
 import { QueryClient } from "@tanstack/react-query";
 import { expect, it, vi } from "vitest";
 import {
+<<<<<<< HEAD
   createSketchpadBudget,
+=======
+>>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
   handleSketchpadDataRequest,
   type SketchpadDataBridgeContext,
 } from "./sketchpadDataBridge";
@@ -20,7 +23,10 @@ it.each(["remote edit", "restore", "invalid stored entry"])(
     const ctx: SketchpadDataBridgeContext = {
       sketchpadId: change,
       queryClient: new QueryClient(),
+<<<<<<< HEAD
       budget: createSketchpadBudget("board"),
+=======
+>>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
       getSnapshot: () => snapshot,
       applyLocal: (ops) => {
         for (const op of ops) snapshot = applyOp(snapshot, op);
@@ -87,7 +93,10 @@ it.each(["a", "🙂"])(
         {
           sketchpadId: character,
           queryClient: new QueryClient(),
+<<<<<<< HEAD
           budget: createSketchpadBudget("board"),
+=======
+>>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
           getSnapshot: emptySketchpadSnapshot,
           applyLocal,
           reportCaret: vi.fn(),
@@ -106,7 +115,10 @@ it.each(["text", "list"] as const)(
     const ctx: SketchpadDataBridgeContext = {
       sketchpadId: kind,
       queryClient: new QueryClient(),
+<<<<<<< HEAD
       budget: createSketchpadBudget("board"),
+=======
+>>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
       getSnapshot: () => snapshot,
       applyLocal: (ops) => {
         for (const op of ops) snapshot = applyOp(snapshot, op);
@@ -144,6 +156,7 @@ it.each(["text", "list"] as const)(
     }
   },
 );
+<<<<<<< HEAD
 
 it("charges only committed edits and gives each frame its own budget", async () => {
   const now = vi.spyOn(Date, "now").mockReturnValue(0);
@@ -194,3 +207,5 @@ it("charges only committed edits and gives each frame its own budget", async () 
     queryClient.clear();
   }
 });
+=======
+>>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)

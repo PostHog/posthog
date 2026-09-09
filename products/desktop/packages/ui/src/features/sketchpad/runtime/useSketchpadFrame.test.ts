@@ -2,6 +2,11 @@ import {
   emptySketchpadSnapshot,
   SKETCHPAD_CHANNEL,
   SKETCHPAD_FRAME_TO_HOST_CHANNEL,
+<<<<<<< HEAD
+=======
+  SKETCHPAD_HOST_TO_FRAME_CHANNEL,
+  type SketchpadDataMethod,
+>>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
   type SketchpadFrameToHostMessage,
   type SketchpadSnapshot,
 } from "@posthog/shared";
@@ -43,6 +48,7 @@ function mountFrame(snapshot: SketchpadSnapshot, sketchpadId = "board") {
   const frame = document.createElement("webview") as SketchpadWebviewElement;
   frame.send = send;
   const queryClient = new QueryClient();
+<<<<<<< HEAD
   const { result, unmount, rerender } = renderHook(
     ({ element }) =>
       useSketchpadFrame({
@@ -67,12 +73,40 @@ function mountFrame(snapshot: SketchpadSnapshot, sketchpadId = "board") {
         },
       }),
     { initialProps: { element: frame } },
+=======
+  const { result, unmount } = renderHook(() =>
+    useSketchpadFrame({
+      sketchpadId,
+      frameElement: frame,
+      theme: "light",
+      queryClient,
+      getSnapshot: () => snapshot,
+      applyLocal: vi.fn(),
+      reportCaret: vi.fn(),
+      events: {
+        onExitFocus: vi.fn(),
+        onReady: vi.fn(),
+        onFragmentRendered: vi.fn(),
+        onFragmentError: vi.fn(),
+        onStateChanged: vi.fn(),
+        onWheel: vi.fn(),
+        onBackgroundPointer: vi.fn(),
+        onFragmentPointerDown: vi.fn(),
+        onPointerMove: vi.fn(),
+        onPointerLeave: vi.fn(),
+      },
+    }),
+>>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
   );
   act(() =>
     sendFromFrame(frame, { channel: SKETCHPAD_CHANNEL, type: "ready" }),
   );
   send.mockClear();
+<<<<<<< HEAD
   return { frame, send, result, unmount, queryClient, rerender };
+=======
+  return { frame, send, result, unmount, queryClient };
+>>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
 }
 
 it("limits compilation requests and cancels them when the frame closes", async () => {
@@ -106,6 +140,58 @@ it("limits compilation requests and cancels them when the frame closes", async (
   queryClient.clear();
 });
 
+<<<<<<< HEAD
+=======
+it.each([false, true])(
+  "bounds queued reads and handles a closed frame: %s",
+  async (close) => {
+    vi.useFakeTimers();
+    const { frame, send, unmount, queryClient } = mountFrame(
+      emptySketchpadSnapshot(),
+      `read-queue-${close}`,
+    );
+    let active = 0;
+    let peak = 0;
+    query.mockReset().mockImplementation(() => {
+      peak = Math.max(peak, ++active);
+      return new Promise((resolve) =>
+        setTimeout(() => {
+          active--;
+          resolve({ results: [] });
+        }, 20_000),
+      );
+    });
+    try {
+      await act(async () => {
+        for (let index = 0; index < 16; index++) {
+          sendFromFrame(frame, {
+            channel: SKETCHPAD_CHANNEL,
+            type: "data-request",
+            id: String(index),
+            method: "query",
+            payload: { hogql: `select ${index}` },
+          });
+        }
+      });
+      expect(query).toHaveBeenCalledTimes(8);
+      if (close) unmount();
+      await act(() => vi.advanceTimersByTimeAsync(40_000));
+      expect(peak).toBe(8);
+      expect(query).toHaveBeenCalledTimes(close ? 8 : 16);
+      const replies = send.mock.calls
+        .map(([, message]) => message)
+        .filter((message) => message.type === "data-response");
+      expect(replies).toHaveLength(close ? 0 : 16);
+      expect(replies.every((message) => message.ok)).toBe(true);
+    } finally {
+      unmount();
+      queryClient.clear();
+      vi.useRealTimers();
+    }
+  },
+);
+
+>>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
 it("sends changed data without repeating unchanged source or state", () => {
   const toJSON = vi.fn(() => ({ value: "unchanged" }));
   const fragment = {
@@ -117,8 +203,11 @@ it("sends changed data without repeating unchanged source or state", () => {
     z: 0,
     code: "export default () => null",
     codeVersion: 1,
+<<<<<<< HEAD
     surface: "card" as const,
     hidden: false,
+=======
+>>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
   };
   const previous = {
     schemaVersion: 1 as const,
@@ -188,6 +277,7 @@ it("sends changed data without repeating unchanged source or state", () => {
   ]);
 });
 
+<<<<<<< HEAD
 it("resets readiness and caret delivery when the frame element changes", () => {
   const { result, rerender, unmount, queryClient } = mountFrame(
     emptySketchpadSnapshot(),
@@ -220,4 +310,37 @@ it("resets readiness and caret delivery when the frame element changes", () => {
   );
   unmount();
   queryClient.clear();
+=======
+it.each<[SketchpadDataMethod, number, boolean]>([
+  ["stateEditText", 20_000, true],
+  ["stateEditText", 60_000, false],
+  ["query", 20_000, false],
+])("bounds %s requests with %i entry IDs", async (method, count, ok) => {
+  const { frame, send } = mountFrame(emptySketchpadSnapshot());
+  await act(async () => {
+    sendFromFrame(frame, {
+      channel: SKETCHPAD_CHANNEL,
+      type: "data-request",
+      id: "request",
+      method,
+      payload: {
+        key: "note",
+        base: "a".repeat(count),
+        next: "b".repeat(count),
+        baseIds: Array.from(
+          { length: count },
+          (_, index) => `${"a".repeat(32)}-${index}`,
+        ),
+      },
+    });
+  });
+  expect(send).toHaveBeenCalledWith(
+    SKETCHPAD_HOST_TO_FRAME_CHANNEL,
+    expect.objectContaining({
+      type: "data-response",
+      id: "request",
+      ok,
+    }),
+  );
+>>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
 });

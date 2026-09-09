@@ -19,6 +19,7 @@ function setup() {
       updatedAt: "2026-01-01T00:00:00.000Z",
       snapshot: emptySketchpadSnapshot(),
       headSeq: 0,
+<<<<<<< HEAD
       historyStartSeq: 0,
       historySnapshot: emptySketchpadSnapshot(),
     })),
@@ -28,6 +29,12 @@ function setup() {
       historyStartSeq: 0,
       historySnapshot: emptySketchpadSnapshot(),
     }),
+=======
+    })),
+    opsSince: vi
+      .fn<SketchpadApi["opsSince"]>()
+      .mockResolvedValue({ headSeq: 0, results: [] }),
+>>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
     appendOps: vi
       .fn<SketchpadApi["appendOps"]>()
       .mockImplementation(async (_id, input) => {
