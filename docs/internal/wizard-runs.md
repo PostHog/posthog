@@ -3,6 +3,14 @@
 The Wizard is a setup agent distributed as an npm package.
 A Wizard run records one execution of that agent inside a user-provided workspace.
 
+## Concurrent creation
+
+Cloud run creation holds a PostgreSQL transaction advisory lock for the project and user.
+The lock covers the active-run check, rolling hourly and daily limits, and run insertion.
+Concurrent requests for the same project and user wait until the first transaction commits or rolls back.
+The lock does not lock the `Team` row or serialize different users or projects.
+Local runs do not take this lock. Cloud dispatch starts after commit.
+
 ## Environments and workspaces
 
 V0 supports two configurations:
@@ -83,6 +91,32 @@ The Worker:
 Tokens do not enter Temporal inputs, workflow history, run metadata, or logs.
 Wizard owns the Worker command, environment, credentials, resource limits, timeouts, and diff behavior.
 Tasks provides only generic repository-token and sandbox helpers through public facades.
+
+## Analytics compatibility
+
+Cloud lifecycle events keep their existing names and deterministic event UUIDs.
+They add the legacy properties `run_surface`, `project_id`, `version`, and `command`.
+The existing `environment`, `team_id`, `wizard_version`, and `wizard_run_id` properties remain available.
+`event_source` distinguishes `wizard_run_service` events from `wizard_ui` events.
+
+The pinned Wizard CLI reads `POSTHOG_TASK_RUN_ID` and attaches it as `task_run_id` to its events.
+Cloud workers pass the Wizard run ID through this existing variable.
+Cloud service and UI events also include this `task_run_id` alias, so these events can join the CLI events.
+The alias does not refer to a Tasks record. No `POSTHOG_TASK_ID` is supplied.
+Local runs do not get the cloud alias.
+The CLI keeps its separate, process-level `run_id`.
+
+The CLI remains the only source of `setup wizard finished`.
+Its `status` values remain `success`, `error`, and `cancelled`.
+Service completion events describe the full cloud lifecycle, including failures before CLI startup and failures during repository publication.
+Do not add the CLI and service completion events together when counting runs.
+
+The UI records library opens, successful command copies, create requests and outcomes, retry selections, run views, and diff opens.
+It also records confirmed cancellation requests and outcomes.
+Polling does not create more view events. Clipboard failures do not count as command copies.
+Use `wizard run create requested` and `wizard run create failed` to measure request failures, including limit responses.
+Use `wizard_run_id` to join successful creation to existing lifecycle events, `wizard pull request created`, and `wizard run diff opened`.
+Events omit repository names, paths, full shell commands, diff contents, tokens, and raw error messages.
 
 ## Deployment configuration
 
