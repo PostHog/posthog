@@ -78,8 +78,8 @@ from products.alerts.backend.facade.api import (
     count_active_alert_destinations,
     create_alert_destination_hog_functions,
     soft_delete_alert_destinations,
-    validate_destination_data,
     validate_and_normalize_schedule_start_time,
+    validate_destination_data,
 )
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
