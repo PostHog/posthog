@@ -161,3 +161,4 @@ WORKFLOW_RUN_COOLDOWN_S = 30 * 60
 # surfaces (config create/update) and in auto-registration, which falls back to registering
 # new scouts disabled once the team is at the cap.
 MAX_ENABLED_SCOUTS_PER_TEAM = 250
+MAX_SCOUT_RENAME_HISTORY_ROWS = 10_000

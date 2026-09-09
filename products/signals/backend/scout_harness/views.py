@@ -22,10 +22,10 @@ from __future__ import annotations
 import uuid
 import dataclasses
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 from django.db import IntegrityError, transaction
-from django.db.models import Value
+from django.db.models import QuerySet, Value
 from django.db.models.functions import Concat, Length, Substr
 
 import structlog
@@ -52,6 +52,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, APIScopePermission, get_authenticator_scopes
+from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
@@ -75,7 +76,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     scout_skill_origin,
     scout_skill_row_origin,
 )
-from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
+from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM, MAX_SCOUT_RENAME_HISTORY_ROWS
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
@@ -345,6 +346,26 @@ def _canonical_team_id(view: TeamAndOrgViewSetMixin) -> int:
     free. Mirrors the canonicalization in `TeamAndOrgViewSetMixin.initial`.
     """
     return view.team.parent_team_id or view.team_id
+
+
+class ScoutRenameThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "scout_rename"
+    rate = "5/hour"
+
+    def get_cache_key(self, request: Request, view: TeamAndOrgViewSetMixin) -> str:
+        return self.cache_format % {"scope": self.scope, "ident": _canonical_team_id(view)}
+
+
+_ScoutHistory = TypeVar("_ScoutHistory", SignalScoutRun, SignalScoutNote, SignalScratchpad)
+
+
+def _bounded_scout_rename_rows(rows: QuerySet[_ScoutHistory]) -> QuerySet[_ScoutHistory]:
+    row_ids = list(rows.order_by().values_list("id", flat=True)[: MAX_SCOUT_RENAME_HISTORY_ROWS + 1])
+    if len(row_ids) > MAX_SCOUT_RENAME_HISTORY_ROWS:
+        raise exceptions.ValidationError(
+            {"new_name": "This scout has too much history for an immediate rename. Keep its current name."}
+        )
+    return rows.filter(id__in=row_ids)
 
 
 def _to_report_charts(entries: list[dict] | None) -> list[ReportChartInput] | None:
@@ -2453,16 +2474,19 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request=SignalScoutConfigRenameSerializer,
         responses={
             200: OpenApiResponse(response=SignalScoutConfigSerializer, description="Renamed scout."),
-            400: OpenApiResponse(description="Invalid, unchanged, canonical, or already-used name."),
+            400: OpenApiResponse(description="Invalid name or too much history for an immediate rename."),
             403: OpenApiResponse(description="The caller lacks editor access to skills on this project."),
             404: OpenApiResponse(description="Config or scout skill not found for this project."),
             409: OpenApiResponse(description="This scout has a run in progress."),
+            429: OpenApiResponse(description="This project has reached the rename request limit."),
         },
         summary="Rename a scout",
         description=(
             "Rename a custom scout without recreating it. The skill versions, owners, config, run history, "
             "source link, and targeted notes move together in one transaction. Canonical scouts cannot be "
             "renamed because fleet sync owns their names. A scout with a live run must finish before rename."
+            " Each history table is limited to 10,000 rows per rename. Larger histories are rejected without changes."
+            " A project can make five rename requests per hour across users, credentials, and environments."
         ),
         operation_id="signals_scout_config_rename",
     )
@@ -2470,6 +2494,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["post"],
         url_path="rename",
+        throttle_classes=[ScoutRenameThrottle],
         required_scopes=["signal_scout:write", "llm_skill:write"],
     )
     def rename(self, request: Request, *args, **kwargs) -> Response:
@@ -2514,6 +2539,16 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 if rejection := check_run_in_flight(team.id, old_name):
                     raise Conflict(detail=rejection.detail)
 
+                runs = _bounded_scout_rename_rows(SignalScoutRun.objects.for_team(team.id).filter(skill_name=old_name))
+                notes = _bounded_scout_rename_rows(
+                    SignalScoutNote.objects.for_team(team.id).filter(skill_name=old_name)
+                )
+                old_prefix = f"{FOLLOWUP_KEY_PREFIX}{old_name}:"
+                new_prefix = f"{FOLLOWUP_KEY_PREFIX}{new_name}:"
+                scratchpads = _bounded_scout_rename_rows(
+                    SignalScratchpad.all_teams.filter(team_id=team.id, key__startswith=old_prefix)
+                )
+
                 allowed_prefix = SIGNALS_SCOUT_SKILL_PREFIX if old_name.startswith(SIGNALS_SCOUT_SKILL_PREFIX) else None
                 try:
                     rename_skill(
@@ -2531,9 +2566,6 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 except LLMSkillNotFoundError:
                     raise exceptions.NotFound("The scout skill no longer exists.")
 
-                old_prefix = f"{FOLLOWUP_KEY_PREFIX}{old_name}:"
-                new_prefix = f"{FOLLOWUP_KEY_PREFIX}{new_name}:"
-                scratchpads = SignalScratchpad.all_teams.filter(team_id=team.id, key__startswith=old_prefix)
                 if (
                     scratchpads.annotate(key_length=Length("key"))
                     .filter(key_length__gt=300 - len(new_prefix) + len(old_prefix))
@@ -2543,8 +2575,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         {"new_name": "This name makes a saved memory key too long. Use a shorter name."}
                     )
                 scratchpads.update(key=Concat(Value(new_prefix), Substr("key", len(old_prefix) + 1)))
-                SignalScoutRun.objects.for_team(team.id).filter(skill_name=old_name).update(skill_name=new_name)
-                SignalScoutNote.objects.for_team(team.id).filter(skill_name=old_name).update(skill_name=new_name)
+                runs.update(skill_name=new_name)
+                notes.update(skill_name=new_name)
                 config.skill_name = new_name
                 config.save(update_fields=["skill_name"])
 

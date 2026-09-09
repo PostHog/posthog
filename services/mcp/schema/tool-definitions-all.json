@@ -10251,7 +10251,7 @@
         }
     },
     "scout-config-rename": {
-        "description": "Rename a custom scout by its config `id`. Pass the complete new skill name in `new_name`. The skill versions, owners, config, run history, source link, and targeted notes move together. The rename keeps the current prefix class, refuses canonical scouts and name conflicts, and waits for any live run to finish.",
+        "description": "Rename a custom scout by its config `id`. Pass the complete new skill name in `new_name`. The skill versions, owners, config, run history, source link, and targeted notes move together. The rename keeps the current prefix class and rejects canonical scouts, name conflicts, and scouts with live runs. Each history table is limited to 10,000 rows; larger histories return 400 without changes. A project shares five rename requests per hour across users, credentials, and environments. On 429, wait for Retry-After before retrying.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Rename a scout",

@@ -68,6 +68,8 @@ Notes:
 - **Divergence:** once you edit a canonical scout's row for your team, canonical sync treats it as **diverged** and stops force-updating it — you keep your edits but lose upstream improvements to that scout.
   To customize _without_ diverging, `duplicate` the canonical scout into a new `signals-scout-<your-scope>` row and edit that; leave the original alone.
 - `scout-config-rename` works only for custom scouts, keeps the current name-prefix class, and refuses a rename while the scout has a live run.
+- Rename permits up to 10,000 rows in each history table: runs, targeted notes, and follow-up memories. Larger histories return `400` without changes. Keep the current name; this endpoint does not schedule a background rename.
+- Rename allows five requests per project per hour. Users, credentials, and environments share this limit. A `429` response includes `Retry-After`; wait before another request.
 - Writing reports needs the `signal_scout_report:write` scope, and the scratchpad needs `signal_scout_internal:write` (the sandbox has both).
   Authoring a scout doesn't require either — only the harness writes.
 

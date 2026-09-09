@@ -1129,7 +1129,7 @@ export const SignalsScoutConfigDestroyParams = () => zod.object({
 })
 
 /**
- * Rename a custom scout without recreating it. The skill versions, owners, config, run history, source link, and targeted notes move together in one transaction. Canonical scouts cannot be renamed because fleet sync owns their names. A scout with a live run must finish before rename.
+ * Rename a custom scout without recreating it. The skill versions, owners, config, run history, source link, and targeted notes move together in one transaction. Canonical scouts cannot be renamed because fleet sync owns their names. A scout with a live run must finish before rename. Each history table is limited to 10,000 rows per rename. Larger histories are rejected without changes. A project can make five rename requests per hour across users, credentials, and environments.
  * @summary Rename a scout
  */
 export const SignalsScoutConfigRenameParams = () => zod.object({
