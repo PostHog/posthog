@@ -1,6 +1,14 @@
 import { mockFeatureFlags } from '@playwright-utils/mockApi'
 import { APIRequestContext, Page, test as base, expect } from '@playwright/test'
 
+import flags from './flags.json'
+
+declare global {
+    interface Window {
+        aiE2eStreams: Set<AbortController>
+    }
+}
+
 export type Provider = 'claude' | 'codex'
 type Fault = 'registration' | 'worker' | 'approval'
 
@@ -68,13 +76,38 @@ export class AiAttempt {
             data: { email: this.seed.email, password: this.seed.password },
         })
         expect(login.ok(), await login.text()).toBeTruthy()
-        await mockFeatureFlags(page, { tasks: true, 'tasks-stream-via-proxy': false })
+        await mockFeatureFlags(
+            page,
+            Object.fromEntries(
+                Object.entries(flags)
+                    .filter(([, flag]) => flag.consumers.includes('browser'))
+                    .map(([key, flag]) => [key, flag.value])
+            )
+        )
         await page.goto(`/project/${this.seed.team_id}/tasks/new`)
         await expect(page.getByTestId('task-composer-input')).toBeVisible()
     }
 
     async snapshot(): Promise<Snapshot> {
         return this.control<Snapshot>('snapshot')
+    }
+
+    async reconnectStream(page: Page): Promise<void> {
+        const reconnected = page.waitForResponse(
+            (response) =>
+                response.url().startsWith(`${process.env.AI_E2E_PROXY_URL}/v1/runs/${this.seed.run_id}/stream`) &&
+                response.status() === 200 &&
+                Boolean(response.request().headers()['last-event-id'])
+        )
+        await page.evaluate(() => {
+            if (window.aiE2eStreams.size === 0) {
+                throw new Error('No active agent-proxy stream to disconnect')
+            }
+            for (const stream of window.aiE2eStreams) {
+                stream.abort()
+            }
+        })
+        await reconnected
     }
 
     text(userMessage: string, text: string, step: number): ResponseStep {
@@ -105,6 +138,42 @@ export const test = base.extend<{ ai: AiAttempt; provider: Provider }>({
     provider: ['claude', { option: true }],
     ai: async ({ request, provider, page }, provide, testInfo) => {
         const browserLog: string[] = []
+        const streams: { url: string; status: number; resumed: boolean }[] = []
+        const djangoStreams: string[] = []
+        const proxyUrl = process.env.AI_E2E_PROXY_URL
+        if (!proxyUrl) {
+            throw new Error('The AI runner must supply its agent-proxy URL')
+        }
+        await page.addInitScript((proxyUrl) => {
+            window.aiE2eStreams = new Set()
+            const fetch = window.fetch.bind(window)
+            window.fetch = async (input, init) => {
+                const request = new Request(input, init)
+                if (!request.url.startsWith(`${proxyUrl}/v1/runs/`) || !request.url.includes('/stream')) {
+                    return fetch(input, init)
+                }
+                const transport = new AbortController()
+                window.aiE2eStreams.add(transport)
+                const signal = AbortSignal.any([request.signal, transport.signal])
+                signal.addEventListener('abort', () => window.aiE2eStreams.delete(transport), { once: true })
+                return fetch(request, { signal })
+            }
+        }, proxyUrl)
+        page.on('request', (request) => {
+            const url = new URL(request.url())
+            if (url.pathname.includes('/runs/') && url.pathname.endsWith('/stream/')) {
+                djangoStreams.push(url.pathname)
+            }
+        })
+        page.on('response', (response) => {
+            if (response.url().startsWith(`${proxyUrl}/v1/runs/`) && response.url().includes('/stream')) {
+                streams.push({
+                    url: new URL(response.url()).pathname,
+                    status: response.status(),
+                    resumed: Boolean(response.request().headers()['last-event-id']),
+                })
+            }
+        })
         page.on('console', (message) => {
             browserLog.push(`${message.type()}: ${message.text()}`)
         })
@@ -113,7 +182,10 @@ export const test = base.extend<{ ai: AiAttempt; provider: Provider }>({
         const attempt = new AiAttempt(request, seed)
         try {
             await provide(attempt)
+            expect(djangoStreams, 'The production profile must not fall back to Django SSE').toEqual([])
+            expect(streams.some((stream) => stream.status === 200), 'Expected a real agent-proxy stream').toBeTruthy()
         } finally {
+            await testInfo.attach('proxy-streams', { body: JSON.stringify(streams), contentType: 'application/json' })
             await testInfo.attach('browser-console', { body: browserLog.join('\n'), contentType: 'text/plain' })
             try {
                 await testInfo.attach('controller', {
