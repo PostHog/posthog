@@ -345,12 +345,12 @@ update_flag_caches(team)
 
 ## Common issues
 
-| Symptom                      | Likely cause                         | Solution                              |
-| ---------------------------- | ------------------------------------ | ------------------------------------- |
-| Stale data after flag change | Signal not firing                    | Check transaction.on_commit is used   |
-| Cache misses in production   | Redis connection issues              | Check Redis connectivity and metrics  |
-| S3 fallback errors           | Object storage misconfigured         | Verify OBJECT_STORAGE_ENABLED setting |
-| ETag mismatches              | Non-deterministic JSON serialization | HyperCache uses `sort_keys=True`      |
+| Symptom                      | Likely cause                                        | Solution                                                                                                        |
+| ---------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Stale data after flag change | Signal not firing                                    | Check transaction.on_commit is used                                                                               |
+| Cache misses in production   | Redis unreachable, or the tier holds no entry        | Split the two with `flags_flag_definitions_etag_total`: `redis_error` is the cluster, `redis_missing` is the tier |
+| S3 fallback errors           | Object storage misconfigured                         | Verify OBJECT_STORAGE_ENABLED setting                                                                             |
+| ETag mismatches              | Non-deterministic JSON serialization                 | HyperCache uses `sort_keys=True`                                                                                  |
 
 ## Dedicated flags Redis
 
