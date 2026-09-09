@@ -79492,6 +79492,8 @@ export namespace Schemas {
        * * `P3` - P3
        * * `P4` - P4 */
       slack_notification_min_priority?: AutonomyPriorityEnum | BlankEnum | null;
+      /** Whether to add this user as a GitHub assignee on implementation pull requests for reports that suggest them as reviewer. Off by default. Assignment is additive, so turning it off never removes an assignee from a pull request that already has one. */
+      github_assign_on_pull_request?: boolean;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -86748,6 +86750,11 @@ export namespace Schemas {
          * @items.maxLength 10000
          */
       text_parts?: string[];
+      /**
+         * AI observability trace id of the turn that wrote this answer, when the sandbox reported one.
+         * @nullable
+         */
+      trace_id?: string | null;
     }
 
     export interface TaskRunRelayMessageResponse {
@@ -101585,6 +101592,10 @@ export namespace Schemas {
      * @minLength 1
      */
     archived?: TasksListArchived;
+    /**
+     * Return a basic payload with heavy fields dropped, for surfaces that render only a summary of each task. Defaults to false. Currently this omits the description body, which dominates the list payload; the search parameter still matches description text server-side.
+     */
+    basic?: boolean;
     /**
      * Filter tasks to a channel's feed.
      */
