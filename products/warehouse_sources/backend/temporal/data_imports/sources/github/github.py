@@ -1582,14 +1582,9 @@ def github_source(
                     egress_identity=egress_identity,
                     api_version=api_version,
                     parent_cutoff_override=_now_utc() - timedelta(days=reconcile_days),
-                    # The recency skip bounds the walk on its own once a watermark exists, and every
-                    # parent it admits is known to hold an unseen child, so a count bound would drop
-                    # one for good: the run advances the watermark past it either way.
-                    max_parents=(
-                        None
-                        if isinstance(db_incremental_field_last_value, datetime)
-                        else endpoint_config.max_fan_out_parents
-                    ),
+                    # The recency skip bounds a steady-state run on its own. The cap stays on for the
+                    # first run after a long gap, when the skip admits the whole window.
+                    max_parents=endpoint_config.max_fan_out_parents,
                 ),
             )
 

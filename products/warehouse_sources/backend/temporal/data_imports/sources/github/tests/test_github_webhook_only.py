@@ -137,18 +137,18 @@ def test_webhook_enabled_deployment_statuses_reconciles_inactive_statuses() -> N
 
 
 @pytest.mark.parametrize(
-    "watermark_offset,expected_parents",
+    "watermark_offset,cap,settled_ids,expected_parents",
     [
-        # No watermark: the recency skip is inert, so the cap is the only bound, and it keeps the
-        # newest parents.
-        (None, ["1", "2"]),
-        # Watermark set: every parent past the skip is known to hold an unseen child, and the run
-        # advances the watermark past it either way, so capping would drop it permanently.
-        (timedelta(days=3), ["1", "2", "3", "4"]),
+        # First sync: no watermark, so the cap is the only bound and keeps the newest parents.
+        (None, 2, [], ["1", "2"]),
+        # Watermark set but every parent updated since: the cap still bounds the run.
+        (timedelta(days=3), 2, [], ["1", "2"]),
+        # Parents whose updated_at predates the watermark hold no unseen status and are skipped.
+        (timedelta(days=3), 10, [3, 4], ["1", "2"]),
     ],
 )
-def test_webhook_enabled_deployment_statuses_reconciliation_caps_the_parent_fan_out(
-    watermark_offset: timedelta | None, expected_parents: list[str]
+def test_webhook_enabled_deployment_statuses_reconciliation_bounds_the_parent_fan_out(
+    watermark_offset: timedelta | None, cap: int, settled_ids: list[int], expected_parents: list[str]
 ) -> None:
     now = datetime(2026, 7, 24, 12, 0, 0, tzinfo=UTC)
 
@@ -158,12 +158,12 @@ def test_webhook_enabled_deployment_statuses_reconciliation_caps_the_parent_fan_
     webhook_source_manager = _webhook_manager(enabled=True, items=webhook_items())
 
     # Newest first, the order GitHub returns deployments in and the order the cap relies on.
-    # All four sit inside the reconcile window and above any watermark below.
+    # All four sit inside the reconcile window; settled ones were last updated before the watermark.
     deployments_page = [
         {
             "id": index,
             "created_at": _iso(now - timedelta(hours=index)),
-            "updated_at": _iso(now - timedelta(hours=index)),
+            "updated_at": _iso(now - (timedelta(days=5) if index in settled_ids else timedelta(hours=index))),
         }
         for index in range(1, 5)
     ]
@@ -180,7 +180,7 @@ def test_webhook_enabled_deployment_statuses_reconciliation_caps_the_parent_fan_
         return response
 
     with (
-        mock.patch.object(github.GITHUB_ENDPOINTS["deployment_statuses"], "max_fan_out_parents", 2),
+        mock.patch.object(github.GITHUB_ENDPOINTS["deployment_statuses"], "max_fan_out_parents", cap),
         mock.patch.object(github, "_fetch_page", side_effect=fetch_page) as fetch_mock,
         mock.patch.object(github, "_now_utc", return_value=now),
     ):
