@@ -48,9 +48,6 @@ export interface logsImpactLogicActions {
     runQuery: (debounce?: number | undefined) => {
         debounce: number | undefined
     } // logsViewerDataLogic
-    pivotToGroupBy: (dimension: LogsViewerGroupBy) => {
-        dimension: LogsViewerGroupBy
-    }
     loadImpact: (_: any) => any
     loadImpactFailure: (
         error: string,
@@ -65,6 +62,9 @@ export interface logsImpactLogicActions {
     ) => {
         impact: _LogsImpactResponseApi | null
         payload?: any
+    }
+    pivotToGroupBy: (dimension: LogsViewerGroupBy) => {
+        dimension: LogsViewerGroupBy
     }
 }
 
