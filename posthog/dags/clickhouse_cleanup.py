@@ -1282,19 +1282,14 @@ _RUN_SCOPED_DICTIONARY = re.compile(
     r"_([0-9a-f]{8}_[0-9a-f]{4}_[0-9a-f]{4}_[0-9a-f]{4}_[0-9a-f]{12})_dictionary$"
 )
 
-# Statuses in which a run can no longer be using its dictionaries. Sourced from the public enum
-# rather than dagster's private FINISHED_STATUSES so an upstream rename cannot break the import.
-_TERMINAL_RUN_STATUSES = frozenset(
-    {dagster.DagsterRunStatus.SUCCESS, dagster.DagsterRunStatus.FAILURE, dagster.DagsterRunStatus.CANCELED}
-)
-
 
 def reap_stranded_run_assets(context: dagster.OpExecutionContext, cluster: ClickhouseCluster) -> int:
     """Drop dictionaries left by finished sweep runs, and return how many runs were reaped.
 
     Cancellation, run-worker crashes, and pre-step failures skip the failure hook, and
-    dictionaries have no TTL. Only runs this instance knows to be finished are reaped:
-    an active run's assets are in use, and an unknown run id cannot be proven dead.
+    dictionaries have no TTL. Every run is a clean slate (there is no resume path), and the
+    run-queue limit on clickhouse_deletion_sweep_concurrency guarantees no sibling run is
+    live, so everything that is not the current run's is reaped.
     """
     try:
         current = context.run_id.replace("-", "_")
@@ -1316,13 +1311,7 @@ def reap_stranded_run_assets(context: dagster.OpExecutionContext, cluster: Click
             if not match or match.group(1) == current or match.group(1) in reaped:
                 continue
             run_id = match.group(1)
-            stranded_run = context.instance.get_run_by_id(run_id.replace("_", "-"))
-            if stranded_run is None:
-                context.log.warning("not reaping %s: this instance does not know run %s", name, run_id)
-                continue
-            if stranded_run.status not in _TERMINAL_RUN_STATUSES:
-                continue
-            context.log.warning("reaping stranded assets of finished run %s", run_id)
+            context.log.warning("reaping stranded assets of run %s", run_id)
             try:
                 _kill_and_drop_run_assets(cluster, run_id)
             except Exception:
@@ -1358,7 +1347,15 @@ def drop_assets_on_failure(context: dagster.HookContext) -> None:
     _kill_and_drop_run_assets(context.resources.cluster, context.run_id.replace("-", "_"))
 
 
-@dagster.job(hooks={drop_assets_on_failure}, tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
+@dagster.job(
+    hooks={drop_assets_on_failure},
+    tags={
+        "owner": JobOwners.TEAM_CLICKHOUSE.value,
+        # Matched by a run-queue limit of 1 in charts (argocd/dagster/deployment_settings), so a
+        # second sweep run queues instead of running concurrently. The janitor depends on this.
+        "clickhouse_deletion_sweep_concurrency": "v1",
+    },
+)
 def clickhouse_deletion_sweep_job():
     """Sweep deleted cohort memberships, then deleted persons and their distinct ids."""
     run = snapshot_orphaned_distinct_ids(snapshot_deleted_persons(clear_removed_cohort_data()))
