@@ -737,7 +737,7 @@ def start_widget_generation(
             )
         if (
             GeneratedWidgetGenerationJob.objects.for_team(notebook.team_id)
-            .filter(instance=locked_instance, status__in=GeneratedWidgetGenerationJob.ACTIVE_STATUSES)
+            .filter(widget=locked_instance.widget, status__in=GeneratedWidgetGenerationJob.ACTIVE_STATUSES)
             .exists()
         ):
             raise WidgetConflictError(

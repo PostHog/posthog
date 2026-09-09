@@ -26,6 +26,7 @@ Notebooks can generate interactive widgets from instructions and the notebook's 
 ## Reusable widgets
 
 The reusable catalog fields, demo data, input bindings, and pending reviews share one schema migration: `notebooks.0020_reusable_widgets`, after `0019_squash_2026_09_07_schema_addons`.
+The four new non-null fields retain database defaults, so workers from before this migration can still create widgets, versions, and placements during a rolling deploy or rollback.
 Local databases that already applied the earlier catalog, input-binding, pending-review, and merge migrations need their migration records reconciled after verifying all nine fields exist. Record the consolidated migration as applied and prune the four superseded records in both the development and reused test databases. Preserve the existing tables and data; rolling back those field additions would discard saved catalog metadata, bindings, and demo rows.
 
 The notebooks index shows **Notebooks** and **Reusable widgets** tabs only when `notebook-generated-widgets` is enabled. With the flag disabled, it shows the notebook list without tabs.
@@ -60,6 +61,11 @@ Notebook AI treats the document as MDX and writes live component tags outside co
 Inline AI receives a bounded, project-scoped catalog of saved widget metadata and input schemas, without saved demo rows or generated source.
 A new `<Widget id="…" inputs={{…}} />` in an editable notebook attaches that catalog widget after saving the notebook.
 The server remains authoritative for existing placements. The inline response handler also unwraps complete enabled component tags accidentally fenced as unlabeled, Markdown, MDX, or JSX code; disabled tags and other code examples stay fenced.
+
+Catalog pages resume polling an active update when reopened, including during source generation. Failed or canceled updates preserve the change prompt and report the failure even when the published preview still works. Status follows the shared widget's job; generation can use another live placement after the original block is removed.
+Publishing a legacy widget captures its input columns alongside its demo data. AI catalog context requires the same resource-level notebook viewer permission as the catalog API.
+Pinning the displayed version keeps its preview available. Updated input bindings refresh the preview, including bindings changed through **Match with AI**. Failed Hog compilation can be retried without reloading the page.
+Fork requests accept an optional `version_id`, so forking copies the version selected in history. Omitting it copies the placement's pinned or latest version. Concurrent attachments to the same node reuse one placement.
 
 Reusable widgets remain behind the `notebook-generated-widgets` feature flag and preserve the generated-code trust gate described below. Catalog access requires resource-level notebook permissions, rather than an access grant to one notebook. Reading or editing demo rows also requires query viewer access and the `query:read` token scope. Publishing demo data copies project data into another team-scoped model, so the publishing dialog makes that behavior explicit.
 

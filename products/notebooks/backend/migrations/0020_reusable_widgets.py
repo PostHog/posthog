@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="generatedwidget",
             name="description",
-            field=models.TextField(blank=True, default=""),
+            field=models.TextField(blank=True, default="", db_default=""),
         ),
         migrations.AddField(
             model_name="generatedwidget",
@@ -47,7 +47,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="generatedwidget",
             name="tags",
-            field=models.JSONField(default=list),
+            field=models.JSONField(default=list, db_default=[]),
         ),
         migrations.AddField(
             model_name="generatedwidget",
@@ -57,12 +57,12 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="generatedwidgetversion",
             name="demo_data",
-            field=models.JSONField(default=dict),
+            field=models.JSONField(default=dict, db_default={}),
         ),
         migrations.AddField(
             model_name="notebookwidgetinstance",
             name="input_bindings",
-            field=models.JSONField(default=dict),
+            field=models.JSONField(default=dict, db_default={}),
         ),
         migrations.AddField(
             model_name="generatedwidget",

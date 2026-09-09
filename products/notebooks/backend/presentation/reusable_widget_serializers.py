@@ -61,6 +61,14 @@ class ReusableWidgetAttachRequestSerializer(serializers.Serializer):
 ReusableWidgetGenerateRequestSerializer = WidgetGenerateRequestSerializer
 
 
+class ReusableWidgetForkRequestSerializer(serializers.Serializer):
+    version_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Immutable version to fork, or null to copy the placement's pinned or latest version.",
+    )
+
+
 class ReusableWidgetReviewRequestSerializer(serializers.Serializer):
     pending_version_id = serializers.UUIDField(help_text="Draft version being reviewed.")
     expected_current_version_id = serializers.UUIDField(

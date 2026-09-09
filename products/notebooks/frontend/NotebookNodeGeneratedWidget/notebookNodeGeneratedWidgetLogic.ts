@@ -906,7 +906,7 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         )
                     )
                     actions.statusReceived(nextStatus)
-                    if (nextStatus.current_version_id) {
+                    if (nextStatus.current_version_id && nextStatus.current_version_id !== values.selectedVersionId) {
                         actions.selectVersion(nextStatus.current_version_id)
                     }
                     lemonToast.success(versionId ? 'Widget version pinned' : 'Widget now follows the latest version')
@@ -957,9 +957,13 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     actions.forkStarted()
                     try {
                         const nextStatus = await requestWithTimeout((signal) =>
-                            notebooksWidgetFork(String(props.projectId), props.notebookShortId, props.nodeId, {
-                                signal,
-                            })
+                            notebooksWidgetFork(
+                                String(props.projectId),
+                                props.notebookShortId,
+                                props.nodeId,
+                                { version_id: values.selectedVersionId },
+                                { signal }
+                            )
                         )
                         actions.statusReceived(nextStatus)
                         if (nextStatus.current_version_id) {
@@ -1475,6 +1479,11 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                 },
                 statusReceived: ({ status }) => {
                     cache.disposables.dispose('statusPoll')
+                    const inputBindings = JSON.stringify(status.input_bindings)
+                    if (cache.inputBindings !== undefined && cache.inputBindings !== inputBindings) {
+                        actions.artifactRefreshReady()
+                    }
+                    cache.inputBindings = inputBindings
                     // A null -> id move (the first version appearing) must count as a change, so compare
                     // against undefined, which only holds before the first status arrives. Reload even when
                     // the list is empty, or a settings panel opened before generation keeps a stale history.
@@ -1492,7 +1501,9 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                         status.artifact_url &&
                         (currentVersionChanged || cache.pendingCurrentVersionId === status.current_version_id)
                     ) {
-                        actions.selectVersion(status.current_version_id)
+                        if (values.selectedVersionId !== status.current_version_id) {
+                            actions.selectVersion(status.current_version_id)
+                        }
                         cache.pendingCurrentVersionId = null
                     }
                     cache.currentVersionId = status.current_version_id

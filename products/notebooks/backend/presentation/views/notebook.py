@@ -96,6 +96,7 @@ from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookN
 from products.notebooks.backend.presentation.reusable_widget_serializers import (
     ReusableWidgetAttachRequestSerializer,
     ReusableWidgetDetailSerializer,
+    ReusableWidgetForkRequestSerializer,
     ReusableWidgetPublishRequestSerializer,
 )
 from products.notebooks.backend.presentation.widget_serializers import (
@@ -996,7 +997,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
     @extend_schema(
         operation_id="notebooks_widget_fork",
-        request=None,
+        request=ReusableWidgetForkRequestSerializer,
         responses={
             201: WidgetStatusSerializer,
             400: WidgetErrorSerializer,
@@ -1027,8 +1028,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             raise PermissionDenied("A user is required to fork a reusable widget.")
         if not is_notebook_widget_enabled(user):
             raise Http404()
+        serializer = ReusableWidgetForkRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         try:
-            result = fork_reusable_widget(notebook=self.get_object(), node_id=node_id, user=user)
+            result = fork_reusable_widget(
+                notebook=self.get_object(),
+                node_id=node_id,
+                user=user,
+                version_id=serializer.validated_data.get("version_id"),
+            )
         except WidgetError as error:
             return self._widget_error_response(error)
         return Response(WidgetStatusSerializer(result).data, status=201)

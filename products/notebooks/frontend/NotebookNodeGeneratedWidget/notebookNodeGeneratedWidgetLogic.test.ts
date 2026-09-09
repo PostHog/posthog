@@ -13,6 +13,8 @@ import {
     notebooksWidgetAttach,
     notebooksWidgetCancel,
     notebooksWidgetGenerate,
+    notebooksWidgetFork,
+    notebooksWidgetPin,
     notebooksWidgetRevert,
     notebooksWidgetSource,
     notebooksWidgetStatus,
@@ -38,6 +40,8 @@ jest.mock('products/notebooks/frontend/generated/api', () => ({
     notebooksWidgetCancel: jest.fn(),
     notebooksWidgetFrame: jest.fn(),
     notebooksWidgetGenerate: jest.fn(),
+    notebooksWidgetFork: jest.fn(),
+    notebooksWidgetPin: jest.fn(),
     notebooksWidgetRevert: jest.fn(),
     notebooksWidgetSource: jest.fn(),
     notebooksWidgetStatus: jest.fn(),
@@ -85,6 +89,8 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         jest.mocked(notebooksWidgetCancel).mockReset()
         jest.mocked(notebooksWidgetAttach).mockReset()
         jest.mocked(notebooksWidgetGenerate).mockReset()
+        jest.mocked(notebooksWidgetFork).mockReset()
+        jest.mocked(notebooksWidgetPin).mockReset()
         jest.mocked(notebooksWidgetRevert).mockReset()
         jest.mocked(notebooksWidgetSource).mockReset()
         jest.mocked(notebooksWidgetStatus).mockReset()
@@ -111,6 +117,83 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             expect.objectContaining({ signal: expect.anything() })
         )
         expect(notebooksWidgetGenerate).not.toHaveBeenCalled()
+    })
+
+    it.each(['pin', 'pin-history', 'follow'] as const)(
+        'keeps the rendered preview available when %s selects the same version',
+        async (operation) => {
+            const selectedId = operation === 'pin-history' ? 'version-0' : 'version-1'
+            const ready = status({
+                lifecycle_status: 'ready',
+                current_version_id: 'version-1',
+                artifact_url: 'https://example.com/widget.html',
+                is_reusable: true,
+                has_versions: true,
+            })
+            jest.mocked(notebooksWidgetStatus).mockResolvedValue(ready)
+            jest.mocked(notebooksWidgetPin).mockResolvedValue({
+                ...ready,
+                current_version_id: selectedId,
+                pinned_version_id: operation === 'follow' ? null : selectedId,
+            })
+            logic = notebookNodeGeneratedWidgetLogic(props)
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.selectVersion(selectedId)
+            logic.actions.artifactAvailable()
+            await expectLogic(logic, () =>
+                operation === 'follow' ? logic.actions.followLatestVersion() : logic.actions.pinSelectedVersion()
+            ).toFinishAllListeners()
+            expect(logic.values.artifactLoading).toBe(false)
+            expect(logic.values.selectedVersionId).toBe(selectedId)
+        }
+    )
+
+    it('refreshes a running preview when an agent changes its persisted input bindings', async () => {
+        const ready = status({
+            lifecycle_status: 'ready',
+            current_version_id: 'version-1',
+            artifact_url: 'https://example.com/widget.html',
+            input_bindings: { revenue: { source: 'original_df' } },
+        })
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(ready)
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const revision = logic.values.frameRevision
+        logic.actions.artifactAvailable()
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue({
+            ...ready,
+            input_bindings: { revenue: { source: 'replacement_df' } },
+        })
+        await expectLogic(logic, () => logic.actions.loadStatus()).toFinishAllListeners()
+        expect(logic.values.frameRevision).toBe(revision + 1)
+        expect(logic.values.artifactLoading).toBe(true)
+        await expectLogic(logic, () => logic.actions.loadStatus()).toFinishAllListeners()
+        expect(logic.values.frameRevision).toBe(revision + 1)
+    })
+
+    it('forks the historical version selected in the preview', async () => {
+        const ready = status({
+            lifecycle_status: 'ready',
+            current_version_id: 'latest',
+            is_reusable: true,
+            has_versions: true,
+        })
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(ready)
+        jest.mocked(notebooksWidgetFork).mockResolvedValue(status({ current_version_id: 'forked' }))
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.selectVersion('historical')
+        await expectLogic(logic, () => logic.actions.forkReusableWidget()).toFinishAllListeners()
+        expect(notebooksWidgetFork).toHaveBeenCalledWith(
+            String(MOCK_TEAM_ID),
+            props.notebookShortId,
+            props.nodeId,
+            { version_id: 'historical' },
+            expect.anything()
+        )
     })
 
     it.each([true, false])(

@@ -1,10 +1,14 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from uuid import UUID, uuid4
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.db import close_old_connections
+from django.db.models.signals import pre_save
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -26,6 +30,8 @@ from products.notebooks.backend.models import (
     NotebookWidgetInstance,
 )
 from products.notebooks.backend.reusable_widgets import (
+    attach_reusable_widget,
+    get_reusable_widget_status,
     list_reusable_widgets,
     read_reusable_widget_demo_frame,
     reusable_widget_catalog_context,
@@ -39,6 +45,7 @@ from products.notebooks.backend.widget_generation import (
 from products.notebooks.backend.widgets import (
     WidgetConflictError,
     WidgetError,
+    WidgetStatus,
     get_widget_status,
     list_widget_versions,
     read_widget_frame,
@@ -187,8 +194,14 @@ class TestReusableWidgets(APIBaseTest):
         assert self.widget.current_version_id == self.version.id
         assert self.widget.pending_version_id == draft.id
 
-    @parameterized.expand([("direct", False), ("mapped_fork", True)])
-    def test_publish_saves_demo_data_and_unpins_the_source_instance(self, _name: str, mapped: bool) -> None:
+    @parameterized.expand([("direct", False, False), ("mapped_fork", True, False), ("legacy", False, True)])
+    def test_publish_saves_demo_data_and_unpins_the_source_instance(
+        self, _name: str, mapped: bool, legacy: bool
+    ) -> None:
+        expected_columns = self.version.input_contract[0]["columns"]
+        if legacy:
+            del self.version.input_contract[0]["columns"]
+            self.version.save(update_fields=["input_contract"])
         if mapped:
             self.node_run.envelope["types"] = [["tier", "string"], ["amount", "float64"]]
             self.node_run.save(update_fields=["envelope"])
@@ -208,6 +221,7 @@ class TestReusableWidgets(APIBaseTest):
         self.widget.refresh_from_db()
         self.instance.refresh_from_db()
         self.version.refresh_from_db()
+        assert self.version.input_contract[0]["columns"] == expected_columns
         assert self.widget.publication_status == GeneratedWidget.PublicationStatus.PUBLISHED
         assert self.widget.published_by == self.user
         assert self.instance.pinned_version is None
@@ -365,6 +379,7 @@ class TestReusableWidgets(APIBaseTest):
         url = f"/api/projects/{self.team.id}/notebook_widgets/{self.widget.id}/{action}"
         response = self.client.post(url, {}, format="json") if action else self.client.get(url)
         assert response.status_code == 403
+        assert reusable_widget_catalog_context(team_id=self.team.id, user=self.user) == ""
 
     def test_catalog_lists_only_published_widgets_for_the_team(self) -> None:
         assert list_reusable_widgets(team_id=self.team.id).count == 0
@@ -547,8 +562,23 @@ class TestReusableWidgets(APIBaseTest):
         )
         assert frame.frame["rows"] == [["Enterprise", 500]]
 
-    def test_shared_edit_stages_a_review_draft_without_changing_the_published_version(self) -> None:
+    @parameterized.expand([("original_placement", False), ("removed_original", True)])
+    def test_shared_edit_stages_a_review_draft_without_changing_the_published_version(
+        self, _name: str, removed_original: bool
+    ) -> None:
         self._publish()
+        active_instance = self.instance
+        if removed_original:
+            replacement = Notebook.objects.create(team=self.team, content=self.notebook.content, created_by=self.user)
+            active_instance = NotebookWidgetInstance.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                notebook=replacement,
+                node_id=self.node_id,
+                widget=self.widget,
+                created_by=self.user,
+            )
+            self.notebook.content = _markdown_content("The widget was removed.")
+            self.notebook.save(update_fields=["content"])
         state = CanvasGenerationState(
             current_source_version_id=self.version.canvas_source_version_id,
             artifact_url="https://example.com/widget.html",
@@ -560,6 +590,10 @@ class TestReusableWidgets(APIBaseTest):
         with (
             patch("products.notebooks.backend.widgets._is_ai_usage_limited", return_value=False),
             patch("products.notebooks.backend.widgets.start_widget_generation_workflow") as start_workflow,
+            patch(
+                "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
+                return_value=[self._canvas_version()],
+            ),
             patch(
                 "products.canvas.backend.notebook_integration.get_canvas_generation_state",
                 return_value=state,
@@ -580,6 +614,7 @@ class TestReusableWidgets(APIBaseTest):
         job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).get(idempotency_key=generation_id)
         self.instance.refresh_from_db()
         assert status.active_job is not None
+        assert job.instance_id == active_instance.id
         assert job.input_contract == self.version.input_contract
         assert self.instance.pinned_version is None
         start_workflow.assert_called_once()
@@ -624,17 +659,47 @@ class TestReusableWidgets(APIBaseTest):
             "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
             return_value=[self._canvas_version()],
         ):
-            history = list_widget_versions(notebook=self.notebook, node_id=self.node_id)
+            history = list_widget_versions(notebook=active_instance.notebook, node_id=self.node_id)
         assert [version.id for version in history.results] == [self.version.id]
         with self.assertRaises(WidgetError) as error:
             set_widget_instance_version(
-                notebook=self.notebook,
+                notebook=active_instance.notebook,
                 node_id=self.node_id,
                 version_id=self.widget.pending_version_id,
             )
         assert error.exception.code == "version_missing"
         stage_draft.assert_called_once()
         publish.assert_not_called()
+
+    @parameterized.expand([("generating", "generating"), ("failed", "failed"), ("canceled", "failed")])
+    def test_catalog_status_tracks_the_job_after_its_placement_is_removed(
+        self, job_status: str, lifecycle: str
+    ) -> None:
+        self._publish()
+        self.notebook.content = _markdown_content("The widget was removed.")
+        self.notebook.save(update_fields=["content"])
+        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            widget=self.widget,
+            instance=self.instance,
+            base_version=self.version,
+            status=job_status,
+            error_detail="Generation stopped.",
+            phase="failed_generating_source" if job_status == "failed" else job_status,
+        )
+        with patch(
+            "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
+            return_value=[self._canvas_version()],
+        ):
+            result = get_reusable_widget_status(team_id=self.team.id, widget_id=self.widget.id)
+        assert result.lifecycle_status == lifecycle
+        assert result.artifact_url == self._canvas_version().artifact_url
+        if job_status == "generating":
+            assert result.active_job is not None
+            assert result.active_job.id == job.idempotency_key
+        else:
+            assert result.active_job is None
+            assert result.error_detail == "Generation stopped."
 
     def test_saving_a_reviewed_draft_advances_the_shared_version(self) -> None:
         self._publish()
@@ -875,8 +940,42 @@ class TestReusableWidgets(APIBaseTest):
         assert self.widget.current_version_id == latest.id
         assert GeneratedWidgetVersion.objects.for_team(self.team.id).filter(widget=self.widget).count() == 2
 
-    def test_fork_replaces_the_placement_with_an_independent_private_widget(self) -> None:
+    @parameterized.expand([("pending",), ("other_widget",), ("other_team",)])
+    def test_fork_rejects_versions_outside_published_widget_history(self, scenario: str) -> None:
         self._publish()
+        team = Team.objects.create(organization=self.organization) if scenario == "other_team" else self.team
+        widget = (
+            self.widget
+            if scenario == "pending"
+            else GeneratedWidget.objects.for_team(team.id).create(team_id=team.id, canvas_id=uuid4())
+        )
+        version = GeneratedWidgetVersion.objects.for_team(team.id).create(
+            team_id=team.id, widget=widget, canvas_source_version_id=uuid4()
+        )
+        if scenario == "pending":
+            self.widget.pending_version = version
+            self.widget.save(update_fields=["pending_version"])
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.node_id}/fork/",
+            {"version_id": str(version.id)},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert response.json()["code"] == "version_missing"
+        self.instance.refresh_from_db()
+        assert self.instance.widget_id == self.widget.id
+
+    @parameterized.expand([("current", False), ("selected_history", True)])
+    def test_fork_replaces_the_placement_with_an_independent_private_widget(
+        self, _name: str, selected_history: bool
+    ) -> None:
+        self._publish()
+        if selected_history:
+            latest = GeneratedWidgetVersion.objects.for_team(self.team.id).create(
+                team_id=self.team.id, widget=self.widget, canvas_source_version_id=uuid4()
+            )
+            self.widget.current_version = latest
+            self.widget.save(update_fields=["current_version"])
         forked_canvas_id = uuid4()
         forked_source_version_id = uuid4()
         state = CanvasGenerationState(
@@ -891,7 +990,7 @@ class TestReusableWidgets(APIBaseTest):
             patch(
                 "products.canvas.backend.notebook_integration.get_notebook_canvas_source",
                 return_value="export default function Widget() { return null }",
-            ),
+            ) as read_source,
             patch("products.tasks.backend.facade.api.ensure_personal_channel_id", return_value=uuid4()),
             patch(
                 "products.canvas.backend.notebook_integration.create_notebook_canvas",
@@ -910,7 +1009,13 @@ class TestReusableWidgets(APIBaseTest):
                 return_value=state,
             ),
         ):
-            response = self.client.post(url)
+            response = self.client.post(
+                url, {"version_id": str(self.version.id)} if selected_history else {}, format="json"
+            )
+
+        read_source.assert_called_once_with(
+            team_id=self.team.id, canvas_id=self.widget.canvas_id, version_id=self.version.canvas_source_version_id
+        )
 
         assert response.status_code == 201
         assert response.json()["is_reusable"] is False
@@ -922,3 +1027,59 @@ class TestReusableWidgets(APIBaseTest):
         assert response.json()["current_version_id"] == str(self.instance.widget.current_version_id)
         assert self.instance.widget.current_version is not None
         assert self.instance.widget.current_version.canvas_source_version_id == forked_source_version_id
+
+
+class TestConcurrentReusableWidgetAttach(NonAtomicBaseTest):
+    def test_simultaneous_first_attachments_share_one_placement(self) -> None:
+        notebook = Notebook.objects.create(team=self.team, content=_markdown_content('<Widget nodeId="shared" />'))
+        widget = GeneratedWidget.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            canvas_id=uuid4(),
+            publication_status=GeneratedWidget.PublicationStatus.PUBLISHED,
+            published_at=timezone.now(),
+        )
+        version = GeneratedWidgetVersion.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            widget=widget,
+            canvas_source_version_id=uuid4(),
+        )
+        widget.current_version = version
+        widget.save(update_fields=["current_version"])
+        barrier = Barrier(2, timeout=10)
+
+        def synchronize_inserts(
+            sender: type[NotebookWidgetInstance], instance: NotebookWidgetInstance, **_kwargs: object
+        ) -> None:
+            if instance._state.adding:
+                barrier.wait()
+
+        def attach() -> WidgetStatus:
+            close_old_connections()
+            try:
+                return attach_reusable_widget(
+                    notebook=notebook,
+                    node_id="shared",
+                    widget_id=widget.id,
+                    version_id=None,
+                    input_bindings={},
+                    user=self.user,
+                )
+            finally:
+                close_old_connections()
+
+        pre_save.connect(synchronize_inserts, sender=NotebookWidgetInstance)
+        try:
+            with (
+                patch("products.canvas.backend.notebook_integration.get_canvas_generation_state", return_value=None),
+                ThreadPoolExecutor(max_workers=2) as executor,
+            ):
+                futures = [executor.submit(attach) for _ in range(2)]
+                results = [future.result(timeout=15) for future in futures]
+        finally:
+            pre_save.disconnect(synchronize_inserts, sender=NotebookWidgetInstance)
+
+        assert results[0].instance_id == results[1].instance_id
+        assert (
+            NotebookWidgetInstance.objects.for_team(self.team.id).filter(notebook=notebook, node_id="shared").count()
+            == 1
+        )

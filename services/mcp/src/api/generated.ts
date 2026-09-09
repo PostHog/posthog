@@ -77029,6 +77029,14 @@ export namespace Schemas {
       updated_at: string;
     }
 
+    export interface ReusableWidgetForkRequest {
+      /**
+         * Immutable version to fork, or null to copy the placement's pinned or latest version.
+         * @nullable
+         */
+      version_id?: string | null;
+    }
+
     export interface ReusableWidgetSummary {
       /** Stable reusable widget identifier. */
       id: string;

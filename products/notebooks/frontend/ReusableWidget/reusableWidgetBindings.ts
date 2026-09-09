@@ -26,7 +26,14 @@ async function bindingBytecode(binding: ReusableWidgetInputBinding): Promise<unk
     }
     let compiled = compiledBindings.get(binding.hog)
     if (!compiled) {
-        compiled = api.hog.create(binding.hog).then((response) => response.bytecode as unknown[])
+        const hog = binding.hog
+        compiled = api.hog
+            .create(hog)
+            .then((response) => response.bytecode as unknown[])
+            .catch((error) => {
+                compiledBindings.delete(hog)
+                throw error
+            })
         compiledBindings.set(binding.hog, compiled)
     }
     return await compiled

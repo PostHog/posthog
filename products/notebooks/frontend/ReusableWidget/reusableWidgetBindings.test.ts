@@ -1,3 +1,4 @@
+import api from 'lib/api'
 import { convertHogToJS, execHog } from 'lib/hog'
 
 import type { WidgetFrameApi } from 'products/notebooks/frontend/generated/api.schemas'
@@ -24,6 +25,27 @@ const sourceFrame: WidgetFrameApi = {
 describe('reusableWidgetBindings', () => {
     beforeEach(() => {
         jest.resetAllMocks()
+    })
+
+    afterEach(() => jest.restoreAllMocks())
+
+    it('retries failed compilation and shares successful compilation across frame requests', async () => {
+        const compile = jest
+            .spyOn(api.hog, 'create')
+            .mockRejectedValueOnce(new Error('Compiler unavailable'))
+            .mockResolvedValue({ bytecode: ['_H', 1] } as never)
+        jest.mocked(execHog).mockReturnValue({ finished: true, error: null, result: [] } as never)
+        jest.mocked(convertHogToJS).mockReturnValue([{ amount: 500 }] as never)
+        const binding = { source: 'orders', hog: "return arrayMap(row -> {'amount': row.amount}, rows)" }
+        await expect(applyReusableWidgetBinding(sourceFrame, 'revenue', binding, ['amount'])).rejects.toThrow(
+            'Compiler unavailable'
+        )
+        const frames = await Promise.all([
+            applyReusableWidgetBinding(sourceFrame, 'revenue', binding, ['amount']),
+            applyReusableWidgetBinding(sourceFrame, 'revenue', binding, ['amount']),
+        ])
+        expect(frames.map((frame) => frame.rows)).toEqual([[[500]], [[500]]])
+        expect(compile).toHaveBeenCalledTimes(2)
     })
 
     it('renames a directly bound notebook dataframe to the logical contract slot', async () => {

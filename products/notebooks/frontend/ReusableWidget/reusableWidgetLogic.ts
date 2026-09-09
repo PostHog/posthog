@@ -347,19 +347,31 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
                 actions.loadVersionHistory()
             }
             const previewVersion = reusableWidget.pending_version ?? reusableWidget.current_version
-            if (
-                (previewVersion.build_status === 'queued' || previewVersion.build_status === 'building') &&
-                !values.updateInFlight
+            if (!cache.initialStatusChecked) {
+                cache.initialStatusChecked = true
+                actions.pollUpdate()
+            } else if (
+                !values.updateInFlight &&
+                (previewVersion.build_status === 'queued' || previewVersion.build_status === 'building')
             ) {
-                actions.updateStarted()
-                cache.disposables.add(() => {
-                    const intervalId = window.setInterval(() => actions.pollUpdate(), 2_000)
-                    return () => window.clearInterval(intervalId)
-                }, 'widgetUpdatePoll')
                 actions.pollUpdate()
             }
         },
-        updateReusableWidget: async ({ operation }) => {
+        updateStarted: () => {
+            cache.disposables.add(() => {
+                const intervalId = window.setInterval(() => actions.pollUpdate(), 2_000)
+                return () => window.clearInterval(intervalId)
+            }, 'widgetUpdatePoll')
+        },
+        updateFinished: () => {
+            cache.waitingForDraft = false
+            cache.disposables.dispose('widgetUpdatePoll')
+        },
+        updateFailed: () => {
+            cache.waitingForDraft = false
+            cache.disposables.dispose('widgetUpdatePoll')
+        },
+        updateReusableWidget: async ({ operation }, breakpoint) => {
             const prompt = values.changePrompt.trim()
             if (
                 !values.currentTeamId ||
@@ -371,6 +383,8 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
             ) {
                 return
             }
+            cache.generationStarting = true
+            cache.waitingForDraft = true
             actions.updateStarted(operation)
             try {
                 await reusableWidgetsGenerate(String(values.currentTeamId), props.widgetId, {
@@ -380,30 +394,47 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
                     generation_operation: operation,
                     expected_current_version_id: values.reusableWidget.current_version.id,
                 })
-                cache.disposables.add(() => {
-                    const intervalId = window.setInterval(() => actions.pollUpdate(), 2_000)
-                    return () => window.clearInterval(intervalId)
-                }, 'widgetUpdatePoll')
+                breakpoint()
+                cache.generationStarting = false
                 actions.pollUpdate()
             } catch (error) {
+                breakpoint()
+                cache.generationStarting = false
                 actions.updateFailed(error instanceof Error ? error.message : 'The widget update could not start.')
             }
         },
-        pollUpdate: async () => {
-            if (!values.currentTeamId || !values.updateInFlight) {
-                cache.disposables.dispose('widgetUpdatePoll')
+        pollUpdate: async (_, breakpoint) => {
+            if (!values.currentTeamId || cache.generationStarting) {
                 return
             }
             try {
                 const status = await reusableWidgetsStatus(String(values.currentTeamId), props.widgetId)
+                breakpoint()
+                if (cache.generationStarting) {
+                    return
+                }
                 if (
                     status.active_job ||
                     status.lifecycle_status === 'generating' ||
                     status.lifecycle_status === 'building'
                 ) {
+                    if (status.active_job || status.lifecycle_status === 'generating') {
+                        cache.waitingForDraft = true
+                    }
+                    if (!values.updateInFlight) {
+                        actions.updateStarted()
+                    }
+                    return
+                }
+                if (status.lifecycle_status === 'failed') {
+                    actions.updateFailed(status.error_detail || 'The reusable widget could not be updated.')
+                    return
+                }
+                if (!values.updateInFlight) {
                     return
                 }
                 const reusableWidget = await reusableWidgetsRetrieve(String(values.currentTeamId), props.widgetId)
+                breakpoint()
                 actions.loadReusableWidgetSuccess(reusableWidget)
                 const previewVersion = reusableWidget.pending_version ?? reusableWidget.current_version
                 if (previewVersion.build_status === 'queued' || previewVersion.build_status === 'building') {
@@ -423,13 +454,14 @@ export const reusableWidgetLogic = kea<reusableWidgetLogicType>([
                     return
                 }
                 cache.disposables.dispose('widgetUpdatePoll')
-                if (previewVersion.build_status === 'ready' && previewVersion.artifact_url) {
+                if (!cache.waitingForDraft && previewVersion.build_status === 'ready' && previewVersion.artifact_url) {
                     actions.updateFinished()
                     lemonToast.success('Reusable widget updated')
                     return
                 }
                 actions.updateFailed(status.error_detail || 'The reusable widget could not be updated.')
             } catch (error) {
+                breakpoint()
                 cache.disposables.dispose('widgetUpdatePoll')
                 actions.updateFailed(error instanceof Error ? error.message : 'The widget status could not be loaded.')
             }

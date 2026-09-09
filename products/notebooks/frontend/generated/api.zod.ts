@@ -717,6 +717,16 @@ export const NotebooksWidgetCancelBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
+export const NotebooksWidgetForkBody = /* @__PURE__ */ zod.object({
+    version_id: zod
+        .uuid()
+        .nullish()
+        .describe("Immutable version to fork, or null to copy the placement's pinned or latest version."),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksWidgetGenerateBodyPromptMax = 50000
 
 export const notebooksWidgetGenerateBodyModelDefault = `claude-sonnet-4-6`

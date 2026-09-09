@@ -9,17 +9,27 @@ from django.db.models.functions import Cast
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
-from posthog.models import User
+from posthog.models import Team, User
 
-from products.notebooks.backend.models import GeneratedWidget, GeneratedWidgetVersion, Notebook, NotebookWidgetInstance
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.notebooks.backend.models import (
+    GeneratedWidget,
+    GeneratedWidgetGenerationJob,
+    GeneratedWidgetVersion,
+    Notebook,
+    NotebookWidgetInstance,
+)
 from products.notebooks.backend.widgets import (
     WidgetConflictError,
     WidgetError,
     WidgetFrameRead,
     WidgetInputInspection,
+    WidgetJobState,
     WidgetRateLimitError,
     WidgetSecurityReviewState,
     WidgetStatus,
+    _job_failure_phase,
+    _reconcile_stale_generation_job,
     _security_review_state,
     assert_widget_node_exists,
     get_widget_status,
@@ -35,7 +45,10 @@ MAX_REUSABLE_WIDGET_BINDINGS_BYTES = 256 * 1_024
 
 
 def reusable_widget_catalog_context(*, team_id: int, user: User | None) -> str:
-    if not is_notebook_widget_enabled(user):
+    if user is None or not is_notebook_widget_enabled(user):
+        return ""
+    team = Team.objects.get(id=team_id)
+    if not UserAccessControl(user, team=team).check_access_level_for_resource("notebook", "viewer"):
         return ""
     entries: list[dict[str, object]] = []
     size = 0
@@ -318,6 +331,8 @@ def _capture_demo_data(
             version_id=version.id,
             limit=MAX_REUSABLE_WIDGET_DEMO_ROWS,
         ).frame
+        if "columns" not in contract_item:
+            contract_item["columns"] = frame["columns"]
         frame = _map_demo_frame(frame, slot, contract_item, input_bindings.get(slot))
         frame["runId"] = str(frame["runId"])
         frame["nextOffset"] = None
@@ -449,7 +464,8 @@ def publish_reusable_widget(
             ]
         )
         locked_version.demo_data = demo_data
-        locked_version.save(update_fields=["demo_data"])
+        locked_version.input_contract = version.input_contract
+        locked_version.save(update_fields=["demo_data", "input_contract"])
         locked_instance.pinned_version = None
         locked_instance.input_bindings = original_bindings
         locked_instance.save(update_fields=["pinned_version", "input_bindings"])
@@ -517,32 +533,33 @@ def attach_reusable_widget(
         raise WidgetError("This reusable widget version does not exist.", "version_missing")
     bindings = _normalized_bindings(version=version, input_bindings=input_bindings)
     with transaction.atomic():
-        existing = (
+        existing, created = (
             NotebookWidgetInstance.objects.for_team(notebook.team_id)
             .select_for_update()
-            .filter(notebook=notebook, node_id=node_id)
-            .first()
-        )
-        if existing is not None and existing.widget_id != widget.id:
-            raise WidgetConflictError("This notebook node already belongs to another widget.", "instance_conflict")
-        if existing is None:
-            NotebookWidgetInstance.objects.for_team(notebook.team_id).create(
+            .get_or_create(
                 team_id=notebook.team_id,
                 notebook=notebook,
                 node_id=node_id,
-                widget=widget,
-                pinned_version=version if version_id is not None else None,
-                input_bindings=bindings,
-                created_by=user,
+                defaults={
+                    "widget": widget,
+                    "pinned_version": version if version_id is not None else None,
+                    "input_bindings": bindings,
+                    "created_by": user,
+                },
             )
-        else:
+        )
+        if existing.widget_id != widget.id:
+            raise WidgetConflictError("This notebook node already belongs to another widget.", "instance_conflict")
+        if not created:
             existing.pinned_version = version if version_id is not None else None
             existing.input_bindings = bindings
             existing.save(update_fields=["pinned_version", "input_bindings"])
     return get_widget_status(notebook=notebook, node_id=node_id)
 
 
-def fork_reusable_widget(*, notebook: Notebook, node_id: str, user: User) -> WidgetStatus:
+def fork_reusable_widget(
+    *, notebook: Notebook, node_id: str, user: User, version_id: UUID | None = None
+) -> WidgetStatus:
     from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas storage imports off notebook startup
         notebook_integration as canvas_facade,
     )
@@ -560,6 +577,14 @@ def fork_reusable_widget(*, notebook: Notebook, node_id: str, user: User) -> Wid
     if instance is None or instance.widget.publication_status != GeneratedWidget.PublicationStatus.PUBLISHED:
         raise WidgetConflictError("Only a reusable widget can be forked.", "widget_not_reusable")
     source_version = instance.pinned_version or instance.widget.current_version
+    if version_id is not None:
+        source_version = (
+            GeneratedWidgetVersion.objects.for_team(notebook.team_id)
+            .filter(id=version_id, widget=instance.widget)
+            .first()
+        )
+        if source_version is not None and source_version.id == instance.widget.pending_version_id:
+            source_version = None
     if source_version is None:
         raise WidgetError("The reusable widget version is unavailable.", "version_missing")
 
@@ -607,10 +632,8 @@ def fork_reusable_widget(*, notebook: Notebook, node_id: str, user: User) -> Wid
             NotebookWidgetInstance.objects.for_team(notebook.team_id).select_for_update().get(id=instance.id)
         )
         locked_source_version = locked_instance.pinned_version or locked_instance.widget.current_version
-        if (
-            locked_instance.widget_id != instance.widget_id
-            or locked_source_version is None
-            or locked_source_version.id != source_version.id
+        if locked_instance.widget_id != instance.widget_id or (
+            version_id is None and (locked_source_version is None or locked_source_version.id != source_version.id)
         ):
             raise WidgetConflictError("This widget changed before it could be forked.", "fork_conflict")
         widget = GeneratedWidget.objects.for_team(notebook.team_id).create(
@@ -854,19 +877,28 @@ def start_reusable_widget_generation(
     widget = _published_widgets(team_id).select_related("current_version").filter(id=widget_id).first()
     if widget is None or widget.current_version is None:
         raise WidgetError("This reusable widget does not exist.", "widget_not_found")
-    instance = (
+    instances = (
         NotebookWidgetInstance.objects.for_team(team_id)
         .select_related("notebook")
         .filter(widget=widget, notebook__deleted=False)
         .order_by("created_at")
-        .first()
     )
+    instance = None
+    for candidate in instances.iterator():
+        try:
+            assert_widget_node_exists(candidate.notebook, candidate.node_id)
+        except WidgetError as error:
+            if error.code != "node_not_found":
+                raise
+            continue
+        instance = candidate
+        break
     if instance is None:
         raise WidgetConflictError(
             "This reusable widget has no notebook placement to build from. Add it to a notebook first.",
             "instance_missing",
         )
-    return start_widget_generation(
+    start_widget_generation(
         notebook=instance.notebook,
         node_id=instance.node_id,
         prompt=prompt,
@@ -879,19 +911,68 @@ def start_reusable_widget_generation(
         allow_reusable=True,
         input_contract_override=_input_contract(widget.current_version.input_contract),
     )
+    return get_reusable_widget_status(team_id=team_id, widget_id=widget_id)
 
 
 def get_reusable_widget_status(*, team_id: int, widget_id: UUID) -> WidgetStatus:
-    widget = _published_widgets(team_id).filter(id=widget_id).first()
-    if widget is None:
-        raise WidgetError("This reusable widget does not exist.", "widget_not_found")
-    instance = (
-        NotebookWidgetInstance.objects.for_team(team_id)
-        .select_related("notebook")
-        .filter(widget=widget, notebook__deleted=False)
-        .order_by("created_at")
+    widget = get_reusable_widget(team_id=team_id, widget_id=widget_id)
+    job = (
+        GeneratedWidgetGenerationJob.objects.for_team(team_id)
+        .filter(widget_id=widget_id)
+        .order_by("-created_at", "-id")
         .first()
     )
-    if instance is None:
-        raise WidgetConflictError("This reusable widget has no active notebook placement.", "instance_missing")
-    return get_widget_status(notebook=instance.notebook, node_id=instance.node_id)
+    if job is not None:
+        _reconcile_stale_generation_job(job)
+    active_job = (
+        WidgetJobState(
+            id=job.idempotency_key,
+            status=job.status,
+            phase=job.phase,
+            model=job.model,
+            created_at=job.created_at,
+            started_at=job.started_at,
+        )
+        if job is not None and job.status in GeneratedWidgetGenerationJob.ACTIVE_STATUSES
+        else None
+    )
+    failed_job = (
+        job
+        if job is not None
+        and job.base_version_id == widget.current_version.id
+        and job.status in {GeneratedWidgetGenerationJob.Status.FAILED, GeneratedWidgetGenerationJob.Status.CANCELED}
+        else None
+    )
+    preview = widget.pending_version or widget.current_version
+    error_detail = None
+    if active_job is not None:
+        lifecycle = "generating"
+    elif failed_job is not None and widget.pending_version is None:
+        lifecycle = "failed"
+        error_detail = failed_job.error_detail or "The widget update stopped. Try again."
+    elif preview.build_status in {"queued", "building"}:
+        lifecycle = "building"
+    elif preview.build_status == "ready" and preview.artifact_url:
+        lifecycle = "ready"
+    else:
+        lifecycle = "failed"
+        error_detail = "The widget preview could not be built. Generate a new version."
+    return WidgetStatus(
+        lifecycle_status=lifecycle,
+        error_detail=error_detail,
+        artifact_url=preview.artifact_url,
+        frame_names=preview.frame_names,
+        input_bindings={},
+        input_contract=preview.input_contract,
+        current_version_id=widget.current_version.id,
+        pinned_version_id=None,
+        widget_id=widget.id,
+        instance_id=None,
+        has_versions=True,
+        active_job=active_job,
+        security_review=preview.security_review,
+        is_reusable=True,
+        error_code=failed_job.error_code if failed_job and error_detail else None,
+        failure_phase=_job_failure_phase(failed_job) if error_detail else None,
+        build_hash=preview.build_hash,
+    )

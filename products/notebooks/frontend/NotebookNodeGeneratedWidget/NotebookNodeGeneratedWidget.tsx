@@ -319,7 +319,7 @@ function ExpandedWidget({
                             </div>
                         ) : null}
                         <WidgetArtifactFrame
-                            key={`${selectedBuildHash}-${frameRevision}`}
+                            key={`${selectedVersionId}-${selectedBuildHash}-${frameRevision}`}
                             artifactUrl={selectedArtifactUrl}
                             title="Widget"
                             allowedFrames={activeFrameNames}

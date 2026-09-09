@@ -277,8 +277,8 @@ class GeneratedWidget(TeamScopedRootMixin, UUIDModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     name = models.CharField(max_length=400)
-    description = models.TextField(blank=True, default="")
-    tags: JSONField = JSONField(default=list)
+    description = models.TextField(blank=True, default="", db_default="")
+    tags: JSONField = JSONField(default=list, db_default=[])
     publication_status = models.CharField(
         choices=PublicationStatus,
         default=PublicationStatus.PRIVATE,
@@ -334,7 +334,7 @@ class GeneratedWidgetVersion(TeamScopedRootMixin, UUIDModel):
     model = models.CharField(max_length=64, blank=True, default="")
     generator_version = models.CharField(max_length=32)
     input_contract: JSONField = JSONField(default=list)
-    demo_data: JSONField = JSONField(default=dict)
+    demo_data: JSONField = JSONField(default=dict, db_default={})
     schema_hash = models.CharField(max_length=64)
     security_review_severity = models.CharField(
         choices=SecurityReviewSeverity,
@@ -380,7 +380,7 @@ class NotebookWidgetInstance(TeamScopedRootMixin, UUIDModel):
         blank=True,
         related_name="pinned_instances",
     )
-    input_bindings: JSONField = JSONField(default=dict)
+    input_bindings: JSONField = JSONField(default=dict, db_default={})
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )

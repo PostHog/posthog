@@ -31,6 +31,7 @@ import type {
     ReusableWidgetAttachRequestApi,
     ReusableWidgetDemoDataRequestApi,
     ReusableWidgetDetailApi,
+    ReusableWidgetForkRequestApi,
     ReusableWidgetPageApi,
     ReusableWidgetPublishRequestApi,
     ReusableWidgetRestoreRequestApi,
@@ -789,11 +790,14 @@ export const notebooksWidgetFork = async (
     projectId: string,
     shortId: string,
     nodeId: string,
+    reusableWidgetForkRequestApi?: ReusableWidgetForkRequestApi,
     options?: RequestInit
 ): Promise<WidgetStatusApi> => {
     return apiMutator<WidgetStatusApi>(getNotebooksWidgetForkUrl(projectId, shortId, nodeId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reusableWidgetForkRequestApi),
     })
 }
 

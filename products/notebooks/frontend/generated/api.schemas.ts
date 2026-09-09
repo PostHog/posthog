@@ -1220,6 +1220,14 @@ export interface WidgetCancelRequestApi {
     generation_id: string
 }
 
+export interface ReusableWidgetForkRequestApi {
+    /**
+     * Immutable version to fork, or null to copy the placement's pinned or latest version.
+     * @nullable
+     */
+    version_id?: string | null
+}
+
 export interface WidgetPinRequestApi {
     /**
      * Immutable version to pin, or null to follow the reusable widget's latest version.
