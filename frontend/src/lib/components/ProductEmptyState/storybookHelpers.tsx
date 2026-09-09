@@ -43,14 +43,13 @@ export function productEmptyStateStory(
         parameters: { testOptions: { waitForLoadersToDisappear: false } },
         args: { config: { ...emptyState.config, ...config }, mode },
         decorators: [
-            (Story) =>
-                containerWidth ? (
-                    <div style={{ width: containerWidth }}>
-                        <Story />
-                    </div>
-                ) : (
+            // The snapshot root is inline-block. Give the query container a width so
+            // inline-size containment cannot collapse that root to zero.
+            (Story) => (
+                <div style={{ width: containerWidth ?? 'calc(100vw - 2rem)' }}>
                     <Story />
-                ),
+                </div>
+            ),
             mswDecorator({
                 ...mocks,
                 post: {

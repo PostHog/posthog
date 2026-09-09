@@ -8,3 +8,5 @@
 - Secondary links and replay vision preview filters wrap when space is limited.
 
 Use `containerWidth` in `productEmptyStateStory` to cover narrow scenes independently of the Storybook viewport. Cover both setup and waiting modes when the product supports them.
+
+The story wrapper defaults to the viewport width minus Storybook's padding. Keep an explicit width on this wrapper: the snapshot runner uses an inline-block root, which collapses around an unsized query container.
