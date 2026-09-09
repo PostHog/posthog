@@ -144,6 +144,10 @@ export function PropertyValue({
         orderedKeys: string[]
     }>({ set: new Set(), orderedKeys: [] })
     const currentSearchInput = useRef<string>('')
+    // Every value the suggestion list has offered for this property. A search replaces the
+    // loaded values, but the dropdown can still show the older list, so a value the user
+    // clicks is not always among the ones loaded now.
+    const offeredValues = useRef<Set<string>>(new Set())
 
     const hasStaticValues = !!staticValues
     const load = useCallback(
@@ -230,9 +234,10 @@ export function PropertyValue({
         }
     }, [propertyOptions?.status, propertyOptions?.values, propertyOptions?.searchInput])
 
-    // reset initial suggested values when propertyKey changes
+    // reset the suggested and offered values when propertyKey changes
     useEffect(() => {
         setInitialSuggestedValues({ set: new Set(), orderedKeys: [] })
+        offeredValues.current = new Set()
     }, [propertyKey])
 
     // show suggested values first, then any other available options that aren't in the suggested list
@@ -272,6 +277,12 @@ export function PropertyValue({
 
         return [...suggestedOptions, ...otherOptions]
     }, [propertyOptions?.values, initialSuggestedValues, staticValues])
+
+    useEffect(() => {
+        for (const option of displayOptions) {
+            offeredValues.current.add(toString(option.name))
+        }
+    }, [displayOptions])
 
     const onSearchTextChange = (newInput: string): void => {
         const trimmedInput = newInput.trim()
@@ -492,7 +503,7 @@ export function PropertyValue({
                     const trimmedVal = isOperatorRegex(operator)
                         ? nextVal
                         : nextVal.map((v) =>
-                              typeof v === 'string' && !availableValues.has(v) && !formattedValues.includes(v)
+                              typeof v === 'string' && !offeredValues.current.has(v) && !formattedValues.includes(v)
                                   ? v.trim()
                                   : v
                           )

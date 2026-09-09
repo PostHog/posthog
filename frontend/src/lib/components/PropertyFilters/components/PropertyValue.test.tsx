@@ -215,6 +215,55 @@ describe('PropertyValue', () => {
         })
     })
 
+    it('preserves whitespace on a value picked from search results the dropdown still shows', async () => {
+        // After the first pick the dropdown keeps rendering the search results, while the component
+        // reloads the unsearched values behind it. The second pick then arrives from a list the
+        // component no longer holds.
+        const searchResults = { results: [{ name: 'Acme Corp ' }, { name: 'Acme Inc ' }], refreshing: false }
+        const unsearchedResults = { results: [{ name: 'Chrome' }], refreshing: false }
+        const respondToSearch = ({ request }: { request: Request }): typeof searchResults =>
+            new URL(request.url).searchParams.get('value') ? searchResults : unsearchedResults
+        useMocks({
+            get: {
+                '/api/event/values': respondToSearch,
+                '/api/environments/:team/events/values': respondToSearch,
+            },
+        })
+
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="name"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                />
+            </Provider>
+        )
+
+        const user = userEvent.setup()
+        await user.type(screen.getByRole('textbox'), 'Acme')
+
+        // The default matcher trims, so this finds the option by its visible label
+        await user.click(await screen.findByText('Acme Corp', undefined, { timeout: 3000 }))
+
+        // The pick clears the search, so the unsearched values replace the ones just searched
+        await waitFor(
+            () => {
+                expect(propertyDefinitionsModel.values.options['name']?.values).toEqual([{ name: 'Chrome' }])
+            },
+            { timeout: 3000 }
+        )
+
+        await user.click(screen.getByText('Acme Inc'))
+
+        await waitFor(() => {
+            expect(onSet).toHaveBeenLastCalledWith(['Acme Inc '])
+        })
+    })
+
     it('allows text when a polymorphic property overrides a globally inferred numeric type', async () => {
         propertyDefinitionsModel.actions.updatePropertyDefinitions({
             'event/current_value': {
