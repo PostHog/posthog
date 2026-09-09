@@ -1029,6 +1029,8 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
     def test_an_activation_mode_experiment_compares_with_the_lists_memory_ceiling(self) -> None:
         # Activation exposures have no preaggregated form, so on a precomputing team they scan
         # live under the linkage's explicit memory ceiling, without touching ensure_precomputed.
+        # The scans must also throw on a timeout: a "break" profile would answer with fewer rows
+        # and the cached comparison would read them as complete.
         self._enable_precomputation()
         experiment = self._create_experiment(
             metrics=[PURCHASE_METRIC],
@@ -1064,7 +1066,9 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert [(variant["key"], variant["persons"]) for variant in data["variants"]] == [("control", 1), ("test", 1)]
         assert {card["event"] for card in self._cards(data, "behavior")} == {"checkout_start", "pricing_faq"}
         assert seen_settings and all(
-            settings is not None and settings.max_memory_usage == ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES
+            settings is not None
+            and settings.max_memory_usage == ACTIVATION_LIVE_SCAN_MAX_MEMORY_BYTES
+            and settings.timeout_overflow_mode == "throw"
             for settings in seen_settings
         )
 

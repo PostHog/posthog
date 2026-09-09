@@ -786,12 +786,18 @@ class _QuerySetup:
         )
 
     def run(self, query: ast.SelectQuery) -> list[tuple]:
+        # Every query here aggregates over the exposed population, and the answer is cached for the
+        # whole TTL, so a partial result would be served as complete and the ranking would read the
+        # rows that never arrived as a difference between the variants. A "break" timeout profile
+        # answers a query that hits the execution-time limit with exactly that, so the kill has to
+        # throw instead. Same posture the recordings list takes on its evidence scan.
+        #
         # The linkage carries a memory ceiling exactly where its population read needs explicit
-        # bounding (activation mode); honored the way the recordings list honors it.
-        settings = (
-            HogQLGlobalSettings(max_memory_usage=self.linkage.live_scan_max_memory_bytes)
-            if self.linkage.live_scan_max_memory_bytes is not None
-            else None
+        # bounding (activation mode); honored the way the recordings list honors it. None everywhere
+        # else leaves the ceiling to the cloud config.
+        settings = HogQLGlobalSettings(
+            timeout_overflow_mode="throw",
+            max_memory_usage=self.linkage.live_scan_max_memory_bytes,
         )
         response = execute_hogql_query(
             query,
