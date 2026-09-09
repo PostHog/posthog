@@ -37,6 +37,8 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+
 from posthog.hogql.property import action_to_expr
 
 from products.actions.backend.models.action import Action
@@ -73,6 +75,16 @@ TARGET_RELATIVE_KINDS = frozenset({"active_not_performed_target", "ever_performe
 # population query; flip to False to relax — the rest of the pipeline is
 # population-agnostic.
 IDENTIFIED_USERS_ONLY = True
+
+# `is_identified` is a column on the persons table, not a person property, so it resolves
+# only while `person` on an events scan reaches the persons table through the lazy join.
+# A team on persons-on-events reads person columns off the event row, where the field does
+# not exist, and HogQL raises `Field not found: is_identified`. Every caller that executes
+# SQL from this module must pass these modifiers so the mode is the one the SQL is built
+# for, whatever mode the team is on.
+LABELER_QUERY_MODIFIERS = HogQLQueryModifiers(
+    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED
+)
 
 
 def _identified_users_and_clause() -> str:
