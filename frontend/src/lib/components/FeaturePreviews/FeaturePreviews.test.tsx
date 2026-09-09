@@ -125,6 +125,18 @@ describe('FeaturePreviews', () => {
         }
     )
 
+    test.each([
+        ['beta', true],
+        ['alpha', true],
+        ['concept', false],
+    ])('a %s-stage preview is listed: %s', (stage, expectedVisible) => {
+        setupMocks({ features: [{ ...BETA_FEATURE, stage }] })
+
+        render(<FeaturePreviews />)
+
+        expect(!!screen.queryByRole('switch')).toBe(expectedVisible)
+    })
+
     test('hides the banner when the instance has only concept previews, which this list does not render', () => {
         setupMocks({ cloud: false, features: [CONCEPT_FEATURE] })
 
