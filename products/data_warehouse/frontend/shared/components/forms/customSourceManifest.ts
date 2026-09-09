@@ -141,6 +141,11 @@ export interface TableForm {
     // Carried verbatim through parse → build so editing a table in the builder
     // never silently drops a query param the manifest author wrote by hand.
     passthrough_params: Record<string, unknown>
+    // Raw JSON request body (`endpoint.json`) for POST query/search endpoints
+    // that read their parameters from the body. Held as text so a hand- or
+    // AI-authored body round-trips through parse → build instead of being
+    // dropped on the next builder save. Empty means no body.
+    request_body: string
 }
 
 export interface ManifestState {
@@ -216,6 +221,7 @@ export function emptyTable(): TableForm {
         start_param: '',
         datetime_format: '',
         passthrough_params: {},
+        request_body: '',
         ...EMPTY_PARENT_FIELDS,
     }
 }
@@ -414,6 +420,13 @@ export function buildManifest(state: ManifestState): Record<string, unknown> {
         if (Object.keys(params).length > 0) {
             endpoint.params = params
         }
+        // Emit the request body only when it parses to a JSON object. A blank or
+        // malformed body is omitted; the builder warns on a malformed one inline
+        // so the author fixes it rather than shipping an invalid manifest.
+        const requestBody = parseJsonObject(table.request_body)
+        if (requestBody) {
+            endpoint.json = requestBody
+        }
         const primaryKeys = splitCsv(table.primary_key)
         const resource: Record<string, unknown> = {
             name: table.name,
@@ -505,6 +518,28 @@ function asObject(value: unknown): RawObject {
 
 function asString(value: unknown, fallback = ''): string {
     return typeof value === 'string' ? value : fallback
+}
+
+// A request body must be a JSON object — the backend types `endpoint.json` as
+// `dict[str, Any]`. Returns the parsed object, or null when the text is blank,
+// malformed, or not an object (a bare array/scalar). Exported so the builder can
+// flag a malformed body inline with the same rule that decides what gets emitted.
+export function parseJsonObject(value: string): RawObject | null {
+    if (!value.trim()) {
+        return null
+    }
+    try {
+        const parsed: unknown = JSON.parse(value)
+        return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? (parsed as RawObject) : null
+    } catch {
+        return null
+    }
+}
+
+// Pretty-print a parsed `endpoint.json` back into editable text, or empty when
+// absent or not an object.
+function requestBodyText(json: unknown): string {
+    return typeof json === 'object' && json !== null && !Array.isArray(json) ? JSON.stringify(json, null, 2) : ''
 }
 
 // OAuth2 token-request params/headers are string-valued by definition (form body params and HTTP
@@ -630,7 +665,10 @@ function parseTable(resource: unknown): TableForm {
         id: nextTableId(),
         name: asString(r.name),
         path: asString(endpoint.path),
-        method: asString(endpoint.method) === 'POST' ? 'POST' : 'GET',
+        // Backend accepts lowercase get/post as well (source.py), so normalize
+        // before matching — otherwise a stored 'post' rebuilds with no method,
+        // which the backend reads as GET, silently downgrading the request.
+        method: asString(endpoint.method).toUpperCase() === 'POST' ? 'POST' : 'GET',
         data_selector: asString(endpoint.data_selector, 'data'),
         primary_key: Array.isArray(primaryKey) ? primaryKey.join(', ') : asString(primaryKey, 'id'),
         paginator,
@@ -645,5 +683,6 @@ function parseTable(resource: unknown): TableForm {
         parent_path_param: parentPathParam,
         include_from_parent: includeFromParent,
         passthrough_params: passthroughParams,
+        request_body: requestBodyText(endpoint.json),
     }
 }

@@ -92,13 +92,13 @@ returns is persisted server-side. Two practical consequences:
 
 ```json
 {
-    "path": "/users",
-    "method": "GET",
-    "params": { "status": "active" },
-    "json": { ... },
-    "data_selector": "data",
-    "paginator": { "type": "json_response", "next_url_path": "next" },
-    "incremental": { "cursor_path": "updated_at", "start_param": "since" }
+  "path": "/users",
+  "method": "GET",
+  "params": { "status": "active" },
+  "json": { "query": "recent", "limit": 100 },
+  "data_selector": "data",
+  "paginator": { "type": "json_response", "next_url_path": "next" },
+  "incremental": { "cursor_path": "updated_at", "start_param": "since" }
 }
 ```
 
@@ -106,7 +106,8 @@ returns is persisted server-side. Two practical consequences:
 - **`method`** — `GET` (default) or `POST`. POST is for read/query-style endpoints; `PUT`/`PATCH`/`DELETE` are
   rejected.
 - **`params`** — static query params, or the engine's incremental/resolve specs (see below).
-- **`json`** — request body (for POST query endpoints).
+- **`json`** — request body, sent as JSON, for POST query/search endpoints that read their parameters from the body.
+  Must be a JSON object. The visual builder exposes this as the "Request body (JSON)" field on a POST table.
 - **`data_selector`** — JSONPath to the array of records inside the response. For `{ "data": [ ... ] }` use `"data"`;
   for `{ "results": { "items": [ ... ] } }` use `"results.items"`. Omit only if the response body **is** the array.
 - **`paginator`** — see below. **Required for any paginated endpoint.** Omitting it (or `{ "type": "auto" }`) fetches
