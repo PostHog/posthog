@@ -294,7 +294,8 @@ def execute_process_query(
         # request that enqueued it.
         user = _shared_link_user_for(sharing_configuration_id, team)
 
-    query_status = manager.get_query_status()
+    internal_query_status = manager.get_internal_query_status()
+    query_status = internal_query_status.query_status
 
     if query_status.complete:
         return
@@ -306,7 +307,11 @@ def execute_process_query(
             logger.warning("Async query has a non-UUID task id", query_id=query_id)
 
     query_status.pickup_time = datetime.datetime.now(datetime.UTC)
-    manager.store_query_status(query_status)
+    manager.store_query_status(
+        query_status,
+        error_category=internal_query_status.error_category,
+        error_retryable=internal_query_status.error_retryable,
+    )
 
     query_status.error = True  # Assume error in case nothing below ends up working
     query_status.complete = True

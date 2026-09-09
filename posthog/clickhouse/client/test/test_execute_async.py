@@ -105,6 +105,36 @@ class TestQueryStatusManager(SimpleTestCase):
         self.assertEqual(internal_status.error_category, QueryErrorCategory.USER_ERROR)
         self.assertTrue(internal_status.error_retryable)
 
+    def test_retry_pickup_preserves_error_metadata_until_attempt_finishes(self):
+        self.manager.store_query_status(
+            self.query_status,
+            error_category=QueryErrorCategory.RATE_LIMITED,
+            error_retryable=True,
+        )
+        metadata_during_execution: list[tuple[QueryErrorCategory | None, bool]] = []
+
+        def capture_metadata(**_kwargs):
+            internal_status = self.manager.get_internal_query_status()
+            metadata_during_execution.append((internal_status.error_category, internal_status.error_retryable))
+            return {"results": []}
+
+        with (
+            patch("posthog.models.Team.objects.get", return_value=MagicMock()),
+            patch("posthog.api.services.query.process_query_dict", side_effect=capture_metadata),
+        ):
+            execute_process_query(
+                team_id=self.team_id,
+                user_id=None,
+                query_id=self.query_id,
+                query_json={},
+                limit_context=None,
+            )
+
+        self.assertEqual(metadata_during_execution, [(QueryErrorCategory.RATE_LIMITED, True)])
+        completed_status = self.manager.get_internal_query_status()
+        self.assertIsNone(completed_status.error_category)
+        self.assertFalse(completed_status.error_retryable)
+
     def test_process_query_task_on_failure_marks_status_errored(self):
         from posthog.tasks.tasks import process_query_task
 
