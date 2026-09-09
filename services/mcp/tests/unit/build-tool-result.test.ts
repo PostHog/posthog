@@ -76,6 +76,28 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
         }
     )
 
+    it.each(['optimized', 'json'] as const)(
+        'carries a UI-resource tool payload once beside native widget data in %s mode',
+        (outputFormat) => {
+            const payload = buildToolResultPayload({
+                handlerResult: queryTrendsHandlerResult(/* withFormatted */ false),
+                toolMeta: queryTrendsToolMeta,
+                toolName: 'query-trends',
+                params: { output_format: outputFormat },
+                includeAppData: true,
+                distinctId: 'd',
+            })
+
+            // The widget reads `_meta`, so structuredContent would repeat what the text
+            // channel already hands the model.
+            expect(payload).not.toHaveProperty('structuredContent')
+            expect(payload._meta?.[APP_DATA_META_KEY]).toMatchObject({ results: expect.any(Array) })
+            if (outputFormat === 'json') {
+                expect(JSON.parse(payload.content[0]!.text)).toMatchObject({ results: expect.any(Array) })
+            }
+        }
+    )
+
     it('returns formatted table as text AND suppresses structuredContent for claude-code', () => {
         const payload = buildToolResultPayload({
             handlerResult: queryTrendsHandlerResult(),
