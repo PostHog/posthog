@@ -67,6 +67,18 @@ async def test_azure_blob_check_container_invalid_connection_string():
     assert "Invalid connection string format" in result.message
 
 
+async def test_azure_blob_check_container_emulator_connection_string():
+    test_step = AzureBlobContainerTestStep(
+        connection_string="UseDevelopmentStorage=true;AccountName=devstoreaccount1",
+        container_name="test-container",
+    )
+    result = await test_step.run()
+
+    assert result.status == Status.FAILED
+    assert result.message is not None
+    assert "Invalid connection string" in result.message
+
+
 @pytest.mark.parametrize("step", [AzureBlobContainerTestStep()])
 async def test_test_steps_fail_if_not_configured(step):
     result = await step.run()
