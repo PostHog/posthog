@@ -1,12 +1,14 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { RunStatus } from '../logics/runStreamLogic'
 import type { PermissionRequestRecord } from '../types/streamTypes'
+import { useDebouncedDraft } from './composer/useDebouncedDraft'
 import { RunSurface } from './RunSurfaceImpl'
 
 jest.mock('kea', () => ({
@@ -35,17 +37,19 @@ function setValues(
     overrides: Partial<{
         currentRunStatus: RunStatus | null
         pendingPermissionRequest: PermissionRequestRecord | null
+        respondingToPermission: boolean
         bootstrapLoading: boolean
         threadItems: unknown[]
-        task: { origin_product: string; runtime?: RuntimeEnumApi } | null
+        task: { origin_product: string; runtime?: TaskRuntimeEnumApi } | null
     }>
 ): void {
     ;(useValues as jest.Mock).mockReturnValue({
         bootstrapLoading: false,
         threadItems: [],
         pendingPermissionRequest: null,
+        respondingToPermission: false,
         currentRunStatus: 'in_progress',
-        task: { origin_product: 'user_created', runtime: RuntimeEnumApi.Acp },
+        task: { origin_product: 'user_created', runtime: TaskRuntimeEnumApi.Acp },
         taskLoading: false,
         taskError: null,
         taskNotFound: false,
@@ -70,6 +74,12 @@ function renderLiveWithComposer(statusOrOverrides: RunStatus | null | Parameters
     )
 }
 
+function DraftComposer(): JSX.Element {
+    const [saved, setSaved] = useState('')
+    const draft = useDebouncedDraft(saved, setSaved)
+    return <textarea data-attr="draft" value={draft.value} onChange={(event) => draft.onChange(event.target.value)} />
+}
+
 describe('RunSurface', () => {
     beforeEach(() => {
         jest.clearAllMocks()
@@ -82,7 +92,7 @@ describe('RunSurface', () => {
     })
 
     it('does not mount the ACP run surface for a Pi task', () => {
-        setValues({ task: { origin_product: 'user_created', runtime: RuntimeEnumApi.Pi } })
+        setValues({ task: { origin_product: 'user_created', runtime: TaskRuntimeEnumApi.Pi } })
 
         render(
             <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
@@ -142,7 +152,7 @@ describe('RunSurface', () => {
                 pendingPermissionRequest: { requestId: 'r1' } as PermissionRequestRecord,
             })
             expect(screen.getByTestId('permission')).toBeInTheDocument()
-            expect(screen.queryByTestId('composer')).not.toBeInTheDocument()
+            expect(screen.getByTestId('composer')).not.toBeVisible()
         })
 
         it('renders the question input when the pending request carries questions', () => {
@@ -154,8 +164,51 @@ describe('RunSurface', () => {
                 } as PermissionRequestRecord,
             })
             expect(screen.getByTestId('question')).toBeInTheDocument()
-            expect(screen.queryByTestId('composer')).not.toBeInTheDocument()
+            expect(screen.getByTestId('composer')).not.toBeVisible()
         })
+
+        it.each(['delivery', 'cancellation'])(
+            'hides the approval during %s and preserves a draft across restoration before its debounce commits',
+            (transition) => {
+                jest.useFakeTimers()
+                try {
+                    const request = { requestId: 'r1', sourceRunId: 'run-1' } as PermissionRequestRecord
+                    const surface = (isStopping = false): JSX.Element => (
+                        <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
+                            <RunSurface.Composer isStopping={isStopping}>
+                                <DraftComposer />
+                            </RunSurface.Composer>
+                        </RunSurface.Root>
+                    )
+                    setValues({ pendingPermissionRequest: request })
+                    const { rerender } = render(surface())
+                    const card = screen.getByTestId('permission')
+                    const draft = screen.getByTestId('draft')
+                    expect(card).toBeVisible()
+                    setValues({ pendingPermissionRequest: request, respondingToPermission: transition === 'delivery' })
+                    rerender(surface(transition === 'cancellation'))
+                    expect(card).not.toBeVisible()
+                    expect(draft).toBeVisible()
+                    fireEvent.change(draft, { target: { value: 'a newer draft' } })
+                    setValues({ pendingPermissionRequest: request, respondingToPermission: false })
+                    rerender(surface())
+                    expect(screen.getByTestId('permission')).toBe(card)
+                    expect(card).toBeVisible()
+                    expect(draft).toHaveValue('a newer draft')
+                    act(() => {
+                        jest.advanceTimersByTime(150)
+                    })
+                    setValues({ pendingPermissionRequest: null })
+                    rerender(surface())
+                    expect(screen.getByTestId('draft')).toBe(draft)
+                    expect(draft).toBeVisible()
+                    expect(draft).toHaveValue('a newer draft')
+                } finally {
+                    cleanup()
+                    jest.useRealTimers()
+                }
+            }
+        )
 
         it('renders nothing in read-only mode', () => {
             setValues({ currentRunStatus: 'in_progress' })

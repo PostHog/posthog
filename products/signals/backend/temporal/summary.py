@@ -8,6 +8,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 import temporalio
@@ -26,8 +27,9 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.auto_start import maybe_autostart_from_report_artefacts
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SIGNALS_AT_RUN_INCREMENT, SignalReport, SignalTeamConfig
 from products.signals.backend.quota import (
     capture_signal_report_quota_paused,
     record_quota_check_failed_open,
@@ -56,9 +58,11 @@ from products.signals.backend.temporal.signal_queries import (
     fetch_signals_for_report_activity,
 )
 from products.signals.backend.temporal.types import (
-    RERESEARCH_MAX_SIGNALS,
+    IMPLEMENTATION_DEBOUNCE_SECONDS,
+    NEW_SELF_DRIVING_GRACE,
     SignalData,
     SignalReportSummaryWorkflowInputs,
+    next_research_bucket,
 )
 
 logger = structlog.get_logger(__name__)
@@ -126,9 +130,9 @@ class ReportDecision:
     # which does no research.
     charts: list[dict[str, Any]] | None = None
     # Suggested prompts to store with the title/summary. Always `[]`, because every decision carries
-    # a freshly written title and summary, and the pipeline does not author questions yet: whatever a
+    # a freshly written title and summary, and the pipeline does not author prompts yet: whatever a
     # scout suggested was written against the prose this decision replaces, so leaving it would put
-    # questions about the old report under the new one. Not a constant so the pipeline can author its
+    # prompts about the old report under the new one. Not a constant so the pipeline can author its
     # own set later without moving the write.
     suggested_prompts: list[str] = field(default_factory=list)
     # Which of the two doors into PENDING_INPUT produced this decision, so telemetry can tell a
@@ -369,6 +373,9 @@ class SignalReportSummaryWorkflow:
                 await self._revert_report_to_candidate(inputs)
                 return False
             # 4. Select repository for the agentic research
+            # Captured before the selection is resolved, so the research activity can tell whether
+            # a reviewer rewrote the report's repo selection while this run was in flight.
+            repo_selection_as_of = workflow.now()
             repo_result: RepoSelectionResult = await workflow.execute_activity(
                 select_repository_activity,
                 SelectRepositoryInput(
@@ -410,6 +417,7 @@ class SignalReportSummaryWorkflow:
                         report_id=inputs.report_id,
                         signals=fetch_result.signals,
                         repo_selection=repo_result,
+                        repo_selection_as_of=repo_selection_as_of,
                     ),
                     start_to_close_timeout=timedelta(hours=4),
                     heartbeat_timeout=timedelta(minutes=5),
@@ -506,6 +514,47 @@ class SignalReportSummaryWorkflow:
                     workflow.logger.exception(
                         f"Failed to publish report_completed notification for {inputs.report_id}",
                     )
+                # Start implementation once the report has settled, after an optional buffer. A signal
+                # landing just after the report went READY would otherwise ship a PR for a summary the
+                # re-research is about to rewrite; waiting lets that signal fold into a re-research run.
+                # Runs before the notification below on purpose: the notification decides whether to
+                # wait for the implementation PR from the task existing on its first check, so it has
+                # to find the task already created, and a buffer that ends in a re-research must not
+                # announce the summary that re-research is about to replace.
+                # The whole block is best-effort — the report is already READY, so a failure here must
+                # not flip it to FAILED via the outer handler. patched(): in-flight histories predate it
+                # and already auto-started from the research activity, so they skip this.
+                if workflow.patched("signals-autostart-on-settle"):
+                    try:
+                        buffer_seconds = await workflow.execute_activity(
+                            implementation_buffer_seconds_activity,
+                            ImplementationBufferInput(team_id=inputs.team_id),
+                            start_to_close_timeout=timedelta(minutes=1),
+                            retry_policy=RetryPolicy(maximum_attempts=3),
+                        )
+                        if buffer_seconds > 0:
+                            await workflow.sleep(timedelta(seconds=buffer_seconds))
+                            # A signal arriving during the wait collapsed into this run and re-promoted
+                            # the report; loop to re-research it rather than implement a stale summary.
+                            became_candidate = await workflow.execute_activity(
+                                report_is_candidate_activity,
+                                ReportIsCandidateInput(team_id=inputs.team_id, report_id=inputs.report_id),
+                                start_to_close_timeout=timedelta(minutes=1),
+                                retry_policy=RetryPolicy(maximum_attempts=3),
+                            )
+                            if became_candidate:
+                                log.info("New signal arrived during implementation buffer, looping to re-research")
+                                return True
+                        await workflow.execute_activity(
+                            maybe_autostart_implementation_activity,
+                            MaybeAutostartImplementationInput(team_id=inputs.team_id, report_id=inputs.report_id),
+                            start_to_close_timeout=timedelta(minutes=5),
+                            retry_policy=RetryPolicy(maximum_attempts=3),
+                        )
+                    except Exception:
+                        workflow.logger.exception(
+                            f"Implementation buffer/auto-start failed for {inputs.report_id}",
+                        )
                 # Slack notification is detached (ABANDON) so it can wait out the implementation PR.
                 # patched(): summary workflows already in flight at deploy replay the prior inline path.
                 try:
@@ -671,7 +720,9 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.IN_PROGRESS:
                 return report.run_count, True
-            updated_fields = report.transition_to(SignalReport.Status.IN_PROGRESS, signals_at_run_increment=3)
+            updated_fields = report.transition_to(
+                SignalReport.Status.IN_PROGRESS, signals_at_run_increment=SIGNALS_AT_RUN_INCREMENT
+            )
             report.save(update_fields=updated_fields)
             return report.run_count, False
 
@@ -720,7 +771,7 @@ class MarkReportReadyInput:
     # history that predates this field replays cleanly.
     charts: list[dict[str, Any]] | None = None
     # Suggested prompts to write alongside title/summary, same three states and same replay-safe
-    # default. The research pipeline passes `[]`: it doesn't author questions yet, and the ones a
+    # default. The research pipeline passes `[]`: it doesn't author prompts yet, and the ones a
     # scout wrote were written against the summary this transition is replacing.
     suggested_prompts: list[str] | None = None
 
@@ -741,6 +792,11 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 # Previous attempt took the re-promotion branch; preserve has_new_signals=True.
                 return True, report.run_count, True
             updated_fields = report.transition_to(SignalReport.Status.READY, title=input.title, summary=input.summary)
+            # The pass is only now known to have covered anything, so this is where the count the
+            # bucket schedule reads is written. A run that failed or paused earlier leaves the
+            # previous value standing and so leaves the report's next bucket where it was.
+            report.signals_researched = input.processed_signal_count
+            updated_fields = [*updated_fields, "signals_researched"]
             if input.charts is not None:
                 report.charts = input.charts
                 updated_fields = [*updated_fields, "charts"]
@@ -748,9 +804,13 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 report.suggested_prompts = input.suggested_prompts
                 updated_fields = [*updated_fields, "suggested_prompts"]
             report.save(update_fields=updated_fields)
-            # Loop to re-research only if new signals arrived and we're within the cap; past
-            # RERESEARCH_MAX_SIGNALS the report stays READY instead of re-running over a large set.
-            has_new_signals = input.processed_signal_count < report.signal_count <= RERESEARCH_MAX_SIGNALS
+            # Loop to re-research only if the signals that arrived during the run carried the report
+            # to its next bucket. Same predicate as the grouping promotion gate, so a signal landing
+            # mid-run is researched on the schedule it would have had if it had landed after. The
+            # bucket is strictly above what this run processed, so reaching it also means new
+            # signals arrived.
+            bucket = next_research_bucket(report.researched_signal_count)
+            has_new_signals = bucket is not None and report.signal_count >= bucket
             if has_new_signals:
                 # If more signals arrived while the report was being processed, we want to
                 # re-promote it back to candidate and loop to also process new signals
@@ -792,6 +852,75 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
         has_new_signals=has_new_signals,
     )
     return has_new_signals
+
+
+@frozen
+class ImplementationBufferInput:
+    team_id: int
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def implementation_buffer_seconds_activity(input: ImplementationBufferInput) -> int:
+    """Effective wait, in seconds, before a settled report starts its implementation task.
+
+    0 (no wait) when the buffer is disabled globally, or when the team is new to self-driving — a
+    team whose signals config was created within NEW_SELF_DRIVING_GRACE implements without the extra
+    delay while it's still evaluating the product. Otherwise IMPLEMENTATION_DEBOUNCE_SECONDS.
+    """
+    if IMPLEMENTATION_DEBOUNCE_SECONDS <= 0:
+        return 0
+    created_at = (
+        await SignalTeamConfig.objects.filter(team_id=input.team_id).values_list("created_at", flat=True).afirst()
+    )
+    if created_at is not None and (timezone.now() - created_at) < NEW_SELF_DRIVING_GRACE:
+        return 0
+    return IMPLEMENTATION_DEBOUNCE_SECONDS
+
+
+@frozen
+class ReportIsCandidateInput:
+    team_id: int
+    report_id: str
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def report_is_candidate_activity(input: ReportIsCandidateInput) -> bool:
+    """Whether the report is back in CANDIDATE.
+
+    A signal landing during the implementation buffer collapses into this workflow's id and
+    re-promotes the report, so a CANDIDATE status is the signal to re-research instead of
+    implementing the now-stale summary.
+    """
+    status = (
+        await SignalReport.objects.filter(id=input.report_id, team_id=input.team_id)
+        .values_list("status", flat=True)
+        .afirst()
+    )
+    return status == SignalReport.Status.CANDIDATE
+
+
+@frozen
+class MaybeAutostartImplementationInput:
+    team_id: int
+    report_id: str
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def maybe_autostart_implementation_activity(input: MaybeAutostartImplementationInput) -> None:
+    """Evaluate self-driving auto-start from the report's current artefacts, once it has settled.
+
+    Runs at the workflow's settle point (report READY, no pending signals) rather than per research
+    run, so the implementation task is scoped to the report's final summary — not whichever research
+    pass finished first. Idempotent: `maybe_autostart_from_report_artefacts` no-ops if an
+    implementation task already exists for the report.
+    """
+    await maybe_autostart_from_report_artefacts(team_id=input.team_id, report_id=input.report_id)
 
 
 @dataclass

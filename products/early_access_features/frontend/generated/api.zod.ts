@@ -11,7 +11,9 @@ import * as zod from 'zod'
 
 export const earlyAccessFeatureCreateBodyNameMax = 200
 
-export const earlyAccessFeatureCreateBodyDocumentationUrlMax = 800
+export const earlyAccessFeatureCreateBodyDocumentationUrlOneMax = 800
+
+export const earlyAccessFeatureCreateBodyDocumentationUrlTwoMax = 0
 
 export const EarlyAccessFeatureCreateBody = /* @__PURE__ */ zod
     .object({
@@ -29,8 +31,10 @@ export const EarlyAccessFeatureCreateBody = /* @__PURE__ */ zod
                 'Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha\/beta\/general-availability) enables the feature flag for opted-in users.\n\n\* `draft` - draft\n\* `concept` - concept\n\* `alpha` - alpha\n\* `beta` - beta\n\* `general-availability` - general availability\n\* `archived` - archived'
             ),
         documentation_url: zod
-            .url()
-            .max(earlyAccessFeatureCreateBodyDocumentationUrlMax)
+            .union([
+                zod.url().max(earlyAccessFeatureCreateBodyDocumentationUrlOneMax),
+                zod.string().max(earlyAccessFeatureCreateBodyDocumentationUrlTwoMax),
+            ])
             .optional()
             .describe('URL to external documentation for this feature. Shown to users in the opt-in UI.'),
         payload: zod.unknown().optional().describe('Arbitrary JSON metadata associated with this feature.'),
@@ -46,7 +50,9 @@ export const EarlyAccessFeatureCreateBody = /* @__PURE__ */ zod
 
 export const earlyAccessFeatureUpdateBodyNameMax = 200
 
-export const earlyAccessFeatureUpdateBodyDocumentationUrlMax = 800
+export const earlyAccessFeatureUpdateBodyDocumentationUrlOneMax = 800
+
+export const earlyAccessFeatureUpdateBodyDocumentationUrlTwoMax = 0
 
 export const EarlyAccessFeatureUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -64,8 +70,10 @@ export const EarlyAccessFeatureUpdateBody = /* @__PURE__ */ zod
                 'Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha\/beta\/general-availability) enables the feature flag for opted-in users.\n\n\* `draft` - draft\n\* `concept` - concept\n\* `alpha` - alpha\n\* `beta` - beta\n\* `general-availability` - general availability\n\* `archived` - archived'
             ),
         documentation_url: zod
-            .url()
-            .max(earlyAccessFeatureUpdateBodyDocumentationUrlMax)
+            .union([
+                zod.url().max(earlyAccessFeatureUpdateBodyDocumentationUrlOneMax),
+                zod.string().max(earlyAccessFeatureUpdateBodyDocumentationUrlTwoMax),
+            ])
             .optional()
             .describe('URL to external documentation for this feature. Shown to users in the opt-in UI.'),
     })
@@ -73,7 +81,9 @@ export const EarlyAccessFeatureUpdateBody = /* @__PURE__ */ zod
 
 export const earlyAccessFeaturePartialUpdateBodyNameMax = 200
 
-export const earlyAccessFeaturePartialUpdateBodyDocumentationUrlMax = 800
+export const earlyAccessFeaturePartialUpdateBodyDocumentationUrlOneMax = 800
+
+export const earlyAccessFeaturePartialUpdateBodyDocumentationUrlTwoMax = 0
 
 export const EarlyAccessFeaturePartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -96,8 +106,10 @@ export const EarlyAccessFeaturePartialUpdateBody = /* @__PURE__ */ zod
                 'Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha\/beta\/general-availability) enables the feature flag for opted-in users.\n\n\* `draft` - draft\n\* `concept` - concept\n\* `alpha` - alpha\n\* `beta` - beta\n\* `general-availability` - general availability\n\* `archived` - archived'
             ),
         documentation_url: zod
-            .url()
-            .max(earlyAccessFeaturePartialUpdateBodyDocumentationUrlMax)
+            .union([
+                zod.url().max(earlyAccessFeaturePartialUpdateBodyDocumentationUrlOneMax),
+                zod.string().max(earlyAccessFeaturePartialUpdateBodyDocumentationUrlTwoMax),
+            ])
             .optional()
             .describe('URL to external documentation for this feature. Shown to users in the opt-in UI.'),
     })

@@ -7,6 +7,8 @@ import {
 } from '~/ingestion/pipelines/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
 
+import { usableStopReason } from './middleware/stop-reason'
+
 const ATTRIBUTE_MAP: Record<string, string> = {
     'gen_ai.input.messages': '$ai_input',
     'gen_ai.output.messages': '$ai_output_choices',
@@ -279,14 +281,19 @@ function reconstructInputMessage(entry: Record<string, unknown>, eventName: stri
 }
 
 function reconstructOutputChoice(entry: Record<string, unknown>): Record<string, unknown> | null {
-    // Emit flat messages (matching newer-spec `gen_ai.output.messages`) so the
-    // frontend renderer picks them up directly. A `{ index, message }` wrapper
-    // would only be unwrapped by `isLiteLLMChoice`, which requires a
-    // `finish_reason` field we don't have.
+    // Emit flat messages (matching newer-spec `gen_ai.output.messages`) so the frontend renderer
+    // picks them up directly. The older spec reports `finish_reason` on the choice rather than on
+    // the message, so carry it onto the flat message, which is where the middlewares' stop-reason
+    // lift reads it.
+    const finishReason = usableStopReason(entry.finish_reason)
     if (typeof entry.message === 'object' && entry.message !== null && !Array.isArray(entry.message)) {
         // Shallow-copy so the downstream $ai_output_choices array does not
         // share references with the transient parsed `events` payload.
-        return { ...(entry.message as Record<string, unknown>) }
+        const message = { ...(entry.message as Record<string, unknown>) }
+        if (finishReason !== undefined && message.finish_reason === undefined) {
+            message.finish_reason = finishReason
+        }
+        return message
     }
     if ('role' in entry || 'content' in entry || 'tool_calls' in entry) {
         const message: Record<string, unknown> = {}
@@ -298,6 +305,9 @@ function reconstructOutputChoice(entry: Record<string, unknown>): Record<string,
         }
         if ('tool_calls' in entry) {
             message.tool_calls = entry.tool_calls
+        }
+        if (finishReason !== undefined) {
+            message.finish_reason = finishReason
         }
         return message
     }

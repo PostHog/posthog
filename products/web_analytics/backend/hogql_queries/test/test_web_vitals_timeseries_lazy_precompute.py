@@ -19,10 +19,10 @@ from posthog.schema import (
     EventsNode,
     IntervalType,
     PropertyOperator,
-    RetentionFilter,
-    RetentionQuery,
     TrendsFilter,
     TrendsQuery,
+    WebStatsBreakdown,
+    WebStatsTableQuery,
     WebVitalsQuery,
 )
 
@@ -260,9 +260,9 @@ class TestWebVitalsTimeseriesLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         # A schema-valid non-Trends source must fall through to the legacy source
         # unwrap, not raise in the runner constructor (which would surface as an
         # internal error rather than running the query).
-        query = WebVitalsQuery(source=RetentionQuery(retentionFilter=RetentionFilter()), properties=[]).model_dump(
-            mode="json"
-        )
+        query = WebVitalsQuery(
+            source=WebStatsTableQuery(breakdownBy=WebStatsBreakdown.PAGE, properties=[]), properties=[]
+        ).model_dump(mode="json")
         with patch(
             "products.web_analytics.backend.hogql_queries.web_vitals_timeseries_lazy_precompute.posthoganalytics.feature_enabled",
             return_value=True,

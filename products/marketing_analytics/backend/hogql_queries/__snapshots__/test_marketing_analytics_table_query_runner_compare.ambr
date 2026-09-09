@@ -49,7 +49,9 @@
   FROM
     campaign_costs
   ORDER BY
-    ID ASC
+    ID ASC,
+    Campaign ASC,
+    Source ASC
   LIMIT 101
   OFFSET 0
   '''
@@ -220,23 +222,23 @@
           conv.id,
           conv.source)
       SELECT
-        campaign_costs.id AS ID,
-        campaign_costs.campaign AS Campaign,
-        campaign_costs.source AS Source,
-        round(campaign_costs.total_cost, 2) AS Cost,
-        round(campaign_costs.total_clicks, 0) AS Clicks,
-        round(campaign_costs.total_impressions, 0) AS Impressions,
-        round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS CPC,
-        round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR,
-        round(campaign_costs.total_reported_conversions, 2) AS `Reported Conversions`,
-        round(campaign_costs.total_reported_conversion_value, 2) AS `Reported Conversion Value`,
-        round(divide(campaign_costs.total_reported_conversion_value, nullif(campaign_costs.total_cost, 0)), 2) AS `Reported ROAS`,
-        round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_reported_conversions, 0)), 2) AS `Cost per Reported Conversions`,
+        coalesce(nullif(campaign_costs.id, ''), nullif(ucg.id, ''), '-') AS ID,
+        coalesce(nullif(campaign_costs.campaign, ''), nullif(ucg.campaign, ''), 'organic') AS Campaign,
+        coalesce(nullif(campaign_costs.source, ''), nullif(ucg.source, ''), 'organic') AS Source,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(campaign_costs.total_cost, 2)) AS Cost,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(campaign_costs.total_clicks, 0)) AS Clicks,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(campaign_costs.total_impressions, 0)) AS Impressions,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2)) AS CPC,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2)) AS CTR,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(campaign_costs.total_reported_conversions, 2)) AS `Reported Conversions`,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(campaign_costs.total_reported_conversion_value, 2)) AS `Reported Conversion Value`,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(divide(campaign_costs.total_reported_conversion_value, nullif(campaign_costs.total_cost, 0)), 2)) AS `Reported ROAS`,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_reported_conversions, 0)), 2)) AS `Cost per Reported Conversions`,
         ucg.conversion_0 AS `Sign Up Conversions`,
-        round(divide(campaign_costs.total_cost, nullif(ucg.conversion_0, 0)), 2) AS `Cost per Sign Up Conversions`
+        if(empty(toString(campaign_costs.campaign)), NULL, round(divide(campaign_costs.total_cost, nullif(ucg.conversion_0, 0)), 2)) AS `Cost per Sign Up Conversions`
       FROM
         campaign_costs
-        LEFT JOIN ucg ON and(equals(campaign_costs.match_key, ucg.match_key), equals(campaign_costs.source, ucg.source)))
+        FULL OUTER JOIN ucg ON and(equals(campaign_costs.match_key, ucg.match_key), equals(campaign_costs.source, ucg.source)))
       UNION ALL
     SELECT
       'previous' AS _period,
@@ -384,23 +386,23 @@
           conv.id,
           conv.source)
       SELECT
-        campaign_costs.id AS ID,
-        campaign_costs.campaign AS Campaign,
-        campaign_costs.source AS Source,
-        round(campaign_costs.total_cost, 2) AS Cost,
-        round(campaign_costs.total_clicks, 0) AS Clicks,
-        round(campaign_costs.total_impressions, 0) AS Impressions,
-        round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS CPC,
-        round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR,
-        round(campaign_costs.total_reported_conversions, 2) AS `Reported Conversions`,
-        round(campaign_costs.total_reported_conversion_value, 2) AS `Reported Conversion Value`,
-        round(divide(campaign_costs.total_reported_conversion_value, nullif(campaign_costs.total_cost, 0)), 2) AS `Reported ROAS`,
-        round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_reported_conversions, 0)), 2) AS `Cost per Reported Conversions`,
+        coalesce(nullif(campaign_costs.id, ''), nullif(ucg.id, ''), '-') AS ID,
+        coalesce(nullif(campaign_costs.campaign, ''), nullif(ucg.campaign, ''), 'organic') AS Campaign,
+        coalesce(nullif(campaign_costs.source, ''), nullif(ucg.source, ''), 'organic') AS Source,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(campaign_costs.total_cost, 2)) AS Cost,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(campaign_costs.total_clicks, 0)) AS Clicks,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(campaign_costs.total_impressions, 0)) AS Impressions,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2)) AS CPC,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2)) AS CTR,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(campaign_costs.total_reported_conversions, 2)) AS `Reported Conversions`,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(campaign_costs.total_reported_conversion_value, 2)) AS `Reported Conversion Value`,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(divide(campaign_costs.total_reported_conversion_value, nullif(campaign_costs.total_cost, 0)), 2)) AS `Reported ROAS`,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_reported_conversions, 0)), 2)) AS `Cost per Reported Conversions`,
         ucg.conversion_0 AS `Sign Up Conversions`,
-        round(divide(campaign_costs.total_cost, nullif(ucg.conversion_0, 0)), 2) AS `Cost per Sign Up Conversions`
+        if(empty(toString(campaign_costs.campaign)), NULL, round(divide(campaign_costs.total_cost, nullif(ucg.conversion_0, 0)), 2)) AS `Cost per Sign Up Conversions`
       FROM
         campaign_costs
-        LEFT JOIN ucg ON and(equals(campaign_costs.match_key, ucg.match_key), equals(campaign_costs.source, ucg.source)))) AS combined
+        FULL OUTER JOIN ucg ON and(equals(campaign_costs.match_key, ucg.match_key), equals(campaign_costs.source, ucg.source)))) AS combined
   GROUP BY
     combined.Campaign,
     combined.Source
@@ -408,7 +410,9 @@
     greater(countIf(equals(combined._period, 'current')), 0)
   ORDER BY
     Cost DESC,
-    ID ASC
+    ID ASC,
+    Campaign ASC,
+    Source ASC
   LIMIT 101
   OFFSET 0
   '''
@@ -579,23 +583,23 @@
           conv.id,
           conv.source)
       SELECT
-        campaign_costs.id AS ID,
-        campaign_costs.campaign AS Campaign,
-        campaign_costs.source AS Source,
-        round(campaign_costs.total_cost, 2) AS Cost,
-        round(campaign_costs.total_clicks, 0) AS Clicks,
-        round(campaign_costs.total_impressions, 0) AS Impressions,
-        round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS CPC,
-        round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR,
-        round(campaign_costs.total_reported_conversions, 2) AS `Reported Conversions`,
-        round(campaign_costs.total_reported_conversion_value, 2) AS `Reported Conversion Value`,
-        round(divide(campaign_costs.total_reported_conversion_value, nullif(campaign_costs.total_cost, 0)), 2) AS `Reported ROAS`,
-        round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_reported_conversions, 0)), 2) AS `Cost per Reported Conversions`,
+        coalesce(nullif(campaign_costs.id, ''), nullif(ucg.id, ''), '-') AS ID,
+        coalesce(nullif(campaign_costs.campaign, ''), nullif(ucg.campaign, ''), 'organic') AS Campaign,
+        coalesce(nullif(campaign_costs.source, ''), nullif(ucg.source, ''), 'organic') AS Source,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(campaign_costs.total_cost, 2)) AS Cost,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(campaign_costs.total_clicks, 0)) AS Clicks,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(campaign_costs.total_impressions, 0)) AS Impressions,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2)) AS CPC,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2)) AS CTR,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(campaign_costs.total_reported_conversions, 2)) AS `Reported Conversions`,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(campaign_costs.total_reported_conversion_value, 2)) AS `Reported Conversion Value`,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(divide(campaign_costs.total_reported_conversion_value, nullif(campaign_costs.total_cost, 0)), 2)) AS `Reported ROAS`,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_reported_conversions, 0)), 2)) AS `Cost per Reported Conversions`,
         ucg.conversion_0 AS `Sign Up Conversions`,
-        round(divide(campaign_costs.total_cost, nullif(ucg.conversion_0, 0)), 2) AS `Cost per Sign Up Conversions`
+        if(empty(toString(campaign_costs.campaign)), NULL, round(divide(campaign_costs.total_cost, nullif(ucg.conversion_0, 0)), 2)) AS `Cost per Sign Up Conversions`
       FROM
         campaign_costs
-        LEFT JOIN ucg ON and(equals(campaign_costs.match_key, ucg.match_key), equals(campaign_costs.source, ucg.source)))
+        FULL OUTER JOIN ucg ON and(equals(campaign_costs.match_key, ucg.match_key), equals(campaign_costs.source, ucg.source)))
       UNION ALL
     SELECT
       'previous' AS _period,
@@ -743,23 +747,23 @@
           conv.id,
           conv.source)
       SELECT
-        campaign_costs.id AS ID,
-        campaign_costs.campaign AS Campaign,
-        campaign_costs.source AS Source,
-        round(campaign_costs.total_cost, 2) AS Cost,
-        round(campaign_costs.total_clicks, 0) AS Clicks,
-        round(campaign_costs.total_impressions, 0) AS Impressions,
-        round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS CPC,
-        round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR,
-        round(campaign_costs.total_reported_conversions, 2) AS `Reported Conversions`,
-        round(campaign_costs.total_reported_conversion_value, 2) AS `Reported Conversion Value`,
-        round(divide(campaign_costs.total_reported_conversion_value, nullif(campaign_costs.total_cost, 0)), 2) AS `Reported ROAS`,
-        round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_reported_conversions, 0)), 2) AS `Cost per Reported Conversions`,
+        coalesce(nullif(campaign_costs.id, ''), nullif(ucg.id, ''), '-') AS ID,
+        coalesce(nullif(campaign_costs.campaign, ''), nullif(ucg.campaign, ''), 'organic') AS Campaign,
+        coalesce(nullif(campaign_costs.source, ''), nullif(ucg.source, ''), 'organic') AS Source,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(campaign_costs.total_cost, 2)) AS Cost,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(campaign_costs.total_clicks, 0)) AS Clicks,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(campaign_costs.total_impressions, 0)) AS Impressions,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2)) AS CPC,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2)) AS CTR,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(campaign_costs.total_reported_conversions, 2)) AS `Reported Conversions`,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(campaign_costs.total_reported_conversion_value, 2)) AS `Reported Conversion Value`,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(divide(campaign_costs.total_reported_conversion_value, nullif(campaign_costs.total_cost, 0)), 2)) AS `Reported ROAS`,
+        if(empty(toString(campaign_costs.campaign)), NULL, round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_reported_conversions, 0)), 2)) AS `Cost per Reported Conversions`,
         ucg.conversion_0 AS `Sign Up Conversions`,
-        round(divide(campaign_costs.total_cost, nullif(ucg.conversion_0, 0)), 2) AS `Cost per Sign Up Conversions`
+        if(empty(toString(campaign_costs.campaign)), NULL, round(divide(campaign_costs.total_cost, nullif(ucg.conversion_0, 0)), 2)) AS `Cost per Sign Up Conversions`
       FROM
         campaign_costs
-        LEFT JOIN ucg ON and(equals(campaign_costs.match_key, ucg.match_key), equals(campaign_costs.source, ucg.source)))) AS combined
+        FULL OUTER JOIN ucg ON and(equals(campaign_costs.match_key, ucg.match_key), equals(campaign_costs.source, ucg.source)))) AS combined
   GROUP BY
     combined.Campaign,
     combined.Source
@@ -767,7 +771,9 @@
     greater(countIf(equals(combined._period, 'current')), 0)
   ORDER BY
     Cost DESC,
-    ID ASC
+    ID ASC,
+    Campaign ASC,
+    Source ASC
   LIMIT 101
   OFFSET 0
   '''
@@ -983,7 +989,9 @@
         greater(countIf(equals(combined._period, 'current')), 0)
       ORDER BY
         Cost DESC,
-        ID ASC
+        ID ASC,
+        Campaign ASC,
+        Source ASC
       LIMIT 101
       OFFSET 0
     ''',

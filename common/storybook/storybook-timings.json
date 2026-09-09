@@ -187,10 +187,6 @@
         "chromium": 1.667,
         "webkit": 1.22
     },
-    "frontend/src/lib/components/MarkdownEditor/inline/InlineRichMarkdownEditor.stories.tsx": {
-        "chromium": 12.076,
-        "webkit": 2.125
-    },
     "frontend/src/lib/components/MarkdownEditor/rich/RichMarkdownEditor.stories.tsx": {
         "chromium": 5.579,
         "webkit": 1.455
@@ -806,10 +802,6 @@
     "frontend/src/scenes/dashboard/dashboards/templates/DashboardTemplatesTable.stories.tsx": {
         "chromium": 5.93,
         "webkit": 1.497
-    },
-    "frontend/src/scenes/data-management/comments/Comments.stories.tsx": {
-        "chromium": 16.358,
-        "webkit": 2.867
     },
     "frontend/src/scenes/data-management/definition/DefinitionView.stories.tsx": {
         "chromium": 19.557,

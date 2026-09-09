@@ -29,6 +29,7 @@ export const SCOUT_NOTE_ORIGIN_LABEL: Record<string, string> = {
     report_dismissal: 'From a dismissal',
     report_discussion: 'From a discussion',
     report_feedback: 'From a rating',
+    report_reviewer_correction: 'From a reviewer change',
 }
 
 export function scoutNoteOriginLabel(origin: string): string {

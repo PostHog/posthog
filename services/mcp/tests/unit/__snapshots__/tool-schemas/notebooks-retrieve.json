@@ -2,6 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "short_id": {
+            "description": "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`.",
             "type": "string"
         }
     },

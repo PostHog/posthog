@@ -1,6 +1,6 @@
 import pytest
 
-from clickhouse_driver.errors import ServerException
+from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import (
@@ -261,3 +261,14 @@ def test_memory_limit_wraps_by_which_ceiling_was_hit(message, expected_per_query
     if is_cluster:
         assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
         assert classify_query_error(wrapped) == QueryErrorCategory.RATE_LIMITED
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        SocketTimeoutError("(clickhouse.example.com:9440)"),
+        NetworkError("Connection refused (clickhouse.example.com:9440)"),
+    ],
+)
+def test_failing_to_open_a_clickhouse_connection_is_transient(error):
+    assert isinstance(wrap_clickhouse_query_error(error), CH_TRANSIENT_ERRORS)

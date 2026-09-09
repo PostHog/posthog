@@ -12,7 +12,13 @@ from posthog.temporal.health_checks.framework import (
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
-REVERSE_PROXY_LOOKBACK_DAYS = 1
+# A week-wide window, wider than the daily schedule. A project with intermittent browser
+# traffic keeps at least one browser event in the window across single zero-traffic days,
+# so its verdict stays stable instead of flapping resolved-then-firing day to day.
+REVERSE_PROXY_LOOKBACK_DAYS = 7
+# Judge a team only when the window holds this many browser events. Below it, the query
+# cannot tell "no reverse proxy" apart from "not enough browser traffic to know".
+REVERSE_PROXY_MIN_BROWSER_EVENTS = 50
 REVERSE_PROXY_SQL = """
 SELECT team_id
 FROM events
@@ -20,7 +26,8 @@ WHERE team_id IN %(team_ids)s
   AND event IN ('$pageview', '$screen')
   AND timestamp >= now() - INTERVAL %(lookback_days)s DAY
 GROUP BY team_id
-HAVING countIf(JSONHas(properties, '$lib_custom_api_host')) = 0
+HAVING count() >= %(min_browser_events)s
+   AND countIf(JSONHas(properties, '$lib_custom_api_host')) = 0
 """
 
 
@@ -79,6 +86,7 @@ class ReverseProxyCheck(HealthCheck):
             REVERSE_PROXY_SQL,
             team_ids=team_ids,
             lookback_days=REVERSE_PROXY_LOOKBACK_DAYS,
+            params={"min_browser_events": REVERSE_PROXY_MIN_BROWSER_EVENTS},
         )
 
         issues: dict[int, list[HealthCheckResult]] = {}
