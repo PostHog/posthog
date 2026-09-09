@@ -1,12 +1,16 @@
 import type { ReactNode } from 'react'
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 
 import { Button } from '@posthog/quill-primitives'
 
 import { cn } from 'lib/utils/css-classes'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
-import { DiffEditor, DiffStats } from './EditDiffRenderer'
+import { DiffStats } from './DiffStats'
+import { EditorSkeleton } from './EditorSkeleton'
 import { getDiffStats } from './toolDiffContent'
+
+const DiffEditor = lazyWithRetry(() => import('./EditDiffRenderer').then((m) => ({ default: m.DiffEditor })))
 
 /** Collapsed body cap — roughly a dozen diff lines, per the permission-card evidence design. Must stay in sync with the `max-h-60` class below. */
 const COLLAPSED_MAX_HEIGHT_PX = 240
@@ -46,7 +50,14 @@ export function DiffEvidenceCard({ label, oldText, newText, path }: DiffEvidence
                 <DiffStats added={added} removed={removed} />
             </div>
             <div className={cn('min-w-0', collapsed && 'relative max-h-60 overflow-hidden')}>
-                <DiffEditor diff={{ type: 'diff', oldText, newText }} path={path} sideBySide hideUnchanged={false} />
+                <Suspense fallback={<EditorSkeleton />}>
+                    <DiffEditor
+                        diff={{ type: 'diff', oldText, newText }}
+                        path={path}
+                        sideBySide
+                        hideUnchanged={false}
+                    />
+                </Suspense>
                 {collapsed && (
                     <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-surface-primary to-transparent pointer-events-none" />
                 )}

@@ -8,6 +8,7 @@ import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { DiffStats } from './DiffStats'
 import { EditorSkeleton } from './EditorSkeleton'
 import { FilePath } from './FilePath'
 import { GenericMcpToolRenderer } from './GenericMcpToolRenderer'
@@ -105,15 +106,6 @@ export function DiffEditor({
                 <div className="h-24 rounded border border-border-secondary" />
             )}
         </div>
-    )
-}
-
-/** +added / -removed mono stat chip for a diff. */
-export function DiffStats({ added, removed }: { added: number; removed: number }): JSX.Element {
-    return (
-        <span className="font-mono text-xs shrink-0">
-            <span className="text-success">+{added}</span> <span className="text-danger">-{removed}</span>
-        </span>
     )
 }
 
