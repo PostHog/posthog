@@ -5342,6 +5342,17 @@ class HogFlowViewSet(
             .first()
         )
         suspended_at = suspension["email_sending_suspended_at"] if suspension else None
+
+        # The suspension notice is the one message this endpoint must always deliver, and it comes
+        # from Postgres. The allowance costs two ClickHouse aggregations, so it fails on its own and
+        # returns null, which the scene already reads as "no cap to warn about".
+        allowance = None
+        if self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
+            try:
+                allowance = _team_email_sending_allowance(self.team_id)
+            except Exception:
+                logger.exception("Failed to load the email sending allowance", team_id=self.team_id)
+
         return Response(
             EmailSendingSuspensionStatusSerializer(
                 {
@@ -5355,9 +5366,7 @@ class HogFlowViewSet(
                     "email_sending_provider_suspended": SesTenantState(
                         sending_status=suspension["ses_tenant_sending_status"] if suspension else ""
                     ).is_paused,
-                    "sending_allowance": _team_email_sending_allowance(self.team_id)
-                    if self.user_access_control.check_access_level_for_resource("hog_flow", "viewer")
-                    else None,
+                    "sending_allowance": allowance,
                 }
             ).data
         )

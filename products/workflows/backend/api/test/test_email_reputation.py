@@ -299,6 +299,28 @@ class TestEmailReputationAPI(APIBaseTest):
             assert tags.product == ProductKey.WORKFLOWS
             assert tags.feature == Feature.QUERY
 
+    def test_email_sending_suspension_endpoint_keeps_the_suspension_when_the_allowance_fails(self):
+        suspended_at = timezone.now().replace(microsecond=0)
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "email_sending_suspended_at": suspended_at,
+                "email_sending_suspension_reason": "critical bounce rate",
+            },
+        )
+
+        with patch(
+            "products.workflows.backend.api.hog_flow.fetch_app_metric_totals_by_team_and_source",
+            side_effect=Exception("ClickHouse is unreachable"),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/email_sending_suspension")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["sending_allowance"] is None
+        assert data["email_sending_suspended"] is True
+        assert data["email_sending_suspension_reason"] == "critical bounce rate"
+
     @parameterized.expand(
         [
             ("never synced", "", False),
