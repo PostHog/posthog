@@ -102,6 +102,42 @@ describe('hog-function-filtering', () => {
                 }
             `)
         })
+
+        it('should derive elements_chain from a legacy $elements payload', () => {
+            // Transformations and filters run before ingestion converts `$elements` into
+            // `$elements_chain`, so the derived chain globals must fall back to `$elements`.
+            const globals: HogFunctionInvocationGlobals = {
+                project: { id: 1, name: 'Test Project', url: 'http://example.com' },
+                event: {
+                    uuid: 'event_uuid',
+                    event: '$autocapture',
+                    distinct_id: 'user_123',
+                    properties: {
+                        $elements: [
+                            {
+                                tag_name: 'a',
+                                $el_text: 'Click me',
+                                attr__href: 'https://example.com',
+                                attr__id: 'button1',
+                                nth_child: 1,
+                                nth_of_type: 1,
+                            },
+                        ],
+                    },
+                    elements_chain: '',
+                    timestamp: '2025-01-01T00:00:00.000Z',
+                    url: 'http://example.com/event',
+                },
+            }
+
+            const response = convertToHogFunctionFilterGlobal(globals)
+
+            expect(response.elements_chain).toContain('a:')
+            expect(response.elements_chain_href).toBe('https://example.com')
+            expect(response.elements_chain_texts).toEqual(['Click me'])
+            expect(response.elements_chain_ids).toEqual(['button1'])
+            expect(response.elements_chain_elements).toEqual(['a'])
+        })
     })
     describe('convertClickhouseRawEventToFilterGlobals', () => {
         it('should convert RawClickHouseEvent to HogFunctionFilterGlobals with basic event data', () => {
