@@ -21,7 +21,7 @@ class TestPersonPropertyMutationLog(TestCase):
             restricted_properties=set(),
         )
 
-    def test_point_lookup_scopes_tenant_and_retention(self) -> None:
+    def test_point_lookup_scopes_tenant(self) -> None:
         query = resolve_types(
             parse_select(
                 "SELECT properties FROM posthog.person_property_mutation_log WHERE event_uuid = '0192a5c8-0000-0000-0000-000000000000' LIMIT 1"
@@ -31,8 +31,6 @@ class TestPersonPropertyMutationLog(TestCase):
         )
         sql = print_prepared_ast(query, self.context, "clickhouse")
         self.assertIn("equals(person_property_mutation_log.team_id, 42)", sql)
-        self.assertIn("greater(person_property_mutation_log.ingested_at", sql)
-        self.assertIn("toIntervalDay(30)", sql)
         self.assertIn("equals(person_property_mutation_log.event_uuid", sql)
         self.assertNotIn("JOIN", sql)
 

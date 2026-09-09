@@ -131,7 +131,7 @@ Add new tables and fields as needed! Just make sure each table has a `team_id` c
 `posthog.person_property_mutation_log` stores the submitted `$set`, `$set_once`, and `$unset` payloads for an event.
 These are attempted updates, not the resulting person snapshot: `$set_once` can include values that were already set and therefore did not change.
 The table contains `team_id`, `event_uuid`, `properties` (JSON), and `ingested_at` (UTC Kafka message timestamp).
-HogQL applies the current project's tenant filter and hides rows older than 30 days, even before the storage TTL removes them.
+HogQL applies the current project's tenant filter. Retention relies on the ClickHouse storage TTL.
 
 ```sql
 SELECT properties
@@ -146,7 +146,7 @@ Event-property restrictions on `$set`, `$set_once`, and `$unset` remove those ke
 
 Query this table separately. HogQL rejects joins involving it, including joins through aliases, subqueries, and CTEs.
 Event details perform this point lookup and display the payloads alongside the event, including unset property names.
-An absent row means no retained mutation payload was found; events without updates, expired entries, and events predating ingestion setup all produce this result.
+An absent row means no retained mutation payload was found; events without updates, entries removed by TTL, and events predating ingestion setup all produce this result.
 Embedded mutation properties on older events remain visible.
 
 Storage lives on AUX, ordered by `(team_id, event_uuid)` with daily partitions and a 30-day TTL.

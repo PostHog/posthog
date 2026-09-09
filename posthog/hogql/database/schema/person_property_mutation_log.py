@@ -1,6 +1,5 @@
 from typing import TYPE_CHECKING
 
-from posthog.hogql import ast
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     FieldOrTable,
@@ -10,14 +9,13 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.errors import QueryError
-from posthog.hogql.parser import parse_expr
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
 
 
 class PersonPropertyMutationLogTable(Table):
-    description: str = "Person property updates submitted with events, retained for 30 days after ingestion. Query separately by event_uuid; joins are not supported."
+    description: str = "Person property updates submitted with events, with a 30-day storage TTL. Query separately by event_uuid; joins are not supported."
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
         "event_uuid": UUIDDatabaseField(
@@ -47,6 +45,3 @@ class PersonPropertyMutationLogTable(Table):
 
     def to_printed_hogql(self) -> str:
         return "person_property_mutation_log"
-
-    def get_predicates(self, context: "HogQLContext | None" = None) -> list[ast.Expr]:
-        return [parse_expr("ingested_at > now() - INTERVAL 30 DAY")]
