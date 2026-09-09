@@ -31,7 +31,7 @@ import {
 import type { ObservationStatsApi, ScannerImpactApi } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { replayScannerLogic } from './replayScannerLogic'
-import type { ObservationVerdictValue, ObservationsUrlParams } from './replayScannerLogic'
+import type { ObservationVerdictValue } from './replayScannerLogic'
 import type { ClassifierTagStats, CoverageStats, MonitorStats, ScorerHistogram, ScorerSummary } from './scannerStats'
 import {
     availableTagsFromStats,
@@ -43,7 +43,13 @@ import {
     deriveScorerSummary,
     isAwaitingFirstResults,
 } from './scannerStats'
-import { type ReplayScanner, type ScannerFormValues, type ScannerType, scannerFromApi } from './types'
+import {
+    type ObservationsUrlParams,
+    type ReplayScanner,
+    type ScannerFormValues,
+    type ScannerType,
+    scannerFromApi,
+} from './types'
 
 export interface ScannerOverviewLogicProps {
     scannerId: string

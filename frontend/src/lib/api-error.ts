@@ -6,6 +6,9 @@ export function isAccessDeniedError(error: { status?: number; code?: string | nu
     return error.status === 403 && error.code === 'permission_denied'
 }
 
+/** DRF code for `ClickHouseQueryMemoryLimitExceeded` (posthog/exceptions.py). Keep in sync with the backend. */
+export const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
+
 /**
  * A 409 from the approvals gate: the change was policy-gated and a change request was created,
  * or one is already pending. Approval 409 bodies always carry `change_request_id`
@@ -31,6 +34,51 @@ function isTransientGatewayStatus(status: number | undefined): boolean {
  */
 export function isTransientServerError(error: unknown): boolean {
     return error instanceof ApiError && isTransientGatewayStatus(error.status)
+}
+
+/**
+ * A route the backend does not serve: the path is unknown (404), or it is known but does not accept
+ * the method (405). Both are what a deploy in progress looks like from the browser, since the
+ * frontend bundle can reach a backend that does not have the endpoint yet. A new `detail=False`
+ * DRF action reads as 405 rather than 404, because the router still matches the detail route and
+ * only then refuses the method.
+ *
+ * This is deliberately not part of `shouldReportApiFailure`: a 404 on a resource the app expects to
+ * exist is a real defect, so only a caller that already degrades to a partial view should excuse
+ * one. Use it there, next to the code that renders the degraded state.
+ */
+export function isUnavailableEndpointError(error: unknown): boolean {
+    if (error === null || typeof error !== 'object') {
+        return false
+    }
+    const status = (error as { status?: number }).status
+    return status === 404 || status === 405
+}
+
+/**
+ * The DRF `detail` values `posthog/api/routing.py` raises when a URL's scope no longer resolves.
+ * This is user-facing copy that the backend plans to rename (`Project` to `Environment`), so the
+ * match is fragile: keep this set in sync with those raise sites, which point back here.
+ */
+const SCOPE_NOT_FOUND_DETAILS: ReadonlySet<string> = new Set(['Project not found.', 'Organization not found.'])
+
+/**
+ * A 404 raised because the project or organization in the URL no longer resolves - it was deleted,
+ * or the user lost access to it. Every endpoint under that scope answers the same way, so the
+ * failure describes the URL the user sits on rather than the request that hit it, and repeating
+ * that request cannot make it succeed.
+ *
+ * Narrower than `isUnavailableEndpointError` on purpose, and unlike that one it is safe to excuse
+ * globally: a dead scope is read off the `detail`, so a 404 from a resource the app expects to
+ * exist still reports.
+ */
+export function isScopeNotFoundError(error: unknown): boolean {
+    const failure = error as { status?: unknown; detail?: unknown; data?: { detail?: unknown } } | null
+    if (failure?.status !== 404) {
+        return false
+    }
+    const detail = failure.detail ?? failure.data?.detail
+    return typeof detail === 'string' && SCOPE_NOT_FOUND_DETAILS.has(detail)
 }
 
 /** The 403 gates `apiStatusLogic` recovers from, keyed by the DRF `code` the backend sends. */
@@ -101,6 +149,9 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  * - 403 `permission_denied` — the sceneLogic gates render the AccessDenied scene.
  * - 403 auth gates — `apiStatusLogic` opens 2FA setup, re-verification, or a re-auth prompt.
  * - 409 carrying a `change_request_id` — the approvals UI shows the change request it created.
+ * - 404 `Project not found.` / `Organization not found.` — the scope in the URL is gone, so every
+ *   request under it fails the same way. The scene routing takes the user off that URL, and until
+ *   it does, a poll on the dead scope would otherwise file one exception per tick.
  * - 502/503/504 — the gateway couldn't reach the backend, so application code is not at fault.
  *
  * Left unreported for a second reason, that there is nothing to fix:
@@ -132,6 +183,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
         return true
     }
     if (status === 401 || isTransientGatewayStatus(status)) {
+        return false
+    }
+    if (isScopeNotFoundError(failure)) {
         return false
     }
     if (isAccessDeniedError(failure)) {

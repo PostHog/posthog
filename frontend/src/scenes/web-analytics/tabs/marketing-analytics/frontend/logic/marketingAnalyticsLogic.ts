@@ -241,6 +241,7 @@ const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
 export interface marketingAnalyticsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     conversion_goals: ConversionGoalFilter[] // marketingAnalyticsSettingsLogic
+    filter_test_accounts: boolean // marketingAnalyticsSettingsLogic
     sources_map: Record<string, SourceMap> // marketingAnalyticsSettingsLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourceManagementLogic
     dataWarehouseSourcesLoading: boolean // sourceManagementLogic
@@ -305,8 +306,10 @@ export interface marketingAnalyticsLogicValues {
     loading: boolean
     nativeSources: ExternalDataSource[]
     nativeSourcesHierarchyStatus: NativeSourceHierarchyStatus[]
+    optionsOpen: boolean
     overviewQuery: MarketingAnalyticsAggregatedQuery
     setupSection: SetupSection
+    shouldFilterTestAccounts: boolean
     tileColumnSelection: validColumnsForTiles
     uniqueConversionGoalName: string
     validExternalTables: ExternalTable[]
@@ -321,6 +324,9 @@ export interface marketingAnalyticsLogicActions {
     reloadAll: () => {} // dataNodeCollectionLogic
     addOrUpdateConversionGoal: (conversionGoal: ConversionGoalFilter) => {
         conversionGoal: ConversionGoalFilter
+    } // marketingAnalyticsSettingsLogic
+    updateFilterTestAccounts: (filterTestAccounts: boolean) => {
+        filterTestAccounts: boolean
     } // marketingAnalyticsSettingsLogic
     loadDatabase: (
         args_0?:
@@ -432,6 +438,9 @@ export interface marketingAnalyticsLogicActions {
     setIntegrationFilter: (integrationFilter: IntegrationFilter) => {
         integrationFilter: IntegrationFilter
     }
+    setOptionsOpen: (optionsOpen: boolean) => {
+        optionsOpen: boolean
+    }
     setSetupSection: (section: SetupSection) => {
         section: SetupSection
     }
@@ -451,6 +460,7 @@ export interface marketingAnalyticsLogicActions {
         dateFrom?: string | null
         dateTo?: string | null
         drillDownLevel?: MarketingAnalyticsDrillDownLevel
+        includeNonIntegrated?: boolean
         integrationSourceIds?: string[]
         interval?: IntervalType
         tileColumnSelection?: string
@@ -462,6 +472,7 @@ export interface marketingAnalyticsLogicActions {
             dateFrom?: string | null | undefined
             dateTo?: string | null | undefined
             drillDownLevel?: MarketingAnalyticsDrillDownLevel | undefined
+            includeNonIntegrated?: boolean | undefined
             integrationSourceIds?: string[] | undefined
             interval?: IntervalType | undefined
             tileColumnSelection?: string | undefined
@@ -567,6 +578,7 @@ export interface marketingAnalyticsLogicMeta {
             tileColumnSelection: validColumnsForTiles,
             integrationFilter: IntegrationFilter
         ) => DataWarehouseNode[]
+        shouldFilterTestAccounts: (filter_test_accounts: boolean) => boolean
         overviewQuery: (
             dateFilter: {
                 dateFrom: string | null
@@ -575,7 +587,8 @@ export interface marketingAnalyticsLogicMeta {
             },
             compareFilter: CompareFilter,
             draftConversionGoal: ConversionGoalFilter | null,
-            integrationFilter: IntegrationFilter
+            integrationFilter: IntegrationFilter,
+            shouldFilterTestAccounts: boolean
         ) => MarketingAnalyticsAggregatedQuery
     }
 }
@@ -594,7 +607,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             teamLogic,
             ['baseCurrency'],
             marketingAnalyticsSettingsLogic,
-            ['sources_map', 'conversion_goals'],
+            ['sources_map', 'conversion_goals', 'filter_test_accounts'],
             sourceManagementLogic,
             ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
             featureFlagLogic,
@@ -606,7 +619,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             dataNodeCollectionLogic({ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }),
             ['reloadAll'],
             marketingAnalyticsSettingsLogic,
-            ['addOrUpdateConversionGoal'],
+            ['addOrUpdateConversionGoal', 'updateFilterTestAccounts'],
             teamLogic,
             ['addProductIntent'],
         ],
@@ -634,6 +647,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             interval,
         }),
         setIntegrationFilter: (integrationFilter: IntegrationFilter) => ({ integrationFilter }),
+        setOptionsOpen: (optionsOpen: boolean) => ({ optionsOpen }),
         // Internal action for URL sync - updates state without triggering actionToUrl
         syncFromUrl: (params: {
             dateFrom?: string | null
@@ -642,6 +656,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             compare?: boolean
             compare_to?: string
             integrationSourceIds?: string[]
+            includeNonIntegrated?: boolean
             chartDisplayType?: ChartDisplayType
             tileColumnSelection?: string
             drillDownLevel?: MarketingAnalyticsDrillDownLevel
@@ -710,13 +725,21 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     },
                 },
             ],
+            optionsOpen: [false as boolean, { setOptionsOpen: (_, { optionsOpen }) => optionsOpen }],
             integrationFilter: [
                 { integrationSourceIds: [] } as IntegrationFilter,
                 persistConfig,
                 {
                     setIntegrationFilter: (_, { integrationFilter }) => integrationFilter,
-                    syncFromUrl: (state, { params }) =>
-                        params.integrationSourceIds ? { integrationSourceIds: params.integrationSourceIds } : state,
+                    syncFromUrl: (state, { params }) => {
+                        if (!params.integrationSourceIds && params.includeNonIntegrated === undefined) {
+                            return state
+                        }
+                        return {
+                            integrationSourceIds: params.integrationSourceIds ?? state.integrationSourceIds,
+                            includeNonIntegrated: params.includeNonIntegrated ?? state.includeNonIntegrated,
+                        }
+                    },
                 },
             ],
             dateFilter: [
@@ -1224,8 +1247,18 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 return [...nativeNodeList, ...nonNativeNodeList]
             },
         ],
+        shouldFilterTestAccounts: [
+            (s) => [s.filter_test_accounts],
+            (filter_test_accounts: boolean): boolean => filter_test_accounts,
+        ],
         overviewQuery: [
-            (s) => [s.dateFilter, s.compareFilter, s.draftConversionGoal, s.integrationFilter],
+            (s) => [
+                s.dateFilter,
+                s.compareFilter,
+                s.draftConversionGoal,
+                s.integrationFilter,
+                s.shouldFilterTestAccounts,
+            ],
             (
                 dateFilter: {
                     dateFrom: string | null
@@ -1234,7 +1267,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 },
                 compareFilter: CompareFilter,
                 draftConversionGoal: ConversionGoalFilter | null,
-                integrationFilter: IntegrationFilter
+                integrationFilter: IntegrationFilter,
+                shouldFilterTestAccounts: boolean
             ): MarketingAnalyticsAggregatedQuery => ({
                 kind: NodeKind.MarketingAnalyticsAggregatedQuery,
                 dateRange: {
@@ -1243,6 +1277,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 },
                 compareFilter,
                 properties: [],
+                filterTestAccounts: shouldFilterTestAccounts,
                 draftConversionGoal: draftConversionGoal || undefined,
                 integrationFilter,
             }),
@@ -1284,6 +1319,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             // Integration filter
             if (values.integrationFilter?.integrationSourceIds?.length) {
                 searchParams.set('integration_sources', values.integrationFilter.integrationSourceIds.join(','))
+            }
+            // Only the cleared state travels: absent means included, which is the default.
+            if (values.integrationFilter?.includeNonIntegrated === false) {
+                searchParams.set('include_non_integrated', 'false')
             }
 
             // Chart display type
@@ -1453,6 +1492,9 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         const integrationSources = searchParams.get('integration_sources')
         if (integrationSources) {
             params.integrationSourceIds = integrationSources.split(',').filter(Boolean)
+        }
+        if (searchParams.get('include_non_integrated') === 'false') {
+            params.includeNonIntegrated = false
         }
         const chartDisplayType = searchParams.get('chart_display_type') as ChartDisplayType | null
         if (chartDisplayType && Object.values(ChartDisplayType).includes(chartDisplayType)) {

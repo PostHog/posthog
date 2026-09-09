@@ -42,7 +42,7 @@ export const EarlyAccessFeatureCreateBody = /* @__PURE__ */ zod
             .number()
             .optional()
             .describe(
-                'Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not be group-based, and must not be multivariate.'
+                'Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not belong to another product such as a survey or experiment, must not be group-based, and must not be multivariate.'
             ),
         _create_in_folder: zod.string().optional(),
     })

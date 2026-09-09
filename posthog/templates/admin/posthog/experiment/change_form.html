@@ -88,4 +88,7 @@
             {% endif %}
         </div>
     {% endif %}
+    {% if original %}
+        {% include "admin/experiments/_recalculation_panel.html" with panel=recalculation_panel %}
+    {% endif %}
 {% endblock %}

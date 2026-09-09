@@ -71,15 +71,14 @@ from posthog.tasks.tasks import (
 from posthog.tasks.team_llm_gateway_policy import refresh_expiring_llm_gateway_policy_cache_entries
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.tasks.uploaded_media import sweep_abandoned_media_uploads_task
+from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credentials
 from posthog.utils import get_crontab, get_instance_region
 
 from products.approvals.backend.tasks import expire_old_change_requests, validate_pending_change_requests
 from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
-from products.conversations.backend.tasks import (
-    flush_pending_email_replies,
-    poll_teams_shared_channels,
-    wake_snoozed_tickets,
-)
+from products.conversations.backend.tasks.email import flush_pending_email_replies
+from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
+from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
 from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
@@ -104,6 +103,7 @@ from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.tasks import (
     pause_inactive_signal_scouts,
+    prune_expired_scratchpad_entries_task,
     refresh_signal_repository_activity,
     sync_pending_signals_refund_credits,
 )
@@ -124,12 +124,14 @@ from products.tasks.backend.facade.tasks import (
     sweep_inactive_tasks_task,
     sweep_loop_task_retention_task,
 )
+from products.visual_review.backend.facade.tasks import sweep_visual_review_retention
 from products.warehouse_sources.backend.facade.tasks import sweep_stopped_schema_syncs
 from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
     reap_stale_prewarm_heatmaps,
     report_stuck_heatmap_screenshots,
 )
+from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.tasks.email_sending_tiers import recompute_workflows_email_sending_tiers
 from products.workflows.backend.tasks.ses_account_reputation import poll_ses_account_reputation
 from products.workflows.backend.tasks.ses_tenant_state import reconcile_ses_tenant_states
@@ -226,6 +228,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="tasks run state metrics",
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/2"),
+        reconcile_wizard_runs.s(),
+        name="reconcile wizard runs",
+    )
+
     sender.add_periodic_task(10, redis_heartbeat.s(), name="10 sec heartbeat")
     sender.add_periodic_task(
         QueryStatusManager.POLL_INTERVAL_SECONDS,
@@ -237,6 +246,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="0"),
         schedule_warming_for_teams_task.s(),
         name="schedule warming for largest teams",
+    )
+
+    # Wizard abuse blocklist sweep - every 10 minutes. Consent already refuses a
+    # banned user a new gateway-scoped grant; this is what reaches the credentials
+    # issued before the ban, which is the only thing the legacy gateway reads.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        revoke_blocklisted_gateway_credentials.s(),
+        name="wizard blocklist gateway credential revoke",
     )
 
     # Team metadata cache sync - hourly
@@ -349,6 +368,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="6", minute="15"),
         pause_inactive_signal_scouts.s(),
         name="pause inactive signals scouts",
+    )
+
+    # Hard-delete signals scratchpad entries long past their expiry - daily at 6:45 AM
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="6", minute="45"),
+        prune_expired_scratchpad_entries_task.s(),
+        name="prune expired signals scratchpad entries",
     )
 
     # Keep the signals repository area-activity cache warm - weekly, Monday early morning
@@ -992,6 +1019,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="0"),
         prune_old_streamlit_app_versions.s(),
         name="prune old streamlit app versions",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="2", minute=str(randrange(0, 40))),
+        sweep_visual_review_retention.s(),
+        name="sweep visual review retention",
     )
 
     sender.add_periodic_task(

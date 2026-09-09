@@ -135,6 +135,24 @@ if: >
 Measured on a self-cancelled run ([evidence](https://github.com/PostHog/posthog/actions/runs/33513529687)): the bare `!cancelled()` gate recorded `cancelled`, the OR-ed gate ran and recorded `failure`.
 Only superseded runs then report `cancelled`, and every real failure keeps a `failure` conclusion.
 
+**A failure-rate metric keyed on a gate job must exclude `cancelled`.**
+Only `success` and a decisive failure are a verdict, so a denominator that counts `cancelled` measures push behavior, not test health.
+Find those rows through the _run's_ conclusion, not the gate job's.
+The gate job's own conclusion changed on 2026-09-04: a superseded gate recorded `failure` before that date and records `cancelled` after it.
+A metric that drops the superseded rows from the numerator and the denominator stays comparable across that date.
+One that filters on the gate job's conclusion alone does not.
+The run's conclusion lives in the warehouse table `github_workflow_runs`.
+The `posthog-ci-running-time` event cannot supply it: the action fills that event's `conclusion` property from the job named in its `status-job` input, and every caller passes a gate job name.
+It writes the same value to the `workflow_run` group, so both of those fields carry a gate conclusion under a run-shaped name.
+A metric keyed on jobs joins `github_workflow_jobs` to that table on `run_id`, then scopes the job side to a single `run_attempt`.
+The runs snapshot keeps one row per run id, at its newest attempt, so an unscoped read stamps that conclusion onto every earlier attempt's gate and counts the gate once per attempt.
+Do not enforce that scope by joining `run_attempt` equality: it blanks or drops every earlier attempt, which is the population that actually ran after a partial re-run (`products/engineering_analytics/backend/logic/views/job_costs.py` records that decision).
+Reuse the canonical predicates instead of writing a new denominator: `CONCLUSIVE_RUN_CONDITION` in `products/engineering_analytics/backend/logic/queries/_workflow_filters.py`, and `computeHealthSummary` in `products/engineering_analytics/frontend/lib/runHealth.ts`.
+That run-level key identifies superseded runs only where the workflow never cancels its own run.
+Where it does (the rule above), a deterministic failure records run conclusion `cancelled` too, so the canonical predicates drop that honest `failure` together with the superseded rows.
+Measured on Backend CI [run 34204389260](https://github.com/PostHog/posthog/actions/runs/34204389260): the run recorded `cancelled` while the `Django Tests Pass` gate recorded `failure`.
+Keep those rows in the numerator and the denominator, and find them through the cancel jobs: each one dispatches only on its deterministic-failure signal, so a `success` from any of them marks that population on both sides of 2026-09-04.
+
 Four rules for the gate body:
 
 1. **Allowlist every dependency, never denylist.** Assert `success`/`skipped` and fail everything else.
@@ -298,7 +316,7 @@ The default is 6 hours — a hung job burns paid minutes silently.
 
 ## Caching
 
-Route through the shared composites rather than hand-rolling `actions/cache`: `./.github/actions/pnpm-install` (single `pnpm-<os>-<lockhash>` key, save gated to master), `astral-sh/setup-uv` with `enable-cache: true`, Depot cache via `./.github/actions/build-n-cache-image`.
+Route through the shared composites rather than hand-rolling `actions/cache`: `./.github/actions/pnpm-install` (single `pnpm-<os>-<lockhash>` key, restore only; `pnpm-store-cache.yml` writes it on master), `astral-sh/setup-uv` with `enable-cache: true`, Depot cache via `./.github/actions/build-n-cache-image`.
 One canonical key per artifact; gate saves to master or key deliberately per-ref.
 PR-scoped cache writes nobody else can read just fragment the 10 GB LRU cap.
 
@@ -360,16 +378,20 @@ Those suites skip `push` and take their master coverage — and their Trunk flak
 
 Crons are offset so the runs do not all fire at once, and the offsets live here rather than in the workflows:
 
-| Workflow          | Minute |
-| ----------------- | ------ |
-| `ci-frontend.yml` | 7      |
-| `ci-nodejs.yml`   | 13     |
-| `ci-backend.yml`  | 23     |
-| `ci-dagster.yml`  | 33     |
-| `ci-python.yml`   | 43     |
-| `ci-mcp.yml`      | 53     |
+| Workflow                            | Minute |
+| ----------------------------------- | ------ |
+| `ci-frontend.yml`                   | 7      |
+| `ci-nodejs.yml`                     | 13     |
+| `ci-backend.yml`                    | 23     |
+| `ci-dagster.yml`                    | 33     |
+| `ci-python.yml`                     | 43     |
+| `ci-mcp.yml`                        | 53     |
+| `ci-backend-update-test-timing.yml` | 17     |
 
 Adding a seventh: pick an unused minute, add the row, and keep the gap at ten minutes.
+
+`ci-backend-update-test-timing.yml` sits in the table too.
+It is one small job that merges the artifacts of the hourly runs, not a suite, so it does not need the ten-minute gap.
 
 **Give the cron its own concurrency group.**
 `cancel-in-progress` is false outside pull requests, but GitHub still keeps at most one _pending_ run per group, so a newer run replaces an older pending one.

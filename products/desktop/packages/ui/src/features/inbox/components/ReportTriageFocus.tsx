@@ -161,7 +161,7 @@ export function ReportTriageFocus({
   const { prefetch } = useInboxReportDetailPrefetch(
     report
       ? {
-          to: "/inbox/reports/$reportId",
+          to: "/reports/$reportId",
           params: { reportId: report.id },
         }
       : null,

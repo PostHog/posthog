@@ -31,6 +31,7 @@ from typing import Any, Optional
 from products.growth.backend.enrichment.icp_lists import CuratedLists, norm
 
 SCORE_VERSION = "v0.6"
+AI_PILLED_POINTS = 15
 
 STATUS_SCORED = "scored"
 STATUS_INSUFFICIENT_DATA = "insufficient_data"
@@ -199,11 +200,11 @@ def score_company(
     capital = min(30, capital + (10 if quality else 0))
 
     description = payload.get("description") or payload.get("short_description") or ""
-    # AI tags, AI language in the description, or a .ai signup domain all qualify in full.
-    harmonic_ai = bool(
-        tags & lists.ai_positive or (description and AI_DESC.search(description)) or (domain or "").endswith(".ai")
-    )
-    ai_pilled = 15 if (harmonic_ai or wizard_ai_sdk) else 0
+    has_ai_tag = bool(tags & lists.ai_positive)
+    has_ai_description = bool(description and AI_DESC.search(description))
+    has_ai_domain = (domain or "").endswith(".ai")
+    harmonic_ai = has_ai_tag or has_ai_description or has_ai_domain
+    ai_pilled = AI_PILLED_POINTS if (harmonic_ai or wizard_ai_sdk) else 0
     ai_pilled_source = (
         "both" if harmonic_ai and wizard_ai_sdk else "harmonic" if harmonic_ai else "wizard" if wizard_ai_sdk else None
     )

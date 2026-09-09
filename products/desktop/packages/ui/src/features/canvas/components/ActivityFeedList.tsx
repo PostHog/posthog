@@ -10,10 +10,10 @@ import {
   EmptyMedia,
   EmptyTitle,
   MenuLabel,
-  Spinner,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { SignalReport } from "@posthog/shared/types";
+import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { ActivityActionsMenu } from "@posthog/ui/features/canvas/components/ActivityActionsMenu";
@@ -23,6 +23,7 @@ import { InboxActivityOverflowRow } from "@posthog/ui/features/canvas/components
 import { InboxActivityRow } from "@posthog/ui/features/canvas/components/InboxActivityRow";
 import { openActivityItem } from "@posthog/ui/features/canvas/components/openActivityItem";
 import { SidebarSearchHeader } from "@posthog/ui/features/canvas/components/SidebarSearchHeader";
+import { useActivityTaskMenu } from "@posthog/ui/features/canvas/hooks/useActivityTaskMenu";
 import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useInboxActivityPreview } from "@posthog/ui/features/canvas/hooks/useInboxActivityPreview";
 import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
@@ -30,6 +31,8 @@ import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMa
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { track } from "@posthog/ui/shell/analytics";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import {
@@ -68,6 +71,7 @@ export function ActivityFeedList({
   });
   const taskActivity = useTaskActivity({ enabled: mentionsIncluded });
   const inboxActivity = useInboxActivityPreview();
+  const archivedTaskIds = useArchivedTaskIds();
   const {
     unreadItems,
     feedItems,
@@ -83,6 +87,7 @@ export function ActivityFeedList({
         mentionsIncluded,
         reportsIncluded: inboxActivity.isIncluded,
         unreadsOnly,
+        archivedTaskIds,
       }),
     [
       taskActivity.items,
@@ -91,6 +96,7 @@ export function ActivityFeedList({
       inboxActivity.isIncluded,
       mentionsIncluded,
       unreadsOnly,
+      archivedTaskIds,
     ],
   );
   const unreadCount = mentionsIncluded ? taskActivity.unreadCount : 0;
@@ -99,6 +105,8 @@ export function ActivityFeedList({
     (!unreadsOnly && inboxActivity.isLoading);
   // Selected once for the feed, not once per row.
   const blockedTaskIds = useBlockedTaskIds();
+  // One pin and one archive mutation for the feed, for the same reason.
+  const taskMenu = useActivityTaskMenu();
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null);
   const [query, setQuery] = useState("");
   const [loadMoreRef, loadMoreInView] = useInView<HTMLDivElement>({
@@ -191,9 +199,7 @@ export function ActivityFeedList({
           className="sidebar-autocomplete-tree scroll-mask-8 !max-h-none !p-1.5 min-h-0 flex-1 overflow-y-auto"
         >
           {isLoading && feedItems.length === 0 ? (
-            <div className="flex justify-center py-10">
-              <Spinner />
-            </div>
+            <LoadingState className="py-10" />
           ) : searchedFeedItems.length === 0 ? (
             <Empty className="border-0 py-8">
               <EmptyHeader>
@@ -229,6 +235,7 @@ export function ActivityFeedList({
                       {item.kind === "task" ? (
                         <ActivityRow
                           item={item.task}
+                          menu={taskMenu(item.task)}
                           onMarkRead={markRead}
                           currentUser={currentUser}
                           blockedTaskIds={blockedTaskIds}

@@ -75,7 +75,6 @@ jobs:
                         - 'bin/docker-worker-beat'
                         - 'bin/docker-worker-celery'
                         - 'bin/docker-server'
-                        - 'bin/docker-server-unit'
                         - 'bin/celery-queues.env'
                         - 'bin/migrate'
                         - 'bin/migrate-check'

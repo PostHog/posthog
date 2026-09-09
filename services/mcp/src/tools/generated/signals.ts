@@ -3,7 +3,6 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/signals/api'
-import { ReportInboxInputSchema } from '@/schema/tool-inputs'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
 import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 import {
@@ -282,6 +281,7 @@ const inboxReportsList = (): ToolBase<
                     'signal_count',
                     'total_weight',
                     'source_products',
+                    'scout_name',
                     'is_suggested_reviewer',
                     'implementation_pr_url',
                     'implementation_pr_state',
@@ -618,6 +618,9 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         if (params.mcp_gateway_server_ids !== undefined) {
             body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
         }
+        if (params.write_scopes !== undefined) {
+            body['write_scopes'] = params.write_scopes
+        }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
         }
@@ -744,6 +747,9 @@ const scoutConfigUpdate = (): ToolBase<
         if (params.mcp_gateway_server_ids !== undefined) {
             body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
         }
+        if (params.write_scopes !== undefined) {
+            body['write_scopes'] = params.write_scopes
+        }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
@@ -851,6 +857,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         }
         if (params.append_note !== undefined) {
             body['append_note'] = params.append_note
+        }
+        if (params.append_evidence !== undefined) {
+            body['append_evidence'] = params.append_evidence
         }
         if (params.suggested_reviewers !== undefined) {
             body['suggested_reviewers'] = params.suggested_reviewers
@@ -1373,60 +1382,6 @@ const scoutScratchpadSearch = (): ToolBase<
     },
 })
 
-const SelfDrivingInboxGetSchema = () => ReportInboxInputSchema
-
-const selfDrivingInboxGet = (): ToolBase<
-    ReturnType<typeof SelfDrivingInboxGetSchema>,
-    Schemas.PaginatedSignalReportList
-> => ({
-    name: 'self-driving-inbox-get',
-    schema: SelfDrivingInboxGetSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof SelfDrivingInboxGetSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const parsedParams = SelfDrivingInboxGetSchema().parse(params)
-        const result = await context.api.request<Schemas.PaginatedSignalReportList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/`,
-            query: parsedParams,
-        })
-        const filtered = {
-            ...result,
-            results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, [
-                    'id',
-                    'title',
-                    'summary',
-                    'status',
-                    'priority',
-                    'actionability',
-                    'already_addressed',
-                    'dismissal_reason',
-                    'dismissal_note',
-                    'signal_count',
-                    'total_weight',
-                    'source_products',
-                    'scout_name',
-                    'is_suggested_reviewer',
-                    'implementation_pr_url',
-                    'implementation_pr_merged',
-                    'created_at',
-                    'updated_at',
-                ])
-            ),
-        } as typeof result
-        return await withPostHogUrl(
-            context,
-            {
-                ...filtered,
-                results: await Promise.all(
-                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/inbox/${item.id}`))
-                ),
-            },
-            '/inbox'
-        )
-    },
-})
-
 const SignalsScoutConfigCreateSchema = () => {
     const SignalsScoutConfigCreateBody = orvalSchemas.SignalsScoutConfigCreateBody()
     return SignalsScoutConfigCreateBody
@@ -1473,6 +1428,9 @@ const signalsScoutConfigCreate = (): ToolBase<
         }
         if (params.mcp_gateway_server_ids !== undefined) {
             body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
+        }
+        if (params.write_scopes !== undefined) {
+            body['write_scopes'] = params.write_scopes
         }
         if (params.skill_name !== undefined) {
             body['skill_name'] = params.skill_name
@@ -1600,6 +1558,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         if (params.mcp_gateway_server_ids !== undefined) {
             body['mcp_gateway_server_ids'] = params.mcp_gateway_server_ids
         }
+        if (params.write_scopes !== undefined) {
+            body['write_scopes'] = params.write_scopes
+        }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
@@ -1635,6 +1596,9 @@ const signalsScoutEditReport = (): ToolBase<
         }
         if (params.append_note !== undefined) {
             body['append_note'] = params.append_note
+        }
+        if (params.append_evidence !== undefined) {
+            body['append_evidence'] = params.append_evidence
         }
         if (params.suggested_reviewers !== undefined) {
             body['suggested_reviewers'] = params.suggested_reviewers
@@ -2089,7 +2053,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-scratchpad-forget': scoutScratchpadForget,
     'scout-scratchpad-remember': scoutScratchpadRemember,
     'scout-scratchpad-search': scoutScratchpadSearch,
-    'self-driving-inbox-get': selfDrivingInboxGet,
     'signals-scout-config-create': signalsScoutConfigCreate,
     'signals-scout-config-delete': signalsScoutConfigDelete,
     'signals-scout-config-list': signalsScoutConfigList,

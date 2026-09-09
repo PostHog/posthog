@@ -221,7 +221,9 @@ describe('redirectMessageToOutput', () => {
         expect(mockOutputs.produce).toHaveBeenCalledWith(TEST_REDIRECT, {
             value: mockMessage.value,
             key: null,
-            headers: expect.any(Object),
+            // The dropped partition key rides along in a header so the overflow
+            // lane can still refresh the flag that routed the event there.
+            headers: expect.objectContaining({ 'redirect-original-key': 'test-key' }),
         })
     })
 

@@ -341,6 +341,33 @@ impl Client for ReadWriteClient {
         }
     }
 
+    async fn zrangebyscore_limit(
+        &self,
+        k: String,
+        min: String,
+        max: String,
+        offset: isize,
+        count: isize,
+    ) -> Result<Vec<String>, CustomRedisError> {
+        match self
+            .reader
+            .zrangebyscore_limit(k.clone(), min.clone(), max.clone(), offset, count)
+            .await
+        {
+            Ok(value) => Ok(value),
+            Err(err) if !err.is_unrecoverable_error() => {
+                warn!(
+                    "Replica zrangebyscore_limit failed for key '{}', falling back to primary: {}",
+                    k, err
+                );
+                self.writer
+                    .zrangebyscore_limit(k, min, max, offset, count)
+                    .await
+            }
+            Err(err) => Err(err),
+        }
+    }
+
     async fn scard(&self, k: String) -> Result<u64, CustomRedisError> {
         match self.reader.scard(k.clone()).await {
             Ok(value) => Ok(value),

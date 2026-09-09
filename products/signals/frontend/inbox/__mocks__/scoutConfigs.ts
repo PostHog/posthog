@@ -1,4 +1,6 @@
 import type {
+    ScoutSuggestionItemApi,
+    ScoutSuggestionSetApi,
     SignalScoutConfigApi,
     SignalScoutRunSummaryApi,
     UserBasicApi,
@@ -47,6 +49,7 @@ function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
         auto_pause_exempt: false,
         tags: [],
         mcp_gateway_server_ids: [],
+        write_scopes: [],
         source_product: null,
         source_id: null,
         created_at: '2026-06-11T09:00:00Z',
@@ -61,6 +64,7 @@ export const mockScoutConfigs: SignalScoutConfigApi[] = [
         description: 'new errors, regressions, and spikes in Error tracking',
         run_interval_minutes: 60,
         last_run_at: '2026-06-10T23:30:00Z',
+        write_scopes: ['dashboard:write'],
     }),
     makeMockScout({
         id: 'scout-session-replay',
@@ -111,6 +115,7 @@ export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
         description: 'new errors, regressions, and spikes in Error tracking',
         run_interval_minutes: 60,
         last_run_at: '2026-06-10T23:30:00Z',
+        write_scopes: ['dashboard:write'],
     }),
     makeMockScout({
         id: 'scout-checkout-health',
@@ -183,3 +188,59 @@ export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
         pause_reason: 'ignored',
     }),
 ]
+
+function makeMockSuggestion(
+    overrides: Partial<ScoutSuggestionItemApi> & Pick<ScoutSuggestionItemApi, 'id'>
+): ScoutSuggestionItemApi {
+    return {
+        kind: 'canonical' as const,
+        skill_name: 'signals-scout-web-vitals',
+        title: 'Watch web vitals on the pricing page',
+        why_here: 'Pricing has the slowest LCP of any page here, and it moved twice in the last month.',
+        description: '',
+        draft_body: '',
+        proposed_config: { run_cron_schedule: null, run_interval_minutes: 1440, emit: true },
+        gap: false,
+        confidence: 'medium' as const,
+        ...overrides,
+    }
+}
+
+export const mockScoutSuggestions: ScoutSuggestionItemApi[] = [
+    makeMockSuggestion({ id: 'suggestion-web-vitals', gap: true, confidence: 'high' }),
+    makeMockSuggestion({
+        id: 'suggestion-signup-drop-off',
+        kind: 'custom',
+        skill_name: 'signals-scout-signup-drop-off',
+        title: 'Watch signup drop-off by plan',
+        why_here: 'Signups on the team plan convert half as often as on the free plan, and nothing watches it.',
+        description: 'Investigates sudden drops in completed signups, split by plan.',
+        draft_body:
+            'Every run, compare completed signups against started signups for the last 24 hours, split by plan.\n\nFile a report when any plan drops more than 20% against its trailing two-week average. Ignore plans with fewer than 20 starts in the window.',
+        proposed_config: { run_cron_schedule: '30 9 * * 1-5', run_interval_minutes: null, emit: true },
+        confidence: 'high',
+    }),
+    makeMockSuggestion({
+        id: 'suggestion-warehouse-freshness',
+        kind: 'custom',
+        skill_name: 'signals-scout-warehouse-freshness',
+        title: 'Watch warehouse sync freshness',
+        why_here: 'Two of the five sources here have gone a day stale at least once in the last month.',
+        description: 'Checks whether every connected warehouse source synced on schedule.',
+        draft_body: 'Every run, list the connected sources and their last successful sync.',
+        proposed_config: { run_cron_schedule: null, run_interval_minutes: 720, emit: false },
+        gap: true,
+        confidence: 'low',
+    }),
+]
+
+export function mockScoutSuggestionSet(overrides: Partial<ScoutSuggestionSetApi> = {}): ScoutSuggestionSetApi {
+    return {
+        status: 'fresh',
+        generated_at: '2026-06-10T09:00:00Z',
+        model: '',
+        fleet_snapshot: mockScoutConfigs.map((config) => config.skill_name),
+        items: mockScoutSuggestions,
+        ...overrides,
+    }
+}

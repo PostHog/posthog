@@ -42,7 +42,6 @@ import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scen
 import { configurationRedirect, resolveSettingSlug } from '../../products/error_tracking/frontend/settingsRedirects'
 import type { InboxTabKey } from '../../products/signals/frontend/inbox/types'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
-import type { ModelsSceneTab } from './scenes/models/modelsSceneLogic'
 import type { NodeDetailSceneTab } from './scenes/models/nodeDetailSceneLogic'
 import {
     ActionType,
@@ -109,6 +108,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/customer_analytics/notes': ['CustomerAnalytics', 'customerAnalyticsNotes'],
     '/customer_analytics/announcements': ['CustomerAnalytics', 'customerAnalyticsAnnouncements'],
     '/customer_analytics/feed': ['CustomerAnalytics', 'customerAnalyticsFeed'],
+    '/customer_analytics/tasks': ['CustomerAnalytics', 'customerAnalyticsTasks'],
     '/customer_analytics/feature-requests': ['CustomerAnalytics', 'customerAnalyticsFeatureRequests'],
     '/customer_analytics/feature-requests/:requestId': ['CustomerAnalytics', 'customerAnalyticsFeatureRequests'],
     '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
@@ -122,7 +122,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-catalog/metrics/:name': ['DataCatalogMetric', 'dataCatalogMetric'],
     '/data-ops': ['DataOps', 'dataOps'],
     '/models': ['Models', 'models'],
-    '/models/dags': ['Models', 'models'],
     '/models/:id': ['NodeDetail', 'nodeDetail'],
     '/models/:id/:tab': ['NodeDetail', 'nodeDetail'],
     '/data-management/sources': ['Sources', 'sources'],
@@ -260,10 +259,12 @@ export const productRoutes: Record<string, [string, string]> = {
         'VisualReviewSnapshotHistory',
         'visualReviewSnapshotHistory',
     ],
+    '/web/content-autopilot': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
     '/heatmaps': ['Heatmaps', 'heatmaps'],
     '/heatmaps/new': ['HeatmapNew', 'heatmapNew'],
     '/heatmaps/recording': ['HeatmapRecording', 'heatmapRecording'],
     '/heatmaps/:id': ['Heatmap', 'heatmap'],
+    '/wizard/runs': ['WizardRuns', 'wizardRuns'],
     '/workflows': ['Workflows', 'workflows'],
     '/workflows/:tab': ['Workflows', 'workflows'],
     '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
@@ -595,7 +596,12 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'cohort',
         docsHref: 'https://posthog.com/docs/customer-analytics',
     },
-    CustomerAnalyticsAccount: { projectBased: true, name: 'Account details', iconType: 'cohort' },
+    CustomerAnalyticsAccount: {
+        projectBased: true,
+        name: 'Account details',
+        iconType: 'cohort',
+        layout: 'app-full-scene-height',
+    },
     CustomerAnalyticsConfiguration: { projectBased: true, name: 'Customer analytics configuration' },
     CustomerJourneyBuilder: { projectBased: true, name: 'New journey' },
     CustomerJourneyTemplates: { projectBased: true, name: 'New journey' },
@@ -997,6 +1003,13 @@ export const productConfiguration: Record<string, any> = {
     Heatmap: { name: 'Heatmap', projectBased: true, iconType: 'heatmap' },
     HeatmapNew: { name: 'New heatmap', projectBased: true, iconType: 'heatmap' },
     HeatmapRecording: { name: 'Heatmap recording', projectBased: true, iconType: 'heatmap' },
+    WizardRuns: {
+        projectBased: true,
+        name: 'Wizard runs',
+        description: 'Run the setup agent in the cloud, then review the changes it produces.',
+        layout: 'app-container',
+        iconType: 'llm_prompts',
+    },
     Workflows: {
         name: 'Workflows',
         iconType: 'workflows',
@@ -1116,6 +1129,7 @@ export const productUrls = {
     customerAnalyticsNotes: (): string => '/customer_analytics/notes',
     customerAnalyticsAnnouncements: (): string => '/customer_analytics/announcements',
     customerAnalyticsFeed: (): string => '/customer_analytics/feed',
+    customerAnalyticsTasks: (): string => '/customer_analytics/tasks',
     customerAnalyticsFeatureRequests: (requestId?: string): string =>
         `/customer_analytics/feature-requests${requestId ? `/${requestId}` : ''}`,
     customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
@@ -1137,18 +1151,15 @@ export const productUrls = {
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
     dataCatalogMetric: (name: string): string => `/data-catalog/metrics/${name}`,
-    dataOps: (tab?: string, dagId?: string): string => {
+    dataOps: (tab?: string): string => {
         const params = new URLSearchParams()
         if (tab) {
             params.set('tab', tab)
         }
-        if (dagId) {
-            params.set('dag', dagId)
-        }
         const query = params.toString()
         return query ? `/data-ops?${query}` : '/data-ops'
     },
-    models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
+    models: (): string => '/models',
     nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
     sources: (): string => '/data-management/sources',
     dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
@@ -1544,6 +1555,7 @@ export const productUrls = {
     webAnalyticsHealth: (): string => `/web/health`,
     webAnalyticsLive: (): string => `/web/live`,
     webAnalyticsBotAnalytics: (): string => `/web/bot-analytics`,
+    webAnalyticsContentAutopilot: (): string => `/web/content-autopilot`,
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     heatmapNew: (params?: string): string =>
@@ -1551,6 +1563,7 @@ export const productUrls = {
     heatmapRecording: (params?: string): string =>
         `/heatmaps/recording${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     heatmap: (id: string | number): string => `/heatmaps/${id}`,
+    wizardRuns: (): string => '/wizard/runs',
     workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
     workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
     workflowNew: (): string => '/workflows/new/workflow',
@@ -1930,6 +1943,7 @@ export type ProductTreePath =
     | 'Visual review'
     | 'Web analytics'
     | 'Web scripts'
+    | 'Wizard'
     | 'Workflows'
 
 /** This const is auto-generated, as is the whole file */
@@ -2380,7 +2394,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'metrics',
         iconColor: ['var(--color-product-metrics-light)', 'var(--color-product-metrics-dark)'] as FileSystemIconColor,
         href: urls.metrics(),
-        flag: FEATURE_FLAGS.METRICS,
         tags: ['alpha'],
         sceneKey: 'Metrics',
         sceneKeys: ['Metrics'],
@@ -2683,6 +2696,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['WebScripts'],
     },
     {
+        path: 'Wizard',
+        intents: [],
+        category: ProductItemCategory.TOOLS,
+        type: 'wizard',
+        iconType: 'llm_prompts' as FileSystemIconType,
+        href: '/wizard/runs',
+        flag: FEATURE_FLAGS.WIZARD_UI_ENABLED,
+        sceneKey: 'WizardRuns',
+        sceneKeys: ['WizardRuns'],
+    },
+    {
         path: 'Workflows',
         intents: [ProductKey.WORKFLOWS],
         href: urls.workflows(),
@@ -2718,14 +2742,6 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.annotations(),
         sceneKey: 'Annotations',
         sceneKeys: ['Annotations'],
-    },
-    {
-        path: 'Comments',
-        category: 'Metadata',
-        iconType: 'comment',
-        href: urls.comments(),
-        sceneKey: 'Comments',
-        sceneKeys: ['Comments'],
     },
     {
         path: 'Core events',

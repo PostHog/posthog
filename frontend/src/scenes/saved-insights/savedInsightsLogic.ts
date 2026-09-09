@@ -394,7 +394,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
 
                 const response = {
                     ...legacyResponse,
-                    results: legacyResponse.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight)),
+                    results: legacyResponse.results.map((legacyInsight) =>
+                        getQueryBasedInsightModel(legacyInsight, 'saved_insights_list')
+                    ),
                 }
 
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {

@@ -12,6 +12,16 @@ The final Trino transpiler accepts a prepared AST plus frozen snapshots of bindi
 
 `transpile_hogql_to_trino(...)` is the restricted, manifest-backed front end. Its immutable manifest allowlists logical tables, physical Trino locators, and warehouse column types. `events` and `persons` use fixed built-in schemas. The function resolves and prints with no team, user, Django model, saved query, or lazy database callback, and its tests assert that it executes zero Django queries.
 
+Use `prepare_trino_catalog(...)` when several queries share one manifest. Preparation validates the manifest and builds its schema database and physical locator map once. Each `PreparedTrinoCatalog.transpile(...)` call creates a new AST, context, modifiers, and bound-value map, so query state does not cross compilation boundaries.
+
+```python
+catalog = prepare_trino_catalog(manifest)
+first = catalog.transpile("SELECT event FROM events WHERE event = {event}", values={"event": "signup"})
+second = catalog.transpile("SELECT count() FROM events")
+```
+
+`transpile_hogql_to_trino(...)` remains the one-shot wrapper and prepares a catalog for that call. The manifest contract has no version field, so the compiler does not keep a process-global prepared-catalog cache. Callers must create a new prepared catalog when their immutable manifest snapshot changes.
+
 Pure transpilation accepts caller-supplied constant values. It rejects unresolved placeholders, action and cohort references, tables absent from the manifest, non-leaf warehouse column types, and invalid or incomplete manifest entries. Callers needing Django-backed semantics must select the explicit expansion mode described below.
 
 ## Query Editor connection integration
@@ -33,6 +43,16 @@ Call `connect_managed_warehouse_trino(...)` to open the Python Trino client with
 The Django `DuckgresServer` row remains the transitional owner of the existing root secret; it does not become the source of truth for Trino placement. Trino cell assignment, endpoint identity, and catalog naming stay in the control plane. No second Django model or copied control-plane status is required.
 
 For supported string, array, and map arguments, `empty(x)` returns true when the value is NULL or has zero length. `notEmpty(x)` requires a non-NULL value with nonzero length. String predicates use an empty-string comparison; arrays and maps use `cardinality`.
+
+Leading CTEs stay in scope across all operands of a set operation. Trino prints them before the parenthesized operands, preserving each operand's ordering and limit. A branch with its own CTEs uses a derived table to keep that scope local.
+
+`IN` and `NOT IN` with array literals print SQL value lists, including the `in(...)` and `notIn(...)` function forms. Empty literals reduce the entire predicate to `FALSE` for membership and `TRUE` for non-membership, including for a NULL left operand, tuple operands, and predicates inside lambdas. Nonempty lists retain SQL NULL comparison behavior. Array expressions outside membership predicates still use Trino's `ARRAY[...]` constructor. These rewrites run in the shared printer for both pure and Django-expanded compilation.
+
+`LIMIT BY` and `QUALIFY` wrappers preserve ordering by projecting unselected sort expressions inside the wrapper and removing those helper columns from the result. The inner query gives projected expressions explicit output aliases, including property accesses, so the outer query can reference them by name. Helper names avoid existing aliases, and matching uses resolved column bindings so joined columns with the same name remain distinct. Expression matching also distinguishes literal types, including `1`, `true`, and `1.0`. `DISTINCT` and `GROUP BY` wrappers still reject unprojected sort expressions. Unprojected aggregate sort expressions are also rejected; callers must select them explicitly. `LIMIT BY` rejects partition or sort expressions containing window functions, including aliases and ordinals resolving to them, because its ranking would otherwise nest window functions.
+
+For ordinary `GROUP BY`, an expression that matches a selected expression uses that output's ordinal. This keeps property paths, date conversions, and other bound expressions identical for Trino's grouping checks. An alias for an integer constant uses the selected expression's position; the constant's value does not become an ordinal. Explicit source ordinals remain unchanged. Alias references inside larger expressions expand to their expressions, not ordinals. Complex grouping modes retain their expressions. These rewrites apply to both pure and Django-expanded compilation.
+
+A top-level `ORDER BY` reference to a selected alias also uses that output's ordinal. This avoids repeating bound parameters from the selected expression and keeps grouped queries valid. Ordering direction and explicit source ordinals remain unchanged; aliases inside larger sort expressions still expand normally.
 
 ## Why some shared integration is necessary
 
@@ -56,6 +76,15 @@ Trino table rendering stays in Trino-specific modules. Neither the built-in numb
 After deployment, Django shell can call the same compilation API. Construct the context with the intended team, user, effective modifiers, and `Database.create_for(...)`, then supply explicit Trino locators. No new HTTP endpoint or scheduled job is required.
 
 For managed DuckLake data, call `compile_hogql_to_trino_sql(...)` through the managed-warehouse client facade. This explicit entry point reads the organization's ready Trino catalog from the control plane and combines it with the project's authoritative team row. Pure manifest-backed compilation is the default. It maps `events` and `persons` to the project's provisioned tables in the `posthog` schema, and accepts additional allowlisted warehouse relations through `catalog_manifest`.
+
+Batch and session callers should use `prepare_hogql_to_trino_compiler(...)` through the same facade. Preparation resolves and validates the ready catalog and project mapping once, then builds the pure manifest catalog. The returned compiler is bound to that organization, project, and catalog and accepts only a `HogQLQuery` per compilation. Additional manifest relations keep their explicitly allowlisted physical locators; Trino authorizes catalog access when the query executes.
+
+```python
+compiler = prepare_hogql_to_trino_compiler(team_id, team=team, catalog_manifest=manifest)
+queries = [compiler.compile(query) for query in batch]
+```
+
+Create a new compiler when the batch needs fresh control-plane placement or team-table mappings. The one-shot `compile_hogql_to_trino_sql(...)` API prepares and compiles in one call. Django expansion stays one-shot because its schema and semantic expansion depend on query-specific team and user state.
 
 Pass `expansion_mode=TrinoExpansionMode.DJANGO` when a query requires actions, cohorts, saved queries, filters, variables, access-controlled warehouse discovery, or other Django-backed semantic expansion. This compatibility mode builds the full database and maps:
 
