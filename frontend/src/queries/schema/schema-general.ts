@@ -6632,12 +6632,24 @@ export interface PCADetectorConfig {
  */
 export interface LLMDetectorConfig {
     type: 'llm'
-    /** What counts as unusual or interesting for this metric, in your own words. Optional. */
+    /**
+     * What counts as unusual or interesting for this metric, in your own words. Optional.
+     * @maxLength 2000
+     */
     instructions?: string
-    /** Minimum confidence [0-1] the model must report before the alert fires (default: 0.7) */
+    /**
+     * Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)
+     * @minimum 0
+     * @maximum 1
+     */
     threshold?: number
-    /** How many recent points the model is shown (default: based on calculation interval) */
-    window?: integer
+    /**
+     * How many recent points the model is shown (default: 90)
+     * @asType integer
+     * @minimum 5
+     * @maximum 400
+     */
+    window?: number
 }
 
 export enum EnsembleOperator {

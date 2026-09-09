@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 
 import pydantic
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, confloat, conint
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, confloat, conint, constr
 
 from posthog.schema_discriminators import property_filter_discriminator
 from posthog.schema_enums import (
@@ -1725,6 +1725,25 @@ class IntegrationFilter(BaseModel):
     integrationSourceIds: list[str] | None = Field(
         default=None,
         description=("Selected integration source IDs to filter by (e.g., table IDs or source map IDs)"),
+    )
+
+
+class LLMDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    instructions: constr(max_length=2000) | None = Field(
+        default=None,
+        description=("What counts as unusual or interesting for this metric, in your own words. Optional."),
+    )
+    threshold: confloat(ge=0.0, le=1.0) | None = Field(
+        default=None,
+        description=("Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)"),
+    )
+    type: Literal["llm"] = "llm"
+    window: conint(ge=5, le=400) | None = Field(
+        default=None,
+        description="How many recent points the model is shown (default: 90)",
     )
 
 
@@ -5692,25 +5711,6 @@ class InsightThreshold(BaseModel):
         description=(
             "Whether bounds are compared as absolute values or as percentage change from the previous interval."
         ),
-    )
-
-
-class LLMDetectorConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    instructions: str | None = Field(
-        default=None,
-        description=("What counts as unusual or interesting for this metric, in your own words. Optional."),
-    )
-    threshold: float | None = Field(
-        default=None,
-        description=("Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)"),
-    )
-    type: Literal["llm"] = "llm"
-    window: int | None = Field(
-        default=None,
-        description=("How many recent points the model is shown (default: based on calculation interval)"),
     )
 
 

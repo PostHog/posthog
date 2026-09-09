@@ -31205,10 +31205,13 @@
             "properties": {
                 "instructions": {
                     "description": "What counts as unusual or interesting for this metric, in your own words. Optional.",
+                    "maxLength": 2000,
                     "type": "string"
                 },
                 "threshold": {
                     "description": "Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)",
+                    "maximum": 1,
+                    "minimum": 0,
                     "type": "number"
                 },
                 "type": {
@@ -31216,8 +31219,10 @@
                     "type": "string"
                 },
                 "window": {
-                    "$ref": "#/definitions/integer",
-                    "description": "How many recent points the model is shown (default: based on calculation interval)"
+                    "description": "How many recent points the model is shown (default: 90)",
+                    "maximum": 400,
+                    "minimum": 5,
+                    "type": "integer"
                 }
             },
             "required": ["type"],

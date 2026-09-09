@@ -49,7 +49,15 @@ export const alertsSimulateCreateBodyDetectorConfigOneOnezeroTypeDefault = `hbos
 export const alertsSimulateCreateBodyDetectorConfigOneOneoneTypeDefault = `lof`
 export const alertsSimulateCreateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsSimulateCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
+export const alertsSimulateCreateBodyDetectorConfigOneOnefourInstructionsOneMax = 2000
+
+export const alertsSimulateCreateBodyDetectorConfigOneOnefourThresholdOneMin = 0
+export const alertsSimulateCreateBodyDetectorConfigOneOnefourThresholdOneMax = 1
+
 export const alertsSimulateCreateBodyDetectorConfigOneOnefourTypeDefault = `llm`
+export const alertsSimulateCreateBodyDetectorConfigOneOnefourWindowOneMin = 5
+export const alertsSimulateCreateBodyDetectorConfigOneOnefourWindowOneMax = 400
+
 export const alertsSimulateCreateBodySeriesIndexDefault = 0
 export const alertsSimulateCreateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
 export const alertsSimulateCreateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
@@ -1063,18 +1071,33 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
             }),
             zod.object({
                 instructions: zod
-                    .union([zod.string(), zod.null()])
+                    .union([
+                        zod.string().max(alertsSimulateCreateBodyDetectorConfigOneOnefourInstructionsOneMax),
+                        zod.null(),
+                    ])
                     .optional()
                     .describe('What counts as unusual or interesting for this metric, in your own words. Optional.'),
                 threshold: zod
-                    .union([zod.number(), zod.null()])
+                    .union([
+                        zod
+                            .number()
+                            .min(alertsSimulateCreateBodyDetectorConfigOneOnefourThresholdOneMin)
+                            .max(alertsSimulateCreateBodyDetectorConfigOneOnefourThresholdOneMax),
+                        zod.null(),
+                    ])
                     .optional()
                     .describe('Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)'),
                 type: zod.enum(['llm']).default(alertsSimulateCreateBodyDetectorConfigOneOnefourTypeDefault),
                 window: zod
-                    .union([zod.number(), zod.null()])
+                    .union([
+                        zod
+                            .number()
+                            .min(alertsSimulateCreateBodyDetectorConfigOneOnefourWindowOneMin)
+                            .max(alertsSimulateCreateBodyDetectorConfigOneOnefourWindowOneMax),
+                        zod.null(),
+                    ])
                     .optional()
-                    .describe('How many recent points the model is shown (default: based on calculation interval)'),
+                    .describe('How many recent points the model is shown (default: 90)'),
             }),
         ])
         .describe('Detector configuration types')

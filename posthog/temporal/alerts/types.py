@@ -50,11 +50,15 @@ class PrepareAlertActivityInputs:
 class PrepareAlertResult:
     action: PrepareAction
     reason: str | None = None
+    # True when the check will make a model call, so the workflow can route it to the
+    # evaluate activity's dedicated executor.
+    uses_llm_detector: bool = False
 
 
 @dataclasses.dataclass(frozen=True)
 class EvaluateAlertActivityInputs:
     alert_id: str
+    uses_llm_detector: bool = False
 
 
 @dataclasses.dataclass(frozen=True)

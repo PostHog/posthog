@@ -9964,7 +9964,7 @@ export namespace Schemas {
       /** Minimum confidence [0-1] the model must report before the alert fires (default: 0.7) */
       threshold?: number | null;
       type: LLMDetectorConfigType;
-      /** How many recent points the model is shown (default: based on calculation interval) */
+      /** How many recent points the model is shown (default: 90) */
       window?: number | null;
     }
 

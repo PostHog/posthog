@@ -42,6 +42,8 @@ interface DetectorSelectorProps {
     calculationInterval?: AlertCalculationInterval
     /** Show the AI detector option. Off until the alerts-llm-detector flag is on for the account. */
     llmDetectorEnabled?: boolean
+    /** The insight has a breakdown. The AI detector judges one series, so it is hidden here. */
+    hasBreakdown?: boolean
 }
 
 const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }> = [
@@ -231,13 +233,14 @@ export function DetectorSelector({
     onChange,
     calculationInterval,
     llmDetectorEnabled = false,
+    hasBreakdown = false,
 }: DetectorSelectorProps): JSX.Element {
     const selectedType = getSelectedType(value)
     const defaultWindow = getDefaultWindow(calculationInterval)
     const defaultConfigs = getDefaultSingleConfigs(defaultWindow)
     // An alert already saved with the AI detector keeps showing it even if the flag is turned
     // off, so its own type never disappears from the picker it is selected in.
-    const llmAllowed = llmDetectorEnabled && calculationInterval !== AlertCalculationInterval.REAL_TIME
+    const llmAllowed = llmDetectorEnabled && !hasBreakdown && calculationInterval !== AlertCalculationInterval.REAL_TIME
     const detectorOptions = DETECTOR_OPTIONS.filter(
         (o) => o.value !== DetectorType.LLM || llmAllowed || selectedType === DetectorType.LLM
     )

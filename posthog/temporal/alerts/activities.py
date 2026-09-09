@@ -20,6 +20,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.sync import database_sync_to_async
+from posthog.tasks.alerts.detectors.llm.detector import MAX_CONCURRENT_MODEL_CALLS
 from posthog.tasks.alerts.detectors.llm.errors import LLMDetectorUnavailableError
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
 from posthog.tasks.alerts.metrics_investigation import run_metrics_alert_investigation, should_investigate_metrics_alert
@@ -55,6 +56,7 @@ from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.insight_alert_state_machine import apply_unsnooze
+from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -68,6 +70,14 @@ from products.notifications.backend.facade.api import (
 logger = structlog.get_logger(__name__)
 
 _NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-delivery")
+
+# AI-detector checks hold a thread for the model call, up to a minute each. On the shared
+# default pool that would let a slow model stall every alert's database work on the worker,
+# so they run on their own pool, sized to the detector's own concurrency bound. A check
+# past that bound queues here without holding any thread.
+_LLM_EVALUATE_EXECUTOR = ThreadPoolExecutor(
+    max_workers=MAX_CONCURRENT_MODEL_CALLS, thread_name_prefix="insight-alert-llm-evaluate"
+)
 
 
 @temporalio.activity.defn
@@ -216,7 +226,9 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
             disable_invalid_alert(alert, str(e))
             return PrepareAlertResult(action=PrepareAction.AUTO_DISABLE, reason=str(e))
 
-        return PrepareAlertResult(action=PrepareAction.EVALUATE)
+        return PrepareAlertResult(
+            action=PrepareAction.EVALUATE, uses_llm_detector=is_llm_detector_config(alert.detector_config)
+        )
 
     async with Heartbeater():
         return await _prepare()
@@ -235,7 +247,6 @@ def _write_errored_alert_check(alert: AlertConfiguration, error: dict) -> tuple[
 async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertResult:
     """Run the insight ClickHouse query, apply the state machine, persist an AlertCheck row."""
 
-    @database_sync_to_async(thread_sensitive=False)
     def _evaluate() -> EvaluateAlertResult:
         # Guard against the race where the alert is disabled/deleted between prepare_alert and
         # evaluate_alert (e.g. user disables via API mid-workflow). Retries can't recover from
@@ -276,8 +287,9 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             raise
         except LLMDetectorUnavailableError:
             # An LLM detector that couldn't reach a verdict must not resolve to "not firing":
-            # re-raise so the retry policy gets another attempt, and let the retry-exhausted
-            # path record an errored check, which leaves an already-firing alert firing.
+            # re-raise so the retry policy gets another attempt. Once the attempts run out the
+            # retry-exhausted path records an errored check, the same outcome as any other
+            # evaluation that never produced a value.
             raise
         except AlertExtractionError as err:
             # The alert can't be evaluated as configured (wrong query shape / bad config) — a
@@ -384,8 +396,9 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             investigation_user_id=alert.created_by_id if should_start_investigation else None,
         )
 
+    executor = _LLM_EVALUATE_EXECUTOR if inputs.uses_llm_detector else None
     async with Heartbeater():
-        return await _evaluate()
+        return await database_sync_to_async(_evaluate, thread_sensitive=False, executor=executor)()
 
 
 @temporalio.activity.defn

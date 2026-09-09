@@ -408,22 +408,47 @@ class TestUpsertAlertTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_update_rejects_enabling_an_ai_alert_over_the_team_cap(self):
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    async def test_update_rejects_enabling_an_ai_alert_over_the_team_cap(self, _flag):
         # Max is a second writer of alerts, so it must apply the same AI-alert cap as the API.
         insight = await self._create_insight()
         llm_config = {"type": "llm", "threshold": 0.7, "window": 90}
         active = await self._create_alert(insight, name="Active")
-        disabled = await self._create_alert(insight, name="Disabled", enabled=False)
+        disabled = await self._create_alert(insight, name="Disabled", enabled=False, lower_threshold=100.0)
         await sync_to_async(AlertConfiguration.objects.filter(id__in=[active.id, disabled.id]).update)(
             detector_config=llm_config
         )
         tool = self._setup_tool()
 
         with mock.patch("products.alerts.backend.llm_detector_limits.max_llm_alerts_per_team", return_value=1):
-            content, artifact = await tool._arun_impl(action=UpdateAlertAction(alert_id=str(disabled.id), enabled=True))
+            content, artifact = await tool._arun_impl(
+                action=UpdateAlertAction(alert_id=str(disabled.id), enabled=True, lower_threshold=5.0)
+            )
 
         assert "alerts using the AI detector" in content
         assert artifact["error"] == "plan_limit_reached"
+        await disabled.arefresh_from_db()
+        assert disabled.enabled is False
+        # The refused save must not leave the threshold change behind.
+        threshold = await sync_to_async(lambda: disabled.threshold)()
+        assert threshold is not None
+        assert threshold.configuration["bounds"]["lower"] == 100.0
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    @mock.patch("posthoganalytics.feature_enabled", return_value=False)
+    async def test_update_rejects_enabling_an_ai_alert_outside_the_rollout(self, _flag):
+        insight = await self._create_insight()
+        disabled = await self._create_alert(insight, name="Disabled", enabled=False)
+        await sync_to_async(AlertConfiguration.objects.filter(id=disabled.id).update)(
+            detector_config={"type": "llm", "threshold": 0.7, "window": 90}
+        )
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(action=UpdateAlertAction(alert_id=str(disabled.id), enabled=True))
+
+        assert "not enabled for your account" in content
+        assert artifact["error"] == "validation_failed"
         await disabled.arefresh_from_db()
         assert disabled.enabled is False
 

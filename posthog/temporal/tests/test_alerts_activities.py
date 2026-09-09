@@ -1,4 +1,5 @@
 import uuid
+import threading
 import contextlib
 from datetime import UTC, datetime
 
@@ -95,6 +96,7 @@ async def _create_alert(
     schedule_restriction: dict | None = None,
     insight_deleted: bool = False,
     state: str = AlertState.NOT_FIRING,
+    detector_config: dict | None = None,
 ) -> AlertConfiguration:
     @sync_to_async
     def _create() -> AlertConfiguration:
@@ -123,6 +125,7 @@ async def _create_alert(
             skip_weekend=skip_weekend,
             schedule_restriction=schedule_restriction,
             state=state,
+            detector_config=detector_config,
         )
         return alert
 
@@ -289,6 +292,21 @@ class TestPrepareAlert:
         result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id)))
 
         assert result.action == PrepareAction.EVALUATE
+        assert result.uses_llm_detector is False
+
+    async def test_flags_an_ai_alert_for_the_dedicated_executor(self, ateam) -> None:
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            interval=IntervalType.DAY,
+            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        ).model_dump()
+        a = await _create_alert(ateam, query=query, detector_config={"type": "llm", "threshold": 0.7, "window": 90})
+
+        env = ActivityEnvironment()
+        result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id)))
+
+        assert result.action == PrepareAction.EVALUATE
+        assert result.uses_llm_detector is True
 
     async def test_auto_disable_when_threshold_bounds_empty(self, ateam) -> None:
         a = await _create_alert(
@@ -398,6 +416,23 @@ class TestPrepareAlert:
 @pytest.mark.asyncio
 @pytest.mark.django_db
 class TestEvaluateAlert:
+    @pytest.mark.parametrize("uses_llm_detector", [False, True])
+    async def test_ai_checks_run_on_their_own_executor(self, alert, uses_llm_detector: bool) -> None:
+        # A model call can hold a thread for a minute; it must not hold one of the shared pool's.
+        thread_names: list[str] = []
+
+        def _record_thread(_alert):
+            thread_names.append(threading.current_thread().name)
+            return AlertEvaluationResult(value=5.0, breaches=None)
+
+        with patch("posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=_record_thread):
+            env = ActivityEnvironment()
+            await env.run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id), uses_llm_detector=uses_llm_detector)
+            )
+
+        assert thread_names[0].startswith("insight-alert-llm-evaluate") is uses_llm_detector
+
     async def test_evaluate_not_firing_no_breaches(self, alert) -> None:
         with patch(
             "posthog.temporal.alerts.activities.check_alert_for_insight",

@@ -154,7 +154,9 @@ class CheckAlertWorkflow(PostHogWorkflow):
             try:
                 evaluation = await temporalio.workflow.execute_activity(
                     evaluate_alert,
-                    EvaluateAlertActivityInputs(alert_id=inputs.alert_id),
+                    EvaluateAlertActivityInputs(
+                        alert_id=inputs.alert_id, uses_llm_detector=prepare_result.uses_llm_detector
+                    ),
                     start_to_close_timeout=timeouts.evaluate_start_to_close,
                     schedule_to_close_timeout=timeouts.activity_schedule_to_close,
                     heartbeat_timeout=timeouts.heartbeat_timeout,

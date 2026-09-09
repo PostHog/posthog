@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -2548,7 +2549,14 @@ class TestLLMDetectorValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "not enabled for your account" in response.json()["detail"]
 
-    @parameterized.expand([("scalar_config", "llm"), ("scalar_detectors", {"type": "ensemble", "detectors": 1})])
+    @parameterized.expand(
+        [
+            ("scalar_config", "llm"),
+            ("scalar_detectors", {"type": "ensemble", "detectors": 1}),
+            ("list_type", {"type": []}),
+            ("object_sub_type", {"type": "ensemble", "detectors": [{"type": {"llm": True}}, {"type": "mad"}]}),
+        ]
+    )
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_malformed_detector_containers_return_400(self, _name: str, detector_config: Any, _flag) -> None:
         response = self._create(detector_config)
@@ -2611,6 +2619,36 @@ class TestLLMDetectorValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "does not support breakdown insights" in response.json()["detail"]
 
+    @mock.patch("posthog.tasks.alerts.detectors.llm.detector.LLMDetector._ask_model")
+    @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_simulate_rejects_a_breakdown_insight_before_any_model_call(self, _flag, mock_calculate, mock_ask) -> None:
+        insight_data = {
+            "query": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "interval": "day",
+                "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"},
+            }
+        }
+        breakdown_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=insight_data).json()
+        days = [f"2024-01-{i:02d}" for i in range(1, 36)]
+        mock_calculate.return_value = mock.MagicMock(
+            result=[
+                {"data": [10.0] * 35, "days": days, "labels": days, "label": browser, "breakdown_value": browser}
+                for browser in ("Chrome", "Firefox")
+            ]
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {"insight": breakdown_insight["id"], "detector_config": {"type": "llm", "threshold": 0.7, "window": 90}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "does not support breakdown insights" in response.json()["detail"]
+        mock_ask.assert_not_called()
+
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_created_with_instructions_stripped(self, _flag) -> None:
         response = self._create({"type": "llm", "threshold": 0.7, "window": 90, "instructions": "  only drops  "})
@@ -2640,12 +2678,15 @@ class TestLLMDetectorValidation(APIBaseTest):
         created = self._create({"type": "llm", "threshold": 0.7, "window": 90})
         assert created.status_code == status.HTTP_201_CREATED, created.content
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/alerts/{created.json()['id']}",
-            {"detector_config": {"type": "llm", "threshold": 0.8, "window": 90}},
-        )
+        # An edit that cannot add an AI alert must not take the team's cap lock either.
+        with mock.patch("products.alerts.backend.presentation.views.alert.lock_llm_alert_limit") as lock:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/alerts/{created.json()['id']}",
+                {"detector_config": {"type": "llm", "threshold": 0.8, "window": 90}},
+            )
 
         assert response.status_code == status.HTTP_200_OK, response.content
+        lock.assert_not_called()
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_per_team_cap_lowered_below_the_count_still_lets_you_edit_but_not_enable(self, _flag) -> None:
@@ -2693,18 +2734,33 @@ class TestLLMDetectorValidation(APIBaseTest):
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
         assert response.json()["code"] == "llm_detector_unavailable"
 
-    @mock.patch("posthog.rate_limit.AlertLLMSimulationThrottle.rate", new="2/minute")
+    @parameterized.expand(
+        [
+            ("burst_json", "AlertLLMSimulationBurstThrottle", "2/minute", "json"),
+            ("daily_json", "AlertLLMSimulationDailyThrottle", "2/day", "json"),
+            ("burst_multipart", "AlertLLMSimulationBurstThrottle", "2/minute", "multipart"),
+        ]
+    )
     @mock.patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     @mock.patch("posthoganalytics.feature_enabled", return_value=False)
-    def test_llm_simulation_is_rate_limited_per_team(self, _flag, _rate_limit_enabled) -> None:
+    def test_llm_simulation_is_rate_limited_per_team(
+        self, _name, throttle_class, rate, request_format, _flag, _rate_limit_enabled
+    ) -> None:
         cache.clear()
         endpoint = f"/api/projects/{self.team.id}/alerts/simulate"
+        detector_config = {"type": "llm", "threshold": 0.7, "window": 90}
         payload = {
             "insight": self.insight["id"],
-            "detector_config": {"type": "llm", "threshold": 0.7, "window": 90},
+            # A form-encoded body carries the config as a JSON string, which must throttle too.
+            "detector_config": json.dumps(detector_config) if request_format == "multipart" else detector_config,
         }
 
-        assert self.client.post(endpoint, payload).status_code == status.HTTP_400_BAD_REQUEST
-        assert self.client.post(endpoint, payload).status_code == status.HTTP_400_BAD_REQUEST
-        assert self.client.post(endpoint, payload).status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        with mock.patch(f"posthog.rate_limit.{throttle_class}.rate", new=rate):
+            for expected in (
+                status.HTTP_400_BAD_REQUEST,
+                status.HTTP_400_BAD_REQUEST,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            ):
+                response = self.client.post(endpoint, payload, format=request_format)
+                assert response.status_code == expected, response.content
         cache.clear()

@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 from django.db import transaction
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 
+import pydantic
 import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema, extend_schema_view
 from pydantic import (
@@ -48,7 +49,9 @@ from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.permissions import get_authenticator_scopes
 from posthog.rate_limit import (
-    AlertLLMSimulationThrottle,
+    AlertLLMSimulationBurstThrottle,
+    AlertLLMSimulationDailyThrottle,
+    AlertLLMSimulationSustainedThrottle,
     AlertTestDeliveryThrottle,
     BurstRateThrottle,
     SustainedRateThrottle,
@@ -83,10 +86,9 @@ from products.alerts.backend.insight_alert_state_machine import (
     apply_unsnooze,
 )
 from products.alerts.backend.llm_detector_limits import (
-    LLM_DETECTOR_CONSENT_MESSAGE,
-    LLM_DETECTOR_FLAG,
     is_llm_detector_config,
     llm_alert_limit_error,
+    llm_detector_access_error,
     llm_detector_interval_error,
     lock_llm_alert_limit,
 )
@@ -154,16 +156,23 @@ def _insight_alert_flag_enabled(context: dict[str, Any], flag: str) -> bool:
 MAX_DETECTOR_INSTRUCTIONS_CHARS = 2000
 
 
+def _as_number(value: Any) -> int | float | None:
+    """The value when it is a JSON number; bool is not one."""
+    return value if isinstance(value, int | float) and not isinstance(value, bool) else None
+
+
 def _detector_types(detector_config: Any) -> set[str]:
     """Every detector type named in a config, flattening an ensemble's sub-detectors."""
     if not isinstance(detector_config, dict):
         return set()
-    types = {detector_config.get("type")}
+    # Runs on the raw request body, so a type can be any JSON value. Only strings are
+    # detector names; anything else is left for schema validation to reject as a 400.
+    candidates = [detector_config.get("type")]
     detectors = detector_config.get("detectors")
     for sub in detectors if isinstance(detectors, list) else []:
         if isinstance(sub, dict):
-            types.add(sub.get("type"))
-    return {detector_type for detector_type in types if detector_type}
+            candidates.append(sub.get("type"))
+    return {candidate for candidate in candidates if isinstance(candidate, str) and candidate}
 
 
 def _enforce_llm_detector_rules(detector_config: Any) -> None:
@@ -191,7 +200,7 @@ def _enforce_llm_detector_rules(detector_config: Any) -> None:
     if instructions is not None:
         if not isinstance(instructions, str):
             raise ValidationError("Instructions for the AI detector must be text.")
-        if len(instructions.strip()) > MAX_DETECTOR_INSTRUCTIONS_CHARS:
+        if len(instructions) > MAX_DETECTOR_INSTRUCTIONS_CHARS:
             raise ValidationError(
                 f"Instructions for the AI detector must be {MAX_DETECTOR_INSTRUCTIONS_CHARS} characters or fewer."
             )
@@ -200,12 +209,13 @@ def _enforce_llm_detector_rules(detector_config: Any) -> None:
 def _enforce_llm_feature_access(context: dict[str, Any], detector_config: Any) -> None:
     if DetectorType.LLM.value not in _detector_types(detector_config):
         return
-    if not _insight_alert_flag_enabled(context, LLM_DETECTOR_FLAG):
-        raise ValidationError("The AI detector is not enabled for your account.")
     # The detector refuses the call too, but an alert that errors on every check is a
     # worse way to learn this than a message at save time.
-    if context["get_organization"]().is_ai_data_processing_approved is not True:
-        raise ValidationError(LLM_DETECTOR_CONSENT_MESSAGE)
+    error = llm_detector_access_error(
+        distinct_id=str(context["request"].user.distinct_id), organization=context["get_organization"]()
+    )
+    if error:
+        raise ValidationError(error)
 
 
 def _normalize_llm_detector_config(detector_config: Any) -> Any:
@@ -217,6 +227,76 @@ def _normalize_llm_detector_config(detector_config: Any) -> Any:
         return detector_config
     stripped = instructions.strip()
     return {**detector_config, "instructions": stripped or None}
+
+
+# Parameter ranges: (min, max, name)
+_DETECTOR_PARAM_RANGES: dict[str, tuple[float, float, str]] = {
+    "threshold": (0.0, 1.0, "Sensitivity threshold"),
+    "window": (5, 1000, "Window size"),
+    "n_estimators": (10, 500, "Number of trees"),
+    "n_neighbors": (1, 50, "Number of neighbors"),
+    "n_bins": (5, 50, "Number of bins"),
+    "multiplier": (0.5, 10.0, "IQR multiplier"),
+    "training_offset_n": (1, 500, "Training offset"),
+}
+
+
+def _validate_detector_params(config: dict) -> None:
+    """Validate detector parameter ranges match frontend constraints.
+
+    Runs on the raw config before schema validation, so the message can name the field and
+    its range: the schema carries the same bounds, but its rejection is the generic one. A
+    value of the wrong type is left for the schema.
+    """
+    for param, (min_val, max_val, label) in _DETECTOR_PARAM_RANGES.items():
+        if param == "window" and config.get("type") == DetectorType.LLM.value:
+            max_val = MAX_PROMPT_POINTS
+        val = _as_number(config.get(param))
+        if val is not None and (val < min_val or val > max_val):
+            raise ValidationError(f"{label} must be between {min_val} and {max_val}.")
+
+    preprocessing = config.get("preprocessing")
+    if preprocessing and isinstance(preprocessing, dict):
+        smooth_n = _as_number(preprocessing.get("smooth_n"))
+        if smooth_n is not None and (smooth_n < 0 or smooth_n > 30):
+            raise ValidationError("Smoothing window must be between 0 and 30.")
+        lags_n = _as_number(preprocessing.get("lags_n"))
+        if lags_n is not None and (lags_n < 0 or lags_n > 10):
+            raise ValidationError("Lag features must be between 0 and 10.")
+
+
+def _validate_detector_config(value: Any) -> Any:
+    """The detector-config validation shared by the alert and simulate serializers.
+
+    Returns the schema-normalized config.
+    """
+    _enforce_llm_detector_rules(value)
+    value = _normalize_llm_detector_config(value)
+    if isinstance(value, dict):
+        sub_detectors = value.get("detectors")
+        for config in [value, *(sub_detectors if isinstance(sub_detectors, list) else [])]:
+            if isinstance(config, dict):
+                _validate_detector_params(config)
+
+    try:
+        validated = DetectorConfig.model_validate(value)
+    except pydantic.ValidationError:
+        raise ValidationError("Invalid detector configuration.")
+
+    root = validated.root if hasattr(validated, "root") else validated
+    if getattr(root, "type", None) == "ensemble" and hasattr(root, "detectors") and len(root.detectors) < 2:
+        raise ValidationError("Ensemble detector requires at least 2 sub-detectors.")
+
+    return validated.model_dump() if hasattr(validated, "model_dump") else value
+
+
+def _adds_enabled_llm_alert(
+    *, detector_config: dict[str, Any] | None, enabled: bool, instance: AlertConfiguration | None
+) -> bool:
+    """Whether a write ends with one more enabled AI alert than the team had before it."""
+    if not enabled or not is_llm_detector_config(detector_config):
+        return False
+    return instance is None or not instance.enabled or not is_llm_detector_config(instance.detector_config)
 
 
 def _enforce_llm_alert_limit(
@@ -233,9 +313,7 @@ def _enforce_llm_alert_limit(
     enabled alert to the AI detector. Editing an alert that already counts adds no spend,
     so it passes even when the cap was lowered beneath the current count.
     """
-    if not enabled or not is_llm_detector_config(detector_config):
-        return
-    if instance is not None and instance.enabled and is_llm_detector_config(instance.detector_config):
+    if not _adds_enabled_llm_alert(detector_config=detector_config, enabled=enabled, instance=instance):
         return
     error = llm_alert_limit_error(
         team_id=context["team_id"], exclude_alert_id=str(instance.id) if instance is not None else None
@@ -714,15 +792,20 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     @transaction.atomic
     def update(self, instance, validated_data):
         enabled_changed = "enabled" in validated_data and validated_data["enabled"] != instance.enabled
-        resulting_enabled = validated_data.get("enabled", instance.enabled)
+        resulting_enabled = validated_data.get("enabled", instance.enabled) is True
         resulting_detector_config = validated_data.get("detector_config", instance.detector_config)
-        lock_llm_alert_limit(team_id=instance.team_id)
-        _enforce_llm_alert_limit(
-            self.context,
-            detector_config=resulting_detector_config,
-            enabled=resulting_enabled is True,
-            instance=instance,
-        )
+        # The cap lock serializes every writer of the team's AI alerts, so an edit that cannot
+        # add one must not queue behind it.
+        if _adds_enabled_llm_alert(
+            detector_config=resulting_detector_config, enabled=resulting_enabled, instance=instance
+        ):
+            lock_llm_alert_limit(team_id=instance.team_id)
+            _enforce_llm_alert_limit(
+                self.context,
+                detector_config=resulting_detector_config,
+                enabled=resulting_enabled,
+                instance=instance,
+            )
         if enabled_changed and validated_data["enabled"]:
             apply_enable(instance)
 
@@ -812,60 +895,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
     def validate_detector_config(self, value):
         if value is None:
             return value
-
-        import pydantic
-
-        _enforce_llm_detector_rules(value)
-        value = _normalize_llm_detector_config(value)
-
-        try:
-            validated = DetectorConfig.model_validate(value)
-        except pydantic.ValidationError:
-            raise ValidationError("Invalid detector configuration.")
-
-        # Ensemble requires at least 2 sub-detectors
-        root = validated.root if hasattr(validated, "root") else validated
-        if getattr(root, "type", None) == "ensemble" and hasattr(root, "detectors"):
-            if len(root.detectors) < 2:
-                raise ValidationError("Ensemble detector requires at least 2 sub-detectors.")
-            for sub in root.detectors:
-                sub_dict: dict = sub.model_dump() if hasattr(sub, "model_dump") else sub  # type: ignore[assignment]
-                self._validate_detector_params(sub_dict)
-        else:
-            self._validate_detector_params(value)
-
-        return validated.model_dump() if hasattr(validated, "model_dump") else value
-
-    @staticmethod
-    def _validate_detector_params(config: dict) -> None:
-        """Validate detector parameter ranges match frontend constraints."""
-        # Parameter ranges: (min, max, name)
-        PARAM_RANGES: dict[str, tuple[float, float, str]] = {
-            "threshold": (0.0, 1.0, "Sensitivity threshold"),
-            "window": (5, 1000, "Window size"),
-            "n_estimators": (10, 500, "Number of trees"),
-            "n_neighbors": (1, 50, "Number of neighbors"),
-            "n_bins": (5, 50, "Number of bins"),
-            "multiplier": (0.5, 10.0, "IQR multiplier"),
-            "training_offset_n": (1, 500, "Training offset"),
-        }
-
-        for param, (min_val, max_val, label) in PARAM_RANGES.items():
-            if param == "window" and config.get("type") == DetectorType.LLM.value:
-                max_val = MAX_PROMPT_POINTS
-            val = config.get(param)
-            if val is not None:
-                if val < min_val or val > max_val:
-                    raise ValidationError(f"{label} must be between {min_val} and {max_val}.")
-
-        preprocessing = config.get("preprocessing")
-        if preprocessing and isinstance(preprocessing, dict):
-            smooth_n = preprocessing.get("smooth_n")
-            if smooth_n is not None and (smooth_n < 0 or smooth_n > 30):
-                raise ValidationError("Smoothing window must be between 0 and 30.")
-            lags_n = preprocessing.get("lags_n")
-            if lags_n is not None and (lags_n < 0 or lags_n > 10):
-                raise ValidationError("Lag features must be between 0 and 10.")
+        return _validate_detector_config(value)
 
     def validate_snoozed_until(self, value):
         if value is not None and not isinstance(value, str):
@@ -1094,30 +1124,10 @@ class AlertSimulateSerializer(serializers.Serializer):
         return value
 
     def validate_detector_config(self, value):
-        import pydantic
-
         # Same gate as create/update: previewing a flag-gated detector must be rejected the
         # same way saving one is, or the preview becomes the way to use it.
-        _enforce_llm_detector_rules(value)
         _enforce_llm_feature_access(self.context, value)
-        value = _normalize_llm_detector_config(value)
-
-        try:
-            validated = DetectorConfig.model_validate(value)
-        except pydantic.ValidationError:
-            raise ValidationError("Invalid detector configuration.")
-
-        root = validated.root if hasattr(validated, "root") else validated
-        if getattr(root, "type", None) == "ensemble" and hasattr(root, "detectors"):
-            if len(root.detectors) < 2:
-                raise ValidationError("Ensemble detector requires at least 2 sub-detectors.")
-            for sub in root.detectors:
-                sub_dict: dict = sub.model_dump() if hasattr(sub, "model_dump") else sub  # type: ignore[assignment]
-                AlertSerializer._validate_detector_params(sub_dict)
-        else:
-            AlertSerializer._validate_detector_params(value)
-
-        return validated.model_dump() if hasattr(validated, "model_dump") else value
+        return _validate_detector_config(value)
 
 
 class BreakdownSimulationResultSerializer(serializers.Serializer):
@@ -1525,7 +1535,13 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         required_scopes=["alert:read", "insight:read"],
         # Action-level throttles replace the global ones, so the defaults are restated here:
         # a statistical simulation is still a ClickHouse query per call.
-        throttle_classes=[BurstRateThrottle, SustainedRateThrottle, AlertLLMSimulationThrottle],
+        throttle_classes=[
+            BurstRateThrottle,
+            SustainedRateThrottle,
+            AlertLLMSimulationBurstThrottle,
+            AlertLLMSimulationSustainedThrottle,
+            AlertLLMSimulationDailyThrottle,
+        ],
     )
     def simulate(self, request, *args, **kwargs):
         serializer = AlertSimulateSerializer(data=request.data, context=self.get_serializer_context())

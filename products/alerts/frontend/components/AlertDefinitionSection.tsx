@@ -218,6 +218,7 @@ export function AlertDefinitionSection({
                             }}
                             calculationInterval={alertForm.calculation_interval}
                             llmDetectorEnabled={llmDetectorEnabled}
+                            hasBreakdown={trends.isBreakdownValid}
                         />
                     )}
 

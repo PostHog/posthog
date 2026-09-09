@@ -25,6 +25,8 @@ from posthog.tasks.alerts.detectors.llm.prompt import SYSTEM_PROMPT, build_human
 from posthog.tasks.alerts.detectors.llm.verdict import LLMDetectionVerdict
 from posthog.tasks.alerts.detectors.registry import register_detector
 
+from products.alerts.backend.llm_detector_limits import llm_detector_access_error
+
 logger = structlog.get_logger(__name__)
 
 # One constant, matching the anomaly investigation agent. Not exposed per alert: a
@@ -56,11 +58,13 @@ MIN_POINTS_TO_JUDGE = 5
 # the same message need room too.
 MAX_RATIONALE_CHARS = 600
 
-# The evaluate activity runs this call on the worker's shared default thread pool, next to
-# every other alert's database work. Bounding the calls in flight keeps a slow model from
-# holding that whole pool and stalling alerts that make no model call at all.
+# Bound on model calls in flight per process. The evaluate activity runs AI checks on a
+# dedicated executor of this size (see posthog/temporal/alerts/activities.py), so a check
+# there never waits here; the wait covers the API's simulate path, whose request threads
+# are its own pool. The wait is short so a full pool fails a request fast instead of
+# holding its thread.
 MAX_CONCURRENT_MODEL_CALLS = 8
-MODEL_CALL_SLOT_WAIT_SECONDS = 30.0
+MODEL_CALL_SLOT_WAIT_SECONDS = 5.0
 _model_call_slots = threading.BoundedSemaphore(MAX_CONCURRENT_MODEL_CALLS)
 
 
@@ -113,14 +117,16 @@ class LLMDetector(BaseDetector):
                 "Recreate the alert to fix it."
             )
 
-        # The rollout flag and this consent are independent, and an alert created while
-        # consent was on keeps being checked after it is withdrawn. Refusing here covers
-        # every path to the model, scheduled or previewed.
-        if context.team.organization.is_ai_data_processing_approved is not True:
+        # An alert created while the organization was in the rollout and had consent on keeps
+        # being checked after either is withdrawn. Refusing here covers every path to the
+        # model, scheduled or previewed, so the flag is a real stop on spend.
+        access_error = llm_detector_access_error(
+            distinct_id=str(context.user.distinct_id), organization=context.team.organization
+        )
+        if access_error:
             raise LLMDetectorMisconfiguredError(
-                "AI data processing is turned off for this organization, so the AI detector cannot "
-                "send this insight's data to a model. Turn it on in organization settings, or switch "
-                "this alert to a statistical detector."
+                f"{access_error} This alert cannot be checked until that changes. Switch it to a statistical "
+                "detector to keep it running."
             )
 
         # Deferred so importing the detector registry does not pull langchain into every
@@ -234,6 +240,10 @@ class LLMDetector(BaseDetector):
             "rationale": verdict.rationale[:MAX_RATIONALE_CHARS],
             "kind": verdict.kind,
             "model": LLM_DETECTOR_MODEL,
+            # The score folds the verdict and its confidence into one number, which is not
+            # reversible: readers that need to know whether the model said "anomaly" get it here.
+            "verdict_is_anomaly": verdict.is_anomaly,
+            "confidence": verdict.confidence,
         }
         if verdict.is_anomaly and not confident:
             # Worth seeing in the check history: the model did flag something, the
