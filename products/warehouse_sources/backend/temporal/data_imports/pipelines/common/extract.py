@@ -1,14 +1,15 @@
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from django.conf import settings
 
 import pyarrow as pa
 import posthoganalytics
+from redis import exceptions as redis_exceptions
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async_pool
@@ -60,6 +61,10 @@ async def _get_redis():
         await redis.ping()
     except Exception as e:
         capture_exception(e)
+        # get_async_client only builds a lazy client, so a failed ping means redis is
+        # still unreachable - reset it to None so callers' `if redis_client is None` guard
+        # actually skips the real command instead of raising the same error uncaught.
+        redis = None
 
     yield redis
 
@@ -72,7 +77,9 @@ NON_RETRYABLE_ERROR_RETRY_LIMIT = 3
 
 
 async def trim_source_job_inputs(source: "ExternalDataSource") -> None:
-    if not source.job_inputs:
+    # job_inputs is an EncryptedJSONField, so it can decode to a non-dict (e.g. a bare string)
+    # for a malformed source config — nothing to trim key-by-key in that case.
+    if not isinstance(source.job_inputs, dict):
         return
 
     did_update_inputs = False
@@ -164,27 +171,53 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
             # What the dead attempt said it was doing, and what its pod neighbours said, at the moment
             # of death — the per-activity context this event otherwise cannot carry. Adds nothing when
             # no reports exist.
-            enrich_death_event_properties(properties, run_id=str(inputs.run_id), host=last_heartbeat_host)
+            enrich_death_event_properties(
+                properties, run_id=str(inputs.run_id), host=last_heartbeat_host, death_ts=last_heartbeat_timestamp
+            )
 
             posthoganalytics.capture("dwh_pod_heartbeat_timeout", distinct_id=None, properties=properties)
 
-            # Durable per-occurrence OOM record for the repartition trigger to read. Best-effort:
-            # a write failure here must never disrupt the sync.
+            # Durable per-occurrence record for the repartition trigger to read, snapshotting the
+            # workload evidence the enrichment just gathered — its Redis source expires in hours, and
+            # the row must remain explainable (and re-classifiable) long after. `self_*` is this
+            # team's own data; the co-tenant fields are aggregates only, never other teams' ids.
+            # Best-effort: a write failure here must never disrupt the sync.
             try:
                 from products.warehouse_sources.backend.models.oom_event import (  # noqa: PLC0415 — Django models must not be imported at this activity module's load time
                     ExternalDataSchemaOOMEvent,
                 )
 
                 if inputs.schema_id is not None:
+                    # Age of the evidence *at the death*, not at this retry: the last heartbeat is the
+                    # best proxy for when the worker died, and the report's own ts says when the
+                    # evidence was flushed. The rules refuse to exonerate on evidence older than a
+                    # small bound, because a phase flip (extract -> merge) reaches Redis only on the
+                    # next sample, and a merge that OOMs inside that window still shows "extract".
+                    report_ts = properties.get("self_report_ts")
+                    self_report_age = (
+                        max(0.0, last_heartbeat_timestamp - float(report_ts)) if report_ts is not None else None
+                    )
                     ExternalDataSchemaOOMEvent.objects.for_team(inputs.team_id).create(
                         team_id=inputs.team_id,
                         schema_id=inputs.schema_id,
                         run_id=inputs.run_id,
                         host=last_heartbeat_host,
                         gap_seconds=gap_between_beats,
+                        self_phase=properties.get("self_phase"),
+                        self_report_age_at_death_seconds=self_report_age,
+                        self_peak_buffer_bytes=properties.get("self_peak_buffer_bytes"),
+                        # The *correlated* max, not the raw one: raw spans keys retained for up to
+                        # the TTL, so a neighbour that crashed an hour ago (or a survivor's refreshed
+                        # report carrying a long-released lifetime peak) could exonerate a death it
+                        # had nothing to do with. Absent when no co-tenant reported near the death,
+                        # which the culprit rule treats as unknown — it fails open.
+                        co_tenant_correlated_max_peak_buffer_bytes=properties.get(
+                            "co_tenant_correlated_max_peak_buffer_bytes"
+                        ),
+                        co_tenant_report_count=properties.get("co_tenant_report_count"),
                     )
             except Exception as record_error:
-                logger.debug(f"Failed to record OOM event for schema {inputs.schema_id}: {record_error}")
+                logger.debug(f"Failed to record suspected OOM event for schema {inputs.schema_id}: {record_error}")
         else:
             logger.debug("Last heartbeat was within the heartbeat timeout window. No action needed.")
     except Exception as e:
@@ -205,10 +238,19 @@ async def handle_non_retryable_error(
             raise NonRetryableException() from error
 
         retry_key = build_non_retryable_errors_redis_key(team_id, source_id, run_id)
-        attempts = await redis_client.incr(retry_key)
+        try:
+            attempts = await redis_client.incr(retry_key)
+            if attempts <= NON_RETRYABLE_ERROR_RETRY_LIMIT:
+                await redis_client.expire(retry_key, 86400)  # Expire after 24 hours
+        except redis_exceptions.RedisError as e:
+            # A successful ping doesn't guarantee later commands still have a Redis to talk to -
+            # treat that the same as a `None` client instead of letting it surface unwrapped and
+            # mask the already-classified `error` behind an ordinary retryable activity failure.
+            capture_exception(e)
+            await logger.adebug(f"Redis became unreachable tracking a non-retryable error. error={error_msg}")
+            raise NonRetryableException() from error
 
         if attempts <= NON_RETRYABLE_ERROR_RETRY_LIMIT:
-            await redis_client.expire(retry_key, 86400)  # Expire after 24 hours
             await logger.adebug(
                 f"Non-retryable error attempt {attempts}/{NON_RETRYABLE_ERROR_RETRY_LIMIT}, retrying. error={error_msg}"
             )
@@ -227,12 +269,20 @@ async def reset_rows_synced_if_needed(
     is_incremental: bool,
     reset_pipeline: bool,
     should_resume: bool,
+    *,
+    incremental_cursor_staged: bool = False,
 ) -> None:
-    # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout
+    # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout.
+    #
+    # Incremental syncs are exempt only when the durable cursor advances per batch (pipeline v2), so
+    # a retried attempt resumes past the rows already counted. When the cursor is staged and only
+    # promoted on completion (pipeline v3), a retried attempt re-extracts the whole window from
+    # batch 0, so keeping the previous attempt's count double-counts every re-read row —
+    # `rows_synced` feeds billed usage via `Sum("rows_synced")` in usage reports.
     if (
         job.rows_synced is not None
         and job.rows_synced != 0
-        and (not is_incremental or reset_pipeline is True)
+        and (not is_incremental or reset_pipeline is True or incremental_cursor_staged)
         and not should_resume
     ):
         job.rows_synced = 0
@@ -280,7 +330,11 @@ async def persist_primary_keys(
     inside the row lock so a concurrent API edit isn't clobbered. Best-effort: a failure here
     must not fail an otherwise successful sync.
     """
-    if not is_incremental or schema.primary_key_columns:
+    # A CDC schema snapshots as full_refresh but streams incrementally, so its key has to be
+    # persisted during that first non-incremental run or the streaming phase has none.
+    if schema.primary_key_columns:
+        return
+    if not is_incremental and not schema.is_cdc:
         return
     primary_keys = resource.primary_keys
     if not primary_keys:
@@ -313,7 +367,6 @@ def validate_incremental_sync(
     *,
     is_first_sync: bool = True,
 ) -> None:
-    # Check for duplicate primary keys
     if is_incremental and resource.has_duplicate_primary_keys:
         raise DuplicatePrimaryKeysException(
             f"The primary keys for this table are not unique. We can't sync incrementally until the table "
@@ -367,14 +420,17 @@ async def handle_reset_or_full_refresh(
         # cleared; the incremental watermark and initial_sync_complete are kept since nothing
         # was wiped.
         await logger.adebug("Skipping table reset for webhook-only schema; resuming webhook ingestion")
+        # column_type_widened rides along with reset_pipeline (see auto_widen_resync); since this
+        # branch consumes the reset without wiping, drop the marker too so it can't linger forever.
         await database_sync_to_async_pool(update_sync_type_config_keys)(
-            schema.id, schema.team_id, removes=["reset_pipeline"]
+            schema.id, schema.team_id, removes=["reset_pipeline", "column_type_widened"]
         )
-        # Also drop it from the in-memory config: a later watermark save (update_incremental_field_values
+        # Also drop them from the in-memory config: a later watermark save (update_incremental_field_values
         # / V3 staging) persists this same schema's sync_type_config, which would otherwise write
         # reset_pipeline back and leave every subsequent run treated as a reset.
         if schema.sync_type_config:
             schema.sync_type_config.pop("reset_pipeline", None)
+            schema.sync_type_config.pop("column_type_widened", None)
     elif reset_pipeline and not should_resume:
         await logger.adebug("Deleting existing table due to reset_pipeline being set")
         await delta_table_ref.reset_table()
@@ -383,7 +439,11 @@ async def handle_reset_or_full_refresh(
         # Avoid schema mismatches from existing data about to be overwritten
         await logger.adebug("Deleting existing table due to sync being full refresh")
         await delta_table_ref.reset_table()
-        await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
+        # Keep the initial_sync_complete latch: this branch runs on every scheduled full-refresh
+        # sync, and a run that extracts zero rows never reaches post-load to re-set it.
+        await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)(
+            clear_initial_sync_complete=False
+        )
 
 
 def _capture_delta_revived(
@@ -566,7 +626,7 @@ def cleanup_memory(pa_memory_pool: pa.MemoryPool, py_table: pa.Table | None = No
     pa_memory_pool.release_unused()
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class IncrementalFieldValues:
     last_value: Any
     earliest_value: Any

@@ -28,8 +28,7 @@ export const FreeformGenerateBar = forwardRef<
     name: string;
     templateId?: string;
     /** Whether the canvas already has published source. The agent re-reads the
-     * live source through the canvas tools, so this is purely the edit signal
-     * (starter toggle hidden, generation prompted as a follow-up edit). */
+     * live source through the canvas tools, so this is purely the edit signal. */
     isEdit?: boolean;
     // Keys the editor's draft/command state; distinct per canvas.
     sessionId: string;
@@ -42,7 +41,6 @@ export const FreeformGenerateBar = forwardRef<
     channelName,
     name,
     templateId,
-    isEdit = false,
     sessionId,
     onStarted,
   },
@@ -52,12 +50,6 @@ export const FreeformGenerateBar = forwardRef<
     channelId,
     channelName,
   });
-
-  // On a FIRST build we seed the agent with a known-good starter scaffold by
-  // default (faster, more consistent than authoring from scratch). Uncheck to
-  // opt out and have the agent build from a blank canvas. Only meaningful on an
-  // empty canvas, so the toggle is hidden in edit mode.
-  const [useStarter, setUseStarter] = useState(true);
 
   // Generation always runs in the cloud, except the dev-only picker below lets a
   // local build of these features be tested before it's merged to the cloud env.
@@ -71,8 +63,6 @@ export const FreeformGenerateBar = forwardRef<
       name,
       templateId,
       instruction,
-      isEdit,
-      useStarter: !isEdit && useStarter,
       workspaceMode,
     });
     if (taskId) onStarted?.(taskId);
@@ -91,19 +81,6 @@ export const FreeformGenerateBar = forwardRef<
         hideDefaultToolbar
         onSubmit={(text) => void run(text)}
       />
-      {!isEdit && (
-        <label className="flex cursor-pointer select-none items-center gap-1.5 self-start px-1 text-muted-foreground text-xs">
-          <input
-            type="checkbox"
-            className="cursor-pointer"
-            checked={useStarter}
-            disabled={isStarting}
-            onChange={(e) => setUseStarter(e.target.checked)}
-          />
-          Start from scaffold (faster, more consistent — uncheck to build from
-          scratch)
-        </label>
-      )}
       {/* Dev-only: pick local vs cloud so a local build can be tested pre-merge. */}
       {import.meta.env.DEV && (
         <Tooltip>

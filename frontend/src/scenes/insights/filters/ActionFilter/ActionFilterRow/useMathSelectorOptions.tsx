@@ -36,13 +36,14 @@ function getActiveActor(
     selectedMath: string,
     math: string | undefined,
     mathGroupTypeIndex: number | null | undefined,
-    groupsMathDefinitions: Record<string, MathDefinition | undefined>
+    groupMathPrefix: string,
+    groupDefinitions: Record<string, MathDefinition | undefined>
 ): string {
     if (mathGroupTypeIndex === undefined || mathGroupTypeIndex === null || selectedMath !== math) {
         return 'users'
     }
-    const groupKey = `unique_group::${mathGroupTypeIndex}`
-    const groupDef = groupsMathDefinitions[groupKey]
+    const groupKey = `${groupMathPrefix}::${mathGroupTypeIndex}`
+    const groupDef = groupDefinitions[groupKey]
     return groupDef ? groupKey : 'users'
 }
 
@@ -79,6 +80,8 @@ export function useMathSelectorOptions({
 
         aggregationLabel,
         groupsMathDefinitions,
+        firstTimeForGroupMathDefinitions,
+        firstMatchingEventForGroupMathDefinitions,
     } = useValues(mathsLogic)
 
     const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(
@@ -95,13 +98,31 @@ export function useMathSelectorOptions({
     )
 
     const [uniqueActorsShown, setUniqueActorsShown] = useState<string>(
-        getActiveActor('unique_group', math, mathGroupTypeIndex, groupsMathDefinitions)
+        getActiveActor('unique_group', math, mathGroupTypeIndex, 'unique_group', groupsMathDefinitions)
     )
     const [weeklyActiveActorsShown, setWeeklyActiveActorsShown] = useState<string>(
-        getActiveActor('weekly_active', math, mathGroupTypeIndex, groupsMathDefinitions)
+        getActiveActor('weekly_active', math, mathGroupTypeIndex, 'unique_group', groupsMathDefinitions)
     )
     const [monthlyActiveActorsShown, setMonthlyActiveActorsShown] = useState<string>(
-        getActiveActor('monthly_active', math, mathGroupTypeIndex, groupsMathDefinitions)
+        getActiveActor('monthly_active', math, mathGroupTypeIndex, 'unique_group', groupsMathDefinitions)
+    )
+    const [firstTimeActorsShown, setFirstTimeActorsShown] = useState<string>(
+        getActiveActor(
+            'first_time_for_group',
+            math,
+            mathGroupTypeIndex,
+            'first_time_for_group',
+            firstTimeForGroupMathDefinitions
+        )
+    )
+    const [firstMatchingActorsShown, setFirstMatchingActorsShown] = useState<string>(
+        getActiveActor(
+            'first_matching_event_for_group',
+            math,
+            mathGroupTypeIndex,
+            'first_matching_event_for_group',
+            firstMatchingEventForGroupMathDefinitions
+        )
     )
 
     let definitions = staticMathDefinitions
@@ -408,6 +429,76 @@ export function useMathSelectorOptions({
                 weeklyActiveUsersIndex
             )
         }
+
+        // "First-ever occurrence" and "First occurrence matching filters" become "... for [users / <group>]"
+        // pickers, so first-occurrence math can be scoped to a group instead of a person.
+        const addFirstOccurrenceActorPicker = (
+            baseMathType: BaseMathType,
+            groupDefinitions: Record<string, MathDefinition | undefined>,
+            actorShown: string,
+            setActorShown: (value: string) => void
+        ): void => {
+            const optionIndex = options.findIndex((option) => 'value' in option && option.value === baseMathType)
+            if (optionIndex === -1) {
+                return
+            }
+            const baseOption = options[optionIndex] as LemonSelectOption<string>
+            const baseName = staticMathDefinitions[baseMathType]?.name ?? ''
+            const actorOptions = [
+                {
+                    value: 'users',
+                    label: 'users',
+                    'data-attr': `math-users-${index}`,
+                },
+                ...Object.entries(groupDefinitions)
+                    .filter((entry): entry is [string, MathDefinition] => !!entry[1])
+                    .map(([key]) => ({
+                        value: key,
+                        // these definitions' shortName carries the math ("first time for organizations") so
+                        // insight summaries stay unambiguous, so derive the bare noun the picker needs
+                        label: aggregationLabel(mathTypeToApiValues(key).math_group_type_index).plural,
+                        'data-attr': `math-${key}-${index}`,
+                    })),
+            ]
+            const isUsers = actorShown === 'users'
+            options[optionIndex] = {
+                ...baseOption,
+                value: isUsers ? baseMathType : actorShown,
+                label: isUsers ? baseOption.label : `${baseName} for ${aggregationLabel(mathGroupTypeIndex).plural}`,
+                tooltip: isUsers ? baseOption.tooltip : groupDefinitions[actorShown]?.description,
+                labelInMenu: (
+                    <div className="flex items-center gap-2">
+                        <span>{baseName} for</span>
+                        <LemonSelect
+                            value={actorShown}
+                            onClick={(e) => e.stopPropagation()}
+                            size="small"
+                            dropdownMatchSelectWidth={false}
+                            optionTooltipPlacement="right"
+                            onSelect={(value) => {
+                                setActorShown(value as string)
+                                onMathSelect(index, value === 'users' ? baseMathType : value)
+                            }}
+                            options={actorOptions}
+                        />
+                    </div>
+                ),
+                'data-attr': `math-node-first-occurrence-${baseMathType}-${index}`,
+            }
+        }
+
+        addFirstOccurrenceActorPicker(
+            BaseMathType.FirstTimeForUser,
+            firstTimeForGroupMathDefinitions,
+            firstTimeActorsShown,
+            setFirstTimeActorsShown
+        )
+        addFirstOccurrenceActorPicker(
+            BaseMathType.FirstMatchingEventForUser,
+            firstMatchingEventForGroupMathDefinitions,
+            firstMatchingActorsShown,
+            setFirstMatchingActorsShown
+        )
     }
 
     if (

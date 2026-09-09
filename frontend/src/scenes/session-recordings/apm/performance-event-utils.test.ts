@@ -1,4 +1,6 @@
-import { getPerformanceEvents } from 'scenes/session-recordings/apm/performance-event-utils'
+import { getPerformanceEvents, itemSizeInfo } from 'scenes/session-recordings/apm/performance-event-utils'
+
+import { PerformanceEvent } from '~/types'
 
 const aSingleSnapshotWithNetworkPayloads = {
     windowId: '018d5247-079c-7126-8e43-464605576a62',
@@ -299,5 +301,89 @@ describe('performance-event-utils', () => {
             '018d5247-079c-7126-8e43-464605576a62': [snapshot],
         })
         expect(result).toEqual([])
+    })
+
+    it.each([
+        // browser reports a literal 0 for an unmeasurable request (cross-origin, opaque, blocked)
+        [
+            'unmeasurable 0 is treated as unknown',
+            { transfer_size: 0, encoded_body_size: 0, decoded_body_size: 0 },
+            null,
+        ],
+        // a cached request has no transfer size but keeps its decoded body size
+        ['cached request reports its decoded size', { transfer_size: 0, decoded_body_size: 5120 }, 5120],
+        ['transfer size wins when present', { transfer_size: 3311, decoded_body_size: 3011 }, 3311],
+        // the SDK stores a diagnostic string as the body when it cannot read the real one;
+        // it must not be measured as the response size (a "too large" body would invert to a few bytes)
+        [
+            'diagnostic body is not measured as a size',
+            { transfer_size: 0, response_body: '[SessionReplay] Timeout while trying to read body' },
+            null,
+        ],
+        // the SDK writes these without the "[SessionReplay] " prefix
+        [
+            'unprefixed content-type diagnostic is not measured',
+            { transfer_size: 0, response_body: 'Content-Type video/mp4 is not supported' },
+            null,
+        ],
+        [
+            'deny list diagnostic is not measured',
+            { transfer_size: 0, response_body: 'api.company.com is in deny list' },
+            null,
+        ],
+        [
+            'a redacted body is not measured',
+            { transfer_size: 0, response_body: '[SessionRecording] content redacted' },
+            null,
+        ],
+        // a real captured body is still estimated when no measured size is available
+        [
+            'real body falls back to its estimated size',
+            { transfer_size: 0, response_body: 'hello', response_headers: {} },
+            7,
+        ],
+    ])('itemSizeInfo bytes: %s', (_name, item, expectedBytes) => {
+        const sizeInfo = itemSizeInfo(item as PerformanceEvent)
+        expect(sizeInfo.bytes).toEqual(expectedBytes)
+        if (expectedBytes === null) {
+            expect(sizeInfo.formattedBytes).toEqual('')
+        }
+    })
+
+    it.each([
+        // the detail view prefers formattedDecodedBodySize; an unknown 0 must not become "0 bytes",
+        // or it contradicts the "size not available" row
+        [
+            'an unknown (0) body size is not formatted',
+            { transfer_size: 0, encoded_body_size: 0, decoded_body_size: 0 },
+            null,
+        ],
+        ['a measured body size is formatted', { transfer_size: 0, decoded_body_size: 5120 }, '5.00 kB'],
+    ])('itemSizeInfo formattedDecodedBodySize: %s', (_name, item, expected) => {
+        expect(itemSizeInfo(item as PerformanceEvent).formattedDecodedBodySize).toEqual(expected)
+    })
+
+    it('skips malformed entries in rrweb/network@1 requests instead of crashing', () => {
+        const snapshot = {
+            windowId: '018d5247-079c-7126-8e43-464605576a62',
+            type: 6,
+            data: {
+                plugin: 'rrweb/network@1',
+                payload: {
+                    requests: [
+                        null,
+                        'not-a-request',
+                        42,
+                        { entryType: 'resource', name: 'https://example.com/a.js', timestamp: 1700000000000 },
+                    ],
+                },
+            },
+            timestamp: 1700000000000,
+        } as any
+
+        const result = getPerformanceEvents({
+            '018d5247-079c-7126-8e43-464605576a62': [snapshot],
+        })
+        expect(result.map((r) => r.name)).toEqual(['https://example.com/a.js'])
     })
 })

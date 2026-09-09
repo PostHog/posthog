@@ -54,15 +54,17 @@ class TestTaskRunMetrics(TestCase):
             "run_environment": "cloud",
             "mode": "background",
             "run_source": "manual",
+            "task_runtime": "acp",
             "runtime_adapter": "codex",
             "prewarmed": "false",
         }
         before = _sample_value("posthog_tasks_task_run_created_total", labels)
 
-        self.task.create_run(
-            environment=TaskRun.Environment.CLOUD,
-            extra_state={"run_source": "manual", "runtime_adapter": "codex"},
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            self.task.create_run(
+                environment=TaskRun.Environment.CLOUD,
+                extra_state={"run_source": "manual", "runtime_adapter": "codex"},
+            )
 
         assert _sample_value("posthog_tasks_task_run_created_total", labels) == before + 1
 
@@ -72,16 +74,50 @@ class TestTaskRunMetrics(TestCase):
             "run_environment": "cloud",
             "mode": "other",
             "run_source": "other",
+            "task_runtime": "acp",
             "runtime_adapter": "other",
             "prewarmed": "false",
         }
         before = _sample_value("posthog_tasks_task_run_created_total", labels)
 
-        self.task.create_run(
-            environment=TaskRun.Environment.CLOUD,
-            mode="custom-mode",
-            extra_state={"run_source": "custom-source", "runtime_adapter": "custom-adapter"},
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            self.task.create_run(
+                environment=TaskRun.Environment.CLOUD,
+                mode="custom-mode",
+                extra_state={"run_source": "custom-source", "runtime_adapter": "custom-adapter"},
+            )
+
+        assert _sample_value("posthog_tasks_task_run_created_total", labels) == before + 1
+
+    @parameterized.expand(
+        [
+            ("default_acp", Task.Runtime.ACP, "background", "acp", "claude"),
+            ("pi", Task.Runtime.PI, "unknown", "pi", "pi"),
+        ]
+    )
+    def test_create_run_labels_effective_runtime(
+        self,
+        _name: str,
+        task_runtime: Task.Runtime,
+        expected_mode: str,
+        expected_task_runtime: str,
+        expected_runtime_adapter: str,
+    ) -> None:
+        self.task.runtime = task_runtime
+        self.task.save(update_fields=["runtime"])
+        labels = {
+            "origin_product": "user_created",
+            "run_environment": "cloud",
+            "mode": expected_mode,
+            "run_source": "unknown",
+            "task_runtime": expected_task_runtime,
+            "runtime_adapter": expected_runtime_adapter,
+            "prewarmed": "false",
+        }
+        before = _sample_value("posthog_tasks_task_run_created_total", labels)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.task.create_run(environment=TaskRun.Environment.CLOUD)
 
         assert _sample_value("posthog_tasks_task_run_created_total", labels) == before + 1
 
@@ -91,16 +127,18 @@ class TestTaskRunMetrics(TestCase):
             "run_environment": "cloud",
             "mode": "interactive",
             "run_source": "unknown",
-            "runtime_adapter": "unknown",
+            "task_runtime": "acp",
+            "runtime_adapter": "claude",
             "prewarmed": "true",
         }
         before = _sample_value("posthog_tasks_task_run_created_total", labels)
 
-        self.task.create_run(
-            environment=TaskRun.Environment.CLOUD,
-            mode="interactive",
-            extra_state={"await_user_message": True, "prewarmed": True},
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            self.task.create_run(
+                environment=TaskRun.Environment.CLOUD,
+                mode="interactive",
+                extra_state={"await_user_message": True, "prewarmed": True},
+            )
 
         assert _sample_value("posthog_tasks_task_run_created_total", labels) == before + 1
 
@@ -119,6 +157,57 @@ class TestTaskRunMetrics(TestCase):
             facade._activate_warm_run(run, self.task, self.team.id, message="go", artifact_ids=[])
 
         assert _sample_value("posthog_tasks_prewarmed_activated_total", labels) == before + 1
+
+    def test_failed_startup_during_activation_does_not_count_as_activated(self) -> None:
+        from products.tasks.backend.facade import api as facade
+        from products.tasks.backend.metrics import observe_prewarmed_unused_if_never_activated
+
+        run = self.task.create_run(
+            environment=TaskRun.Environment.CLOUD,
+            mode="interactive",
+            extra_state={"await_user_message": True, "prewarmed": True},
+        )
+        labels = {"origin_product": "user_created", "reason": "other"}
+        before = _sample_value("posthog_tasks_prewarmed_unused_total", labels)
+        activation_labels = {"origin_product": "user_created"}
+        activated_before = _sample_value("posthog_tasks_prewarmed_activated_total", activation_labels)
+
+        def _terminalize_during_signal(*_args: object, **_kwargs: object) -> bool:
+            TaskRun.objects.filter(id=run.id).update(status=TaskRun.Status.FAILED)
+            observe_prewarmed_unused_if_never_activated(TaskRun.objects.get(id=run.id), reason="other")
+            return True
+
+        with (
+            patch.object(facade, "signal_task_run_user_message", side_effect=_terminalize_during_signal),
+            self.assertRaises(facade.WarmRunActivationUnavailable),
+        ):
+            facade._activate_warm_run(run, self.task, self.team.id, message="go", artifact_ids=[])
+
+        assert _sample_value("posthog_tasks_prewarmed_unused_total", labels) == before + 1
+        assert _sample_value("posthog_tasks_prewarmed_activated_total", activation_labels) == activated_before
+
+    def test_direct_terminal_write_counts_a_released_warm(self) -> None:
+        # The cancel fallback writes the terminal status itself when the workflow is already gone, so
+        # the status activity never runs and never books the miss.
+        from products.tasks.backend.facade import api as facade
+
+        run = self.task.create_run(
+            environment=TaskRun.Environment.CLOUD,
+            mode="interactive",
+            extra_state={"await_user_message": True, "prewarmed": True},
+        )
+        labels = {"origin_product": "user_created", "reason": "released"}
+        before = _sample_value("posthog_tasks_prewarmed_unused_total", labels)
+
+        with patch.object(facade, "signal_workflow_completion"):
+            facade.update_task_run(
+                run.id,
+                self.task.id,
+                self.team.id,
+                validated_data={"status": TaskRun.Status.CANCELLED},
+            )
+
+        assert _sample_value("posthog_tasks_prewarmed_unused_total", labels) == before + 1
 
     def test_activating_run_without_prewarmed_marker_does_not_increment(self) -> None:
         # Warm Runs provisioned before this ships have await_user_message but no prewarmed marker;
@@ -171,7 +260,8 @@ class TestTaskRunMetrics(TestCase):
             "run_environment": "cloud",
             "mode": "background",
             "run_source": "unknown",
-            "runtime_adapter": "unknown",
+            "task_runtime": "acp",
+            "runtime_adapter": "claude",
             "prewarmed": "false",
         }
         labels_by_outcome = [
@@ -296,6 +386,7 @@ class TestTaskRunMetrics(TestCase):
             "origin_product": "user_created",
             "mode": "interactive",
             "run_source": "manual",
+            "task_runtime": "acp",
             "runtime_adapter": "codex",
         }
         before = _sample_value("posthog_tasks_agent_turn_failed_total", labels)
@@ -309,6 +400,44 @@ class TestTaskRunMetrics(TestCase):
             )
 
         assert _sample_value("posthog_tasks_agent_turn_failed_total", labels) == before + expected_delta
+
+    @parameterized.expand(
+        [
+            ("acp_default", Task.Runtime.ACP, {"model": "claude-opus-5"}, "acp", "claude"),
+            ("pi", Task.Runtime.PI, {}, "pi", "pi"),
+        ]
+    )
+    def test_agent_turn_failure_counter_uses_effective_runtime(
+        self,
+        _name: str,
+        runtime: Task.Runtime,
+        extra_state: dict,
+        expected_task_runtime: str,
+        expected_runtime_adapter: str,
+    ) -> None:
+        from products.tasks.backend.facade import api as facade
+
+        self.task.runtime = runtime
+        self.task.save(update_fields=["runtime"])
+        run = self.task.create_run(environment=TaskRun.Environment.CLOUD, extra_state=extra_state)
+        labels = {
+            "origin_product": "user_created",
+            "mode": "background" if runtime == Task.Runtime.ACP else "unknown",
+            "run_source": "unknown",
+            "task_runtime": expected_task_runtime,
+            "runtime_adapter": expected_runtime_adapter,
+        }
+        before = _sample_value("posthog_tasks_agent_turn_failed_total", labels)
+
+        with patch.object(facade, "signal_workflow_completion"):
+            facade.update_task_run(
+                run.id,
+                self.task.id,
+                self.team.id,
+                validated_data={"status": "failed", "error_message": "boom"},
+            )
+
+        assert _sample_value("posthog_tasks_agent_turn_failed_total", labels) == before + 1
 
     @parameterized.expand(
         [

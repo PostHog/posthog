@@ -11,9 +11,9 @@
  * * `marketing` - Marketing
  * * `transactional` - Transactional
  */
-export type CategoryTypeEnumApi = (typeof CategoryTypeEnumApi)[keyof typeof CategoryTypeEnumApi]
+export type MessageCategoryTypeEnumApi = (typeof MessageCategoryTypeEnumApi)[keyof typeof MessageCategoryTypeEnumApi]
 
-export const CategoryTypeEnumApi = {
+export const MessageCategoryTypeEnumApi = {
     Marketing: 'marketing',
     Transactional: 'transactional',
 } as const
@@ -26,7 +26,7 @@ export interface MessageCategoryApi {
     name: string
     description?: string
     public_description?: string
-    category_type?: CategoryTypeEnumApi
+    category_type?: MessageCategoryTypeEnumApi
     readonly created_at: string
     readonly updated_at: string
     /** @nullable */
@@ -51,7 +51,7 @@ export interface PatchedMessageCategoryApi {
     name?: string
     description?: string
     public_description?: string
-    category_type?: CategoryTypeEnumApi
+    category_type?: MessageCategoryTypeEnumApi
     readonly created_at?: string
     readonly updated_at?: string
     /** @nullable */
@@ -172,13 +172,14 @@ export interface AddSuppressionRequestApi {
 /**
  * * `BOUNCE` - Bounce
  * * `MANUAL` - Manual
+ * * `COMPLAINT` - Complaint
  */
-export type MessageSuppressionSourceEnumApi =
-    (typeof MessageSuppressionSourceEnumApi)[keyof typeof MessageSuppressionSourceEnumApi]
+export type SuppressionSourceEnumApi = (typeof SuppressionSourceEnumApi)[keyof typeof SuppressionSourceEnumApi]
 
-export const MessageSuppressionSourceEnumApi = {
+export const SuppressionSourceEnumApi = {
     Bounce: 'BOUNCE',
     Manual: 'MANUAL',
+    Complaint: 'COMPLAINT',
 } as const
 
 export interface MessageSuppressionApi {
@@ -186,11 +187,12 @@ export interface MessageSuppressionApi {
     readonly id: string
     /** Normalized recipient email address. Suppression is keyed on this value, per team. */
     readonly identifier: string
-    /** How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `MANUAL` for user-added via the UI/API.
+    /** How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `COMPLAINT` for automatic (the recipient reported a message as spam), `MANUAL` for user-added via the UI/API.
      *
      * * `BOUNCE` - Bounce
-     * * `MANUAL` - Manual */
-    readonly source: MessageSuppressionSourceEnumApi
+     * * `MANUAL` - Manual
+     * * `COMPLAINT` - Complaint */
+    readonly source: SuppressionSourceEnumApi
     /**
      * Human-readable reason for the suppression (e.g. 'Auto-suppressed after 5 consecutive soft bounces').
      * @nullable
@@ -515,11 +517,21 @@ export type MessagingPreferencesOptOutsRetrieveParams = {
     category_key?: string
     page?: number
     page_size?: number
+    /**
+     * Case-insensitive substring match on the recipient identifier.
+     * @maxLength 512
+     */
+    search?: string
 }
 
 export type MessagingSuppressionsSuppressionsRetrieveParams = {
     page?: number
     page_size?: number
+    /**
+     * Case-insensitive substring match on the recipient email address.
+     * @maxLength 512
+     */
+    search?: string
 }
 
 export type MessagingTemplatesListParams = {

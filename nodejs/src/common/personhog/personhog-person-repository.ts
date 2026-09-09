@@ -2,7 +2,12 @@ import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
 import { PersonUpdate } from '~/common/persons/person-update-batch'
-import { InternalPersonWithDistinctId, PersonRepository } from '~/common/persons/repositories/person-repository'
+import {
+    InternalPersonWithDistinctId,
+    LifecycleMarkPerson,
+    PersonDistinctIdMapping,
+    PersonRepository,
+} from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult } from '~/common/utils/db/db'
 import { logger } from '~/common/utils/logger'
@@ -162,6 +167,10 @@ export class PersonHogPersonRepository implements PersonRepository {
         }
     }
 
+    fetchPersonDistinctIdMappings(_teamId: TeamId, _distinctIds: string[]): Promise<PersonDistinctIdMapping[]> {
+        return Promise.reject(new Error('fetchPersonDistinctIdMappings is not implemented for personhog'))
+    }
+
     // All write operations delegate directly to Postgres
 
     createPerson(
@@ -216,20 +225,20 @@ export class PersonHogPersonRepository implements PersonRepository {
         return this.postgres.deletePersons(persons)
     }
 
+    claimLifecycleMarks(opId: string, teamId: number, persons: LifecycleMarkPerson[]): Promise<void> {
+        return this.postgres.claimLifecycleMarks(opId, teamId, persons)
+    }
+
+    releaseLifecycleMarks(opId: string, teamId: number): Promise<void> {
+        return this.postgres.releaseLifecycleMarks(opId, teamId)
+    }
+
+    isPersonLive(person: InternalPerson): Promise<boolean> {
+        return this.postgres.isPersonLive(person)
+    }
+
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]> {
         return this.postgres.addDistinctId(person, distinctId, version)
-    }
-
-    addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean> {
-        return this.postgres.addPersonlessDistinctId(teamId, distinctId)
-    }
-
-    addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean> {
-        return this.postgres.addPersonlessDistinctIdForMerge(teamId, distinctId)
-    }
-
-    addPersonlessDistinctIdsBatch(entries: { teamId: number; distinctId: string }[]): Promise<Map<string, boolean>> {
-        return this.postgres.addPersonlessDistinctIdsBatch(entries)
     }
 
     personPropertiesSize(personId: string, teamId: number): Promise<number> {

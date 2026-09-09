@@ -50,16 +50,23 @@ class FramerSource(SimpleSource[FramerSourceConfig]):
             "Framer API error UNAUTHORIZED": "Framer rejected the API key for this project. Generate a new API key in the project's Site Settings → General and reconnect.",
             "Framer API error INVALID_REQUEST": "The Framer project URL or ID is invalid. Update the source with your project URL (https://framer.com/projects/...) or project ID.",
             "Invalid Framer project URL or ID": "The Framer project URL or ID is invalid. Update the source with your project URL (https://framer.com/projects/...) or project ID.",
+            # Framer's headless loader raises this when a code component the project uses
+            # references a module the headless runtime can't resolve — a defect in the
+            # project's own code components, not a transient server condition, so it fails
+            # identically on every retry until the project is fixed.
+            "ensureComponentsInLoader": "A code component in this Framer project references a module Framer's API can't load. Check the project's code components for missing or broken dependencies, then resync.",
         }
 
     def get_retryable_errors(self) -> set[str]:
         # Transient channel conditions the next Temporal attempt recovers from: a busy
-        # headless pool, a concurrent-session collision, or a dropped connection.
+        # headless pool, a concurrent-session collision, a dropped connection, or an
+        # egress-proxy hiccup.
         return {
             "Framer API error POOL_EXHAUSTED",
             "Framer API error TOKEN_SESSION_LIMIT",
             "Framer API error TIMEOUT",
             "Framer API error CONNECTION_CLOSED",
+            "Framer API error PROXY",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

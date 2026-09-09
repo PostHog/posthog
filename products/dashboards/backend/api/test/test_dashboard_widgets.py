@@ -13,9 +13,9 @@ from rest_framework import status
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team import Team
-from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.dashboards.backend.api.dashboard import DashboardTileSerializer
 from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -23,7 +23,7 @@ from products.dashboards.backend.models.dashboard_templates import DashboardTemp
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestDashboardWidgets(APIBaseTest):
@@ -1128,7 +1128,11 @@ class TestDashboardWidgets(APIBaseTest):
     @override_settings(IN_UNIT_TESTING=True)
     def test_shared_dashboard_tile_serializer_omits_widget_payload(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
-        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 10})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id,
+            widget_type="conversations_recent_tickets",
+            config={"limit": 10, "search": "sensitive ticket text"},
+        )
         tile = DashboardTile.objects.get(id=dashboard_json["tiles"][0]["id"])
 
         class ViewShim:
@@ -1143,8 +1147,9 @@ class TestDashboardWidgets(APIBaseTest):
         shared_widget = DashboardTileSerializer(tile, context=shared_context).data["widget"]
         assert shared_widget is not None
         assert set(shared_widget.keys()) == {"id", "widget_type", "name", "description", "config"}
-        assert shared_widget["widget_type"] == "error_tracking_list"
+        assert shared_widget["widget_type"] == "conversations_recent_tickets"
         assert shared_widget["config"]["limit"] == 10
+        assert "search" not in shared_widget["config"]
 
 
 class TestDashboardWidgetsBatchUpdate(APIBaseTest):

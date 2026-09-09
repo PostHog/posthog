@@ -72,6 +72,28 @@ describe("gateway models cache", () => {
     expect(second[0]?.allowed).toBe(true);
   });
 
+  it("does not serve one project's marks to another project using the same token", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(modelsResponse(false))
+      .mockResolvedValueOnce(modelsResponse(true));
+    const gatewayUrl = "https://gateway.project-key-test";
+
+    await fetchGatewayModels({ gatewayUrl, authToken: "tok-a", projectId: 1 });
+    const second = await fetchGatewayModels({
+      gatewayUrl,
+      authToken: "tok-a",
+      projectId: 2,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer tok-a",
+      "X-PostHog-Project-Id": "2",
+    });
+    expect(second[0]?.allowed).toBe(true);
+  });
+
   it("serves the cached list to the same token without refetching", async () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")

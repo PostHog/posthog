@@ -226,6 +226,31 @@ export class InsightPage {
         // #side-panel, confirming the switch is complete. Scoping to #side-panel
         // avoids matching the hidden inline panel.
         await this.page.locator('#side-panel .scene-panel-actions-section').first().waitFor({ state: 'visible' })
+        await this.dismissToasts()
+    }
+
+    // Toasts render in the bottom-right corner, which overlaps the bottom of the
+    // side panel. A sticky error toast (the support widget is unavailable in E2E,
+    // so it opens with autoClose:false) or a lingering success/hint toast there
+    // permanently intercepts clicks on the panel's lowest actions — View source
+    // and Delete insight. Close every open toast so those actions are reachable.
+    private async dismissToasts(): Promise<void> {
+        const closeButtons = this.page.locator(
+            '.Toastify__toast [data-attr="toast-close-button"], .Toastify__toast [data-attr="mcp-hint-close"]'
+        )
+        for (let attempt = 0; attempt < 10 && (await closeButtons.count()) > 0; attempt++) {
+            await closeButtons
+                .first()
+                .click({ timeout: 2000 })
+                .catch(() => undefined)
+        }
+        // react-toastify removes a closed toast with a slide-out animation, so a toast
+        // can still intercept clicks for a moment after its close button is clicked. Wait
+        // for the stack to clear so the next action is reachable. Non-fatal: if a stray
+        // toast lingers, the caller's own click retry is the backstop.
+        await expect(this.page.locator('.Toastify__toast'))
+            .toHaveCount(0, { timeout: 5000 })
+            .catch(() => undefined)
     }
 
     async clickDeleteInsight(): Promise<void> {

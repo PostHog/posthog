@@ -1,12 +1,12 @@
 // Ported from PostHog Desktop `packages/core/src/scouts/scoutRunsWindow.ts`
 // and `scoutPresentation.ts`. Pure metrics + display helpers over scout runs and
-// configs; no I/O. The runs endpoint caps each response at 100 rows newest-first;
-// `scoutFleetLogic.loadRunsWindow` assembles the full window by walking the
-// `date_to` cursor (same as desktop), and these helpers frame all numbers as
-// "the recent window" with a "truncated" suffix when that walk hits its page cap.
+// configs; no I/O. Two different run sets feed them: the per-scout stats read
+// `scoutFleetLogic.loadScoutRuns` (each scout's last N runs, one request), while the
+// fleet findings feed reads `loadRunsWindow` (a fixed lookback assembled by walking
+// the runs endpoint's `date_to` cursor past its 100-row page cap).
 
 import { humanFriendlyDuration } from 'lib/utils/durations'
-import { objectsEqual } from 'lib/utils/objects'
+import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
@@ -14,13 +14,44 @@ import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals
 import { SignalScoutRunStatus, SignalScoutRunSummary } from '../types'
 
 /**
- * The window every scout stat describes. The cloud runs endpoint caps each list
- * response at 100 rows newest-first; we frame all numbers as "the recent window
- * we can see", matching desktop's fixed-window framing.
+ * How many of each scout's most recent runs the per-scout stats describe — the count the
+ * `recent-per-scout` endpoint is asked for, mirrored here so the labels match the data.
+ *
+ * Scouts run on their own schedules, so a shared time window can't serve them all: an hourly scout
+ * fills a fleet-wide result cap on its own, and the daily and weekly ones end up with a history
+ * that gets shorter the busier the rest of the fleet is. Counting per scout gives each the same
+ * depth whatever its cadence.
+ */
+export const SCOUT_RUNS_PER_SCOUT = 25
+
+/** Label for per-scout stats, e.g. "last 25 runs". */
+export const SCOUT_RUNS_PER_SCOUT_LABEL = `last ${SCOUT_RUNS_PER_SCOUT} runs`
+
+/**
+ * The span every fleet-level number on the roster describes: runs, reports filed and edited, and
+ * scratchpad entries learned. Per-scout depth is a run count, but summing "last 25 each" across a
+ * fleet is bounded by fleet size, so the fleet headline needs a common time span - and a week is
+ * the shortest one that gives a daily scout enough runs to say anything.
+ */
+export const SCOUT_ROSTER_WINDOW_DAYS = 7
+export const SCOUT_ROSTER_WINDOW_HOURS = SCOUT_ROSTER_WINDOW_DAYS * 24
+export const SCOUT_ROSTER_WINDOW_LABEL = `last ${SCOUT_ROSTER_WINDOW_DAYS} days`
+
+/**
+ * Empty-state copy for a scout the window returned nothing for. Deliberately not "no runs in the
+ * last 30 days": the endpoint's staleness guard stretches with each scout's own cadence, so the
+ * cutoff a given scout was judged against is not a number the client knows.
+ */
+export const SCOUT_NO_RECENT_RUNS = 'No recent runs.'
+
+/**
+ * The time window the fleet-wide findings feed describes. Unlike the per-scout stats, that feed
+ * answers "what has the troop surfaced lately?", which is a recency question — so it stays on a
+ * fixed lookback, walked page by page from the runs endpoint's 100-row cap.
  */
 export const SCOUT_RUNS_WINDOW_HOURS = 72
 
-/** Human-friendly span the window covers, e.g. "3 days". */
+/** Human-friendly span the findings window covers, e.g. "3 days". */
 export const SCOUT_RUNS_WINDOW_SPAN = ((): string => {
     if (SCOUT_RUNS_WINDOW_HOURS % 24 !== 0) {
         return `${SCOUT_RUNS_WINDOW_HOURS}h`
@@ -28,12 +59,6 @@ export const SCOUT_RUNS_WINDOW_SPAN = ((): string => {
     const days = SCOUT_RUNS_WINDOW_HOURS / 24
     return `${days} day${days === 1 ? '' : 's'}`
 })()
-
-/** Label for stats derived from a window, e.g. "last 3 days". */
-export function scoutRunsWindowLabel(complete: boolean): string {
-    const base = `last ${SCOUT_RUNS_WINDOW_SPAN}`
-    return complete ? base : `${base} · truncated`
-}
 
 // Fleet-wide findings views fetch/tally only the most recent N emitted runs, to bound the per-run
 // fan-out. Shared so the page (`findingsLogic`) and the callout summary count the exact same set.
@@ -119,6 +144,14 @@ export function runDurationSeconds(run: SignalScoutRunSummary, now: Date): numbe
 /** Format a run's duration for display, e.g. "1m 30s". Empty string when unknown. */
 export function formatRunDuration(seconds: number | null): string {
     return humanFriendlyDuration(seconds, { maxUnits: 2 })
+}
+
+/**
+ * What a run spent on model calls. A run costing less than a cent gets more digits, since at two
+ * decimals it would read as "$0.00", which says the run was free.
+ */
+export function formatRunCost(costUsd: number): string {
+    return humanFriendlyCurrency(costUsd, costUsd > 0 && costUsd < 0.01 ? 4 : 2)
 }
 
 /**
@@ -308,34 +341,6 @@ function emptyRollup(): ScoutRollup {
 }
 
 /**
- * Reuse the previous poll's object reference for any item whose content is unchanged. The runs
- * endpoint returns freshly parsed objects on every 60s poll, so without this every run reference
- * changes each poll and every memoized row re-renders even when nothing changed. Matching by id and
- * reusing the old reference when deep-equal keeps identity stable through the rollup selectors, so
- * `React.memo` on the rows can actually bite.
- *
- * Cost: O(n·fields) per call — one Map build + one deep-equal per matched pair. Fine for the
- * runs window (≤100 items, 60s cadence); keep that in mind if pointed at a large, hot list.
- */
-export function reconcileById<T>(
-    previous: T[],
-    next: T[],
-    getId: (item: T) => string,
-    // Items whose rendering depends on wall-clock time (e.g. a live run's ticking duration) must
-    // NOT be reused: a preserved reference lets a memoized row skip the poll's re-render and freeze.
-    isReusable: (item: T) => boolean = () => true
-): T[] {
-    if (previous.length === 0) {
-        return next
-    }
-    const previousById = new Map(previous.map((item) => [getId(item), item]))
-    return next.map((item) => {
-        const existing = previousById.get(getId(item))
-        return existing && isReusable(item) && objectsEqual(existing, item) ? existing : item
-    })
-}
-
-/**
  * Client-side rollup over the recent fleet runs, keyed by skill_name. The runs
  * endpoint has no per-scout filter or aggregate stats yet and caps at 100 rows,
  * so these numbers describe "the recent window we can see", not all time.
@@ -460,8 +465,22 @@ export const RUN_INTERVAL_OPTIONS: RunIntervalOption[] = [
 ]
 
 export const SCOUT_DAILY_AT_SCHEDULE_MODE = 'daily_at'
+export const SCOUT_WEEKLY_ON_SCHEDULE_MODE = 'weekly_on'
 export const SCOUT_CUSTOM_CRON_SCHEDULE_MODE = 'custom_cron'
 export const DEFAULT_SCOUT_DAILY_TIME = '09:00'
+
+/** Cron day-of-week numbers, offered from Monday so the working week reads first. */
+export const SCOUT_WEEKDAY_OPTIONS: { value: string; label: string }[] = [
+    { value: '1', label: 'Monday' },
+    { value: '2', label: 'Tuesday' },
+    { value: '3', label: 'Wednesday' },
+    { value: '4', label: 'Thursday' },
+    { value: '5', label: 'Friday' },
+    { value: '6', label: 'Saturday' },
+    { value: '0', label: 'Sunday' },
+]
+
+export const DEFAULT_SCOUT_WEEKLY_DAY = '1'
 
 interface ScoutScheduleFields {
     run_interval_minutes: number
@@ -472,11 +491,24 @@ export function getScoutScheduleMode(config: ScoutScheduleFields): string {
     if (!config.run_cron_schedule) {
         return String(config.run_interval_minutes)
     }
-    return dailyCronToTime(config.run_cron_schedule) ? SCOUT_DAILY_AT_SCHEDULE_MODE : SCOUT_CUSTOM_CRON_SCHEDULE_MODE
+    if (dailyCronToTime(config.run_cron_schedule)) {
+        return SCOUT_DAILY_AT_SCHEDULE_MODE
+    }
+    if (weeklyCronToDayTime(config.run_cron_schedule)) {
+        return SCOUT_WEEKLY_ON_SCHEDULE_MODE
+    }
+    return SCOUT_CUSTOM_CRON_SCHEDULE_MODE
 }
 
-export function getScoutScheduleOptions(config: ScoutScheduleFields): { value: string; label: string }[] {
-    const scheduleMode = getScoutScheduleMode(config)
+/**
+ * `customCronEditable` says whether the surface can edit a raw expression. Where it cannot, the
+ * custom option only appears for a config that already carries one, so the picker still shows what
+ * the scout runs on.
+ */
+export function getScoutScheduleOptions(
+    config: ScoutScheduleFields,
+    { customCronEditable = false }: { customCronEditable?: boolean } = {}
+): { value: string; label: string }[] {
     const options = RUN_INTERVAL_OPTIONS.map((option) => ({
         value: String(option.minutes),
         label: option.label,
@@ -488,11 +520,11 @@ export function getScoutScheduleOptions(config: ScoutScheduleFields): { value: s
         })
     }
     options.push({ value: SCOUT_DAILY_AT_SCHEDULE_MODE, label: 'Daily at a set time' })
-    if (scheduleMode === SCOUT_CUSTOM_CRON_SCHEDULE_MODE) {
-        options.push({
-            value: SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
-            label: `Custom (${config.run_cron_schedule})`,
-        })
+    options.push({ value: SCOUT_WEEKLY_ON_SCHEDULE_MODE, label: 'Weekly on a set day' })
+    if (customCronEditable) {
+        options.push({ value: SCOUT_CUSTOM_CRON_SCHEDULE_MODE, label: 'Custom cron' })
+    } else if (getScoutScheduleMode(config) === SCOUT_CUSTOM_CRON_SCHEDULE_MODE) {
+        options.push({ value: SCOUT_CUSTOM_CRON_SCHEDULE_MODE, label: `Custom (${config.run_cron_schedule})` })
     }
     return options
 }
@@ -530,6 +562,153 @@ export function timeToDailyCron(time: string): string {
     return `${Number(minutes)} ${Number(hours)} * * *`
 }
 
+/**
+ * "30 9 * * 4" → `{ day: '4', time: '09:30' }` when the cron is a plain weekly slot (the shape the
+ * settings form writes). Multi-day and month-restricted expressions return null and are edited as
+ * raw cron instead. Cron takes both 0 and 7 for Sunday; the dropdown offers 0, so 7 maps onto it.
+ */
+export function weeklyCronToDayTime(cron: string | null | undefined): { day: string; time: string } | null {
+    const match = cron?.trim().match(/^(\d{1,2}) (\d{1,2}) \* \* ([0-7])$/)
+    if (!match) {
+        return null
+    }
+    return {
+        day: match[3] === '7' ? '0' : match[3],
+        time: `${match[2].padStart(2, '0')}:${match[1].padStart(2, '0')}`,
+    }
+}
+
+/** `('4', '09:30')` → "30 9 * * 4" — the inverse of `weeklyCronToDayTime`. */
+export function dayTimeToWeeklyCron(day: string, time: string): string {
+    const [hours, minutes] = time.split(':')
+    return `${Number(minutes)} ${Number(hours)} * * ${day}`
+}
+
+/** Longest cron expression the config API stores. */
+export const SCOUT_CRON_MAX_LENGTH = 100
+
+/** Shortest gap the scheduler allows between two runs, the same floor as `run_interval_minutes`. */
+const SCOUT_CRON_MIN_GAP_MINUTES = 30
+
+const CRON_MONTH_NAMES = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+const CRON_DAY_NAMES = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']
+const DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+type CronFieldParse = { kind: 'values'; values: number[] } | { kind: 'unmodeled' } | { kind: 'invalid' }
+
+function cronFieldNumber(token: string, offset: number, names: string[] | undefined): number | null {
+    const named = names?.indexOf(token.toLowerCase())
+    if (named !== undefined && named >= 0) {
+        return named + offset
+    }
+    return /^\d{1,2}$/.test(token) ? Number(token) : null
+}
+
+/**
+ * The values a single cron field matches. `unmodeled` covers the syntax this check does not
+ * model (`L`, `R`, `#`, `?`): the backend decides those, because a client that guessed would
+ * refuse an expression the scheduler accepts. Everything else croniter refuses, so a typo is
+ * answered here instead of on the next save.
+ */
+function parseCronField(field: string, min: number, max: number, names?: string[]): CronFieldParse {
+    if (/[#?]/.test(field)) {
+        return { kind: 'unmodeled' }
+    }
+    if (!field || /[^0-9a-zA-Z*/,-]/.test(field)) {
+        return { kind: 'invalid' }
+    }
+    const values = new Set<number>()
+    for (const part of field.split(',')) {
+        const [spec, stepToken, ...extra] = part.split('/')
+        if (extra.length > 0 || spec === undefined) {
+            return { kind: 'invalid' }
+        }
+        // A step is plain digits. `Number` alone would also read "1e2" and "0x10", which the
+        // scheduler refuses.
+        const step = stepToken === undefined ? 1 : /^\d+$/.test(stepToken) ? Number(stepToken) : 0
+        if (step < 1) {
+            return { kind: 'invalid' }
+        }
+        let from = min
+        let to = max
+        if (spec !== '*') {
+            // croniter's own markers: "L" is the last day of the month, "R" a random slot in the
+            // field. Neither is a calendar this check models, and it refuses every other letter
+            // form anyway.
+            if (/^[lr]$/i.test(spec)) {
+                return { kind: 'unmodeled' }
+            }
+            const bounds = spec.split('-')
+            if (bounds.length > 2) {
+                return { kind: 'invalid' }
+            }
+            const parsed = bounds.map((token) => cronFieldNumber(token, min === 0 ? 0 : 1, names))
+            if (parsed.some((value) => value === null || value < min || value > max)) {
+                return { kind: 'invalid' }
+            }
+            from = parsed[0] as number
+            // "5/10" is an open-ended step from 5, while a bare "5" is that one value.
+            to = bounds.length === 2 ? (parsed[1] as number) : stepToken === undefined ? from : max
+            // A wrapping range like "22-2" is an extension some parsers take and others reject.
+            if (to < from) {
+                return { kind: 'unmodeled' }
+            }
+        }
+        for (let value = from; value <= to; value += step) {
+            values.add(value)
+        }
+    }
+    return { kind: 'values', values: [...values].sort((a, b) => a - b) }
+}
+
+/**
+ * Why `expression` is not an acceptable scout cron schedule, or null when it is. Mirrors the four
+ * rules the config API applies (`cron_schedule_error`) so the picker rejects a typo before the
+ * PATCH. Expressions using syntax this check does not model pass and are left to the backend.
+ */
+export function scoutCronScheduleError(expression: string): string | null {
+    const expr = expression.trim()
+    if (expr.length > SCOUT_CRON_MAX_LENGTH) {
+        return `Cron expressions must be ${SCOUT_CRON_MAX_LENGTH} characters or fewer.`
+    }
+    const fields = expr.split(/\s+/)
+    const invalidShape = 'Enter a five-field cron expression, like 0 9 * * 1-5.'
+    if (fields.length !== 5) {
+        return invalidShape
+    }
+    const minutes = parseCronField(fields[0], 0, 59)
+    const hours = parseCronField(fields[1], 0, 23)
+    const daysOfMonth = parseCronField(fields[2], 1, 31)
+    const months = parseCronField(fields[3], 1, 12, CRON_MONTH_NAMES)
+    const daysOfWeek = parseCronField(fields[4], 0, 7, CRON_DAY_NAMES)
+    const parsedFields = [minutes, hours, daysOfMonth, months, daysOfWeek]
+    if (parsedFields.some((field) => field.kind === 'invalid')) {
+        return invalidShape
+    }
+    // A day-of-month no month in the set reaches kills the schedule, whatever the weekday field
+    // says: croniter refuses "0 0 31 2 MON" the same as "0 0 31 2 *".
+    if (fields[2] !== '*' && daysOfMonth.kind === 'values' && months.kind === 'values') {
+        const occurs = months.values.some((month) => daysOfMonth.values.some((day) => day <= DAYS_IN_MONTH[month - 1]))
+        if (!occurs) {
+            return 'This schedule never matches a real date. Check the day and month.'
+        }
+    }
+    if (minutes.kind === 'values' && hours.kind === 'values') {
+        const slots = hours.values.flatMap((hour) => minutes.values.map((minute) => hour * 60 + minute))
+        const gaps = slots.slice(1).map((slot, index) => slot - slots[index])
+        // A schedule that runs every day also runs across midnight, so the last slot of one day and
+        // the first of the next are one more gap. A day-restricted schedule can skip days, so how
+        // far its wrap reaches is left to the backend.
+        if (fields[2] === '*' && fields[4] === '*') {
+            gaps.push(slots[0] + 1440 - slots[slots.length - 1])
+        }
+        if (gaps.some((gap) => gap < SCOUT_CRON_MIN_GAP_MINUTES)) {
+            return `Runs must be at least ${SCOUT_CRON_MIN_GAP_MINUTES} minutes apart.`
+        }
+    }
+    return null
+}
+
 /** Short form for row badges: "hourly", "every 3h". */
 export function formatRunIntervalShort(minutes: number): string {
     if (minutes === 60) {
@@ -556,39 +735,8 @@ export function sortConfigsForDisplay(configs: SignalScoutConfig[]): SignalScout
     })
 }
 
-// ── Templated chat-task prompts (ported from desktop scoutPrompts.ts) ─────────
-
-export const SCOUT_AUTHOR_PROMPT = `I'd like to make a new scout for this PostHog project.
-
-Use the authoring-scouts skill from the PostHog MCP to guide creating a new signals scout.
-
-First, take a quick scan of this PostHog project to ground your suggestions: skim its events, insights, dashboards, recently emitted signals, and the existing scout fleet so you understand what this product is and where automated monitoring would add value.
-
-Then ask me what sort of scout I'd like to make, and offer a few concrete suggestions tailored to what you found (for example specific funnels, error or latency spikes, churn or activation signals, or revenue metrics worth watching) – and call out gaps the current fleet doesn't already cover. Once I pick a direction, walk me through authoring the scout end to end.
-
-If the skill is unavailable, fall back to the signals-scout MCP tools directly (config list to see the existing fleet) plus the read-data and insight tools to scan the project.`
-
-export const SCOUT_FLEET_OVERVIEW_PROMPT = `How is my scout fleet performing?
-
-Use the exploring-scouts skill from the PostHog MCP to survey the signals scout fleet on this project and give me a high-level overview:
-
-- The fleet: which scouts exist, enabled vs disabled, and their cadences
-- Recent run health: success rate, failures and timeouts, anything stuck
-- Output: which scouts emitted signals recently, emit rate, signal-to-noise
-- Memory: notable scratchpad entries the fleet has learned
-- Recommendations: anything misconfigured, noisy, or worth tuning
-
-Lead with a short overall verdict, then per-scout notes only where something is notable. If the skill is unavailable, fall back to the signals-scout MCP tools directly (config list, runs list, scratchpad search).`
-
-export const SCOUT_RECENT_SIGNALS_PROMPT = `What signals have my scouts emitted recently?
-
-Use the exploring-scouts skill from the PostHog MCP to pull the most recent scout runs that emitted findings and walk me through the signals:
-
-- What each signal says, in plain language
-- Which scout emitted it, when, and its severity/confidence where available
-- Whether it looks genuinely actionable or like noise
-
-Group by scout, newest first. Close with a short note on overall signal quality and any scouts that look noisy or suspiciously silent. If the skill is unavailable, fall back to the signals-scout MCP tools directly (runs list with emitted filter, run emissions).`
+// The fixed chat-task prompt templates live server-side in
+// products/signals/backend/scout_chat.py, keyed by `chat_type`.
 
 /** Per-scout variant of the templated questions, scoped to one skill. */
 export function buildScoutCheckinPrompt(skillName: string, displayName: string): string {

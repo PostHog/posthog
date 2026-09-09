@@ -10,15 +10,10 @@ Recipe (mount-over-image — the default, ~minutes per PR):
   - Run the ready-made published image (``ghcr.io/posthog/posthog:master``) and
     bind-mount the PR's backend source (``posthog``/``ee``/``products``) over the
     image's ``/code``. The image is the prod Dockerfile: it runs from
-    ``WORKDIR /code`` via ``./bin/docker-server-unit`` with the frontend baked at
+    ``WORKDIR /code`` via ``./bin/docker-server`` with the frontend baked at
     ``/code/frontend/dist``. Mounting the source swaps the BACKEND code live — no
     per-PR build. (Frontend stays at the image's version; frontend hot-mount is a
     later iteration.) DEBUG=0 is required: the prod image lacks DEBUG-only apps.
-  - NEVER ``restart`` the web container. Nginx Unit applies its ``*:8000``
-    listener only on a fresh container's first boot (``/var/lib/unit`` empty); a
-    ``restart`` finds it non-empty, skips the listener, and the app comes up with
-    ``listeners: {}`` — nothing serves on 8000. ``wait_for_health`` just waits on
-    the clean ``up`` (use ``--force-recreate`` if web ever needs replacing).
   - DB coherence: the restored golden's DB was migrated + seeded against the same
     image tag, so a restore only needs the PR's *delta* migrations on top
     (``migrate`` + ``migrate_clickhouse``). Reseeding is skipped — the golden is
@@ -78,6 +73,7 @@ class PostHogPreviewStack:
     # Default: run the ready-made published image and mount PR source over it.
     # Pass image=None to fall back to the build-from-checkout escape hatch.
     IMAGE = "ghcr.io/posthog/posthog:master"
+    CDP_IMAGE = "ghcr.io/posthog/posthog-node:master"
     REPO_DIR = "/home/hog/posthog"
     COMPOSE = "docker-compose.dev-full.yml"
     OVERRIDE = "docker-compose.preview.yml"
@@ -98,6 +94,7 @@ class PostHogPreviewStack:
     DEPS = [
         "db",
         "redis7",
+        "valkey",
         "clickhouse",
         "zookeeper",
         "kafka",
@@ -166,11 +163,13 @@ class PostHogPreviewStack:
             self.build_app()  # native path: build the checkout (PR code)
         if self.reset_db:
             self.reset_database()
-        # Migrate (and seed) BEFORE web serves: web can't be restarted to pick up
-        # a PR's delta migrations (the Unit-listener gotcha), so the schema must
-        # be ready before the serving container boots.
+        # Prepare the database and service-backed templates BEFORE web serves:
+        # web is not restarted to pick up a PR's delta migrations, so all setup
+        # must finish before it boots.
         self.up_deps()
         self.migrate()
+        self.start_cdp_service()
+        self.sync_hog_function_templates()
         if self.seed_demo_data:
             # Best-effort: a transient build/model issue shouldn't sink an
             # otherwise-good preview — it just opens empty.
@@ -279,8 +278,8 @@ class PostHogPreviewStack:
         #
         # A web recreate still happens in up_web — but only to bind-mount the PR's
         # backend source over the image's /code (you can't add a mount to a
-        # running container). On the warm golden that's a ~18s warm import (1 Unit
-        # worker + preloaded config), not the old ~120s cold rebuild; #315's win
+        # running container). On the warm golden that's a warm single-worker import
+        # rather than a cold rebuild; #315's win
         # is making that recreate warm and serving the frontend relative
         # (JS_URL=""), not removing it. Keeping the env constant means web only
         # ever recreates for the mount, never for config drift.
@@ -317,13 +316,9 @@ class PostHogPreviewStack:
             # (compose run --rm web) needs it too. Not shared across previews, so
             # a public preview URL can't be used to forge sessions on another.
             f"      - SECRET_KEY={self.secret_key}",
-            # A preview serves one user, so one Unit worker is plenty — and the
-            # image's entrypoint otherwise double-loads Django on every boot
-            # (start→apply config→stop→restart), once per worker. Measured on a
-            # restored golden: the stock 4-worker double-load is ~118s to first
-            # /_health; one worker + a preloaded config is ~15-20s.
-            "      - NGINX_UNIT_APP_PROCESSES=1",
-            "      - NGINX_UNIT_PRELOAD_CONFIG=true",
+            # A preview serves one user, and each worker costs a full Django import
+            # at boot, so one worker reaches a serving /_health much sooner.
+            "      - GRANIAN_WORKERS=1",
             # master's Django hard-requires the personhog service for group-type
             # lookups (require_personhog_client() raises "personhog client not
             # configured" without it — #65968). Same addr the dev/hobby composes
@@ -338,6 +333,29 @@ class PostHogPreviewStack:
             # companion settings change that reads this from the env; it's an
             # inert no-op on an image that predates it.
             "      - USE_LOCAL_SETUP=1",
+            # ee/urls.py registers /admin/* only when ADMIN_PORTAL_ENABLED is true,
+            # and ee/settings.py defaults it to DEMO or DEBUG — both false here. So
+            # without this, Django has no /admin route at all: the request falls
+            # through to the SPA, which prefixes any path it doesn't know with the
+            # project id, and /admin lands on /project/1/admin. A box reaches admin
+            # only over the tailnet (hogland's box-front is an internal NLB behind
+            # split-DNS), and the seeded demo user is staff, so /admin is as exposed
+            # as the rest of the preview and no more.
+            "      - ADMIN_PORTAL_ENABLED=1",
+        ]
+        lines += [
+            "  plugins:",
+            f"    image: {self.CDP_IMAGE}",
+            # The checkout mount from dev-full masks the compiled code in the published image.
+            "    volumes: !override []",
+            "    environment:",
+            "      - CYCLOTRON_NODE_DATABASE_URL=postgres://posthog:posthog@db:5432/cyclotron_node",
+            "      - CDP_REDIS_HOST=redis7",
+            "      - CDP_VALKEY_HOST=valkey",
+            "      - CDP_VALKEY_PORT=6379",
+            "      - ENCRYPTION_SALT_KEYS=00beef0000beef0000beef0000beef00",
+            "      - PERSONHOG_ADDR=personhog-router:50052",
+            "      - PERSONHOG_ENABLED=true",
         ]
         # Mirror the bake script's personhog service definitions (hogland
         # scripts/posthog-preview-setup.sh): dev-full.yml carries NO personhog
@@ -471,18 +489,21 @@ class PostHogPreviewStack:
         self.backend.run_long(self._compose(f"build {services}"), name="build", timeout=2700)
 
     def pull_image(self, *, attempts: int = 3) -> None:
-        # The default path: fetch the ready-made image. Fast/no-op if a golden
-        # already baked it in; otherwise pulls. ghcr pulls flake (TLS
-        # handshake timeouts mid-layer); retry — docker resumes from pulled
-        # layers, so a retry is cheap.
-        last: Exception | None = None
-        for _ in range(attempts):
-            try:
-                self.backend.run_long(f"docker pull {self.image}", name="pull", timeout=1800)
-                return
-            except RuntimeError as e:
-                last = e
-        raise RuntimeError(f"docker pull {self.image} failed after {attempts} attempts: {last}")
+        # The default path: fetch the ready-made images. Fast/no-op if a golden
+        # already baked them in; otherwise pulls. ghcr pulls flake (TLS
+        # handshake timeouts mid-layer); retry because docker resumes from
+        # pulled layers, so a retry is cheap.
+        assert self.image is not None
+        for image in (self.image, self.CDP_IMAGE):
+            last: Exception | None = None
+            for _ in range(attempts):
+                try:
+                    self.backend.run_long(f"docker pull {image}", name="pull", timeout=1800)
+                    break
+                except RuntimeError as e:
+                    last = e
+            else:
+                raise RuntimeError(f"docker pull {image} failed after {attempts} attempts: {last}")
 
     def reset_database(self) -> None:
         # Drop the snapshot's pre-migrated DB so migrate() rebuilds it fresh and
@@ -517,8 +538,7 @@ class PostHogPreviewStack:
         self.backend.run_long(script, name="up-deps", timeout=900)
 
     def up_web(self) -> None:
-        # Clean `up` (never `restart` — Unit-listener gotcha). --no-build reuses
-        # the pulled image; the override mounts PR source over its /code.
+        # --no-build reuses the pulled image; the override mounts PR source over its /code.
         #
         # The temporal worker comes up here, alongside web and for the same
         # reason: you can't add a bind mount to a running container, so the
@@ -575,6 +595,25 @@ class PostHogPreviewStack:
         )
         timing.stage("migrate done")
 
+    def start_cdp_service(self) -> None:
+        timing.stage("start CDP service")
+        ready_probe = self._compose("exec -T plugins curl -fsS http://localhost:6738/_ready")
+        script = (
+            f"set -e; {self._compose('up -d --no-build plugins')}; "
+            "ready=0; for _ in $(seq 1 60); do "
+            f"{ready_probe} >/dev/null 2>&1 && {{ ready=1; break; }}; sleep 4; done; "
+            '[ "$ready" = 1 ] || { echo "CDP service never became ready" >&2; exit 1; }'
+        )
+        self.backend.run_long(script, name="up-cdp", timeout=900)
+
+    def sync_hog_function_templates(self) -> None:
+        timing.stage("sync HogFunction templates")
+        self.backend.run_long(
+            self._compose("run --rm -T web python manage.py sync_hog_function_templates"),
+            name="sync-templates",
+            timeout=900,
+        )
+
     def generate_demo_data(self) -> None:
         # Same command hobby-ci uses (bin/hobby-ci.py). Seeds a demo org + the
         # test@posthog.com / 12345678 login so the preview opens populated.
@@ -598,9 +637,11 @@ class PostHogPreviewStack:
         # so settings import is fine; collectstatic itself needs no live DB.
         import pathlib
 
-        timing.stage("frontend swap start (upload dist)")
-        tar = pathlib.Path(self.frontend_dist_tar).read_bytes()
-        self.backend.write_file(f"{self.repo_dir}/frontend/dist.tgz", tar)
+        # Time upload and collectstatic separately because the exec transfer and
+        # static processing require different fixes.
+        with timing.span("frontend-dist-upload"):
+            tar = pathlib.Path(self.frontend_dist_tar).read_bytes()
+            self.backend.write_file(f"{self.repo_dir}/frontend/dist.tgz", tar)
         compose = f"docker compose -f {self.COMPOSE} -f {self.OVERRIDE}"
         # CI tars the dist with `-C frontend dist`, so its members are rooted at
         # `dist/`; strip that leading level on extract or the SPA double-nests to
@@ -609,21 +650,18 @@ class PostHogPreviewStack:
             f"cd {self.repo_dir} && "
             "rm -rf frontend/dist && mkdir -p frontend/dist staticfiles && "
             "tar xzf frontend/dist.tgz -C frontend/dist --strip-components=1 && "
-            f"{compose} run --rm -T -e STATIC_COLLECTION=1 -e SKIP_SERVICE_VERSION_REQUIREMENTS=1 "
+            f"{compose} run --rm -T "
+            "-e STATIC_COLLECTION=1 -e STATIC_PRECOMPRESS=0 -e SKIP_SERVICE_VERSION_REQUIREMENTS=1 "
             "web python manage.py collectstatic --noinput"
         )
         self.backend.run_long(script, name="frontend", timeout=900)
         timing.stage("frontend swap done (collectstatic done)")
 
     def wait_for_health(self) -> None:
-        # Do NOT `restart web` with the pinned image: Nginx Unit binds its :8000
-        # listener only on a fresh container's first boot (/var/lib/unit empty);
-        # a restart skips it and leaves `listeners: {}`, so nothing serves.
         # up_services already brought web up cleanly — just wait for it to serve.
         # Django is a heavy import; first health can take ~7 min.
-        timing.stage("health poll start")
-        self.backend.wait_http_ok("/_health", expect=200, timeout=900)
-        timing.stage("health poll pass")
+        with timing.span("health-poll"):
+            self.backend.wait_http_ok("/_health", expect=200, timeout=900)
 
     def deep_health(self) -> None:
         # /_health is UNAUTHENTICATED — it passed the whole time previews were
@@ -640,8 +678,8 @@ class PostHogPreviewStack:
         # a failed LOGIN (a genuinely unseeded box has no demo user): that
         # soft-skips with a note instead of failing. Any failure past login —
         # and a failed login on a seeded run — is fatal.
-        timing.stage("deep health (authed api)")
-        self._run_authed_probe()
+        with timing.span("deep-health"):
+            self._run_authed_probe()
 
     def _run_authed_probe(self) -> None:
         # Everything runs INSIDE the box (curl against localhost:8000), so it's
@@ -673,6 +711,7 @@ probe() {{ # name method path [json]
 probe login GET /login || exit 1
 probe api_login POST /api/login/ '{{"email":"{_DEMO_EMAIL}","password":"{_DEMO_PASSWORD}"}}' || exit 1
 probe projects GET /api/projects/@current/ || exit 1
+probe template GET /api/projects/@current/hog_function_templates/template-slack/ || exit 1
 probe hogql POST /api/environments/@current/query/ '{{"query":{{"kind":"HogQLQuery","query":"select 1"}}}}' || exit 1
 echo "DEEP_HEALTH_OK"
 """

@@ -22,6 +22,7 @@ from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.logs import LogAttributesTable, LogsTable
+from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
 from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
 from posthog.hogql.database.schema.sessions_v3 import SessionsTableV3
@@ -253,6 +254,7 @@ class ReplaceFilters(CloningVisitor):
             found_logs = False
             found_traces = False
             found_groups = False
+            found_persons = False
             while last_join is not None:
                 if isinstance(last_join.table, ast.Field):
                     resolved = self._resolve_table(last_join.table.chain)
@@ -266,14 +268,23 @@ class ReplaceFilters(CloningVisitor):
                         found_traces = True
                     if isinstance(resolved, GroupsTable):
                         found_groups = True
+                    if isinstance(resolved, PersonsTable):
+                        found_persons = True
                     if found_events and found_sessions or found_groups:
                         break
                 last_join = last_join.next_join
 
-            if not any([found_events, found_sessions, found_logs, found_traces, found_groups]):
+            if not any([found_events, found_sessions, found_logs, found_traces, found_groups, found_persons]):
                 raise QueryError(
-                    f"Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs, traces or groups table."
+                    f"Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs, traces, groups or persons table."
                 )
+
+            # Person semantics apply only when persons is the sole recognized table; any query that also
+            # touches an event-like table keeps its existing scope, so events-joined-to-persons insights
+            # are unaffected.
+            persons_only = found_persons and not any(
+                [found_events, found_sessions, found_logs, found_traces, found_groups]
+            )
 
             if no_filters:
                 return ast.Constant(value=True)
@@ -295,20 +306,28 @@ class ReplaceFilters(CloningVisitor):
                     exprs.append(property_to_expr(non_session_properties, self.team, scope="event"))
                 elif found_groups:
                     exprs.append(property_to_expr(self.filters.properties, self.team, scope="group"))
+                elif persons_only:
+                    exprs.append(property_to_expr(self.filters.properties, self.team, scope="person"))
                 else:
                     exprs.append(property_to_expr(self.filters.properties, self.team, scope="event"))
 
             timestamp_field = ast.Field(chain=["$start_timestamp"])
             if found_events or found_logs or found_traces:
                 timestamp_field = ast.Field(chain=["timestamp"])
-            if found_groups:
+            if found_groups or persons_only:
                 timestamp_field = ast.Field(chain=["created_at"])
 
             exprs.extend(self._date_range_exprs(timestamp_field))
 
             if self.filters.filterTestAccounts:
                 for prop in self.team.test_account_filters or []:
-                    exprs.append(property_to_expr(prop, self.team))
+                    if persons_only:
+                        try:
+                            exprs.append(property_to_expr(prop, self.team, scope="person"))
+                        except (QueryError, NotImplementedError) as error:
+                            raise self._persons_test_account_filter_error(prop) from error
+                    else:
+                        exprs.append(property_to_expr(prop, self.team, scope="event"))
 
             if len(exprs) == 0:
                 return ast.Constant(value=True)
@@ -577,4 +596,16 @@ class ReplaceFilters(CloningVisitor):
     def _histogram_breakdown_error(self) -> QueryError:
         return QueryError(
             "Numeric binning isn't supported by {filters.breakdown(...)}. Remove the bin count from the breakdown."
+        )
+
+    def _persons_test_account_filter_error(self, prop: Any) -> QueryError:
+        # The filter comes from project settings rather than the query, so the bare scope error from
+        # property_to_expr names something the reader never wrote and can't act on.
+        prop_type = prop.get("type") if isinstance(prop, dict) else getattr(prop, "type", None)
+        key = prop.get("key") if isinstance(prop, dict) else getattr(prop, "key", None)
+        described = f"the {prop_type or 'unknown'} property filter" + (f" on '{key}'" if key else "")
+        return QueryError(
+            f"A test account filter in your project settings ({described}) can't apply to a query that "
+            "selects only from persons. Change it to a person property filter in project settings, or "
+            "bind it yourself with {filters(expr AS key, ...)}."
         )

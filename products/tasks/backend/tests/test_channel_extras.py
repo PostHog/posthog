@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest
 
 from django.utils import timezone as django_timezone
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -185,4 +186,29 @@ class TestChannelStars(ChannelExtrasBaseTest):
 
         response = self.client.post(f"{self.base}/star/", {"starred": False}, format="json")
         assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not ChannelStar.objects.unscoped().filter(channel=self.channel, user=self.user).exists()
+
+    @parameterized.expand(
+        [
+            ("star_omitted", {}, True),
+            ("star_on", {"star": True}, True),
+            ("star_off", {"star": False}, False),
+        ]
+    )
+    def test_creating_a_channel_stars_it_for_its_creator(self, _name, body, expected_starred):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/task_channels/", {"name": "growth", **body}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["starred"] is expected_starred
+        assert (
+            ChannelStar.objects.unscoped().filter(channel_id=response.json()["id"], user=self.user).exists()
+            is expected_starred
+        )
+
+    def test_resolving_an_existing_channel_leaves_stars_alone(self):
+        response = self.client.post(f"/api/projects/{self.team.id}/task_channels/", {"name": "general"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == str(self.channel.id)
+        assert response.json()["starred"] is False
         assert not ChannelStar.objects.unscoped().filter(channel=self.channel, user=self.user).exists()

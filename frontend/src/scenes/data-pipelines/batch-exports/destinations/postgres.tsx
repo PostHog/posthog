@@ -4,6 +4,7 @@ import { LemonBanner, LemonCheckbox, LemonInput, Tooltip } from '@posthog/lemon-
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { PERSON_PROPERTIES_EVENT_FIELD } from './common'
 import type { DestinationDefinition } from './types'
 
 export const postgresDefinition: DestinationDefinition = {
@@ -21,6 +22,7 @@ export const postgresDefinition: DestinationDefinition = {
         return ['host', 'port', 'database', 'schema', 'table_name']
     },
     eventTableOverrides: { teamIdHogql: 'toInt32(team_id)' },
+    eventTableExtraFields: { ...PERSON_PROPERTIES_EVENT_FIELD },
     Fields: function PostgresFields({ isNew, formValues }) {
         const useIntegration = isNew || !!formValues.integration_id
 

@@ -1,0 +1,12 @@
+{
+    "id": "NB6",
+    "file": "products/stamphog/AGENTS.md",
+    "lines": "110-112",
+    "priority": "should_fix",
+    "title": "The hosted bypass list omits the author-association gate",
+    "problem": "The gate list omits the author-association pre-filter. `_review_skip_reason` rejects these bot payloads because their association is normally `NONE`. A successful inbox carve-out bypasses that result. The section names the other bypassed gates but does not state that provenance replaces this trust check. This incomplete contract can hide a security-sensitive bypass from future changes.",
+    "suggestion": "Add the author-association pre-filter to this list. State that verified task provenance and the reviewer opt-in replace both human-author trust checks.",
+    "cluster": 37,
+    "cluster_issue": "AGENTS.md carve-out bypass enumeration omits the untrusted_author_association branch of _review_skip_reason",
+    "cluster_verified": "0/0"
+}

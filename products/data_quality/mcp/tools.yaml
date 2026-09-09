@@ -1,0 +1,281 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Data quality
+feature: data_quality
+url_prefix: /
+ui_apps: {}
+tools:
+    data-quality-check-create-on-table:
+        operation: warehouse_tables_checks_create
+        enabled: true
+        scopes:
+            - warehouse_table:write
+            - query:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Create a data quality check on a table
+        description: |
+            Add a dbt-test-style assertion to a synced warehouse table; the table's id is the table_id
+            path parameter. A check passes when it finds zero failing rows.
+
+            Query `system.information_schema.data_quality_checks` first — re-creating an identical check is a no-op,
+            but a near-duplicate with different config is noise for whoever reviews the results.
+
+            Prefer a generic type over custom_sql. Config per type:
+              - not_null, unique: no config; set column_name.
+              - accepted_values: {"values": ["paid", "refunded"]}; set column_name.
+              - relationships: {"to_subject_type": "table", "to_subject_uuid": "<uuid>", "to_column": "id"}; set
+                column_name.
+              - row_count: {"min": 1} and/or {"max": 1000000}; no column_name.
+              - freshness: {"max_age_minutes": 60}; set column_name to a timestamp column.
+              - custom_sql: {"query": "select 1 from orders where total < 0"}; every row it returns is a failure.
+
+            Use severity 'error' when bad data should block trusting the model, 'warn' when it is worth surfacing but
+            not acting on. Checks run automatically after each sync of the table; there is nothing to schedule.
+        inject_body:
+            created_source: ai_generated
+        feature_flag: data-quality-checks
+    data-quality-check-create-on-view:
+        operation: warehouse_saved_queries_checks_create
+        enabled: true
+        scopes:
+            - warehouse_view:write
+            - query:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Create a data quality check on a view
+        description: |
+            Add a dbt-test-style assertion to a saved query (view or materialized view); the view's id is
+            the saved_query_id path parameter. A check passes when it finds zero failing rows.
+
+            Query `system.information_schema.data_quality_checks` first — re-creating an identical check is a no-op,
+            but a near-duplicate with different config is noise for whoever reviews the results.
+
+            Prefer a generic type over custom_sql. Config per type:
+              - not_null, unique: no config; set column_name.
+              - accepted_values: {"values": ["paid", "refunded"]}; set column_name.
+              - relationships: {"to_subject_type": "table", "to_subject_uuid": "<uuid>", "to_column": "id"}; set
+                column_name.
+              - row_count: {"min": 1} and/or {"max": 1000000}; no column_name.
+              - freshness: {"max_age_minutes": 60}; set column_name to a timestamp column.
+              - custom_sql: {"query": "select 1 from orders where total < 0"}; every row it returns is a failure.
+
+            Use severity 'error' when bad data should block trusting the model, 'warn' when it is worth surfacing but
+            not acting on. Checks run automatically when the view refreshes; there is nothing to schedule.
+        inject_body:
+            created_source: ai_generated
+        feature_flag: data-quality-checks
+    data-quality-check-delete-on-table:
+        operation: warehouse_tables_checks_destroy
+        enabled: true
+        scopes:
+            - warehouse_table:write
+            - query:read
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a data quality check on a table
+        description: >
+            Delete a check. The API soft-deletes it, so its run history stays queryable in
+            system.information_schema.data_quality_check_runs and past failures can still be dated.
+        feature_flag: data-quality-checks
+    data-quality-check-delete-on-view:
+        operation: warehouse_saved_queries_checks_destroy
+        enabled: true
+        scopes:
+            - warehouse_view:write
+            - query:read
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a data quality check on a view
+        description: >
+            Delete a check. The API soft-deletes it, so its run history stays queryable in
+            system.information_schema.data_quality_check_runs and past failures can still be dated.
+        feature_flag: data-quality-checks
+    data-quality-check-results-on-table:
+        operation: warehouse_tables_checks_runs_list
+        enabled: true
+        scopes:
+            - warehouse_table:read
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Recent results of a data quality check on a table
+        description: >
+            The check's newest runs, including the failing-row count and the compiled HogQL that selects the offending
+            rows — re-run that query to investigate a failure.
+        feature_flag: data-quality-checks
+    data-quality-check-results-on-view:
+        operation: warehouse_saved_queries_checks_runs_list
+        enabled: true
+        scopes:
+            - warehouse_view:read
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Recent results of a data quality check on a view
+        description: >
+            The check's newest runs, including the failing-row count and the compiled HogQL that selects the offending
+            rows — re-run that query to investigate a failure.
+        feature_flag: data-quality-checks
+    data-quality-check-run-on-table:
+        operation: warehouse_tables_checks_run_create
+        enabled: true
+        scopes:
+            - warehouse_table:write
+            - query:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run a data quality check on a table
+        description: >
+            Run one check now. Returns a suite run to poll; read the outcome from
+            system.information_schema.data_quality_check_runs once it finishes.
+        feature_flag: data-quality-checks
+    data-quality-check-run-on-view:
+        operation: warehouse_saved_queries_checks_run_create
+        enabled: true
+        scopes:
+            - warehouse_view:write
+            - query:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run a data quality check on a view
+        description: >
+            Run one check now. Returns a suite run to poll; read the outcome from
+            system.information_schema.data_quality_check_runs once it finishes.
+        feature_flag: data-quality-checks
+    data-quality-check-types:
+        operation: warehouse_saved_queries_checks_check_types_list
+        enabled: true
+        scopes:
+            - warehouse_view:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List data quality check types
+        description: >
+            The check types this project can author, each with the JSON schema its config is validated against. Static
+            catalog — the saved_query_id path parameter can be any view's id.
+        feature_flag: data-quality-checks
+    data-quality-check-update-on-table:
+        operation: warehouse_tables_checks_partial_update
+        enabled: true
+        scopes:
+            - warehouse_table:write
+            - query:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update a data quality check on a table
+        description: >
+            Change any part of a check: its presentation (name, description, severity, enabled, tags) and what it
+            asserts (check_type, column_name, config). The table it audits is fixed. The check keeps its id, run
+            history, latest status, and latest run time. A definition or name another active check already holds comes
+            back as a field error, with nothing written. Deleted checks release their definition, so it can be authored
+            again as a new check.
+        feature_flag: data-quality-checks
+    data-quality-check-update-on-view:
+        operation: warehouse_saved_queries_checks_partial_update
+        enabled: true
+        scopes:
+            - warehouse_view:write
+            - query:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update a data quality check on a view
+        description: >
+            Change any part of a check: its presentation (name, description, severity, enabled, tags) and what it
+            asserts (check_type, column_name, config). The view it audits is fixed. The check keeps its id, run history,
+            latest status, and latest run time. A definition or name another active check already holds comes back as a
+            field error, with nothing written. Deleted checks release their definition, so it can be authored again as a
+            new check.
+        feature_flag: data-quality-checks
+    data-quality-checks-health-list:
+        operation: data_quality_checks_health_list
+        enabled: false
+    data-quality-checks-list:
+        operation: data_quality_checks_list
+        enabled: false
+    data-quality-runs-create:
+        operation: data_quality_runs_create
+        enabled: false
+    data-quality-runs-list:
+        operation: data_quality_runs_list
+        enabled: false
+    data-quality-runs-retrieve:
+        operation: data_quality_runs_retrieve
+        enabled: false
+    warehouse-saved-queries-check-suite-runs-check-runs-list:
+        operation: warehouse_saved_queries_check_suite_runs_check_runs_list
+        enabled: false
+    warehouse-saved-queries-check-suite-runs-list:
+        operation: warehouse_saved_queries_check_suite_runs_list
+        enabled: false
+    warehouse-saved-queries-check-suite-runs-retrieve:
+        operation: warehouse_saved_queries_check_suite_runs_retrieve
+        enabled: false
+    warehouse-saved-queries-checks-health-retrieve:
+        operation: warehouse_saved_queries_checks_health_retrieve
+        enabled: false
+    warehouse-saved-queries-checks-list:
+        operation: warehouse_saved_queries_checks_list
+        enabled: false
+    warehouse-saved-queries-checks-retrieve:
+        operation: warehouse_saved_queries_checks_retrieve
+        enabled: false
+    warehouse-saved-queries-checks-run-all-create:
+        operation: warehouse_saved_queries_checks_run_all_create
+        enabled: false
+    warehouse-saved-queries-checks-update:
+        operation: warehouse_saved_queries_checks_update
+        enabled: false
+    warehouse-tables-check-suite-runs-check-runs-list:
+        operation: warehouse_tables_check_suite_runs_check_runs_list
+        enabled: false
+    warehouse-tables-check-suite-runs-list:
+        operation: warehouse_tables_check_suite_runs_list
+        enabled: false
+    warehouse-tables-check-suite-runs-retrieve:
+        operation: warehouse_tables_check_suite_runs_retrieve
+        enabled: false
+    warehouse-tables-checks-check-types-list:
+        operation: warehouse_tables_checks_check_types_list
+        enabled: false
+    warehouse-tables-checks-health-retrieve:
+        operation: warehouse_tables_checks_health_retrieve
+        enabled: false
+    warehouse-tables-checks-list:
+        operation: warehouse_tables_checks_list
+        enabled: false
+    warehouse-tables-checks-retrieve:
+        operation: warehouse_tables_checks_retrieve
+        enabled: false
+    warehouse-tables-checks-run-all-create:
+        operation: warehouse_tables_checks_run_all_create
+        enabled: false
+    warehouse-tables-checks-update:
+        operation: warehouse_tables_checks_update
+        enabled: false

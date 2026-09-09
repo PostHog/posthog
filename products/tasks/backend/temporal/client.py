@@ -1,6 +1,7 @@
 import uuid
 import asyncio
 import logging
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
@@ -10,6 +11,7 @@ from django.utils import timezone as django_timezone
 import posthoganalytics
 from asgiref.sync import sync_to_async
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import async_connect, sync_connect
@@ -33,7 +35,7 @@ from products.tasks.backend.temporal.process_task.workflow import PendingFollowu
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
 
 if TYPE_CHECKING:
-    from products.slack_app.backend.slack_thread import SlackThreadContext
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -201,10 +203,14 @@ async def execute_task_processing_workflow_async(
     prewarmed: bool = False,
     workflow_id_prefix: Optional[str] = None,
     initial_message: PendingFollowup | None = None,
+    durable_dispatch: bool = False,
 ) -> None:
     """
     Start the task processing workflow asynchronously. Fire-and-forget.
     Use this from async contexts (e.g., within Temporal activities).
+
+    ``durable_dispatch`` means an outbox row already covers this run, so a failed start
+    leaves the run QUEUED for the dispatcher to retry instead of terminalizing it.
     """
     logger.info(
         "execute_task_processing_workflow_async_called",
@@ -263,12 +269,20 @@ async def execute_task_processing_workflow_async(
             run_id,
             f"Failed to start task workflow: permission validation failed: {e}",
         )
+    except WorkflowAlreadyStartedError:
+        observe_task_run_workflow_start(task_run_for_metrics, outcome="blocked", reason="already_running")
+        logger.info(
+            "task_processing_workflow_already_running",
+            extra={"task_id": task_id, "run_id": run_id},
+        )
     except Exception as e:
         observe_task_run_workflow_start(task_run_for_metrics, outcome="failed", reason="temporal_start")
         logger.exception(
             "task_processing_workflow_start_failed",
             extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
         )
+        if durable_dispatch:
+            return
         await _terminalize_unstarted_task_run_async(
             run_id,
             f"Failed to start task workflow: {e}",
@@ -281,16 +295,20 @@ def execute_task_processing_workflow(
     team_id: int,
     user_id: Optional[int] = None,
     create_pr: bool = True,
-    slack_thread_context: Optional["SlackThreadContext"] = None,
+    slack_thread_context: Optional[Any] = None,
     skip_user_check: bool = False,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
     prewarmed: bool = False,
     workflow_id_prefix: Optional[str] = None,
     initial_message: PendingFollowup | None = None,
+    durable_dispatch: bool = False,
 ) -> None:
     """
     Start the task processing workflow synchronously. Fire-and-forget.
     Use this from sync contexts (e.g., API endpoints).
+
+    ``durable_dispatch`` means an outbox row already covers this run, so a failed start
+    leaves the run QUEUED for the dispatcher to retry instead of terminalizing it.
     """
     # Metrics lookups stay inside the try so a failure here can't bypass terminalization and
     # leave the run orphaned in QUEUED (see the async variant above).
@@ -356,12 +374,20 @@ def execute_task_processing_workflow(
             run_id,
             f"Failed to start task workflow: permission validation failed: {e}",
         )
+    except WorkflowAlreadyStartedError:
+        observe_task_run_workflow_start(task_run_for_metrics, outcome="blocked", reason="already_running")
+        logger.info(
+            "task_processing_workflow_already_running",
+            extra={"task_id": task_id, "run_id": run_id},
+        )
     except Exception as e:
         observe_task_run_workflow_start(task_run_for_metrics, outcome="failed", reason="temporal_start")
         logger.exception(
             "task_processing_workflow_start_failed",
             extra={"task_id": task_id, "run_id": run_id, "error": str(e)},
         )
+        if durable_dispatch:
+            return
         _terminalize_unstarted_task_run(
             run_id,
             f"Failed to start task workflow: {e}",
@@ -389,6 +415,9 @@ def _resolve_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
 
     if task_run.task.origin_product == Task.OriginProduct.SIGNALS_SCOUT:
         return "signals_scout_reports"
+    # The suggestion scan only reads; a reconciled run must not inherit the generic full posture.
+    if task_run.task.origin_product == Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS:
+        return "read_only"
 
     # Loop-fired runs persist their real scopes in pending_dispatch; a row missing it must
     # degrade to read_only, never escalate to the full write surface the generic fallback
@@ -565,6 +594,7 @@ def signal_task_followup_message(
     context: dict[str, Any] | None = None,
     *,
     steer: bool = False,
+    rpc_timeout: timedelta | None = None,
 ) -> None:
     """Legacy positional signal args stay frozen for worker deploy compatibility."""
     client = sync_connect()
@@ -588,7 +618,10 @@ def signal_task_followup_message(
                 if isinstance(protocol_version, int) and protocol_version >= STEERING_PROTOCOL_VERSION:
                     signal_name = SEND_STEER_SIGNAL
         signal_args = [message, artifact_ids, message_id, actor_user_id, context]
-        await handle.signal(signal_name, args=signal_args)
+        if rpc_timeout is None:
+            await handle.signal(signal_name, args=signal_args)
+        else:
+            await handle.signal(signal_name, args=signal_args, rpc_timeout=rpc_timeout)
 
     asyncio.run(signal())
 
@@ -608,6 +641,7 @@ def execute_posthog_code_agent_relay_workflow(
     delete_progress: bool = True,
     reaction_emoji: str | None = None,
     message_id: str | None = None,
+    trace_id: str | None = None,
 ) -> str:
     relay_id = relay_id or str(uuid.uuid4())
     workflow_id = f"posthog-code-agent-relay-{run_id}-{relay_id}"
@@ -624,11 +658,11 @@ def execute_posthog_code_agent_relay_workflow(
                 delete_progress=delete_progress,
                 reaction_emoji=reaction_emoji,
                 message_id=message_id,
+                trace_id=trace_id,
             ),
             id=workflow_id,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             task_queue=settings.TASKS_TASK_QUEUE,
-            retry_policy=RetryPolicy(maximum_attempts=3),
         )
     )
     return relay_id

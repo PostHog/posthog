@@ -150,6 +150,14 @@ _TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
     # HTTP statuses keep their existing handling (404 is non-retryable in the
     # source, 5xx stay retryable via Temporal).
     "returned response code 429",
+    # urllib3 couldn't open the TCP connection to our own egress proxy at all — it never got far
+    # enough to attempt a CONNECT tunnel — and wraps the raw socket timeout as
+    # `ProxyError('Cannot connect to proxy.', TimeoutError('timed out'))`. This is our proxy
+    # being briefly unreachable, not a customer config problem, so a fresh attempt recovers.
+    # Matching the full inner exception keeps this distinct from `Tunnel connection failed:
+    # 407` above, which wraps the same "Cannot connect to proxy." prefix around a deterministic
+    # proxy-auth response and must stay non-retryable.
+    "Cannot connect to proxy.', TimeoutError('timed out')",
 )
 
 
@@ -176,8 +184,25 @@ def _is_rate_limited(error_message: str) -> bool:
     return _TRANSIENT_RATE_LIMIT_SUBSTRING in error_message
 
 
+# The source server's own concurrency limit ("Code: 202. DB::Exception: Too many
+# simultaneous queries for all users. Current: N, maximum: N. (TOO_MANY_SIMULTANEOUS_QUERIES)")
+# rejects even the client-construction probe query when the server is already at capacity.
+# Like a 429, this is the server asking us to back off, not a config error, and it clears on
+# its own as other queries finish — so a backed-off retry recovers it the same way. The
+# "Current"/"maximum" counts are volatile; the ClickHouse error-code name is stable.
+_TRANSIENT_TOO_MANY_QUERIES_SUBSTRING = "TOO_MANY_SIMULTANEOUS_QUERIES"
+
+
+def _is_too_many_queries(error_message: str) -> bool:
+    return _TRANSIENT_TOO_MANY_QUERIES_SUBSTRING in error_message
+
+
 def _is_retryable_connect_error(error_message: str) -> bool:
-    return _is_transient_connect_drop(error_message) or _is_rate_limited(error_message)
+    return (
+        _is_transient_connect_drop(error_message)
+        or _is_rate_limited(error_message)
+        or _is_too_many_queries(error_message)
+    )
 
 
 def _apply_session_settings(client: ClickHouseClient, settings: dict[str, Any]) -> None:
@@ -349,10 +374,15 @@ def _get_client(
             attempt += 1
             message = str(e)
             if attempt < _MAX_CONNECT_ATTEMPTS and _is_retryable_connect_error(message):
-                # A 429 is the server asking us to slow down, so back off
-                # exponentially to give the rate limit room to clear; a dropped
-                # connection just needs a re-dial, so a short linear wait is enough.
-                wait = _RATE_LIMIT_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)) if _is_rate_limited(message) else attempt
+                # A 429 or a too-many-queries rejection is the server asking us to
+                # slow down, so back off exponentially to give it room to clear; a
+                # dropped connection just needs a re-dial, so a short linear wait
+                # is enough.
+                wait = (
+                    _RATE_LIMIT_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
+                    if _is_rate_limited(message) or _is_too_many_queries(message)
+                    else attempt
+                )
                 structlog.get_logger().warning(
                     "Transient ClickHouse connect error; retrying",
                     attempt=attempt,

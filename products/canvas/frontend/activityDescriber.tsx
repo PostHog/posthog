@@ -11,6 +11,7 @@ interface CanvasPostHogCapabilities {
     insights?: string[]
     captureEvents?: string[]
     inlineQueries?: boolean
+    agentRequests?: boolean
 }
 
 function posthogCapabilities(value: unknown): CanvasPostHogCapabilities {
@@ -53,6 +54,9 @@ export function describeCapabilitiesChange(change: ActivityChange): Description[
 
     if (!!before.inlineQueries !== !!after.inlineQueries) {
         parts.push(after.inlineQueries ? <>enabled inline queries</> : <>disabled inline queries</>)
+    }
+    if (!!before.agentRequests !== !!after.agentRequests) {
+        parts.push(after.agentRequests ? <>enabled agent requests</> : <>disabled agent requests</>)
     }
 
     return parts
@@ -111,6 +115,21 @@ export function canvasActivityDescriber(logItem: ActivityLogItem, asNotification
                     {actor} published canvas {canvasName}
                     {parts.length === 1 ? <> and</> : null}
                     {parts.length > 1 ? <> and changed its declared capabilities:</> : null}
+                    {parts.length > 0 ? inlineOrList(parts) : null}
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity === 'drafted') {
+        const capabilitiesChange = (logItem.detail.changes || []).find((change) => change.field === 'capabilities')
+        const parts = capabilitiesChange ? describeCapabilitiesChange(capabilitiesChange) : []
+        return {
+            description: (
+                <>
+                    {actor} drafted a new version of canvas {canvasName}
+                    {parts.length === 1 ? <> that</> : null}
+                    {parts.length > 1 ? <> that changes its declared capabilities:</> : null}
                     {parts.length > 0 ? inlineOrList(parts) : null}
                 </>
             ),

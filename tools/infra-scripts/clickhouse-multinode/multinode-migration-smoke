@@ -24,7 +24,8 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 cd "$SCRIPT_DIR/../../.."
 
 COMPOSE_FILE="docker-compose.multinode-clickhouse.yml"
-CH_SERVICES=(clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions clickhouse-logs)
+CH_SERVICES=(clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions clickhouse-logs
+    clickhouse-ingestion-events clickhouse-ingestion-small clickhouse-ingestion-medium)
 INFRA_SERVICES=(zookeeper kafka db redis7)
 ALL_SERVICES=("${INFRA_SERVICES[@]}" "${CH_SERVICES[@]}")
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
@@ -155,6 +156,10 @@ export CLICKHOUSE_MIGRATIONS_HOST="${CLICKHOUSE_MIGRATIONS_HOST:-localhost}"
 export CLICKHOUSE_CLUSTER="${CLICKHOUSE_CLUSTER:-posthog}"
 export CLICKHOUSE_MIGRATIONS_CLUSTER="${CLICKHOUSE_MIGRATIONS_CLUSTER:-posthog_migrations}"
 export CLICKHOUSE_SATELLITE_CLUSTERS="${CLICKHOUSE_SATELLITE_CLUSTERS:-ai_events,aux,ops,sessions}"
+# The ingestion-events node reaches the logs cluster as `logs` (see
+# docker/clickhouse/config.d/multinode/ingestion_events_node.xml). Its `posthog_single_shard`,
+# which CLICKHOUSE_LOGS_CLUSTER defaults to, points at the data node instead.
+export CLICKHOUSE_LOGS_WRITE_CLUSTER="${CLICKHOUSE_LOGS_WRITE_CLUSTER:-logs}"
 export CLICKHOUSE_DATABASE="${CLICKHOUSE_DATABASE:-posthog}"
 export CLICKHOUSE_USER="${CLICKHOUSE_USER:-default}"
 export CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD:-}"
@@ -203,12 +208,12 @@ echo "==> Verifying per-node table layout..."
 python tools/infra-scripts/clickhouse-multinode/verify-multinode-clickhouse.py
 
 # Convergence gate: the migrations just applied must reproduce the declarative
-# HCL golden for the managed OPS/LOGS roles. Two steps — (1) introspect those
-# nodes into HCL dumps, (2) diff the dumps against posthog/clickhouse/hcl/golden/.
+# HCL golden for every role this stack runs. Two steps — (1) introspect each
+# node into an HCL dump, (2) diff the dumps against posthog/clickhouse/hcl/golden/.
 # Enforced by default (drift fails the smoke); export VERIFY_LIVE_WARN=1 to make
 # it informational (report drift but pass) while reconciling.
 SMOKE_STAGE="dump_live_hcl"
-echo "==> Dumping live OPS/LOGS schema..."
+echo "==> Dumping live schema from every node..."
 LIVE_DUMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ch-live-dump.XXXXXX")"
 bash posthog/clickhouse/hcl/dump-live.sh "$LIVE_DUMP_DIR" >/dev/null
 

@@ -39,6 +39,11 @@ ZOHO_REGIONS: dict[str, RegionHosts] = {
     "cn": RegionHosts(accounts_host="https://accounts.zoho.com.cn", api_domain="https://www.zohoapis.com.cn"),
 }
 
+# Zoho answers a request that matched nothing with 204. It answers a conditional read whose
+# records are all older than `If-Modified-Since` with 304. Both bodies are empty, and
+# `raise_for_status()` lets 304 through, so each read site must check for both.
+NO_CONTENT_STATUSES = frozenset({204, 304})
+
 # Zoho caps `per_page` at 200.
 PAGE_SIZE = 200
 # `page`-based pagination stops at 2000 records (page * per_page); past that Zoho only
@@ -176,8 +181,7 @@ class ZohoCRMClient:
             self.mint_access_token()
             response = _send()
 
-        # 204 is Zoho's "nothing matched" — an empty body, not an error.
-        if response.status_code != 204:
+        if response.status_code not in NO_CONTENT_STATUSES:
             response.raise_for_status()
         return response
 
@@ -185,7 +189,7 @@ class ZohoCRMClient:
 def readable_field_names(client: ZohoCRMClient, api_version: str, module: str) -> list[str]:
     """Field API names Get Records can project for `module`, from the fields metadata API."""
     response = client.get(f"/crm/{api_version}/settings/fields", params={"module": module})
-    if response.status_code == 204:
+    if response.status_code in NO_CONTENT_STATUSES:
         return []
 
     names: list[str] = []
@@ -209,7 +213,7 @@ def _fetch_page(
     headers: dict[str, str],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     response = client.get(f"/crm/{api_version}/{config.path}", params=params, headers=headers)
-    if response.status_code == 204:
+    if response.status_code in NO_CONTENT_STATUSES:
         return [], {}
 
     body = response.json()

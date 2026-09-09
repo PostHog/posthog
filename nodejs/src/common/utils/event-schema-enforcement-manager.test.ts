@@ -1,4 +1,4 @@
-import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTeam, createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { defaultConfig } from '../config/config'
@@ -19,11 +19,10 @@ describe('EventSchemaEnforcementManager', () => {
         jest.spyOn(Date, 'now').mockImplementation(() => now)
 
         hub = await createHub()
-        await resetTestDatabase()
 
         postgres = new PostgresRouter(defaultConfig)
         schemaManager = new EventSchemaEnforcementManager(postgres)
-        const team = await getFirstTeam(hub.postgres)
+        const { team } = await createTestTeamFixture(hub.postgres)
         teamId = team.id
         projectId = team.project_id
         fetchSchemasSpy = jest.spyOn(schemaManager as any, 'fetchSchemas')

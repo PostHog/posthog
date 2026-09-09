@@ -148,4 +148,24 @@ describe('sourceManagementLogic', () => {
             ],
         })
     })
+
+    it('does not supersede an in-flight shallow schema load when mounted', async () => {
+        let resolveShallowLoad: ((value: DatabaseSchemaQueryResponse) => void) | undefined
+        ;(performQuery as jest.Mock).mockImplementationOnce(
+            () =>
+                new Promise<DatabaseSchemaQueryResponse>((resolve) => {
+                    resolveShallowLoad = resolve
+                })
+        )
+        databaseLogic.mount()
+
+        const shallowLoad = databaseLogic.asyncActions.loadDatabase({ shallow: true })
+        logic.mount()
+
+        expect(performQuery).toHaveBeenCalledTimes(1)
+        expect(performQuery).toHaveBeenCalledWith(expect.objectContaining({ includeFields: false }))
+
+        resolveShallowLoad?.({ tables: {}, joins: [] } as DatabaseSchemaQueryResponse)
+        await shallowLoad
+    })
 })

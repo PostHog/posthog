@@ -1,22 +1,30 @@
 import dataclasses
-from typing import Any, Optional
+from collections.abc import Iterable
+from typing import Any, Optional, cast
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponseCursorPaginator,
     PageNumberPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.smartsheet.settings import SMARTSHEET_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.smartsheet.settings import (
+    PAGE_SIZE,
+    SMARTSHEET_ENDPOINTS,
+    SmartsheetEndpointConfig,
+)
 
 SMARTSHEET_BASE_URL = "https://api.smartsheet.com/2.0"
-# Smartsheet list endpoints page with `page` (1-based) and `pageSize` (max 100).
-PAGE_SIZE = 100
 
 
 @dataclasses.dataclass
@@ -31,6 +39,66 @@ def _non_secret_headers() -> dict[str, str]:
     return {"Accept": "application/json"}
 
 
+def _client_config(access_token: str) -> ClientConfig:
+    return {
+        "base_url": SMARTSHEET_BASE_URL,
+        "headers": _non_secret_headers(),
+        "auth": {"type": "bearer", "token": access_token},
+    }
+
+
+def _primary_keys(config: SmartsheetEndpointConfig) -> list[str]:
+    return config.primary_key if isinstance(config.primary_key, list) else [config.primary_key]
+
+
+def _report_fanout_source(
+    access_token: str,
+    endpoint: str,
+    config: SmartsheetEndpointConfig,
+    team_id: int,
+    job_id: str,
+) -> SourceResponse:
+    """Fan out from each report to its per-report structure (columns or scope).
+
+    The `reports` parent walks the account's reports page-by-page; each child request resolves a
+    report id into its path and pages by token (`lastKey`) until Smartsheet omits the key. These
+    endpoints carry no timestamp, so the child full-refreshes and resume is not wired.
+    """
+    assert config.fanout is not None
+    dependent_resource = cast(
+        Iterable[Any],
+        build_dependent_resource(
+            endpoint_configs=SMARTSHEET_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=_client_config(access_token),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            # Parent uses `pageSize`, child uses `maxItems`; both are supplied through the fan-out
+            # config's parent_params / child_params rather than a shared page-size param.
+            page_size_param=None,
+            parent_endpoint_extra={
+                "paginator": PageNumberPaginator(base_page=1, page_param="page", total_path="totalPages"),
+                "data_selector": "data",
+            },
+            child_endpoint_extra={
+                "paginator": JSONResponseCursorPaginator(cursor_path="lastKey", cursor_param="lastKey"),
+                "data_selector": "data",
+            },
+        ),
+    )
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: dependent_resource,
+        primary_keys=_primary_keys(config),
+        partition_count=1,
+        partition_size=1,
+    )
+
+
 def smartsheet_source(
     access_token: str,
     endpoint: str,
@@ -41,14 +109,15 @@ def smartsheet_source(
 ) -> SourceResponse:
     config = SMARTSHEET_ENDPOINTS[endpoint]
 
+    if config.fanout is not None:
+        return _report_fanout_source(access_token, endpoint, config, team_id, job_id)
+
+    client_config = _client_config(access_token)
+    # Smartsheet returns the grand total of PAGES in `totalPages`; stop after the last one.
+    client_config["paginator"] = PageNumberPaginator(base_page=1, page_param="page", total_path="totalPages")
+
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": SMARTSHEET_BASE_URL,
-            "headers": _non_secret_headers(),
-            "auth": {"type": "bearer", "token": access_token},
-            # Smartsheet returns the grand total of PAGES in `totalPages`; stop after the last one.
-            "paginator": PageNumberPaginator(base_page=1, page_param="page", total_path="totalPages"),
-        },
+        "client": client_config,
         # Per-resource settings are fully specified below, so no shared defaults are needed.
         "resource_defaults": {},
         "resources": [
@@ -87,7 +156,7 @@ def smartsheet_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=[config.primary_key],
+        primary_keys=_primary_keys(config),
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

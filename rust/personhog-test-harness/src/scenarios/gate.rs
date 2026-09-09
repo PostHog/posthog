@@ -10,15 +10,21 @@ use sqlx::postgres::PgPool;
 
 use personhog_proto::personhog::identity::v1::GetOrCreatePersonEntry;
 
-use crate::cli::GateArgs;
+use crate::cli::{GateArgs, DEFAULT_KEYS_PER_PERSON};
 use crate::client::{HarnessClient, IdentityClient};
+use crate::pool::TargetPool;
 use crate::report::print_report;
+use crate::scenarios::merge::{self, MergeLane, WideRole};
 use crate::scenarios::{blast, consistency};
 use crate::seed;
 use crate::stack::{Stack, StackConfig};
 use crate::state::PersonState;
 use crate::stats::StatsCollector;
 use crate::verify::verify_postgres;
+
+/// The property set on every person the identity service creates. The
+/// merge lane expects it on every survivor.
+pub const SEED_KEY: &str = "harness_seed";
 
 /// A chaos disruption scheduled relative to the start of the traffic phase.
 enum ChaosEvent {
@@ -150,18 +156,32 @@ pub async fn run(args: GateArgs) -> Result<()> {
     if args.external_router_url.is_some() && !args.leader_env.is_empty() {
         bail!("--leader-env requires a spawned stack; it cannot target --external-router-url");
     }
-    if args.create_via_identity
+    // Merges need distinct ids. Only the identity create path provides
+    // them.
+    let create_via_identity = args.create_via_identity || args.merge_concurrency > 0;
+    if create_via_identity
         && args.external_router_url.is_some()
         && args.external_identity_url.is_none()
     {
-        bail!("--create-via-identity with --external-router-url needs --external-identity-url");
+        bail!("--create-via-identity (or --merge-concurrency) with --external-router-url needs --external-identity-url");
     }
-    // The identity service writes the real posthog_person table (its distinct
-    // id FKs require it); a stack targeting another table would recover
-    // created persons from a table they were never written to.
-    if args.create_via_identity && args.pg_target_table != "posthog_person" {
-        bail!("--create-via-identity requires --pg-target-table posthog_person");
+    if args.merge_concurrency > 0 && args.persons < 2 {
+        bail!("--merge-concurrency needs at least 2 persons to pair");
     }
+    if args.merge_rate.is_some_and(|rate| rate <= 0.0) {
+        bail!("--merge-rate must be positive; omit it to run the merge workers flat out");
+    }
+    if args.merge_sources == 0 {
+        bail!("--merge-sources must be at least 1");
+    }
+    if args.merge_wide_persons > 0 && args.merge_concurrency == 0 {
+        bail!("--merge-wide-persons needs --merge-concurrency");
+    }
+    let wide_role = WideRole::parse(&args.merge_wide_role)
+        .ok_or_else(|| anyhow::anyhow!("unknown --merge-wide-role {:?}", args.merge_wide_role))?;
+    // The spawned identity derives its whole table set (person, distinct id,
+    // hash-key overrides) from --pg-target-table, so any known table set
+    // works; Stack::up rejects person tables without a known companion set.
     if (args.router_kill_after.is_some() || args.router_shutdown_after.is_some())
         && args.routers < 3
     {
@@ -206,7 +226,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                     extra_leader_env: args.leader_env.clone(),
                     recovery_pool_size: args.recovery_pool_size,
                     leader_lease_ttl: args.leader_lease_ttl,
-                    spawn_identity: args.create_via_identity,
+                    spawn_identity: create_via_identity,
                 })
                 .await?,
             )
@@ -239,28 +259,55 @@ pub async fn run(args: GateArgs) -> Result<()> {
     // assertions target that stack, so an external identity service pointed
     // elsewhere would only produce confusing failures.
     let identity_url = match (&args.external_identity_url, &stack) {
-        _ if !args.create_via_identity => None,
+        _ if !create_via_identity => None,
         (_, Some(stack)) => stack.identity_url.clone(),
         (Some(url), None) => Some(url.clone()),
         (None, None) => unreachable!("validated above"),
     };
+    let mut distinct_ids: HashMap<i64, String> = HashMap::new();
     let person_ids = match &identity_url {
         Some(url) => {
-            let ids = create_persons_via_identity(url, args.team_id, args.persons, &state).await?;
+            let created =
+                create_persons_via_identity(url, args.team_id, args.persons, &state).await?;
             println!(
                 "Created {} persons via identity for team {}",
-                ids.len(),
+                created.len(),
                 args.team_id
             );
-            Arc::new(ids)
+            let ids = created.iter().map(|(id, _)| *id).collect();
+            distinct_ids.extend(created);
+            ids
         }
         None => {
             let ids = seed::seed_persons(&pool, &args.pg_target_table, args.team_id, args.persons)
                 .await?;
             println!("Seeded {} persons for team {}", ids.len(), args.team_id);
-            Arc::new(ids)
+            ids
         }
     };
+    let mut person_ids = person_ids;
+    let mut wide_persons = Vec::new();
+    if let (Some(url), true) = (&identity_url, args.merge_wide_persons > 0) {
+        let created = create_wide_persons_via_identity(
+            url,
+            args.team_id,
+            args.merge_wide_persons,
+            args.merge_wide_distinct_ids,
+            &state,
+        )
+        .await?;
+        println!(
+            "Created {} wide persons with {} extra distinct ids each",
+            created.len(),
+            args.merge_wide_distinct_ids
+        );
+        wide_persons.extend(created.iter().map(|(id, _)| *id));
+        person_ids.extend(created.iter().map(|(id, _)| *id));
+        distinct_ids.extend(created);
+    }
+    let created_count = person_ids.len();
+    let person_ids = Arc::new(TargetPool::new(person_ids));
+    let distinct_ids = Arc::new(distinct_ids);
 
     println!(
         "Driving traffic for {} with concurrency {}...",
@@ -282,7 +329,11 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 duration,
                 concurrency,
                 None,
-                "harness_gate_",
+                &blast::PropertyPlan::new(
+                    "harness_gate_".to_string(),
+                    DEFAULT_KEYS_PER_PERSON,
+                    concurrency,
+                ),
                 &collector,
                 &state,
                 Arc::new(AtomicBool::new(false)),
@@ -314,6 +365,58 @@ pub async fn run(args: GateArgs) -> Result<()> {
         })
     };
 
+    let merges = identity_url
+        .as_ref()
+        .filter(|_| args.merge_concurrency > 0)
+        .map(|url| {
+            let url = url.clone();
+            let router = client.clone();
+            let person_ids = person_ids.clone();
+            let distinct_ids = distinct_ids.clone();
+            let collector = collector.clone();
+            let state = state.clone();
+            let lane = MergeLane {
+                team_id: args.team_id,
+                concurrency: args.merge_concurrency,
+                rate_per_sec: args.merge_rate,
+                sources_per_call: args.merge_sources,
+                allow_identified_sources: args.merge_identified_sources,
+                // A survivor collects the distinct ids of every merged
+                // source. This limit covers the whole pool, so no source
+                // trips the move guard.
+                move_limit: i64::from(args.persons)
+                    + i64::from(args.merge_wide_persons)
+                        * (i64::from(args.merge_wide_distinct_ids) + 1)
+                    + 1,
+                wide_persons: wide_persons.clone(),
+                wide_role,
+            };
+            let duration = args.duration;
+            println!(
+                "Merging with {} workers{}, {} source(s) per call...",
+                args.merge_concurrency,
+                args.merge_rate
+                    .map(|rate| format!(" at {rate} merges/s"))
+                    .unwrap_or_default(),
+                args.merge_sources
+            );
+            tokio::spawn(async move {
+                let identity = IdentityClient::connect(&url).await?;
+                merge::run_merges(
+                    &identity,
+                    &router,
+                    lane,
+                    person_ids,
+                    distinct_ids,
+                    duration,
+                    &collector,
+                    &state,
+                    Arc::new(AtomicBool::new(false)),
+                )
+                .await
+            })
+        });
+
     // Fire scheduled disruptions while traffic flows. Failures aren't
     // journaled, so the invariant is untouched: whatever the leader acked
     // through the disruption must still be visible afterwards.
@@ -343,7 +446,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 .execute(&pool)
                 .await
                 .context("inserting fence op row")?;
-                for &person_id in person_ids.iter().take(args.fence_count) {
+                for &person_id in person_ids.snapshot().iter().take(args.fence_count) {
                     sqlx::query(
                         "INSERT INTO lifecycle_op_person \
                          (op_id, team_id, person_id, person_uuid, role, status) \
@@ -356,7 +459,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                     .await
                     .context("inserting fence mark")?;
                 }
-                for &person_id in person_ids.iter().take(args.fence_count) {
+                for &person_id in person_ids.snapshot().iter().take(args.fence_count) {
                     match client
                         .fence_person(args.team_id, person_id, &fence_op)
                         .await
@@ -475,7 +578,13 @@ pub async fn run(args: GateArgs) -> Result<()> {
     }
 
     traffic.await.context("traffic task panicked")??;
-    let prober_violations = probers.await.context("prober task panicked")??;
+    let mut prober_violations = probers.await.context("prober task panicked")??;
+    let mut unresolved_merges = Vec::new();
+    if let Some(merges) = merges {
+        let result = merges.await.context("merge task panicked")??;
+        prober_violations.extend(result.violations);
+        unresolved_merges = result.unresolved;
+    }
 
     // Verification asserts data visibility on a converged topology, not
     // recovery speed: chaos legitimately leaves handoffs to re-drive. The
@@ -502,22 +611,73 @@ pub async fn run(args: GateArgs) -> Result<()> {
         );
     }
 
-    println!("Verifying strong reads...");
+    // Merges that lost every response settle from their op records
+    // first. The sweeper re-drives an abandoned op only after its 15s
+    // lease lapses, which is why the deadline is long.
     let mut violations = prober_violations;
+    violations.extend(
+        merge::settle_unresolved(&pool, &state, unresolved_merges, Duration::from_secs(90)).await?,
+    );
+
+    println!("Verifying strong reads...");
     violations.extend(state.take_anomalies().await);
     violations.extend(blast::verify_strong(&client, &collector, &state, args.team_id).await?);
 
     println!("Waiting for the writer to drain, then verifying Postgres...");
+    let merged_ids = state.merged_source_ids().await;
     let journal = state.snapshot().await;
-    violations.extend(verify_postgres(&pool, &args.pg_target_table, args.team_id, &journal).await?);
-
-    print_report(
-        "gate",
-        &collector,
-        args.team_id,
-        person_ids.len(),
-        &violations,
+    let merged = state.snapshot_merged().await;
+    violations.extend(
+        verify_postgres(
+            &pool,
+            &args.pg_target_table,
+            args.team_id,
+            &journal,
+            &merged,
+        )
+        .await?,
     );
+
+    print_report("gate", &collector, args.team_id, created_count, &violations);
+    let mut disputed: HashMap<i64, Vec<String>> = HashMap::new();
+    for violation in &violations {
+        let keys = disputed.entry(violation.person_id).or_default();
+        if !keys.contains(&violation.key) {
+            keys.push(violation.key.clone());
+        }
+    }
+    for (person_id, keys) in disputed {
+        println!("{}", state.describe(person_id, &keys).await);
+    }
+    if !merged_ids.is_empty() {
+        println!(
+            "  Merged {} of {} persons; {} live at the end",
+            merged_ids.len(),
+            created_count,
+            person_ids.len()
+        );
+        println!();
+    }
+
+    // The delete leg of the identity path: persons created through
+    // get-or-create leave through the lifecycle saga, and both the
+    // outcomes and the saga's idempotence are gate assertions — every
+    // created person deletes exactly once, and a second attempt under a
+    // fresh op id answers not_found for all of them. A merged source is
+    // a tombstone already, so it answers not_found on the first attempt.
+    if let Some(url) = &identity_url {
+        if !args.keep_data {
+            println!("Deleting persons through the lifecycle saga...");
+            let lifecycle = crate::client::LifecycleClient::connect(url).await?;
+            let uncertain = state.merge_uncertain_ids().await;
+            let mut live: Vec<i64> = distinct_ids.keys().copied().collect();
+            live.retain(|id| !merged_ids.contains(id) && !uncertain.contains(id));
+            live.sort_unstable();
+            verify_lifecycle_delete(&lifecycle, args.team_id, &live, &merged_ids, &uncertain)
+                .await?;
+            println!("Lifecycle delete verified: all deleted, re-delete answers not_found");
+        }
+    }
 
     if !args.keep_data {
         let persons = seed::cleanup_team(&pool, &args.pg_target_table, args.team_id).await?;
@@ -551,10 +711,112 @@ pub async fn run(args: GateArgs) -> Result<()> {
     Ok(())
 }
 
+/// Delete `person_ids` through the lifecycle saga and hold the answers
+/// to the gate's standard: every id deleted on the first attempt, every
+/// id not_found on a second attempt under a fresh op id (deleting a
+/// tombstone is a no-op, never an error, never a false success).
+/// `merged_ids` must answer not_found on the first attempt. A `deleted`
+/// there means the merge left a living row. `uncertain_ids` had a merge
+/// call that never answered, so either answer is accepted.
+///
+/// A `skipped_conflict` means another lifecycle op still holds the
+/// person, usually a merge that chaos interrupted. The delete is retried
+/// under fresh op ids until the sweeper settles that op. An op that
+/// never settles fails the gate, because nobody can merge or delete
+/// that person again.
+async fn verify_lifecycle_delete(
+    lifecycle: &crate::client::LifecycleClient,
+    team_id: i64,
+    person_ids: &[i64],
+    merged_ids: &[i64],
+    uncertain_ids: &[i64],
+) -> Result<()> {
+    use personhog_proto::personhog::lifecycle::v1::DeletePersonOutcome;
+
+    /// The sweeper claims an abandoned op only after its 15s lease
+    /// lapses, then re-drives it. Sized for a few of those in sequence.
+    const SETTLE_DEADLINE: Duration = Duration::from_secs(90);
+
+    let mut expected: HashMap<i64, Vec<DeletePersonOutcome>> = HashMap::new();
+    for &id in person_ids {
+        expected.insert(id, vec![DeletePersonOutcome::Deleted]);
+    }
+    for &id in merged_ids {
+        expected.insert(id, vec![DeletePersonOutcome::NotFound]);
+    }
+    for &id in uncertain_ids {
+        expected.insert(
+            id,
+            vec![DeletePersonOutcome::Deleted, DeletePersonOutcome::NotFound],
+        );
+    }
+    let mut pending: Vec<i64> = expected.keys().copied().collect();
+    pending.sort_unstable();
+    let deadline = Instant::now() + SETTLE_DEADLINE;
+    while !pending.is_empty() {
+        let mut conflicts = Vec::new();
+        // The lifecycle service caps batches at 250 person ids.
+        for chunk in pending.chunks(200) {
+            let op_id = uuid::Uuid::new_v4();
+            for (person_id, outcome) in lifecycle
+                .delete_persons(team_id, chunk.to_vec(), &op_id)
+                .await?
+            {
+                let accepted = &expected[&person_id];
+                if outcome == DeletePersonOutcome::SkippedConflict {
+                    conflicts.push(person_id);
+                } else if !accepted.contains(&outcome) {
+                    bail!(
+                        "lifecycle delete: person {person_id} answered {outcome:?}, \
+                         expected one of {accepted:?}"
+                    );
+                }
+            }
+        }
+        if conflicts.is_empty() {
+            break;
+        }
+        if Instant::now() > deadline {
+            bail!(
+                "lifecycle delete: {} persons still held by another lifecycle op after {:?}: {:?}",
+                conflicts.len(),
+                SETTLE_DEADLINE,
+                &conflicts[..conflicts.len().min(10)]
+            );
+        }
+        println!(
+            "  {} persons held by an unsettled lifecycle op; waiting for the sweeper...",
+            conflicts.len()
+        );
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        pending = conflicts;
+    }
+
+    // A second attempt under a fresh op id must answer not_found for
+    // everything. Deleting a tombstone is a no-op, not an error.
+    let mut all: Vec<i64> = expected.keys().copied().collect();
+    all.sort_unstable();
+    for chunk in all.chunks(200) {
+        let op_id = uuid::Uuid::new_v4();
+        for (person_id, outcome) in lifecycle
+            .delete_persons(team_id, chunk.to_vec(), &op_id)
+            .await?
+        {
+            if outcome != DeletePersonOutcome::NotFound {
+                bail!(
+                    "lifecycle re-delete: person {person_id} answered {outcome:?}, expected NotFound"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Create the traffic-target persons through the identity service's batch
-/// get-or-create, with one seed property per person. The create ack covers
-/// both planes (stub committed in Postgres, initial properties durable in
-/// the changelog), so each ack is journaled like any other write — the
+/// get-or-create, with one seed property per person, returning each
+/// person's id with its distinct id. The create ack covers both planes
+/// (stub committed in Postgres, initial properties durable in the
+/// changelog), so each ack is journaled like any other write. The
 /// end-of-run strong reads and the Postgres check then hold create
 /// visibility to the same invariant as update visibility.
 async fn create_persons_via_identity(
@@ -562,7 +824,7 @@ async fn create_persons_via_identity(
     team_id: i64,
     count: u32,
     state: &PersonState,
-) -> Result<Vec<i64>> {
+) -> Result<Vec<(i64, String)>> {
     /// The identity service caps batches at 250 entries by default.
     const CREATE_BATCH_SIZE: u32 = 250;
 
@@ -580,7 +842,7 @@ async fn create_persons_via_identity(
                     extra_distinct_ids: vec![],
                     event_name: "$set".to_string(),
                     set_properties: serde_json::to_vec(
-                        &serde_json::json!({ "harness_seed": distinct_id }),
+                        &serde_json::json!({ SEED_KEY: distinct_id }),
                     )
                     .expect("seed properties serialize"),
                     set_once_properties: Vec::new(),
@@ -602,22 +864,71 @@ async fn create_persons_via_identity(
                 .with_context(|| format!("no person for distinct id {}", result.distinct_id))?;
             if !result.created {
                 bail!(
-                    "distinct id {} already existed — the harness team must start clean",
+                    "distinct id {} already existed; the harness team must start clean",
                     result.distinct_id
                 );
             }
-            let seed_properties = HashMap::from([(
-                "harness_seed".to_string(),
-                serde_json::json!(result.distinct_id),
-            )]);
+            let seed_properties =
+                HashMap::from([(SEED_KEY.to_string(), serde_json::json!(result.distinct_id))]);
             state
                 .record_write(person.id, person.version, seed_properties)
                 .await;
-            person_ids.push(person.id);
+            person_ids.push((person.id, result.distinct_id));
         }
         start = end;
     }
     Ok(person_ids)
+}
+
+/// Create persons with `extra_distinct_ids` extra distinct ids each, so
+/// a merge makes the flip repoint many mappings.
+async fn create_wide_persons_via_identity(
+    identity_url: &str,
+    team_id: i64,
+    count: u32,
+    extra_distinct_ids: u32,
+    state: &PersonState,
+) -> Result<Vec<(i64, String)>> {
+    let client = IdentityClient::connect(identity_url).await?;
+    let mut persons = Vec::with_capacity(count as usize);
+    for i in 0..count {
+        let distinct_id = format!("harness-gate-{team_id}-wide{i}");
+        let entry = GetOrCreatePersonEntry {
+            team_id,
+            distinct_id: distinct_id.clone(),
+            extra_distinct_ids: (0..extra_distinct_ids)
+                .map(|j| format!("{distinct_id}-{j}"))
+                .collect(),
+            event_name: "$set".to_string(),
+            set_properties: serde_json::to_vec(&serde_json::json!({ SEED_KEY: distinct_id }))
+                .expect("seed properties serialize"),
+            set_once_properties: Vec::new(),
+            created_at: 0,
+            is_identified: false,
+        };
+        let mut results = client.get_or_create_persons(vec![entry]).await?;
+        let result = results
+            .pop()
+            .context("identity returned no result for a wide person")?;
+        if let Some(error) = &result.error {
+            bail!("identity create failed for wide person {distinct_id}: {error}");
+        }
+        let person = result
+            .person
+            .with_context(|| format!("no person for wide distinct id {distinct_id}"))?;
+        if !result.created {
+            bail!("distinct id {distinct_id} already existed; the harness team must start clean");
+        }
+        state
+            .record_write(
+                person.id,
+                person.version,
+                HashMap::from([(SEED_KEY.to_string(), serde_json::json!(result.distinct_id))]),
+            )
+            .await;
+        persons.push((person.id, result.distinct_id));
+    }
+    Ok(persons)
 }
 
 #[cfg(test)]

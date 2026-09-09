@@ -35,23 +35,17 @@ const artifactComments = vi.hoisted(() => ({
 }));
 const createComment = vi.hoisted(() => vi.fn());
 const useQuery = vi.hoisted(() => vi.fn());
-const commentsFlag = vi.hoisted(() => ({ enabled: true }));
 const taskRuns = vi.hoisted(() => ({
   data: [] as unknown[],
   isLoading: false,
   refreshRuns: vi.fn(),
 }));
-const orgMembersOptions = vi.hoisted(() => vi.fn());
 const artifactMocks = vi.hoisted(() => ({
   getCloudRunArtifacts: vi.fn(),
   getCloudAttachmentPreviewUrl: vi.fn(),
   uploadCloudRunArtifactVersion: vi.fn(),
   invalidateQueries: vi.fn(),
   openArtifactTab: vi.fn(),
-}));
-
-vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
-  useCommentsEnabled: () => commentsFlag.enabled,
 }));
 
 vi.mock("@posthog/core/sessions/sessionService", () => ({
@@ -80,6 +74,12 @@ vi.mock("@posthog/ui/features/panels/panelLayoutStore", () => ({
   usePanelLayoutStore: () => artifactMocks.openArtifactTab,
 }));
 
+vi.mock("@posthog/ui/features/posthog-objects/PostHogObjectPage", () => ({
+  PostHogObjectPage: ({ fallbackName }: { fallbackName: string }) => (
+    <div data-testid="posthog-object-page">{fallbackName}</div>
+  ),
+}));
+
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskRuns", () => ({
   useTaskRuns: () => ({
     runs: taskRuns.data,
@@ -89,10 +89,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useTaskRuns", () => ({
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
-  useOrgMembers: (options: { enabled?: boolean }) => {
-    orgMembersOptions(options);
-    return { members: [] };
-  },
+  useOrgMembers: () => ({ members: [] }),
 }));
 
 vi.mock("@posthog/ui/features/canvas/components/MentionComposer", () => ({
@@ -214,12 +211,13 @@ function textComment(): ResourceComment {
     scope: "task_artifact",
     source_comment: null,
     completed_at: null,
+    completed_by: null,
+    slack_thread: null,
   };
 }
 
 describe("ArtifactPreview", () => {
   beforeEach(() => {
-    commentsFlag.enabled = true;
     auth.identity = "auth-1";
     useCommentNavigationStore.setState({
       focusByTask: {},
@@ -294,7 +292,7 @@ describe("ArtifactPreview", () => {
     ).toBeUndefined();
   });
 
-  it("starts the manifest and preview URL requests together", async () => {
+  it("requests the manifest and the preview URL in parallel", async () => {
     let resolveArtifacts: (artifacts: unknown[]) => void = () => undefined;
     artifactMocks.getCloudRunArtifacts.mockReturnValue(
       new Promise((resolve) => {
@@ -315,13 +313,77 @@ describe("ArtifactPreview", () => {
     const queryFn = useQuery.mock.calls[0]?.[0]
       .queryFn as () => Promise<unknown>;
     const result = queryFn();
+    // The URL request must not wait for the manifest to resolve.
     expect(artifactMocks.getCloudAttachmentPreviewUrl).toHaveBeenCalledWith(
       "task-1",
       "run-1",
       "artifact-1",
     );
-    resolveArtifacts([]);
+    resolveArtifacts([
+      {
+        id: "artifact-1",
+        name: "report.html",
+        type: "output",
+        storage_path: "runs/1/report.html",
+      },
+    ]);
     await expect(result).rejects.toThrow("Artifact is unavailable");
+  });
+
+  it("renders PostHog references even when no preview URL exists", async () => {
+    const metadata = {
+      reference_type: "posthog_object",
+      object_kind: "insight",
+      object_id: "9pQx3",
+      source_message_ids: ["turn-1"],
+      occurrence_count: 1,
+    } as const;
+    const artifact = {
+      id: "phref-1",
+      name: "Checkout funnel",
+      type: "reference",
+      metadata,
+    };
+    artifactMocks.getCloudRunArtifacts.mockResolvedValue([artifact]);
+    // A reference has no storage path, so the parallel URL read is a no-op.
+    artifactMocks.getCloudAttachmentPreviewUrl.mockResolvedValue(null);
+
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="phref-1"
+        name="Checkout funnel"
+      />,
+    );
+    const queryFn = useQuery.mock.calls[0]?.[0]
+      .queryFn as () => Promise<unknown>;
+    await expect(queryFn()).resolves.toEqual({
+      artifact,
+      artifacts: [artifact],
+      preview: { kind: "posthog-object", metadata },
+    });
+
+    useQuery.mockReturnValue({
+      data: {
+        artifact,
+        artifacts: [artifact],
+        preview: { kind: "posthog-object", metadata },
+      },
+      isLoading: false,
+      isError: false,
+    });
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="phref-1"
+        name="Checkout funnel"
+      />,
+    );
+    expect(screen.getByTestId("posthog-object-page")).toHaveTextContent(
+      "Checkout funnel",
+    );
   });
 
   it("keeps the artifact visible when comments fail to load", () => {
@@ -385,33 +447,6 @@ describe("ArtifactPreview", () => {
     expect(frame).toHaveAttribute("src", "blob:preview");
     expect(frame).toHaveAttribute("sandbox", "allow-scripts");
     expect(frame).toHaveAttribute("referrerpolicy", "no-referrer");
-  });
-
-  it("keeps comment controls and the HTML bridge out while comments are disabled", async () => {
-    commentsFlag.enabled = false;
-    useQuery.mockReturnValue({
-      data: { kind: "html", html: "<h1>Artifact content</h1>" },
-      isLoading: false,
-      isError: false,
-    });
-
-    render(
-      <ArtifactPreview
-        taskId="task-1"
-        runId="run-1"
-        artifactId="artifact-1"
-        name="report.html"
-      />,
-    );
-
-    expect(orgMembersOptions).toHaveBeenLastCalledWith({ enabled: false });
-
-    expect(screen.queryByText("Comment…")).toBeNull();
-    const documentBlob = vi.mocked(URL.createObjectURL).mock.calls[0]?.[0];
-    expect(documentBlob).toBeInstanceOf(Blob);
-    await expect(
-      new Response(documentBlob as Blob).text(),
-    ).resolves.not.toContain("__POSTHOG_ARTIFACT_COMMENT_BRIDGE__");
   });
 
   // Same zoom-and-annotate surface as a raster image: an <img> renders SVG in a
@@ -750,6 +785,8 @@ describe("ArtifactPreview", () => {
       scope: "task_artifact",
       source_comment: null,
       completed_at: null,
+      completed_by: null,
+      slack_thread: null,
     };
     artifactComments.data = [
       root,
@@ -1156,6 +1193,11 @@ describe("ArtifactPreview", () => {
     expect(screen.getByText("v2/2")).toBeInTheDocument();
     lastCall = useQuery.mock.calls.at(-1)?.[0] as { queryKey: unknown[] };
     expect(lastCall.queryKey).toContain("artifact-1");
+
+    // A focus request that already landed must not keep pulling the pager back.
+    fireEvent.click(screen.getByRole("button", { name: "Older version" }));
+
+    expect(screen.getByText("v1/2")).toBeInTheDocument();
   });
 
   it("saves edited source as a new output version under the same name", async () => {

@@ -17,6 +17,10 @@ from posthog.session_recordings.models.system_status_queries import get_recordin
 SLOW_THRESHOLD_MS = 10000
 SLOW_AFTER = relativedelta(hours=6)
 
+# ClickHouse hands IP columns back as `ipaddress` objects, which the API renderer cannot
+# serialize, so the whole response fails on a single such value.
+IP_COLUMN_TYPES = ("IPv4", "IPv6")
+
 CLICKHOUSE_FLAMEGRAPH_EXECUTABLE = abspath(join(dirname(__file__), "bin", "clickhouse-flamegraph"))
 FLAMEGRAPH_PL = abspath(join(dirname(__file__), "bin", "flamegraph.pl"))
 
@@ -200,7 +204,8 @@ def dead_letter_queue_ratio_ok_cached() -> bool:
 def get_clickhouse_running_queries() -> list[dict]:
     return query_with_columns(
         "SELECT elapsed as duration, query, * FROM system.processes ORDER BY duration DESC",
-        columns_to_remove=["address", "initial_address", "elapsed"],
+        columns_to_remove=["elapsed"],
+        column_types_to_remove=IP_COLUMN_TYPES,
     )
 
 
@@ -217,9 +222,8 @@ def get_clickhouse_slow_log() -> list[dict]:
             LIMIT 200
         """,
         {"after": timezone.now() - SLOW_AFTER},
+        column_types_to_remove=IP_COLUMN_TYPES,
         columns_to_remove=[
-            "address",
-            "initial_address",
             "query_duration_ms",
             "event_time",
             "event_date",

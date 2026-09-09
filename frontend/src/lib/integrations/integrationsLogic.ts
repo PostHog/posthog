@@ -6,6 +6,7 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError, getCookie } from 'lib/api'
 import { globalSetupLogic } from 'lib/components/ProductSetup'
+import { buildGithubDisconnectDescription } from 'lib/integrations/githubDisconnectCopy'
 import { describeGithubSetupError, GITHUB_INSTALL_PENDING_MESSAGE } from 'lib/integrations/githubSetupErrors'
 import { describeOAuthCallbackError } from 'lib/integrations/oauthCallbackErrors'
 import { preflightLogic } from 'lib/logic/preflightLogic'
@@ -25,13 +26,16 @@ import type {
     GitHubAvailableInstallationApi,
     GitHubAvailableInstallationsResponseApi,
     GitHubRepoApi,
+    InstallationStatusEnumApi,
     IntegrationKindEnumApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 import { ChannelType } from 'products/workflows/frontend/Channels/MessageChannels'
 
 import type { AvailableSetupTaskIdsEnumApi } from '../../generated/core/api.schemas'
 import type { PreflightStatus, UserBasicType } from '../../types'
-import { ICONS } from './utils'
+import { ICONS, getIntegrationNameFromKind } from './utils'
+
+const INTEGRATIONS_POLL_INTERVAL_MS = 30_000
 
 function toastApiError(e: unknown): void {
     const detail = e instanceof ApiError ? e.detail : null
@@ -49,9 +53,11 @@ export interface integrationsLogicValues {
     domainGroupedEmailIntegrations: EmailIntegrationDomainGroupedType[]
     getGitHubRepositories: (integrationId: number) => string[]
     getGitHubRepositoriesFull: (integrationId: number) => GitHubRepoApi[]
+    getGitHubRepositoriesTotal: (integrationId: number) => number | null
     getIntegrationsByKind: (
         kinds: (
             | 'apns'
+            | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
             | 'bing-ads'
@@ -73,6 +79,7 @@ export interface integrationsLogicValues {
             | 'google-search-console'
             | 'google-sheets'
             | 'hubspot'
+            | 'instagram'
             | 'intercom'
             | 'jira'
             | 'linear'
@@ -91,6 +98,7 @@ export interface integrationsLogicValues {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'youtube-analytics'
         )[]
     ) => IntegrationType[]
     githubAvailableInstallations: GitHubAvailableInstallationApi[] | null
@@ -100,11 +108,14 @@ export interface integrationsLogicValues {
     githubPersonalConnected: boolean | null
     githubRepositories: Record<number, GitHubRepoApi[]>
     githubRepositoriesLoading: boolean
+    githubRepositoriesTotal: Record<number, number>
     integrations: IntegrationType[] | null
     integrationsLoading: boolean
     linkedGithubInstallation: IntegrationType | null
     linkedGithubInstallationLoading: boolean
+    newIntegrationModalId: string | null
     newIntegrationModalKind: IntegrationKind | null
+    pollingSubscribers: number
     requestedAccessKinds: IntegrationKind[]
     selectedIntegration: IntegrationType | null
     setupModalOpen: boolean
@@ -133,6 +144,7 @@ export interface integrationsLogicActions {
     ) => {
         kind:
             | 'apns'
+            | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
             | 'bing-ads'
@@ -154,6 +166,7 @@ export interface integrationsLogicActions {
             | 'google-search-console'
             | 'google-sheets'
             | 'hubspot'
+            | 'instagram'
             | 'intercom'
             | 'jira'
             | 'linear'
@@ -172,6 +185,7 @@ export interface integrationsLogicActions {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'youtube-analytics'
         searchParams: any
     }
     linkExistingGithubInstallation: (installationId?: string) => string
@@ -205,11 +219,13 @@ export interface integrationsLogicActions {
     loadGitHubRepositoriesPageSuccess: (
         integrationId: number,
         repositories: GitHubRepoApi[],
-        hasMore: boolean
+        hasMore: boolean,
+        total?: number | null
     ) => {
         hasMore: boolean
         integrationId: number
         repositories: GitHubRepoApi[]
+        total: number | null
     }
     loadGithubAvailableInstallations: () => any
     loadGithubAvailableInstallationsFailure: (
@@ -241,10 +257,14 @@ export interface integrationsLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
+            installation_shared?: boolean | null | undefined
+            installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -266,6 +286,7 @@ export interface integrationsLogicActions {
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -284,6 +305,7 @@ export interface integrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[],
         payload?: any
     ) => {
@@ -293,10 +315,14 @@ export interface integrationsLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
+            installation_shared?: boolean | null | undefined
+            installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -318,6 +344,7 @@ export interface integrationsLogicActions {
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -336,6 +363,7 @@ export interface integrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[]
         payload?: any
     }
@@ -362,10 +390,14 @@ export interface integrationsLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
+            installation_shared?: boolean | null | undefined
+            installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -387,6 +419,7 @@ export interface integrationsLogicActions {
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -405,6 +438,7 @@ export interface integrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[],
         payload?: {
             callback: ((integration: IntegrationType) => void) | undefined
@@ -418,10 +452,14 @@ export interface integrationsLogicActions {
             created_by?: UserBasicType | null | undefined
             display_name: string
             errors?: string | undefined
+            files_write_requestable?: boolean | undefined
             icon_url: any
             id: number
+            installation_shared?: boolean | null | undefined
+            installation_status?: InstallationStatusEnumApi | null | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -443,6 +481,7 @@ export interface integrationsLogicActions {
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -461,6 +500,7 @@ export interface integrationsLogicActions {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
         }[]
         payload?: {
             callback: ((integration: IntegrationType) => void) | undefined
@@ -468,9 +508,14 @@ export interface integrationsLogicActions {
             kind: string
         }
     }
-    openNewIntegrationModal: (kind: IntegrationKind) => {
+    openNewIntegrationModal: (
+        kind: IntegrationKind,
+        id: string
+    ) => {
+        id: string
         kind:
             | 'apns'
+            | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
             | 'bing-ads'
@@ -492,6 +537,7 @@ export interface integrationsLogicActions {
             | 'google-search-console'
             | 'google-sheets'
             | 'hubspot'
+            | 'instagram'
             | 'intercom'
             | 'jira'
             | 'linear'
@@ -510,6 +556,7 @@ export interface integrationsLogicActions {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'youtube-analytics'
     }
     openSetupModal: (
         integration?: IntegrationType,
@@ -531,6 +578,7 @@ export interface integrationsLogicActions {
     requestIntegrationAccessSuccess: (
         accessRequest:
             | 'apns'
+            | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'
             | 'bing-ads'
@@ -552,51 +600,7 @@ export interface integrationsLogicActions {
             | 'google-search-console'
             | 'google-sheets'
             | 'hubspot'
-            | 'intercom'
-            | 'jira'
-            | 'linear'
-            | 'linkedin-ads'
-            | 'meta-ads'
-            | 'pardot'
-            | 'pinterest-ads'
-            | 'postgresql'
-            | 'reddit-ads'
-            | 's3-compatible'
-            | 'salesforce'
-            | 'slack'
-            | 'snapchat'
-            | 'snowflake'
-            | 'stripe'
-            | 'tiktok-ads'
-            | 'twilio'
-            | 'vercel',
-        payload?: {
-            kind: IntegrationKind
-        }
-    ) => {
-        accessRequest:
-            | 'apns'
-            | 'aws-s3'
-            | 'azure-blob'
-            | 'bing-ads'
-            | 'clickup'
-            | 'customerio-app'
-            | 'customerio-track'
-            | 'customerio-webhook'
-            | 'databricks'
-            | 'email'
-            | 'firebase'
-            | 'github'
-            | 'gitlab'
-            | 'google-ads'
-            | 'google-analytics'
-            | 'google-calendar'
-            | 'google-cloud-service-account'
-            | 'google-cloud-storage'
-            | 'google-pubsub'
-            | 'google-search-console'
-            | 'google-sheets'
-            | 'hubspot'
+            | 'instagram'
             | 'intercom'
             | 'jira'
             | 'linear'
@@ -615,12 +619,67 @@ export interface integrationsLogicActions {
             | 'tiktok-ads'
             | 'twilio'
             | 'vercel'
+            | 'youtube-analytics',
+        payload?: {
+            kind: IntegrationKind
+        }
+    ) => {
+        accessRequest:
+            | 'apns'
+            | 'aws-redshift'
+            | 'aws-s3'
+            | 'azure-blob'
+            | 'bing-ads'
+            | 'clickup'
+            | 'customerio-app'
+            | 'customerio-track'
+            | 'customerio-webhook'
+            | 'databricks'
+            | 'email'
+            | 'firebase'
+            | 'github'
+            | 'gitlab'
+            | 'google-ads'
+            | 'google-analytics'
+            | 'google-calendar'
+            | 'google-cloud-service-account'
+            | 'google-cloud-storage'
+            | 'google-pubsub'
+            | 'google-search-console'
+            | 'google-sheets'
+            | 'hubspot'
+            | 'instagram'
+            | 'intercom'
+            | 'jira'
+            | 'linear'
+            | 'linkedin-ads'
+            | 'meta-ads'
+            | 'pardot'
+            | 'pinterest-ads'
+            | 'postgresql'
+            | 'reddit-ads'
+            | 's3-compatible'
+            | 'salesforce'
+            | 'slack'
+            | 'snapchat'
+            | 'snowflake'
+            | 'stripe'
+            | 'tiktok-ads'
+            | 'twilio'
+            | 'vercel'
+            | 'youtube-analytics'
         payload?: {
             kind: IntegrationKind
         }
     }
     setAccessRequestReason: (reason: string) => {
         reason: string
+    }
+    startPolling: () => {
+        value: true
+    }
+    stopPolling: () => {
+        value: true
     }
 }
 
@@ -640,6 +699,7 @@ export interface integrationsLogicMeta {
         ) => (
             kinds: (
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -661,6 +721,7 @@ export interface integrationsLogicMeta {
                 | 'google-search-console'
                 | 'google-sheets'
                 | 'hubspot'
+                | 'instagram'
                 | 'intercom'
                 | 'jira'
                 | 'linear'
@@ -679,6 +740,7 @@ export interface integrationsLogicMeta {
                 | 'tiktok-ads'
                 | 'twilio'
                 | 'vercel'
+                | 'youtube-analytics'
             )[]
         ) => IntegrationType[]
         slackAvailable: (preflight: PreflightStatus | null) => boolean | undefined
@@ -688,6 +750,9 @@ export interface integrationsLogicMeta {
         getGitHubRepositoriesFull: (
             githubRepositories: Record<number, GitHubRepoApi[]>
         ) => (integrationId: number) => GitHubRepoApi[]
+        getGitHubRepositoriesTotal: (
+            githubRepositoriesTotal: Record<number, number>
+        ) => (integrationId: number) => number | null
         domainGroupedEmailIntegrations: (integrations: IntegrationType[] | null) => EmailIntegrationDomainGroupedType[]
     }
 }
@@ -714,7 +779,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             callback,
         }),
         deleteIntegration: (id: number) => ({ id }),
-        openNewIntegrationModal: (kind: IntegrationKind) => ({ kind }),
+        openNewIntegrationModal: (kind: IntegrationKind, id: string) => ({ kind, id }),
         closeNewIntegrationModal: true,
         openSetupModal: (integration?: IntegrationType, channelType?: ChannelType) => ({ integration, channelType }),
         closeSetupModal: true,
@@ -723,16 +788,27 @@ export const integrationsLogic = kea<integrationsLogicType>([
         loadGitHubRepositoriesPageSuccess: (
             integrationId: number,
             repositories: GitHubRepoApi[],
-            hasMore: boolean
+            hasMore: boolean,
+            total: number | null = null
         ) => ({
             integrationId,
             repositories,
             hasMore,
+            total,
         }),
         loadGitHubRepositoriesPageFailure: (integrationId: number) => ({ integrationId }),
         setAccessRequestReason: (reason: string) => ({ reason }),
+        startPolling: true,
+        stopPolling: true,
     }),
     reducers({
+        newIntegrationModalId: [
+            null as string | null,
+            {
+                openNewIntegrationModal: (_, { id }: { id: string }) => id,
+                closeNewIntegrationModal: () => null,
+            },
+        ],
         newIntegrationModalKind: [
             null as IntegrationKind | null,
             {
@@ -782,6 +858,30 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 loadGitHubRepositories: () => true,
                 loadGitHubRepositoriesPageSuccess: (_, { hasMore }) => hasMore,
                 loadGitHubRepositoriesPageFailure: () => false,
+            },
+        ],
+        githubRepositoriesTotal: [
+            {} as Record<number, number>,
+            {
+                // Clear the cached total when a reload starts so a scope change can't briefly (or, on a
+                // slow/failed refetch, indefinitely) show the previous selection's count.
+                loadGitHubRepositories: (state, { integrationId }) => {
+                    if (!(integrationId in state)) {
+                        return state
+                    }
+                    const next = { ...state }
+                    delete next[integrationId]
+                    return next
+                },
+                loadGitHubRepositoriesPageSuccess: (state, { integrationId, total }) =>
+                    total == null ? state : { ...state, [integrationId]: total },
+            },
+        ],
+        pollingSubscribers: [
+            0,
+            {
+                startPolling: (state) => state + 1,
+                stopPolling: (state) => Math.max(0, state - 1),
             },
         ],
         requestedAccessKinds: [
@@ -858,17 +958,14 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 // When the org has more than one installation the caller passes the chosen
                 // installationId, since the backend can't auto-resolve between them.
                 linkExistingGithubInstallation: async (installationId?: string) => {
-                    try {
-                        const integration = await api.integrations.githubLinkExisting(
-                            installationId ? { installation_id: installationId } : {}
-                        )
-                        lemonToast.success('Linked the existing GitHub installation to this project.')
-                        actions.loadIntegrations()
-                        return integration
-                    } catch (e) {
-                        toastApiError(e)
-                        throw e
-                    }
+                    // The global kea-loaders failure handler shows the API detail. Do not add a
+                    // local toast here because the rejected loader would then show both messages.
+                    const integration = await api.integrations.githubLinkExisting(
+                        installationId ? { installation_id: installationId } : {}
+                    )
+                    lemonToast.success('Linked the existing GitHub installation to this project.')
+                    actions.loadIntegrations()
+                    return integration
                 },
             },
         ],
@@ -901,7 +998,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         loadGitHubRepositories: ({ integrationId }) => {
             actions.loadGitHubRepositoriesPage(integrationId, 0)
         },
@@ -918,10 +1015,43 @@ export const integrationsLogic = kea<integrationsLogicType>([
                     offset,
                 })
                 await breakpoint()
-                actions.loadGitHubRepositoriesPageSuccess(integrationId, response.repositories, response.has_more)
+                // An "all repositories" installation is summarized by its total, so one page is enough.
+                const integration = values.integrations?.find((x) => x.id === integrationId)
+                const summarizedByTotal = integration?.config?.repository_selection === 'all'
+                actions.loadGitHubRepositoriesPageSuccess(
+                    integrationId,
+                    response.repositories,
+                    summarizedByTotal ? false : response.has_more,
+                    response.total ?? null
+                )
             } catch {
                 actions.loadGitHubRepositoriesPageFailure(integrationId)
             }
+        },
+        startPolling: () => {
+            if (cache.disposables.registry.has('poll')) {
+                return
+            }
+            cache.disposables.add(() => {
+                const pollTimer = window.setInterval(() => actions.loadIntegrations(), INTEGRATIONS_POLL_INTERVAL_MS)
+                return () => clearInterval(pollTimer)
+            }, 'poll')
+            cache.disposables.add(
+                () => {
+                    const onFocus = (): void => actions.loadIntegrations()
+                    window.addEventListener('focus', onFocus)
+                    return () => window.removeEventListener('focus', onFocus)
+                },
+                'focusRefetch',
+                { pauseOnPageHidden: false }
+            )
+        },
+        stopPolling: () => {
+            if (values.pollingSubscribers > 0) {
+                return
+            }
+            cache.disposables.dispose('poll')
+            cache.disposables.dispose('focusRefetch')
         },
         handleOauthCallback: async ({ kind, searchParams }) => {
             const { state, code, error, stripe_user_id, account_id, user_id } = searchParams
@@ -1011,24 +1141,35 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return
             }
 
+            const integrationName = getIntegrationNameFromKind(integration.kind)
             LemonDialog.open({
-                title: `Do you want to disconnect from this ${integration.kind} integration?`,
+                title: `Disconnect ${integrationName}?`,
                 description:
-                    'This cannot be undone. PostHog resources configured to use this integration will remain but will stop working.',
+                    integration.kind === 'github'
+                        ? buildGithubDisconnectDescription(
+                              integration.config?.account?.name || integrationName,
+                              !!integration.installation_shared
+                          )
+                        : 'This cannot be undone. PostHog resources configured to use this integration will remain but will stop working.',
                 primaryButton: {
-                    children: 'Yes, disconnect',
+                    children: 'Disconnect',
                     status: 'danger',
                     onClick: async () => {
                         try {
                             await api.integrations.delete(id)
                             actions.loadIntegrations()
                         } catch (e) {
-                            toastApiError(e)
+                            if (e instanceof ApiError && e.status === 404) {
+                                lemonToast.info('Already disconnected.')
+                                actions.loadIntegrations()
+                            } else {
+                                toastApiError(e)
+                            }
                         }
                     },
                 },
                 secondaryButton: {
-                    children: 'No thanks',
+                    children: 'Cancel',
                 },
             })
         },
@@ -1100,6 +1241,12 @@ export const integrationsLogic = kea<integrationsLogicType>([
             (s) => [s.githubRepositories],
             (githubRepositories: Record<number, GitHubRepoApi[]>) => {
                 return (integrationId: number): GitHubRepoApi[] => githubRepositories[integrationId] || []
+            },
+        ],
+        getGitHubRepositoriesTotal: [
+            (s) => [s.githubRepositoriesTotal],
+            (githubRepositoriesTotal: Record<number, number>) => {
+                return (integrationId: number): number | null => githubRepositoriesTotal[integrationId] ?? null
             },
         ],
 

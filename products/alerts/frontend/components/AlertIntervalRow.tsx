@@ -2,9 +2,9 @@ import { useValues } from 'kea'
 
 import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
+import { NextScheduledRun } from 'lib/components/ScheduledRunStatus'
 import { TZLabel } from 'lib/components/TZLabel'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -12,7 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 import { AvailableFeature } from '~/types'
 
-import { AlertDefinitionRow, AlertNextEvaluationStatus } from 'products/alerts/frontend/components/AlertDefinition'
+import { AlertDefinitionRow } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import {
     cadenceFinerThanInsightInterval,
@@ -66,7 +66,6 @@ export function AlertIntervalRow({
     const { currentTeam } = useValues(teamLogic)
     const hasHighFrequencyAlertsEntitlement = hasAvailableFeature(AvailableFeature.HIGH_FREQUENCY_ALERTS)
     const hasRealTimeAlertsEntitlement = hasAvailableFeature(AvailableFeature.REAL_TIME_ALERTS)
-    const realTimeAlertsEnabled = useFeatureFlag('ALERTS_REAL_TIME_INTERVAL')
 
     let evaluatedWindow: JSX.Element
     if (!supportsTimeWindow(alertForm.config)) {
@@ -98,11 +97,11 @@ export function AlertIntervalRow({
     } else if (creatingNewAlert || nextPlannedEvaluationStale) {
         const approximateTime = approximateNextAlertRun(alertForm.calculation_interval, currentTeam?.timezone ?? 'UTC')
         nextEvaluation = (
-            <AlertNextEvaluationStatus>
+            <NextScheduledRun label="Next planned evaluation:">
                 <span>
                     Approximately <TZLabel time={approximateTime} />
                 </span>
-            </AlertNextEvaluationStatus>
+            </NextScheduledRun>
         )
     } else if (alert) {
         let status: JSX.Element
@@ -112,9 +111,12 @@ export function AlertIntervalRow({
             status = <span>We're calculating this. This can take a few minutes.</span>
         }
         nextEvaluation = (
-            <AlertNextEvaluationStatus loading={!nextPlannedEvaluationStale && !alert.next_check_at}>
+            <NextScheduledRun
+                label="Next planned evaluation:"
+                loading={!nextPlannedEvaluationStale && !alert.next_check_at}
+            >
                 {status}
-            </AlertNextEvaluationStatus>
+            </NextScheduledRun>
         )
     } else {
         nextEvaluation = null
@@ -135,8 +137,7 @@ export function AlertIntervalRow({
                             value={value}
                             options={getAlertIntervalOptions(
                                 hasHighFrequencyAlertsEntitlement,
-                                hasRealTimeAlertsEntitlement,
-                                realTimeAlertsEnabled || value === AlertCalculationInterval.REAL_TIME
+                                hasRealTimeAlertsEntitlement
                             )}
                             onChange={(interval) => {
                                 selectAlertCalculationInterval(interval, {

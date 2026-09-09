@@ -54,6 +54,14 @@ export const HogFlowSchema = z.object({
         'exit_on_trigger_not_matched_or_conversion',
         'exit_only_at_end',
     ]),
+    // Optional email pacing: the email worker delays sends over the limit instead of dropping them
+    email_sending_rate_limit: z
+        .object({
+            count: z.number(),
+            period: z.enum(['minute', 'hour']),
+        })
+        .optional()
+        .nullable(),
     actions: z.array(HogFlowActionSchema),
     abort_action: z.string().optional(),
     edges: z.array(HogFlowEdgeSchema),
@@ -83,7 +91,12 @@ export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     created_by?: UserBasicType | null
     // Effective access level of the current user for this workflow (resource access control).
     user_access_level?: AccessControlLevel
+    // Staged content changes awaiting publish (active workflows only). A full snapshot of the
+    // content fields; null when nothing is staged. Read-only server state.
+    draft?: Partial<HogFlow> | null
+    draft_updated_at?: string | null
 }
+
 export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}
 export interface HogFlowActionEdge extends Edge<{ edge: HogFlowEdge; label?: string }> {}
 

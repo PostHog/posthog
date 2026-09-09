@@ -75,7 +75,11 @@ export interface contextPickerLogicActions {
         items: AttachedContextItem[]
         providerId: string
     } // attachedContextLogic
-    undismissContext: (key: string) => {
+    undismissContext: (
+        key: string,
+        dismissGroup?: string | undefined
+    ) => {
+        dismissGroup: string | undefined
         key: string
     } // attachedContextLogic
     handleTaxonomicFilterChange: (

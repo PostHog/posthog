@@ -448,6 +448,9 @@ TIKTOK_ADS_CONFIG: dict[str, EndpointConfig] = {
         partition_format="week",
         partition_size=1,
         endpoint_type=EndpointType.ASSET,
+        # Creative asset access is a separate grant most advertisers don't give, and the denial
+        # only surfaces once a sync has run. Opt-in keeps that failure out of a first-time setup.
+        should_sync_default=False,
     ),
     "creative_images": EndpointConfig(
         resource={
@@ -473,6 +476,7 @@ TIKTOK_ADS_CONFIG: dict[str, EndpointConfig] = {
         partition_format="week",
         partition_size=1,
         endpoint_type=EndpointType.ASSET,
+        should_sync_default=False,
     ),
     "campaign_demographic_report": audience_report_config(
         "campaign_demographic_report",

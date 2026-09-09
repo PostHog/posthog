@@ -98,6 +98,22 @@ Create the API key in SigNoz under **Settings > Service Accounts**: create a ser
             HOST_NOT_ALLOWED_ERROR: "The configured SigNoz host is not allowed. Check the host and try again.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `get_rows`'s tenacity retry already retries a 429/5xx (the "SigNoz API error
+        # (retryable)" sentinel), a dropped connection, and a read timeout up to MAX_RETRIES.
+        # The query_range telemetry fetch is a POST, which the tracked session's own urllib3
+        # retry skips (it only covers GET/HEAD/OPTIONS), so an exhausted read timeout there
+        # surfaces as the raw "Read timed out" message; a GET config fetch or a failed connect
+        # instead exhausts that adapter-level retry first and surfaces wrapped as "Max retries
+        # exceeded with url". Either way, Temporal retries the whole activity once tenacity's
+        # budget is exhausted, so the failure is self-recovering. The host is
+        # customer-controlled, so match only the stable, host-independent parts of the message.
+        return {
+            "SigNoz API error (retryable)",
+            "Read timed out",
+            "Max retries exceeded with url",
+        }
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,

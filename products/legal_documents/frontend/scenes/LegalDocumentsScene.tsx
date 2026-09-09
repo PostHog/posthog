@@ -169,7 +169,7 @@ export function LegalDocumentsScene(): JSX.Element {
                         title: 'Signed copy',
                         width: 140,
                         render: (_: any, row: LegalDocument) =>
-                            row.status === 'signed' && currentOrganizationId ? (
+                            row.status === 'signed' && row.signed_pdf_stored && currentOrganizationId ? (
                                 <Link
                                     to={getLegalDocumentsDownloadRetrieveUrl(currentOrganizationId, row.id)}
                                     target="_blank"

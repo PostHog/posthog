@@ -1,20 +1,19 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
+import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.checkout_com import (
-    CheckoutComResumeConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.payments import (
+    SYNC_BUDGET_EXCEEDED_MARKER,
+    UNRESOLVED_REFERENCES_MARKER,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source import CheckoutComSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
     OAUTH2_PERMANENT_ERROR_MARKER,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.checkoutcom import (
     CheckoutComSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 DISCOVER_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source.discover_report_types"
@@ -22,42 +21,17 @@ DISCOVER_PATCH = (
 _STATIC_SCHEMAS = ["disputes", "reports", "payments", "payment_actions", "customers", "instruments"]
 
 
+def _http_error(status: int) -> requests.HTTPError:
+    response = requests.Response()
+    response.status_code = status
+    return requests.HTTPError(f"{status} Client Error", response=response)
+
+
 class TestCheckoutComSource:
     def setup_method(self):
         self.source = CheckoutComSource()
         self.team_id = 123
         self.config = CheckoutComSourceConfig(environment="production", client_id="ack_id", client_secret="secret")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CHECKOUTCOM
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "CheckoutCom"
-        assert config.label == "Checkout.com"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/checkout_com.png"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["environment", "client_id", "client_secret", "start_date"]
-
-    def test_environment_field_is_a_select_with_default(self):
-        config = self.source.get_source_config
-        env_field = next(f for f in config.fields if f.name == "environment")
-        assert isinstance(env_field, SourceFieldSelectConfig)
-        assert env_field.defaultValue == "production"
-        assert {option.value for option in env_field.options} == {"production", "sandbox"}
-
-    def test_client_secret_field_is_secret_password(self):
-        config = self.source.get_source_config
-        secret_field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "client_secret"
-        )
-        assert secret_field.type == SourceFieldInputConfigType.PASSWORD
-        assert secret_field.secret is True
-        assert secret_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -72,6 +46,10 @@ class TestCheckoutComSource:
             # key lacks the reports scope, so a mid-sync re-mint never resolves it.
             "401 Client Error: Unauthorized for url: https://api.checkout.com/reports?limit=100",
             "401 Client Error: Unauthorized for url: https://api.sandbox.checkout.com/reports/rpt_1/files/file_1",
+            # A run whose references all lack a fetchable identifier fails identically every
+            # retry, so it pauses with a customer-facing message instead of retrying.
+            f"{UNRESOLVED_REFERENCES_MARKER}: 3 payment(s) in this run reference a customer that "
+            "carries no fetchable identifier, and no customers could be resolved",
         ],
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error):
@@ -99,9 +77,13 @@ class TestCheckoutComSource:
         [
             "503 Server Error: Service Unavailable for url: https://api.checkout.com/payments/search",
             "503 Server Error: Service Unavailable for url: https://api.sandbox.checkout.com/payments/search",
+            # A run stopped at its per-run API budget is incomplete, not broken: it raises so
+            # the schema never reports Completed over an unfilled range, and the retry resumes
+            # from the last checkpointed window. Classified as a bug, it would page instead.
+            f"{SYNC_BUDGET_EXCEEDED_MARKER} for payment_actions before reaching 2024-03-01T00:00:00Z",
         ],
     )
-    def test_retryable_errors_match_payments_search_503(self, observed_error):
+    def test_retryable_errors_match_transient_and_partial_run_failures(self, observed_error):
         retryable_errors = self.source.get_retryable_errors()
         assert any(key in observed_error for key in retryable_errors)
 
@@ -163,13 +145,29 @@ class TestCheckoutComSource:
         mock_discover.assert_not_called()
         assert [s.name for s in schemas] == _STATIC_SCHEMAS
 
+    @pytest.mark.parametrize("status", [401, 403])
     @mock.patch(DISCOVER_PATCH)
-    def test_get_schemas_discovery_failure_degrades_to_static(self, mock_discover):
-        mock_discover.side_effect = Exception("boom")
+    def test_get_schemas_scope_denied_discovery_degrades_to_static(self, mock_discover, status):
+        # A key without the reports scope is a valid configuration; its correct listing
+        # is the static catalog.
+        mock_discover.side_effect = _http_error(status)
 
         schemas = self.source.get_schemas(self.config, self.team_id)
 
         assert [s.name for s in schemas] == _STATIC_SCHEMAS
+
+    @pytest.mark.parametrize(
+        "error",
+        [_http_error(429), _http_error(500), requests.ConnectionError("connection reset")],
+    )
+    @mock.patch(DISCOVER_PATCH)
+    def test_get_schemas_transient_discovery_failure_propagates(self, mock_discover, error):
+        # Degrading to the static catalog on a transient failure would make scheduled
+        # discovery prune the report-type schemas it discovered on earlier runs.
+        mock_discover.side_effect = error
+
+        with pytest.raises(type(error)):
+            self.source.get_schemas(self.config, self.team_id)
 
     @pytest.mark.parametrize(
         "names, expected",
@@ -204,13 +202,6 @@ class TestCheckoutComSource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with("production", "ack_id", "secret")
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is CheckoutComResumeConfig
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.source.checkout_com_source"

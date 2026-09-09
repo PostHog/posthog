@@ -183,6 +183,33 @@ describe('settingsSceneLogic', () => {
         expect(router.values.hashParams).toHaveProperty('variables')
     })
 
+    it('redirects the project-members guess to organization members', async () => {
+        // Members are organization-level, so `/settings/project-members` is the intuitive wrong
+        // guess, and it used to dead-end on "Setting not found".
+        router.actions.push('/settings/project-members', {}, { members: true })
+
+        await expectLogic(logic).toMatchValues({
+            selectedLevel: 'organization',
+            selectedSectionId: 'organization-members',
+        })
+        expect(router.values.location.pathname).toContain('/settings/organization-members')
+        // The redirect keeps hash params, so deep links to a specific setting still scroll to it.
+        expect(router.values.hashParams).toHaveProperty('members')
+    })
+
+    it('leaves an unmapped section id on the not-found path', async () => {
+        // Aliases are added one at a time on purpose. A catch-all redirect for anything unrecognized
+        // would shadow the app-level redirects in scenes.ts and would drop the `not_found_shown`
+        // report that makes broken settings links visible in the first place.
+        router.actions.push('/settings/organization-teapot')
+
+        await expectLogic(logic).toMatchValues({
+            selectedSectionId: 'organization-teapot',
+            selectedSection: null,
+        })
+        expect(router.values.location.pathname).toContain('/settings/organization-teapot')
+    })
+
     it('does not bounce a level-only URL when already on a section at that level', async () => {
         router.actions.push('/settings/project-autocapture')
         await expectLogic(logic).toMatchValues({
@@ -198,5 +225,23 @@ describe('settingsSceneLogic', () => {
             selectedSectionId: 'project-autocapture',
         })
         expect(router.values.location.pathname).toMatch(/\/settings\/project$/)
+    })
+})
+
+describe('settingsSceneLogic on a cold page load', () => {
+    // The tests above navigate after mounting, which only covers clicks inside the app. A URL that
+    // arrives from outside (pasted, opened in a new tab, followed from an old bookmark) is already
+    // set before the logic mounts, and that is the path a broken settings link actually takes.
+    it('applies a section alias when the URL is set before the logic mounts', async () => {
+        initKeaTests()
+        router.actions.push('/settings/project-members')
+
+        const logic = settingsSceneLogic()
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            selectedSectionId: 'organization-members',
+        })
+        expect(router.values.location.pathname).toContain('/settings/organization-members')
     })
 })

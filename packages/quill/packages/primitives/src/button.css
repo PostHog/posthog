@@ -31,6 +31,22 @@
         box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent);
     }
 
+    /*
+     * Press feedback — the button dips 1px under the cursor. Excluded are the
+     * variants/components that own their own press motion: `primary` rests
+     * raised and settles to 0, `toggle` dips 2px, and tabs stay put (a tab
+     * that jumps would drag the whole strip's baseline with it).
+     */
+    .quill-button:not(
+        :disabled,
+        [aria-disabled='true'],
+        .quill-button--variant-primary,
+        .quill-tabs__trigger,
+        .quill-toggle
+    ):active {
+        translate: 0 1px;
+    }
+
     /* Disabled covers both paths: native :disabled (focusableWhenDisabled=false)
        and the focusable aria-disabled="true" path (the default). Loading is
        excluded — it's busy, not unavailable, so it keeps full-strength visuals
@@ -108,8 +124,8 @@
 
     /* Consecutive selected items collapse corners for a seamless stack */
     .quill-button--variant-default:is([aria-selected='true'], [aria-checked='true']):has(
-            + :is([aria-selected='true'], [aria-checked='true'])
-        ) {
+        + :is([aria-selected='true'], [aria-checked='true'])
+    ) {
         border-bottom-right-radius: 0;
         border-bottom-left-radius: 0;
     }
@@ -158,6 +174,28 @@
     }
 
     /* =========================================================================
+       Variant: secondary
+       ========================================================================= */
+    .quill-button--variant-secondary {
+        background-color: var(--fill-hover);
+    }
+
+    /* One rung above the resting fill. Written out rather than tokenized: no
+       other surface needs an elevated hover over `--fill-hover`. */
+    .quill-button--variant-secondary:not(:disabled, [aria-disabled='true']):hover {
+        background-color: color-mix(in oklab, var(--foreground) 6%, transparent);
+    }
+
+    :is(.dark, [theme='dark']) .quill-button--variant-secondary:not(:disabled, [aria-disabled='true']):hover {
+        background-color: color-mix(in oklab, var(--foreground) 10%, transparent);
+    }
+
+    .quill-button--variant-secondary[aria-expanded='true'],
+    .quill-button--variant-secondary[data-popup-open] {
+        background-color: var(--fill-expanded);
+    }
+
+    /* =========================================================================
        Variant: outline
        ========================================================================= */
     .quill-button--variant-outline {
@@ -184,24 +222,49 @@
     }
 
     /* =========================================================================
-       Variant: destructive
+       Variant: destructive / destructive outline
        ========================================================================= */
-    .quill-button--variant-destructive {
+
+    /* One fill ladder for both. The outline is that ladder under a red border,
+       so the two can never drift apart. */
+    :is(.quill-button--variant-destructive, .quill-button--variant-destructive-outline) {
         color: var(--destructive-foreground);
         background-color: color-mix(in oklab, var(--destructive) 50%, transparent);
     }
 
-    .quill-button--variant-destructive:not(:disabled, [aria-disabled='true']):hover {
+    .quill-button--variant-destructive-outline {
+        border-color: color-mix(in oklab, var(--destructive-foreground) 30%, transparent);
+    }
+
+    /* `data-highlighted` is the keyboard equivalent of hover inside a menu —
+       both land on the same brighter fill so navigating by arrow keys reads
+       the same as pointing at the row. */
+    :is(.quill-button--variant-destructive, .quill-button--variant-destructive-outline):not(
+        :disabled,
+        [aria-disabled='true']
+    ):hover,
+    :is(.quill-button--variant-destructive, .quill-button--variant-destructive-outline):not(
+        :disabled,
+        [aria-disabled='true']
+    )[data-highlighted] {
         background-color: var(--destructive);
     }
 
-    .quill-button--variant-destructive:focus-visible {
-        border-color: color-mix(in oklab, var(--destructive) 40%, transparent);
-        box-shadow: 0 0 0 2px color-mix(in oklab, var(--destructive-foreground) 60%, transparent);
+    :is(.quill-button--variant-destructive, .quill-button--variant-destructive-outline):not(
+        :disabled,
+        [aria-disabled='true']
+    ):active {
+        background-color: color-mix(in oklab, var(--destructive) 88%, var(--destructive-foreground) 12%);
     }
 
-    .quill-button--variant-destructive[data-popup-open] {
-        background-color: color-mix(in oklab, var(--destructive) 20%, transparent);
+    :is(.quill-button--variant-destructive, .quill-button--variant-destructive-outline)[aria-expanded='true'],
+    :is(.quill-button--variant-destructive, .quill-button--variant-destructive-outline)[data-popup-open] {
+        background-color: var(--destructive);
+    }
+
+    :is(.quill-button--variant-destructive, .quill-button--variant-destructive-outline):focus-visible {
+        border-color: currentColor;
+        box-shadow: 0 0 0 2px color-mix(in oklab, var(--destructive-foreground) 60%, transparent);
     }
 
     /* =========================================================================
@@ -392,6 +455,10 @@
         transition: opacity 150ms ease;
     }
 
+    .quill-button--variant-destructive-outline[data-loading] {
+        border-color: var(--destructive-foreground);
+    }
+
     .quill-button[data-loading] > .quill-spinner {
         position: absolute;
         inset: 0;
@@ -406,7 +473,7 @@
         color: var(--primary-foreground);
     }
 
-    .quill-button--variant-destructive[data-loading] > .quill-spinner {
+    :is(.quill-button--variant-destructive, .quill-button--variant-destructive-outline)[data-loading] > .quill-spinner {
         color: var(--destructive-foreground);
     }
 

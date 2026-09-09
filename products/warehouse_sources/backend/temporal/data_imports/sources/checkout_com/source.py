@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+import requests
 import structlog
 
 from posthog.schema import (
@@ -21,6 +22,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.payments import (
     PAYMENTS_ENDPOINTS,
+    SYNC_BUDGET_EXCEEDED_MARKER,
+    UNRESOLVED_REFERENCES_MARKER,
     checkout_com_payments_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_com.reports import (
@@ -95,13 +98,21 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         # The 403 matches are path-qualified so an expired signed storage URL (a different
-        # host) stays retryable, and so each endpoint gets the right scope hint. Action
-        # lookups match on `/payments/pay_` because `/payments` alone would also match
-        # the search path.
+        # host) stays retryable, and so each endpoint gets the right scope hint. Action and
+        # payment-detail lookups match on `/payments/pay_` because `/payments` alone would
+        # also match the search path.
         errors: dict[str, str | None] = {
             # Permanent token-exchange failures (invalid_client, bad request, …) all carry
             # the framework's stable marker; transient 429/5xx token errors don't.
             OAUTH2_PERMANENT_ERROR_MARKER: "Checkout.com authentication failed. Please check your access key ID and secret (and that they match the selected environment).",
+            # A customers/instruments run whose references all lack a fetchable identifier
+            # fails identically on every retry: the account's payments simply don't carry
+            # ids or emails for the records this table would hold.
+            UNRESOLVED_REFERENCES_MARKER: (
+                "Checkout.com returned payments whose customer or instrument references carry no usable "
+                "identifier, so the referenced records can't be fetched and this table can't be filled. "
+                "Re-enable syncing to skip those payments and continue with newer ones."
+            ),
         }
         for host in ("https://api.checkout.com", "https://api.sandbox.checkout.com"):
             errors[f"403 Client Error: Forbidden for url: {host}/disputes"] = (
@@ -140,6 +151,11 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
         return {
             "503 Server Error: Service Unavailable for url: https://api.checkout.com/payments/search",
             "503 Server Error: Service Unavailable for url: https://api.sandbox.checkout.com/payments/search",
+            # A run that stops at its per-run API budget is incomplete, not broken. Every
+            # window it finished is checkpointed, so the retry resumes there and covers more
+            # ground; a long backfill converges over several attempts. It has to raise rather
+            # than return so the schema never reports Completed over an unfilled range.
+            SYNC_BUDGET_EXCEEDED_MARKER,
         }
 
     @property
@@ -150,9 +166,9 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
             label="Checkout.com",
             caption="""Enter your Checkout.com API access keys to pull your payments data into the PostHog Data warehouse.
 
-Create an access key in the [Checkout.com dashboard](https://dashboard.checkout.com/) under Settings > Access keys. Grant it the scopes for the tables you want to sync: `disputes`, `reports`, `payments` (search), `gateway` (payment actions), and `vault` (customers and instruments).
+Create an access key in the [Checkout.com dashboard](https://dashboard.checkout.com/) under Settings > Access keys. Grant it the scopes for the tables you want to sync: `disputes`, `reports`, `payments` (search), `gateway` (payment actions and instruments), and `vault` (customers and instruments).
 
-Payments, payment actions, customers and instruments sync from the payments search API. Financial reporting data (financial actions, payouts, balances) syncs from your generated report files: each report type available for your account becomes a table. If no report tables show up, set up scheduled reports in your Checkout.com dashboard first.""",
+Payments, payment actions, customers and instruments sync from the payments search API. It reaches back 90 days by default. Set a start date to sync more history. Financial reporting data (financial actions, payouts, balances) syncs from your generated report files: each report type available for your account becomes a table. If no report tables show up, set up scheduled reports in your Checkout.com dashboard first.""",
             iconPath="/static/services/checkout_com.png",
             docsUrl="https://posthog.com/docs/cdp/sources/checkout-com",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -233,14 +249,26 @@ Payments, payment actions, customers and instruments sync from the payments sear
         )
 
         # One table per report type the account generates. Discovery needs the API, so
-        # the credential-free path (public docs, placeholder configs) stays static, and
-        # any discovery failure degrades to the static catalog instead of breaking the
-        # schema listing.
+        # the credential-free path (public docs, placeholder configs) stays static.
         if config.client_id and config.client_secret:
             try:
                 discovered = discover_report_types(config.environment, config.client_id, config.client_secret)
-            except Exception:
-                logger.exception("Checkout.com report type discovery failed", team_id=team_id)
+            except requests.HTTPError as e:
+                # 401/403 from the reports endpoint means the access key lacks the
+                # reports scope, which is a valid permanent configuration whose correct
+                # listing is the static catalog. Every other failure must propagate:
+                # degrading to the static catalog on a transient error would make
+                # scheduled discovery prune the report-type schemas it discovered on
+                # earlier runs (sync_old_schemas_with_new_schemas soft-deletes or
+                # disables stored names the listing no longer returns).
+                status = e.response.status_code if e.response is not None else None
+                if status not in (401, 403):
+                    raise
+                logger.warning(
+                    "Checkout.com report type discovery denied; listing the static catalog only",
+                    team_id=team_id,
+                    status=status,
+                )
                 discovered = {}
             for table_name in sorted(discovered):
                 schemas.append(

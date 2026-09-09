@@ -19,12 +19,18 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.utils import close_db_connections
 
-from products.tasks.backend.logic.services.agent_command import validate_sandbox_url
+from products.tasks.backend.feature_flags import run_stream_presence_gated, run_stream_thin_tail
+from products.tasks.backend.logic.services.agent_command import (
+    is_hogland_sandbox_url,
+    sandbox_transport_token,
+    validate_sandbox_url,
+)
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.permission_broker import (
     parse_permission_request,
     try_auto_respond_permission_request,
 )
+from products.tasks.backend.logic.stream.agent_events import is_agent_command_dispatched, is_agent_generation_event
 from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.models import (
     Task as TaskModel,
@@ -38,7 +44,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     is_slack_interaction_state,
 )
 
-from ee.hogai.sandbox import is_turn_complete
+from ee.hogai.sandbox import is_turn_complete, turn_complete_trace_id
 
 logger = structlog.get_logger(__name__)
 
@@ -58,6 +64,19 @@ TERMINAL_NOTIFICATION_METHODS = frozenset(
 )
 
 FINAL_MESSAGE_MAX_CHARS = 20_000
+
+
+def _sanitize_httpx_error(e: httpx.HTTPStatusError) -> str:
+    """str(e) without the request URL's query string.
+
+    The relayed request carries the sandbox transport token (the account-wide
+    Hogland bearer, for hogland runs) as a query param. httpx's default error
+    message embeds the full request URL, so logging str(e) verbatim would copy
+    that credential into application logs on every 5xx from the sandbox.
+    """
+    url = e.request.url
+    redacted_url = url.copy_with(query=b"redacted") if url.query else url
+    return f"Server error '{e.response.status_code}' for url '{redacted_url}'"
 
 
 class FinalMessageTracker:
@@ -119,16 +138,24 @@ async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stre
 
     task_run = await TaskRunModel.objects.select_related("task__created_by", "task__team").aget(id=input.run_id)
 
-    # Match the freshness window to the workflow's inactivity timeout for this run
-    # so the heartbeat suppression below never resets a timer it shouldn't.
+    # The workflow's inactivity timeout for this run also drives the heartbeat
+    # freshness guard (floored at the background default while a turn is in
+    # flight; see _background_heartbeat), so the relay never resets a timer for
+    # a run that is genuinely idle.
     origin_product = task_run.task.origin_product
     is_user_origin = not origin_product or origin_product == TaskModel.OriginProduct.USER_CREATED.value
     inactivity_timeout_seconds = resolve_inactivity_timeout(
-        is_user_origin=is_user_origin, state=task_run.state
+        is_user_origin=is_user_origin, origin_product=origin_product, state=task_run.state
     ).total_seconds()
 
     stream_key = get_task_run_stream_key(input.run_id)
-    redis_stream = TaskRunRedisStream(stream_key, run_uses_dedicated_stream(task_run.state))
+    redis_stream = TaskRunRedisStream(
+        stream_key,
+        run_uses_dedicated_stream(task_run.state),
+        presence_gated=run_stream_presence_gated(task_run.state),
+        origin_product=origin_product,
+        thin_tail=run_stream_thin_tail(task_run.state),
+    )
     await redis_stream.initialize()
 
     actor_user = await sync_to_async(get_task_run_credential_user)(task_run.task, task_run.state)
@@ -150,8 +177,11 @@ async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stre
         "Authorization": f"Bearer {connection_token}",
         "Accept": "text/event-stream",
     }
+    transport_token, token_param = sandbox_transport_token(task_run.state, input.sandbox_url)
     params: dict[str, str] = {}
-    if input.sandbox_connect_token:
+    if transport_token:
+        params[token_param] = transport_token
+    elif input.sandbox_connect_token:
         params["_modal_connect_token"] = input.sandbox_connect_token
 
     events_url = f"{input.sandbox_url.rstrip('/')}/events"
@@ -289,13 +319,12 @@ async def _background_heartbeat(
         except TimeoutError:
             activity.heartbeat()
             now = time.monotonic()
-            if (
-                workflow_handle is not None
-                and last_event_time is not None
-                and last_event_time[0] > 0
-                and (now - last_event_time[0]) < inactivity_timeout_seconds
-                and (last_workflow_signal is None or (now - last_workflow_signal[0]) >= HEARTBEAT_INTERVAL_SECONDS)
-                and (agent_active is None or agent_active[0])
+            if workflow_handle is not None and _should_signal_workflow_heartbeat(
+                now=now,
+                last_event_time=last_event_time,
+                last_workflow_signal=last_workflow_signal,
+                agent_active=agent_active,
+                inactivity_timeout_seconds=inactivity_timeout_seconds,
             ):
                 if last_workflow_signal is not None:
                     last_workflow_signal[0] = now
@@ -305,6 +334,29 @@ async def _background_heartbeat(
                     )
                 except Exception as e:
                     logger.warning("relay_workflow_heartbeat_signal_failed", error=str(e))
+
+
+def _should_signal_workflow_heartbeat(
+    *,
+    now: float,
+    last_event_time: list[float] | None,
+    last_workflow_signal: list[float] | None,
+    agent_active: list[bool] | None,
+    inactivity_timeout_seconds: float,
+) -> bool:
+    """Gate for the periodic workflow keep-alive signal sent by _background_heartbeat."""
+    if last_event_time is None or last_event_time[0] <= 0:
+        return False
+    if agent_active is not None and not agent_active[0]:
+        return False
+    if last_workflow_signal is not None and (now - last_workflow_signal[0]) < HEARTBEAT_INTERVAL_SECONDS:
+        return False
+    # The workflow starts a full inactivity timer after the final heartbeat.
+    # Subtract that timer so event silence never exceeds the larger idle window.
+    heartbeat_budget_seconds = (
+        max(inactivity_timeout_seconds, INACTIVITY_TIMEOUT_DEFAULT_SECONDS) - inactivity_timeout_seconds
+    )
+    return heartbeat_budget_seconds > 0 and (now - last_event_time[0]) < heartbeat_budget_seconds
 
 
 async def _relay_loop(
@@ -358,7 +410,6 @@ async def _relay_loop(
     pending_text_parts: list[str] = []
     last_text_flush: list[float] = [0.0]
     final_message_tracker = FinalMessageTracker()
-
     stop_heartbeat = asyncio.Event()
     heartbeat_task = asyncio.create_task(
         _background_heartbeat(
@@ -380,7 +431,8 @@ async def _relay_loop(
                         read=SSE_READ_TIMEOUT_SECONDS,
                         write=30.0,
                         pool=30.0,
-                    )
+                    ),
+                    trust_env=not is_hogland_sandbox_url(events_url),
                 ) as client:
                     async with httpx_sse.aconnect_sse(
                         client,
@@ -410,6 +462,19 @@ async def _relay_loop(
                                 continue
 
                             await redis_stream.write_event(event_data)
+                            if workflow_handle is not None:
+                                if (
+                                    is_agent_command_dispatched(event_data)
+                                    and await redis_stream.claim_first_agent_command()
+                                ):
+                                    if not await _signal_safely(workflow_handle, "agent_command_dispatched"):
+                                        await redis_stream.release_first_agent_command()
+                                if (
+                                    is_agent_generation_event(event_data)
+                                    and await redis_stream.claim_first_agent_activity()
+                                ):
+                                    if not await _signal_safely(workflow_handle, "agent_activity_observed"):
+                                        await redis_stream.release_first_agent_activity()
                             if task_run is not None:
                                 permission_request = parse_permission_request(event_data)
                                 if permission_request is not None:
@@ -421,6 +486,8 @@ async def _relay_loop(
 
                             if _is_end_of_turn(event_data):
                                 agent_active[0] = False
+                                if workflow_handle is not None:
+                                    await _signal_safely(workflow_handle, "agent_state_changed", arg=False)
                                 if sandbox_id and background_logs_enabled:
                                     asyncio.create_task(_emit_agentsh_events(sandbox_id, run_id, last_audit_ts_ns))
                                 if task_run is not None and task_run.mode == "interactive":
@@ -434,12 +501,18 @@ async def _relay_loop(
                                     # turn_completed, which clears the parent's relay id and would
                                     # otherwise drop a delta that arrived after it.
                                     await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
-                                    await _signal_safely(workflow_handle, "turn_completed")
+                                    await _signal_safely(
+                                        workflow_handle,
+                                        "turn_completed",
+                                        arg=turn_complete_trace_id(event_data),
+                                    )
                                 final_text = final_message_tracker.end_turn()
                                 if final_text is not None and task_run is not None:
                                     await asyncio.to_thread(_persist_final_message, run_id, final_text)
                             elif not agent_active[0] and _is_active_agent_update(event_data):
                                 agent_active[0] = True
+                                if workflow_handle is not None:
+                                    await _signal_safely(workflow_handle, "agent_state_changed", arg=True)
 
                             # Agent-design signal fan-out: first session/update opens the
                             # child relay; tool_call → step, agent_message_chunk → markdown.
@@ -541,7 +614,7 @@ async def _relay_loop(
                     "relay_sandbox_events_http_error",
                     run_id=run_id,
                     status_code=status,
-                    error=str(e),
+                    error=_sanitize_httpx_error(e),
                     reconnect_count=reconnect_count,
                 )
                 await asyncio.sleep(min(reconnect_count * 2, 10))
@@ -760,15 +833,17 @@ async def _signal_safely(
     workflow_handle: temporalio.client.WorkflowHandle,
     signal_name: str,
     arg: Any = None,
-) -> None:
+) -> bool:
     """Fire-and-forget signal — failures must never break the relay loop."""
     try:
         if arg is None:
             await workflow_handle.signal(signal_name)
         else:
             await workflow_handle.signal(signal_name, arg=arg)
+        return True
     except Exception as e:
         logger.warning("slack_app_relay_signal_failed", signal=signal_name, error=str(e))
+        return False
 
 
 def _is_keepalive_event(event_data: dict) -> bool:
@@ -785,11 +860,11 @@ def _is_end_of_turn(event_data: dict) -> bool:
 async def _emit_agentsh_events(sandbox_id: str, run_id: str, last_ts_ns: list[int]) -> None:
     """Read recent agentsh network events and emit as debug console logs."""
     from products.tasks.backend.logic.services.agentsh import build_audit_query_command
-    from products.tasks.backend.logic.services.sandbox import Sandbox
+    from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
     from products.tasks.backend.temporal.observability import emit_agent_log
 
     try:
-        sandbox = Sandbox.get_by_id(sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(sandbox_id).get_by_id(sandbox_id)
         result = await asyncio.to_thread(
             sandbox.execute,
             build_audit_query_command(since_ns=last_ts_ns[0]),

@@ -1,17 +1,20 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { createContext, type ReactNode, useContext, useEffect } from 'react'
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo } from 'react'
 
 import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { taskLogic } from '../logics/taskLogic'
 import { isPiTaskRuntime, OriginProduct } from '../types/taskTypes'
+import { type TurnTrailer } from '../utils/turnTrailers'
 import { ContextUsageBar } from './ContextUsageBar'
+import { FeedbackPromptTrailer } from './FeedbackPromptTrailer'
 import { PermissionInput } from './PermissionInput'
 import { QuestionInput } from './QuestionInput'
 import { ResourcesBar } from './ResourcesBar'
 import { RunLogSkeleton } from './RunLogSkeleton'
 import { ThreadView } from './ThreadView'
+import { TurnFeedbackActions } from './TurnFeedbackActions'
 
 export interface RunSurfaceProps {
     taskId: string
@@ -46,9 +49,11 @@ export interface RunSurfaceProps {
 
 interface RunSurfaceContextValue {
     /** Original run id passed to `bootstrapRun`; `null`/`''` while the surface is pending (no run yet). */
-    rawRunId: string | null
-    /** Logic key (used for child stream keys). */
-    runId: string
+    runId: string | null
+    /** Logic key the bound `runStreamLogic` and child stream consumers share. */
+    streamKey: string
+    taskId: string
+    conversationId?: string
     interaction: 'live' | 'read-only'
     /** Run created by a Signals scout — the context-usage line is suppressed for these. */
     isScout: boolean
@@ -122,8 +127,10 @@ function RunSurfaceRoot({
         <BindLogic logic={runStreamLogic} props={{ streamKey: logicKey, conversationId, replayOnly }}>
             <RunSurfaceContext.Provider
                 value={{
-                    rawRunId: runId,
-                    runId: logicKey,
+                    runId,
+                    streamKey: logicKey,
+                    taskId,
+                    conversationId,
                     interaction,
                     isScout,
                 }}
@@ -137,7 +144,7 @@ function RunSurfaceRoot({
 
 /** Drives the run bootstrap as a side effect; renders nothing. Kept separate so slots stay presentational. */
 function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
-    const { rawRunId, interaction } = useRunSurfaceContext()
+    const { runId, interaction } = useRunSurfaceContext()
     const { bootstrapRun, reset } = useActions(runStreamLogic)
     // The bootstrap decision reads logic-resident state (not a per-component ref) so it survives the
     // optimistic create-thread → detail-page component swap onto the same `streamKey` instance.
@@ -146,7 +153,7 @@ function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
     useEffect(() => {
         // Pending: no run to bootstrap yet — leave the seeded optimistic thread (first message +
         // provisioning indicator) untouched until the consumer supplies the real id.
-        if (!rawRunId) {
+        if (!runId) {
             return
         }
         // Wait for the project to resolve before bootstrapping — firing without it races to an
@@ -156,13 +163,13 @@ function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
         }
         // Already bootstrapped this run on this instance — idempotent across re-renders and across a
         // consumer swap that adopts the same seeded instance (no reset, so the seed/stream survives).
-        if (bootstrappedRunId === rawRunId) {
+        if (bootstrappedRunId === runId) {
             return
         }
         if (awaitingOptimisticAttach) {
             // Attaching a freshly-created run to a seeded optimistic instance: skip the reset so the seed
             // survives, and take the fresh-run fast path. The live SSE echo dedups the seeded message.
-            bootstrapRun({ taskId, runId: rawRunId, justCreatedRun: true })
+            bootstrapRun({ taskId, runId, justCreatedRun: true })
             return
         }
         // Reset first so a reused instance (stable streamKey, changed run) replays/streams the new run
@@ -170,17 +177,8 @@ function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
         // `interaction` is in the deps so a status transition (live → terminal) re-bootstraps the right
         // mode — the bound logic re-keys on it, so `bootstrapRun`/`reset` are fresh references anyway.
         reset()
-        bootstrapRun({ taskId, runId: rawRunId })
-    }, [
-        taskId,
-        rawRunId,
-        interaction,
-        bootstrappedRunId,
-        awaitingOptimisticAttach,
-        currentProjectId,
-        bootstrapRun,
-        reset,
-    ])
+        bootstrapRun({ taskId, runId })
+    }, [taskId, runId, interaction, bootstrappedRunId, awaitingOptimisticAttach, currentProjectId, bootstrapRun, reset])
 
     return null
 }
@@ -191,20 +189,49 @@ function RunSurfaceThread({
     listClassName,
     rowClassName,
 }: { className?: string; listClassName?: string; rowClassName?: string } = {}): JSX.Element {
-    const { interaction, isScout } = useRunSurfaceContext()
+    const { interaction, isScout, taskId, streamKey, runId } = useRunSurfaceContext()
     const { bootstrapLoading, threadItems } = useValues(runStreamLogic)
+    // Feedback identity: always the task, matching `$ai_session_id` on other surfaces.
+    const feedbackSessionId = taskId
+    const collectsFeedback = interaction === 'live' && !isScout && !!feedbackSessionId
+    // Memoized so the footer keeps a stable element identity across streamed frames.
+    const feedbackPrompt = useMemo(
+        () =>
+            collectsFeedback ? (
+                <FeedbackPromptTrailer sessionId={feedbackSessionId} sessionKind="task" streamKey={streamKey} />
+            ) : undefined,
+        [collectsFeedback, feedbackSessionId, streamKey]
+    )
+    // Stable identity so the memoized trailer rows don't re-render on every streamed frame.
+    const feedbackRun = useMemo(() => ({ taskId, runId: runId ?? undefined }), [taskId, runId])
+    const renderTurnTrailer = useCallback(
+        (trailer: TurnTrailer): JSX.Element | null =>
+            feedbackSessionId ? (
+                <TurnFeedbackActions
+                    sessionId={feedbackSessionId}
+                    turnIndex={trailer.turnIndex}
+                    run={feedbackRun}
+                    traceId={trailer.traceId}
+                    turnText={trailer.turnText}
+                />
+            ) : null,
+        [feedbackSessionId, feedbackRun]
+    )
     const showSkeleton = bootstrapLoading && threadItems.length === 0
     if (showSkeleton) {
         return <RunLogSkeleton className={className} listClassName={listClassName} rowClassName={rowClassName} />
     }
     // Context usage rides the thread footer for live runs (the meta bars are live-only), but never for a
     // scout run. An error surfaces as a `handleStreamError` item folded into the thread, so it renders here too.
+    // Turn feedback follows the same gate: only interactive, non-scout surfaces collect ratings.
     return (
         <ThreadView
             className={className}
             listClassName={listClassName}
             rowClassName={rowClassName}
             showContextUsage={interaction === 'live' && !isScout}
+            renderTurnTrailer={collectsFeedback ? renderTurnTrailer : undefined}
+            footerExtra={feedbackPrompt}
         />
     )
 }
@@ -217,35 +244,46 @@ function RunSurfaceThread({
  * any settled run status (active runs take a follow-up, terminal runs start a fresh run from the typed
  * message), is hidden during bootstrap, and is replaced by the prompt while a request is pending.
  */
-function RunSurfaceComposer({ children }: { children?: ReactNode }): JSX.Element | null {
-    const { interaction, runId } = useRunSurfaceContext()
-    const { pendingPermissionRequest, currentRunStatus } = useValues(runStreamLogic)
+function RunSurfaceComposer({
+    children,
+    isStopping = false,
+}: {
+    children?: ReactNode
+    isStopping?: boolean
+}): JSX.Element | null {
+    const { interaction, streamKey } = useRunSurfaceContext()
+    const { pendingPermissionRequest, respondingToPermission, currentRunStatus } = useValues(runStreamLogic)
     if (interaction !== 'live') {
         return null
     }
-    // Pending approval/question takes precedence over the composer.
-    if (pendingPermissionRequest && !isTerminalRunStatus(currentRunStatus)) {
-        const isQuestion = !!pendingPermissionRequest.questions && pendingPermissionRequest.questions.length > 0
-        return (
-            <div className="border-t px-4 py-3">
-                <div className="mx-auto w-full max-w-180">
-                    {isQuestion ? (
-                        <QuestionInput streamKey={runId} request={pendingPermissionRequest} />
-                    ) : (
-                        <PermissionInput streamKey={runId} request={pendingPermissionRequest} />
-                    )}
-                </div>
-            </div>
-        )
-    }
-    if (!children || currentRunStatus === null) {
-        return null // no composer UI supplied (e.g. ReadonlyRunSurface) or pre-bootstrap
-    }
+    const request = !isTerminalRunStatus(currentRunStatus) ? pendingPermissionRequest : null
+    const showApproval = !!request && !respondingToPermission && !isStopping
+
+    // Both inputs keep their local state through delivery and restoration, including uncommitted draft keystrokes.
     return (
-        <div data-attr="composer" className="px-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))]">
-            <LemonDivider className="mt-0 mb-4" />
-            <div className="mx-auto w-full max-w-180">{children}</div>
-        </div>
+        <>
+            {request && (
+                <div hidden={!showApproval} className="border-t px-4 py-3" data-attr="run-approval">
+                    <div key={`${request.sourceRunId}:${request.requestId}`} className="mx-auto w-full max-w-180">
+                        {request.questions?.length ? (
+                            <QuestionInput streamKey={streamKey} request={request} disabled={isStopping} />
+                        ) : (
+                            <PermissionInput streamKey={streamKey} request={request} disabled={isStopping} />
+                        )}
+                    </div>
+                </div>
+            )}
+            {children && currentRunStatus !== null && (
+                <div
+                    hidden={showApproval}
+                    data-attr="composer"
+                    className="px-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))]"
+                >
+                    <LemonDivider className="mt-0 mb-4" />
+                    <div className="mx-auto w-full max-w-180">{children}</div>
+                </div>
+            )}
+        </>
     )
 }
 

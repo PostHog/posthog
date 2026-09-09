@@ -4,7 +4,7 @@ import { InternalPerson } from '~/types'
 
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
-import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
+import { extractEventOps } from './person-update'
 
 /**
  * Service responsible for handling person property updates and person creation.
@@ -13,7 +13,7 @@ import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person
 export class PersonPropertyService {
     private personCreateService: PersonCreateService
     constructor(private context: PersonContext) {
-        this.personCreateService = new PersonCreateService(context)
+        this.personCreateService = new PersonCreateService(context.personStore, context.outputs)
     }
 
     async handleUpdate(): Promise<[InternalPerson, Promise<void>]> {
@@ -32,20 +32,21 @@ export class PersonPropertyService {
     }
 
     async updateProperties(): Promise<[InternalPerson, Promise<void>]> {
-        const [person, propertiesHandled] = await this.createOrGetPerson()
+        const [person, propertiesHandled, createAck] = await this.createOrGetPerson()
         if (propertiesHandled) {
-            return [person, Promise.resolve()]
+            return [person, createAck]
         }
-        return await this.updatePersonProperties(person)
+        const [updatedPerson, updateAck] = await this.updatePersonProperties(person)
+        return [updatedPerson, Promise.all([createAck, updateAck]).then(() => undefined)]
     }
 
     /**
-     * @returns [Person, boolean that indicates if properties were already handled or not]
+     * @returns [Person, boolean that indicates if properties were already handled or not, creation messages' produce ack]
      */
-    private async createOrGetPerson(): Promise<[InternalPerson, boolean]> {
+    private async createOrGetPerson(): Promise<[InternalPerson, boolean, Promise<void>]> {
         const person = await this.context.personStore.fetchForUpdate(this.context.team.id, this.context.distinctId)
         if (person) {
-            return [person, false]
+            return [person, false, Promise.resolve()]
         }
 
         let properties = {}
@@ -55,7 +56,7 @@ export class PersonPropertyService {
             propertiesOnce = this.context.eventProperties['$set_once']
         }
 
-        return await this.personCreateService.createPerson(
+        const [createdPerson, created, kafkaMessages] = await this.personCreateService.createPerson(
             this.context.timestamp,
             properties || {},
             propertiesOnce || {},
@@ -66,47 +67,31 @@ export class PersonPropertyService {
             this.context.event.uuid,
             { distinctId: this.context.distinctId }
         )
+        return [createdPerson, created, this.context.produceMessages(kafkaMessages)]
     }
 
     async updatePersonProperties(person: InternalPerson): Promise<[InternalPerson, Promise<void>]> {
         person.properties ||= {}
 
-        // Compute property changes
-        const propertyUpdates = computeEventPropertyUpdates(
-            this.context.event,
-            person.properties,
-            this.context.updateAllProperties
-        )
-
-        const otherUpdates: Partial<InternalPerson> = {}
-        if (this.context.updateIsIdentified && !person.is_identified) {
-            otherUpdates.is_identified = true
+        // The service states the event's intent; what the intent means
+        // given current state — diffing, identity OR-merge, last-seen
+        // advance, whether anything is worth writing — is the store's
+        // concern, resolved against its own backend.
+        const ops = extractEventOps(this.context.event, this.context.updateAllProperties)
+        if (this.context.updateIsIdentified) {
+            ops.isIdentified = true
         }
-
         if (
             this.context.shouldUpdateLastSeenAt &&
             this.context.eventProperties['$update_person_last_seen_at'] !== false
         ) {
-            const roundedTimestamp = this.context.timestamp.startOf('hour')
-            if (!person.last_seen_at || roundedTimestamp > person.last_seen_at) {
-                otherUpdates.last_seen_at = roundedTimestamp
-            }
+            ops.lastSeenAtMs = this.context.timestamp.startOf('hour').toMillis()
         }
 
-        // Check if we have any changes to make
-        const hasChanges = propertyUpdates.hasChanges || Object.keys(otherUpdates).length > 0
-        if (!hasChanges) {
-            const [updatedPerson, _] = applyEventPropertyUpdates(propertyUpdates, person)
-            return [updatedPerson, Promise.resolve()]
-        }
-
-        const [updatedPerson, kafkaMessages] = await this.context.personStore.updatePersonWithPropertiesDiffForUpdate(
+        const [updatedPerson, kafkaMessages] = await this.context.personStore.applyEventOps(
             person,
-            propertyUpdates.toSet,
-            propertyUpdates.toUnset,
-            otherUpdates,
-            this.context.distinctId,
-            propertyUpdates.shouldForceUpdate
+            ops,
+            this.context.distinctId
         )
         const kafkaAck = this.context.produceMessages(kafkaMessages)
         return [updatedPerson, kafkaAck]

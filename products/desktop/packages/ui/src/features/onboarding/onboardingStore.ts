@@ -24,11 +24,21 @@ interface OnboardingStoreActions {
 type OnboardingStore = OnboardingStoreState & OnboardingStoreActions;
 
 const initialState: OnboardingStoreState = {
-  currentStep: "welcome",
+  currentStep: "project-select",
   hasCompletedOnboarding: false,
   hasShippedFirstPr: false,
   selectedProjectId: null,
 };
+
+export function migrateOnboardingState(
+  persistedState: unknown,
+): OnboardingStore {
+  const state = persistedState as OnboardingStore;
+  if ((state.currentStep as string) === "invite-code") {
+    return { ...state, currentStep: "consent" };
+  }
+  return state;
+}
 
 export const useOnboardingStore = create<OnboardingStore>()(
   persist(
@@ -44,13 +54,15 @@ export const useOnboardingStore = create<OnboardingStore>()(
       resetOnboarding: () => set({ ...initialState }),
       resetSelections: () =>
         set({
-          currentStep: "welcome",
+          currentStep: "project-select",
           selectedProjectId: null,
         }),
       selectProjectId: (selectedProjectId) => set({ selectedProjectId }),
     }),
     {
       name: "onboarding-store",
+      version: 1,
+      migrate: migrateOnboardingState,
       partialize: (state) => ({
         currentStep: state.currentStep,
         hasCompletedOnboarding: state.hasCompletedOnboarding,

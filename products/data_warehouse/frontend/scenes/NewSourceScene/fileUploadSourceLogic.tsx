@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -9,7 +10,7 @@ import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
-import { FileUploadFormat } from './fileUploadSource'
+import { FileUploadFormat, fileUploadSourceType } from './fileUploadSource'
 
 // Mirrors MAX_FILE_UPLOAD_SIZE_BYTES on the backend. Checked here too so an oversized file fails
 // instantly instead of after uploading 50MB+ only to be rejected.
@@ -39,6 +40,20 @@ const EXTENSION_FORMATS: Record<string, FileUploadFormat> = {
 }
 
 const SPREADSHEET_EXTENSIONS = new Set(['xlsx', 'xls', 'xlsm', 'xlsb', 'ods', 'numbers'])
+
+/** Which step of the two-request upload failed. */
+type FileUploadStage = 'upload' | 'create_table'
+
+function captureFileUploadFailed(format: FileUploadFormat, stage: FileUploadStage, error: any): void {
+    posthog.capture('warehouse file upload failed', {
+        sourceType: fileUploadSourceType(format),
+        stage,
+        status: error?.status ?? null,
+        // Every message this endpoint returns is a fixed server-authored string, so it names the
+        // reason without carrying the filename or anything read out of the file.
+        error: error?.data?.message ?? error?.message ?? 'unknown',
+    })
+}
 
 function fileExtension(filename: string): string {
     const match = /\.([^.]+)$/.exec(filename.toLowerCase())
@@ -133,10 +148,12 @@ export interface fileUploadSourceLogicActions {
         args_0?:
             | {
                   force?: boolean
+                  shallow?: boolean
               }
             | undefined
     ) => {
         force?: boolean
+        shallow?: boolean
     } // databaseTableListLogic
     resetFileUpload: (values?: FileUploadForm) => {
         values?: FileUploadForm
@@ -234,6 +251,7 @@ export const fileUploadSourceLogic = kea<fileUploadSourceLogicType>([
                 try {
                     upload = await api.dataWarehouseTables.uploadFile(formData)
                 } catch (e: any) {
+                    captureFileUploadFailed(file_format, 'upload', e)
                     lemonToast.error(e.data?.message ?? e.message ?? 'Could not upload the file.')
                     return
                 }
@@ -246,10 +264,12 @@ export const fileUploadSourceLogic = kea<fileUploadSourceLogicType>([
                         table_name,
                     })
                 } catch (e: any) {
+                    captureFileUploadFailed(file_format, 'create_table', e)
                     lemonToast.error(e.data?.message ?? e.message ?? 'Could not create the table.')
                     return
                 }
 
+                posthog.capture('source created', { sourceType: fileUploadSourceType(file_format) })
                 lemonToast.success(`Table ${table_name} created`)
                 actions.loadDatabase()
                 router.actions.replace(urls.sources())

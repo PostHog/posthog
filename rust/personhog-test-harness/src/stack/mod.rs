@@ -97,6 +97,26 @@ pub struct Stack {
 }
 
 impl Stack {
+    /// The distinct id and hash-key-override tables paired with a person
+    /// table. Identity writes the mapping (and clears overrides) in the same
+    /// id namespace as its person table, so the three always travel together.
+    fn identity_companion_tables(person_table: &str) -> Result<(&'static str, &'static str)> {
+        match person_table {
+            "posthog_person" => Ok((
+                "posthog_persondistinctid",
+                "posthog_featureflaghashkeyoverride",
+            )),
+            "personhog_person_tmp" => Ok((
+                "personhog_persondistinctid_tmp",
+                "personhog_featureflaghashkeyoverride_tmp",
+            )),
+            other => bail!(
+                "--create-via-identity has no known identity table set for \
+                 --pg-target-table {other:?}"
+            ),
+        }
+    }
+
     pub async fn up(config: StackConfig) -> Result<Self> {
         if config.routers == 0 || config.routers > MAX_ROUTERS {
             bail!("--routers must be between 1 and {MAX_ROUTERS}");
@@ -222,8 +242,12 @@ impl Stack {
 
         // Identity resolves and creates on the Postgres primary and pushes
         // initial properties through the traffic router; it holds no etcd
-        // state, so it can come up alongside the routers.
+        // state, so it can come up alongside the routers. Its table set is
+        // derived from the stack's person table so identity, writer, and the
+        // leader fallback agree on one id namespace.
         let identity_url = if config.spawn_identity {
+            let (pdi_table, ffhko_table) =
+                Self::identity_companion_tables(&config.pg_target_table)?;
             infra.push(ServiceProcess::spawn(
                 "identity",
                 &config.bin_dir.join("personhog-identity"),
@@ -232,6 +256,15 @@ impl Stack {
                     ("PRIMARY_DATABASE_URL", config.persons_db_url.clone()),
                     ("ROUTER_URL", router_url.clone()),
                     ("METRICS_PORT", IDENTITY_METRICS_PORT.to_string()),
+                    ("PERSON_TABLE", config.pg_target_table.clone()),
+                    ("PERSON_DISTINCT_ID_TABLE", pdi_table.to_string()),
+                    ("FF_HASH_KEY_OVERRIDE_TABLE", ffhko_table.to_string()),
+                    // The service default is off. The gate needs the
+                    // sweeper: a leader kill abandons a merge mid-saga,
+                    // and only the sweeper re-drives it. The short
+                    // interval fits a short run.
+                    ("LIFECYCLE_SWEEPER_ENABLED", "true".to_string()),
+                    ("LIFECYCLE_SWEEP_INTERVAL_SECS", "3".to_string()),
                 ],
                 &log_dir,
             )?);

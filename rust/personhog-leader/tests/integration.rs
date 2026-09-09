@@ -131,6 +131,7 @@ async fn service_accepts_requests_after_coordination_warmup() {
     let response = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -222,6 +223,7 @@ async fn unowned_partition_returns_failed_precondition() {
     let result = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -315,6 +317,7 @@ async fn missing_partition_metadata_returns_invalid_argument() {
 
     let result = client
         .update_person_properties(UpdatePersonPropertiesRequest {
+            force_update: false,
             team_id: 1,
             person_id: 42,
             event_name: "$set".to_string(),
@@ -401,6 +404,7 @@ async fn mismatched_partition_metadata_returns_invalid_argument() {
     let result = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -504,6 +508,7 @@ async fn writes_fenced_after_drain_reads_still_served() {
     let update = |email: &str| {
         with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -647,6 +652,7 @@ async fn drain_fences_before_waiting_on_inflight() {
     let status = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -946,6 +952,7 @@ async fn update_produces_person_state_to_kafka() {
     let response = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: PERSON_ID,
                 event_name: "$set".to_string(),
@@ -1063,6 +1070,7 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
     let result = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -1089,8 +1097,11 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
         panic!("expected original person in cache");
     };
     assert_eq!(cached.version, 1);
-    assert_eq!(cached.properties["email"], "test@example.com");
-    assert!(cached.properties.get("name").is_none());
+    assert_eq!(
+        cached.parse_properties().unwrap()["email"],
+        "test@example.com"
+    );
+    assert!(cached.parse_properties().unwrap().get("name").is_none());
 
     // Clear errors and verify the service recovers
     mock_cluster.clear_request_errors(RDKafkaApiKey::Produce);
@@ -1098,6 +1109,7 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
     let response = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -1187,6 +1199,7 @@ async fn e2e_update_produces_to_local_kafka() {
     let response = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -1357,9 +1370,19 @@ async fn pg_fallback_reads_numerics_the_leaders_parser_rejects() {
     // The representable sentinel reads as the exact double JS reads;
     // beyond-f64 garbage clamps instead of poisoning the row; neighbors
     // are untouched.
-    assert_eq!(person.properties["credits"].as_f64().unwrap(), f64::MAX);
-    assert_eq!(person.properties["overflow"].as_f64().unwrap(), 1e307);
-    assert_eq!(person.properties["plan"], "pro");
+    assert_eq!(
+        person.parse_properties().unwrap()["credits"]
+            .as_f64()
+            .unwrap(),
+        f64::MAX
+    );
+    assert_eq!(
+        person.parse_properties().unwrap()["overflow"]
+            .as_f64()
+            .unwrap(),
+        1e307
+    );
+    assert_eq!(person.parse_properties().unwrap()["plan"], "pro");
 
     sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
         .bind(team_id)
@@ -1430,6 +1453,7 @@ async fn update_triggers_pg_fallback_then_applies_changes() {
     let response = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: team_id as i64,
                 person_id,
                 event_name: "$set".to_string(),
@@ -1526,6 +1550,7 @@ async fn evicted_dirty_person_recovers_from_changelog() {
     client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: PERSON_ID,
                 event_name: "$set".to_string(),
@@ -1629,6 +1654,7 @@ async fn dirty_person_with_failed_recovery_is_unavailable_not_stale() {
     client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: PERSON_ID,
                 event_name: "$set".to_string(),
@@ -1748,6 +1774,7 @@ async fn writes_shed_when_dirty_index_is_full() {
     let mut client = create_leader_client(addr).await;
 
     let update_for = |person_id: i64, value: &str| UpdatePersonPropertiesRequest {
+        force_update: false,
         team_id: 1,
         person_id,
         event_name: "$set".to_string(),
@@ -1840,6 +1867,7 @@ async fn recovery_fails_when_record_version_disagrees_with_the_mark() {
     client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: PERSON_ID,
                 event_name: "$set".to_string(),
@@ -1954,6 +1982,7 @@ async fn recovery_reuses_the_partition_consumer_across_fetches() {
     let client = create_leader_client(addr).await;
 
     let update_for = |person_id: i64, value: &str| UpdatePersonPropertiesRequest {
+        force_update: false,
         team_id: 1,
         person_id,
         event_name: "$set".to_string(),
@@ -2179,6 +2208,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
     let err = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: PERSON_ID,
                 event_name: "$set".to_string(),
@@ -2222,6 +2252,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
     let response = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: PERSON_ID,
                 event_name: "$set".to_string(),
@@ -2255,15 +2286,17 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
         oversized_partition,
         CachedPerson {
             id: OVERSIZED_PERSON_ID,
-            properties: serde_json::json!({
+            properties: serde_json::to_vec(&serde_json::json!({
                 "email": "a@b.c", "custom_a": big, "custom_b": big,
-            }),
+            }))
+            .unwrap(),
             ..test_cached_person()
         },
     );
     let response = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: OVERSIZED_PERSON_ID,
                 event_name: "$set".to_string(),
@@ -2328,13 +2361,14 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
         unremediable_partition,
         CachedPerson {
             id: UNREMEDIABLE_PERSON_ID,
-            properties: serde_json::json!({ "email": huge_email }),
+            properties: serde_json::to_vec(&serde_json::json!({ "email": huge_email })).unwrap(),
             ..test_cached_person()
         },
     );
     let err = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: UNREMEDIABLE_PERSON_ID,
                 event_name: "$set".to_string(),
@@ -2433,6 +2467,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
     client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: PERSON_ID,
                 event_name: "$set".to_string(),
@@ -2450,6 +2485,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
     client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 2,
                 person_id: TEAM_2_PERSON_ID,
                 event_name: "$set".to_string(),
@@ -2484,6 +2520,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
     let response = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: PERSON_ID,
                 event_name: "$set".to_string(),
@@ -2532,6 +2569,7 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
     let response = client
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: PERSON_ID,
                 event_name: "$set".to_string(),
@@ -2619,6 +2657,7 @@ async fn an_unresolved_version_is_never_reused() {
     let response = service
         .update_person_properties(with_partition(
             UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id: 1,
                 person_id: 42,
                 event_name: "$set".to_string(),
@@ -2691,6 +2730,7 @@ async fn a_fenced_write_that_bounces_does_not_hand_its_version_back() {
     // no-change fast path and never reaches the produce at all.
     let update = |n: i64| {
         let mut request = Request::new(UpdatePersonPropertiesRequest {
+            force_update: false,
             team_id: 1,
             person_id: 42,
             event_name: "$set".to_string(),
@@ -2813,6 +2853,7 @@ async fn an_unknown_outcome_keeps_its_version(
     };
     let update = |n: i64| {
         let mut request = Request::new(UpdatePersonPropertiesRequest {
+            force_update: false,
             team_id: 1,
             person_id: 42,
             event_name: "$set".to_string(),
@@ -2895,6 +2936,7 @@ async fn scalar_fields_merge_rather_than_assign() {
 
     let update = |set: serde_json::Value, identified: Option<bool>, seen: Option<i64>| {
         let mut request = Request::new(UpdatePersonPropertiesRequest {
+            force_update: false,
             team_id: 1,
             person_id: 42,
             event_name: "$identify".to_string(),

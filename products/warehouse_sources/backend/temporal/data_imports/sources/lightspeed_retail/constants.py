@@ -3,3 +3,4 @@
 # request layer (the `/api/<version>` path segment) share a single label — never parsed or ordered.
 LIGHTSPEED_RETAIL_API_VERSION_2_0 = "2.0"
 LIGHTSPEED_RETAIL_API_VERSION_2026_01 = "2026-01"
+LIGHTSPEED_RETAIL_API_VERSION_2026_07 = "2026-07"

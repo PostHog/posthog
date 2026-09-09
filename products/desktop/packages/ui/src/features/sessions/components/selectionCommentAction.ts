@@ -276,7 +276,7 @@ export function installSelectionSettleGate(
     settle();
   };
   const onKeyDown = (event: KeyboardEvent) => {
-    if (!isSelectionKey(event)) {
+    if (inActionUi(event.target) || !isSelectionKey(event)) {
       return;
     }
     keyGesture = true;

@@ -21,12 +21,14 @@ tools:
         annotations:
             readOnly: false
             destructive: false
-            idempotent: true
-        title: Resolve or create a channel
+            idempotent: false
+        title: Create a channel
         description: >
-            Resolve-or-create a public channel by name (normalized to lowercase-dashed). Idempotent: returns the
-            existing channel when one with the name already exists. Use channel-list first when the request names an
-            existing channel.
+            Create a channel. The default `channel_type` is public. Public names use lowercase letters and hyphens. If a
+            public channel has that name, return it. Use channel-list to find an existing channel's ID. Set
+            `channel_type` to "private" to create a private channel with the requester and the users in `member_ids`.
+            Users in `member_ids` must have project access. Private channels always get a new ID, so a retry creates
+            another channel.
     channel-instructions-retrieve:
         operation: task_channels_instructions_retrieve
         enabled: true
@@ -44,6 +46,10 @@ tools:
         param_overrides:
             id:
                 description: ID of the channel whose instructions to read.
+        feature_flag: context-layer
+        feature_flag_behavior: disable
+        superseded_by:
+            - context-wiki-page-retrieve
     channel-instructions-update:
         operation: task_channels_instructions_update
         enabled: true
@@ -63,6 +69,10 @@ tools:
                 description: ID of the channel whose instructions to update.
             base_version:
                 input_schema: ChannelInstructionsBaseVersionSchema
+        feature_flag: context-layer
+        feature_flag_behavior: disable
+        superseded_by:
+            - context-wiki-page-update
     channel-list:
         operation: task_channels_list
         enabled: true
@@ -74,8 +84,10 @@ tools:
             idempotent: true
         title: List channels
         description: >
-            List the project's channels (public channels plus the requester's personal #me channel). Use this to resolve
-            a channel id from its name before creating or listing canvases or reading instructions.
+            List channels the requester can access: public channels, their personal #me channel, and private channels
+            they belong to. Use a channel ID to create or list canvases or read instructions. Private channels can have
+            the same name, so identify them by ID. Send `limit` and `offset` to get a page with `count`, `next`,
+            `previous`, and `results`. Without `limit`, the response is an array of all accessible channels.
     channel-retrieve:
         operation: task_channels_retrieve
         enabled: true
@@ -87,18 +99,57 @@ tools:
             idempotent: true
         title: Get a channel
         description: "Get a single PostHog Tasks channel by id, returning its name and type. Channels are the project's
-            workspace channels that group tasks and canvases (public channels plus each member's #me channel). Use
-            channel-list to resolve a channel id from its name; use channel-instructions-retrieve to read the channel's
-            CONTEXT.md instructions."
+            workspace channels that group tasks and canvases (public channels plus each member's #me channel)."
         param_overrides:
             id:
                 description: ID of the channel to read.
     code-invites-check-access-retrieve:
         operation: code_invites_check_access_retrieve
         enabled: false
-    code-invites-redeem-create:
-        operation: code_invites_redeem_create
+    code-sandbox-pricing-list:
+        operation: code_sandbox_pricing_list
         enabled: false
+    desktop-access-retrieve:
+        operation: desktop_access_retrieve
+        enabled: false
+    desktop-beta-terms-create:
+        operation: desktop_beta_terms_create
+        enabled: false
+    desktop-beta-terms-list:
+        operation: desktop_beta_terms_list
+        enabled: false
+    loop-channel-instructions-retrieve:
+        operation: task_channels_instructions_retrieve
+        enabled: true
+        scopes:
+            - task:read
+            - loop_context_internal:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read fallback loop context
+        description: Read legacy channel context when an unattended loop cannot access an initialized context wiki.
+        param_overrides:
+            id:
+                description: ID of the loop's context channel.
+    loop-channel-instructions-update:
+        operation: task_channels_instructions_update
+        enabled: true
+        scopes:
+            - task:write
+            - loop_context_internal:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Update fallback loop context
+        description: Update legacy channel context when an unattended loop cannot access an initialized context wiki.
+        param_overrides:
+            id:
+                description: ID of the loop's context channel.
+            base_version:
+                input_schema: ChannelInstructionsBaseVersionSchema
     loops-create:
         operation: loops_create
         enabled: true
@@ -276,24 +327,6 @@ tools:
     task-activity-mark-read-create:
         operation: task_activity_mark_read_create
         enabled: false
-    task-automations-create:
-        operation: task_automations_create
-        enabled: false
-    task-automations-destroy:
-        operation: task_automations_destroy
-        enabled: false
-    task-automations-list:
-        operation: task_automations_list
-        enabled: false
-    task-automations-partial-update:
-        operation: task_automations_partial_update
-        enabled: false
-    task-automations-retrieve:
-        operation: task_automations_retrieve
-        enabled: false
-    task-automations-run-create:
-        operation: task_automations_run_create
-        enabled: false
     task-channels-context-generation-retrieve:
         operation: task_channels_context_generation_retrieve
         enabled: false
@@ -321,11 +354,29 @@ tools:
     task-channels-instructions-versions-retrieve:
         operation: task_channels_instructions_versions_retrieve
         enabled: false
+    task-channels-members-retrieve:
+        operation: task_channels_members_retrieve
+        enabled: false
+    task-channels-members-update:
+        operation: task_channels_members_update
+        enabled: false
+    task-channels-onboarding-session-create:
+        operation: task_channels_onboarding_session_create
+        enabled: false
+    task-channels-onboarding-session-test-create:
+        operation: task_channels_onboarding_session_test_create
+        enabled: false
     task-channels-partial-update:
         operation: task_channels_partial_update
         enabled: false
+    task-channels-provision-defaults-create:
+        operation: task_channels_provision_defaults_create
+        enabled: false
     task-channels-star-create:
         operation: task_channels_star_create
+        enabled: false
+    task-channels-teaching-canvas-test-create:
+        operation: task_channels_teaching_canvas_test_create
         enabled: false
     task-mentions-list:
         operation: task_mentions_list
@@ -342,6 +393,36 @@ tools:
     tasks-comments-retrieve:
         operation: tasks_comments_retrieve
         enabled: false
+    tasks-config-create:
+        operation: tasks_config_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set project task run defaults
+        description: >
+            Set the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task
+            runs created without an explicit runtime selection. Requires project admin. `runtime_adapter` and `model`
+            must be set together; send all three fields as null to clear the project default. Use tasks-models-retrieve
+            to list valid model identifiers.
+        feature_flag: tasks
+    tasks-config-list:
+        operation: tasks_config_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get project task run defaults
+        description: >
+            Get the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task
+            runs created without an explicit runtime selection. All fields are null when no project default is stored.
+        feature_flag: tasks
     tasks-create:
         operation: tasks_create
         enabled: true
@@ -386,6 +467,9 @@ tools:
     tasks-destroy:
         operation: tasks_destroy
         enabled: false
+    tasks-handoff-create:
+        operation: tasks_handoff_create
+        enabled: false
     tasks-list:
         operation: tasks_list
         enabled: true
@@ -397,12 +481,12 @@ tools:
             idempotent: true
         enrich_url: '{id}'
         list: true
-        title: List tasks
+        title: Search and list tasks
         description: >
-            List agent tasks in the current project. Supports filtering by `origin_product`, `stage`, `organization`,
-            `repository`, `created_by`, and `internal`. Returns lightweight task metadata only — call tasks-retrieve for
-            the full task including its latest run, or tasks-runs-list for run history. Requires the calling token's
-            organization to have Tasks access enabled.
+            Search agent tasks before starting related work. Use `search` to match task titles and descriptions, and
+            `channel` to limit results to the current space. The results identify who created each task and whether its
+            latest run is active. Supports additional filtering by status, repository, creator, origin product, and
+            archived or internal state. Requires the calling token's organization to have Tasks access enabled.
         feature_flag: tasks
         response:
             include:
@@ -413,8 +497,59 @@ tools:
                 - origin_product
                 - repository
                 - internal
+                - channel
+                - created_by.first_name
+                - created_by.last_name
+                - latest_run.id
+                - latest_run.status
                 - created_at
                 - updated_at
+    tasks-me-config-create:
+        operation: tasks_me_config_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set my task run defaults
+        description: >
+            Set the caller's per-project default AI run preferences (runtime adapter, model, reasoning effort). They
+            override the project default wholesale. `runtime_adapter` and `model` must be set together; send all three
+            fields as null to clear and inherit the project default. Returns the stored preferences plus the resolved
+            defaults a new run will use. Use tasks-models-retrieve to list valid model identifiers.
+        feature_flag: tasks
+    tasks-me-config-list:
+        operation: tasks_me_config_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get my task run defaults
+        description: >
+            Get the caller's per-project default AI run preferences, plus the resolved defaults a new run will use when
+            no explicit runtime selection is sent (the caller's preference wins over the project default; `source` says
+            which level supplied it).
+        feature_flag: tasks
+    tasks-models-retrieve:
+        operation: tasks_models_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List available task run models
+        description: >
+            List the models a task run may use, each with its runtime adapter and the reasoning efforts it supports. Use
+            the returned identifiers when setting task run default preferences or creating a run. An empty list means
+            the model catalogue is temporarily unavailable, not that no models exist.
+        feature_flag: tasks
     tasks-partial-update:
         operation: tasks_partial_update
         enabled: false
@@ -460,6 +595,12 @@ tools:
     tasks-run-create:
         operation: tasks_run_create
         enabled: false
+    tasks-runs-analysis-activity-create:
+        operation: tasks_runs_analysis_activity_create
+        enabled: false
+    tasks-runs-analyze-create:
+        operation: tasks_runs_analyze_create
+        enabled: false
     tasks-runs-append-log-create:
         operation: tasks_runs_append_log_create
         enabled: false
@@ -487,8 +628,14 @@ tools:
     tasks-runs-artifacts-presign-create:
         operation: tasks_runs_artifacts_presign_create
         enabled: false
+    tasks-runs-artifacts-references-create:
+        operation: tasks_runs_artifacts_references_create
+        enabled: false
     tasks-runs-cancel-create:
         operation: tasks_runs_cancel_create
+        enabled: false
+    tasks-runs-clear-conversation-create:
+        operation: tasks_runs_clear_conversation_create
         enabled: false
     tasks-runs-command-create:
         operation: tasks_runs_command_create
@@ -544,6 +691,15 @@ tools:
         enabled: false
     tasks-runs-partial-update:
         operation: tasks_runs_partial_update
+        enabled: false
+    tasks-runs-peers-message-create:
+        operation: tasks_runs_peers_message_create
+        enabled: false
+    tasks-runs-peers-retrieve:
+        operation: tasks_runs_peers_retrieve
+        enabled: false
+    tasks-runs-preview-retrieve:
+        operation: tasks_runs_preview_retrieve
         enabled: false
     tasks-runs-relay-message-create:
         operation: tasks_runs_relay_message_create
@@ -608,6 +764,9 @@ tools:
     tasks-runs-task-session-sync-create:
         operation: tasks_runs_task_session_sync_create
         enabled: false
+    tasks-search-retrieve:
+        operation: tasks_search_retrieve
+        enabled: false
     tasks-slack-thread-context-retrieve:
         operation: tasks_slack_thread_context_retrieve
         enabled: false
@@ -635,6 +794,12 @@ tools:
     tasks-update:
         operation: tasks_update
         enabled: false
+    tasks-usage-retrieve:
+        operation: tasks_usage_retrieve
+        enabled: false
     tasks-warm-create:
         operation: tasks_warm_create
+        enabled: false
+    tasks-warm-resume-create:
+        operation: tasks_warm_resume_create
         enabled: false

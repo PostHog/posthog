@@ -4,9 +4,11 @@ import uuid
 import random
 import asyncio
 import dataclasses
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 from unittest.mock import AsyncMock, Mock
@@ -23,7 +25,12 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_USER_SECONDS, WARM_IDLE_TIMEOUT
+from products.tasks.backend.temporal.babysit_pr.snapshot import BabysitJournal
+from products.tasks.backend.temporal.constants import (
+    INACTIVITY_TIMEOUT_USER_SECONDS,
+    SANDBOX_TTL_SNAPSHOT_LEAD,
+    WARM_IDLE_TIMEOUT,
+)
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
 from products.tasks.backend.temporal.process_task.activities import (
     STEER_DECLINED_OUTCOME,
@@ -59,6 +66,9 @@ from products.tasks.backend.temporal.process_task.activities import (
     track_workflow_event,
     update_task_run_status,
 )
+from products.tasks.backend.temporal.process_task.activities.create_resume_snapshot import CreateResumeSnapshotOutput
+from products.tasks.backend.temporal.process_task.activities.emit_progress_activity import EmitProgressInput
+from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import SendFollowupToSandboxInput
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
@@ -110,7 +120,6 @@ def _build_context(
     )
 
 
-@pytest.mark.django_db
 def test_activity_error_properties_includes_failed_activity_context():
     error = ActivityError(
         "Activity task timed out",
@@ -133,6 +142,23 @@ def test_activity_error_properties_includes_failed_activity_context():
         "cause_error_type": "TimeoutError",
         "cause_error_message": "start-to-close timeout",
     }
+
+
+def test_activity_error_properties_names_the_application_failure_class():
+    error = ActivityError(
+        "Activity task failed",
+        scheduled_event_id=10,
+        started_event_id=11,
+        identity="worker-1",
+        activity_type="create_sandbox_for_repository",
+        activity_id="activity-1",
+        retry_state=RetryState.NON_RETRYABLE_FAILURE,
+    )
+    error.__cause__ = ApplicationError("Failed to create sandbox", type="SandboxProvisionError")
+
+    properties = ProcessTaskWorkflow._activity_error_properties(error)
+
+    assert properties["cause_error_type"] == "SandboxProvisionError"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -325,6 +351,445 @@ class TestProcessTaskWorkflow:
             causes.append(str(error))
             error = error.__cause__
         assert any("no longer exists" in cause or "not found" in cause for cause in causes), causes
+
+
+class TestSandboxDeadline:
+    """The provider kills a sandbox on a fixed clock. An interactive run has to snapshot
+    itself before that lands, because the teardown snapshot runs against a sandbox that is
+    already gone."""
+
+    def _workflow(
+        self,
+        *,
+        deadline: datetime | None,
+        mode: str = "interactive",
+        use_modal_resume_snapshots: bool = True,
+    ) -> ProcessTaskWorkflow:
+        wf = ProcessTaskWorkflow()
+        wf._context = _build_context(
+            github_integration_id=123,
+            state={"mode": mode},
+            use_modal_resume_snapshots=use_modal_resume_snapshots,
+        )
+        wf._sandbox_ttl_expires_at = deadline
+        return wf
+
+    def test_deadline_from_a_pre_rollout_history_leaves_the_timer_unscheduled(self):
+        wf = self._workflow(deadline=None)
+        created = CreateSandboxForRepositoryOutput(sandbox_id="sb-1", sandbox_url="https://s", connect_token=None)
+
+        wf._record_sandbox_deadline(created)
+
+        assert wf._sandbox_ttl_expires_at is None
+        assert wf._sandbox_deadline_snapshot_scheduled() is False
+
+    def test_a_replacement_sandbox_starts_its_clock_over(self, monkeypatch):
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        wf = self._workflow(deadline=datetime(2026, 7, 16, 12, 0, tzinfo=UTC))
+        wf._sandbox_ttl_snapshot_taken = True
+
+        wf._record_sandbox_deadline(
+            CreateSandboxForRepositoryOutput(
+                sandbox_id="sb-2",
+                sandbox_url="https://s",
+                connect_token=None,
+                ttl_expires_at="2026-07-16T18:00:00+00:00",
+            )
+        )
+
+        assert wf._sandbox_ttl_expires_at == datetime(2026, 7, 16, 18, 0, tzinfo=UTC)
+        assert wf._sandbox_ttl_snapshot_taken is False
+        assert wf._sandbox_deadline_snapshot_scheduled() is True
+
+    @parameterized.expand(
+        [
+            ("already_snapshotted", {"snapshot_taken": True}, False),
+            ("non_interactive", {"mode": "one_off"}, False),
+            ("resume_snapshots_disabled", {"use_modal_resume_snapshots": False}, False),
+            ("interactive_with_snapshots", {}, True),
+        ]
+    )
+    def test_only_runs_with_something_to_restore_wait_on_the_deadline(self, _name, overrides, expected):
+        wf = self._workflow(
+            deadline=datetime(2026, 7, 16, 12, 0, tzinfo=UTC),
+            mode=overrides.get("mode", "interactive"),
+            use_modal_resume_snapshots=overrides.get("use_modal_resume_snapshots", True),
+        )
+        wf._sandbox_ttl_snapshot_taken = overrides.get("snapshot_taken", False)
+
+        assert wf._sandbox_deadline_snapshot_scheduled() is expected
+
+    async def test_timer_sleeps_until_the_lead_time_before_the_deadline(self, monkeypatch):
+        wf = self._workflow(deadline=datetime(2026, 7, 16, 12, 0, tzinfo=UTC))
+        sleep_mock = AsyncMock()
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow, "now", Mock(return_value=datetime(2026, 7, 16, 9, 0, tzinfo=UTC))
+        )
+        monkeypatch.setattr(process_task_workflow_module.workflow, "sleep", sleep_mock)
+
+        event = await wf._wait_for_sandbox_deadline()
+
+        assert event == process_task_workflow_module.TaskEvent.SANDBOX_TTL_APPROACHING
+        expected = (timedelta(hours=3) - SANDBOX_TTL_SNAPSHOT_LEAD).total_seconds()
+        sleep_mock.assert_awaited_once_with(expected)
+
+    async def test_a_deadline_already_inside_the_lead_time_fires_without_sleeping(self, monkeypatch):
+        wf = self._workflow(deadline=datetime(2026, 7, 16, 12, 0, tzinfo=UTC))
+        sleep_mock = AsyncMock()
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow, "now", Mock(return_value=datetime(2026, 7, 16, 11, 55, tzinfo=UTC))
+        )
+        monkeypatch.setattr(process_task_workflow_module.workflow, "sleep", sleep_mock)
+
+        event = await wf._wait_for_sandbox_deadline()
+
+        assert event == process_task_workflow_module.TaskEvent.SANDBOX_TTL_APPROACHING
+        sleep_mock.assert_not_awaited()
+
+
+class TestSandboxRotation:
+    """Rotation moves a run onto a replacement sandbox before the provider kills the one it has.
+    Anything that goes wrong has to leave the run on its current sandbox, which still has the
+    lead time left on its clock."""
+
+    def _workflow(self, monkeypatch, *, rotation_enabled: bool = True) -> ProcessTaskWorkflow:
+        wf = ProcessTaskWorkflow()
+        wf._context = _build_context(github_integration_id=123, state={"mode": "interactive"})
+        wf._context.sandbox_rotation_enabled = rotation_enabled
+        wf._sandbox_url = "https://old.example"
+        wf._sandbox_connect_token = "old-token"
+        wf._sandbox_jwt_kid = "kid-old"
+        wf._sandbox_id_for_cleanup = "sb-old"
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        return wf
+
+    def _relay(self, name: str) -> "asyncio.Task[None]":
+        return cast("asyncio.Task[None]", name)
+
+    def _snapshot(self, external_id: str | None = "snap-1") -> CreateResumeSnapshotOutput:
+        return CreateResumeSnapshotOutput(
+            external_id=external_id, snapshot_kind="directory", snapshot_mount_path="/mnt/work"
+        )
+
+    def _replacement(self, used_snapshot: bool = True) -> GetSandboxForRepositoryOutput:
+        return GetSandboxForRepositoryOutput(
+            sandbox_id="sb-new",
+            sandbox_url="https://new.example",
+            connect_token="new-token",
+            used_snapshot=used_snapshot,
+            should_create_snapshot=not used_snapshot,
+        )
+
+    @parameterized.expand(
+        [
+            ("idle_with_flag_on", {}, True),
+            ("flag_off", {"rotation_enabled": False}, False),
+            ("agent_mid_turn", {"agent_active": True}, False),
+            ("run_finishing", {"task_completed": True}, False),
+            ("followup_in_flight", {"followup_running": True}, False),
+            ("followup_finished", {"followup_running": False, "followup_present": True}, True),
+        ]
+    )
+    def test_only_an_idle_run_with_the_flag_on_may_rotate(self, _name, overrides, expected):
+        wf = ProcessTaskWorkflow()
+        wf._context = _build_context(github_integration_id=123, state={"mode": "interactive"})
+        wf._context.sandbox_rotation_enabled = overrides.get("rotation_enabled", True)
+        wf._agent_active = overrides.get("agent_active", False)
+        wf._task_completed = overrides.get("task_completed", False)
+        if overrides.get("followup_running") or overrides.get("followup_present"):
+            followup = Mock()
+            followup.done.return_value = not overrides.get("followup_running", False)
+            wf._active_followup_task = followup
+
+        assert (wf._sandbox_rotation_block_reason() is None) is expected
+
+    async def test_the_credential_refresh_loop_follows_the_run_to_the_new_sandbox(self, monkeypatch):
+        wf = self._workflow(monkeypatch)
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot()))
+        monkeypatch.setattr(wf, "_get_sandbox_for_repository", AsyncMock(return_value=self._replacement()))
+        monkeypatch.setattr(wf, "_start_agent_server", AsyncMock())
+        cancelled: list[object] = []
+        monkeypatch.setattr(wf, "_cancel_relay", AsyncMock(side_effect=lambda task: cancelled.append(task)))
+        monkeypatch.setattr(wf, "_cleanup_sandbox", AsyncMock())
+        monkeypatch.setattr(wf, "_spawn_event_relay", Mock(return_value=None))
+        spawn_refresh = Mock(return_value=self._relay("refresh-new"))
+        monkeypatch.setattr(wf, "_spawn_credential_refresh", spawn_refresh)
+        refresh_old = self._relay("refresh-old")
+
+        await wf._rotate_sandbox_before_deadline("sb-old", None, refresh_old)
+
+        assert refresh_old in cancelled
+        spawn_refresh.assert_called_once_with("sb-new")
+
+    async def test_successful_rotation_repoints_the_run_and_drops_the_old_sandbox(self, monkeypatch):
+        wf = self._workflow(monkeypatch)
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot()))
+        resume_flags_at_provision = {}
+
+        async def provision_replacement():
+            state = wf.context.state or {}
+            resume_flags_at_provision["value"] = (state.get("same_run_resume"), state.get("same_run_resume_idle"))
+            return self._replacement()
+
+        monkeypatch.setattr(wf, "_get_sandbox_for_repository", provision_replacement)
+        monkeypatch.setattr(wf, "_start_agent_server", AsyncMock())
+        monkeypatch.setattr(wf, "_cancel_relay", AsyncMock())
+        cleanup = AsyncMock()
+        monkeypatch.setattr(wf, "_cleanup_sandbox", cleanup)
+        relay_new = self._relay("relay-new")
+        refresh_new = self._relay("refresh-new")
+        monkeypatch.setattr(wf, "_spawn_event_relay", Mock(return_value=relay_new))
+        monkeypatch.setattr(wf, "_spawn_credential_refresh", Mock(return_value=refresh_new))
+
+        rotation = await wf._rotate_sandbox_before_deadline(
+            "sb-old", self._relay("relay-old"), self._relay("refresh-old")
+        )
+
+        assert rotation.sandbox_id == "sb-new"
+        assert rotation.relay_task is relay_new
+        assert rotation.credential_refresh_task is refresh_new
+        assert (wf._sandbox_url, wf._sandbox_connect_token) == ("https://new.example", "new-token")
+        assert wf._sandbox_id_for_cleanup == "sb-new"
+        assert resume_flags_at_provision["value"] == (True, True)
+        cleanup.assert_awaited_once_with("sb-old", complete_stream=False)
+
+    async def test_the_replacement_is_built_from_the_snapshot_just_taken(self, monkeypatch):
+        wf = self._workflow(monkeypatch)
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot()))
+        monkeypatch.setattr(wf, "_get_sandbox_for_repository", AsyncMock(return_value=self._replacement()))
+        monkeypatch.setattr(wf, "_start_agent_server", AsyncMock())
+        monkeypatch.setattr(wf, "_cancel_relay", AsyncMock())
+        monkeypatch.setattr(wf, "_cleanup_sandbox", AsyncMock())
+        monkeypatch.setattr(wf, "_spawn_event_relay", Mock(return_value=None))
+        monkeypatch.setattr(wf, "_spawn_credential_refresh", Mock(return_value=None))
+
+        await wf._rotate_sandbox_before_deadline("sb-old", None, None)
+
+        state = wf.context.state or {}
+        assert state["snapshot_external_id"] == "snap-1"
+        assert state["snapshot_kind"] == "directory"
+        assert state["snapshot_mount_path"] == "/mnt/work"
+
+    async def test_routing_that_could_not_be_restored_is_reported_not_swallowed(self, monkeypatch):
+        wf = self._workflow(monkeypatch)
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot()))
+
+        async def fail_after_creating() -> GetSandboxForRepositoryOutput:
+            wf._sandbox_id_for_cleanup = "sb-half-built"
+            raise RuntimeError("agent server never came up")
+
+        monkeypatch.setattr(wf, "_get_sandbox_for_repository", fail_after_creating)
+        monkeypatch.setattr(wf, "_cancel_relay", AsyncMock())
+        monkeypatch.setattr(wf, "_cleanup_sandbox", AsyncMock())
+        monkeypatch.setattr(wf, "_spawn_event_relay", Mock(return_value=None))
+        monkeypatch.setattr(wf, "_spawn_credential_refresh", Mock(return_value=None))
+        monkeypatch.setattr(wf, "_restore_sandbox_connection_state", AsyncMock(return_value=False))
+
+        rotation = await wf._rotate_sandbox_before_deadline("sb-old", None, None)
+
+        assert rotation.sandbox_id is None
+        assert rotation.routing_restored is False
+
+    async def test_a_replacement_built_without_the_snapshot_does_not_replace_the_live_sandbox(self, monkeypatch):
+        # Provisioning reports success for a sandbox it had to build fresh, which holds the
+        # branch head rather than the run's working tree. Completing the rotation there would
+        # destroy the only copy of the agent's uncommitted work.
+        wf = self._workflow(monkeypatch)
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot()))
+        monkeypatch.setattr(
+            wf, "_get_sandbox_for_repository", AsyncMock(return_value=self._replacement(used_snapshot=False))
+        )
+        monkeypatch.setattr(wf, "_start_agent_server", AsyncMock())
+        monkeypatch.setattr(wf, "_cancel_relay", AsyncMock())
+        cleanup = AsyncMock()
+        monkeypatch.setattr(wf, "_cleanup_sandbox", cleanup)
+        monkeypatch.setattr(wf, "_spawn_event_relay", Mock(return_value=None))
+        monkeypatch.setattr(wf, "_spawn_credential_refresh", Mock(return_value=None))
+        restore = AsyncMock(return_value=True)
+        monkeypatch.setattr(wf, "_restore_sandbox_connection_state", restore)
+        wf._sandbox_id_for_cleanup = "sb-new"
+
+        rotation = await wf._rotate_sandbox_before_deadline("sb-old", None, None)
+
+        assert rotation.sandbox_id is None
+        assert (wf._sandbox_url, wf._sandbox_connect_token) == ("https://old.example", "old-token")
+        assert wf._sandbox_id_for_cleanup == "sb-old"
+        cleanup.assert_awaited_once_with("sb-new", complete_stream=False)
+        restore.assert_awaited_once_with("sb-old", "https://old.example", "old-token", "kid-old")
+
+    async def test_initial_provisioning_remembers_the_signing_key_of_the_sandbox_it_created(self, monkeypatch):
+        wf = self._workflow(monkeypatch)
+        wf._sandbox_jwt_kid = None
+        prepared = PrepareSandboxForRepositoryOutput(
+            sandbox_name="sandbox-name",
+            repository="posthog/posthog-js",
+            github_token="",
+            branch=None,
+            environment_variables={},
+            snapshot_id=None,
+            snapshot_external_id=None,
+            used_snapshot=True,
+            should_create_snapshot=False,
+            shallow_clone=False,
+            image_source="base_image",
+            image_source_label="published sandbox base image",
+            sandbox_creation_timeout_seconds=30 * 60,
+        )
+        created = CreateSandboxForRepositoryOutput(
+            sandbox_id="sb-provisioned",
+            sandbox_url="https://provisioned.example",
+            connect_token="provisioned-token",
+            used_snapshot=True,
+            jwt_kid="kid-provisioned",
+        )
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", AsyncMock(return_value=prepared))
+        monkeypatch.setattr(wf, "_run_sandbox_creation_activity", AsyncMock(return_value=created))
+        monkeypatch.setattr(wf, "_record_sandbox_deadline", Mock())
+        monkeypatch.setattr(wf, "_emit_progress", AsyncMock())
+
+        output = await wf._get_sandbox_for_repository()
+
+        assert output.jwt_kid == "kid-provisioned"
+        assert wf._sandbox_jwt_kid == "kid-provisioned"
+
+    @pytest.mark.parametrize("sized, expected", [(True, True), (False, False)])
+    async def test_preview_stays_enabled_only_when_the_sandbox_was_sized_for_it(self, monkeypatch, sized, expected):
+        wf = self._workflow(monkeypatch)
+        wf._sandbox_jwt_kid = None
+        wf._dev_stack_preview_enabled = True
+        prepared = PrepareSandboxForRepositoryOutput(
+            sandbox_name="sandbox-name",
+            repository="posthog/posthog-js",
+            github_token="",
+            branch=None,
+            environment_variables={},
+            snapshot_id=None,
+            snapshot_external_id=None,
+            used_snapshot=True,
+            should_create_snapshot=False,
+            shallow_clone=False,
+            image_source="base_image",
+            image_source_label="published sandbox base image",
+            sandbox_creation_timeout_seconds=30 * 60,
+        )
+        created = CreateSandboxForRepositoryOutput(
+            sandbox_id="sb-provisioned",
+            sandbox_url="https://provisioned.example",
+            connect_token="provisioned-token",
+            used_snapshot=True,
+            dev_stack_preview_sized=sized,
+        )
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", AsyncMock(return_value=prepared))
+        monkeypatch.setattr(wf, "_run_sandbox_creation_activity", AsyncMock(return_value=created))
+        monkeypatch.setattr(wf, "_record_sandbox_deadline", Mock())
+        monkeypatch.setattr(wf, "_emit_progress", AsyncMock())
+
+        output = await wf._get_sandbox_for_repository()
+
+        assert output.dev_stack_preview_sized is sized
+        assert wf._dev_stack_preview_enabled is expected
+
+    @pytest.mark.parametrize(
+        "snapshot_invalidated, expected_saved",
+        [(False, True), (True, False)],
+    )
+    async def test_an_abandoned_rotation_reports_the_snapshot_it_already_took(
+        self, monkeypatch, snapshot_invalidated, expected_saved
+    ):
+        wf = self._workflow(monkeypatch)
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot()))
+
+        async def fail_after_creating() -> GetSandboxForRepositoryOutput:
+            wf._sandbox_id_for_cleanup = "sb-half-built"
+            wf._resume_snapshot_invalidated = snapshot_invalidated
+            raise RuntimeError("agent server never came up")
+
+        monkeypatch.setattr(wf, "_get_sandbox_for_repository", fail_after_creating)
+        monkeypatch.setattr(wf, "_cancel_relay", AsyncMock())
+        monkeypatch.setattr(wf, "_cleanup_sandbox", AsyncMock())
+        monkeypatch.setattr(wf, "_spawn_event_relay", Mock(return_value=None))
+        monkeypatch.setattr(wf, "_spawn_credential_refresh", Mock(return_value=None))
+        monkeypatch.setattr(wf, "_restore_sandbox_connection_state", AsyncMock(return_value=True))
+
+        rotation = await wf._rotate_sandbox_before_deadline("sb-old", None, None)
+
+        assert rotation.sandbox_id is None
+        assert rotation.snapshot_saved is expected_saved
+
+    async def test_an_abandoned_rotation_puts_the_live_sandbox_back_on_the_clock_it_had(self, monkeypatch):
+        wf = self._workflow(monkeypatch)
+        old_deadline = datetime(2026, 7, 16, 12, 0, tzinfo=UTC)
+        wf._sandbox_ttl_expires_at = old_deadline
+        wf._sandbox_ttl_snapshot_taken = True
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot()))
+
+        async def provision_replacement_then_fail() -> GetSandboxForRepositoryOutput:
+            wf._sandbox_id_for_cleanup = "sb-new"
+            wf._sandbox_jwt_kid = "kid-new"
+            wf._sandbox_ttl_expires_at = datetime(2026, 7, 16, 18, 0, tzinfo=UTC)
+            wf._sandbox_ttl_snapshot_taken = False
+            raise RuntimeError("agent server never came up")
+
+        monkeypatch.setattr(wf, "_get_sandbox_for_repository", provision_replacement_then_fail)
+        monkeypatch.setattr(wf, "_cancel_relay", AsyncMock())
+        monkeypatch.setattr(wf, "_cleanup_sandbox", AsyncMock())
+        monkeypatch.setattr(wf, "_spawn_event_relay", Mock(return_value=None))
+        monkeypatch.setattr(wf, "_spawn_credential_refresh", Mock(return_value=None))
+        restore = AsyncMock(return_value=True)
+        monkeypatch.setattr(wf, "_restore_sandbox_connection_state", restore)
+
+        await wf._rotate_sandbox_before_deadline("sb-old", None, None)
+
+        assert wf._sandbox_jwt_kid == "kid-old"
+        assert wf._sandbox_ttl_expires_at == old_deadline
+        assert wf._sandbox_ttl_snapshot_taken is True
+        restore.assert_awaited_once_with("sb-old", "https://old.example", "old-token", "kid-old")
+
+    async def test_a_snapshot_that_did_not_happen_leaves_the_run_where_it_is(self, monkeypatch):
+        wf = self._workflow(monkeypatch)
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot(None)))
+        provision = AsyncMock()
+        monkeypatch.setattr(wf, "_get_sandbox_for_repository", provision)
+        monkeypatch.setattr(wf, "_cancel_relay", AsyncMock())
+
+        relay_old = self._relay("relay-old")
+        refresh_old = self._relay("refresh-old")
+        rotation = await wf._rotate_sandbox_before_deadline("sb-old", relay_old, refresh_old)
+
+        assert rotation.sandbox_id is None
+        assert rotation.relay_task is relay_old
+        assert rotation.credential_refresh_task is refresh_old
+        provision.assert_not_awaited()
+
+    async def test_a_failed_replacement_restores_the_old_sandbox_and_its_relay(self, monkeypatch):
+        wf = self._workflow(monkeypatch)
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot()))
+
+        async def fail_after_creating() -> GetSandboxForRepositoryOutput:
+            wf._sandbox_id_for_cleanup = "sb-half-built"
+            raise RuntimeError("agent server never came up")
+
+        monkeypatch.setattr(wf, "_get_sandbox_for_repository", fail_after_creating)
+        monkeypatch.setattr(wf, "_cancel_relay", AsyncMock())
+        cleanup = AsyncMock()
+        monkeypatch.setattr(wf, "_cleanup_sandbox", cleanup)
+        relay_restarted = self._relay("relay-restarted")
+        monkeypatch.setattr(wf, "_spawn_event_relay", Mock(return_value=relay_restarted))
+        monkeypatch.setattr(wf, "_spawn_credential_refresh", Mock(return_value=self._relay("refresh-restarted")))
+        restore = AsyncMock(return_value=True)
+        monkeypatch.setattr(wf, "_restore_sandbox_connection_state", restore)
+
+        rotation = await wf._rotate_sandbox_before_deadline(
+            "sb-old", self._relay("relay-old"), self._relay("refresh-old")
+        )
+
+        assert rotation.sandbox_id is None
+        assert rotation.relay_task is relay_restarted
+        assert rotation.routing_restored is True
+        assert wf._sandbox_id_for_cleanup == "sb-old"
+        assert (wf._sandbox_url, wf._sandbox_connect_token) == ("https://old.example", "old-token")
+        cleanup.assert_awaited_once_with("sb-half-built", complete_stream=False)
+        restore.assert_awaited_once_with("sb-old", "https://old.example", "old-token", "kid-old")
 
 
 class TestProcessTaskFollowupDispatch:
@@ -573,6 +1038,260 @@ class TestProcessTaskFollowupDispatch:
         assert deliveries == [("finish in green", True), ("finish in green", False)]
         assert workflow._pending_followup is None
         assert workflow._pending_followups == []
+
+
+class TestFollowupDeliveryFailureBookkeeping:
+    def _workflow(self, monkeypatch, *, mode: str, patched: bool):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123, state={"mode": mode})
+        emitted: list[EmitProgressInput] = []
+
+        async def fake_execute_activity(_activity, activity_input, **_kwargs):
+            if isinstance(activity_input, SendFollowupToSandboxInput):
+                raise RuntimeError("delivery failed")
+            if isinstance(activity_input, EmitProgressInput):
+                emitted.append(activity_input)
+            return None
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=patched))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        return workflow, emitted
+
+    async def test_failed_interactive_delivery_releases_the_message_for_retry(self, monkeypatch):
+        workflow, emitted = self._workflow(monkeypatch, mode="interactive", patched=True)
+
+        await workflow.send_followup_message("try this", [], "msg-1")
+        assert len(workflow._pending_followups) == 1
+
+        result = await workflow._send_followup_to_sandbox("try this", [], message_id="msg-1")
+
+        assert result is None
+        assert workflow._task_completed is False
+        assert workflow._completion_status == "completed"
+        assert [(e.step, e.status) for e in emitted] == [("followup_delivery", "failed")]
+
+        await workflow.send_followup_message("try this", [], "msg-1")
+        assert len(workflow._pending_followups) == 2
+
+    @pytest.mark.parametrize("mode,patched", [("interactive", False), ("background", True)])
+    async def test_failed_delivery_terminalizes_when_keep_alive_does_not_apply(self, monkeypatch, mode, patched):
+        workflow, emitted = self._workflow(monkeypatch, mode=mode, patched=patched)
+
+        result = await workflow._send_followup_to_sandbox("try this", [], message_id="msg-1")
+
+        assert result is None
+        assert workflow._task_completed is True
+        assert workflow._completion_status == "failed"
+        assert workflow._completion_error_type == "followup_delivery_failed"
+        assert emitted == []
+
+
+async def test_agent_shadow_result_is_reported_separately(monkeypatch):
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._context = _build_context(github_integration_id=123)
+    execute_activity = AsyncMock(return_value={"launched": True, "outcome": "ready", "observed_ready_ms": 12})
+    track_event = AsyncMock()
+    monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(workflow_instance, "_track_workflow_event", track_event)
+
+    await workflow_instance._collect_agent_shadow_result("sandbox-123")
+
+    activity_input = execute_activity.call_args.args[1]
+    assert activity_input.sandbox_id == "sandbox-123"
+    assert activity_input.run_id == "run-id"
+    track_event.assert_awaited_once_with(
+        "agent_shadow_observed",
+        {
+            "run_id": "run-id",
+            "task_id": "task-id",
+            "sandbox_id": "sandbox-123",
+            "launched": True,
+            "outcome": "ready",
+            "observed_ready_ms": 12,
+            "production_ready_ms": None,
+            "failure_class": None,
+            "read_timed_out": None,
+        },
+    )
+
+
+async def test_first_non_steering_command_records_dispatch_before_delivery(monkeypatch):
+    workflow_instance = ProcessTaskWorkflow()
+    context = _build_context(github_integration_id=123)
+    context.task_runtime = "pi"
+    workflow_instance._context = context
+    workflow_instance._agent_boot_interaction_telemetry_enabled = True
+    calls: list[str] = []
+
+    def schedule(event_name: str) -> None:
+        calls.append(event_name)
+
+    async def execute_activity(*_args, **_kwargs):
+        calls.append("delivered")
+
+    monkeypatch.setattr(workflow_instance, "_schedule_boot_milestone", schedule)
+    monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+    await workflow_instance._send_followup_to_sandbox("steer", [], message_id="steer-1", steer=True)
+    await workflow_instance._send_followup_to_sandbox("first", [], message_id="message-1")
+    await workflow_instance._send_followup_to_sandbox("second", [], message_id="message-2")
+
+    assert calls == ["delivered", "agent_first_command_dispatched", "delivered", "delivered"]
+
+
+async def test_pending_initial_command_records_dispatch_before_forwarding(monkeypatch):
+    workflow_instance = ProcessTaskWorkflow()
+    context = _build_context(github_integration_id=123, state={"pending_user_message": "start"})
+    context.task_runtime = "pi"
+    workflow_instance._context = context
+    workflow_instance._agent_boot_interaction_telemetry_enabled = True
+    calls: list[str] = []
+
+    def schedule(event_name: str) -> None:
+        calls.append(event_name)
+
+    async def execute_activity(*_args, **_kwargs):
+        calls.append("forwarded")
+
+    monkeypatch.setattr(workflow_instance, "_schedule_boot_milestone", schedule)
+    monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity)
+
+    await workflow_instance._forward_pending_user_message()
+
+    assert calls == ["agent_first_command_dispatched", "forwarded"]
+
+
+async def test_first_agent_activity_signal_is_recorded_once(monkeypatch):
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._context = _build_context(github_integration_id=123)
+    workflow_instance._agent_boot_interaction_telemetry_enabled = True
+    schedule = Mock()
+    monkeypatch.setattr(workflow_instance, "_schedule_boot_milestone", schedule)
+
+    await workflow_instance.agent_activity_observed()
+    await workflow_instance.agent_activity_observed()
+
+    schedule.assert_called_once_with("agent_first_activity_observed")
+
+
+async def test_boot_milestone_contains_only_timing_and_runtime_dimensions(monkeypatch):
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._context = _build_context(github_integration_id=123)
+    workflow_instance._sandbox_id_for_cleanup = "sandbox-123"
+    workflow_instance._chain_started_at = datetime(2026, 8, 28, 10, 0, tzinfo=UTC)
+    workflow_instance._agent_ready_at = datetime(2026, 8, 28, 10, 0, 20, tzinfo=UTC)
+    workflow_instance._boot_path = "overlap"
+    workflow_instance._image_source = "base_image"
+    track = AsyncMock()
+    monkeypatch.setattr(workflow_instance, "_track_boot_milestone", track)
+    monkeypatch.setattr(
+        process_task_workflow_module.workflow,
+        "now",
+        Mock(return_value=datetime(2026, 8, 28, 10, 0, 21, tzinfo=UTC)),
+    )
+
+    workflow_instance._schedule_boot_milestone("agent_first_command_dispatched")
+    await workflow_instance._flush_boot_telemetry_tasks()
+
+    assert workflow_instance._boot_telemetry_tasks == []
+    track.assert_awaited_once_with(
+        "agent_first_command_dispatched",
+        {
+            "run_id": "run-id",
+            "task_id": "task-id",
+            "sandbox_id": "sandbox-123",
+            "elapsed_ms": 21_000,
+            "since_agent_ready_ms": 1_000,
+            "boot_path": "overlap",
+            "image_source": "base_image",
+            "origin_product": None,
+            "mode": "background",
+            "task_runtime": "acp",
+            "runtime_adapter": None,
+            "provider": None,
+            "sandbox_backend": "modal",
+            "transport": "sse",
+            "prewarmed": False,
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    ("origin_product", "team_id"),
+    [
+        ("signals_scout", 314),  # platform start the alert must exclude
+        ("user_created", 42),  # customer start the alert must count
+    ],
+)
+async def test_sandbox_started_carries_run_attribution(origin_product, team_id, monkeypatch):
+    # The sandboxes-started alert filters platform work out by origin_product, and
+    # cross-references team_id and task_run_id. Dropping any of them from this payload
+    # blinds the alert to who a sandbox belongs to, so lock the three fields in.
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._context = dataclasses.replace(
+        _build_context(github_integration_id=123, origin_product=origin_product), team_id=team_id
+    )
+
+    monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+    monkeypatch.setattr(workflow_instance, "_update_task_run_status", AsyncMock())
+    monkeypatch.setattr(workflow_instance, "_emit_progress", AsyncMock())
+    monkeypatch.setattr(workflow_instance, "_post_slack_update", AsyncMock())
+    monkeypatch.setattr(workflow_instance, "_run_wizard_if_configured", AsyncMock(return_value=0))
+    monkeypatch.setattr(
+        workflow_instance,
+        "_get_sandbox_for_repository",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                sandbox_id="sandbox-123",
+                boot_path="cold",
+                image_source="base_image",
+                used_snapshot=False,
+                create_ms=1,
+                clone_ms=2,
+                checkout_ms=3,
+                launch_ms=4,
+                agent_prepare_ms=5,
+                agent_invoke_ms=6,
+                agent_server_launched=False,
+                agent_shadow_launched=False,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        workflow_instance,
+        "_start_agent_server",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                sandbox_url="https://sandbox.example",
+                connect_token="token",
+                boot_total_ms=100,
+                prepare_ms=None,
+                invoke_ms=None,
+                health_poll_ms=None,
+                ready_wait_ms=None,
+                session_init_ms=None,
+                boot_phases_ms={"launcher_to_process": 7},
+                shadow_launched=False,
+            )
+        ),
+    )
+    tracked: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        workflow_instance,
+        "_track_workflow_event",
+        AsyncMock(side_effect=lambda event, props: tracked.append((event, props))),
+    )
+
+    await workflow_instance._provision_and_start_agent(ProcessTaskInput(run_id="run-id"), "run-id")
+
+    sandbox_started = next(props for event, props in tracked if event == "sandbox_started")
+    assert sandbox_started["origin_product"] == origin_product
+    assert sandbox_started["team_id"] == team_id
+    assert sandbox_started["task_run_id"] == "run-id"
+    assert sandbox_started["agent_launcher_to_process_ms"] == 7
 
 
 @pytest.mark.django_db
@@ -890,6 +1609,37 @@ class TestProcessTaskWorkflowUnit:
         parsed = ProcessTaskWorkflow.parse_inputs([json.dumps(payload)])
         assert parsed.prewarmed is expected_prewarmed
 
+    def test_parse_inputs_rebuilds_babysit_journal_from_resumed_sandbox(self):
+        payload = {
+            "run_id": "r1",
+            "resumed_sandbox": {
+                "sandbox_id": "s1",
+                "sandbox_url": "https://sandbox",
+                "connect_token": None,
+                "ci_repetitions": 0,
+                "pr_fingerprint": None,
+                "pr_progress_emitted": False,
+                "first_user_message_received": False,
+                "is_agent_design_enabled": False,
+                "last_active_time": None,
+                "babysit_journal": {
+                    "threads": {"T1": "C1"},
+                    "comment_ids": ["M1"],
+                    "head_sha": "abc",
+                    "head_keys": ["CI/backend"],
+                },
+            },
+        }
+
+        parsed = ProcessTaskWorkflow.parse_inputs([json.dumps(payload)])
+
+        # Must come back as a BabysitJournal, not a raw dict, so the next babysit poll can
+        # call .attention() on it instead of raising AttributeError.
+        assert parsed.resumed_sandbox is not None
+        journal = parsed.resumed_sandbox.babysit_journal
+        assert isinstance(journal, BabysitJournal)
+        assert journal.threads == {"T1": "C1"}
+
     def test_warm_idle_timeout_is_shorter_than_active_inactivity(self):
         assert WARM_IDLE_TIMEOUT < timedelta(seconds=INACTIVITY_TIMEOUT_USER_SECONDS)
 
@@ -1049,7 +1799,7 @@ class TestProcessTaskWorkflowUnit:
             "failed",
             error_message="Sandbox not in running state.",
             run_id="run-id",
-            error_type="ActivityError",
+            error_type="SandboxNotRunningError",
         )
 
     async def test_run_skips_relay_when_sandbox_event_ingest_is_enabled(self, monkeypatch):
@@ -1512,6 +2262,7 @@ class TestProcessTaskWorkflowUnit:
             shallow_clone=True,
             image_source="base_image",
             image_source_label="published sandbox base image",
+            sandbox_creation_timeout_seconds=30 * 60,
         )
         created = CreateSandboxForRepositoryOutput(
             sandbox_id="sandbox-123",
@@ -1519,12 +2270,14 @@ class TestProcessTaskWorkflowUnit:
             connect_token="connect-token",
         )
         activity_calls: list[object] = []
+        create_activity_kwargs: dict[str, Any] = {}
 
         async def fake_execute_activity(activity_fn, *args, **kwargs):
             activity_calls.append(activity_fn)
             if activity_fn is prepare_sandbox_for_repository:
                 return prepared
             if activity_fn is create_sandbox_for_repository:
+                create_activity_kwargs.update(kwargs)
                 return created
             if activity_fn is emit_progress_activity:
                 return None
@@ -1536,8 +2289,61 @@ class TestProcessTaskWorkflowUnit:
 
         assert result.sandbox_id == "sandbox-123"
         assert workflow._sandbox_id_for_cleanup == "sandbox-123"
+        assert create_activity_kwargs["start_to_close_timeout"] == timedelta(minutes=30)
         assert clone_repository_in_sandbox not in activity_calls
         assert checkout_branch_in_sandbox not in activity_calls
+
+    async def test_sandbox_creation_stops_when_task_completes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        process_workflow = ProcessTaskWorkflow()
+        process_workflow._context = _build_context(github_integration_id=None)
+        prepared = PrepareSandboxForRepositoryOutput(
+            sandbox_name="sandbox-name",
+            repository=None,
+            github_token="",
+            branch=None,
+            environment_variables={},
+            snapshot_id=None,
+            snapshot_external_id=None,
+            used_snapshot=False,
+            should_create_snapshot=True,
+            shallow_clone=True,
+            image_source="docker_base_image",
+            image_source_label="local Docker sandbox image",
+            sandbox_creation_timeout_seconds=30 * 60,
+            sandbox_creation_cancellable=True,
+        )
+        creation_cancelled = asyncio.Event()
+        start_activity_kwargs: dict[str, Any] = {}
+
+        async def blocked_creation() -> CreateSandboxForRepositoryOutput:
+            try:
+                await asyncio.Event().wait()
+                raise AssertionError("sandbox creation unexpectedly completed")
+            finally:
+                creation_cancelled.set()
+
+        def fake_start_activity(*args: Any, **kwargs: Any) -> asyncio.Task[CreateSandboxForRepositoryOutput]:
+            start_activity_kwargs.update(kwargs)
+            return asyncio.create_task(blocked_creation())
+
+        async def fake_wait_condition(predicate: Callable[[], bool]) -> None:
+            process_workflow._task_completed = True
+            assert predicate()
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _patch_id: True)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "start_activity", fake_start_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "wait_condition", fake_wait_condition)
+
+        with pytest.raises(process_task_workflow_module._TaskCompletedDuringSandboxCreation):
+            await process_workflow._run_sandbox_creation_activity(prepared)
+
+        assert creation_cancelled.is_set()
+        assert start_activity_kwargs["start_to_close_timeout"] == timedelta(minutes=30)
+        assert start_activity_kwargs["heartbeat_timeout"] == timedelta(seconds=30)
+        assert (
+            start_activity_kwargs["cancellation_type"]
+            == process_task_workflow_module.workflow.ActivityCancellationType.WAIT_CANCELLATION_COMPLETED
+        )
 
     async def test_get_sandbox_for_repository_injects_fresh_tokens_on_resume(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
@@ -1640,6 +2446,7 @@ class TestProcessTaskWorkflowUnit:
         workflow._context = _build_context(
             github_integration_id=123,
             state={"repositories": ["posthog/posthog", "posthog/code"]},
+            custom_image_name="posthog-dev-stack",
         )
         prepared = PrepareSandboxForRepositoryOutput(
             sandbox_name="sandbox-name",
@@ -1661,6 +2468,7 @@ class TestProcessTaskWorkflowUnit:
             connect_token="connect-token",
         )
         cloned: list[str] = []
+        clone_options: dict[str, dict[str, Any]] = {}
 
         async def fake_execute_activity(activity_fn: Any, *args: Any, **kwargs: Any) -> Any:
             if activity_fn is prepare_sandbox_for_repository:
@@ -1669,6 +2477,7 @@ class TestProcessTaskWorkflowUnit:
                 return created
             if activity_fn is clone_repository_in_sandbox:
                 cloned.append(args[0].repository)
+                clone_options[args[0].repository] = kwargs
                 return None
             if activity_fn is emit_progress_activity:
                 return None
@@ -1680,9 +2489,60 @@ class TestProcessTaskWorkflowUnit:
         result = await workflow._get_sandbox_for_repository()
 
         assert cloned == ["posthog/posthog", "posthog/code"]
+        assert clone_options["posthog/posthog"]["start_to_close_timeout"] == timedelta(minutes=20)
+        assert clone_options["posthog/posthog"]["retry_policy"].maximum_attempts == 3
+        assert clone_options["posthog/code"]["start_to_close_timeout"] == timedelta(minutes=5)
+        assert clone_options["posthog/code"]["retry_policy"].maximum_attempts == 3
         assert result.clone_ms is None
 
-    async def test_overlap_releases_agent_after_primary_repository_clones(self, monkeypatch):
+    async def test_get_sandbox_for_repository_uses_desktop_budget_for_snapshot_checkout(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(
+            github_integration_id=123,
+            repository="posthog/posthog",
+            custom_image_name="posthog-dev-stack",
+        )
+        prepared = PrepareSandboxForRepositoryOutput(
+            sandbox_name="sandbox-name",
+            repository="posthog/posthog",
+            github_token="ghs_token",
+            branch="feature-branch",
+            environment_variables={},
+            snapshot_id="repo-snapshot-id",
+            snapshot_external_id=None,
+            used_snapshot=True,
+            should_create_snapshot=False,
+            shallow_clone=True,
+            image_source="repository_snapshot",
+            image_source_label="repository snapshot x",
+        )
+        created = CreateSandboxForRepositoryOutput(
+            sandbox_id="sandbox-123",
+            sandbox_url="https://sandbox.example",
+            connect_token="connect-token",
+        )
+        checkout_options: dict[str, Any] = {}
+
+        async def fake_execute_activity(activity_fn: Any, *args: Any, **kwargs: Any) -> Any:
+            if activity_fn is prepare_sandbox_for_repository:
+                return prepared
+            if activity_fn is create_sandbox_for_repository:
+                return created
+            if activity_fn is checkout_branch_in_sandbox:
+                checkout_options.update(kwargs)
+                return None
+            if activity_fn is emit_progress_activity:
+                return None
+            raise AssertionError(f"Unexpected activity call: {activity_fn}")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+
+        await workflow._get_sandbox_for_repository()
+
+        assert checkout_options["start_to_close_timeout"] == timedelta(minutes=20)
+        assert checkout_options["retry_policy"].maximum_attempts == 3
+
+    async def test_overlap_releases_agent_after_primary_clone_and_materializes_failed_secondary(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(
             github_integration_id=123,
@@ -1710,6 +2570,7 @@ class TestProcessTaskWorkflowUnit:
         )
         secondary_clone_started = asyncio.Event()
         release_secondary_clone = asyncio.Event()
+        ready_inputs: list[Any] = []
 
         async def fake_execute_activity(activity_fn: Any, *args: Any, **kwargs: Any) -> Any:
             if activity_fn is prepare_sandbox_for_repository:
@@ -1722,13 +2583,18 @@ class TestProcessTaskWorkflowUnit:
                 if args[0].repository == "posthog/code":
                     secondary_clone_started.set()
                     await release_secondary_clone.wait()
+                    raise RuntimeError("secondary clone failed")
                 else:
                     await secondary_clone_started.wait()
                 return None
             if activity_fn is mark_repo_ready:
-                assert secondary_clone_started.is_set()
-                assert not release_secondary_clone.is_set()
-                release_secondary_clone.set()
+                ready_inputs.append(args[0])
+                if args[0].release_barrier:
+                    assert secondary_clone_started.is_set()
+                    assert not release_secondary_clone.is_set()
+                    release_secondary_clone.set()
+                else:
+                    assert release_secondary_clone.is_set()
                 return None
             if activity_fn is emit_progress_activity:
                 return None
@@ -1736,11 +2602,127 @@ class TestProcessTaskWorkflowUnit:
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
         monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _: True)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
 
         result = await workflow._get_sandbox_for_repository()
 
         assert result.agent_server_launched is True
         assert release_secondary_clone.is_set()
+        assert len(ready_inputs) == 2
+        assert ready_inputs[0].failed_repositories is None
+        assert ready_inputs[0].release_barrier is True
+        assert ready_inputs[1].failed_repositories == ["posthog/code"]
+        assert ready_inputs[1].release_barrier is False
+
+    async def test_overlap_releases_agent_and_continues_when_primary_clone_fails(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(
+            github_integration_id=123,
+            state={"repositories": ["posthog/posthog"]},
+        )
+        workflow._context.overlap_clone_boot_enabled = True
+        prepared = PrepareSandboxForRepositoryOutput(
+            sandbox_name="sandbox-name",
+            repository="posthog/posthog",
+            github_token="ghs_token",
+            branch="feature-branch",
+            environment_variables={},
+            snapshot_id=None,
+            snapshot_external_id=None,
+            used_snapshot=False,
+            should_create_snapshot=True,
+            shallow_clone=True,
+            image_source="base_image",
+            image_source_label="published sandbox base image",
+        )
+        created = CreateSandboxForRepositoryOutput(
+            sandbox_id="sandbox-123",
+            sandbox_url="https://sandbox.example",
+            connect_token="connect-token",
+        )
+        calls: list[object] = []
+        progress: list[Any] = []
+        ready_inputs: list[Any] = []
+
+        async def fake_execute_activity(activity_fn: Any, *args: Any, **kwargs: Any) -> Any:
+            calls.append(activity_fn)
+            if activity_fn is prepare_sandbox_for_repository:
+                return prepared
+            if activity_fn is create_sandbox_for_repository:
+                return created
+            if activity_fn is launch_agent_server:
+                return StartAgentServerOutput(sandbox_url=created.sandbox_url)
+            if activity_fn is clone_repository_in_sandbox:
+                raise RuntimeError("clone timed out")
+            if activity_fn is mark_repo_ready:
+                ready_inputs.append(args[0])
+                return None
+            if activity_fn is emit_progress_activity:
+                progress.append(args[0])
+                return None
+            raise AssertionError(f"Unexpected activity call: {activity_fn}")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _: True)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        result = await workflow._get_sandbox_for_repository()
+
+        assert result.agent_server_launched is True
+        assert mark_repo_ready in calls
+        assert checkout_branch_in_sandbox not in calls
+        assert len(ready_inputs) == 1
+        assert ready_inputs[0].failed_repositories == ["posthog/posthog"]
+        assert ready_inputs[0].release_barrier is True
+        assert progress[-1].label == "Repository clone failed; continuing without it"
+        assert progress[-1].detail == "Could not clone: posthog/posthog"
+
+    async def test_clone_failure_does_not_hide_dead_sandbox_failure(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        workflow._context.overlap_clone_boot_enabled = True
+        prepared = PrepareSandboxForRepositoryOutput(
+            sandbox_name="sandbox-name",
+            repository="posthog/posthog",
+            github_token="ghs_token",
+            branch=None,
+            environment_variables={},
+            snapshot_id=None,
+            snapshot_external_id=None,
+            used_snapshot=False,
+            should_create_snapshot=True,
+            shallow_clone=True,
+            image_source="base_image",
+            image_source_label="published sandbox base image",
+        )
+        created = CreateSandboxForRepositoryOutput(
+            sandbox_id="sandbox-123",
+            sandbox_url="https://sandbox.example",
+            connect_token="connect-token",
+        )
+        calls: list[object] = []
+
+        async def fake_execute_activity(activity_fn: Any, *args: Any, **kwargs: Any) -> Any:
+            calls.append(activity_fn)
+            if activity_fn is prepare_sandbox_for_repository:
+                return prepared
+            if activity_fn is create_sandbox_for_repository:
+                return created
+            if activity_fn is launch_agent_server:
+                return StartAgentServerOutput(sandbox_url=created.sandbox_url)
+            if activity_fn is clone_repository_in_sandbox:
+                raise ApplicationError("sandbox disappeared", type="SandboxNotFoundError")
+            if activity_fn is emit_progress_activity:
+                return None
+            raise AssertionError(f"Unexpected activity call: {activity_fn}")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _: True)
+
+        with pytest.raises(ApplicationError, match="sandbox disappeared"):
+            await workflow._get_sandbox_for_repository()
+
+        assert mark_repo_ready not in calls
 
     async def test_overlap_preserves_legacy_repo_ready_order_on_replay(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
@@ -1862,6 +2844,7 @@ class TestProcessTaskWorkflowUnit:
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _: True)
 
         result = await workflow._get_sandbox_for_repository()
 
@@ -1972,7 +2955,7 @@ class TestProcessTaskWorkflowUnit:
 
         cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123", complete_stream=True)
         if expect_resume_snapshot_call:
-            create_resume_snapshot_mock.assert_awaited_once_with("sandbox-123")
+            create_resume_snapshot_mock.assert_awaited_once_with("sandbox-123", reason="teardown", allow_pruning=True)
         else:
             create_resume_snapshot_mock.assert_not_awaited()
 
@@ -2056,6 +3039,16 @@ class TestContinueAsNew:
         wf._context = ctx
         return wf
 
+    async def test_agent_state_tracks_end_of_turn(self) -> None:
+        workflow_instance = ProcessTaskWorkflow()
+
+        await workflow_instance.agent_state_changed(True)
+        assert workflow_instance._agent_active is True
+        assert workflow_instance._end_of_turn_received is False
+
+        await workflow_instance.agent_state_changed(False)
+        assert (workflow_instance._agent_active, workflow_instance._end_of_turn_received) == (False, True)
+
     def test_build_and_restore_round_trips_loop_state(self, monkeypatch) -> None:
         chain_start = datetime(2026, 7, 16, 9, 0, tzinfo=UTC)
         monkeypatch.setattr(
@@ -2067,9 +3060,21 @@ class TestContinueAsNew:
         wf._ci_repetitions = 2
         wf._pr_fingerprint = "fp-1"
         wf._pr_progress_emitted = True
+        wf._ci_resume_snapshot_created = True
         wf._first_user_message_received = True
         wf._is_agent_design_enabled = True
+        wf._dev_stack_preview_enabled = True
         wf._last_active_time = datetime(2026, 7, 16, 10, 30, tzinfo=UTC)
+        wf._agent_active = False
+        wf._end_of_turn_received = True
+        wf._last_agent_heartbeat_at = datetime(2026, 7, 16, 10, 29, tzinfo=UTC)
+        wf._sandbox_ttl_expires_at = datetime(2026, 7, 16, 15, 0, tzinfo=UTC)
+        wf._first_command_dispatched_recorded = True
+        wf._first_agent_activity_recorded = True
+        wf._boot_path = "overlap"
+        wf._image_source = "base_image"
+        wf._agent_ready_at = datetime(2026, 7, 16, 9, 1, tzinfo=UTC)
+        wf._agent_boot_interaction_telemetry_enabled = True
         wf._slack_thread_context = {"channel": "C1"}
         wf._posthog_mcp_scopes = "full"
 
@@ -2088,10 +3093,26 @@ class TestContinueAsNew:
         assert restored._ci_repetitions == 2
         assert restored._pr_fingerprint == "fp-1"
         assert restored._pr_progress_emitted is True
+        assert restored._ci_resume_snapshot_created is True
         assert restored._first_user_message_received is True
         assert restored._is_agent_design_enabled is True
+        assert restored._dev_stack_preview_enabled is True
         # The datetime survives the ISO round-trip.
         assert restored._last_active_time == datetime(2026, 7, 16, 10, 30, tzinfo=UTC)
+        assert restored._agent_active is False
+        assert restored._end_of_turn_received is True
+        assert restored._last_agent_heartbeat_at == datetime(2026, 7, 16, 10, 29, tzinfo=UTC)
+        assert restored._sandbox_ttl_expires_at == datetime(2026, 7, 16, 15, 0, tzinfo=UTC)
+        assert restored._first_command_dispatched_recorded is True
+        assert restored._first_agent_activity_recorded is True
+        assert restored._boot_path == "overlap"
+        assert restored._image_source == "base_image"
+        assert restored._agent_ready_at == datetime(2026, 7, 16, 9, 1, tzinfo=UTC)
+        assert restored._agent_boot_interaction_telemetry_enabled is True
+        legacy_restored = ProcessTaskWorkflow()
+        legacy_restored._agent_boot_interaction_telemetry_enabled = True
+        legacy_restored._restore_resumed_state(dataclasses.replace(rs, agent_boot_interaction_telemetry_enabled=None))
+        assert legacy_restored._agent_boot_interaction_telemetry_enabled is False
         # The wall-clock cap anchors on the chain start, so the first execution seeds it from
         # its own start_time and every later continuation carries that same value forward.
         assert restored._chain_started_at == chain_start
@@ -2099,6 +3120,7 @@ class TestContinueAsNew:
         second_hop = restored._build_resumed_input(ProcessTaskInput(run_id="run-id"), sandbox_id="sb-2")
         assert second_hop.resumed_sandbox is not None
         assert second_hop.resumed_sandbox.chain_started_at == chain_start.isoformat()
+        assert second_hop.resumed_sandbox.ci_resume_snapshot_created is True
 
     @parameterized.expand(
         [
@@ -2119,6 +3141,7 @@ class TestContinueAsNew:
                 ),
             ),
             ("heartbeat_pending", lambda wf: setattr(wf, "_heartbeat_received", True)),
+            ("client_activity_pending", lambda wf: setattr(wf, "_client_activity_received", True)),
             ("slack_relay_active", lambda wf: setattr(wf, "_current_slack_relay_workflow_id", "relay-1")),
         ]
     )

@@ -116,6 +116,7 @@ export function HogFunctionList({
     onDeleteHogFunction,
     onEditHogFunction,
     returnTo,
+    truncateDescriptions = false,
     ...props
 }: HogFunctionListLogicProps & {
     extraControls?: JSX.Element
@@ -124,6 +125,8 @@ export function HogFunctionList({
     onDeleteHogFunction?: (hogFunction: HogFunctionType) => void
     onEditHogFunction?: (hogFunction: HogFunctionType) => void
     returnTo?: string
+    /** Clamp long descriptions to two lines with a "Show more" toggle. */
+    truncateDescriptions?: boolean
 }): JSX.Element {
     const { loading, filteredHogFunctions, filters, hogFunctions, hiddenHogFunctions } = useValues(
         hogFunctionsListLogic(props)
@@ -176,6 +179,7 @@ export function HogFunctionList({
                                 </>
                             }
                             description={hogFunction.description}
+                            truncateDescription={truncateDescriptions}
                         />
                     )
                 },
@@ -324,6 +328,7 @@ export function HogFunctionList({
         onDeleteHogFunction,
         onEditHogFunction,
         returnTo,
+        truncateDescriptions,
     ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (

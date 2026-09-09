@@ -30,8 +30,13 @@ describe('oauthAuthorizeLogic', () => {
 
     const effectiveScopesCases: { name: string; scopes: string[]; apply?: () => void; expected: string[] }[] = [
         {
-            name: 'grants the full requested set, collapsed to the highest action',
+            name: 'grants both halves of the pair for an object at write level',
             scopes: ['openid', 'feature_flag:read', 'feature_flag:write', 'insight:read'],
+            expected: ['openid', 'feature_flag:read', 'feature_flag:write', 'insight:read'],
+        },
+        {
+            name: 'keeps the write half alone when the read half was never requested',
+            scopes: ['openid', 'feature_flag:write', 'insight:read'],
             expected: ['openid', 'feature_flag:write', 'insight:read'],
         },
         {
@@ -208,7 +213,7 @@ describe('oauthAuthorizeLogic', () => {
         expect(row).toMatchObject({ locked: true, value: 'write' })
         expect(row?.description).toContain('Write')
         expect(logic.values.effectiveScopes).toContain('feature_flag:write')
-        expect(logic.values.effectiveScopes).not.toContain('feature_flag:read')
+        expect(logic.values.effectiveScopes).toContain('feature_flag:read')
     })
 
     it('resets access selections when scopes are reloaded', () => {

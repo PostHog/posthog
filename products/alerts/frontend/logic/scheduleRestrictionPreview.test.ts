@@ -6,6 +6,7 @@ describe('scheduleRestrictionPreview', () => {
     it('returns full slot count when no quiet hours are configured', () => {
         expect(estimateCheckSlotsNext24h(null, 'UTC', 60)).toBe(24)
         expect(estimateCheckSlotsNext24h(undefined, 'UTC', 15)).toBe(96)
+        expect(estimateCheckSlotsNext24h(undefined, 'UTC', 5)).toBe(288)
     })
 
     it('counts fewer hourly slots when overnight quiet hours block most of the day', () => {

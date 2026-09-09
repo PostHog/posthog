@@ -5,6 +5,7 @@ import {
     PointerEvent as ReactPointerEvent,
     ReactNode,
     memo,
+    useCallback,
     useEffect,
     useMemo,
     useRef,
@@ -16,7 +17,6 @@ import {
     IconDatabase,
     IconEllipsis,
     IconExpand,
-    IconExternal,
     IconEye,
     IconPencil,
     IconGraph,
@@ -25,8 +25,10 @@ import {
     IconPeople,
     IconTrash,
 } from '@posthog/icons'
-import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 import { PostHogErrorBoundary } from '@posthog/react'
+
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { ComponentPanelContext } from './componentPanelContext'
 import {
@@ -36,8 +38,13 @@ import {
     DEFAULT_COMPONENT_PANEL_VISIBILITY,
     withPersistedComponentPanelProps,
 } from './componentPanels'
+import { NotebookComponentRunHandler, NotebookComponentRunHandlerContext } from './componentRunHandlers'
 import { useNotebookComponentRunStatus } from './componentRunStatus'
-import { NotebookComponentToolbarExtras, NotebookComponentToolbarExtrasContext } from './componentToolbarExtras'
+import {
+    NotebookComponentToolbarExtras,
+    NotebookComponentToolbarExtrasContext,
+    withoutNotebookMenuIcons,
+} from './componentToolbarExtras'
 import { getNotebookObjectProp, getNotebookStringProp } from './documentModel'
 import { InsertMenuSelectionDirection } from './editorTypes'
 import { getMarkdownNotebookComponentDefinition } from './registry'
@@ -109,6 +116,7 @@ export function NotebookComponentShell({
     const errors = [...(node.errors ?? []), ...(definition?.validateProps?.(node.props) ?? [])]
     const ViewComponent = definition?.ViewComponent
     const EditComponent = definition?.EditComponent ?? definition?.ViewComponent
+    const ToolbarComponent = definition?.ToolbarComponent
     // Read-only canvases (e.g. customer profiles) keep the filters toggle: it's the only way to
     // configure nodes there, matching the legacy notebook's canvas behavior.
     const isViewModeCanvas = mode === 'view' && !!allowViewModeFilters
@@ -124,8 +132,11 @@ export function NotebookComponentShell({
     const showCollapseToggle = isViewModeCanvas && !!definition && !definition.hideModeActions
     const canToggleComponentPanels = mode === 'edit'
     const hasOpenComponentPanel = componentPanels.filters || componentPanels.results
+    const [toolbarExtras, setToolbarExtras] = useState<NotebookComponentToolbarExtras | null>(null)
+    const [runHandler, setRunHandler] = useState<NotebookComponentRunHandler | null>(null)
     const titleDisplay = getComponentTitleDisplay(node, definition)
     const toolbarTitle = getComponentToolbarTitle(node, definition, titleDisplay.label)
+    const isTitleEditable = definition?.editableTitle !== false
     const href = definition?.getHref?.(node) ?? null
     // Suppress the link on public/shared renders (see hideResourceLinks): its relative URL would
     // resolve against the viewer's own project rather than the notebook author's.
@@ -135,8 +146,10 @@ export function NotebookComponentShell({
     // as "no user title" so the field reads as empty by default.
     const rawTitle = (getNotebookStringProp(node.props.title) ?? '').trim()
     const userTitle = rawTitle && rawTitle !== titleDisplay.label ? rawTitle : ''
-    const titlePlaceholder = toolbarTitle ?? 'Add a title'
-    const resolvedTitle = userTitle || toolbarTitle || null
+    const titlePlaceholder = toolbarTitle ?? (isTitleEditable ? 'Add a title' : titleDisplay.label)
+    const publishedTitle = toolbarExtras?.title?.trim() || null
+    const resolvedTitle = isTitleEditable ? userTitle || toolbarTitle || null : publishedTitle || toolbarTitle || null
+    const titleStatus = isTitleEditable ? null : toolbarExtras?.titleStatus
     const filtersLabel = componentPanels.filters ? 'Hide filters' : 'Show filters'
     const resultsLabel = componentPanels.results ? 'Hide results' : 'Show results'
     const titleClassName = clsx(
@@ -151,9 +164,31 @@ export function NotebookComponentShell({
         }),
         [componentPanels, showEditPanel, showViewPanel]
     )
-    const [toolbarExtras, setToolbarExtras] = useState<NotebookComponentToolbarExtras | null>(null)
-    const toolbarMenuItems = toolbarExtras?.menuItems?.some(Boolean) ? toolbarExtras.menuItems : null
-    const toolbarActions = mode === 'edit' && toolbarExtras?.actions.length ? toolbarExtras.actions : null
+    const toolbarMenuItems = withoutNotebookMenuIcons([
+        showResourceLink
+            ? {
+                  label: `Open ${titleDisplay.label.charAt(0).toLocaleLowerCase()}${titleDisplay.label.slice(1)}`,
+                  to: href ?? '',
+              }
+            : null,
+        showResourceLink
+            ? {
+                  label: 'Open in new tab',
+                  to: href ?? '',
+                  targetBlank: true,
+              }
+            : null,
+        ...(mode === 'edit'
+            ? (toolbarExtras?.actions.map((action) => ({
+                  label: action.text,
+                  disabledReason: action.disabledReason,
+                  onClick: action.onClick,
+              })) ?? [])
+            : []),
+        ...(toolbarExtras?.menuItems ?? []),
+        ...(mode === 'edit' ? (toolbarExtras?.editMenuItems ?? []) : []),
+    ])
+    const hasToolbarMenu = toolbarMenuItems.some(Boolean)
     const [titleDraft, setTitleDraft] = useState<string | null>(null)
     const [isEditingTitle, setIsEditingTitle] = useState(false)
     // A browser fires two `click`s before `dblclick`. Defer the title's collapse so a rename
@@ -180,6 +215,26 @@ export function NotebookComponentShell({
             <span>{titleDisplay.label}</span>
         </>
     )
+    const titleStatusTag = titleStatus ? (
+        <LemonTag
+            type={titleStatus.type}
+            size="small"
+            className="uppercase shrink-0"
+            icon={titleStatus.loading ? <Spinner textColored /> : undefined}
+            disabledReason={titleStatus.loading ? 'Updating status' : undefined}
+            title={titleStatus.tooltip}
+            onClick={
+                titleStatus.loading || !titleStatus.onClick
+                    ? undefined
+                    : (event) => {
+                          event.stopPropagation()
+                          titleStatus.onClick?.()
+                      }
+            }
+        >
+            {titleStatus.label}
+        </LemonTag>
+    ) : null
     const setComponentPanels = (panels: ComponentPanelVisibility): void => {
         if (!persistComponentPanelVisibility) {
             setLocalComponentPanels(node.id, panels)
@@ -210,41 +265,47 @@ export function NotebookComponentShell({
 
         setComponentPanels(nextPanelVisibility)
     }
-    const updateProps = (props: Partial<NotebookComponentProps>): void => {
-        const propKeysToRemove = new Set(
-            Object.entries(props)
-                .filter(([, value]) => value === undefined)
-                .map(([key]) => key)
-        )
-        const nextProps = Object.entries(props).reduce<NotebookComponentProps>((accumulator, [key, value]) => {
-            if (value !== undefined) {
-                accumulator[key] = value
-            }
-            return accumulator
-        }, {})
+    const updateProps = useCallback(
+        (props: Partial<NotebookComponentProps>): void => {
+            const propKeysToRemove = new Set(
+                Object.entries(props)
+                    .filter(([, value]) => value === undefined)
+                    .map(([key]) => key)
+            )
+            const nextProps = Object.entries(props).reduce<NotebookComponentProps>((accumulator, [key, value]) => {
+                if (value !== undefined) {
+                    accumulator[key] = value
+                }
+                return accumulator
+            }, {})
 
-        updateNode(node.id, (currentNode) => {
-            if (currentNode.type !== 'component') {
-                return currentNode
-            }
-            return {
-                ...currentNode,
-                // An intentional edit supersedes any malformed source captured at parse time —
-                // stale `raw` would otherwise win over the new props on serialize
-                raw: undefined,
-                errors: undefined,
-                props: {
-                    ...Object.entries(currentNode.props).reduce<NotebookComponentProps>((accumulator, [key, value]) => {
-                        if (!propKeysToRemove.has(key)) {
-                            accumulator[key] = value
-                        }
-                        return accumulator
-                    }, {}),
-                    ...nextProps,
-                },
-            }
-        })
-    }
+            updateNode(node.id, (currentNode) => {
+                if (currentNode.type !== 'component') {
+                    return currentNode
+                }
+                return {
+                    ...currentNode,
+                    // An intentional edit supersedes any malformed source captured at parse time —
+                    // stale `raw` would otherwise win over the new props on serialize
+                    raw: undefined,
+                    errors: undefined,
+                    props: {
+                        ...Object.entries(currentNode.props).reduce<NotebookComponentProps>(
+                            (accumulator, [key, value]) => {
+                                if (!propKeysToRemove.has(key)) {
+                                    accumulator[key] = value
+                                }
+                                return accumulator
+                            },
+                            {}
+                        ),
+                        ...nextProps,
+                    },
+                }
+            })
+        },
+        [node.id, updateNode]
+    )
     const commitTitle = (): void => {
         if (cancellingTitleRef.current) {
             cancellingTitleRef.current = false
@@ -270,8 +331,77 @@ export function NotebookComponentShell({
             event.currentTarget.blur()
         }
     }
+    const isRunnableCell = !!runHandler
+
+    const runFromKeyboard = (): boolean => {
+        if (!runHandler || runHandler.disabledReason) {
+            return false
+        }
+
+        runHandler.run()
+        return true
+    }
+
+    const focusCellEditor = (shell: HTMLElement): boolean => {
+        // Focusing the editor wrapper does nothing, because Monaco reads keystrokes from a hidden
+        // input of its own. Keep the bare `textarea` last: an EditContext Monaco also renders one
+        // for IME, and focusing that one leaves the caret outside the editor.
+        const editorInput = shell.querySelector<HTMLElement>(
+            '.monaco-editor .native-edit-context, .monaco-editor textarea.inputarea, .monaco-editor textarea'
+        )
+        if (!editorInput) {
+            return false
+        }
+
+        editorInput.focus()
+        return true
+    }
+
     const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-        if (mode !== 'edit' || event.target !== event.currentTarget) {
+        // A handler closer to the key already claimed it, such as Monaco's own Cmd+Enter.
+        if (mode !== 'edit' || event.defaultPrevented) {
+            return
+        }
+
+        // A modal or menu a block renders portals its DOM out of the shell, yet React still bubbles
+        // its events here through the component tree. Without this the source editor inside a
+        // widget's modal would run the cell on Shift+Enter instead of taking the newline.
+        if (event.target instanceof Node && !event.currentTarget.contains(event.target)) {
+            return
+        }
+
+        // Deliberately overrides Monaco's Shift+Enter, which inserts a plain newline that Enter
+        // already gives you.
+        if (event.key === 'Enter' && !event.altKey && (event.metaKey || event.ctrlKey || event.shiftKey)) {
+            const movesOn = event.shiftKey && !event.metaKey && !event.ctrlKey
+            if (runFromKeyboard()) {
+                event.preventDefault()
+                event.stopPropagation()
+                if (movesOn) {
+                    moveFocusToAdjacentNode(node.id, 'next', 0)
+                }
+            }
+            return
+        }
+
+        // Monaco keeps Escape while it has something to dismiss (the suggestion list, the find
+        // box) and releases it once it has not, so this only fires when the editor is done with it.
+        if (
+            isRunnableCell &&
+            event.key === 'Escape' &&
+            event.target !== event.currentTarget &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            !event.altKey &&
+            !event.shiftKey
+        ) {
+            event.preventDefault()
+            event.stopPropagation()
+            event.currentTarget.focus()
+            return
+        }
+
+        if (event.target !== event.currentTarget) {
             return
         }
 
@@ -296,6 +426,9 @@ export function NotebookComponentShell({
 
         if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault()
+            if (isRunnableCell && focusCellEditor(event.currentTarget)) {
+                return
+            }
             insertParagraphAfterNode()
         }
     }
@@ -313,6 +446,18 @@ export function NotebookComponentShell({
 
         event.preventDefault()
         event.stopPropagation()
+    }
+    const handleTitleClick = (): void => {
+        if (!canToggleComponentPanels) {
+            return
+        }
+        if (titleCollapseTimerRef.current) {
+            clearTimeout(titleCollapseTimerRef.current)
+        }
+        titleCollapseTimerRef.current = setTimeout(() => {
+            titleCollapseTimerRef.current = null
+            toggleAllComponentPanels()
+        }, 250)
     }
 
     return (
@@ -369,9 +514,21 @@ export function NotebookComponentShell({
                             ) : null}
                         </div>
                     ) : null}
+                    {ToolbarComponent ? (
+                        <div className="MarkdownNotebook__component-toolbar-controls">
+                            <NotebookComponentToolbarErrorBoundary node={node}>
+                                {/* The run control publishes the cell's run action from here: the
+                                    toolbar is the one part of a cell that stays mounted while the
+                                    cell is collapsed, so the run shortcuts keep working when it is. */}
+                                <NotebookComponentRunHandlerContext.Provider value={setRunHandler}>
+                                    <ToolbarComponent node={node} notebookMode={mode} updateProps={updateProps} />
+                                </NotebookComponentRunHandlerContext.Provider>
+                            </NotebookComponentToolbarErrorBoundary>
+                        </div>
+                    ) : null}
                 </div>
                 {mode === 'edit' ? (
-                    isEditingTitle ? (
+                    isTitleEditable && isEditingTitle ? (
                         <input
                             className="MarkdownNotebook__component-toolbar-title MarkdownNotebook__component-toolbar-title--input"
                             value={titleInputValue}
@@ -386,7 +543,7 @@ export function NotebookComponentShell({
                             }}
                             onKeyDown={handleTitleKeyDown}
                         />
-                    ) : (
+                    ) : isTitleEditable ? (
                         // Clicking the title collapses the whole cell (same as hiding both panels);
                         // double-click renames. No extra control is added to the toolbar.
                         <button
@@ -394,18 +551,7 @@ export function NotebookComponentShell({
                             className="MarkdownNotebook__component-toolbar-title MarkdownNotebook__component-toolbar-title--button"
                             title={resolvedTitle ?? titlePlaceholder}
                             aria-expanded={hasOpenComponentPanel}
-                            onClick={() => {
-                                if (!canToggleComponentPanels) {
-                                    return
-                                }
-                                if (titleCollapseTimerRef.current) {
-                                    clearTimeout(titleCollapseTimerRef.current)
-                                }
-                                titleCollapseTimerRef.current = setTimeout(() => {
-                                    titleCollapseTimerRef.current = null
-                                    toggleAllComponentPanels()
-                                }, 250)
-                            }}
+                            onClick={handleTitleClick}
                             onDoubleClick={() => {
                                 if (titleCollapseTimerRef.current) {
                                     clearTimeout(titleCollapseTimerRef.current)
@@ -420,13 +566,29 @@ export function NotebookComponentShell({
                                 </span>
                             )}
                         </button>
+                    ) : (
+                        <div className="MarkdownNotebook__component-toolbar-title-group">
+                            <button
+                                type="button"
+                                className="MarkdownNotebook__component-toolbar-title MarkdownNotebook__component-toolbar-title--button"
+                                title={resolvedTitle ?? titlePlaceholder}
+                                aria-expanded={hasOpenComponentPanel}
+                                onClick={handleTitleClick}
+                            >
+                                {resolvedTitle ?? titlePlaceholder}
+                            </button>
+                            {titleStatusTag}
+                        </div>
                     )
                 ) : resolvedTitle ? (
-                    <div className="MarkdownNotebook__component-toolbar-title" title={resolvedTitle}>
-                        {resolvedTitle}
+                    <div className="MarkdownNotebook__component-toolbar-title-group">
+                        <div className="MarkdownNotebook__component-toolbar-title" title={resolvedTitle}>
+                            {resolvedTitle}
+                        </div>
+                        {titleStatusTag}
                     </div>
                 ) : null}
-                {showResourceLink || mode === 'edit' || toolbarMenuItems || showCollapseToggle ? (
+                {hasToolbarMenu || mode === 'edit' || showCollapseToggle ? (
                     <div className="MarkdownNotebook__component-actions">
                         {showCollapseToggle ? (
                             <LemonButton
@@ -437,7 +599,7 @@ export function NotebookComponentShell({
                                 onClick={toggleAllComponentPanels}
                             />
                         ) : null}
-                        {toolbarMenuItems ? (
+                        {hasToolbarMenu ? (
                             <LemonMenu items={toolbarMenuItems} placement="bottom-end">
                                 <LemonButton
                                     aria-label="More actions"
@@ -446,16 +608,6 @@ export function NotebookComponentShell({
                                     tooltip="More actions"
                                 />
                             </LemonMenu>
-                        ) : null}
-                        {showResourceLink ? (
-                            <LemonButton
-                                aria-label="Open in new tab"
-                                size="xsmall"
-                                icon={<IconExternal />}
-                                tooltip="Open in new tab"
-                                to={href ?? undefined}
-                                targetBlank
-                            />
                         ) : null}
                         {mode === 'edit' ? (
                             <LemonButton
@@ -480,7 +632,7 @@ export function NotebookComponentShell({
                         </div>
                     ) : null}
                     {showEditPanel && EditComponent ? (
-                        <div className="MarkdownNotebook__component-panel">
+                        <div className="MarkdownNotebook__component-panel MarkdownNotebook__component-panel--filters">
                             <NotebookComponentPanelErrorBoundary node={node} panel="filters">
                                 <EditComponent
                                     node={node}
@@ -493,7 +645,7 @@ export function NotebookComponentShell({
                         </div>
                     ) : null}
                     {showViewPanel ? (
-                        <div className="MarkdownNotebook__component-panel">
+                        <div className="MarkdownNotebook__component-panel MarkdownNotebook__component-panel--results">
                             {ViewComponent ? (
                                 <NotebookComponentPanelErrorBoundary node={node} panel="results">
                                     <ViewComponent
@@ -510,21 +662,6 @@ export function NotebookComponentShell({
                         </div>
                     ) : null}
                 </ComponentPanelContext.Provider>
-                {toolbarActions ? (
-                    <div className="MarkdownNotebook__component-custom-actions">
-                        {toolbarActions.map((action, index) => (
-                            <LemonButton
-                                key={index}
-                                size="xsmall"
-                                type="secondary"
-                                icon={action.icon}
-                                onClick={action.onClick}
-                            >
-                                {action.text}
-                            </LemonButton>
-                        ))}
-                    </div>
-                ) : null}
             </NotebookComponentToolbarExtrasContext.Provider>
         </div>
     )
@@ -532,6 +669,31 @@ export function NotebookComponentShell({
 
 function isTitleInputTarget(target: EventTarget | null): boolean {
     return target instanceof HTMLElement && !!target.closest('.MarkdownNotebook__component-toolbar-title--input')
+}
+
+function NotebookComponentToolbarErrorBoundary({
+    children,
+    node,
+}: {
+    children: ReactNode
+    node: NotebookComponentBlockNode
+}): JSX.Element {
+    return (
+        <PostHogErrorBoundary
+            key={`${node.id}-toolbar`}
+            additionalProperties={{
+                feature: 'markdown_notebook_component',
+                markdown_notebook_node_id: node.id,
+                markdown_notebook_tag_name: node.tagName,
+                markdown_notebook_panel: 'toolbar',
+            }}
+            // A crashed control drops out of the toolbar instead of reporting there: an error block
+            // in the top row would push the title and the block's actions off it.
+            fallback={() => <></>}
+        >
+            {children}
+        </PostHogErrorBoundary>
+    )
 }
 
 export function NotebookComponentPanelErrorBoundary({
