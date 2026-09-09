@@ -1120,6 +1120,72 @@ describe('SnappySessionRecorder', () => {
         })
     })
 
+    it('bounds index metadata without dropping replay events', async () => {
+        const t = 1_700_000_000_000
+        const href = `https://example.com/${'a'.repeat(4000)}`
+        const events = Array.from({ length: 100 }, () => ({ ts: t, flags: 0, href }))
+        recorder.recordMessage({
+            ...createMessage('w1', []),
+            eventsRange: { start: DateTime.fromMillis(t), end: DateTime.fromMillis(t) },
+            preSerialized: {
+                windowId: 'w1',
+                events,
+                lines: Buffer.from(
+                    `${JSON.stringify(['w1', { type: 4, timestamp: t, data: { href } }])}\n`.repeat(events.length)
+                ),
+                consoleLogCount: 0,
+                consoleWarnCount: 0,
+                consoleErrorCount: 0,
+            },
+        })
+        const result = await recorder.end()
+        expect(result.eventCount).toBe(100)
+        expect(result.replayIndexTruncated).toBe(true)
+        expect(result.replayIndexEntries!.length).toBeGreaterThan(0)
+        expect(result.replayIndexEntries!.length).toBeLessThan(100)
+        expect(Buffer.byteLength(JSON.stringify(result.replayIndexEntries))).toBeLessThan(128 * 1024 + 2)
+    })
+
+    it('keeps index ordinals across payloads and windows', async () => {
+        const t = 1_700_000_000_000.5
+        const eventBatches = [
+            { windowId: 'w1', events: [{ ts: t, flags: 16 }] },
+            {
+                windowId: 'w2',
+                events: [
+                    { ts: t, flags: 16 },
+                    { ts: t, flags: 0, jsonLd: { rootTypes: ['Product'], fullSnapshotTimestamp: t } },
+                ],
+            },
+        ]
+        for (const batch of eventBatches) {
+            recorder.recordMessage({
+                ...createMessage(batch.windowId, []),
+                eventsRange: { start: DateTime.fromMillis(t), end: DateTime.fromMillis(t) },
+                preSerialized: {
+                    ...batch,
+                    lines: Buffer.from('[]\n'.repeat(batch.events.length)),
+                    consoleLogCount: 0,
+                    consoleWarnCount: 0,
+                    consoleErrorCount: 0,
+                },
+            })
+        }
+        const result = await recorder.end()
+        expect(result.replayIndexEntries).toEqual([
+            { kind: 'full_snapshot', windowId: 'w1', eventTimestamp: t, eventIndex: 0 },
+            { kind: 'full_snapshot', windowId: 'w2', eventTimestamp: t, eventIndex: 1 },
+            {
+                kind: 'json_ld',
+                windowId: 'w2',
+                eventTimestamp: t,
+                eventIndex: 2,
+                rootTypes: ['Product'],
+                fullSnapshotTimestamp: t,
+            },
+        ])
+    })
+
     describe('Pre-serialized messages (native anonymizer fast path)', () => {
         it('appends the block lines verbatim and derives counts from the per-event metadata', async () => {
             // Flag bits mirror rust/replay-anonymizer `snapshot.rs`: 1=active 2=click 4=keypress 8=mouse.
@@ -1135,6 +1201,7 @@ describe('SnappySessionRecorder', () => {
                 eventsRange: { start: DateTime.fromMillis(t0), end: DateTime.fromMillis(t0 + 2000) },
                 preSerialized: {
                     lines,
+                    windowId: 'w1',
                     events: [
                         { ts: t0, flags: 0, href: 'https://example.com/[redacted]' },
                         { ts: t0 + 1000, flags: 1 | 2 | 8 }, // click: active + click + mouse
@@ -1152,6 +1219,15 @@ describe('SnappySessionRecorder', () => {
             const result = await recorder.end()
             expect(await readSnappyBuffer(result.buffer)).toBe(lines.toString())
             expect(result.eventCount).toBe(3)
+            expect(result.replayIndexEntries).toEqual([
+                {
+                    kind: 'page',
+                    windowId: 'w1',
+                    eventTimestamp: t0,
+                    eventIndex: 0,
+                    url: 'https://example.com/[redacted]',
+                },
+            ])
             expect(result.clickCount).toBe(1)
             expect(result.keypressCount).toBe(1)
             expect(result.mouseActivityCount).toBe(1)
