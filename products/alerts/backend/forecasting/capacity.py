@@ -5,8 +5,10 @@ from contextlib import ExitStack, contextmanager, suppress
 from redis.exceptions import RedisError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
-from posthog.settings import TEST
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
 from posthog.temporal.common.errors import NonReportableError
+
+from products.alerts.backend.forecasting.engine import FORECAST_TOTAL_TIMEOUT_SECONDS
 
 # Conservative launch limits for CPU-heavy synchronous fits. Saturation is recorded by
 # RateLimit, so these can be tuned from production data without changing the API contract.
@@ -17,7 +19,14 @@ FORECAST_SIMULATION_TEAM_CONCURRENCY = 2
 # draw on one pool.
 FORECAST_EVALUATION_GLOBAL_CONCURRENCY = 8
 FORECAST_EVALUATION_TEAM_CONCURRENCY = 2
-_SLOT_TTL_SECONDS = 5 * 60
+# A lease has to outlive the work it stands for. RateLimit drops expired members when the pool is
+# full, so the next caller takes the slot of a query that still runs on the cluster, and both
+# ceilings are exceeded exactly when the pool matters. A preview's query runs under
+# LimitContext.QUERY_ASYNC, which raises max_execution_time to HOGQL_INCREASED_MAX_EXECUTION_TIME,
+# and the fit adds FORECAST_TOTAL_TIMEOUT_SECONDS after the query returns. The extra minute covers
+# the request or activity handling around both. Deriving the lease keeps the relation true when a
+# deployment raises the query budget through the environment.
+_SLOT_TTL_SECONDS = HOGQL_INCREASED_MAX_EXECUTION_TIME + FORECAST_TOTAL_TIMEOUT_SECONDS + 60
 
 _SIMULATION_POOL = "simulation"
 _EVALUATION_POOL = "evaluation"
