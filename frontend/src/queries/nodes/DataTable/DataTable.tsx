@@ -10,7 +10,6 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -90,9 +89,8 @@ import {
     taxonomicPersonFilterToHogQL,
     taxonomicSessionFilterToHogQL,
 } from '~/queries/utils'
-import { getMappableColumn } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/mappingUtils'
-import { NonIntegratedConversionsCellActions } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsCellActions'
-import { NonIntegratedConversionsRowActions } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsRowActions'
+import { CampaignMappingCellActions } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/CampaignMapping/CampaignMappingCellActions'
+import { getMappableColumn } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/CampaignMapping/mappingUtils'
 import { EventType, InsightLogicProps } from '~/types'
 
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
@@ -369,7 +367,7 @@ export function DataTable({
                                       const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)
                                           ? (record.result as any[])[index]
                                           : (record.result as Record<string, any>)[key]
-                                      return <NonIntegratedConversionsCellActions columnName={key} value={value} />
+                                      return <CampaignMappingCellActions columnName={key} value={value} />
                                   }
                                 : undefined,
                         more:
@@ -472,9 +470,7 @@ export function DataTable({
                                                 data-attr="datatable-sort-asc"
                                                 onClick={() => {
                                                     const orderBy =
-                                                        query.source.kind === NodeKind.MarketingAnalyticsTableQuery ||
-                                                        query.source.kind ===
-                                                            NodeKind.NonIntegratedConversionsTableQuery
+                                                        query.source.kind === NodeKind.MarketingAnalyticsTableQuery
                                                             ? createMarketingAnalyticsOrderBy(key, 'ASC')
                                                             : [orderByForKey(key)]
                                                     setQuery?.({
@@ -493,9 +489,7 @@ export function DataTable({
                                                 data-attr="datatable-sort-desc"
                                                 onClick={() => {
                                                     const orderBy =
-                                                        query.source.kind === NodeKind.MarketingAnalyticsTableQuery ||
-                                                        query.source.kind ===
-                                                            NodeKind.NonIntegratedConversionsTableQuery
+                                                        query.source.kind === NodeKind.MarketingAnalyticsTableQuery
                                                             ? createMarketingAnalyticsOrderBy(key, 'DESC')
                                                             : [`${orderByForKey(key)}\n DESC`]
                                                     setQuery?.({
@@ -793,23 +787,7 @@ export function DataTable({
                       }
                       return null
                   }
-                : sourceFeatures.has(QueryFeature.nonIntegratedConversionsRowActions)
-                  ? (row: DataTableRow) => {
-                        if (row.label || !row.result || !columnsInResponse) {
-                            return null
-                        }
-                        return (
-                            <More
-                                overlay={
-                                    <NonIntegratedConversionsRowActions
-                                        result={row.result}
-                                        columnsInResponse={columnsInResponse}
-                                    />
-                                }
-                            />
-                        )
-                    }
-                  : undefined,
+                : undefined,
         [eventActionsColumnShown, columnsInResponse, hideRecordingButton, sourceFeatures]
     )
 
