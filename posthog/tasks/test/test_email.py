@@ -2549,7 +2549,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             saved_query=suspended,
             status=DataModelingJob.Status.FAILED,
-            error="Code: 241. DB::Exception: Memory limit (for query) exceeded",
+            # Suspending rewrites the job error to lead with this sentence, so the row must not use it.
+            error=(
+                "This model has been suspended after 5 consecutive failed materializations. "
+                "Error: Code: 241. DB::Exception: Memory limit (for query) exceeded"
+            ),
             last_run_at=timezone.now() - dt.timedelta(days=4),
         )
         node = sync_saved_query_to_dag(suspended)
@@ -2557,7 +2561,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         mark_node_suspended(
             node,
             engine=marker_engine,
-            reason="5 consecutive failures",
+            reason="Code: 241. DB::Exception: Memory limit (for query) exceeded",
             job_id=str(uuid.uuid4()),
         )
         node.save()
@@ -2592,6 +2596,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         if expected_has_suspended:
             assert "action required" in html
             assert "Memory limit (for query) exceeded" in html
+            assert "has been suspended after" not in html
         else:
             assert "action required" not in html
             assert "suspended_view" not in html

@@ -52,7 +52,11 @@ from products.batch_exports.backend.models.batch_export import BatchExport, Batc
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.conversations.backend.models import Ticket
-from products.data_modeling.backend.facade.api import is_suspension_enforced, suspended_saved_query_ids_by_team
+from products.data_modeling.backend.facade.api import (
+    is_suspension_enforced,
+    suspended_saved_query_ids_by_team,
+    suspension_state_for_saved_query,
+)
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.tasks.backend.facade import api as tasks_facade
@@ -1170,7 +1174,15 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         if not sq:
             continue
         job: DataModelingJob | None = latest_jobs.get(qid)
-        error = (job.error if job else None) or sq.latest_error or "Unknown error"
+        # Suspending rewrites the job error to lead with a sentence about the suspension, which the
+        # status column already says. The marker kept the error that caused it, so read that instead
+        # and leave the row's 90 characters to the part the reader can act on.
+        marker_reason: str | None = (
+            suspension_state_for_saved_query(sq).get(str(DataModelingJobEngine.CLICKHOUSE), {}).get("reason")
+            if suspended
+            else None
+        )
+        error = marker_reason or (job.error if job else None) or sq.latest_error or "Unknown error"
         if len(error) > MAX_ERROR_CHARS:
             error = error[: MAX_ERROR_CHARS - 3] + "..."
         run_at = (job.last_run_at if job else None) or sq.last_run_at
