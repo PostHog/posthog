@@ -35,11 +35,10 @@ describe('app entry boot', () => {
         documentListeners = jest.spyOn(document, 'addEventListener')
         jest.doMock('react', () => React)
         jest.doMock('react-dom/client', () => ({ createRoot }))
-        jest.doMock('lib/configureZod', () => ({
-            configureZod: () => {
-                configured = true
-            },
-        }))
+        jest.doMock('lib/configureZod', () => {
+            configured = true
+            return {}
+        })
         jest.doMock('scenes/App', () => {
             if (!configured) {
                 throw new Error('App evaluated before Zod configuration')
@@ -149,11 +148,9 @@ describe('app entry boot', () => {
             jest.spyOn(console, 'error').mockImplementation(() => {})
             const error = new Error('Boot dependency failed')
             if (failureStage === 'configuration') {
-                jest.doMock('lib/configureZod', () => ({
-                    configureZod: () => {
-                        throw error
-                    },
-                }))
+                jest.doMock('lib/configureZod', () => {
+                    throw error
+                })
             } else {
                 jest.doMock('scenes/App', () => {
                     throw error

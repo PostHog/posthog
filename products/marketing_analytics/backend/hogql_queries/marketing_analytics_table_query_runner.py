@@ -7,6 +7,7 @@ from posthog.schema import (
     CachedMarketingAnalyticsTableQueryResponse,
     DateRange,
     MarketingAnalyticsBaseColumns,
+    MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsItem,
     MarketingAnalyticsTableQuery,
@@ -22,6 +23,7 @@ from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from .constants import (
     BASE_COLUMN_MAPPING,
     CHANNEL_SESSIONS_CTE_NAME,
+    COST_SIDE_METRIC_COLUMNS,
     DEFAULT_LIMIT,
     DRILL_DOWN_LEVEL_CONFIG,
     MARKETING_SPILL_AFTER_BYTES,
@@ -131,23 +133,12 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         """Extract column names from AST expressions for order by"""
         return [col.alias if isinstance(col, ast.Alias) else str(col) for col in select_columns]
 
-    def _build_flexible_source_join_condition(self) -> ast.Expr:
-        """
-        Build source join condition.
-        Source normalization happens in conversion_goal_processor._normalize_source_field,
-        so we can use simple equality here.
-        """
-        return ast.CompareOperation(
-            left=ast.Field(chain=self.config.get_campaign_cost_field_chain(self.config.source_field)),
-            op=ast.CompareOperationOp.Eq,
-            right=ast.Field(chain=self.config.get_unified_conversion_field_chain(self.config.source_field)),
-        )
-
     def _get_compare_pivot_keys(self) -> list[str]:
         """Columns that uniquely identify a row at the current drill-down level.
 
         These are the keys the compare pivot groups by — the same keys the old
-        LEFT JOIN matched on. Names alone don't uniquely identify a row at ad-group /
+        LEFT JOIN matched on — and the final ORDER BY tie-breakers that keep offset
+        pagination stable. Names alone don't uniquely identify a row at ad-group /
         ad levels (two campaigns can both have an ad-group named "All Audiences", and
         renaming an entity between periods would appear as "deleted + created"), so at
         AD_GROUP / AD we key by the platform ID + source. This assumes (AD_GROUP_ID,
@@ -333,56 +324,45 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         # Add single unified conversion goals join if we have conversion goals
         # (skip at ad-group / ad levels — no event attribution possible there).
         if conversion_aggregator and not skip_conversion_goals_join:
-            if level in (
-                MarketingAnalyticsDrillDownLevel.CHANNEL,
-                MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE,
-                MarketingAnalyticsDrillDownLevel.SOURCE,
-            ):
-                join_type = "FULL OUTER JOIN"
-                # The grouping key is the join key. CHANNEL_SOURCE groups by two columns,
-                # so both have to match or a channel's sources would fan out.
+            join_type = "FULL OUTER JOIN"
+            # The grouping key is the join key. CHANNEL_SOURCE groups by two columns,
+            # so both have to match or a channel's sources would fan out. CAMPAIGN keys
+            # off match_key — the campaign_name_mappings-normalized identifier that both
+            # sides emit — plus source, since campaign names only need to be unique per source.
+            if level == MarketingAnalyticsDrillDownLevel.CAMPAIGN:
+                join_fields = [self.config.match_key_field, self.config.source_field]
+            else:
                 join_fields = [self.config.campaign_field]
                 if level == MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE:
                     join_fields.append(self.config.source_field)
-                key_comparisons: list[ast.Expr] = [
-                    ast.CompareOperation(
-                        left=ast.Field(chain=self.config.get_campaign_cost_field_chain(join_field)),
-                        op=ast.CompareOperationOp.Eq,
-                        right=ast.Field(chain=self.config.get_unified_conversion_field_chain(join_field)),
-                    )
-                    for join_field in join_fields
-                ]
-                join_constraint = ast.JoinConstraint(
-                    expr=key_comparisons[0] if len(key_comparisons) == 1 else ast.And(exprs=key_comparisons),
-                    constraint_type="ON",
+            key_comparisons: list[ast.Expr] = [
+                ast.CompareOperation(
+                    left=ast.Field(chain=self.config.get_campaign_cost_field_chain(join_field)),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Field(chain=self.config.get_unified_conversion_field_chain(join_field)),
                 )
-                # Replace grouping columns with COALESCE to handle NULLs from FULL OUTER JOIN
-                coalesce_columns = conversion_aggregator.get_coalesce_fallback_columns()
-                for key, coalesce_col in coalesce_columns.items():
-                    conversion_columns_mapping[key] = coalesce_col
+                for join_field in join_fields
+            ]
+            join_constraint = ast.JoinConstraint(
+                expr=key_comparisons[0] if len(key_comparisons) == 1 else ast.And(exprs=key_comparisons),
+                constraint_type="ON",
+            )
+            # Replace grouping columns with COALESCE to handle NULLs from FULL OUTER JOIN
+            coalesce_columns = conversion_aggregator.get_coalesce_fallback_columns()
+            for key, coalesce_col in coalesce_columns.items():
+                conversion_columns_mapping[key] = coalesce_col
 
-                # Leave campaign_costs metric columns as NULL for conversion-only rows
-                # so the frontend displays "-" instead of 0 for cost/clicks/impressions etc.
-            else:
-                # Campaign level — LEFT JOIN on match_key + source
-                join_type = "LEFT JOIN"
-                join_constraint = ast.JoinConstraint(
-                    expr=ast.And(
-                        exprs=[
-                            ast.CompareOperation(
-                                left=ast.Field(
-                                    chain=self.config.get_campaign_cost_field_chain(self.config.match_key_field)
-                                ),
-                                op=ast.CompareOperationOp.Eq,
-                                right=ast.Field(
-                                    chain=self.config.get_unified_conversion_field_chain(self.config.match_key_field)
-                                ),
-                            ),
-                            self._build_flexible_source_join_condition(),
-                        ]
-                    ),
-                    constraint_type="ON",
-                )
+            # A row the cost side never matched has no spend to report, and ClickHouse fills its
+            # columns with the type default under `join_use_nulls = 0`, so cost, clicks and
+            # impressions arrive as 0 and read as "we spent nothing". Null them instead, which is
+            # what the table already renders as "-" for the id.
+            # The cost-per-conversion columns divide that same spend, so they inherit the lie.
+            cost_side_keys = {str(column_key) for column_key in COST_SIDE_METRIC_COLUMNS}
+            cost_side_keys |= {key for key in conversion_columns_mapping if key.startswith(self.config.cost_per_prefix)}
+            for key in cost_side_keys:
+                existing = conversion_columns_mapping.get(key)
+                if existing is not None:
+                    conversion_columns_mapping[key] = self._null_without_cost_row(existing)
 
             unified_join = ast.JoinExpr(
                 join_type=join_type,
@@ -462,6 +442,39 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             base_join.next_join = current_join
         return initial_join
 
+    def _null_without_cost_row(self, column: ast.Expr) -> ast.Expr:
+        """Wrap a cost-side metric so it reads as absent, not as zero, when no cost row matched.
+
+        A campaign that only exists in UTM tags has no row on the cost side. Its spend is unknown,
+        which is a different claim than a spend of zero. The cost side's campaign name is the same
+        signal the id coalesce uses to tell the two apart.
+        """
+        alias = column.alias if isinstance(column, ast.Alias) else None
+        expr = column.expr if isinstance(column, ast.Alias) else column
+        guarded = ast.Call(
+            name="if",
+            args=[
+                ast.Call(
+                    name="empty",
+                    args=[
+                        ast.Call(
+                            name="toString",
+                            args=[
+                                ast.Field(
+                                    chain=self.config.get_campaign_cost_field_chain(
+                                        MarketingAnalyticsColumnsSchemaNames.CAMPAIGN
+                                    )
+                                )
+                            ],
+                        )
+                    ],
+                ),
+                ast.Constant(value=None),
+                expr,
+            ],
+        )
+        return ast.Alias(alias=alias, expr=guarded) if alias else guarded
+
     def _build_order_by_exprs(self, select_columns: list[str]) -> list[ast.OrderExpr]:
         """Build ORDER BY expressions from query orderBy with proper null handling"""
 
@@ -483,15 +496,15 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
                 default_field = ast.Field(chain=[MarketingAnalyticsBaseColumns.COST.value])
                 order_by_exprs.append(ast.OrderExpr(expr=default_field, order="DESC"))
 
-        # Add ID as tiebreaker for deterministic ordering when rows share the same sort key
+        # Tie-break down to the level's row key, so a tied block can't permute between the
+        # separate executions that offset pagination runs. Cost and ID don't separate
+        # conversion-only rows: they have no campaign_costs side, so Cost is NULL and ID falls
+        # back to '-' for every one of them.
         already_sorted_columns = {expr.expr.chain[0] for expr in order_by_exprs if isinstance(expr.expr, ast.Field)}
-        if (
-            MarketingAnalyticsBaseColumns.ID.value in select_columns
-            and MarketingAnalyticsBaseColumns.ID.value not in already_sorted_columns
-        ):
-            order_by_exprs.append(
-                ast.OrderExpr(expr=ast.Field(chain=[MarketingAnalyticsBaseColumns.ID.value]), order="ASC")
-            )
+        for column in [MarketingAnalyticsBaseColumns.ID.value, *self._get_compare_pivot_keys()]:
+            if column in select_columns and column not in already_sorted_columns:
+                order_by_exprs.append(ast.OrderExpr(expr=ast.Field(chain=[column]), order="ASC"))
+                already_sorted_columns.add(column)
 
         return order_by_exprs
 
