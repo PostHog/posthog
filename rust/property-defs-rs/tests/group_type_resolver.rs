@@ -337,6 +337,13 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<DeletePersonsBatchForTeamResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+
+    async fn delete_tombstoned_persons(
+        &self,
+        _: Request<DeleteTombstonedPersonsRequest>,
+    ) -> Result<Response<DeleteTombstonedPersonsResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
     async fn get_group_type_mapping_by_dashboard_id(
         &self,
         _: Request<GetGroupTypeMappingByDashboardIdRequest>,
