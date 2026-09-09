@@ -53,7 +53,7 @@ rules:
           # broad and aligned with DATABASE_TOKENS in the repo-invariant ratchet: an
           # extra token only hides a case, while a missing one reports a class that
           # does need its database.
-          - pattern-not-regex: (\.objects|_create|assertNumQueries|bulk_create|capture_db_queries|connection|create_|cursor|django_db|flush_|get_or_create|refresh_from_db|self\.client|self\.demo_team|self\.organization|self\.other_team|self\.project|self\.team|self\.user|snapshot|transaction|\.delete\(|\.exists\(\)|\.filter\(|\.save\()
+          - pattern-not-regex: (\.objects|_create|assertNumQueries|bulk_create|capture_db_queries|connection|create_|cursor|django_db|flush_|get_or_create|refresh_from_db|self\.client|self\.demo_team|self\.organization|self\.other_team|self\.project|self\.team|self\.user|snapshot|transaction|\.delete\(|\.exists\(|\.filter\(|\.save\()
           # A shared base other tests inherit names nothing itself, while every
           # subclass reaches the database. Semgrep reads one file, so it cannot see
           # who inherits what and goes by the name instead. The repo-invariant

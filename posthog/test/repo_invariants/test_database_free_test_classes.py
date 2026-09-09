@@ -78,7 +78,7 @@ DATABASE_TOKENS = (
     "snapshot",
     "transaction",
     ".delete(",
-    ".exists()",
+    ".exists(",
     ".filter(",
     ".save(",
 )
