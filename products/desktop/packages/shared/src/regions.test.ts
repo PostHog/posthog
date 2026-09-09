@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { configureCustomCloud } from "./custom-cloud";
 import {
   getOauthClientIdFromRegion,
   POSTHOG_DEV_CLIENT_ID,
@@ -16,15 +15,10 @@ import {
 import { getCloudUrlFromRegion } from "./urls";
 
 beforeEach(() => {
-  // A custom cloud in the developer's own environment must not move the
-  // default targets that the tests below assert.
   vi.stubEnv("POSTHOG_CUSTOM_CLOUD_URL", "");
-  vi.stubEnv("VITE_POSTHOG_CUSTOM_CLOUD_URL", "");
-  configureCustomCloud(null);
 });
 
 afterEach(() => {
-  configureCustomCloud(null);
   vi.unstubAllEnvs();
 });
 
@@ -62,10 +56,8 @@ describe("getOauthClientIdFromRegion", () => {
 
 describe("a configured custom cloud", () => {
   beforeEach(() => {
-    configureCustomCloud({
-      url: "https://posthog.example.com/",
-      oauthClientId: "custom-client-id",
-    });
+    vi.stubEnv("POSTHOG_CUSTOM_CLOUD_URL", "https://posthog.example.com/");
+    vi.stubEnv("POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID", "custom-client-id");
   });
 
   it("moves the dev region only", () => {

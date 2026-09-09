@@ -96,10 +96,8 @@ export {
 } from "./cloud-task-models";
 export {
   type CustomCloud,
-  configureCustomCloud,
   getCustomCloud,
   hasCustomCloud,
-  readCustomCloudFromEnv,
 } from "./custom-cloud";
 export {
   buildLoopDeeplink,

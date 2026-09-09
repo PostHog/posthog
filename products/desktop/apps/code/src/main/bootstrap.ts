@@ -54,20 +54,6 @@ process.env.POSTHOG_CODE_DATA_DIR = userDataPath;
 process.env.POSTHOG_CODE_IS_DEV = String(isDev);
 process.env.POSTHOG_CODE_VERSION = app.getVersion();
 
-// The custom cloud target that the build compiled in. A value already in the
-// environment wins, so a launch can still point the app somewhere else. The
-// values go to the environment because every child process inherits it.
-if (!process.env.POSTHOG_CUSTOM_CLOUD_URL && __CUSTOM_CLOUD_URL__) {
-  process.env.POSTHOG_CUSTOM_CLOUD_URL = __CUSTOM_CLOUD_URL__;
-  if (__CUSTOM_CLOUD_OAUTH_CLIENT_ID__) {
-    process.env.POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID =
-      __CUSTOM_CLOUD_OAUTH_CLIENT_ID__;
-  }
-  if (__CUSTOM_CLOUD_GATEWAY_URL__) {
-    process.env.POSTHOG_CUSTOM_CLOUD_GATEWAY_URL = __CUSTOM_CLOUD_GATEWAY_URL__;
-  }
-}
-
 // Enable Chromium internal logging to a dedicated file. Without this, Chromium
 // crashes (black screens, render-process-gone, GPU process death) leave no
 // trail because Electron silently swallows the underlying logs. Must run

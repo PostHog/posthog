@@ -14,6 +14,16 @@ name: Desktop Build Test
 
 on:
     workflow_dispatch:
+        inputs:
+            custom_cloud_url:
+                description: 'PostHog instance the dev region points at, for example https://posthog.example.com'
+                required: false
+            custom_cloud_oauth_client_id:
+                description: 'Client ID of the OAuth application on that instance'
+                required: false
+            custom_cloud_gateway_url:
+                description: 'LLM gateway that serves that instance'
+                required: false
     pull_request:
         types: [opened, synchronize, reopened, labeled]
         paths:
@@ -63,6 +73,9 @@ jobs:
             VITE_POSTHOG_API_KEY: ${{ vars.VITE_POSTHOG_API_KEY }}
             VITE_POSTHOG_API_HOST: ${{ vars.VITE_POSTHOG_API_HOST }}
             VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
+            VITE_POSTHOG_CUSTOM_CLOUD_URL: ${{ inputs.custom_cloud_url }}
+            VITE_POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID: ${{ inputs.custom_cloud_oauth_client_id }}
+            VITE_POSTHOG_CUSTOM_CLOUD_GATEWAY_URL: ${{ inputs.custom_cloud_gateway_url }}
             # No sourcemap secrets: without them the posthog vite plugin skips
             # release creation and sourcemap upload, keeping test builds
             # hermetic instead of calling the prod API and flaking on it.
@@ -251,6 +264,9 @@ jobs:
             VITE_POSTHOG_API_KEY: ${{ vars.VITE_POSTHOG_API_KEY }}
             VITE_POSTHOG_API_HOST: ${{ vars.VITE_POSTHOG_API_HOST }}
             VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
+            VITE_POSTHOG_CUSTOM_CLOUD_URL: ${{ inputs.custom_cloud_url }}
+            VITE_POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID: ${{ inputs.custom_cloud_oauth_client_id }}
+            VITE_POSTHOG_CUSTOM_CLOUD_GATEWAY_URL: ${{ inputs.custom_cloud_gateway_url }}
         steps:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -366,6 +382,9 @@ jobs:
             VITE_POSTHOG_API_KEY: ${{ vars.VITE_POSTHOG_API_KEY }}
             VITE_POSTHOG_API_HOST: ${{ vars.VITE_POSTHOG_API_HOST }}
             VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
+            VITE_POSTHOG_CUSTOM_CLOUD_URL: ${{ inputs.custom_cloud_url }}
+            VITE_POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID: ${{ inputs.custom_cloud_oauth_client_id }}
+            VITE_POSTHOG_CUSTOM_CLOUD_GATEWAY_URL: ${{ inputs.custom_cloud_gateway_url }}
         steps:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

@@ -1,7 +1,4 @@
 import "reflect-metadata";
-// Side effect: points the `dev` region at the custom cloud compiled into this
-// build, if there is one. Must precede any module that reads a region URL.
-import "@renderer/custom-cloud";
 // Side effect: registers the host (electron-trpc-backed) storage with @posthog/ui.
 // Persisted stores hydrate from it once it registers, wherever in the import
 // graph they are created.

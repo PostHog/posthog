@@ -146,8 +146,6 @@ export type ShareLinkTarget =
   | { kind: "canvas"; channelId: string; dashboardId: string }
   | { kind: "channel"; channelId: string; taskId?: string };
 
-// Read per call, because the `dev` region host depends on the configured
-// custom cloud, which the host injects after this module loads.
 function posthogHosts(): Set<string> {
   return new Set(
     (Object.keys(REGION_LABELS) as CloudRegion[])

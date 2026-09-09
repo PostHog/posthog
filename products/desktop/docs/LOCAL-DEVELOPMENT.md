@@ -126,30 +126,30 @@ Keeping both values preserves stored Local development sessions. Dev Cloud agent
 ## Custom cloud
 
 The `dev` region can point at any PostHog instance, for example a self-hosted deployment.
-Set these values in `.env` before you build:
+Three environment variables hold the target:
 
 | Variable | Purpose |
 | --- | --- |
-| `VITE_POSTHOG_CUSTOM_CLOUD_URL` | Base URL of the instance, for example `https://posthog.example.com` |
-| `VITE_POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID` | Client ID of the OAuth application on that instance |
-| `VITE_POSTHOG_CUSTOM_CLOUD_GATEWAY_URL` | Base URL of the LLM gateway for agent requests. Optional |
+| `POSTHOG_CUSTOM_CLOUD_URL` | Base URL of the instance, for example `https://posthog.example.com` |
+| `POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID` | Client ID of the OAuth application on that instance |
+| `POSTHOG_CUSTOM_CLOUD_GATEWAY_URL` | Base URL of the LLM gateway for agent requests. Optional |
 
-Steps:
+First, on the instance, make an OAuth application with these redirect URIs:
 
-1. On the instance, make an OAuth application. Give it these redirect URIs:
-   - `http://localhost:8237/callback` for a development build.
-   - `posthog-code://callback` for a packaged build. A development build uses `posthog-code-dev://callback`.
-2. Put the client ID in `VITE_POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID`.
-3. Build the app. The build compiles the values into the image.
-4. Start the app and select **Custom cloud** in the region list. The region shows the host of the instance.
+- `http://localhost:8237/callback` for a development build.
+- `posthog-code-dev://callback` for a packaged development build, or `posthog-code://callback` for a packaged production build.
+
+Then give the app the target in one of three ways:
+
+- A local run: put the three values in `.env` with a `VITE_` prefix, or set them in the shell before `pnpm dev`.
+- A local build: set the three values in the shell before `pnpm --filter code make`.
+- A custom build from CI: run the **Desktop Build Test** workflow by hand and fill the custom cloud inputs. The workflow passes them to the build of every platform.
+
+Start the app and select **Custom cloud** in the region list. The region shows the host of the instance.
 
 The `us`, `eu`, and `dev-cloud` regions never read these values, so a normal build stays on PostHog Cloud.
-A packaged build shows the region only when it has a custom cloud, or when it is a development build.
-
-The same three names without the `VITE_` prefix work as runtime environment variables:
-`POSTHOG_CUSTOM_CLOUD_URL`, `POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID`, and `POSTHOG_CUSTOM_CLOUD_GATEWAY_URL`.
-A value in the environment wins over the value that the build compiled in.
-The main process gives these values to each child process, which includes the agent.
+A packaged build offers the region only when it has a target, or when it is a development build.
+A value in the environment at start wins over a value from the build.
 
 ## Dev console commands
 

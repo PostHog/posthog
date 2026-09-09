@@ -6,10 +6,7 @@ import { useOAuthFlow } from "./useOAuthFlow";
 
 interface OAuthControlsProps {
   onAuthInitiated?: (region: CloudRegion) => void;
-  /**
-   * Defaults to the builds where development targets are available: a dev
-   * build, and any build with a custom cloud compiled in.
-   */
+  /** Defaults to the dev build, where development targets are available. */
   includeDevRegion?: boolean;
 }
 
