@@ -137,15 +137,13 @@ describe('Sandbox approval input area', () => {
         })
 
         it('guards against double-submit while the reply POST is in flight', () => {
-            // The logic's respondingToPermission flag drives the loading state — it flips
-            // synchronously on dispatch and resets on success and on failure alike.
             ;(useValues as jest.Mock).mockReturnValue({ respondingToPermission: true })
             render(<PermissionInput streamKey="conv-1" request={makeRequest()} />)
 
-            // Loading message replaces the option list, so nothing can be clicked.
-            expect(screen.getByText('Sending response…')).toBeInTheDocument()
-            expect(screen.queryByText('Approve')).not.toBeInTheDocument()
-            expect(screen.queryByText('Decline')).not.toBeInTheDocument()
+            fireEvent.click(screen.getByText('Approve'))
+            fireEvent.click(screen.getByText('Decline'))
+            fireEvent.keyDown(window, { key: '1' })
+            fireEvent.keyDown(window, { key: 'Enter' })
             expect(respondToPermission).not.toHaveBeenCalled()
         })
 

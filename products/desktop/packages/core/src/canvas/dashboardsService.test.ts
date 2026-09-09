@@ -9,7 +9,6 @@ function apiCanvas(overrides: Record<string, unknown> = {}) {
     name: "Revenue board",
     channel: "chan-1",
     template_id: "freeform",
-    context: "",
     generation_task_id: null,
     pinned_at: null,
     current_version_id: "v1",

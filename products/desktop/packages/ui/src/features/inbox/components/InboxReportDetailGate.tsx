@@ -4,7 +4,6 @@ import {
   isPullRequestReport,
   isReportTabReport,
 } from "@posthog/core/inbox/reportMembership";
-import { Spinner } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { DetailBackLink } from "@posthog/ui/features/inbox/components/DetailBackLink";
 import {
@@ -17,6 +16,7 @@ import {
   type InboxDetailTab,
   useReportOpenTracker,
 } from "@posthog/ui/features/inbox/hooks/useReportOpenTracker";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { Flex, Text } from "@radix-ui/themes";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect } from "react";
@@ -152,21 +152,13 @@ export function InboxReportDetailGate({
   }, [redirectTo, redirectReportId, navigate, backTo, backLabel, triageOrigin]);
 
   if ((isLoading && !resolvedReport) || statusUnconfirmed) {
-    return (
-      <Flex align="center" justify="center" className="py-16">
-        <Spinner />
-      </Flex>
-    );
+    return <LoadingState className="py-16" />;
   }
 
   if (redirectTo) {
     // Redirecting across the dismissed↔pipeline boundary; render nothing
     // meaningful for the frame we're leaving.
-    return (
-      <Flex align="center" justify="center" className="py-16">
-        <Spinner />
-      </Flex>
-    );
+    return <LoadingState className="py-16" />;
   }
 
   if (!resolvedReport) {
