@@ -72,6 +72,8 @@ def _context(
     use_modal_vm_sandbox: bool = False,
     use_modal_network_allowlist: bool = False,
     claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway",
+    staged_execution: bool = False,
+    staged_disabled_tools: list[str] | None = None,
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -90,8 +92,35 @@ def _context(
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
         claude_model_access=claude_model_access,
+        staged_execution=staged_execution,
+        staged_disabled_tools=staged_disabled_tools,
         _branch=branch,
     )
+
+
+def test_invoke_start_agent_server_forwards_staged_disabled_tools(mocker) -> None:
+    sandbox = mocker.Mock()
+    context = _context(staged_execution=True, staged_disabled_tools=["WebFetch", "WebSearch"])
+
+    _invoke_start_agent_server(
+        sandbox,
+        context,
+        _LaunchParams(
+            mcp_configs=[],
+            relayed_mcp_servers=[],
+            actor_user_id=None,
+            agentsh_domains=None,
+            protected_base_branch=None,
+            event_ingest_token=None,
+            task_run_session_token=None,
+            event_ingest_url=None,
+            event_ingest_keep_stream_open=False,
+        ),
+        repo_ready_file=None,
+    )
+
+    assert sandbox.start_agent_server.call_args.kwargs["disabled_tools"] == ["WebFetch", "WebSearch"]
+    assert sandbox.start_agent_server.call_args.kwargs["strict_mcp_config"] is True
 
 
 @pytest.mark.parametrize(

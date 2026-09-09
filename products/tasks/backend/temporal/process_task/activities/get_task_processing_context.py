@@ -101,7 +101,7 @@ class TaskProcessingContext:
     repository: str | None
     distinct_id: str
     origin_product: str | None = None
-    task_runtime: str = Task.Runtime.ACP
+    task_runtime: str = Task.Runtime.ACP.value
     environment: str | None = None
     github_user_integration_id: str | None = None
     task_created_by_id: int | None = None
@@ -163,6 +163,10 @@ class TaskProcessingContext:
     sandbox_backend: str = "modal"
     dev_stack_preview_enabled: bool = False
     claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
+    staged_execution: bool = False
+    staged_phase: str | None = None
+    staged_disabled_tools: list[str] | None = None
+    staged_mcp_scope_preset: str | None = None
 
     @property
     def mode(self) -> str:
@@ -179,14 +183,18 @@ class TaskProcessingContext:
     @property
     def auto_publish(self) -> bool:
         """User-opted auto-publish: the agent pushes and opens a draft PR on completion."""
-        return (self.state or {}).get("auto_publish") is True
+        return not self.staged_execution and (self.state or {}).get("auto_publish") is True
 
     @property
     def has_github_credentials(self) -> bool:
-        return self.github_integration_id is not None or self.github_user_integration_id is not None
+        return not self.staged_execution and (
+            self.github_integration_id is not None or self.github_user_integration_id is not None
+        )
 
     @property
     def repositories(self) -> list[str]:
+        if self.staged_execution:
+            return [self.repository] if self.repository else []
         repositories = (self.state or {}).get("repositories")
         if isinstance(repositories, list) and all(isinstance(repository, str) for repository in repositories):
             return repositories
@@ -1129,6 +1137,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     assert task.created_by is not None
 
     state = task_run.state or {}
+    from products.tasks.backend.logic.services.staged_task_runs import get_staged_execution_binding
+
+    staged_binding = get_staged_execution_binding(str(task_run.id))
     actor_user = get_task_run_credential_user(task, state)
     if is_slack_interaction_state(state) and actor_user is None:
         raise TaskInvalidStateError(
@@ -1209,6 +1220,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
 
     repositories = state.get("repositories")
     run_repository = repositories[0] if isinstance(repositories, list) and repositories else task.repository
+    if staged_binding is not None:
+        run_repository = staged_binding.repository
 
     log_with_activity_context(
         "Task processing context created",
@@ -1378,6 +1391,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         state=state,
     )
+    if staged_binding is not None:
+        overlap_clone_boot_enabled = False
     emit_agent_log(
         run_id,
         "debug",
@@ -1486,9 +1501,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     )
     pr_authorship_mode = get_pr_authorship_mode(task, state)
     user_github_integration_id = None
-    if not (is_slack_interaction_state(state) and pr_authorship_mode.value == "user"):
+    if not staged_binding and not (is_slack_interaction_state(state) and pr_authorship_mode.value == "user"):
         user_github_integration_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
-    if user_github_integration_id is None and pr_authorship_mode.value == "user":
+    if not staged_binding and user_github_integration_id is None and pr_authorship_mode.value == "user":
         user_github_integration = resolve_user_github_integration_for_task(
             task,
             actor_user=actor_user,
@@ -1503,15 +1518,21 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         team_id=task.team_id,
         team_uuid=str(task.team.uuid),
         organization_id=str(task.team.organization_id),
-        github_integration_id=task.github_integration_id,
+        github_integration_id=(
+            staged_binding.github_integration_id if staged_binding is not None else task.github_integration_id
+        ),
         github_user_integration_id=user_github_integration_id,
         repository=run_repository,
+        staged_execution=staged_binding is not None,
+        staged_phase=staged_binding.phase if staged_binding is not None else None,
+        staged_disabled_tools=list(staged_binding.disabled_tools) if staged_binding is not None else None,
+        staged_mcp_scope_preset=staged_binding.mcp_scope_preset if staged_binding is not None else None,
         distinct_id=distinct_id,
         origin_product=task.origin_product,
         task_runtime=task.runtime,
         environment=task_run.environment,
         task_created_by_id=task.created_by_id,
-        create_pr=input.create_pr,
+        create_pr=input.create_pr and staged_binding is None,
         pr_loop_enabled=pr_loop_enabled,
         pr_babysit_enabled=pr_babysit_enabled,
         context_layer_enabled=context_layer_enabled,

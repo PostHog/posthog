@@ -36,6 +36,7 @@ class WorkflowDispatchOptions:
     workflow_id_prefix: str | None = None
     initial_message: PendingFollowup | None = None
     skip_user_check: bool = False
+    force_durable_dispatch: bool = False
 
 
 @frozen
@@ -320,7 +321,7 @@ def enqueue_or_start_workflow(
         TaskRun.update_state_atomic(task_run.id, updates={"workflow_id": workflow_id})
         task_run.state = {**(task_run.state or {}), "workflow_id": workflow_id}
     dispatch_written = False
-    if flags.shadow_enabled or flags.async_enabled:
+    if flags.shadow_enabled or flags.async_enabled or options.force_durable_dispatch:
         if transaction.get_connection().in_atomic_block:
             create_dispatch(task_run, TaskWorkflowDispatch.Kind.CREATE, build_create_payload(options), workflow_id)
         else:

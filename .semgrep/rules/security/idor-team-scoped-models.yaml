@@ -365,6 +365,7 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskStagedRun
                               |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
@@ -761,6 +762,7 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskStagedRun
                         |TaskWorkflowDispatch
                         |TaskSession
                         |UserTasksConfig
