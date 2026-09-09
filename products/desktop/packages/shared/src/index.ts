@@ -52,6 +52,7 @@ export {
   tabsSnapshotSchema,
   tabViewStateSchema,
 } from "./browser-tabs-schemas";
+export { omitNullCallToolResultFields } from "./call-tool-result";
 export * from "./canvas-contracts";
 export * from "./canvas-platform";
 export type { CloudRunSource, PrAuthorshipMode } from "./cloud";
@@ -94,6 +95,14 @@ export {
   normalizeGatewayModelsResponse,
   pickAllowedModel,
 } from "./cloud-task-models";
+export {
+  type CustomCloud,
+  configureCustomCloud,
+  customCloudSchema,
+  getCustomCloud,
+  isCustomCloudHost,
+  normalizeCustomCloud,
+} from "./custom-cloud";
 export {
   buildLoopDeeplink,
   buildScoutDeeplink,
@@ -216,6 +225,7 @@ export {
   defaultEligibleModel,
   isCustomModelOption,
   isDefaultSelectOption,
+  isHiddenPiModelId,
   isRestrictedModelOption,
   modelHarnessMeta,
   OPTION_DOCS_URL_META_KEY,
@@ -224,6 +234,8 @@ export {
   selectOptionHarness,
 } from "./models";
 export {
+  DEV_CALLBACK_PORT,
+  DEV_REDIRECT_URI,
   getOauthClientIdFromRegion,
   OAUTH_SCOPE_VERSION,
   OAUTH_SCOPES,
@@ -279,7 +291,9 @@ export { REFUND_REASON_OPTIONS } from "./refund-reasons";
 export {
   CLOUD_REGIONS,
   type CloudRegion,
+  describeRegion,
   REGION_LABELS,
+  type RegionLabel,
 } from "./regions";
 export { normalizeRepoKey } from "./repo";
 export { getTaskRepository, parseRepository } from "./repository";

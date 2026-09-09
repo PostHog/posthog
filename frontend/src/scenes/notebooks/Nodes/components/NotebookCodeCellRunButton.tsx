@@ -3,6 +3,7 @@ import { useCallback } from 'react'
 
 import { IconPlayFilled } from '@posthog/icons'
 
+import { usePublishNotebookComponentRunHandler } from 'lib/components/MarkdownNotebook/componentRunHandlers'
 import type { NotebookComponentToolbarProps } from 'lib/components/MarkdownNotebook/types'
 import { getSerializableProps } from 'lib/components/MarkdownNotebook/utils'
 import { IconCancel } from 'lib/lemon-ui/icons'
@@ -51,11 +52,9 @@ export function NotebookCodeCellRunButton({ node, updateProps }: NotebookCompone
     // will answer for. That excludes a public share, a viewer-level reader, and a history preview,
     // all of which render this toolbar in view mode. Without the gate they get a control that
     // returns 403, and a preview would run a version of the code the reader is not editing.
-    if (isShared || !canEditNotebook) {
-        return null
-    }
+    const canRun = !isShared && canEditNotebook
 
-    const run = (): void => {
+    const run = useCallback((): void => {
         // A SQL cell's editor holds the code and the connection a keystroke or a just-picked
         // connection before the document does, so prefer it while it is open. A Python cell has no
         // such logic mounted and runs from the document.
@@ -73,6 +72,18 @@ export function NotebookCodeCellRunButton({ node, updateProps }: NotebookCompone
               }
             : {}
         runNode(overrides)
+    }, [nodeId, runNode])
+
+    // A run in flight blocks the shortcuts, because the button turns into Cancel there and a run
+    // shortcut must never become a stop.
+    usePublishNotebookComponentRunHandler(
+        canRun
+            ? { run, disabledReason: isRunning ? 'This cell is already running' : (operationBlockReason ?? null) }
+            : null
+    )
+
+    if (!canRun) {
+        return null
     }
 
     return (
