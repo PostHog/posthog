@@ -1014,6 +1014,35 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(bounded.inputTokens, 10)
         self.assertEqual(bounded.outputTokens, 10)
 
+    def test_bound_events_to_date_range_keeps_sub_second_events(self):
+        trace_id = str(uuid.uuid4())
+        # A cutoff rounded down to the whole second would drop this event.
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "team": self.team,
+                    "distinct_id": "person1",
+                    "timestamp": datetime(2024, 12, 1, 0, 10, 0, 250000, tzinfo=UTC),
+                    "properties": {"$ai_trace_id": trace_id, "$ai_parent_id": trace_id, "$ai_latency": 1.0},
+                }
+            ]
+        )
+
+        trace = (
+            TraceQueryRunner(
+                team=self.team,
+                query=TraceQuery(
+                    traceId=trace_id,
+                    dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00.500000Z"),
+                ),
+                bound_events_to_date_range=True,
+            )
+            .calculate()
+            .results[0]
+        )
+        self.assertEqual(len(trace.events), 1)
+
     def test_sums_distinguish_reported_zero_from_no_report(self):
         zero_trace_id = str(uuid.uuid4())
         unpriced_trace_id = str(uuid.uuid4())

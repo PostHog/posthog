@@ -75,10 +75,18 @@ class TraceQueryDateRange(QueryDateRange):
         return super().date_to() + timedelta(minutes=self.FORWARD_CAPTURE_RANGE_MINUTES)
 
     def date_to_for_filtering_as_hogql(self) -> ast.Expr:
+        # `format_date` rounds down to a whole second, which would drop the events inside the final
+        # second of the bound. Event timestamps carry microseconds, so the bound carries them too.
         return ast.Call(
             name="assumeNotNull",
             args=[
-                ast.Call(name="toDateTime", args=[ast.Constant(value=self.format_date(self.date_to_for_filtering()))])
+                ast.Call(
+                    name="toDateTime64",
+                    args=[
+                        ast.Constant(value=self.date_to_for_filtering().strftime("%Y-%m-%d %H:%M:%S.%f")),
+                        ast.Constant(value=6),
+                    ],
+                )
             ],
         )
 

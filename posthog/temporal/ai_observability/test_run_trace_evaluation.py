@@ -301,8 +301,9 @@ class TestFetchTraceForEvaluation:
 
         date_range = mock_runner.call_args.kwargs["query"].dateRange
         assert date_range.date_to == (window_end or FROZEN_NOW).isoformat()
-        # The runner ignores dateRange on the ai_events path unless it is asked to honor it.
-        assert mock_runner.call_args.kwargs["bound_events_to_date_range"] is True
+        # The runner ignores dateRange on the ai_events path unless it is asked to honor it, and
+        # only a backfilled run asks: a live run grades the whole trace, as it always has.
+        assert mock_runner.call_args.kwargs["bound_events_to_date_range"] is (window_end is not None)
 
     @pytest.mark.django_db(transaction=True)
     def test_returns_trace_when_found(self, setup_data):
@@ -318,21 +319,27 @@ class TestFetchTraceForEvaluation:
         assert outcome.trace is trace
 
     @pytest.mark.django_db(transaction=True)
-    def test_a_trace_left_with_no_events_in_the_window_is_skipped(self, setup_data):
+    @pytest.mark.parametrize(
+        "window_end,expected_skip",
+        [(FROZEN_NOW + timedelta(minutes=30), "trace_not_found"), (None, None)],
+    )
+    def test_a_backfilled_trace_left_with_no_events_is_skipped(self, setup_data, window_end, expected_skip):
         team = setup_data["team"]
-        window_end = FROZEN_NOW + timedelta(minutes=30)
+        empty_trace = create_trace([])
 
         # The count preflight sees the `$ai_trace` root row, which never reaches `events`, so the
-        # bounded runner can return a trace row with no transcript to grade.
+        # bounded runner can return a trace row with no transcript to grade. A live run keeps
+        # whatever it did with that row before, so only the backfilled run skips.
         with (
+            freeze_time(FROZEN_NOW),
             patch("posthog.temporal.ai_observability.run_trace_evaluation._count_trace_events", return_value=2),
             patch("posthog.temporal.ai_observability.run_trace_evaluation.TraceQueryRunner") as mock_runner,
         ):
-            mock_runner.return_value.calculate.return_value = MagicMock(results=[create_trace([])])
+            mock_runner.return_value.calculate.return_value = MagicMock(results=[empty_trace])
             outcome = fetch_trace_for_evaluation(team.id, "trace-123", FROZEN_NOW, window_end)
 
-        assert outcome.trace is None
-        assert outcome.skip_reason == "trace_not_found"
+        assert outcome.skip_reason == expected_skip
+        assert outcome.trace is (None if expected_skip else empty_trace)
 
 
 class TestRunHogEvalOverRecentTraces:
@@ -652,23 +659,26 @@ class TestEmitTraceEvaluationEventActivity:
             "allows_na": False,
         }
 
-        with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value=team.api_token):
-            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
-                mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
+        with (
+            freeze_time(FROZEN_NOW),
+            patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value=team.api_token),
+            patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture,
+        ):
+            mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
-                await emit_trace_evaluation_event_activity(
-                    EmitTraceEvaluationEventInputs(
-                        evaluation=evaluation_dict(setup_data),
-                        team_id=team.id,
-                        trace_id="trace-123",
-                        distinct_id="test-user",
-                        session_id=None,
-                        result=result,
-                        start_time=datetime(2024, 1, 1, 12, 0, 0),
-                        backfill_id=backfill_id,
-                        event_timestamp=event_timestamp,
-                    )
+            await emit_trace_evaluation_event_activity(
+                EmitTraceEvaluationEventInputs(
+                    evaluation=evaluation_dict(setup_data),
+                    team_id=team.id,
+                    trace_id="trace-123",
+                    distinct_id="test-user",
+                    session_id=None,
+                    result=result,
+                    start_time=datetime(2024, 1, 1, 12, 0, 0),
+                    backfill_id=backfill_id,
+                    event_timestamp=event_timestamp,
                 )
+            )
 
         call_kwargs = mock_capture.call_args[1]
         props = call_kwargs["properties"]
@@ -687,7 +697,8 @@ class TestEmitTraceEvaluationEventActivity:
                 "trace-123",
             )
         else:
-            assert call_kwargs["timestamp"] > datetime.now(UTC) - timedelta(minutes=1)
+            # A live verdict is stamped when it is emitted.
+            assert call_kwargs["timestamp"] == FROZEN_NOW
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)

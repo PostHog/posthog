@@ -213,9 +213,14 @@ def _sum_trace_payload_bytes(team: Team, trace_id: str, date_from: datetime, dat
     return int(result.results[0][0] or 0)
 
 
-def _fetch_trace(team: Team, trace_id: str, date_from: datetime, date_to: datetime) -> TraceFetchOutcome:
+def _fetch_trace(
+    team: Team, trace_id: str, date_from: datetime, date_to: datetime, *, bound_to_date_to: bool = False
+) -> TraceFetchOutcome:
     """Fetch a single full trace from ClickHouse over an explicit window, with a cheap count
-    preflight so degenerate traces are skipped before pulling their payload."""
+    preflight so degenerate traces are skipped before pulling their payload.
+
+    `bound_to_date_to` grades the trace as of `date_to`. A live run leaves it off and reads the
+    whole trace, which is what it graded before backfills existed."""
     event_count = _count_trace_events(team, trace_id, date_from, date_to)
     if event_count == 0:
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=0)
@@ -243,16 +248,16 @@ def _fetch_trace(team: Team, trace_id: str, date_from: datetime, date_to: dateti
         # run would grade events that the live run never saw, and its totals would report cost and
         # latency from them. The runner applies the upper bound only. A lower bound would cut off the
         # early events of the trace, which live runs do grade.
-        bound_events_to_date_range=True,
+        bound_events_to_date_range=bound_to_date_to,
     )
     response = runner.calculate()
     if not response.results:
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=event_count)
     trace = response.results[0]
-    if not trace.events:
+    if bound_to_date_to and not trace.events:
         # The count preflight includes the `$ai_trace` root row, which never reaches `events`, so a
-        # non-zero count does not promise a transcript. An empty one must skip rather than let the
-        # judge grade nothing.
+        # non-zero count does not promise a transcript. Once the bound applies, an empty one must
+        # skip rather than let the judge grade nothing. A live run keeps its own handling of this.
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=event_count)
     return TraceFetchOutcome(trace=trace, skip_reason=None, event_count=event_count)
 
@@ -264,7 +269,7 @@ def fetch_trace_for_evaluation(
     team = Team.objects.get(id=team_id)
     date_from = window_start - TRACE_EVENTS_LOOKBACK
     date_to = window_end or datetime.now(UTC)
-    return _fetch_trace(team, trace_id, date_from, date_to)
+    return _fetch_trace(team, trace_id, date_from, date_to, bound_to_date_to=window_end is not None)
 
 
 @dataclass
