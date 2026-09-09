@@ -11,6 +11,7 @@ pub mod seed_path;
 pub mod seed_run;
 pub mod stage2_gc;
 pub mod stage2_path;
+pub mod stage2_person_inputs;
 pub mod sweep_callback;
 pub mod worker;
 
