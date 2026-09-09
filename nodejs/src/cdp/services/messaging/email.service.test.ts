@@ -5,6 +5,7 @@ import { MessageRejected, SendingPausedException, TooManyRequestsException } fro
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -571,6 +572,80 @@ describe('EmailService', () => {
                 expect(claimOrReserve).not.toHaveBeenCalled()
                 expect(result.finished).toBe(true)
                 expect(limitedSendSpy).toHaveBeenCalled()
+            })
+        })
+
+        // Reproduces the 2026-09 email queue incident against the real limiter: a rate-limited
+        // workflow's backlog used to re-park every denial onto the same jittered 1-2s window, so
+        // the whole backlog woke as a herd, re-claimed against one token, and monopolized the
+        // queue head until its shared transition counter overflowed and stalled the queue.
+        describe('a denied backlog cannot crowd out other sends (incident regression)', () => {
+            it('spreads denied sends over distinct future slots and leaves unlimited workflows untouched', async () => {
+                const redis = createRedisV2PoolFromConfig({
+                    connection: hub.CDP_REDIS_HOST
+                        ? {
+                              url: hub.CDP_REDIS_HOST,
+                              options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                          }
+                        : { url: hub.REDIS_URL },
+                    poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+                    poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+                })
+                const realLimitedService = new EmailService(
+                    {
+                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                        sesRegion: hub.SES_REGION,
+                        sesEndpoint: hub.SES_ENDPOINT,
+                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                    },
+                    hub.integrationManager,
+                    new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
+                    hub.ENCRYPTION_SALT_KEYS,
+                    hub.SITE_URL,
+                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                    new RecipientsManagerService(hub.postgres),
+                    undefined,
+                    new RateLimiterService(redis, { name: 'workflow-email-incident-test' })
+                )
+                const realSendSpy = jest.spyOn(realLimitedService.sesV2Client!, 'send') as any
+                realSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                // 6/minute: refill 0.1 tokens/s, burst capacity 1. Slow enough that the test's
+                // own wall-clock time cannot refill a token between the denials below.
+                invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 6, period: 'minute' } }
+
+                const first = await realLimitedService.executeSendEmail(invocation)
+                expect(first.finished).toBe(true)
+
+                const parkedAt: number[] = []
+                for (let i = 0; i < 4; i++) {
+                    const denied = await realLimitedService.executeSendEmail(invocation)
+                    expect(denied.finished).toBe(false)
+                    parkedAt.push(denied.invocation.queueScheduledAt!.toMillis())
+                }
+
+                // Each denial must hold its own slot, one token interval (10s) apart. Under the
+                // incident behavior every park landed in the same jittered window, so gaps
+                // between consecutive parks were near zero or negative.
+                for (let i = 1; i < parkedAt.length; i++) {
+                    const gapMs = parkedAt[i] - parkedAt[i - 1]
+                    expect(gapMs).toBeGreaterThan(9_000)
+                    expect(gapMs).toBeLessThan(11_000)
+                }
+
+                // A workflow without a limit on the same team sends immediately, regardless of
+                // the backlog next to it.
+                const other = createExampleInvocation({ team_id: team.id, id: 'function-b' })
+                other.id = 'invocation-b'
+                other.state.vmState = { stack: [] } as any
+                other.queueParameters = createEmailParams({ from: { integrationId: 1 } })
+                const otherResult = await realLimitedService.executeSendEmail(other)
+
+                expect(otherResult.finished).toBe(true)
+                expect(realSendSpy).toHaveBeenCalledTimes(2)
             })
         })
 
