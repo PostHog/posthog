@@ -1,13 +1,7 @@
 import pytest
-from posthog.test.base import BaseTest
 
-from posthog.cdp.templates.customerio.template_customerio import (
-    TemplateCustomerioMigrator,
-    template as template_customerio,
-)
+from posthog.cdp.templates.customerio.template_customerio import template as template_customerio
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
-from products.cdp.backend.models.plugin import PluginConfig
 
 from common.hogvm.python.utils import UncaughtHogVMException
 
@@ -156,85 +150,3 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
         with pytest.raises(UncaughtHogVMException) as e:
             self.run_function(inputs=create_inputs())
         assert e.value.message == "Error from customer.io api: 400: {'error': 'error'}"
-
-
-class TestTemplateMigration(BaseTest):
-    def get_plugin_config(self, config: dict):
-        _config = {
-            "host": "track.customer.io",
-            "eventsToSend": "",
-            "customerioToken": "TOKEN",
-            "customerioSiteId": "SITE_ID",
-            "sendEventsFromAnonymousUsers": "Send all events",
-            "identifyByEmail": "No",
-        }
-        _config.update(config)
-        return PluginConfig(enabled=True, order=0, config=_config)
-
-    def test_full_function(self):
-        obj = self.get_plugin_config({})
-
-        template = TemplateCustomerioMigrator.migrate(obj)
-        assert template["inputs"] == {
-            "action": {"value": "automatic"},
-            "site_id": {"value": "SITE_ID"},
-            "token": {"value": "TOKEN"},
-            "host": {"value": "track.customer.io"},
-            "identifier_key": {"value": "id"},
-            "identifier_value": {"value": "{event.distinct_id}"},
-            "include_all_properties": {"value": True},
-            "attributes": {"value": {}},
-        }
-
-        assert template["filters"] == {}
-
-    def test_anon_config_send_all(self):
-        obj = self.get_plugin_config(
-            {
-                "sendEventsFromAnonymousUsers": "Send all events",
-            }
-        )
-
-        template = TemplateCustomerioMigrator.migrate(obj)
-        assert template["filters"] == {}
-
-    def test_anon_config_send_emails(self):
-        obj = self.get_plugin_config(
-            {
-                "sendEventsFromAnonymousUsers": "Only send events from users with emails",
-            }
-        )
-
-        template = TemplateCustomerioMigrator.migrate(obj)
-        assert template["filters"] == {
-            "properties": [{"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}]
-        }
-
-    def test_anon_config_send_identified(self):
-        obj = self.get_plugin_config(
-            {
-                "sendEventsFromAnonymousUsers": "Only send events from users that have been identified",
-            }
-        )
-
-        template = TemplateCustomerioMigrator.migrate(obj)
-        assert template["filters"] == {
-            "properties": [{"key": "$is_identified", "value": ["true"], "operator": "exact", "type": "event"}]
-        }
-
-    def test_identify_by_email(self):
-        obj = self.get_plugin_config({"identifyByEmail": "Yes"})
-        template = TemplateCustomerioMigrator.migrate(obj)
-        assert template["inputs"]["identifier_key"] == {"value": "email"}
-        assert template["inputs"]["identifier_value"] == {"value": "{person.properties.email}"}
-
-    def test_events_filters(self):
-        obj = self.get_plugin_config({"eventsToSend": "event1,event2, $pageview"})
-        template = TemplateCustomerioMigrator.migrate(obj)
-        assert template["filters"] == {
-            "events": [
-                {"id": "event1", "name": "event1", "type": "events", "order": 0},
-                {"id": "event2", "name": "event2", "type": "events", "order": 0},
-                {"id": "$pageview", "name": "$pageview", "type": "events", "order": 0},
-            ]
-        }

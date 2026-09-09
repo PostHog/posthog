@@ -258,7 +258,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Data ingestion related warnings from past 30 days.',
     },
     [Scene.InviteSignup]: { allowUnauthenticated: true, layout: 'plain' },
-    [Scene.LegacyPlugin]: { projectBased: true, name: 'Legacy plugin' },
     [Scene.Coupons]: { name: 'Coupons', organizationBased: true, layout: 'app-container' },
     [Scene.Link]: { projectBased: true },
     [Scene.Links]: { projectBased: true, name: 'Links' },
@@ -613,10 +612,6 @@ const redirectPipeline = (id: string, fallbackUrl: string): string => {
     if (id.startsWith('batch-export-')) {
         return urls.batchExport(id.replace('batch-export-', ''))
     }
-    // Legacy plugins (transformations)
-    if (id.startsWith('plugin-')) {
-        return urls.legacyPlugin(id.replace('plugin-', ''))
-    }
     // Data warehouse sources (sources)
     if (id.startsWith('managed-') || id.startsWith('self-managed-')) {
         return urls.dataWarehouseSource(id)
@@ -943,7 +938,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dataOps()]: [Scene.DataOps, 'dataOps'],
     [urls.batchExportNew(':service')]: [Scene.BatchExportNew, 'batchExportNew'],
     [urls.batchExport(':id')]: [Scene.BatchExport, 'batchExport'],
-    [urls.legacyPlugin(':id')]: [Scene.LegacyPlugin, 'legacyPlugin'],
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
     [urls.organizationDeactivated()]: [Scene.OrganizationDeactivated, 'organizationDeactivated'],

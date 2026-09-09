@@ -96,12 +96,9 @@ function NotificationContextTag({ hogFunction }: { hogFunction: HogFunctionType 
     )
 }
 
-// `returnTo` only applies to the canonical hog-function path; legacy plugin and
-// batch-export scenes don't read it.
+// `returnTo` only applies to the canonical hog-function path; the batch-export
+// scene doesn't read it.
 export const urlForHogFunction = (hogFunction: HogFunctionType, returnTo?: string): string => {
-    if (hogFunction.id.startsWith('plugin-')) {
-        return urls.legacyPlugin(hogFunction.id.replace('plugin-', ''))
-    }
     if (hogFunction.id.startsWith('batch-export-')) {
         return urls.batchExport(hogFunction.id.replace('batch-export-', ''))
     }

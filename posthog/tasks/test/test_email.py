@@ -30,7 +30,6 @@ from posthog.tasks.email import (
     send_email_change_emails,
     send_email_verification_code,
     send_external_data_failure_digest,
-    send_fatal_plugin_error,
     send_hog_function_disabled,
     send_hog_functions_daily_digest,
     send_hog_functions_digest_email,
@@ -56,7 +55,6 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportRun,
 )
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 
 
@@ -535,39 +533,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
-    def test_send_fatal_plugin_error(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
-        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
-        plugin = Plugin.objects.create(organization=org)
-        plugin_config = PluginConfig.objects.create(plugin=plugin, team=user.team, enabled=True, order=1)
-
-        send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
-
-        assert len(mocked_email_messages) == 1
-        assert mocked_email_messages[0].send.call_count == 1
-        assert mocked_email_messages[0].html_body
-
-    def test_send_fatal_plugin_error_with_settings(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
-        plugin = Plugin.objects.create(organization=self.organization)
-        plugin_config = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
-        user2 = self._create_user("test2@posthog.com")
-        self.user.partial_notification_settings = {"plugin_disabled": False}
-        self.user.save()
-
-        send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
-
-        # Should only be sent to user2
-        assert mocked_email_messages[0].to == [
-            {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
-        ]
-
-        self.user.partial_notification_settings = {"plugin_disabled": True}
-        self.user.save()
-        send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
-        # should be sent to both
-        assert len(mocked_email_messages[1].to) == 2
-
     def test_send_batch_export_run_failure(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         _, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
@@ -1026,24 +991,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             cast(Team, self.user.team), failure_rate=1.0, pipeline_id="hog_function:other-id"
         )
         assert len(memberships) == 2
-
-    def test_send_fatal_plugin_error_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
-        plugin = Plugin.objects.create(organization=self.organization)
-        plugin_config = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
-        user2 = self._create_user("test2@posthog.com")
-
-        self.user.partial_notification_settings = {
-            "plugin_disabled": True,
-            "pipeline_notifications_disabled": {f"plugin_config:{plugin_config.id}": True},
-        }
-        self.user.save()
-
-        send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
-
-        assert mocked_email_messages[0].to == [
-            {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
-        ]
 
     def test_send_hog_function_disabled_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

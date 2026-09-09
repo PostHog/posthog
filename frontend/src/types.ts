@@ -1,4 +1,3 @@
-import { LogicWrapper } from 'kea'
 import type { PostHog, PropertyMatchType, SupportedWebVitalsMetrics } from 'posthog-js'
 import { LogLevel } from 'posthog-js/rrweb-plugin-console-record'
 import { eventWithTime } from 'posthog-js/rrweb-types'
@@ -95,7 +94,6 @@ import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.s
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
-import { PluginConfigSchema } from './legacy-plugin-scaffold'
 import { InferredSelector } from './toolbar/product-tours/elementInference'
 
 export enum ConversionRateInputType {
@@ -529,12 +527,6 @@ export interface ResourceEditedEvent {
     resource_id: string
     updated_at: string
     actor_user_id: number | null
-}
-
-export interface PluginAccess {
-    view: boolean
-    install: boolean
-    configure: boolean
 }
 
 export interface PersonalAPIKeyType {
@@ -2902,115 +2894,6 @@ export interface OrganizationInviteType {
     }>
 }
 
-export enum PluginInstallationType {
-    Local = 'local',
-    Custom = 'custom',
-    Repository = 'repository',
-    Source = 'source',
-    Inline = 'inline',
-}
-
-export interface PluginType {
-    id: number
-    plugin_type: PluginInstallationType
-    name: string
-    description?: string
-    url?: string
-    tag?: string
-    icon?: string
-    latest_tag?: string // apps management page: The latest git hash for the repo behind the url
-    config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
-    source?: string
-    maintainer?: string
-    is_global: boolean
-    organization_id: string
-    organization_name: string
-    metrics?: Record<string, StoredMetricMathOperations>
-    capabilities?: Record<'jobs' | 'methods' | 'scheduled_tasks', string[] | undefined>
-    public_jobs?: Record<string, JobSpec>
-    hog_function_migration_available?: boolean
-}
-
-export type AppType = PluginType
-
-/** Config passed to app component and logic as props. Sent in Django's app context */
-export interface FrontendAppConfig {
-    pluginId: number
-    pluginConfigId: number
-    pluginType: PluginInstallationType | null
-    name: string
-    url: string
-    config: Record<string, any>
-}
-
-/** Frontend app created after receiving a bundle via import('').getFrontendApp() */
-export interface FrontendApp {
-    id: number
-    pluginId: number
-    error?: any
-    title?: string
-    logic?: LogicWrapper
-    component?: (props: FrontendAppConfig) => JSX.Element
-    onInit?: (props: FrontendAppConfig) => void
-}
-
-export interface JobPayloadFieldOptions {
-    type: 'string' | 'boolean' | 'json' | 'number' | 'date' | 'daterange'
-    title?: string
-    required?: boolean
-    default?: any
-    staff_only?: boolean
-}
-
-export interface JobSpec {
-    payload?: Record<string, JobPayloadFieldOptions>
-}
-
-/** @deprecated in favor of PluginConfigTypeNew */
-export interface PluginConfigType {
-    id?: number
-    plugin: number
-    team_id: number
-    enabled: boolean
-    order: number
-
-    config: Record<string, any>
-    error?: PluginErrorType
-    created_at?: string
-}
-
-/** @deprecated in favor of PluginConfigWithPluginInfoNew */
-export interface PluginConfigWithPluginInfo extends PluginConfigType {
-    id: number
-    plugin_info: PluginType
-}
-
-// TODO: Rename to PluginConfigType once the legacy PluginConfigType are removed from the frontend
-export interface PluginConfigTypeNew {
-    id: number
-    plugin: number
-    team_id: number
-    enabled: boolean
-    order: number
-    name: string
-    description?: string
-    updated_at: string
-    config: Record<string, any>
-}
-
-// TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend
-export interface PluginConfigWithPluginInfoNew extends PluginConfigTypeNew {
-    plugin_info: PluginType
-}
-
-export interface PluginErrorType {
-    message: string
-    time: string
-    stack?: string
-    name?: string
-    event?: Record<string, any>
-}
-
 export type LogEntryLevel = 'DEBUG' | 'LOG' | 'INFO' | 'WARN' | 'WARNING' | 'ERROR'
 
 // The general log entry format that eventually everything should match
@@ -3030,19 +2913,6 @@ export type LogEntryRequestParams = {
     level?: string
     search?: string
     instance_id?: string
-}
-
-export interface PluginLogEntry {
-    id: string
-    team_id: number
-    plugin_id: number
-    plugin_config_id: number
-    timestamp: string
-    source: string
-    type: LogEntryLevel
-    is_system: boolean
-    message: string
-    instance_id: string
 }
 
 export enum AnnotationScope {
@@ -5209,7 +5079,6 @@ export interface AppContext {
      */
     persisted_feature_flags?: string[] | Record<string, string | boolean>
     anonymous: boolean
-    frontend_apps?: Record<number, FrontendAppConfig>
     effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     custom_products: UserProductListItem[]
@@ -5225,8 +5094,6 @@ export interface AppContext {
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
 }
-
-export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
 
 export interface PathEdgeParameters {
     edgeLimit?: number | undefined
@@ -6154,8 +6021,6 @@ export enum ActivityScope {
     PROJECT_SECRET_API_KEY = 'ProjectSecretAPIKey',
     GROUP = 'Group',
     INSIGHT = 'Insight',
-    PLUGIN = 'Plugin',
-    PLUGIN_CONFIG = 'PluginConfig',
     HOG_FUNCTION = 'HogFunction',
     HOG_FLOW = 'HogFlow',
     DATA_MANAGEMENT = 'DataManagement',

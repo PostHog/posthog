@@ -165,8 +165,6 @@ def _instance_metadata() -> InstanceMetadata:
         users_who_signed_up=None,
         users_who_signed_up_count=None,
         table_sizes=None,
-        plugins_installed=None,
-        plugins_enabled=None,
         instance_tag="test-tag",
     )
 

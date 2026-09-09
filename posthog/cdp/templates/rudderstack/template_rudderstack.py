@@ -1,7 +1,4 @@
-import dataclasses
-from copy import deepcopy
-
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
@@ -130,25 +127,3 @@ if (res.status != 200 or res.body.ok == false) {
         },
     ],
 )
-
-
-class TemplateRudderstackMigrator(HogFunctionTemplateMigrator):
-    plugin_url = "https://github.com/PostHog/rudderstack-posthog-plugin"
-
-    @classmethod
-    def migrate(cls, obj):
-        hf = deepcopy(dataclasses.asdict(template))
-        hf["hog"] = hf["code"]
-        del hf["code"]
-
-        host = obj.config.get("dataPlaneUrl", "https://hosted.rudderlabs.com")
-        token = obj.config.get("writeKey", "")
-
-        hf["inputs"] = {
-            "host": {"value": host},
-            "token": {"value": token},
-            "identifier": {"value": "{event.properties.$user_id ?? event.distinct_id ?? person.id}"},
-        }
-        hf["filters"] = {}
-
-        return hf

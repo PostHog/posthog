@@ -26,7 +26,6 @@ from posthog.api import (
     router,
     sharing,
     signup,
-    site_app,
     two_factor_reset,
     unsubscribe,
     uploaded_media,
@@ -709,7 +708,6 @@ urlpatterns = [
         "exporter/<str:access_token>",
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
-    path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
     re_path(r"^demo.*", login_required(demo_route)),
     path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
     # ingestion

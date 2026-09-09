@@ -1,14 +1,10 @@
 import pytest
-from posthog.test.base import BaseTest
 
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.hubspot.template_hubspot import (
-    TemplateHubspotMigrator,
     template as template_hubspot,
     template_event as template_hubspot_event,
 )
-
-from products.cdp.backend.models.plugin import PluginConfig
 
 from common.hogvm.python.utils import UncaughtHogVMException
 
@@ -397,47 +393,3 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
                     e.value.message
                     == f"Event name must start with a letter and can only contain lowercase letters, numbers, underscores, and hyphens. Not sending event..."
                 )
-
-
-class TestTemplateMigration(BaseTest):
-    def get_plugin_config(self, config: dict):
-        _config = {
-            "hubspotAccessToken": "toky",
-            "triggeringEvents": "$identify,$set",
-            "additionalPropertyMappings": "a:b",
-            "ignoredEmails": "gmail.com",
-        }
-        _config.update(config)
-        return PluginConfig(enabled=True, order=0, config=_config)
-
-    def test_default_config(self):
-        obj = self.get_plugin_config({})
-        fn = TemplateHubspotMigrator.migrate(obj)
-
-        assert fn["inputs"] == {
-            "access_token": {"value": "toky"},
-            "email": {"value": "{person.properties.email}"},
-            "properties": {
-                "value": {
-                    "firstname": "{person.properties.firstname ?? person.properties.firstName ?? person.properties.first_name}",
-                    "lastname": "{person.properties.lastname ?? person.properties.lastName ?? person.properties.last_name}",
-                    "company": "{person.properties.company ?? person.properties.companyName ?? person.properties.company_name}",
-                    "phone": "{person.properties.phone ?? person.properties.phoneNumber ?? person.properties.phone_number}",
-                    "website": "{person.properties.website ?? person.properties.companyWebsite ?? person.properties.company_website}",
-                    "b": "{person.properties.a}",
-                }
-            },
-        }
-
-        assert fn["filters"] == {
-            "properties": [{"key": "email", "value": "gmail.com", "operator": "not_icontains", "type": "person"}],
-            "events": [
-                {"id": "$identify", "name": "$identify", "type": "events", "properties": []},
-                {"id": "$set", "name": "$set", "type": "events", "properties": []},
-            ],
-        }
-        assert fn["inputs_schema"][0]["key"] == "access_token"
-        assert fn["inputs_schema"][0]["type"] == "string"
-        assert fn["inputs_schema"][0]["secret"]
-        assert "inputs.oauth.access_token" not in fn["hog"]
-        assert "inputs.access_token" in fn["hog"]

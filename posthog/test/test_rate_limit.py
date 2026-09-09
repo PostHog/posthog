@@ -398,13 +398,13 @@ class TestUserAPI(APIBaseTest):
         self.client.logout()
         for _ in range(5):
             response = self.client.get(
-                f"/api/organizations/{self.organization.pk}/plugins",
+                f"/api/organizations/{self.organization.pk}/members/",
                 headers={"authorization": f"Bearer {self.personal_api_key}"},
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response = self.client.get(
-            f"/api/organizations/{self.organization.pk}/plugins",
+            f"/api/organizations/{self.organization.pk}/members/",
             headers={"authorization": f"Bearer {self.personal_api_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
@@ -419,7 +419,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": None,
                 "scope": "burst",
                 "rate": "5/minute",
-                "route": "/api/organizations/ORG_ID/plugins/",
+                "route": "/api/organizations/ORG_ID/members/",
                 "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
@@ -432,7 +432,7 @@ class TestUserAPI(APIBaseTest):
 
         for _ in range(6):
             response = self.client.get(
-                f"/api/organizations/{self.organization.pk}/plugins",
+                f"/api/organizations/{self.organization.pk}/members/",
                 headers={"authorization": f"Bearer {self.personal_api_key}"},
             )
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
@@ -445,12 +445,12 @@ class TestUserAPI(APIBaseTest):
 
         # if not logged in, we 401
         for _ in range(3):
-            response = self.client.get(f"/api/organizations/{self.organization.pk}/plugins")
+            response = self.client.get(f"/api/organizations/{self.organization.pk}/members/")
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
         self.client.force_login(self.user)
         # but no rate limits when logged in and not using personal API key
-        response = self.client.get(f"/api/organizations/{self.organization.pk}/plugins")
+        response = self.client.get(f"/api/organizations/{self.organization.pk}/members/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]),
@@ -842,9 +842,9 @@ class TestUserAPI(APIBaseTest):
             ),
             # Test fallback pattern for organizations
             (
-                "/api/organizations/org-123/plugins",
+                "/api/organizations/org-123/members/",
                 None,  # resolve will raise exception
-                "/api/organizations/ORG_ID/plugins",
+                "/api/organizations/ORG_ID/members/",
                 "Fallback pattern for organization IDs",
             ),
             # Test empty/None paths

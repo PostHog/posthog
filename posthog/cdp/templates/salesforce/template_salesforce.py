@@ -1,7 +1,4 @@
-import dataclasses
-from copy import deepcopy
-
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 common_filters = {
     "events": [{"id": "$identify", "name": "$identify", "type": "events", "order": 0}],
@@ -377,47 +374,3 @@ return {
     ],
     filters=common_filters,
 )
-
-
-class TemplatSalesforceMigrator(HogFunctionTemplateMigrator):
-    plugin_url = "https://github.com/PostHog/posthog-plugin-replicator"
-
-    @classmethod
-    def migrate(cls, obj):
-        eventPath = obj.config.get("eventPath", "")
-        eventsToInclude = [x.strip() for x in obj.config.get("eventsToInclude", "").split(",") if x]
-        eventMethodType = obj.config.get("eventMethodType", "")
-        propertiesToInclude = [x.strip() for x in obj.config.get("propertiesToInclude", "").split(",") if x]
-
-        # This will be everybody currently on cloud
-        if eventMethodType == "POST":
-            hf = deepcopy(dataclasses.asdict(template_create))
-        else:
-            hf = deepcopy(dataclasses.asdict(template_update))
-
-        hf["inputs"] = {
-            "path": {"value": eventPath},
-        }
-
-        hf["filters"] = {}
-        if eventsToInclude:
-            hf["filters"]["events"] = [
-                {
-                    "id": event,
-                    "name": event,
-                    "type": "events",
-                    "order": 0,
-                }
-                for event in eventsToInclude
-            ]
-
-        if propertiesToInclude:
-            hf["inputs"]["properties"] = {
-                "value": {prop: f"{{event.properties.{prop}}}" for prop in propertiesToInclude}
-            }
-        elif eventsToInclude and "$identify" in eventsToInclude:
-            hf["inputs"]["include_all_person_properties"] = {"value": True}
-        else:
-            hf["inputs"]["include_all_event_properties"] = {"value": True}
-
-        return hf

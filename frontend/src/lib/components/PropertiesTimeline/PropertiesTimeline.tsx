@@ -8,11 +8,10 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanList } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { Properties } from '~/legacy-plugin-scaffold'
 import { PropertyDefinitionType } from '~/types'
 
 import { TimelineSeekbar } from '../TimelineSeekbar'
-import { PropertiesTimelineProps, propertiesTimelineLogic } from './propertiesTimelineLogic'
+import { Properties, PropertiesTimelineProps, propertiesTimelineLogic } from './propertiesTimelineLogic'
 
 export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): JSX.Element {
     const logic = propertiesTimelineLogic({ actor, filter })

@@ -8,7 +8,7 @@ import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTe
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { HogFunctionType, HogFunctionTypeType } from '~/types'
+import { HogFunctionTypeType } from '~/types'
 
 import { nonHogFunctionsLogic } from './utils/nonHogFunctionsLogic'
 import { nonHogFunctionTemplatesLogic } from './utils/nonHogFunctionTemplatesLogic'
@@ -22,33 +22,19 @@ export function DataPipelinesHogFunctions({ kind, additionalKinds }: DataPipelin
     const humanizedKind = humanizeHogFunctionType(kind)
     const logicKey = `data-pipelines-hog-functions-${kind}`
 
-    const { hogFunctionPluginsDestinations, hogFunctionBatchExports, hogFunctionPluginsSiteApps } =
-        useValues(nonHogFunctionsLogic)
-    const { loadHogFunctionPluginsDestinations, loadHogFunctionBatchExports, loadHogFunctionPluginsSiteApps } =
-        useActions(nonHogFunctionsLogic)
+    const { hogFunctionBatchExports } = useValues(nonHogFunctionsLogic)
+    const { loadHogFunctionBatchExports } = useActions(nonHogFunctionsLogic)
 
     const { hogFunctionTemplatesBatchExports } = useValues(nonHogFunctionTemplatesLogic)
 
     useEffect(() => {
         if (kind === 'destination') {
-            loadHogFunctionPluginsDestinations()
             loadHogFunctionBatchExports()
-        }
-
-        if (kind === 'site_app') {
-            loadHogFunctionPluginsSiteApps()
         }
     }, [kind]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    // Each source is null until it loads; the list just needs everything in one array.
-    const manualSources: (HogFunctionType[] | null)[] =
-        kind === 'destination'
-            ? [hogFunctionPluginsDestinations, hogFunctionBatchExports]
-            : kind === 'site_app'
-              ? [hogFunctionPluginsSiteApps]
-              : []
-
-    const manualFunctions = manualSources.length > 0 ? manualSources.flatMap((source) => source ?? []) : undefined
+    // Batch exports load as null until resolved; the list just needs everything in one array.
+    const manualFunctions = kind === 'destination' ? (hogFunctionBatchExports ?? []) : undefined
 
     return (
         <SceneContent>

@@ -26,11 +26,6 @@ def publish_message(channel: str, payload: Union[dict, str]):
     get_client(PLUGINS_RELOAD_REDIS_URL).publish(channel, message)
 
 
-def reload_plugins_on_workers():
-    logger.info("Reloading plugins on workers")
-    publish_message("reload-plugins", "")
-
-
 def reload_action_on_workers(team_id: int, action_id: int):
     logger.info(f"Reloading action {action_id} on workers")
     publish_message("reload-action", {"teamId": team_id, "actionId": action_id})
@@ -79,11 +74,6 @@ def reload_integrations_on_workers(team_id: int, integration_ids: list[int]):
 def reload_team_workflows_config_on_workers(team_id: int):
     logger.info(f"Reloading team workflows config for team {team_id} on workers")
     publish_message("reload-team-workflows-config", {"teamId": team_id})
-
-
-def populate_plugin_capabilities_on_workers(plugin_id: str):
-    logger.info(f"Populating plugin capabilities for plugin {plugin_id} on workers")
-    publish_message("populate-plugin-capabilities", {"pluginId": plugin_id})
 
 
 def create_hog_invocation_test(team_id: int, hog_function_id: str, payload: dict) -> requests.Response:

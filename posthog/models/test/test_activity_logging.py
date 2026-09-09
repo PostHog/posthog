@@ -11,7 +11,7 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 class TeatActivityLog(TestCase):
     def test_dict_changes_between(self):
         changes = dict_changes_between(
-            model_type="Plugin",
+            model_type="HogFunction",
             previous={"change_field": "foo", "delete_field": "foo"},
             new={"change_field": "bar", "new_field": "bar"},
         )
@@ -20,7 +20,7 @@ class TeatActivityLog(TestCase):
 
         self.assertIn(
             Change(
-                type="Plugin",
+                type="HogFunction",
                 action="changed",
                 field="change_field",
                 before="foo",
@@ -30,7 +30,7 @@ class TeatActivityLog(TestCase):
         )
         self.assertIn(
             Change(
-                type="Plugin",
+                type="HogFunction",
                 action="created",
                 field="new_field",
                 before=None,
@@ -40,7 +40,7 @@ class TeatActivityLog(TestCase):
         )
         self.assertIn(
             Change(
-                type="Plugin",
+                type="HogFunction",
                 action="deleted",
                 field="delete_field",
                 before="foo",

@@ -161,9 +161,6 @@ import {
     PersonListParams,
     PersonType,
     PersonalAPIKeyType,
-    PluginConfigTypeNew,
-    PluginConfigWithPluginInfoNew,
-    PluginLogEntry,
     ProductTour,
     ProductTourAIGenerationResponse,
     ProductTourStep,
@@ -274,7 +271,6 @@ import {
     COHORT_PERSONS_QUERY_LIMIT,
     EVENT_DEFINITIONS_PER_PAGE,
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-    LOGS_PORTION_LIMIT,
 } from './constants'
 import type { ProductIntentProperties } from './utils/product-intents'
 
@@ -668,27 +664,6 @@ export class ApiRequest {
     // # User product list
     public userProductList(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('user_product_list')
-    }
-
-    // # Plugins
-    public plugins(orgId?: OrganizationType['id']): ApiRequest {
-        return this.organizationsDetail(orgId).addPathComponent('plugins')
-    }
-
-    public pluginsActivity(orgId?: OrganizationType['id']): ApiRequest {
-        return this.plugins(orgId).addPathComponent('activity')
-    }
-
-    public pluginConfigs(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('plugin_configs')
-    }
-
-    public pluginConfig(id: number, teamId?: TeamType['id']): ApiRequest {
-        return this.pluginConfigs(teamId).addPathComponent(id)
-    }
-
-    public pipelineFrontendAppsConfigs(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('pipeline_frontend_apps_configs')
     }
 
     public hog(teamId?: TeamType['id']): ApiRequest {
@@ -2601,17 +2576,6 @@ const api = {
         async list(params?: string): Promise<CountedPaginatedResponse<ActionType>> {
             return await new ApiRequest().actions().withQueryString(params).get()
         },
-        async listMatchingPluginConfigs(
-            actionId: ActionType['id']
-        ): Promise<PaginatedResponse<PluginConfigWithPluginInfoNew>> {
-            return await new ApiRequest()
-                .actionsDetail(actionId)
-                .withAction('plugin_configs')
-                .withQueryString({
-                    limit: 1000,
-                })
-                .get()
-        },
         determineDeleteEndpoint(): string {
             return new ApiRequest().actions().assembleEndpointUrl()
         },
@@ -2667,7 +2631,6 @@ const api = {
             // Opt into the new /activity_log API
             if (
                 [
-                    ActivityScope.PLUGIN,
                     ActivityScope.HOG_FUNCTION,
                     ActivityScope.HOG_FLOW,
                     ActivityScope.EXPERIMENT,
@@ -2709,11 +2672,6 @@ const api = {
                 },
                 [ActivityScope.INSIGHT]: () => {
                     return new ApiRequest().insightsActivity(projectId)
-                },
-                [ActivityScope.PLUGIN_CONFIG]: () => {
-                    return props.id
-                        ? new ApiRequest().pluginConfig(props.id as number, projectId).withAction('activity')
-                        : new ApiRequest().plugins().withAction('activity')
                 },
                 [ActivityScope.DATA_MANAGEMENT]: () => {
                     return new ApiRequest().dataManagementActivity()
@@ -3897,61 +3855,6 @@ const api = {
         },
     },
 
-    // Site apps still backed by a plugin rather than a hog function. The web scripts scene
-    // lists these alongside hog functions, so anything deciding whether a project has web
-    // scripts has to count them too.
-    pipelineFrontendAppsConfigs: {
-        async list(params: { limit?: number } = {}): Promise<CountedPaginatedResponse<PluginConfigTypeNew>> {
-            return await new ApiRequest().pipelineFrontendAppsConfigs().withQueryString(params).get()
-        },
-    },
-
-    pluginConfigs: {
-        async get(id: PluginConfigTypeNew['id']): Promise<PluginConfigWithPluginInfoNew> {
-            return await new ApiRequest().pluginConfig(id).get()
-        },
-        async update(id: PluginConfigTypeNew['id'], data: FormData): Promise<PluginConfigWithPluginInfoNew> {
-            return await new ApiRequest().pluginConfig(id).update({ data })
-        },
-        async create(data: FormData): Promise<PluginConfigWithPluginInfoNew> {
-            return await new ApiRequest().pluginConfigs().create({ data })
-        },
-        async list(): Promise<PaginatedResponse<PluginConfigTypeNew>> {
-            return await new ApiRequest().pluginConfigs().get()
-        },
-        async migrate(id: PluginConfigTypeNew['id']): Promise<HogFunctionType> {
-            return await new ApiRequest().pluginConfig(id).withAction('migrate').create()
-        },
-        async logs(pluginConfigId: number, params: LogEntryRequestParams): Promise<LogEntry[]> {
-            const levels = (params.level?.split(',') ?? []).filter((x) => x !== 'WARNING')
-            const response = await new ApiRequest()
-                .pluginConfig(pluginConfigId)
-                .withAction('logs')
-                .withQueryString(
-                    toParams(
-                        {
-                            limit: LOGS_PORTION_LIMIT,
-                            type_filter: levels,
-                            search: params.search,
-                            before: params.before,
-                            after: params.after,
-                        },
-                        true
-                    )
-                )
-                .get()
-
-            const results = response.results.map((entry: PluginLogEntry) => ({
-                log_source_id: `${entry.plugin_config_id}`,
-                instance_id: entry.source,
-                timestamp: entry.timestamp,
-                level: entry.type,
-                message: entry.message,
-            }))
-
-            return results
-        },
-    },
     hog: {
         async create(hog: string, locals?: any[], inRepl?: boolean): Promise<HogCompileResponse> {
             return await new ApiRequest().hog().create({ data: { hog, locals, in_repl: inRepl || false } })

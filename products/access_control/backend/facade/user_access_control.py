@@ -97,7 +97,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
 
 # Resources whose access comes from membership rather than resource-level AccessControl rows,
 # so nothing sits above an object of this type to fall back to
-RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS: frozenset[APIScopeObject] = frozenset({"organization", "project", "plugin"})
+RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS: frozenset[APIScopeObject] = frozenset({"organization", "project"})
 
 # Resource inheritance mapping - child resources inherit access from parent resources
 RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
@@ -304,8 +304,6 @@ def model_to_resource(model: Model | type[Model]) -> Optional[APIScopeObject]:
         return "feature_flag"
     if name == "earlyaccessfeature":
         return "early_access_feature"
-    if name == "plugin_config":
-        return "plugin"
     if name == "sessionrecording":
         return "session_recording"
     if name == "sharingconfiguration":

@@ -7,8 +7,9 @@ import { Dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
 import { toParams } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { Properties } from '~/legacy-plugin-scaffold'
 import { ActorType, PropertiesTimelineFilterType } from '~/types'
+
+export type Properties = Record<string, any>
 
 export interface PropertiesTimelinePoint {
     timestamp: Dayjs

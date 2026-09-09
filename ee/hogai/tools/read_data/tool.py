@@ -198,7 +198,7 @@ class ReadActivityLog(BaseModel):
             "Dashboard, DataManagement, EarlyAccessFeature, EventDefinition, Experiment, "
             "ExternalDataSchema, ExternalDataSource, FeatureFlag, HogFlow, HogFunction, "
             "Insight, Notebook, Organization, OrganizationDomain, OrganizationMembership, "
-            "Person, PersonalAPIKey, Plugin, PluginConfig, Project, PropertyDefinition, "
+            "Person, PersonalAPIKey, Project, PropertyDefinition, "
             "Replay, SessionRecordingPlaylist, Survey, Tag, TaggedItem, Team, User, "
             "WebAnalyticsFilterPreset."
         ),

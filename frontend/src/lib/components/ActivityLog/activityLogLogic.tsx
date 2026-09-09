@@ -270,7 +270,7 @@ export const activityLogLogic = kea<activityLogLogicType>([
             const shouldPage =
                 forceUsePageParam ||
                 (pageScope === ActivityScope.PERSON && hashParams['activeTab'] === 'history') ||
-                ([ActivityScope.FEATURE_FLAG, ActivityScope.INSIGHT, ActivityScope.PLUGIN].includes(pageScope) &&
+                ([ActivityScope.FEATURE_FLAG, ActivityScope.INSIGHT].includes(pageScope) &&
                     searchParams['tab'] === 'history')
 
             if (shouldPage && pageInURL && pageInURL !== values.page && pageScope === firstScope) {
@@ -279,7 +279,7 @@ export const activityLogLogic = kea<activityLogLogicType>([
 
             const shouldRemovePageParam =
                 (pageScope === ActivityScope.PERSON && hashParams['activeTab'] !== 'history') ||
-                ([ActivityScope.FEATURE_FLAG, ActivityScope.INSIGHT, ActivityScope.PLUGIN].includes(pageScope) &&
+                ([ActivityScope.FEATURE_FLAG, ActivityScope.INSIGHT].includes(pageScope) &&
                     searchParams['tab'] !== 'history')
 
             if (!forceUsePageParam && shouldRemovePageParam && 'page' in router.values.searchParams) {

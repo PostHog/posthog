@@ -56691,59 +56691,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `SYSTEM` - SYSTEM
-     * * `PLUGIN` - PLUGIN
-     * * `CONSOLE` - CONSOLE
-     */
-    export type PluginLogEntrySourceEnum = typeof PluginLogEntrySourceEnum[keyof typeof PluginLogEntrySourceEnum];
-
-
-    export const PluginLogEntrySourceEnum = {
-      System: 'SYSTEM',
-      Plugin: 'PLUGIN',
-      Console: 'CONSOLE',
-    } as const;
-
-    /**
-     * * `DEBUG` - DEBUG
-     * * `LOG` - LOG
-     * * `INFO` - INFO
-     * * `WARN` - WARN
-     * * `ERROR` - ERROR
-     */
-    export type PluginLogEntryTypeEnum = typeof PluginLogEntryTypeEnum[keyof typeof PluginLogEntryTypeEnum];
-
-
-    export const PluginLogEntryTypeEnum = {
-      Debug: 'DEBUG',
-      Log: 'LOG',
-      Info: 'INFO',
-      Warn: 'WARN',
-      Error: 'ERROR',
-    } as const;
-
-    export interface PluginLogEntry {
-      id: string;
-      team_id: number;
-      plugin_id: number;
-      plugin_config_id: number;
-      timestamp: string;
-      source: PluginLogEntrySourceEnum;
-      type: PluginLogEntryTypeEnum;
-      message: string;
-      instance_id: string;
-    }
-
-    export interface PaginatedPluginLogEntryList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: PluginLogEntry[];
-    }
-
-    /**
      * * `generating` - Generating
      * * `ready` - Ready
      * * `quiet` - Quiet
@@ -92942,8 +92889,6 @@ export namespace Schemas {
      * * `Person` - Person
      * * `Group` - Group
      * * `Insight` - Insight
-     * * `Plugin` - Plugin
-     * * `PluginConfig` - PluginConfig
      * * `HogFunction` - HogFunction
      * * `HogFlow` - HogFlow
      * * `DataManagement` - DataManagement
@@ -93040,8 +92985,6 @@ export namespace Schemas {
       Person: 'Person',
       Group: 'Group',
       Insight: 'Insight',
-      Plugin: 'Plugin',
-      PluginConfig: 'PluginConfig',
       HogFunction: 'HogFunction',
       HogFlow: 'HogFlow',
       DataManagement: 'DataManagement',
@@ -93124,8 +93067,6 @@ export namespace Schemas {
      * * `Person` - Person
      * * `Group` - Group
      * * `Insight` - Insight
-     * * `Plugin` - Plugin
-     * * `PluginConfig` - PluginConfig
      * * `HogFunction` - HogFunction
      * * `HogFlow` - HogFlow
      * * `DataManagement` - DataManagement
@@ -93210,8 +93151,6 @@ export namespace Schemas {
       Person: 'Person',
       Group: 'Group',
       Insight: 'Insight',
-      Plugin: 'Plugin',
-      PluginConfig: 'PluginConfig',
       HogFunction: 'HogFunction',
       HogFlow: 'HogFlow',
       DataManagement: 'DataManagement',
@@ -100564,17 +100503,6 @@ export namespace Schemas {
       Csv: 'csv',
       Json: 'json',
     } as const;
-
-    export type PluginConfigsLogsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
 
     export type ProductToursListParams = {
     /**
