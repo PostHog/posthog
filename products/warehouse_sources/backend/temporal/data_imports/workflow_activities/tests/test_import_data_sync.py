@@ -24,6 +24,7 @@ from posthog.temporal.common.errors import NonReportableError
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import IMPORT_NON_RETRYABLE_ERROR_TYPES
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
@@ -292,13 +293,12 @@ async def test_source_classified_retryable_error_logged_as_warning_not_exception
     logger.aexception.assert_not_awaited()
 
 
+def test_deferred_rebuild_error_is_not_retried():
+    assert DeltaRebuildDeferredError.__name__ in IMPORT_NON_RETRYABLE_ERROR_TYPES
+
+
 @pytest.mark.asyncio
-async def test_deferred_rebuild_error_is_retried_and_never_disables_the_schema():
-    # The revive raises this after latching reset_pipeline, and the retry is what rebuilds the
-    # table. Route it by type, ahead of the message matching below: a source whose
-    # get_non_retryable_errors happens to match this text would otherwise send a self-healing
-    # deferral through handle_non_retryable_error, which disables the customer's schema and leaves
-    # the table corrupt forever. It must also stay out of error tracking, so warning not aexception.
+async def test_deferred_rebuild_error_is_reraised_by_type_and_never_disables_the_schema():
     error = DeltaRebuildDeferredError("This table's storage is damaged and needs a full re-import.")
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {"storage is damaged"}

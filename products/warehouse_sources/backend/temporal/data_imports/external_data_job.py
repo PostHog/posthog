@@ -116,6 +116,14 @@ LOGGER = get_logger(__name__)
 MAX_RESUMABLE_SOURCE_RETRIES = 3 if settings.DEBUG else 15
 MAX_INCREMENTAL_SOURCE_RETRIES = 3 if settings.DEBUG else 9
 
+# `DeltaRebuildDeferredError` is listed because a retry cannot help: the v3 pipeline runs the corrupt-table
+# revive only on attempt 1, so the next scheduled run is what rebuilds the table.
+IMPORT_NON_RETRYABLE_ERROR_TYPES = [
+    "NonRetryableException",
+    "BillingLimitsWillBeReachedException",
+    "DeltaRebuildDeferredError",
+]
+
 Any_Source_Errors: dict[str, str | None] = {
     "Could not establish session to SSH gateway": None,
     # Raised by `_check_direct_host` when a direct (untunneled) database connection's host doesn't
@@ -831,7 +839,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     "start_to_close_timeout": dt.timedelta(weeks=1),
                     "retry_policy": RetryPolicy(
                         maximum_attempts=max_resumable_attempts,
-                        non_retryable_error_types=["NonRetryableException", "BillingLimitsWillBeReachedException"],
+                        non_retryable_error_types=IMPORT_NON_RETRYABLE_ERROR_TYPES,
                     ),
                 }
             elif incremental_or_append:
@@ -839,7 +847,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     "start_to_close_timeout": dt.timedelta(weeks=1),
                     "retry_policy": RetryPolicy(
                         maximum_attempts=max_incremental_attempts,
-                        non_retryable_error_types=["NonRetryableException", "BillingLimitsWillBeReachedException"],
+                        non_retryable_error_types=IMPORT_NON_RETRYABLE_ERROR_TYPES,
                     ),
                 }
             else:
@@ -847,7 +855,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     "start_to_close_timeout": dt.timedelta(hours=24),
                     "retry_policy": RetryPolicy(
                         maximum_attempts=3,
-                        non_retryable_error_types=["NonRetryableException", "BillingLimitsWillBeReachedException"],
+                        non_retryable_error_types=IMPORT_NON_RETRYABLE_ERROR_TYPES,
                     ),
                 }
 

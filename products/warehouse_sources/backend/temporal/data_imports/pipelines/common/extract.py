@@ -470,16 +470,18 @@ def _capture_delta_revived(
         capture_exception(e)
 
 
-def _run_can_rebuild_from_source(schema: "ExternalDataSchema", reset_pipeline: bool) -> bool:
-    """Whether this run's extraction covers the whole table rather than an incremental window.
+def _run_can_rebuild_from_source(schema: "ExternalDataSchema", query_ignores_cursor: bool) -> bool:
+    """Whether this run's source query covers the whole table rather than an incremental window.
 
-    `import_data_activity_sync` resolves `db_incremental_field_last_value` and builds the source
-    query long before the pipeline opens the Delta table, so a reset decided here cannot widen the
-    query that is already bound. The query covers everything only when the activity used no stored
-    cursor: either the schema has no incremental cursor at all, or the run was already planned as a
-    reset (`reset_pipeline`), which is exactly when the activity skips reading the stored values.
+    The activity binds the query before the pipeline opens the Delta table, so a reset here cannot
+    widen it. `query_ignores_cursor` is what the activity and the Postgres source decide from
+    `reset_pipeline` and the revive marker; otherwise a stored cursor means a bound query.
     """
-    if reset_pipeline or not schema.should_use_incremental_field:
+    if query_ignores_cursor:
+        return True
+    if schema.is_xmin:
+        return schema.xmin_last_value is None
+    if not schema.should_use_incremental_field:
         return True
     config = schema.sync_type_config or {}
     return config.get("incremental_field_last_value") is None and config.get("incremental_field_earliest_value") is None
@@ -490,11 +492,9 @@ async def _defer_rebuild_to_next_run(
     job: "ExternalDataJob",
     logger: FilteringBoundLogger,
 ) -> NoReturn:
-    """Latch `reset_pipeline` so the next run rebuilds the table, and stop this one before it writes.
+    """Latch `reset_pipeline` and stop this run before it writes; the next scheduled run rebuilds.
 
-    The corruption markers are deliberately left in place. The next run reads the latch, so it
-    reaches `handle_corrupted_delta_log` again with `reset_pipeline` set, takes the reset branch,
-    and marks itself non-billable for the rebuild we caused.
+    The corruption markers stay in place, so that run reaches the reset branch with the latch set.
     """
     from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
         update_sync_type_config_keys,
@@ -541,14 +541,13 @@ async def handle_corrupted_delta_log(
     - Otherwise the table is reset so this run rebuilds it from source, and the job is marked
       non-billable — the corruption is our fault, not the customer's.
 
-    A reset only happens in a run whose extraction covers the whole table. An incremental run's
-    query is already bound to the stored cursor by the time this code runs, so resetting there would
-    delete every row older than the cursor and rebuild only the newer ones. That run defers instead:
-    it latches `reset_pipeline` and raises `DeltaRebuildDeferredError` (see
-    `_run_can_rebuild_from_source`).
+    A reset only happens in a run whose source query covers the whole table. The activity binds the
+    query before the pipeline opens the table, so a cursor-bound run would rebuild only the rows
+    after the cursor. That run latches `reset_pipeline` and raises `DeltaRebuildDeferredError`
+    instead, and the next scheduled run rebuilds (see `_run_can_rebuild_from_source`).
 
     Returns True if a revive happened. Detection and salvage are best-effort and must not block the
-    sync; the deliberate deferral above is the one path that stops the run.
+    sync. Only the deferral and a failed reset stop the run.
     """
     revive_marker = schema.delta_revive_required
     if revive_marker is None:
@@ -626,9 +625,9 @@ async def handle_corrupted_delta_log(
             capture_exception(e)
             await logger.aexception(f"handle_corrupted_delta_log: salvage failed, resetting: {e}", exc_info=e)
 
-    # Salvage was impossible, so the table has to be rebuilt from source. Hand that to a run that
-    # can actually re-read every row, rather than truncating in front of an incremental query.
-    if not _run_can_rebuild_from_source(schema, reset_pipeline):
+    # Salvage was impossible, so the table has to be rebuilt from source. Only a run whose query
+    # covers the whole table may truncate it.
+    if not _run_can_rebuild_from_source(schema, query_ignores_cursor=reset_pipeline or revive_marker is not None):
         await _defer_rebuild_to_next_run(schema, job, logger)
 
     # Reset + rebuild from source in this run, marked non-billable — we caused the corruption.

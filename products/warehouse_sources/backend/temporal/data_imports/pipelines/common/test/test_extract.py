@@ -435,15 +435,15 @@ class TestHandleCorruptedDeltaLog:
         job.refresh_from_db()
         assert job.billable is True
 
-    def test_revive_marker_resets_readable_table(self, team):
+    def test_revive_marker_resets_readable_table_even_with_stored_cursor(self, team):
         # A hollow table — log opens fine but references data files gone from S3 — is invisible to
         # is_table_corrupted; the repartition scan marks it instead. The marker alone must trigger the
         # reset + non-billable rebuild and be cleared so the revive can't loop.
-        schema, job = self._schema_and_job(team)
-        schema.sync_type_config = {
-            "delta_revive_required": {"reason": "repartition_scan_missing_data_file", "missing_path": "x/p.parquet"}
-        }
-        schema.save(update_fields=["sync_type_config"])
+        schema, job = self._incremental_schema_and_job(
+            team,
+            incremental_field_last_value="2026-08-19T00:00:00+00:00",
+            delta_revive_required={"reason": "repartition_scan_missing_data_file", "missing_path": "x/p.parquet"},
+        )
         helper = MagicMock(is_table_corrupted=AsyncMock(return_value=False), reset_table=AsyncMock())
 
         with patch(f"{_EXTRACT_MODULE}.posthoganalytics") as ph:
@@ -473,13 +473,29 @@ class TestHandleCorruptedDeltaLog:
         schema.save(update_fields=["sync_type", "sync_type_config"])
         return schema, job
 
-    def test_cursor_bound_run_defers_the_rebuild_instead_of_truncating(self, team):
-        # The extraction query is built from the stored cursor before the pipeline ever opens the
-        # Delta table, so a reset here would purge every row older than the cursor and refill the
-        # table with only the newer ones, collapsing the whole table to one sync window while the
-        # cursor stays at the top. The run must defer instead: keep the data, latch reset_pipeline,
-        # and stop before writing.
-        schema, job = self._incremental_schema_and_job(team, incremental_field_last_value="2026-08-19T00:00:00+00:00")
+    @pytest.mark.parametrize(
+        "_name,sync_type,config,cursor_key",
+        [
+            (
+                "incremental",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                {
+                    "incremental_field": "updated_at",
+                    "incremental_field_type": "datetime",
+                    "incremental_field_last_value": "2026-08-19T00:00:00+00:00",
+                },
+                "incremental_field_last_value",
+            ),
+            ("xmin", ExternalDataSchema.SyncType.XMIN, {"xmin_last_value": 123456}, "xmin_last_value"),
+        ],
+    )
+    def test_cursor_bound_run_defers_the_rebuild_instead_of_truncating(
+        self, team, _name, sync_type, config, cursor_key
+    ):
+        schema, job = self._schema_and_job(team)
+        schema.sync_type = sync_type
+        schema.sync_type_config = dict(config)
+        schema.save(update_fields=["sync_type", "sync_type_config"])
         helper = MagicMock(is_table_corrupted=AsyncMock(return_value=True), reset_table=AsyncMock())
 
         with patch(f"{_EXTRACT_MODULE}.posthoganalytics") as ph:
@@ -489,17 +505,12 @@ class TestHandleCorruptedDeltaLog:
         helper.reset_table.assert_not_awaited()
         schema.refresh_from_db()
         assert schema.sync_type_config["reset_pipeline"] is True
-        # The cursor has to survive too: the deferred run publishes nothing, so dropping it here
-        # would strand the table on a stale watermark if the latched rebuild never ran.
-        assert schema.sync_type_config["incremental_field_last_value"] == "2026-08-19T00:00:00+00:00"
+        assert schema.sync_type_config[cursor_key] == config[cursor_key]
         job.refresh_from_db()
         assert job.billable is True
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "deferred_reset_rebuild"
 
     def test_latched_reset_run_resets_and_rebuilds(self, team):
-        # The follow-up run reads the latch, so its query carries no cursor and covers the whole
-        # table. That run must take the normal reset path, or the deferral above would stall the
-        # schema on a corrupt table forever.
         schema, job = self._incremental_schema_and_job(
             team, incremental_field_last_value="2026-08-19T00:00:00+00:00", reset_pipeline=True
         )
@@ -515,8 +526,6 @@ class TestHandleCorruptedDeltaLog:
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "reset_rebuild"
 
     def test_incremental_first_sync_still_resets_in_run(self, team):
-        # No stored cursor means the activity built a full-table query, so this run can rebuild
-        # what it truncates. Deferring here would cost a pointless extra sync cycle.
         schema, job = self._incremental_schema_and_job(team)
         helper = MagicMock(is_table_corrupted=AsyncMock(return_value=True), reset_table=AsyncMock())
 
