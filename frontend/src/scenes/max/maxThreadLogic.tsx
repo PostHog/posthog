@@ -3192,6 +3192,28 @@ function enhanceThreadToolCalls(
     })
 }
 
+/**
+ * Runs the callbacks of the static tools a completed assistant message called. A tool call applies
+ * once: a 409 reconnect replays the stream from the beginning, and a second apply would overwrite
+ * whatever the user changed in the meantime.
+ */
+async function applyStaticToolCalls(
+    message: AssistantMessage,
+    { values, props, cache }: Pick<BuiltLogic<maxThreadLogicType>, 'values' | 'props' | 'cache'>
+): Promise<void> {
+    cache.invokedStaticToolCallIds ??= new Set<string>()
+    for (const { id: toolCallId, name: toolName, args: toolArgs } of message.tool_calls ?? []) {
+        if (!values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
+            continue // Non-static tools (contextual) operate via ui_payload instead
+        }
+        if (cache.invokedStaticToolCallIds.has(toolCallId)) {
+            continue
+        }
+        cache.invokedStaticToolCallIds.add(toolCallId)
+        await values.toolMap[toolName]?.callback?.(toolArgs, props.conversationId)
+    }
+}
+
 /** Assistant streaming event handler. */
 export async function onEventImplementation(
     event: string,
@@ -3293,17 +3315,7 @@ export async function onEventImplementation(
             // only the completed message holds args a tool can act on. A tool that writes its args into
             // the open scene must never see the half-built ones.
             if (!isLoading && isAssistantMessage(parsedResponse) && parsedResponse.tool_calls?.length) {
-                cache.invokedStaticToolCallIds ??= new Set<string>()
-                for (const { id: toolCallId, name: toolName, args: toolArgs } of parsedResponse.tool_calls) {
-                    if (!values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
-                        continue // Non-static tools (contextual) operate via ui_payload instead
-                    }
-                    if (cache.invokedStaticToolCallIds.has(toolCallId)) {
-                        continue // A reconnect replays the stream, and a second apply overwrites the user's edits
-                    }
-                    cache.invokedStaticToolCallIds.add(toolCallId)
-                    await values.toolMap[toolName]?.callback?.(toolArgs, props.conversationId)
-                }
+                await applyStaticToolCalls(parsedResponse, { values, props, cache })
             }
             // Check if a message with the same ID already exists
             const existingMessageIndex = parsedResponse.id
