@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_
     _require_api_url,
     _typed_report_value,
     app_store_connect_source,
+    check_app_ids,
     check_credentials,
     get_rows,
     parse_app_ids,
@@ -461,6 +462,53 @@ class TestAppFanoutEndpoints:
         rows = _collect("customer_reviews", self._api(), manager)
 
         assert [row["id"] for row in rows] == ["R1", "R2", "R3"]
+
+
+class TestCheckAppIds:
+    def _message(self, app_ids: str | None, apps: list[dict[str, Any]]) -> tuple[str | None, _FakeApi]:
+        api = _FakeApi({f"{BASE_URL}/v1/apps": _page(apps)})
+        session = MagicMock()
+        session.get.side_effect = api.get
+        with patch(f"{MODULE}._make_session", return_value=session):
+            return check_app_ids("issuer", "KEY123", PRIVATE_KEY_PEM, app_ids), api
+
+    def test_a_readable_filter_saves(self) -> None:
+        message, _ = self._message("A1", [_resource("apps", "A1", name="Acme")])
+
+        assert message is None
+
+    def test_an_unset_filter_never_lists_apps(self) -> None:
+        message, api = self._message(None, [_resource("apps", "A1", name="Acme")])
+
+        assert message is None
+        assert api.calls == []
+
+    @parameterized.expand(
+        [
+            ("readable_apps_are_named", 1, "It can read: App 0 (A0)."),
+            ("a_long_account_is_truncated", 12, "and 2 more"),
+        ]
+    )
+    def test_the_message_lists_the_apps_the_key_can_read(self, _name: str, app_count: int, expected: str) -> None:
+        apps = [_resource("apps", f"A{index}", name=f"App {index}") for index in range(app_count)]
+
+        message, _ = self._message("MISSING", apps)
+
+        # The field takes the numeric Apple ID, so a rejected bundle ID or SKU has to be answered
+        # with the values that would work, not only with the value that did not.
+        assert message is not None
+        assert "cannot read these app IDs: MISSING" in message
+        assert expected in message
+
+    def test_an_app_without_a_name_falls_back_to_its_id(self) -> None:
+        message, _ = self._message("MISSING", [_resource("apps", "A1")])
+
+        assert message is not None and "It can read: A1." in message
+
+    def test_a_key_that_reaches_no_app_says_so(self) -> None:
+        message, _ = self._message("MISSING", [])
+
+        assert message is not None and "cannot read any app in this account" in message
 
 
 class TestAppIdFilter:

@@ -251,16 +251,10 @@ Leave **app IDs** blank to sync every app the key can read. To sync only some of
 
         # Only at source create and edit, which is where the user types the field. The per-schema
         # call runs once per table in the picker, and listing every app again each time buys nothing.
-        unknown_app_ids = (
-            check_app_ids(config.issuer_id, config.key_id, config.private_key, config.app_ids)
-            if schema_name is None
-            else []
-        )
-        if unknown_app_ids:
-            return False, (
-                f"This API key cannot read these app IDs: {', '.join(unknown_app_ids)}. "
-                f"Check the IDs, or clear the field to sync every app."
-            )
+        if schema_name is None:
+            unreadable_app_ids = check_app_ids(config.issuer_id, config.key_id, config.private_key, config.app_ids)
+            if unreadable_app_ids:
+                return False, unreadable_app_ids
         return True, None
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AppStoreConnectResumeConfig]:

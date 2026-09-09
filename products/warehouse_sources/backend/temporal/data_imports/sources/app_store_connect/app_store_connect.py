@@ -66,6 +66,10 @@ ANALYTICS_SEGMENT_SPOOL_BYTES = 32 * 1024 * 1024
 
 ANALYTICS_ROWS_PER_BATCH = 2000
 
+# Apps named in the save-time message for an unreadable app id. An account can hold hundreds, and
+# the message goes in a form field error, so the rest are counted rather than listed.
+MAX_APPS_LISTED_IN_ERROR = 10
+
 _PEM_HEADER = "-----BEGIN PRIVATE KEY-----"
 _PEM_FOOTER = "-----END PRIVATE KEY-----"
 _NON_ALNUM = re.compile(r"[^0-9a-z]+")
@@ -630,16 +634,25 @@ def parse_app_ids(raw: str | None) -> frozenset[str]:
     return frozenset(part for part in _APP_ID_SEPARATOR.split(raw.strip()) if part)
 
 
-def list_all_app_ids(
+def list_apps(
     session: requests.Session,
     token_provider: AppStoreConnectTokenProvider,
     logger: FilteringBoundLogger,
-) -> list[str]:
-    """Every app id the key can read, in the order Apple returns them."""
-    app_ids: list[str] = []
+) -> dict[str, str | None]:
+    """Every app the key can read, as id to name, in the order Apple returns them.
+
+    The name is what a person recognises, so the save-time check can name the apps the key reaches
+    rather than only the ids it does not.
+    """
+    apps: dict[str, str | None] = {}
     for page in _iter_pages(session, token_provider, logger, f"{BASE_URL}/v1/apps", {}):
-        app_ids.extend(str(resource["id"]) for resource in page.resources if resource.get("id"))
-    return app_ids
+        for resource in page.resources:
+            if resource.get("id") is None:
+                continue
+            attributes = resource.get("attributes")
+            name = attributes.get("name") if isinstance(attributes, dict) else None
+            apps[str(resource["id"])] = str(name) if name else None
+    return apps
 
 
 def _list_app_ids(
@@ -653,7 +666,7 @@ def _list_app_ids(
     Discovery order is preserved, because the fan-out resume bookmark finds its place by index in
     this list.
     """
-    discovered = list_all_app_ids(session, token_provider, logger)
+    discovered = list(list_apps(session, token_provider, logger))
     if not app_ids:
         return discovered
 
@@ -1318,25 +1331,49 @@ def check_credentials(issuer_id: str, key_id: str, private_key: str) -> tuple[in
         return None, None
 
 
-def check_app_ids(issuer_id: str, key_id: str, private_key: str, app_ids: str | None) -> list[str]:
-    """Return the configured app ids that match no app the key can read.
+def _describe_app(app_id: str, name: str | None) -> str:
+    return f"{name} ({app_id})" if name else app_id
 
-    An empty list means the filter is usable, or that no filter is set. A probe that cannot reach
-    Apple also returns an empty list, so a network failure reports the unrelated credential problem
-    instead of a misleading "unknown app id".
+
+def check_app_ids(issuer_id: str, key_id: str, private_key: str, app_ids: str | None) -> str | None:
+    """Return the message for a filter naming app ids the key cannot read, or ``None`` if it can.
+
+    ``None`` also covers a filter that is not set, and a probe that cannot reach Apple. Reporting
+    nothing on a failed probe keeps a network blip from surfacing as a misleading "unknown app id"
+    while the real credential problem goes unreported.
+
+    The message lists the apps the key can read, because the field takes the numeric Apple ID and a
+    user is as likely to paste a bundle ID or a SKU. Naming only the rejected value leaves them
+    guessing; naming the accepted values lets them copy one.
     """
     wanted = parse_app_ids(app_ids)
     if not wanted:
-        return []
+        return None
 
     logger = structlog.get_logger(__name__)
     try:
         token_provider = AppStoreConnectTokenProvider(issuer_id, key_id, private_key)
-        discovered = list_all_app_ids(_make_session(private_key), token_provider, logger)
+        readable = list_apps(_make_session(private_key), token_provider, logger)
     except Exception:
-        return []
+        return None
 
-    return sorted(wanted.difference(discovered))
+    unknown = sorted(wanted.difference(readable))
+    if not unknown:
+        return None
+
+    message = f"This API key cannot read these app IDs: {', '.join(unknown)}."
+    if not readable:
+        return (
+            f"{message} It cannot read any app in this account. Check the key's role and its app "
+            f"access in App Store Connect."
+        )
+
+    shown = list(readable.items())[:MAX_APPS_LISTED_IN_ERROR]
+    listed = ", ".join(_describe_app(app_id, name) for app_id, name in shown)
+    remaining = len(readable) - len(shown)
+    if remaining:
+        listed = f"{listed}, and {remaining} more"
+    return f"{message} It can read: {listed}. Check the IDs, or clear the field to sync every app."
 
 
 def get_rows(

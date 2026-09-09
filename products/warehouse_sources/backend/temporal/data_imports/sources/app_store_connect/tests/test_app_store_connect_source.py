@@ -185,17 +185,31 @@ class TestAppStoreConnectSource:
         assert per_schema is False
         assert schema_error is not None
 
-    def test_unreadable_app_ids_are_named_and_block_the_source(self) -> None:
+    def test_an_unreadable_app_id_blocks_the_source_with_the_probe_message(self) -> None:
+        probe_message = "This API key cannot read these app IDs: 999. It can read: Acme (1234567890)."
+
         with (
             patch(f"{SOURCE_MODULE}.check_credentials", return_value=(200, None)),
-            patch(f"{SOURCE_MODULE}.check_app_ids", return_value=["999", "1000"]),
+            patch(f"{SOURCE_MODULE}.check_app_ids", return_value=probe_message),
         ):
-            valid, error = AppStoreConnectSource().validate_credentials(_config(app_ids="999,1000"), team_id=1)
+            valid, error = AppStoreConnectSource().validate_credentials(_config(app_ids="999"), team_id=1)
 
-        # Saved as-is the source would sync nothing, so the ids that resolve to no app are named here
+        # Saved as-is the source would sync nothing, so the probe's message reaches the user here
         # rather than surfacing as an empty table after the first sync.
-        assert valid is False
-        assert error is not None and "999, 1000" in error
+        assert (valid, error) == (False, probe_message)
+
+    def test_the_app_id_probe_is_skipped_for_a_per_schema_check(self) -> None:
+        with (
+            patch(f"{SOURCE_MODULE}.check_credentials", return_value=(200, None)),
+            patch(f"{SOURCE_MODULE}.check_app_ids") as probe,
+        ):
+            valid, _ = AppStoreConnectSource().validate_credentials(
+                _config(app_ids="999"), team_id=1, schema_name="builds"
+            )
+
+        # The picker calls this once per table, and each probe would list every app again.
+        assert valid is True
+        probe.assert_not_called()
 
     def test_report_schema_without_a_vendor_number_fails_before_probing(self) -> None:
         with patch(f"{SOURCE_MODULE}.check_credentials") as mocked:
