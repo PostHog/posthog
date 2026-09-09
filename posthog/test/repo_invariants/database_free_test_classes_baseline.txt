@@ -251,8 +251,6 @@ posthog/test/test_renderers.py::TestCleanDataForJSON
 posthog/test/test_sampling.py::TestSampling
 posthog/test/test_schema_helpers.py::TestSchemaHelpers
 posthog/test/test_scoped_service_jwt.py::TestScopedServiceJwtPurpose
-posthog/test/test_scopes.py::TestDowngradeScopesToReadOnly
-posthog/test/test_scopes.py::TestScopeSets
 posthog/test/test_templatetags.py::TestTemplateTags
 posthog/test/test_turnstile.py::TestVerifyTurnstileToken
 posthog/test/test_utils.py::TestAbsoluteUrls
