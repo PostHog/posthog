@@ -1,8 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
-import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
@@ -11,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { DataModelingNode } from '~/types'
 
 import { NodeSuspensionApi } from 'products/data_modeling/frontend/generated/api.schemas'
+import { lineageDataLogic } from 'products/data_modeling/frontend/lineage/lineageDataLogic'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { DataWarehouseSavedQuery } from '../../types'
@@ -29,8 +28,8 @@ export interface modelsSceneLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     activeTab: ModelsSceneTab
     dataQualityTabEnabled: boolean
-    nodes: DataModelingNode[]
-    nodesLoading: boolean
+    nodes: DataModelingNode[] // lineageDataLogic
+    nodesLoading: boolean // lineageDataLogic
     savedQueryIdToNodeId: Record<string, string>
     failingNodes: DataModelingNode[]
     suspendedNodes: DataModelingNode[]
@@ -40,21 +39,6 @@ export interface modelsSceneLogicValues {
 export interface modelsSceneLogicActions {
     loadDataWarehouseSavedQueries: () => any // dataWarehouseViewsLogic
     setActiveTab: (tab: ModelsSceneTab) => { tab: ModelsSceneTab }
-    loadNodes: () => any
-    loadNodesFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadNodesSuccess: (
-        nodes: DataModelingNode[],
-        payload?: any
-    ) => {
-        nodes: DataModelingNode[]
-        payload?: any
-    }
 }
 
 export interface modelsSceneLogicMeta {
@@ -82,6 +66,8 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueriesLoading'],
             featureFlagLogic,
             ['featureFlags'],
+            lineageDataLogic,
+            ['nodes', 'nodesLoading'],
         ],
         actions: [dataWarehouseViewsLogic, ['loadDataWarehouseSavedQueries']],
     })),
@@ -95,15 +81,6 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
                 setActiveTab: (_, { tab }) => tab,
             },
         ],
-    }),
-    loaders({
-        nodes: {
-            __default: [] as DataModelingNode[],
-            loadNodes: async () => {
-                const response = await api.dataModelingNodes.list()
-                return response.results
-            },
-        },
     }),
     selectors({
         savedQueryIdToNodeId: [
@@ -159,6 +136,5 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadDataWarehouseSavedQueries()
-        actions.loadNodes()
     }),
 ])

@@ -8,7 +8,14 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
-import { DataWarehouseSavedQuery, DataWarehouseSavedQueryRunHistory } from '~/types'
+import { DataModelingEdge, DataModelingNode, DataWarehouseSavedQuery, DataWarehouseSavedQueryRunHistory } from '~/types'
+
+import { lineageDataLogic } from 'products/data_modeling/frontend/lineage/lineageDataLogic'
+import {
+    ParsedLineageSearch,
+    nodeIdsForLineageSearch,
+    parseLineageSearch,
+} from 'products/data_modeling/frontend/lineage/lineageSearch'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type {
@@ -29,11 +36,15 @@ export interface viewsTabLogicValues {
     database: Required<DatabaseSchemaQueryResponse> | null // databaseTableListLogic
     viewsMapById: Record<string, DatabaseSchemaEndpointTable | DatabaseSchemaManagedViewTable | DatabaseSchemaViewTable> // databaseTableListLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    nodes: DataModelingNode[] // modelsLineageLogic
+    edges: DataModelingEdge[] // modelsLineageLogic
     accessControlModalOpen: boolean
     currentPage: number
     editingAccessControlView: DataWarehouseSavedQuery | null
     enrichedViews: DataWarehouseSavedQuery[]
     filteredViews: DataWarehouseSavedQuery[]
+    lineageNames: Set<string> | null
+    parsedSearch: ParsedLineageSearch
     runHistoryMap: Record<string, DataWarehouseSavedQueryRunHistory[]>
     runHistoryMapLoading: boolean
     searchTerm: string
@@ -143,6 +154,8 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
             ['featureFlags'],
             databaseTableListLogic,
             ['database', 'viewsMapById'],
+            lineageDataLogic,
+            ['nodes', 'edges'],
         ],
         actions: [
             dataWarehouseViewsLogic,
@@ -242,20 +255,39 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
                     run_history: query.is_materialized ? runHistoryMap[query.id] : undefined,
                 })),
         ],
+        parsedSearch: [(s) => [s.searchTerm], (searchTerm: string) => parseLineageSearch(searchTerm)],
+
+        // Lineage names the rows to keep; the graph keys on node id, this table on view name.
+        lineageNames: [
+            (s) => [s.nodes, s.edges, s.parsedSearch],
+            (
+                nodes: DataModelingNode[],
+                edges: DataModelingEdge[],
+                parsedSearch: ParsedLineageSearch
+            ): Set<string> | null => {
+                const reached = nodeIdsForLineageSearch(nodes, edges, parsedSearch)
+                return reached && new Set(nodes.filter((node) => reached.has(node.id)).map((node) => node.name))
+            },
+        ],
+
         filteredViews: [
-            (s) => [s.enrichedViews, s.searchTerm, s.typeFilter],
+            (s) => [s.enrichedViews, s.parsedSearch, s.lineageNames, s.typeFilter],
             (
                 views: DataWarehouseSavedQuery[],
-                searchTerm: string,
+                parsedSearch: ParsedLineageSearch,
+                lineageNames: Set<string> | null,
                 typeFilter: ViewTypeFilter
             ): DataWarehouseSavedQuery[] => {
-                const term = searchTerm.toLowerCase()
+                const term = parsedSearch.term.toLowerCase()
                 return views.filter((view) => {
                     if (typeFilter === 'materialized' && !view.is_materialized) {
                         return false
                     }
                     if (typeFilter === 'view' && view.is_materialized) {
                         return false
+                    }
+                    if (lineageNames) {
+                        return lineageNames.has(view.name)
                     }
                     return !term || view.name.toLowerCase().includes(term)
                 })

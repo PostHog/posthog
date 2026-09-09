@@ -5,6 +5,7 @@ import {
     buildAdjacencyMaps,
     edgesWithinNodes,
     matchNodesByName,
+    nodeIdsForLineageSearch,
     parseLineageSearch,
     traverseLineage,
 } from './lineageSearch'
@@ -47,6 +48,24 @@ describe('lineageSearch', () => {
     it('anchors on the exact name over a longer one that contains it', () => {
         const nodes = [node('1', 'orders_daily'), node('2', 'orders'), node('3', 'stripe_orders_raw')]
         expect(matchNodesByName(nodes, 'orders')[0].name).toEqual('orders')
+    })
+
+    describe('nodeIdsForLineageSearch', () => {
+        // EDGES is keyed by name, so the fixture names each node after its id.
+        const nodes = ['events', 'orders', 'orders_daily', 'revenue_endpoint'].map((name) => node(name, name))
+
+        it('returns null for a plain term, so a name search highlights instead of pruning', () => {
+            expect(nodeIdsForLineageSearch(nodes, EDGES, parseLineageSearch('orders'))).toBeNull()
+        })
+
+        it('prunes to nothing when the anchor names no model', () => {
+            expect(nodeIdsForLineageSearch(nodes, EDGES, parseLineageSearch('+nope'))?.size).toEqual(0)
+        })
+
+        it('prunes to the cone of an anchored term', () => {
+            const reached = nodeIdsForLineageSearch(nodes, EDGES, parseLineageSearch('+orders_daily'))
+            expect([...(reached ?? [])].sort()).toEqual(['events', 'orders', 'orders_daily'])
+        })
     })
 
     it('drops edges that lost an endpoint to filtering', () => {

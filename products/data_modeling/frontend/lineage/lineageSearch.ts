@@ -91,6 +91,24 @@ export function matchNodesByName(nodes: DataModelingNode[], term: string): DataM
         })
 }
 
+/**
+ * The node ids a lineage selector keeps, or null when the term prunes nothing.
+ *
+ * Null means "no lineage restriction" — a plain term matches names in place, so a single letter
+ * never empties the result. An unmatched anchor returns an empty set, since the term names nothing.
+ */
+export function nodeIdsForLineageSearch(
+    nodes: DataModelingNode[],
+    edges: DataModelingEdge[],
+    parsed: ParsedLineageSearch
+): Set<string> | null {
+    if (parsed.mode === 'search' || !parsed.term) {
+        return null
+    }
+    const anchor = matchNodesByName(nodes, parsed.term)[0]
+    return anchor ? traverseLineage(anchor.id, buildAdjacencyMaps(edges), parsed.mode) : new Set<string>()
+}
+
 /** Keeps only edges whose endpoints both survived filtering, so no edge dangles. */
 export function edgesWithinNodes(edges: DataModelingEdge[], nodeIds: Set<string>): DataModelingEdge[] {
     return edges.filter((edge) => nodeIds.has(edge.source_id) && nodeIds.has(edge.target_id))

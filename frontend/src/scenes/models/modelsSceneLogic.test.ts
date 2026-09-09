@@ -9,6 +9,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { DataModelingNode } from '~/types'
 
+import { lineageDataLogic } from 'products/data_modeling/frontend/lineage/lineageDataLogic'
+
 import { modelsSceneLogic } from './modelsSceneLogic'
 
 function buildNode(id: string, overrides: Partial<DataModelingNode> = {}): DataModelingNode {
@@ -88,7 +90,7 @@ describe('modelsSceneLogic', () => {
 
     it('counts models whose last run failed and models that are suspended', async () => {
         await mount('/models')
-        await expectLogic(logic).toDispatchActions(['loadNodesSuccess'])
+        await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess'])
         await expectLogic(dataWarehouseViewsLogic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
 
         expect(logic.values.failingNodes.map((node) => node.id)).toEqual(['broken'])

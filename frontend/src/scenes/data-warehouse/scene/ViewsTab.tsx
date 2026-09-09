@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -23,6 +24,7 @@ import {
 
 import { NodeSuspensionApi } from 'products/data_modeling/frontend/generated/api.schemas'
 import { STATUS_TAG_SETTINGS, statusBackgroundClass } from 'products/data_modeling/frontend/lineage/nodeStyles'
+import { SEARCH_SYNTAX_HELP } from 'products/data_modeling/frontend/lineage/SearchSyntaxHelp'
 
 import { TableCertificationTag } from '../TableCertificationBadge'
 import { PAGE_SIZE, ViewTypeFilter, viewsTabLogic } from './viewsTabLogic'
@@ -287,11 +289,16 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
             <div className="flex flex-wrap gap-2 items-center">
                 <LemonInput
                     type="search"
-                    placeholder="Search views..."
-                    onChange={setSearchTerm}
+                    size="small"
+                    placeholder="Search, or +name for upstream"
                     value={searchTerm}
+                    onChange={setSearchTerm}
+                    className="w-72"
                     data-attr="views-search"
                 />
+                <Tooltip title={SEARCH_SYNTAX_HELP}>
+                    <IconInfo className="text-base text-secondary" />
+                </Tooltip>
                 <LemonSelect
                     value={typeFilter}
                     onChange={setTypeFilter}

@@ -148,15 +148,17 @@ function MetadataBar({ node }: { node: LineageNodeShape }): JSX.Element {
                 </Tooltip>
                 <IconActivity />
                 {node.last_run_at ? (
-                    <TZLabel
-                        className="text-[10px]"
-                        time={node.last_run_at}
-                        formatDate="MMM D"
-                        formatTime="HH:mm"
-                        showPopover={false}
-                    />
+                    <Tooltip title="Last successful run. A failed run does not move this.">
+                        <TZLabel
+                            className="text-[10px]"
+                            time={node.last_run_at}
+                            formatDate="MMM D"
+                            formatTime="HH:mm"
+                            showPopover={false}
+                        />
+                    </Tooltip>
                 ) : (
-                    <Tooltip title="This node has not been run yet">Never</Tooltip>
+                    <Tooltip title="This model has never finished a run">Never succeeded</Tooltip>
                 )}
             </div>
             <StatusDot node={node} />

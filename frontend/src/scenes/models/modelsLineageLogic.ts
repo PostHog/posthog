@@ -1,31 +1,26 @@
-import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
-
-import api from 'lib/api'
+import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 'kea'
 
 import { DataModelingEdge, DataModelingNode, DataModelingNodeType } from '~/types'
 
+import { lineageDataLogic } from 'products/data_modeling/frontend/lineage/lineageDataLogic'
 import {
     ParsedLineageSearch,
-    buildAdjacencyMaps,
     edgesWithinNodes,
     matchNodesByName,
+    nodeIdsForLineageSearch,
     parseLineageSearch,
-    traverseLineage,
 } from 'products/data_modeling/frontend/lineage/lineageSearch'
-
-import { modelsSceneLogic } from './modelsSceneLogic'
 
 export const LINEAGE_FILTER_TYPES: DataModelingNodeType[] = ['table', 'view', 'matview', 'endpoint']
 
 export interface modelsLineageLogicValues {
-    nodes: DataModelingNode[] // modelsSceneLogic
-    nodesLoading: boolean // modelsSceneLogic
+    nodes: DataModelingNode[] // lineageDataLogic
+    nodesLoading: boolean // lineageDataLogic
+    edges: DataModelingEdge[] // lineageDataLogic
+    edgesLoading: boolean // lineageDataLogic
     searchTerm: string
     typeFilter: DataModelingNodeType[]
     legendCollapsed: boolean
-    edges: DataModelingEdge[]
-    edgesLoading: boolean
     parsedSearch: ParsedLineageSearch
     highlightedNodeIds: Set<string>
     visibleNodes: DataModelingNode[]
@@ -38,9 +33,6 @@ export interface modelsLineageLogicActions {
     setTypeFilter: (typeFilter: DataModelingNodeType[]) => { typeFilter: DataModelingNodeType[] }
     toggleLegendCollapsed: () => Record<string, never>
     resetFilters: () => Record<string, never>
-    loadEdges: () => any
-    loadEdgesFailure: (error: string, errorObject?: any) => { error: string; errorObject?: any }
-    loadEdgesSuccess: (edges: DataModelingEdge[], payload?: any) => { edges: DataModelingEdge[]; payload?: any }
 }
 
 export type modelsLineageLogicType = MakeLogicType<modelsLineageLogicValues, modelsLineageLogicActions>
@@ -48,7 +40,7 @@ export type modelsLineageLogicType = MakeLogicType<modelsLineageLogicValues, mod
 export const modelsLineageLogic = kea<modelsLineageLogicType>([
     path(['scenes', 'models', 'modelsLineageLogic']),
     connect(() => ({
-        values: [modelsSceneLogic, ['nodes', 'nodesLoading']],
+        values: [lineageDataLogic, ['nodes', 'nodesLoading', 'edges', 'edgesLoading']],
     })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -78,15 +70,6 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
             },
         ],
     }),
-    loaders({
-        edges: {
-            __default: [] as DataModelingEdge[],
-            loadEdges: async () => {
-                const response = await api.dataModelingEdges.list()
-                return response.results
-            },
-        },
-    }),
     selectors({
         parsedSearch: [(s) => [s.searchTerm], (searchTerm: string) => parseLineageSearch(searchTerm)],
 
@@ -112,12 +95,8 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
             ): DataModelingNode[] => {
                 let kept = nodes
 
-                if (parsedSearch.mode !== 'search' && parsedSearch.term) {
-                    const anchor = matchNodesByName(nodes, parsedSearch.term)[0]
-                    // An unmatched anchor means the term names nothing, so nothing is in the result
-                    const reached = anchor
-                        ? traverseLineage(anchor.id, buildAdjacencyMaps(edges), parsedSearch.mode)
-                        : new Set<string>()
+                const reached = nodeIdsForLineageSearch(nodes, edges, parsedSearch)
+                if (reached) {
                     kept = kept.filter((node) => reached.has(node.id))
                 }
 
@@ -140,8 +119,5 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
             (nodes: DataModelingNode[], visibleNodes: DataModelingNode[]): boolean =>
                 visibleNodes.length !== nodes.length,
         ],
-    }),
-    afterMount(({ actions }) => {
-        actions.loadEdges()
     }),
 ])

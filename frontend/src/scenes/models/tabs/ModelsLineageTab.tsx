@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { Fragment } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
@@ -14,29 +13,9 @@ import { DataModelingNodeType } from '~/types'
 import { LineageGraph } from 'products/data_modeling/frontend/lineage/LineageGraph'
 import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
 import { NodeTypeLegend } from 'products/data_modeling/frontend/lineage/NodeTypeLegend'
+import { SEARCH_SYNTAX_HELP } from 'products/data_modeling/frontend/lineage/SearchSyntaxHelp'
 
 import { LINEAGE_FILTER_TYPES, modelsLineageLogic } from '../modelsLineageLogic'
-
-const SEARCH_SYNTAX: { syntax: string; meaning: string }[] = [
-    { syntax: '+name', meaning: 'The model and everything it depends on' },
-    { syntax: 'name+', meaning: 'The model and everything that depends on it' },
-    { syntax: '+name+', meaning: 'Both sides' },
-]
-
-const SEARCH_HELP = (
-    <div className="flex flex-col gap-2 max-w-72">
-        <p className="m-0">Type a name to highlight matching models.</p>
-        <p className="m-0">Add a plus to hide everything else:</p>
-        <div className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 items-baseline">
-            {SEARCH_SYNTAX.map(({ syntax, meaning }) => (
-                <Fragment key={syntax}>
-                    <code className="rounded border border-current/40 px-1 text-xs whitespace-nowrap">{syntax}</code>
-                    <span>{meaning}</span>
-                </Fragment>
-            ))}
-        </div>
-    </div>
-)
 
 const TYPE_OPTIONS = LINEAGE_FILTER_TYPES.map((type) => ({
     key: type,
@@ -70,7 +49,7 @@ export function ModelsLineageTab(): JSX.Element {
                     className="w-72"
                     data-attr="models-lineage-search"
                 />
-                <Tooltip title={SEARCH_HELP}>
+                <Tooltip title={SEARCH_SYNTAX_HELP}>
                     <IconInfo className="text-base text-secondary" />
                 </Tooltip>
                 <div className="w-44">
