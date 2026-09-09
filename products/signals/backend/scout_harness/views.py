@@ -2525,11 +2525,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     .exists()
                 ):
                     raise exceptions.ValidationError({"new_name": "A scout with this name already exists."})
-                skill = (
-                    LLMSkill.objects.filter(team_id=team.id, name=old_name, is_latest=True, deleted=False)
-                    .prefetch_related("files")
-                    .first()
-                )
+                # No file prefetch: the origin check reads file contents only for a seeded row,
+                # which is rejected below, so loading the bundle only holds the config lock longer.
+                skill = LLMSkill.objects.filter(team_id=team.id, name=old_name, is_latest=True, deleted=False).first()
                 if skill is None:
                     raise exceptions.NotFound("The scout skill no longer exists.")
                 if scout_skill_row_origin(skill) == "canonical":

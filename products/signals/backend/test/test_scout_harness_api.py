@@ -72,7 +72,7 @@ from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM
 from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
-from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
+from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -2676,6 +2676,31 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "fleet sync" in str(response.json())
         assert LLMSkill.objects.filter(team=self.team, name=name, deleted=False).exists()
+
+    def test_rename_moves_a_seeded_scout_the_team_has_edited(self) -> None:
+        # A seeded row the team edited is diverged, which makes it theirs to rename. Telling it
+        # apart from a pristine one means hashing the row's bundled files, so this is also the one
+        # rename path that reads them.
+        name = "signals-scout-general"
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name=name)
+        skill = LLMSkill.objects.create(
+            team=self.team,
+            name=name,
+            description="Edited canonical scout.",
+            body="Our own instructions.",
+            metadata={"seeded_by": HARNESS_SEEDED_BY, "canonical_hash": "a-hash-the-edited-row-no-longer-matches"},
+        )
+        LLMSkillFile.objects.create(skill=skill, path="refs/playbook.md", content="x", content_type="text/plain")
+
+        response = self.client.post(
+            f"{self._detail_url(str(config.id))}rename/",
+            data={"new_name": "signals-scout-our-general"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.skill_name == "signals-scout-our-general"
 
     def test_rename_rejects_a_live_run(self) -> None:
         old_name = "signals-scout-checkout"
