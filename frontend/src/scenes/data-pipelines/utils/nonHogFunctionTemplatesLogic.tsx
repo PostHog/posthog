@@ -2,10 +2,9 @@ import { MakeLogicType, connect, kea, path, props, selectors } from 'kea'
 
 import { Link } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
+import { type FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanizeBatchExportDescription, humanizeBatchExportName } from 'scenes/data-pipelines/batch-exports/utils'
-import { userLogic } from 'scenes/userLogic'
 
 import { SourceConfig } from '~/queries/schema/schema-general'
 import { BATCH_EXPORT_SERVICE_NAMES, HogFunctionTemplateStatus, HogFunctionTemplateType } from '~/types'
@@ -14,7 +13,7 @@ import { sourceWizardLogic } from 'products/data_warehouse/frontend/scenes/NewSo
 import { DATA_WAREHOUSE_SOURCE_ICON_MAP } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
-import type { ManualLinkSourceType, UserType } from '../../../types'
+import type { ManualLinkSourceType } from '../../../types'
 import { BATCH_EXPORT_ICON_MAP } from '../batch-exports/BatchExportIcon'
 
 export interface NonHogFunctionTemplatesLogicProps {
@@ -63,7 +62,6 @@ export interface nonHogFunctionTemplatesLogicValues {
         name: string
         type: ManualLinkSourceType
     }[] // sourceWizardLogic
-    user: UserType | null // userLogic
     hogFunctionTemplatesBatchExports: HogFunctionTemplateType[]
     hogFunctionTemplatesDataWarehouseSources: HogFunctionTemplateType[]
 }
@@ -78,10 +76,6 @@ export interface nonHogFunctionTemplatesLogicMeta {
                 type: ManualLinkSourceType
             }[],
             featureFlags: FeatureFlagsSet
-        ) => HogFunctionTemplateType[]
-        hogFunctionTemplatesBatchExports: (
-            featureFlags: FeatureFlagsSet,
-            user: UserType | null
         ) => HogFunctionTemplateType[]
     }
 }
@@ -103,8 +97,6 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
             ['connectors', 'manualConnectors'],
             featureFlagLogic,
             ['featureFlags'],
-            userLogic,
-            ['user'],
         ],
     })),
 
@@ -182,24 +174,11 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
         ],
 
         hogFunctionTemplatesBatchExports: [
-            (s) => [s.featureFlags, s.user],
-            (
-                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
-                user: null | import('~/types').UserType
-            ): HogFunctionTemplateType[] => {
-                // HTTP is currently only used for Cloud to Cloud migrations and shouldn't be accessible to users
-                const httpEnabled =
-                    featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTHOG_HTTP] || user?.is_impersonated || user?.is_staff
-
-                const services = BATCH_EXPORT_SERVICE_NAMES.filter((service) => {
-                    // HTTP is only for Cloud-to-Cloud migrations; gated behind a flag / staff.
-                    if (service === 'HTTP') {
-                        return httpEnabled
-                    }
-                    return true
-                })
-
-                return services.map(
+            () => [],
+            (): HogFunctionTemplateType[] => {
+                // The HTTP destination only accepts the PostHog US/EU cloud endpoints, so the API
+                // confines it to cloud-to-cloud migration. It stays in the picker for everyone.
+                return BATCH_EXPORT_SERVICE_NAMES.map(
                     (service): HogFunctionTemplateType => ({
                         id: `batch-export-${service}`,
                         type: 'destination',

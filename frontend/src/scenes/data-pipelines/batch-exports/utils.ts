@@ -26,6 +26,8 @@ export const humanizeBatchExportDescription = (service: BatchExportService['type
             return 'Batch export data to an AWS S3 bucket'
         case 'S3Compatible':
             return 'Batch export data to an S3-compatible destination'
+        case 'HTTP':
+            return 'Migrate data to another PostHog Cloud region (US or EU)'
         default:
             return `${humanizeBatchExportName(service)} batch export`
     }
