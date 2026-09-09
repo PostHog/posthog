@@ -47,6 +47,8 @@ import type { InstructionsBuilder } from './instructions'
 import { getEffectiveMCPClientContext } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
+import type { SkillCatalogService } from './skill-catalog-service'
+import { buildSkillsSessionState } from './skills-session'
 import type { ToolCatalog } from './tool-catalog'
 
 interface ResolvedTool {
@@ -95,10 +97,16 @@ function shouldSuppressStructuredContent(args: {
 export class ToolExecutor {
     private readonly catalog: ToolCatalog
     private readonly instructionsBuilder: InstructionsBuilder
+    private readonly skillCatalogService: SkillCatalogService | undefined
 
-    constructor(catalog: ToolCatalog, instructionsBuilder: InstructionsBuilder) {
+    constructor(
+        catalog: ToolCatalog,
+        instructionsBuilder: InstructionsBuilder,
+        skillCatalogService?: SkillCatalogService
+    ) {
         this.catalog = catalog
         this.instructionsBuilder = instructionsBuilder
+        this.skillCatalogService = skillCatalogService
     }
 
     async handleToolsList(state: ResolvedState): Promise<ListToolsResult> {
@@ -558,15 +566,21 @@ export class ToolExecutor {
         const execTool = createExecTool(
             execTools,
             state.context,
-            this.instructionsBuilder.buildExecToolDescription(),
+            this.instructionsBuilder.buildExecToolDescription(state),
             commandReference,
             clientContext.mcpConsumer,
             trackInnerCall,
             state.scopeGatedTools,
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
-                helpCatalog: this.instructionsBuilder.buildExecHelpCatalog(state),
+                learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(
+                    state,
+                    this.skillCatalogService?.getCatalog()
+                ),
                 flagGatedTools: state.flagGatedTools,
+                skillsSession: this.instructionsBuilder.execSkillsEnabled(state)
+                    ? buildSkillsSessionState(state.reqCtx, state.requestContext.mcpSessionId)
+                    : undefined,
                 ...(state.gatewayToolsEnabled ? { gatewayToolsProvider: () => this.gatewayToolsFor(state) } : {}),
                 // A verb-only report lands first; `search` then reports again with its query
                 // and counts. Merge so the richer report wins without losing the verb.

@@ -17,10 +17,9 @@ import {
   cn,
   InputGroupAddon,
   InputGroupButton,
-  Spinner,
   Text,
 } from "@posthog/quill";
-import { Spin } from "@posthog/ui/primitives/Spinner";
+import { Spin, Spinner } from "@posthog/ui/primitives/Spinner";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { defaultFilter } from "cmdk";
 import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
@@ -348,7 +347,7 @@ export function GitHubRepoPicker({
         >
           {showInlineLoadingState ? (
             <>
-              <Spinner className="size-4" />
+              <Spinner size="md" />
               <Text size="sm" variant="muted">
                 Loading repositories
               </Text>

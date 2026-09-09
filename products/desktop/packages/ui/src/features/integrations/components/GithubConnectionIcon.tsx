@@ -1,6 +1,6 @@
 import { GithubLogoIcon, HeartIcon } from "@phosphor-icons/react";
-import { Spinner } from "@posthog/quill";
 import Logo from "@posthog/ui/primitives/Logo";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { domAnimation, LazyMotion, m, useReducedMotion } from "framer-motion";
 
 interface GithubConnectionIconProps {

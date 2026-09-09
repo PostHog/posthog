@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from products.signals.backend.scout_harness.suggestions import SUGGESTIONS_AI_STAGE
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
 from products.tasks.backend.models import INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN
+from products.tasks.backend.temporal.process_task import utils
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     INTERACTIVE_MINTABLE_PRODUCTS,
     MINTABLE_PRODUCTS,
@@ -459,6 +460,13 @@ class TestProvisioningBoundaries:
             internal=True,
             distinct_id="user-1",
         )
+
+    def test_subscription_run_does_not_mint_gateway_credentials(self, mint_settings):
+        ctx = self._ctx()
+        ctx.claude_model_access = "own-subscription"
+        with patch.object(utils, "mint_scoped_token") as mint:
+            assert utils.run_gateway_env_vars(ctx, self._task()) == {}
+        mint.assert_not_called()
 
     def test_snapshot_builder_uses_the_shared_derivation(self, mint_settings):
         from products.tasks.backend.temporal.process_task import utils

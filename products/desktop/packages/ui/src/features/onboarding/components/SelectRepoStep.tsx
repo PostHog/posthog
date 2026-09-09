@@ -20,13 +20,13 @@ import {
   ItemDescription,
   ItemMedia,
   ItemTitle,
-  Spinner,
   Text,
 } from "@posthog/quill";
 import { FolderPicker } from "@posthog/ui/features/folder-picker/FolderPicker";
 import { GitHubRepoPicker } from "@posthog/ui/features/folder-picker/GitHubRepoPicker";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { useUserRepositoryIntegration } from "@posthog/ui/features/integrations/useIntegrations";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { getFilePath } from "@posthog/ui/utils/getFilePath";
 import { motion, useReducedMotion } from "framer-motion";
