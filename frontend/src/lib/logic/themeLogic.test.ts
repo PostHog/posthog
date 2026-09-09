@@ -73,9 +73,9 @@ describe('themeLogic', () => {
         document.body.setAttribute('theme', 'light')
         expect(themeLogic.values.isDarkModeOn).toBe(false)
 
-        // The snapshot runner changes the attribute after the story rendered, so it also emulates a
-        // dark color scheme. That is what makes this memoized selector run again and read the
-        // attribute; the attribute alone changes nothing.
+        // The snapshot runner changes the attribute after the story rendered, and emulates a dark
+        // color scheme alongside it. Both lines below are load-bearing: drop the system change and
+        // `darkModeSystemPreference` never moves, so this selector holds the value it already had.
         document.body.setAttribute('theme', 'dark')
         emitSystemThemeChange(true)
         expect(themeLogic.values.isDarkModeOn).toBe(true)
