@@ -36,8 +36,9 @@ from posthog.temporal.ai_observability.evaluation_backfill import (
     EvaluationBackfillInputs,
     backfill_workflow_id,
     cancel_backfill,
+    settle_horizon,
 )
-from posthog.temporal.ai_observability.run_aggregate_evaluation import INGESTION_LAG_MARGIN_SECONDS, resolve_settle_plan
+from posthog.temporal.ai_observability.run_aggregate_evaluation import INGESTION_LAG_MARGIN_SECONDS
 from posthog.temporal.ai_observability.run_session_evaluation import AI_EVENTS_RETENTION_DAYS
 from posthog.temporal.common.client import sync_connect
 
@@ -282,19 +283,11 @@ class EvaluationBackfillViewSet(
         serializer.is_valid(raise_exception=True)
         return cast(dict[str, Any], serializer.validated_data)
 
-    def _settle_hold(self, evaluation: Evaluation) -> timedelta | None:
-        """How long after its first event a unit is still being graded live, or None for a
-        generation, which is complete the moment it lands."""
-        if evaluation.target == EvaluationTarget.GENERATION.value:
-            return None
-        plan = resolve_settle_plan(evaluation.target_config, evaluation.target)
-        return timedelta(seconds=plan.max_age_seconds + INGESTION_LAG_MARGIN_SECONDS)
-
     def _clamped_window(self, evaluation: Evaluation, data: dict[str, Any]) -> BackfillWindow:
         """The requested window, bounded to the span whose verdicts can be read back."""
         now = timezone.now()
         window_end: datetime = min(data["window_end"], now)
-        settle_hold = self._settle_hold(evaluation)
+        settle_hold = settle_horizon(evaluation.target, evaluation.target_config)
         if settle_hold:
             # A trace or session is graded over `settle_hold` from its first event, so a unit any
             # younger is still filling up. Grading it now would freeze a partial verdict, and the
@@ -370,6 +363,7 @@ class EvaluationBackfillViewSet(
                 team=self.team,
                 evaluation_id=str(evaluation.id),
                 target=evaluation.target,
+                settle_horizon=settle_horizon(evaluation.target, evaluation.target_config),
                 conditions=conditions,
                 window_start=window_start,
                 window_end=window_end,
