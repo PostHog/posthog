@@ -47,7 +47,12 @@ from posthog.models import User
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.permissions import get_authenticator_scopes
-from posthog.rate_limit import AlertLLMSimulationThrottle, AlertTestDeliveryThrottle
+from posthog.rate_limit import (
+    AlertLLMSimulationThrottle,
+    AlertTestDeliveryThrottle,
+    BurstRateThrottle,
+    SustainedRateThrottle,
+)
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
@@ -78,10 +83,12 @@ from products.alerts.backend.insight_alert_state_machine import (
     apply_unsnooze,
 )
 from products.alerts.backend.llm_detector_limits import (
+    LLM_DETECTOR_CONSENT_MESSAGE,
     LLM_DETECTOR_FLAG,
-    count_enabled_llm_alerts,
+    is_llm_detector_config,
+    llm_alert_limit_error,
+    llm_detector_interval_error,
     lock_llm_alert_limit,
-    max_llm_alerts_per_team,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
@@ -191,10 +198,14 @@ def _enforce_llm_detector_rules(detector_config: Any) -> None:
 
 
 def _enforce_llm_feature_access(context: dict[str, Any], detector_config: Any) -> None:
-    if DetectorType.LLM.value in _detector_types(detector_config) and not _insight_alert_flag_enabled(
-        context, LLM_DETECTOR_FLAG
-    ):
+    if DetectorType.LLM.value not in _detector_types(detector_config):
+        return
+    if not _insight_alert_flag_enabled(context, LLM_DETECTOR_FLAG):
         raise ValidationError("The AI detector is not enabled for your account.")
+    # The detector refuses the call too, but an alert that errors on every check is a
+    # worse way to learn this than a message at save time.
+    if context["get_organization"]().is_ai_data_processing_approved is not True:
+        raise ValidationError(LLM_DETECTOR_CONSENT_MESSAGE)
 
 
 def _normalize_llm_detector_config(detector_config: Any) -> Any:
@@ -213,27 +224,24 @@ def _enforce_llm_alert_limit(
     *,
     detector_config: dict[str, Any] | None,
     enabled: bool,
-    instance_id: str | None,
+    instance: AlertConfiguration | None,
 ) -> None:
     """Cap how many enabled AI-detector alerts one team can have.
 
-    Every check of one costs a model call, so the count is the cost ceiling. A disabled
-    alert never runs, so only enabled ones count. The alert being edited is left out of its
-    own count, so saving an unrelated change at the cap still works.
+    Every check of one costs a model call, so the count is the cost ceiling. Only a write
+    that adds an enabled AI alert is checked: creating one, enabling one, or switching an
+    enabled alert to the AI detector. Editing an alert that already counts adds no spend,
+    so it passes even when the cap was lowered beneath the current count.
     """
-    if not enabled or (detector_config or {}).get("type") != DetectorType.LLM.value:
+    if not enabled or not is_llm_detector_config(detector_config):
         return
-    cap = max_llm_alerts_per_team()
-    existing = count_enabled_llm_alerts(team_id=context["team_id"], exclude_alert_id=instance_id)
-    if existing >= cap:
-        raise ValidationError(
-            {
-                "detector_config": [
-                    f"This project already has {existing} of {cap} alerts using the AI detector. "
-                    "Turn one off, or ask us to raise the limit."
-                ]
-            }
-        )
+    if instance is not None and instance.enabled and is_llm_detector_config(instance.detector_config):
+        return
+    error = llm_alert_limit_error(
+        team_id=context["team_id"], exclude_alert_id=str(instance.id) if instance is not None else None
+    )
+    if error:
+        raise ValidationError({"detector_config": [error]})
 
 
 def _enforce_alert_feature_flags(context: dict[str, Any], insight: Insight) -> None:
@@ -684,7 +692,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 self.context,
                 detector_config=validated_data.get("detector_config"),
                 enabled=validated_data.get("enabled", True) is True,
-                instance_id=None,
+                instance=None,
             )
             if threshold_data:
                 threshold_instance = self.add_threshold(threshold_data, validated_data)
@@ -713,7 +721,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             self.context,
             detector_config=resulting_detector_config,
             enabled=resulting_enabled is True,
-            instance_id=str(instance.id),
+            instance=instance,
         )
         if enabled_changed and validated_data["enabled"]:
             apply_enable(instance)
@@ -965,18 +973,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             )
             if needs_feature_access:
                 _enforce_llm_feature_access(self.context, detector_config)
-            # A model call per tick on the finest cadence is a cost profile we don't want to
-            # ship before there's a budget model, and the real-time evaluate budget (3 minutes,
-            # 2 attempts) leaves little room for one.
-            if calculation_interval == AlertCalculationInterval.REAL_TIME:
-                raise ValidationError(
-                    {
-                        "calculation_interval": [
-                            "The AI detector cannot run on the real-time cadence. "
-                            "Pick a slower interval, or use a statistical detector."
-                        ]
-                    }
-                )
+            if interval_error := llm_detector_interval_error(calculation_interval):
+                raise ValidationError({"calculation_interval": [interval_error]})
         organization = self.context["get_organization"]()
         _validate_interval_entitlement(
             calculation_interval=calculation_interval,
@@ -1525,7 +1523,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         methods=["POST"],
         url_path="simulate",
         required_scopes=["alert:read", "insight:read"],
-        throttle_classes=[AlertLLMSimulationThrottle],
+        # Action-level throttles replace the global ones, so the defaults are restated here:
+        # a statistical simulation is still a ClickHouse query per call.
+        throttle_classes=[BurstRateThrottle, SustainedRateThrottle, AlertLLMSimulationThrottle],
     )
     def simulate(self, request, *args, **kwargs):
         serializer = AlertSimulateSerializer(data=request.data, context=self.get_serializer_context())

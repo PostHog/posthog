@@ -23,8 +23,6 @@ SYSTEM_PROMPT = """You judge one time series for a monitoring alert. A person se
 will be paged by whatever you decide, so be conservative: only report an anomaly when a person \
 looking at this chart would agree something needs attention.
 
-The final point in the table is the point under judgment. Earlier points are its history.
-
 The two things that most often masquerade as anomalies:
 - Weekly and daily seasonality. A Saturday trough or an overnight dip that repeats every week is \
 normal, not an anomaly.
@@ -111,7 +109,8 @@ def _build_text(*, context: DetectionContext, points: list[tuple[str, float]], j
         )
     else:
         sections.append(
-            f"Judge the final point (index {len(points) - 1}). Return that index in "
-            "triggered_indices when, and only when, it is the anomaly."
+            f"The final point (index {len(points) - 1}) is the point under judgment; earlier points are "
+            "its history. Return that index in triggered_indices when, and only when, it is the anomaly. "
+            "An anomaly that is only in the history is not an anomaly for this check."
         )
     return "\n\n".join(sections)

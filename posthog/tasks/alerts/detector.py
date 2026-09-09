@@ -6,6 +6,7 @@ import numpy as np
 from posthog.schema import DetectorType, IntervalType, TrendsQuery
 
 from posthog.tasks.alerts.detectors.base import DetectionResult
+from posthog.tasks.alerts.detectors.llm.detector import DEFAULT_WINDOW as LLM_DEFAULT_WINDOW
 from posthog.tasks.alerts.trends import TrendResult, _drop_incomplete_current_interval
 
 # Minimum samples required for each detector type
@@ -30,6 +31,12 @@ DETECTOR_MIN_SAMPLES: dict[DetectorType, int] = {
 # Fallback window size used when no explicit window is set in the detector config
 # (e.g. alerts saved before this field was introduced).
 DETECTOR_DEFAULT_WINDOW = 30
+
+# Detectors whose own default window differs from the fallback, so a config saved without
+# a window is extracted at the size the detector will judge.
+DETECTOR_DEFAULT_WINDOWS: dict[DetectorType, int] = {
+    DetectorType.LLM: LLM_DEFAULT_WINDOW,
+}
 
 # Maximum number of breakdown values to evaluate with a detector.
 # Matches the default breakdown_limit in the query layer (25).
@@ -101,8 +108,9 @@ def _compute_min_samples_for_detector(detector_config: dict[str, Any]) -> int:
     if detector_type == DetectorType.THRESHOLD:
         return guard
 
-    # Use the configured window, falling back to the default
-    window = detector_config.get("window") or DETECTOR_DEFAULT_WINDOW
+    # Use the configured window, falling back to the detector's own default so the lookback
+    # matches what the detector will read (the AI detector reads more than the statistical ones).
+    window = detector_config.get("window") or DETECTOR_DEFAULT_WINDOWS.get(detector_type, DETECTOR_DEFAULT_WINDOW)
 
     # Statistical detectors exclude training_offset_n trailing points from the fit (default 1);
     # a caller-configured larger offset needs the same headroom here as detect()/detect_batch()

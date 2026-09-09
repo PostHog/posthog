@@ -2579,6 +2579,16 @@ class TestLLMDetectorValidation(APIBaseTest):
         assert "not enabled for your account" in reenabled.json()["detail"]
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_rejected_without_ai_processing_consent(self, _flag) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        response = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "AI data processing is turned off" in response.json()["detail"]
+
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_rejected_on_the_real_time_cadence(self, _flag) -> None:
         response = self._create({"type": "llm", "threshold": 0.7, "window": 90}, calculation_interval="real_time")
 
@@ -2610,7 +2620,7 @@ class TestLLMDetectorValidation(APIBaseTest):
         assert alert.detector_config is not None
         assert alert.detector_config["instructions"] == "only drops"
 
-    @mock.patch("products.alerts.backend.presentation.views.alert.max_llm_alerts_per_team", return_value=1)
+    @mock.patch("products.alerts.backend.llm_detector_limits.max_llm_alerts_per_team", return_value=1)
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_per_team_cap_blocks_a_second_enabled_alert(self, _flag, _cap) -> None:
         first = self._create({"type": "llm", "threshold": 0.7, "window": 90})
@@ -2624,7 +2634,7 @@ class TestLLMDetectorValidation(APIBaseTest):
         disabled = self._create({"type": "llm", "threshold": 0.7, "window": 90}, enabled=False)
         assert disabled.status_code == status.HTTP_201_CREATED, disabled.content
 
-    @mock.patch("products.alerts.backend.presentation.views.alert.max_llm_alerts_per_team", return_value=1)
+    @mock.patch("products.alerts.backend.llm_detector_limits.max_llm_alerts_per_team", return_value=1)
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_per_team_cap_still_lets_you_edit_the_alert_at_the_cap(self, _flag, _cap) -> None:
         created = self._create({"type": "llm", "threshold": 0.7, "window": 90})
@@ -2636,6 +2646,28 @@ class TestLLMDetectorValidation(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK, response.content
+
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_per_team_cap_lowered_below_the_count_still_lets_you_edit_but_not_enable(self, _flag) -> None:
+        with mock.patch("products.alerts.backend.llm_detector_limits.max_llm_alerts_per_team", return_value=2):
+            first = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+            second = self._create({"type": "llm", "threshold": 0.7, "window": 90}, name="second")
+            disabled = self._create({"type": "llm", "threshold": 0.7, "window": 90}, enabled=False)
+        assert {first.status_code, second.status_code, disabled.status_code} == {status.HTTP_201_CREATED}
+
+        with mock.patch("products.alerts.backend.llm_detector_limits.max_llm_alerts_per_team", return_value=1):
+            renamed = self.client.patch(
+                f"/api/projects/{self.team.id}/alerts/{first.json()['id']}",
+                {"name": "Renamed", "detector_config": {"type": "llm", "threshold": 0.7, "window": 90}},
+            )
+            enabled = self.client.patch(
+                f"/api/projects/{self.team.id}/alerts/{disabled.json()['id']}",
+                {"enabled": True},
+            )
+
+        assert renamed.status_code == status.HTTP_200_OK, renamed.content
+        assert enabled.status_code == status.HTTP_400_BAD_REQUEST, enabled.content
+        assert "alerts using the AI detector" in str(enabled.json())
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=False)
     def test_simulate_is_gated_by_the_same_flag(self, _flag) -> None:

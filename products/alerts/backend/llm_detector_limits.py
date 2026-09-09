@@ -7,12 +7,13 @@ scout budgets work (`products/signals/backend/scout_harness/team_limits.py`).
 """
 
 import json
+from typing import Any
 
 from django.db import connection
 
 import posthoganalytics
 
-from posthog.schema import DetectorType
+from posthog.schema import AlertCalculationInterval, DetectorType
 
 from posthog.exceptions_capture import capture_exception
 
@@ -26,6 +27,47 @@ PAYLOAD_MAX_ALERTS_KEY = "max_llm_alerts_per_team"
 DEFAULT_MAX_LLM_ALERTS_PER_TEAM = 5
 
 _LLM_ALERT_LIMIT_LOCK_NAMESPACE = 1_277_970_509
+
+# A model call per tick on the finest cadence is a cost profile we don't want to ship
+# before there's a budget model, and the real-time evaluate budget (3 minutes, 2 attempts)
+# leaves little room for one.
+LLM_DETECTOR_REAL_TIME_MESSAGE = (
+    "The AI detector cannot run on the real-time cadence. Pick a slower interval, or use a statistical detector."
+)
+
+LLM_DETECTOR_CONSENT_MESSAGE = (
+    "The AI detector sends this insight's data to a model, and AI data processing is turned off "
+    "for your organization. Turn it on in organization settings to use this detector."
+)
+
+
+def is_llm_detector_config(detector_config: Any) -> bool:
+    return isinstance(detector_config, dict) and detector_config.get("type") == DetectorType.LLM.value
+
+
+def llm_detector_interval_error(calculation_interval: Any) -> str | None:
+    """The message to show when an AI-detector alert is put on the real-time cadence."""
+    if calculation_interval == AlertCalculationInterval.REAL_TIME:
+        return LLM_DETECTOR_REAL_TIME_MESSAGE
+    return None
+
+
+def llm_alert_limit_error(*, team_id: int, exclude_alert_id: str | None) -> str | None:
+    """The message to show when enabling one more AI-detector alert would pass the team cap.
+
+    Call inside a transaction that holds ``lock_llm_alert_limit`` for the team, and only
+    when the write would add an enabled AI alert: an alert that is already enabled and
+    already AI-judged adds no spend, so editing it must never trip the cap, even when the
+    cap was lowered beneath the current count.
+    """
+    cap = max_llm_alerts_per_team()
+    existing = count_enabled_llm_alerts(team_id=team_id, exclude_alert_id=exclude_alert_id)
+    if existing >= cap:
+        return (
+            f"This project already has {existing} of {cap} alerts using the AI detector. "
+            "Turn one off, or ask us to raise the limit."
+        )
+    return None
 
 
 def lock_llm_alert_limit(*, team_id: int) -> None:

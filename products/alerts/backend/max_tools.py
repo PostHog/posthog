@@ -25,6 +25,12 @@ from posthog.scopes import APIScopeObject
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
+from products.alerts.backend.llm_detector_limits import (
+    is_llm_detector_config,
+    llm_alert_limit_error,
+    llm_detector_interval_error,
+    lock_llm_alert_limit,
+)
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
@@ -321,6 +327,18 @@ class UpsertAlertTool(MaxTool):
                 "details": str(e),
             }
 
+    @staticmethod
+    def _save_alert(alert: AlertConfiguration, update_fields: list[str], *, enabling_llm_alert: bool) -> str | None:
+        """Save, holding the team's AI-alert cap lock across the count and the write when the
+        save enables an AI alert. Returns the cap message instead of saving when at the cap."""
+        with transaction.atomic():
+            if enabling_llm_alert:
+                lock_llm_alert_limit(team_id=alert.team_id)
+                if error := llm_alert_limit_error(team_id=alert.team_id, exclude_alert_id=str(alert.id)):
+                    return error
+            alert.save(update_fields=update_fields)
+        return None
+
     async def _handle_update(self, action: UpdateAlertAction) -> tuple[str, dict[str, Any]]:
         try:
             alert = await self._resolve_alert(action.alert_id)
@@ -341,6 +359,12 @@ class UpsertAlertTool(MaxTool):
             new_enabled = action.enabled if action.enabled is not None else alert.enabled
             if real_time_msg := await self._validate_real_time_alert(new_interval, enabled=new_enabled, existing=alert):
                 return real_time_msg, {"error": "plan_limit_reached"}
+
+            # The AI detector's cost rules live with the API's; this writer must apply the same ones.
+            is_llm_alert = is_llm_detector_config(alert.detector_config)
+            if is_llm_alert and (interval_msg := llm_detector_interval_error(new_interval)):
+                return interval_msg, {"error": "validation_failed"}
+            enabling_llm_alert = is_llm_alert and new_enabled and not alert.enabled
 
             update_fields: list[str] = []
             conditions_or_threshold_changed = False
@@ -394,7 +418,10 @@ class UpsertAlertTool(MaxTool):
                 update_fields.extend(apply_threshold_change(alert))
             alert.next_check_at = None
             update_fields.append("next_check_at")
-            await sync_to_async(alert.save)(update_fields=update_fields)
+            if limit_msg := await sync_to_async(self._save_alert)(
+                alert, update_fields, enabling_llm_alert=enabling_llm_alert
+            ):
+                return limit_msg, {"error": "plan_limit_reached"}
             await sync_to_async(alert.report_updated)(self._user, {"source": EventSource.POSTHOG_AI})
 
             insight = await sync_to_async(lambda: alert.insight)()
