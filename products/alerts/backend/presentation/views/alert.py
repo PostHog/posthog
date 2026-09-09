@@ -67,6 +67,7 @@ from products.alerts.backend.evaluation.validation import (
     should_default_check_ongoing_interval,
     validate_alert_config,
 )
+from products.alerts.backend.facade.api import validate_and_normalize_schedule_start_time
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
     apply_enable,
@@ -76,7 +77,6 @@ from products.alerts.backend.insight_alert_state_machine import (
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
-from products.alerts.backend.scheduling import validate_and_normalize_schedule_start_time
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
