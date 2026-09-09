@@ -29,10 +29,7 @@ import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useAutoFocusOnTyping } from "@posthog/ui/features/message-editor/useAutoFocusOnTyping";
 import { resolveAndAttachDroppedFiles } from "@posthog/ui/features/message-editor/utils/persistFile";
 import { PermissionSelector } from "@posthog/ui/features/permissions/PermissionSelector";
-import {
-  CloudStreamDisconnectedBanner,
-  ConnectingToAgent,
-} from "@posthog/ui/features/sessions/components/CloudSessionLifecycle";
+import { CloudStreamDisconnectedBanner } from "@posthog/ui/features/sessions/components/CloudSessionLifecycle";
 import { ComposerWidth } from "@posthog/ui/features/sessions/components/ComposerWidth";
 import { ContextUsageIndicator } from "@posthog/ui/features/sessions/components/ContextUsageIndicator";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
@@ -42,13 +39,13 @@ import {
 } from "@posthog/ui/features/sessions/components/copyContextTarget";
 import { DropZoneOverlay } from "@posthog/ui/features/sessions/components/DropZoneOverlay";
 import { ModelSwitchCacheDialog } from "@posthog/ui/features/sessions/components/ModelSwitchCacheDialog";
-import { PendingChatView } from "@posthog/ui/features/sessions/components/PendingChatView";
 import { PermissionDock } from "@posthog/ui/features/sessions/components/PermissionDock";
 import { PlanStatusBar } from "@posthog/ui/features/sessions/components/PlanStatusBar";
 import { QueuedMessagesDock } from "@posthog/ui/features/sessions/components/QueuedMessagesDock";
 import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
 import { RawLogsView } from "@posthog/ui/features/sessions/components/raw-logs/RawLogsView";
-import { SessionInitializingView } from "@posthog/ui/features/sessions/components/SessionInitializingView";
+import { SessionProvisioningStatus } from "@posthog/ui/features/sessions/components/SessionProvisioningStatus";
+import { SessionStartupStatus } from "@posthog/ui/features/sessions/components/SessionStartupStatus";
 import { SessionSummaryPanel } from "@posthog/ui/features/sessions/components/SessionSummaryPanel";
 import { SideQuestionCard } from "@posthog/ui/features/sessions/components/SideQuestionCard";
 import { SteerQueueToggle } from "@posthog/ui/features/sessions/components/SteerQueueToggle";
@@ -85,10 +82,7 @@ import { useIsWorkspaceCloudRun } from "@posthog/ui/features/workspace/useWorksp
 import { useConnectivity } from "@posthog/ui/hooks/useConnectivity";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
-import {
-  pendingTaskPromptStoreApi,
-  usePendingTaskPrompt,
-} from "@posthog/ui/shell/pendingTaskPromptStore";
+import { pendingTaskPromptStoreApi } from "@posthog/ui/shell/pendingTaskPromptStore";
 import { Box, Button, ContextMenu, Flex, Text } from "@radix-ui/themes";
 import {
   type ReactNode,
@@ -129,6 +123,7 @@ interface SessionViewProps {
   onRetry?: () => void;
   onNewSession?: () => void;
   isInitializing?: boolean;
+  isProvisioning?: boolean;
   isCloud?: boolean;
   slackThreadUrl?: string;
   compact?: boolean;
@@ -165,6 +160,7 @@ export function SessionView({
   onRetry,
   onNewSession,
   isInitializing = false,
+  isProvisioning = false,
   isCloud = false,
   slackThreadUrl,
   compact = false,
@@ -176,7 +172,6 @@ export function SessionView({
   useSessionEventsResidency(taskId);
   const showRawLogs = useShowRawLogs();
   const { setShowRawLogs } = useSessionViewActions();
-  const pendingTaskPrompt = usePendingTaskPrompt(taskId);
   const pendingPermissions = usePendingPermissionsForTask(taskId);
   const modeOption = useModeConfigOptionForTask(taskId);
   const thoughtOption = useThoughtLevelConfigOptionForTask(taskId);
@@ -681,22 +676,6 @@ export function SessionView({
                   </Box>
                 </Box>
               </>
-            ) : isInitializing ? (
-              pendingTaskPrompt?.promptText ? (
-                <PendingChatView
-                  executionTarget={isCloud ? "cloud" : "local"}
-                  phase={startupPhase}
-                  content={
-                    pendingTaskPrompt.contentXml ?? pendingTaskPrompt.promptText
-                  }
-                  attachments={pendingTaskPrompt.attachments}
-                />
-              ) : (
-                <SessionInitializingView
-                  phase={startupPhase}
-                  executionTarget={isCloud ? "cloud" : "local"}
-                />
-              )
             ) : (
               <>
                 <DropZoneOverlay isVisible={isDraggingFile} />
@@ -789,13 +768,28 @@ export function SessionView({
                 ) : (
                   <Box className="relative shrink-0">
                     <Box
-                      className={`absolute inset-0 flex min-h-[66px] items-center justify-center gap-2 transition-opacity duration-200 ${
+                      className={`absolute inset-0 flex min-h-[66px] flex-col items-center justify-center gap-2 transition-opacity duration-200 ${
                         isRunning
                           ? "pointer-events-none opacity-0"
                           : "opacity-100"
                       }`}
                     >
-                      <ConnectingToAgent spinning={!isRunning} />
+                      {isProvisioning ? (
+                        <SessionProvisioningStatus
+                          executionTarget={isCloud ? "cloud" : "local"}
+                          taskId={taskId ?? ""}
+                        />
+                      ) : (
+                        <SessionStartupStatus
+                          executionTarget={isCloud ? "cloud" : "local"}
+                          phase={startupPhase}
+                          label={
+                            isInitializing
+                              ? undefined
+                              : "Connecting to agent..."
+                          }
+                        />
+                      )}
                     </Box>
                     <Box
                       className={`transition-all duration-300 ease-out ${

@@ -7,7 +7,6 @@ import { ErrorBoundary } from "../../../primitives/ErrorBoundary";
 import { useHostCapabilities } from "../../../shell/useHostCapabilities";
 import { useFolders } from "../../folders/useFolders";
 import { useDraftStore } from "../../message-editor/draftStore";
-import { ProvisioningView } from "../../provisioning/ProvisioningView";
 import { useProvisioningStore } from "../../provisioning/store";
 import { SessionView } from "../../sessions/components/SessionView";
 import { useSessionCallbacks } from "../../sessions/hooks/useSessionCallbacks";
@@ -113,10 +112,6 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
     await restoreTask(taskId);
   }, [taskId, restoreTask]);
 
-  if (isProvisioning) {
-    return <ProvisioningView taskId={taskId} />;
-  }
-
   // Worktree provisioning failed but the task was kept. Offer to retry setup
   // (worktree mode) on the existing task. Takes priority over the folder-picker
   // branch below, whose !hasDirectoryMapping gate wouldn't fire here since the
@@ -188,6 +183,7 @@ export function TaskLogsPanel({ taskId, task, hideInput }: TaskLogsPanelProps) {
               onRetry={handleRetry}
               onNewSession={isCloud ? undefined : handleNewSession}
               isInitializing={isInitializing}
+              isProvisioning={isProvisioning}
               isCloud={isCloud}
               slackThreadUrl={slackThreadUrl}
             />
