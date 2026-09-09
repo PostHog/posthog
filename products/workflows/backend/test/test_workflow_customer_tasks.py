@@ -14,6 +14,8 @@ from rest_framework.response import Response
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import OrganizationMembership, Team, User
+from posthog.models.team.team import DEPRECATED_ATTRS
+from posthog.test.db_context_capturing import capture_db_queries
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.models import Account, CustomerTask, CustomerTaskActivity
@@ -160,6 +162,23 @@ class TestWorkflowCustomerTasks(APIBaseTest):
         assert response.status_code == 201, response.data
         assert CustomerTask.objects.for_team(self.team.id).filter(id=response.data["id"]).exists()
         assert CustomerTask.objects.for_team(self.team.id).get(id=response.data["id"]).team_id == self.team.id
+
+    def test_child_project_creation_defers_deprecated_parent_team_columns(self) -> None:
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child project")
+        self.workflow.team = child
+        self.workflow.save(update_fields=["team"])
+        self.url = f"/api/projects/{child.id}/workflow_customer_tasks/"
+
+        with capture_db_queries() as context:
+            assert self._post(token=self._token(team_id=child.id)).status_code == 201
+
+        # T2 is the joined parent row. Requiring a non-deprecated column off it keeps the check below
+        # from passing vacuously if the join ever stops hydrating the parent.
+        parent_hydrating = [q["sql"] for q in context.captured_queries if 'T2."test_account_filters"' in q["sql"]]
+        assert parent_hydrating, "expected the create to hydrate the parent team through a join"
+        for sql in parent_hydrating:
+            for attr in DEPRECATED_ATTRS:
+                assert f'T2."{attr}"' not in sql, f"parent column {attr} was selected"
 
     def test_foreign_account_and_assignee_are_rejected(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")

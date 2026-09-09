@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
 from posthog.jwt import PosthogJwtAudience
 from posthog.models import Team
+from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 
@@ -91,7 +92,14 @@ def _create_task(
     owner = workflow.created_by
     if owner is None or not owner.is_active:
         raise PermissionDenied("Choose an active workflow owner before creating customer tasks.")
-    team = Team.objects.select_related("parent_team").get(id=team_id)
+    # `select_related` builds its columns from the related model rather than through `TeamManager`,
+    # so re-apply its defer to the joined parent. Without it every task creation in a child
+    # environment re-reads the deprecated taxonomy columns, which TOAST out to megabytes per team.
+    team = (
+        Team.objects.select_related("parent_team")
+        .defer(*(f"parent_team__{attr}" for attr in DEPRECATED_ATTRS))
+        .get(id=team_id)
+    )
     access = UserAccessControl(user=owner, team=team, organization_id=team.organization_id)
     if not access.has_project_access:
         raise PermissionDenied("The workflow owner no longer has access to this project.")
