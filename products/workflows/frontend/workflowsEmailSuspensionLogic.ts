@@ -14,6 +14,8 @@ export interface ReachedEmailSendingCap {
     limit: number
 }
 
+// The totals count sends in the rolling window. They do not show the worker's token bucket state,
+// so a full window means the allowance is spent, not that a send was held back.
 export function resolveReachedEmailSendingCap(
     allowance: EmailSendingAllowanceApi | null
 ): ReachedEmailSendingCap | null {

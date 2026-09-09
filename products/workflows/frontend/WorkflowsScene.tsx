@@ -331,9 +331,10 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             )}
             {!emailSendingSuspended && reachedEmailSendingCap && (
                 <LemonBanner type="warning" data-attr="workflows-email-cap-banner">
-                    This project reached its email sending limit of {humanFriendlyNumber(reachedEmailSendingCap.limit)}{' '}
-                    emails per {reachedEmailSendingCap.period}. Nothing is lost. Emails above the limit wait in the
-                    queue and go out as the limit frees up, so delivery takes longer than usual.{' '}
+                    This project has used its full sending allowance of{' '}
+                    {humanFriendlyNumber(reachedEmailSendingCap.limit)} emails per {reachedEmailSendingCap.period}.
+                    Emails above the allowance are not dropped. They wait in the queue and go out as the allowance frees
+                    up, so delivery can take longer than usual.{' '}
                     {currentTab !== 'reputation' && (
                         <Link to={urls.workflows('reputation')}>See your sending limits and tier</Link>
                     )}
