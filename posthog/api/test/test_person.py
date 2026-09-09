@@ -303,6 +303,27 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
 
+    def test_hogql_properties(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id"],
+            properties={"email": "someone@example.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id_2"],
+            properties={"email": "another@example.com"},
+        )
+        flush_persons_and_events()
+
+        response = self.client.get(
+            "/api/person/?properties={}".format(
+                json.dumps([{"type": "hogql", "key": "properties.email like '%%@example.com'"}])
+            )
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(len(response.json()["results"]), 2)
+
     @also_test_with_materialized_columns(person_properties=["random_prop"])
     @snapshot_clickhouse_queries
     def test_person_property_values(self):

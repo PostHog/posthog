@@ -2653,6 +2653,33 @@ email@example.org,
         )
         self.assertEqual(len(response.json()["results"]), 1, response)
 
+    def test_filter_by_hogql_prop(self):
+        for i in range(5):
+            _create_person(
+                team=self.team,
+                distinct_ids=[f"person_{i}"],
+                properties={"$os": "Chrome"},
+            )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["target"],
+            properties={"$os": "Chrome", "$browser": "Safari"},
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        response = self.client.get(
+            f"/api/cohort/{cohort.pk}/persons?properties=%s"
+            % (json.dumps([{"type": "hogql", "key": "properties.$browser = 'Safari'"}]))
+        )
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(len(response.json()["results"]), 1, response)
+
     def test_filter_by_cohort_prop_from_clickhouse(self):
         for i in range(5):
             _create_person(

@@ -327,6 +327,23 @@ def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
         return queryset.filter(pk=key)
 
 
+# ActorsQuery accepts five filter types. These two require an explicit operator, which
+# legacy callers omit. `cohort` supplies its own default, and `hogql` and `empty` forbid
+# the key, so an injected operator makes them fail validation.
+LEGACY_OPERATOR_DEFAULT_FILTER_TYPES = frozenset({"person", "person_metadata"})
+
+
+def parse_actor_property_filters(raw_properties: Optional[str]) -> list[dict]:
+    """Read the `properties` query parameter of a person or cohort actors endpoint."""
+    if not raw_properties:
+        return []
+    properties = json.loads(raw_properties)
+    for prop in properties:
+        if prop.get("type") in LEGACY_OPERATOR_DEFAULT_FILTER_TYPES:
+            prop.setdefault("operator", "exact")
+    return properties
+
+
 INSIGHT_KINDS = {
     "TrendsQuery",
     "FunnelsQuery",
