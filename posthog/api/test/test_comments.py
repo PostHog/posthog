@@ -20,7 +20,7 @@ from posthog.redis import get_client
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import EmailOutboxMessage, Ticket
 from products.conversations.backend.models.constants import Channel, Status
 from products.conversations.backend.reply_dedupe import REPLY_IN_PROGRESS_ERROR_TYPE, ReplyFingerprint, reserve
 
@@ -1673,6 +1673,24 @@ class TestCommentsSupportReplyDedupe(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.json()["error_type"] == REPLY_IN_PROGRESS_ERROR_TYPE
         assert not Comment.objects.filter(scope="conversations_ticket").exists()
+
+    def test_outbox_failure_rolls_back_comment_and_allows_retry(self) -> None:
+        self.ticket.channel_source = Channel.EMAIL
+        self.ticket.save(update_fields=["channel_source"])
+
+        with mock.patch(
+            "products.conversations.backend.signals.EmailOutboxMessage.objects.get_or_create",
+            side_effect=RuntimeError("outbox write failed"),
+        ):
+            response = self._post()
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert not Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).exists()
+        assert not EmailOutboxMessage.objects.filter(ticket=self.ticket).exists()
+
+        retry = self._post()
+        assert retry.status_code == status.HTTP_201_CREATED
+        assert EmailOutboxMessage.objects.filter(ticket=self.ticket).count() == 1
 
     @parameterized.expand(
         [
