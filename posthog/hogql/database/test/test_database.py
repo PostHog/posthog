@@ -438,7 +438,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
             # The person traverser is the part that resolves through a virtual subtable rather than
             # straight to a column, so the query exercises that rather than a bare one.
-            query = "SELECT flag_key, person.properties.email, `$group_0` FROM posthog.flag_evaluations"
+            query = "SELECT flag_key, person.id, `$group_0` FROM posthog.flag_evaluations"
             if flag_enabled:
                 execute_hogql_query(query, team=self.team, pretty=False)
             else:
