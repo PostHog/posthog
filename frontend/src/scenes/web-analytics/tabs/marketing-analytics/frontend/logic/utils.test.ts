@@ -20,10 +20,20 @@ import {
     getSortedColumnsByArray,
     orderArrayByPreference,
     rowMatchesSearch,
+    sanitizeIntegrationFilter,
     validColumnsForTiles,
 } from './utils'
 
 describe('marketing analytics utils', () => {
+    it('keeps supported integration filters and drops obsolete stored fields', () => {
+        const stored = { integrationSourceIds: ['source-1'], includeNonIntegrated: false, obsoleteFilter: true }
+        expect(sanitizeIntegrationFilter(stored)).toEqual({
+            integrationSourceIds: ['source-1'],
+            includeNonIntegrated: false,
+        })
+        expect(sanitizeIntegrationFilter({})).toEqual({ integrationSourceIds: [] })
+    })
+
     describe('getEnabledNativeMarketingSources', () => {
         it('returns every native source when no source is flag-gated', () => {
             const result = getEnabledNativeMarketingSources({})

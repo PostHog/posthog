@@ -5,6 +5,7 @@ import {
     ConversionGoalFilter,
     DataWarehouseNode,
     ExternalDataSourceType,
+    IntegrationFilter,
     MARKETING_INTEGRATION_CONFIGS,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsConstants,
@@ -19,6 +20,17 @@ import { HogQLMathType, ManualLinkSourceType, PropertyMathType } from '~/types'
 import { NativeSource } from './marketingAnalyticsLogic'
 
 export type NonNativeMarketingSource = Extract<ExternalDataSourceType, 'BigQuery'>
+
+export function sanitizeIntegrationFilter(stored: IntegrationFilter): IntegrationFilter {
+    return {
+        integrationSourceIds: Array.isArray(stored?.integrationSourceIds)
+            ? stored.integrationSourceIds.filter((id): id is string => typeof id === 'string')
+            : [],
+        ...(typeof stored?.includeNonIntegrated === 'boolean'
+            ? { includeNonIntegrated: stored.includeNonIntegrated }
+            : {}),
+    }
+}
 
 export const VALID_NON_NATIVE_MARKETING_SOURCES: NonNativeMarketingSource[] = ['BigQuery']
 export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
