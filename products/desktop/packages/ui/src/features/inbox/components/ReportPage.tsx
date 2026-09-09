@@ -8,11 +8,21 @@ import {
 import { PullRequestDetailContent } from "@posthog/ui/features/inbox/components/PullRequestDetail";
 import { ReportDetailContent } from "@posthog/ui/features/inbox/components/ReportDetail";
 import { ReportPageContext } from "@posthog/ui/features/inbox/components/ReportPageContext";
-import { SettingsLayout } from "@posthog/ui/features/settings/components/SettingsLayout";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import {
   resolveNavigationSource,
   useReportSourceHref,
 } from "@posthog/ui/router/reportNavigation";
+import { lazy, Suspense } from "react";
+
+// The settings portal statically reaches every settings screen through
+// SettingsPanel. A report read outside settings never mounts it, so keep that
+// ~300-module tree out of the report route's chunk.
+const SettingsLayout = lazy(() =>
+  import("@posthog/ui/features/settings/components/SettingsLayout").then(
+    (m) => ({ default: m.SettingsLayout }),
+  ),
+);
 
 export function ReportPage({
   reportId,
@@ -32,6 +42,7 @@ export function ReportPage({
         backLabel={source?.label ?? "Self-driving"}
         statusRedirect={false}
         requireFreshStatus
+        trackTab={null}
         missingCopy="This report couldn't be found or you don't have access to it."
       >
         {(report) => <ReportPageContent report={report} />}
@@ -39,9 +50,14 @@ export function ReportPage({
     </div>
   );
   return source?.settingsCategory ? (
-    <SettingsLayout category={source.settingsCategory}>
-      {content}
-    </SettingsLayout>
+    <Suspense fallback={<LoadingState />}>
+      <SettingsLayout
+        category={source.settingsCategory}
+        childBackHref={source.href}
+      >
+        {content}
+      </SettingsLayout>
+    </Suspense>
   ) : (
     content
   );

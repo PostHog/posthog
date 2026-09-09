@@ -136,6 +136,21 @@ export function useReportSourceHref(): string | undefined {
   });
 }
 
+/**
+ * A settings route, or a report opened from one (the report route hosts the
+ * settings portal). Everything the root pairs with that portal — inert chrome,
+ * banner suppression, settings-only shortcuts — reads this, so the report
+ * route gets the same pairing a plain settings route has.
+ */
+export function useSettingsOverlay(): boolean {
+  return useRouterState({
+    select: (state) =>
+      state.matches.some((match) => match.routeId.includes("/settings/")) ||
+      reportSourceHrefFromLocation(state.location)?.startsWith("/settings/") ===
+        true,
+  });
+}
+
 export function reportNavigationState(previous: HistoryState): HistoryState {
   return {
     ...(previous.tabId ? { tabId: previous.tabId } : {}),

@@ -1,5 +1,5 @@
 import type { SignalReport } from "@posthog/shared/types";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -34,11 +34,20 @@ vi.mock("@posthog/ui/features/inbox/components/InboxReportDetailGate", () => ({
 vi.mock("@posthog/ui/features/settings/components/SettingsLayout", () => ({
   SettingsLayout: ({
     category,
+    childBackHref,
     children,
   }: {
     category: string;
+    childBackHref?: string;
     children: ReactNode;
-  }) => <section aria-label={`Settings ${category}`}>{children}</section>,
+  }) => (
+    <section
+      aria-label={`Settings ${category}`}
+      data-child-back-href={childBackHref}
+    >
+      {children}
+    </section>
+  ),
 }));
 
 vi.mock("@posthog/ui/features/inbox/components/ReportDetail", () => ({
@@ -67,12 +76,17 @@ describe("ReportPage", () => {
     ["/settings/agents?agent=account-mrr", "Settings agents"],
     ["/spaces/space-1", null],
     [undefined, null],
-  ])("renders a report from %s inside %s", (source, region) => {
+  ])("renders a report from %s inside %s", async (source, region) => {
     mocks.source = source;
     render(<ReportPage reportId="report-1" cachedReport={null} />);
-    expect(screen.getByText("Report content")).toBeInTheDocument();
+    // The settings portal is a lazy chunk; the report body draws first.
+    await waitFor(() =>
+      expect(screen.getByText("Report content")).toBeInTheDocument(),
+    );
     if (region) {
-      expect(screen.getByRole("region", { name: region })).toBeInTheDocument();
+      expect(
+        await screen.findByRole("region", { name: region }),
+      ).toBeInTheDocument();
     } else {
       expect(screen.queryByRole("region")).not.toBeInTheDocument();
     }
@@ -108,6 +122,17 @@ describe("ReportPage", () => {
       expect(mocks.tracker).not.toHaveBeenCalled();
     },
   );
+
+  it("sends the settings Back button to the full source href", async () => {
+    mocks.source = "/settings/agents?agent=account-mrr&agentTab=output";
+    render(<ReportPage reportId="report-1" cachedReport={null} />);
+    const region = await screen.findByRole("region", {
+      name: "Settings agents",
+    });
+    expect(region.getAttribute("data-child-back-href")).toBe(
+      "/settings/agents?agent=account-mrr&agentTab=output",
+    );
+  });
 
   it("changes content in place as a report gains a PR, archives, and restores", () => {
     mocks.source = "/settings/agents";

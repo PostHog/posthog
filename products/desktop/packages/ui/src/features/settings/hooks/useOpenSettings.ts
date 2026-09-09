@@ -1,6 +1,7 @@
 import { useSettingsPageStore } from "@posthog/ui/features/settings/stores/settingsPageStore";
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
 import * as nav from "@posthog/ui/router/navigationBridge";
+import { useReportSourceHref } from "@posthog/ui/router/reportNavigation";
 import { useRouterState } from "@tanstack/react-router";
 
 interface SettingsContext {
@@ -59,10 +60,13 @@ export function closeSettings(): void {
 }
 
 /**
- * True when the current route is anywhere under `/settings/*`.
+ * True when settings covers the screen: a settings route, or a report opened
+ * from one (it hosts the same portal).
  */
 export function useIsSettingsOpen(): boolean {
-  return useRouterState({
+  const route = useRouterState({
     select: (s) => s.matches.some((m) => nav.isSettingsRouteId(m.routeId)),
   });
+  const reportFromSettings = useReportSourceHref()?.startsWith("/settings/");
+  return route || reportFromSettings === true;
 }
