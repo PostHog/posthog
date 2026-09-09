@@ -1384,7 +1384,7 @@
 1 posthog/hogql/context.py
 2 posthog/hogql/database/models.py
 2 posthog/management/commands/generate_test_events.py
-2 posthog/management/migration_analysis/models.py
+1 posthog/management/migration_analysis/models.py
 2 posthog/models/data_deletion_request.py
 2 posthog/models/js_snippet_versioning.py
 2 posthog/models/kafka_partition_stats/sql.py

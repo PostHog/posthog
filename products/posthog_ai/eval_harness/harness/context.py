@@ -6,12 +6,13 @@ from dataclasses import dataclass
 from posthoganalytics import Posthog
 
 from ..engines.base import EvalEngine
+from .cli import SkillDelivery
 from .demo_data import SandboxedDemoData
 from .providers import SandboxProvider, SandboxProviderStrategy
 from .reporting import ProgressReporter
 
 
-@dataclass
+@dataclass(frozen=False)
 class EvalContext:
     """Everything a suite function needs, assembled once per harness run.
 
@@ -37,6 +38,9 @@ class EvalContext:
 
     agent_runtime: str
     """Runtime adapter serving the sandboxed agent's model (``"claude"`` | ``"codex"``)."""
+
+    skill_delivery: SkillDelivery
+    """Whether the run uses native bundled skills or MCP exec distribution."""
 
     reasoning_effort: str | None
     """Agent reasoning effort override; ``None`` keeps the agent server's default."""
