@@ -24,7 +24,6 @@ import {
   encodeDevFlagsForArg,
   readDevFlagsSync,
 } from "./services/dev-flags/service";
-import { guardCanvasFrameNavigation } from "./sketchpad-frame-egress";
 import { trpcRouter } from "./trpc/router";
 import { collectMemorySnapshot } from "./utils/crash-diagnostics";
 import { isDevBuild } from "./utils/env";
@@ -390,7 +389,6 @@ export function createWindow(): void {
 
   setupExternalLinkHandlers(mainWindow, appHome);
   setupArtifactPreviewWebviews(mainWindow);
-  guardCanvasFrameNavigation(mainWindow.webContents);
   setupEditableContextMenu(mainWindow);
   setupCrashLogging(mainWindow);
   buildApplicationMenu();

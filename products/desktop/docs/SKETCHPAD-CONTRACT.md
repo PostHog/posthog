@@ -39,3 +39,23 @@ backs off from 250 ms to 5 seconds while output is unavailable.
 
 Background Sketchpad sessions stay out of the ordinary space feed and source
 menu. An explicit Sketchpad source filter can still retrieve them.
+
+Desktop serves the frame document and its content security policy from the host
+on the isolated Sketchpad session. The renderer cannot upload or replace that
+document. The web fallback can use the same document builder with remote modules.
+Artifact previews and Sketchpad share guest preferences, denied permissions,
+network isolation, and navigation controls. Sketchpad IPC only forwards messages
+from the frame's own window with the Sketchpad channel marker.
+
+Module packaging and runtime URL handling share `moduleHosts.json`. A failed
+manifest read is retried on the next request; module contents still need to match
+their recorded SHA-256 digest. Failed cache writes reject all coalesced callers,
+discard that queue, clean up the temporary file, and allow a fresh write to retry.
+
+HTTP status mapping applies only to Sketchpad host procedures. Other host
+procedures retain their existing error behavior.
+
+The vendored-module lock also records exact download URLs for version-range
+imports. Restoring the lock fetches those pinned versions and verifies the
+existing hashes. Updating the lock resolves range imports once, checks that the
+exact URL serves identical bytes, and records that URL for subsequent installs.

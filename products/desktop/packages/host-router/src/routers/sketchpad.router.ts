@@ -9,7 +9,7 @@ import {
   sketchpadOpsSinceInput,
   updateSketchpadInput,
 } from "@posthog/core/sketchpad/sketchpadSchemas";
-import { publicProcedure, router } from "@posthog/host-trpc/trpc";
+import { httpStatusProcedure, router } from "@posthog/host-trpc/trpc";
 import {
   sketchpadAppendOpsInputSchema,
   sketchpadAppendOpsResultSchema,
@@ -22,7 +22,7 @@ import {
 import { z } from "zod";
 
 export const sketchpadRouter = router({
-  compiled: publicProcedure
+  compiled: httpStatusProcedure
     .input(sketchpadIdInput.extend({ refs: sketchpadCompileRefsSchema }))
     .output(sketchpadCompiledResultsSchema)
     .query(({ ctx, input, signal }) =>
@@ -30,7 +30,7 @@ export const sketchpadRouter = router({
         .get<ISketchpadService>(SKETCHPAD_BOARDS_SERVICE)
         .compiled(input.id, input.refs, signal),
     ),
-  list: publicProcedure
+  list: httpStatusProcedure
     .input(sketchpadListInput)
     .output(z.array(sketchpadSummarySchema))
     .query(({ ctx, input }) =>
@@ -38,7 +38,7 @@ export const sketchpadRouter = router({
         .get<ISketchpadService>(SKETCHPAD_BOARDS_SERVICE)
         .list(input.channelId),
     ),
-  get: publicProcedure
+  get: httpStatusProcedure
     .input(sketchpadIdInput)
     .output(sketchpadSchema)
     .query(({ ctx, input }) =>
@@ -46,7 +46,7 @@ export const sketchpadRouter = router({
         .get<ISketchpadService>(SKETCHPAD_BOARDS_SERVICE)
         .get(input.id),
     ),
-  create: publicProcedure
+  create: httpStatusProcedure
     .input(createSketchpadInput)
     .output(sketchpadSchema)
     .mutation(({ ctx, input }) =>
@@ -54,21 +54,21 @@ export const sketchpadRouter = router({
         .get<ISketchpadService>(SKETCHPAD_BOARDS_SERVICE)
         .create(input.channelId, input.name),
     ),
-  update: publicProcedure
+  update: httpStatusProcedure
     .input(updateSketchpadInput)
     .mutation(({ ctx, input }) =>
       ctx.container
         .get<ISketchpadService>(SKETCHPAD_BOARDS_SERVICE)
         .update(input.id, input.patch),
     ),
-  remove: publicProcedure
+  remove: httpStatusProcedure
     .input(sketchpadIdInput)
     .mutation(({ ctx, input }) =>
       ctx.container
         .get<ISketchpadService>(SKETCHPAD_BOARDS_SERVICE)
         .remove(input.id),
     ),
-  opsSince: publicProcedure
+  opsSince: httpStatusProcedure
     .input(sketchpadOpsSinceInput)
     .output(sketchpadOpsPageSchema)
     .query(({ ctx, input }) =>
@@ -76,7 +76,7 @@ export const sketchpadRouter = router({
         .get<ISketchpadService>(SKETCHPAD_BOARDS_SERVICE)
         .opsSince(input.id, input.since, input.limit),
     ),
-  appendOps: publicProcedure
+  appendOps: httpStatusProcedure
     .input(sketchpadAppendOpsInputSchema.extend(sketchpadIdInput.shape))
     .output(sketchpadAppendOpsResultSchema)
     .mutation(({ ctx, input }) =>

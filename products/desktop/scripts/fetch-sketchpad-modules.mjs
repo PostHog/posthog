@@ -5,18 +5,22 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { pinSketchpadModuleUrl } from "./sketchpad-module-urls.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 const LOCK_PATH = join(here, "sketchpad-modules.lock.json");
 const OUT_DIR = join(root, "apps/code/resources/sketchpad-modules");
 
-const ESM = "https://esm.sh";
-const JSDELIVR = "https://cdn.jsdelivr.net";
 const MODULE_LOCK = JSON.parse(await readFile(LOCK_PATH, "utf8"));
 const { imports: IMPORTS, runtime: RUNTIME } = MODULE_LOCK;
 
-const HOSTS = { esm: ESM, cdn: JSDELIVR };
+const HOSTS = JSON.parse(
+  await readFile(
+    join(root, "packages/shared/src/sketchpad/moduleHosts.json"),
+    "utf8",
+  ),
+);
 
 const SPECIFIER =
   /(?:\bfrom\s*|\bimport\s*|\bexport\s*\*\s*from\s*)["']([^"'\n]+)["']/g;
@@ -34,6 +38,7 @@ async function main() {
     return;
   }
   await restoreFromLock({
+    fetches: MODULE_LOCK.fetches ?? {},
     files: Object.fromEntries(
       Object.entries(MODULE_LOCK.files).flatMap(([type, files]) =>
         Object.entries(files).map(([key, sha256]) => [key, { sha256, type }]),
@@ -71,7 +76,9 @@ async function crawlAndWriteLock() {
 
   const files = {};
   const grouped = {};
+  const fetches = {};
   for (const [url, entry] of [...found].sort(([a], [b]) => (a < b ? -1 : 1))) {
+    if (entry.fetchKey !== keyOf(url)) fetches[keyOf(url)] = entry.fetchKey;
     grouped[entry.type] ??= {};
     grouped[entry.type][keyOf(url)] = entry.sha256;
     files[keyOf(url)] = {
@@ -81,7 +88,7 @@ async function crawlAndWriteLock() {
   }
   await writeFile(
     LOCK_PATH,
-    `${JSON.stringify({ version: 2, imports: IMPORTS, runtime: RUNTIME, files: grouped }, null, 2)}\n`,
+    `${JSON.stringify({ version: 2, imports: IMPORTS, runtime: RUNTIME, files: grouped, fetches }, null, 2)}\n`,
   );
   await writeResources(found, files);
   const total = [...found.values()].reduce((sum, e) => sum + e.body.length, 0);
@@ -130,7 +137,10 @@ async function load(url, lock, required) {
       `${url} is not in the lock. Run "node scripts/fetch-sketchpad-modules.mjs --update" and review the change.`,
     );
   }
-  const res = await fetch(url, { redirect: "follow" });
+  const fetchUrl = lock?.fetches?.[keyOf(url)]
+    ? urlOf(lock.fetches[keyOf(url)])
+    : url;
+  const res = await fetch(fetchUrl, { redirect: "follow" });
   if (!res.ok) {
     if (!required && res.status === 404) return null;
     throw new Error(`${res.status} for ${url}`);
@@ -142,8 +152,24 @@ async function load(url, lock, required) {
       `${url} changed upstream.\n  locked ${expected.sha256}\n  served ${sha256}\nRun with --update and review the change before you accept it.`,
     );
   }
+  const pinnedUrl = pinSketchpadModuleUrl(url, res.headers.get("x-esm-path"));
+  if (pinnedUrl !== fetchUrl) {
+    const pinnedResponse = await fetch(pinnedUrl, { redirect: "follow" });
+    const pinnedHash = createHash("sha256")
+      .update(Buffer.from(await pinnedResponse.arrayBuffer()))
+      .digest("hex");
+    if (!pinnedResponse.ok || pinnedHash !== sha256)
+      throw new Error(`Pinned module bytes differ for ${url}`);
+  }
   const type = (res.headers.get("content-type") ?? "").split(";")[0].trim();
-  return { url, sha256, type, body, references: referencesOf(body, url, type) };
+  return {
+    url,
+    fetchKey: keyOf(pinnedUrl),
+    sha256,
+    type,
+    body,
+    references: referencesOf(body, url, type),
+  };
 }
 
 function referencesOf(body, url, type) {

@@ -1,3 +1,4 @@
+import { resolveExternalAnchorUrl } from "@posthog/core/canvas/sandboxLinks";
 import {
   CANVAS_SDK_MODULE_SOURCE,
   CANVAS_SDK_SPECIFIER,
@@ -7,7 +8,6 @@ import {
   buildSandboxDocument,
   decodeJsxUnicodeEscapes,
   isInteractiveCanvasCommentTarget,
-  resolveExternalAnchorUrl,
 } from "./sandboxRuntime";
 
 function clickTarget(html: string, selector: string): Element {

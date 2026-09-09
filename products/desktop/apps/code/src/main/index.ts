@@ -6,9 +6,6 @@ import { createLazyWorkspaceClient } from "@posthog/workspace-client/client";
 import type { FileWatcherEvent } from "@posthog/workspace-client/types";
 import { app, BrowserWindow, dialog, session } from "electron";
 import log from "electron-log/main";
-import { registerSketchpadModulesProtocol } from "./protocols/sketchpad-modules";
-import { sketchpadModulesResourcesDir } from "./protocols/sketchpad-modules-dir";
-import { installSketchpadFrameEgressGuard } from "./sketchpad-frame-egress";
 import { prepareSketchpadSession } from "./sketchpad-session";
 import "./utils/logger";
 import "./services/index.js";
@@ -380,15 +377,8 @@ async function boot(): Promise<void> {
   );
   ensureClaudeConfigDir();
   setupExternalLinkPermissionHandlers(session.fromPartition("persist:main"));
-  installSketchpadFrameEgressGuard(
-    session.fromPartition("persist:main").webRequest,
-  );
   registerMcpSandboxProtocol();
   prepareSketchpadSession();
-  registerSketchpadModulesProtocol(
-    session.fromPartition("persist:main").protocol,
-    sketchpadModulesResourcesDir(),
-  );
   registerDiskCacheProtocol(container.get(DISK_CACHE_SERVICE));
   installRendererNetworkLogging(
     session.fromPartition("persist:main").webRequest,

@@ -1,18 +1,26 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { SKETCHPAD_MODULE_SCHEME } from "@posthog/shared";
-
-let sketchpadDocument: { html: string; csp: string } | null = null;
-
-export function setSketchpadDocument(document: {
-  html: string;
-  csp: string;
-}): void {
-  sketchpadDocument = document;
-}
-
+import {
+  buildSketchpadFrameDocument,
+  sketchpadFramePolicy,
+} from "@posthog/core/sketchpad/frameDocument";
+import { SKETCHPAD_MODULE_SCHEME, sketchpadModuleKey } from "@posthog/shared";
 import { logger } from "../utils/logger";
+
+const FRAME_DOCUMENT = buildSketchpadFrameDocument({ vendoredModules: true });
+const FRAME_POLICY = sketchpadFramePolicy(true);
+
+function serveFrameDocument(): Response {
+  return new Response(FRAME_DOCUMENT, {
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Security-Policy": FRAME_POLICY,
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
 
 const log = logger.scope("sketchpad modules");
 
@@ -55,29 +63,19 @@ export function registerSketchpadModulesProtocol(
     manifest ??= readFile(join(dir, "manifest.json"), "utf8")
       .then((text) => JSON.parse(text) as ModuleManifest)
       .catch((error) => {
-        log.error("No vendored board modules", { error: String(error) });
+        manifest = null;
+        log.error("No vendored sketchpad modules", { error: String(error) });
         return null;
       });
     return manifest;
   };
 
-  protocolHost.handle(SKETCHPAD_MODULE_SCHEME, async (request) => {
-    if (new URL(request.url).hostname === "sketchpad") {
-      if (!sketchpadDocument) return NOT_FOUND();
-      return new Response(sketchpadDocument.html, {
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          "Content-Security-Policy": sketchpadDocument.csp,
-          "Cache-Control": "no-store",
-          "X-Content-Type-Options": "nosniff",
-        },
-      });
-    }
+  const serveVendoredModule = async (request: Request): Promise<Response> => {
     const files = (await load())?.files;
     if (!files) return NOT_FOUND();
-    const entry = files[keyOf(request.url)];
+    const entry = files[sketchpadModuleKey(request.url)];
     if (!entry) {
-      log.warn("Refused a board module the lock does not name");
+      log.warn("Refused a sketchpad module the lock does not name");
       return NOT_FOUND();
     }
     const body = await readFile(
@@ -85,7 +83,7 @@ export function registerSketchpadModulesProtocol(
     ).catch(() => null);
     if (!body) return NOT_FOUND();
     if (createHash("sha256").update(body).digest("hex") !== entry.sha256) {
-      log.error("A vendored board module does not match the lock");
+      log.error("A vendored sketchpad module does not match the lock");
       return NOT_FOUND();
     }
     const type = SERVABLE_TYPES.has(entry.type)
@@ -99,10 +97,10 @@ export function registerSketchpadModulesProtocol(
         "X-Content-Type-Options": "nosniff",
       },
     });
-  });
-}
-
-export function keyOf(requestUrl: string): string {
-  const url = new URL(requestUrl);
-  return `${url.hostname}|${url.pathname}${url.search}`;
+  };
+  protocolHost.handle(SKETCHPAD_MODULE_SCHEME, async (request) =>
+    new URL(request.url).hostname === "sketchpad"
+      ? serveFrameDocument()
+      : serveVendoredModule(request),
+  );
 }

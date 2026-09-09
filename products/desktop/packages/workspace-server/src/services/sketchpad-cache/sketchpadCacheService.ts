@@ -9,34 +9,32 @@ import {
 import { injectable } from "inversify";
 import type { SketchpadCacheService } from "./identifiers";
 
-interface WriteState {
+interface WriteEntry {
   pending?: SketchpadCachePayload;
+  inFlight: Promise<void>;
 }
 
 @injectable()
 export class SketchpadCacheServiceImpl implements SketchpadCacheService {
-  private readonly writes = new Map<
-    string,
-    { state: WriteState; inFlight: Promise<void> }
-  >();
+  private readonly writes = new Map<string, WriteEntry>();
 
   write(payload: SketchpadCachePayload): Promise<void> {
     const filePath = sketchpadCacheFilePath(os.homedir(), payload.sketchpadId);
     const existing = this.writes.get(filePath);
     if (existing) {
-      existing.state.pending = payload;
+      existing.pending = payload;
       return existing.inFlight;
     }
-    const state: WriteState = {};
-    const inFlight = this.drain(filePath, payload, state);
-    this.writes.set(filePath, { state, inFlight });
-    return inFlight;
+    const entry: WriteEntry = { inFlight: Promise.resolve() };
+    this.writes.set(filePath, entry);
+    entry.inFlight = this.drain(filePath, payload, entry);
+    return entry.inFlight;
   }
 
   private async drain(
     filePath: string,
     initial: SketchpadCachePayload,
-    state: WriteState,
+    entry: WriteEntry,
   ): Promise<void> {
     let tmpPath: string | undefined;
     try {
@@ -47,9 +45,12 @@ export class SketchpadCacheServiceImpl implements SketchpadCacheService {
         await fs.writeFile(tmpPath, `${JSON.stringify(payload)}\n`);
         await fs.rename(tmpPath, filePath);
         tmpPath = undefined;
-        payload = state.pending;
-        state.pending = undefined;
+        payload = entry.pending;
+        entry.pending = undefined;
       }
+    } catch (error) {
+      entry.pending = undefined;
+      throw error;
     } finally {
       this.writes.delete(filePath);
       if (tmpPath !== undefined) await fs.rm(tmpPath, { force: true });

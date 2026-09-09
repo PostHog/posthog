@@ -1,115 +1,37 @@
 import path from "node:path";
-import type { BrowserWindow, WebContents, WebPreferences } from "electron";
-import {
-  ARTIFACT_PREVIEW_ARG,
-  ARTIFACT_PREVIEW_DATA_URL_PREFIX,
-  ARTIFACT_PREVIEW_PARTITION_PREFIX,
-} from "../../shared/constants";
-import {
-  hardenSketchpadPreferences,
-  isSketchpadGuest,
-  isSketchpadWebview,
-  lockDownSketchpad,
-} from "../sketchpad-session";
+import { SKETCHPAD_PARTITION } from "@posthog/shared";
+import { type BrowserWindow, session } from "electron";
 import { logger } from "../utils/logger";
+import {
+  ARTIFACT_PREVIEW_KIND,
+  hardenGuestPreferences,
+  isolateGuestSession,
+  lockDownGuest,
+  SKETCHPAD_KIND,
+} from "./sandboxed-webviews";
 
-const log = logger.scope("artifact-preview-webview");
-
-export function isAllowedArtifactPreview(
-  src: string,
-  partition: string | undefined,
-): boolean {
-  return (
-    src.startsWith(ARTIFACT_PREVIEW_DATA_URL_PREFIX) &&
-    partition?.startsWith(ARTIFACT_PREVIEW_PARTITION_PREFIX) === true
-  );
-}
-
-export function hardenArtifactPreviewPreferences(
-  preferences: WebPreferences,
-  preloadPath: string,
-): void {
-  preferences.preload = preloadPath;
-  preferences.additionalArguments = [ARTIFACT_PREVIEW_ARG];
-  preferences.nodeIntegration = false;
-  preferences.nodeIntegrationInSubFrames = false;
-  preferences.contextIsolation = true;
-  preferences.sandbox = true;
-  preferences.webSecurity = true;
-  preferences.allowRunningInsecureContent = false;
-  preferences.webviewTag = false;
-  preferences.disableDialogs = true;
-  preferences.experimentalFeatures = false;
-  preferences.enableBlinkFeatures = "";
-  preferences.plugins = false;
-}
-
-export function lockDownArtifactPreview(guest: WebContents): void {
-  guest.setWindowOpenHandler(() => ({ action: "deny" }));
-  guest.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
-  guest.on("will-navigate", (event, url) => {
-    if (
-      url.startsWith(ARTIFACT_PREVIEW_DATA_URL_PREFIX) ||
-      url === "about:blank"
-    ) {
-      return;
-    }
-    event.preventDefault();
-  });
-  guest.on("will-frame-navigate", (event) => {
-    if (!event.isMainFrame) event.preventDefault();
-  });
-
-  const guestSession = guest.session;
-  guestSession.enableNetworkEmulation({ offline: true });
-  void guestSession
-    .setProxy({
-      mode: "fixed_servers",
-      proxyRules: "http=127.0.0.1:9;https=127.0.0.1:9;socks=127.0.0.1:9",
-    })
-    .catch((error) =>
-      log.warn("Failed to isolate artifact preview proxy", { error }),
-    );
-  guestSession.setPermissionCheckHandler(() => false);
-  guestSession.setPermissionRequestHandler((_contents, _permission, callback) =>
-    callback(false),
-  );
-  guestSession.on("will-download", (event) => event.preventDefault());
-  guestSession.webRequest.onBeforeRequest(
-    {
-      urls: [
-        "http://*/*",
-        "https://*/*",
-        "file://*/*",
-        "ws://*/*",
-        "wss://*/*",
-      ],
-    },
-    (_details, callback) => callback({ cancel: true }),
-  );
-}
+const log = logger.scope("sandboxed webviews");
+const WEBVIEW_KINDS = [SKETCHPAD_KIND, ARTIFACT_PREVIEW_KIND];
 
 export function setupArtifactPreviewWebviews(window: BrowserWindow): void {
   const preloadPath = path.join(__dirname, "preload.js");
-
   window.webContents.on("will-attach-webview", (event, preferences, params) => {
-    if (isSketchpadWebview(params.src, params.partition)) {
-      hardenSketchpadPreferences(preferences, preloadPath);
-      return;
-    }
-    if (!isAllowedArtifactPreview(params.src, params.partition)) {
+    const kind = WEBVIEW_KINDS.find((candidate) =>
+      candidate.matches(params.src, params.partition),
+    );
+    if (!kind) {
       event.preventDefault();
       log.warn("Blocked an unsupported webview attachment");
       return;
     }
-    hardenArtifactPreviewPreferences(preferences, preloadPath);
+    hardenGuestPreferences(preferences, preloadPath, kind);
   });
-
   window.webContents.on("did-attach-webview", (_event, guest) => {
-    if (isSketchpadGuest(guest)) {
-      lockDownSketchpad(guest);
-      return;
-    }
-    lockDownArtifactPreview(guest);
+    const kind =
+      guest.session === session.fromPartition(SKETCHPAD_PARTITION)
+        ? SKETCHPAD_KIND
+        : ARTIFACT_PREVIEW_KIND;
+    lockDownGuest(guest, kind);
+    if (kind === ARTIFACT_PREVIEW_KIND) isolateGuestSession(guest.session);
   });
 }

@@ -4,12 +4,16 @@ import {
   ARTIFACT_PREVIEW_ARG,
   ARTIFACT_PREVIEW_DATA_URL_PREFIX,
 } from "../../shared/constants";
+import { setupArtifactPreviewWebviews } from "./electron-artifact-preview";
 import {
-  hardenArtifactPreviewPreferences,
-  isAllowedArtifactPreview,
-  lockDownArtifactPreview,
-  setupArtifactPreviewWebviews,
-} from "./electron-artifact-preview";
+  ARTIFACT_PREVIEW_KIND,
+  hardenGuestPreferences,
+  isolateGuestSession,
+  lockDownGuest,
+  SKETCHPAD_KIND,
+} from "./sandboxed-webviews";
+
+vi.mock("electron", () => ({ session: { fromPartition: vi.fn(() => ({})) } }));
 
 describe("artifact preview webviews", () => {
   it.each([
@@ -17,48 +21,51 @@ describe("artifact preview webviews", () => {
     [`${ARTIFACT_PREVIEW_DATA_URL_PREFIX}<h1>report</h1>`, "persist:main"],
     ["file:///tmp/report.html", "artifact-preview-one"],
   ])("rejects unsupported source and partition pairs", (src, partition) => {
-    expect(isAllowedArtifactPreview(src, partition)).toBe(false);
+    expect(ARTIFACT_PREVIEW_KIND.matches(src, partition)).toBe(false);
   });
 
   it("allows an HTML data document in an ephemeral artifact partition", () => {
     expect(
-      isAllowedArtifactPreview(
+      ARTIFACT_PREVIEW_KIND.matches(
         `${ARTIFACT_PREVIEW_DATA_URL_PREFIX}<script>render()</script>`,
         "artifact-preview-123",
       ),
     ).toBe(true);
   });
 
-  it("overrides privileged guest preferences", () => {
-    const preferences = {
-      preload: "/tmp/untrusted.js",
-      nodeIntegration: true,
-      contextIsolation: false,
-      sandbox: false,
-      webSecurity: false,
-      allowRunningInsecureContent: true,
-      webviewTag: true,
-      disableDialogs: false,
-    } as WebPreferences;
+  it.each([ARTIFACT_PREVIEW_KIND, SKETCHPAD_KIND])(
+    "overrides privileged guest preferences",
+    (kind) => {
+      const preferences = {
+        preload: "/tmp/untrusted.js",
+        nodeIntegration: true,
+        contextIsolation: false,
+        sandbox: false,
+        webSecurity: false,
+        allowRunningInsecureContent: true,
+        webviewTag: true,
+        disableDialogs: false,
+      } as WebPreferences;
 
-    hardenArtifactPreviewPreferences(preferences, "/app/artifact-preload.js");
+      hardenGuestPreferences(preferences, "/app/artifact-preload.js", kind);
 
-    expect(preferences).toMatchObject({
-      preload: "/app/artifact-preload.js",
-      additionalArguments: [ARTIFACT_PREVIEW_ARG],
-      nodeIntegration: false,
-      nodeIntegrationInSubFrames: false,
-      contextIsolation: true,
-      sandbox: true,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      webviewTag: false,
-      disableDialogs: true,
-      experimentalFeatures: false,
-      enableBlinkFeatures: "",
-      plugins: false,
-    });
-  });
+      expect(preferences).toMatchObject({
+        preload: "/app/artifact-preload.js",
+        additionalArguments: [kind.additionalArgument],
+        nodeIntegration: false,
+        nodeIntegrationInSubFrames: false,
+        contextIsolation: true,
+        sandbox: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
+        webviewTag: false,
+        disableDialogs: true,
+        experimentalFeatures: false,
+        enableBlinkFeatures: "",
+        plugins: false,
+      });
+    },
+  );
 
   it("blocks guest network, navigation, permissions, popups, and downloads", () => {
     const handlers = new Map<string, (...args: never[]) => void>();
@@ -84,7 +91,8 @@ describe("artifact preview webviews", () => {
       },
     } as unknown as WebContents;
 
-    lockDownArtifactPreview(guest);
+    lockDownGuest(guest, ARTIFACT_PREVIEW_KIND);
+    isolateGuestSession(guest.session);
 
     expect(guest.setWindowOpenHandler).toHaveBeenCalledOnce();
     expect(guest.setWebRTCIPHandlingPolicy).toHaveBeenCalledWith(
