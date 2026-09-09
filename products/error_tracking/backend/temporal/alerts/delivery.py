@@ -383,7 +383,7 @@ def _record_delivery_outcome(destination: ErrorTrackingAlertDestination, *, erro
     rows = ErrorTrackingAlertDestination.objects.for_team(destination.team_id, canonical=True).filter(id=destination.id)
     try:
         if error is None:
-            rows.update(last_delivered_at=now, consecutive_failures=0, updated_at=now)
+            rows.update(last_delivered_at=now, consecutive_failures=0, last_error="", updated_at=now)
         else:
             rows.update(
                 last_failure_at=now,

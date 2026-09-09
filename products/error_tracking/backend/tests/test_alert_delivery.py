@@ -963,6 +963,7 @@ class TestAlertThrottlingAndOutcomes(AlertTestMixin):
             destination = alert.destinations.get()
         assert destination.last_delivered_at is not None
         assert destination.consecutive_failures == 0
+        assert destination.last_error == ""
 
     def test_failed_delivery_records_outcome(self):
         client = self._mock_slack()
