@@ -1,0 +1,44 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "The default AI run triple stored at team or user level.\n\nWrite payload for the tasks config endpoints and the `ai_run_preferences` block of\ntheir responses. `runtime_adapter` and `model` must be set together; send all three\nas null to clear a stored preference.",
+    "properties": {
+        "model": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`."
+        },
+        "reasoning_effort": {
+            "anyOf": [
+                {
+                    "description": "* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max\n* `ultracode` - ultracode",
+                    "enum": ["low", "medium", "high", "xhigh", "max", "ultracode"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Default reasoning effort for models that expose an effort control.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max\n* `ultracode` - ultracode"
+        },
+        "runtime_adapter": {
+            "anyOf": [
+                {
+                    "description": "* `claude` - claude\n* `codex` - codex",
+                    "enum": ["claude", "codex"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.\n\n* `claude` - claude\n* `codex` - codex"
+        }
+    },
+    "type": "object"
+}
