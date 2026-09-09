@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import JsonValue
 
-FaultName = Literal["registration", "worker", "approval"]
+FaultName = Literal["registration", "worker", "approval", "approval_confirmation", "model"]
 
 
 class Fault:

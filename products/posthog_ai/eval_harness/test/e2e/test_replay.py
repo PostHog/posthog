@@ -11,6 +11,47 @@ from products.posthog_ai.eval_harness.test.e2e.replay import Replay, ResponseSte
 
 
 class TestReplay(TestCase):
+    def test_followups_require_assistant_history_and_match_multiline_human_messages(self) -> None:
+        for provider in ("claude", "codex"):
+            with self.subTest(provider=provider):
+                prompt = 'First direction.\n\nSecond "direction" — synthetic.'
+                answer = 'The first "answer".\nNext line.'
+                step = ResponseStep.model_validate(
+                    {
+                        "provider": provider,
+                        "model": "synthetic-model",
+                        "fixture": "text",
+                        "user_message": prompt,
+                        "history_contains": [answer],
+                        "substitutions": {
+                            "message_id": "msg_synthetic",
+                            "model": "synthetic-model",
+                            "text": "Received.",
+                        },
+                    }
+                )
+                field = "messages" if provider == "claude" else "input"
+                body: dict[str, JsonValue] = {
+                    "model": step.model,
+                    "stream": True,
+                    field: [{"role": "user", "content": prompt}],
+                }
+                rejected = Replay([step])
+                with self.assertRaisesRegex(ValueError, "history is missing"):
+                    rejected.respond(provider, body)
+                self.assertEqual(rejected.cursor, 0)
+                replay = Replay([step])
+                index, frames = replay.respond(
+                    provider,
+                    {
+                        **body,
+                        field: [{"role": "assistant", "content": answer}, {"role": "user", "content": prompt}],
+                    },
+                )
+                self.assertEqual(index, 0)
+                self.assertIn(b"Received.", frames)
+                replay.verify()
+
     def test_codex_tool_calls_require_the_discovered_namespace(self) -> None:
         step = ResponseStep.model_validate(
             {
@@ -43,7 +84,7 @@ class TestReplay(TestCase):
             Replay([step]).respond("codex", body)
         discovered["tools"] = [{"type": "function", "name": "exec"}]
         replay = Replay([step])
-        self.assertIn(b'"namespace": "mcp__posthog"', replay.respond("codex", body))
+        self.assertIn(b'"namespace": "mcp__posthog"', replay.respond("codex", body)[1])
         replay.verify()
 
     def test_mismatches_never_advance_or_pass_verification(self) -> None:
@@ -79,14 +120,14 @@ class TestReplay(TestCase):
                     replay.verify()
 
     def test_real_tool_result_required_for_both_provider_encodings(self) -> None:
-        for provider in ("claude", "codex"):
-            with self.subTest(provider=provider):
+        for provider, mixed_followup in (("claude", False), ("claude", True), ("codex", False)):
+            with self.subTest(provider=provider, mixed_followup=mixed_followup):
                 step = ResponseStep.model_validate(
                     {
                         "provider": provider,
                         "model": "synthetic-model",
                         "fixture": "text",
-                        "user_message": "rename insight",
+                        "user_message": "Continue after stopping." if mixed_followup else "rename insight",
                         "tool_result": {"call_id": "call_synthetic", "contains": "Synthetic renamed insight"},
                         "substitutions": {
                             "model": "synthetic-model",
@@ -114,6 +155,10 @@ class TestReplay(TestCase):
                         "output": "Synthetic renamed insight",
                     }
                 )
+                if mixed_followup:
+                    content = result["content"]
+                    assert isinstance(content, list)
+                    content.append({"type": "text", "text": "Continue after stopping."})
                 field = "messages" if provider == "claude" else "input"
                 body: dict[str, JsonValue] = {"model": step.model, "stream": True, field: [user]}
                 with self.assertRaises(ValueError):
@@ -121,7 +166,7 @@ class TestReplay(TestCase):
                 replay = Replay([step])
                 with self.assertRaises(AssertionError):
                     replay.verify()
-                frames = replay.respond(provider, {**body, field: [user, result]}).decode()
+                frames = replay.respond(provider, {**body, field: [user, result]})[1].decode()
                 events = [
                     json.loads(line.removeprefix("data: ")) for line in frames.splitlines() if line.startswith("data: ")
                 ]

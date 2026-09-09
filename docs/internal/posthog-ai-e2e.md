@@ -53,7 +53,7 @@ The queue and steering layer adds the next five flows in `flows-queue-steering.s
 10. Escape with an empty saved queue cancels the active turn and preserves an unsent draft.
 
 An additional case within queue submission freezes the draft debounce and submits immediately.
-It reproduces queued text remaining in the composer after submission; this test also remains enabled.
+It checks that queued text clears from the composer after submission.
 The other queue cases advance that debounce with the browser clock so they independently exercise their delivery transitions.
 These are browser interaction checks with held task commands, not real agent-delivery checks.
 
@@ -65,9 +65,27 @@ The cancellation and history layer adds the last five flows in `flows-cancellati
 14. Sidebar attachment preserves the startup draft and focus at normal and narrow viewport widths.
 15. Reload, stream reconnect, and resolution from another client leave only the current run's unresolved approval actionable.
 
-These cases use controlled task commands and stream events. They currently reproduce two additional regressions:
-late task creation redirects back after navigation, and clicking the main transcript leaves focus outside its Escape boundary.
-Both assertions remain enabled.
+These cases use controlled task commands and stream events. They also guard against late task creation redirecting after
+navigation and main-transcript clicks leaving focus outside the Escape boundary.
+
+## Critical journeys through real services
+
+The next layer adds coverage across boundaries that the controlled browser cases cannot establish:
+
+| Journey               | Browser coverage                                                                                                            |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Deep links            | `/ai?ask=…` submits once with consent already accepted; a follow-up and reload retain the conversation.                     |
+| Cancellation          | Startup Stop reaches the owning agent; active-turn Stop prevents a pending insight creation; both accept a follow-up.       |
+| Queue and steering    | Two saved directions wait for real approval confirmation, arrive once in order, and preserve the separate draft.            |
+| History and reconnect | A real live response overlaps persisted history; reconnect uses its SSE cursor; a warm successor retains assistant history. |
+| Insight results       | MCP creates one saved insight, its SQL rows render in chat, and reload and the saved-insight link retain the result.        |
+| Sidebar apply-back    | A SQL suggestion reaches the submitting editor; late completion and history replay leave another editor unchanged.          |
+
+The first five run with Claude and Codex. The sidebar case uses Claude for the shared editor integration.
+Provider replies use synthetic fixtures; tool execution, query results, persistence, and application streaming remain real.
+The provider response barrier opens SSE before pausing so cancellation reaches an established SDK request.
+The approval-confirmation barrier holds the real successful response after execution starts; it never fabricates acceptance.
+These additions require ten repetitions on the actual CI runner before being described as stable.
 
 The original recovery browser suite runs three cases for each of Claude and Codex:
 
