@@ -54,6 +54,23 @@ class DateWhereExprs:
         return [self.date_from_expr, self.date_to_expr]
 
 
+@frozen
+class ActorsDateWindow:
+    """Date window for actors queries, with comparison operator for the end boundary."""
+
+    from_datetime: datetime
+    to_datetime: datetime
+    to_op: ast.CompareOperationOp
+
+
+@frozen
+class ActorsExprs:
+    """Expression pair for active users calculations."""
+
+    from_expr: ast.Expr
+    to_expr: ast.Expr
+
+
 class TrendsActorsQueryBuilder:
     trends_query: TrendsQuery
     team: Team
@@ -417,90 +434,24 @@ class TrendsActorsQueryBuilder:
         return conditions
 
     def _date_where_expr(self) -> DateWhereExprs:
-        # types
-        date_range: QueryDateRange | QueryCompareToDateRange | QueryPreviousPeriodDateRange
-        if self.is_compare_previous:
-            date_range = self.trends_previous_date_range
-        else:
-            date_range = self.trends_date_range
-
+        date_range: QueryDateRange | QueryCompareToDateRange | QueryPreviousPeriodDateRange = (
+            self.trends_previous_date_range if self.is_compare_previous else self.trends_date_range
+        )
         query_from, query_to = date_range.date_from(), date_range.date_to()
-        actors_from: datetime
-        actors_from_expr: ast.Expr
-        actors_to: datetime
-        actors_to_expr: ast.Expr
-        actors_to_op: ast.CompareOperationOp = ast.CompareOperationOp.Lt
 
         if self.is_total_value:
-            if self.time_frame is not None:
-                raise QueryError("A `day` is forbidden for trends actors queries with total value aggregation")
-
-            actors_from = query_from
-            actors_to = query_to
-            actors_to_op = ast.CompareOperationOp.LtEq
+            window = self._total_value_actors_window(query_from, query_to)
         else:
-            if self.time_frame is None:
-                raise QueryError("A `day` is required for trends actors queries without total value aggregation")
-
-            # use previous day/week/... for time_frame
-            if self.is_compare_previous:
-                delta_mappings = None if self.is_compare_to else date_range.date_from_delta_mappings()  # type: ignore
-                if delta_mappings is None:
-                    # Either an explicit compare_to offset, or an "all time" range, which starts at the
-                    # earliest event and so has no relative delta to step back by. Both shift the frame
-                    # by the gap between the two periods' starts instead.
-                    self.time_frame = query_from + (self.time_frame - self.trends_date_range.date_from())
-                else:
-                    previous_time_frame = self.time_frame - relativedelta(**delta_mappings)
-                    if self.is_hourly:
-                        self.time_frame = previous_time_frame
-                    else:
-                        self.time_frame = previous_time_frame.replace(hour=0, minute=0, second=0, microsecond=0)
-
-            actors_from = self.time_frame
-            actors_to = actors_from + date_range.interval_relativedelta()
-
-            # exclude events before the query start and after the query end
-            if self.is_explicit and not self.is_active_users_math:
-                if query_from > actors_from:
-                    actors_from = query_from
-
-                if query_to < actors_to:
-                    actors_to_op = ast.CompareOperationOp.LtEq
-                    actors_to = query_to
+            window = self._time_series_actors_window(date_range, query_from, query_to)
 
         # adjust date_from for weekly and monthly active calculations
         if self.is_active_users_math:
-            if self.is_total_value:
-                # TRICKY: On total value (non-time-series) insights, WAU/MAU math is simply meaningless.
-                # There's no intuitive way to define the semantics of such a combination, so what we do is just turn it
-                # into a count of unique users between `date_to - INTERVAL (7|30) DAY` and `date_to`.
-                # This way we at least ensure the date range is the probably expected 7 or 30 days.
-                actors_from = actors_to
-
-            if self.is_weekly_active_math:
-                actors_from_expr = ast.ArithmeticOperation(
-                    op=ast.ArithmeticOperationOp.Sub,
-                    left=ast.Constant(value=actors_from),
-                    right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=6)]),
-                )
-                actors_to_expr = ast.Constant(value=actors_to)
-            elif self.is_monthly_active_math:
-                actors_from_expr = ast.ArithmeticOperation(
-                    op=ast.ArithmeticOperationOp.Sub,
-                    left=ast.Constant(value=actors_from),
-                    right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=29)]),
-                )
-                actors_to_expr = ast.Constant(value=actors_to)
-
-            if self.is_explicit:
-                actors_from_expr = ast.Call(name="greatest", args=[actors_from_expr, ast.Constant(value=query_from)])
-                actors_to_expr = ast.Call(
-                    name="least", args=[ast.Constant(value=actors_to), ast.Constant(value=query_to)]
-                )
+            exprs = self._active_users_exprs(window.from_datetime, window.to_datetime, query_from, query_to)
+            actors_from_expr = exprs.from_expr
+            actors_to_expr = exprs.to_expr
         else:
-            actors_from_expr = ast.Constant(value=actors_from)
-            actors_to_expr = ast.Constant(value=actors_to)
+            actors_from_expr = ast.Constant(value=window.from_datetime)
+            actors_to_expr = ast.Constant(value=window.to_datetime)
 
         return DateWhereExprs(
             date_from_expr=ast.CompareOperation(
@@ -510,10 +461,104 @@ class TrendsActorsQueryBuilder:
             ),
             date_to_expr=ast.CompareOperation(
                 left=ast.Field(chain=["timestamp"]),
-                op=actors_to_op,
+                op=window.to_op,
                 right=actors_to_expr,
             ),
         )
+
+    def _total_value_actors_window(self, query_from: datetime, query_to: datetime) -> ActorsDateWindow:
+        if self.time_frame is not None:
+            raise QueryError("A `day` is forbidden for trends actors queries with total value aggregation")
+
+        return ActorsDateWindow(
+            from_datetime=query_from,
+            to_datetime=query_to,
+            to_op=ast.CompareOperationOp.LtEq,
+        )
+
+    def _time_series_actors_window(
+        self,
+        date_range: QueryDateRange | QueryCompareToDateRange | QueryPreviousPeriodDateRange,
+        query_from: datetime,
+        query_to: datetime,
+    ) -> ActorsDateWindow:
+        if self.time_frame is None:
+            raise QueryError("A `day` is required for trends actors queries without total value aggregation")
+
+        # use previous day/week/... for time_frame
+        if self.is_compare_previous:
+            self.time_frame = self._previous_period_time_frame(date_range, self.time_frame, query_from)
+
+        actors_from = self.time_frame
+        actors_to = actors_from + date_range.interval_relativedelta()
+        actors_to_op = ast.CompareOperationOp.Lt
+
+        # exclude events before the query start and after the query end
+        if self.is_explicit and not self.is_active_users_math:
+            if query_from > actors_from:
+                actors_from = query_from
+
+            if query_to < actors_to:
+                actors_to_op = ast.CompareOperationOp.LtEq
+                actors_to = query_to
+
+        return ActorsDateWindow(
+            from_datetime=actors_from,
+            to_datetime=actors_to,
+            to_op=actors_to_op,
+        )
+
+    def _previous_period_time_frame(
+        self,
+        date_range: QueryDateRange | QueryCompareToDateRange | QueryPreviousPeriodDateRange,
+        time_frame: datetime,
+        query_from: datetime,
+    ) -> datetime:
+        delta_mappings = None if self.is_compare_to else date_range.date_from_delta_mappings()  # type: ignore
+        if delta_mappings is None:
+            # Either an explicit compare_to offset, or an "all time" range, which starts at the
+            # earliest event and so has no relative delta to step back by. Both shift the frame
+            # by the gap between the two periods' starts instead.
+            return query_from + (time_frame - self.trends_date_range.date_from())
+
+        previous_time_frame = time_frame - relativedelta(**delta_mappings)
+        if self.is_hourly:
+            return previous_time_frame
+        return previous_time_frame.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    def _active_users_exprs(
+        self, actors_from: datetime, actors_to: datetime, query_from: datetime, query_to: datetime
+    ) -> ActorsExprs:
+        actors_from_expr: ast.Expr
+        actors_to_expr: ast.Expr
+
+        if self.is_total_value:
+            # TRICKY: On total value (non-time-series) insights, WAU/MAU math is simply meaningless.
+            # There's no intuitive way to define the semantics of such a combination, so what we do is just turn it
+            # into a count of unique users between `date_to - INTERVAL (7|30) DAY` and `date_to`.
+            # This way we at least ensure the date range is the probably expected 7 or 30 days.
+            actors_from = actors_to
+
+        if self.is_weekly_active_math:
+            actors_from_expr = ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Sub,
+                left=ast.Constant(value=actors_from),
+                right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=6)]),
+            )
+            actors_to_expr = ast.Constant(value=actors_to)
+        elif self.is_monthly_active_math:
+            actors_from_expr = ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Sub,
+                left=ast.Constant(value=actors_from),
+                right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=29)]),
+            )
+            actors_to_expr = ast.Constant(value=actors_to)
+
+        if self.is_explicit:
+            actors_from_expr = ast.Call(name="greatest", args=[actors_from_expr, ast.Constant(value=query_from)])
+            actors_to_expr = ast.Call(name="least", args=[ast.Constant(value=actors_to), ast.Constant(value=query_to)])
+
+        return ActorsExprs(from_expr=actors_from_expr, to_expr=actors_to_expr)
 
     def _breakdown_where_expr(self) -> list[ast.Expr]:
         conditions: list[ast.Expr] = []
