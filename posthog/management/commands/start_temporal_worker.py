@@ -88,10 +88,6 @@ from posthog.temporal.mcp_analytics.intent_clustering import (
     MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
     MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
 )
-from posthog.temporal.product_analytics import (
-    ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,
-    WORKFLOWS as PRODUCT_ANALYTICS_WORKFLOWS,
-)
 from posthog.temporal.proxy_service import (
     ACTIVITIES as PROXY_SERVICE_ACTIVITIES,
     WORKFLOWS as PROXY_SERVICE_WORKFLOWS,
@@ -230,6 +226,10 @@ from products.managed_warehouse.backend.facade.temporal import (
 from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
     WORKFLOWS as NOTEBOOKS_WORKFLOWS,
+)
+from products.product_analytics.backend.facade.temporal import (
+    ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,
+    WORKFLOWS as PRODUCT_ANALYTICS_WORKFLOWS,
 )
 from products.pulse.backend.temporal.registry import (
     ACTIVITIES as PULSE_ACTIVITIES,

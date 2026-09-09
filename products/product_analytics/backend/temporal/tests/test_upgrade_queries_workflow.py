@@ -14,18 +14,18 @@ from posthog.schema import NodeKind
 
 import posthog.schema_migrations as schema_migrations_module
 from posthog.schema_migrations import LATEST_VERSIONS, MIGRATIONS, SchemaMigration, _discover_migrations
-from posthog.temporal.product_analytics.upgrade_queries_activities import (
+
+from products.product_analytics.backend.facade.models import Insight
+from products.product_analytics.backend.temporal.upgrade_queries_activities import (
     GetInsightsToMigrateActivityInputs,
     MigrateInsightsBatchActivityInputs,
     get_insights_to_migrate,
     migrate_insights_batch,
 )
-from posthog.temporal.product_analytics.upgrade_queries_workflow import (
+from products.product_analytics.backend.temporal.upgrade_queries_workflow import (
     UpgradeQueriesWorkflow,
     UpgradeQueriesWorkflowInputs,
 )
-
-from products.product_analytics.backend.facade.models import Insight
 
 
 class InsightVizMigration1(SchemaMigration):
