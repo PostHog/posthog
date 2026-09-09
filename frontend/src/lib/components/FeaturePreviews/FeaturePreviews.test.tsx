@@ -129,7 +129,7 @@ describe('FeaturePreviews', () => {
         ['beta', true],
         ['alpha', true],
         ['concept', false],
-    ])('a %s-stage preview is listed: %s', (stage, expectedVisible) => {
+    ] as const)('a %s-stage preview is listed: %s', (stage, expectedVisible) => {
         setupMocks({ features: [{ ...BETA_FEATURE, stage }] })
 
         render(<FeaturePreviews />)
