@@ -37,6 +37,11 @@ pub struct ProcessView {
     pub paused_leaders: Vec<String>,
     pub routers: Vec<String>,
     pub retired: Vec<String>,
+    /// Processes the harness still holds that have already exited.
+    /// `check_alive` bails on the first one without dropping it, so
+    /// membership alone would call a crashed leader live — backwards for
+    /// the one fact only the harness can supply.
+    pub exited: Vec<String>,
 }
 
 /// One read of coordination state, taken before anything is rendered so
@@ -458,7 +463,9 @@ fn lease_of<'a>(leases: &'a HashMap<String, String>, name: &str) -> &'a str {
 }
 
 fn harness_verdict(view: &ProcessView, pod_name: &str) -> &'static str {
-    if view.live_leaders.iter().any(|name| name == pod_name) {
+    if view.exited.iter().any(|name| name == pod_name) {
+        "exited"
+    } else if view.live_leaders.iter().any(|name| name == pod_name) {
         "live"
     } else if view.paused_leaders.iter().any(|name| name == pod_name) {
         "paused (SIGSTOP)"
@@ -469,11 +476,12 @@ fn harness_verdict(view: &ProcessView, pod_name: &str) -> &'static str {
 
 fn harness_line(view: &ProcessView) -> String {
     format!(
-        "harness view: live leaders [{}], paused leaders [{}], routers [{}], retired [{}]\n",
+        "harness view: live leaders [{}], paused leaders [{}], routers [{}], retired [{}], exited [{}]\n",
         view.live_leaders.join(","),
         view.paused_leaders.join(","),
         view.routers.join(","),
         view.retired.join(","),
+        view.exited.join(","),
     )
 }
 
@@ -557,6 +565,7 @@ mod tests {
                 paused_leaders: vec![],
                 routers: vec![],
                 retired: vec![],
+                exited: vec![],
             };
             let report = render(&state, 1, &view, 0);
 
@@ -657,6 +666,7 @@ mod tests {
             paused_leaders: vec!["harness-leader-1".to_string()],
             routers: vec!["harness-router-0".to_string()],
             retired: vec!["leader-2".to_string()],
+            exited: vec![],
         };
         let report = dump(&store, 2, &view, "test timeout", &log_dir).await;
 

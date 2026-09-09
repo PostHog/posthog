@@ -684,17 +684,45 @@ impl Stack {
     }
 
     /// A coordination dump (see `diagnostics::dump`) carrying what only
-    /// the harness knows: which processes it still holds.
-    async fn dump_coordination_state(&self, reason: &str) -> String {
+    /// the harness knows: which processes it still holds, and which of
+    /// those are still running.
+    ///
+    /// Liveness comes from the child, not from the collection holding it.
+    /// `check_alive` bails on the first exited service without removing
+    /// it, so the leader whose death triggered the dump is still in
+    /// `self.leaders` by the time the dump runs.
+    async fn dump_coordination_state(&mut self, reason: &str) -> String {
+        let mut live_leaders = Vec::new();
+        let mut routers = Vec::new();
+        let mut exited = Vec::new();
+        for (pod_name, proc) in self.leaders.iter_mut() {
+            match proc.exited() {
+                Some(_) => exited.push(pod_name.clone()),
+                None => live_leaders.push(pod_name.clone()),
+            }
+        }
+        for (router_name, proc) in self.routers.iter_mut() {
+            match proc.exited() {
+                Some(_) => exited.push(router_name.clone()),
+                None => routers.push(router_name.clone()),
+            }
+        }
+        for proc in self.infra.iter_mut() {
+            if proc.exited().is_some() {
+                exited.push(proc.name().to_string());
+            }
+        }
+
         let view = ProcessView {
-            live_leaders: self.leaders.iter().map(|(name, _)| name.clone()).collect(),
+            live_leaders,
             paused_leaders: self.paused.iter().map(|(name, _)| name.clone()).collect(),
-            routers: self.routers.iter().map(|(name, _)| name.clone()).collect(),
+            routers,
             retired: self
                 .retired
                 .iter()
                 .map(|proc| proc.name().to_string())
                 .collect(),
+            exited,
         };
         diagnostics::dump(
             &self.store,
