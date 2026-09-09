@@ -22,6 +22,7 @@ APIScopeObject = Literal[
     "alert",
     "annotation",
     "approvals",
+    "autoresearch",
     "batch_export",
     "batch_import",
     "batch_import_support",
@@ -32,7 +33,9 @@ APIScopeObject = Literal[
     "cohort",
     "comment",
     "conversation",
+    "context_layer_internal",
     "customer_analytics",
+    "customer_task",
     "customer_journey",
     "customer_profile_config",
     "data_catalog",
@@ -156,6 +159,9 @@ API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
 INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     {
         "clickhouse_test_cluster_perf",
+        # Grants Context Wiki writes only to write-enabled sandbox runs. Kept
+        # separate from internal_run because read-only runs carry that marker.
+        "context_layer_internal",
         # Narrows `internal_run`: the run behind this token was started by a person
         # pressing a button, not by one of PostHog's own schedulers. Both markers are
         # minted server-side, so neither can be self-granted; the LLM gateway meters
@@ -221,6 +227,9 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # `loops/:id/trigger/`. PSAKs are project-wide, so a leaked key can fire any loop
     # in the project (accepted and documented in products/tasks/docs/LOOPS.md).
     ("loop", "write"),
+    # Read-only export of experiment definitions (list/retrieve), so services syncing
+    # experiments into a warehouse don't need a credential tied to one person's account.
+    ("experiment", "read"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope
@@ -552,13 +561,18 @@ def get_oauth_scopes_supported() -> list[str]:
     (the latter generated at build time via `bin/build-mcp-oauth-scopes.py` so
     the protected resource cannot drift out of subset of the AS).
 
-    Built from `UNPRIVILEGED_SCOPES`, so it excludes all three non-advertised
-    classes: `INTERNAL_API_SCOPE_OBJECTS` (server-mint-only, e.g.
-    `signal_scout_internal` — never user-grantable), `OAUTH_SCOPES_HIDDEN`
-    (alpha / PAT-only), and `PRIVILEGED_SCOPES` (`llm_gateway:*`, admin-granted
-    only). Discovery metadata shouldn't advertise scopes an OAuth client can't
-    obtain self-serve. PAT validation uses `get_scope_descriptions()` directly
-    and is unaffected.
+    Resource scopes are built from `UNPRIVILEGED_SCOPES`, so the list excludes
+    all three non-advertised classes: `INTERNAL_API_SCOPE_OBJECTS`
+    (server-mint-only, e.g. `signal_scout_internal` — never user-grantable),
+    `OAUTH_SCOPES_HIDDEN` (alpha / PAT-only), and `PRIVILEGED_SCOPES`
+    (`llm_gateway:*`, admin-granted only). Discovery metadata shouldn't advertise
+    scopes an OAuth client can't obtain self-serve. PAT validation uses
+    `get_scope_descriptions()` directly and is unaffected.
+
+    Every `ALWAYS_ALLOWED_SCOPES` member is advertised too, because those ride on
+    every token we issue whether the client asks for them or not. A client that
+    requests one and cannot find it here reads that as consent granted only in
+    part, and warns the user at the moment of install.
 
     The Signals scout harness sandbox token carries `signal_scout_internal:write`,
     but it is minted by directly inserting an `OAuthAccessToken` row (see
@@ -572,4 +586,8 @@ def get_oauth_scopes_supported() -> list[str]:
     ordered = [
         f"{obj}:{action}" for obj in API_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS if f"{obj}:{action}" in visible
     ]
-    return list(OIDC_SCOPES) + ordered
+    # `OIDC_SCOPES` keeps its declared order at the head of the list, so only the
+    # remaining always-allowed scopes are appended (sorted to keep the generated
+    # MCP artifact byte-stable).
+    other_always_allowed = sorted(ALWAYS_ALLOWED_SCOPES - set(OIDC_SCOPES))
+    return list(OIDC_SCOPES) + other_always_allowed + ordered

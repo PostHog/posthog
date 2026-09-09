@@ -57,6 +57,7 @@ class ProductConfig:
 BEDROCK_MODELS = BEDROCK_MODEL_IDS
 
 # OAuth application IDs per region
+POSTHOG_CODE_PRODUCT = "posthog_code"
 POSTHOG_CODE_US_APP_ID = "019a3066-4aa2-0000-ca70-48ecdcc519cf"
 POSTHOG_CODE_EU_APP_ID = "019a3067-5be7-0000-33c7-c6743eb59a79"
 POSTHOG_CODE_DEV_APP_ID = "019ebb47-c750-0000-e1ea-723a6ff112d3"
@@ -95,6 +96,7 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "gpt-5.3-codex",
         "gpt-5.2",
         "gpt-5-mini",
+        "gpt-6-astra",
         "@cf/zai-org/glm-5.2",
         "zai-org/glm-5.3",
         "zai-org/glm-5.3-flash",
@@ -159,9 +161,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "gpt-5.2",
                 "gpt-5-mini",
                 "gpt-5.6-luna",
-                # ReviewHog sandbox runs route here (no review_hog entry in the agent's
-                # origin→product map), so its reviewer-experiment arms must be allowed.
+                # ReviewHog sandbox runs route here: the agent's legacy leg maps
+                # review_hog to this slug (LEGACY_PRODUCT_OVERRIDES in the desktop
+                # agent's gateway.ts), so its reviewer-experiment arms must be allowed.
                 "gpt-5.6-sol",
+                "gpt-6-astra",
             }
             | BEDROCK_MODELS
         ),
@@ -183,6 +187,15 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         requires_server_credential=True,
     ),
     "slack_app": ProductConfig(
+        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
+        allowed_models=_POSTHOG_CODE_AGENT_MODELS | BEDROCK_MODELS,
+        allow_api_keys=False,
+        credit_bucket=CreditBucket.AI_CREDITS,
+        requires_server_credential=True,
+    ),
+    # Workflow task runs authenticate with a server-minted credential, share the Slack app's
+    # model policy, and bill into PostHog AI credits rather than PostHog Code credits.
+    "workflows": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=_POSTHOG_CODE_AGENT_MODELS | BEDROCK_MODELS,
         allow_api_keys=False,
@@ -265,7 +278,8 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     "review_hog": ProductConfig(
         allowed_application_ids=None,
         # The models the review pipeline pins: sonnet-5 (perspectives + one-shots), opus-4-8
-        # (validation), opus-5 (outcome judge), gpt-5.5 / gpt-5.6 sol+luna+terra (Codex reviewers),
+        # (validation), opus-5 (outcome judge), gpt-5.5 / gpt-5.6 sol+luna+terra / gpt-6-astra
+        # (Codex reviewers),
         # GLM 5.2/5.3 and DeepSeek V4 Flash (evaluated as reviewers).
         allowed_models=frozenset(
             {
@@ -280,6 +294,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "gpt-5.6-sol",
                 "gpt-5.6-luna",
                 "gpt-5.6-terra",
+                "gpt-6-astra",
             }
         ),
         allow_api_keys=True,

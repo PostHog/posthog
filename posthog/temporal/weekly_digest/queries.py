@@ -37,6 +37,10 @@ def query_teams_for_digest() -> QuerySet:
     )
 
 
+def query_team_ids_for_digest() -> QuerySet:
+    return query_teams_for_digest().values_list("id", flat=True)
+
+
 def query_orgs_for_digest() -> QuerySet:
     return Organization.objects.exclude(Q(for_internal_metrics=True)).only("id", "name", "created_at").order_by("id")
 

@@ -290,6 +290,7 @@ export enum AccessControlResourceType {
     Organization = 'organization',
     Action = 'action',
     CustomerAnalytics = 'customer_analytics',
+    CustomerTask = 'customer_task',
     FeatureFlag = 'feature_flag',
     Heatmap = 'heatmap',
     Insight = 'insight',
@@ -592,7 +593,7 @@ export interface OrganizationType extends OrganizationBasicType {
     is_ai_training_opted_in?: boolean
     is_ai_training_locked?: boolean
     is_ai_training_cta_shown?: boolean
-    is_hipaa?: boolean
+    has_signed_baa?: boolean
     members_can_invite?: boolean
     members_can_create_projects?: boolean
     members_can_use_personal_api_keys: boolean
@@ -897,6 +898,8 @@ export interface TeamType extends TeamBasicType {
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
     workflows_config: WorkflowsConfig
+    // Optional so cached team objects from before this field shipped still typecheck.
+    feature_flag_policy_config?: FeatureFlagPolicyConfig
     business_model?: 'b2b' | 'b2c' | 'other' | null
 }
 
@@ -904,6 +907,10 @@ export interface WorkflowsConfig {
     capture_workflows_engagement_events: boolean
     // Optional so cached team objects from before this field shipped still typecheck.
     email_tracking_consent_mode?: 'off' | 'opt_out' | 'opt_in'
+}
+
+export interface FeatureFlagPolicyConfig {
+    require_tags: boolean
 }
 
 export interface ProductIntentType {
@@ -1606,6 +1613,7 @@ export interface RecordingUniversalFilters {
     order?: RecordingsQuery['order']
     order_direction?: RecordingsQuery['order_direction']
     limit?: RecordingsQuery['limit']
+    recommended_only?: boolean
     /**
      * Server-resolved population narrowing (sessions of persons exposed to the experiment).
      * Not part of `filter_group`, so the filter-pill editor neither renders nor edits it;
@@ -3724,6 +3732,7 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     /** query when used as ad-hoc insight */
     query?: Q
     setQuery?: (node: Q) => void
+    refreshAfterDisplayOptionsChange?: (insight: QueryBasedInsightModel) => void
 
     /** Used to group DataNodes into a collection for group operations like refreshAll **/
     dataNodeCollectionId?: string
@@ -3794,6 +3803,7 @@ export interface SurveyDisplayConditions {
 export enum SurveyEventName {
     SHOWN = 'survey shown',
     DISMISSED = 'survey dismissed',
+    ABANDONED = 'survey abandoned',
     SENT = 'survey sent',
 }
 
@@ -5842,6 +5852,7 @@ export const API_SCOPE_OBJECTS = [
     'alert',
     'annotation',
     'approvals',
+    'autoresearch',
     'batch_export',
     'batch_import',
     'batch_import_support',
@@ -5852,7 +5863,9 @@ export const API_SCOPE_OBJECTS = [
     'cohort',
     'comment',
     'conversation',
+    'context_layer_internal',
     'customer_analytics',
+    'customer_task',
     'customer_journey',
     'customer_profile_config',
     'data_catalog',
@@ -6294,8 +6307,6 @@ export interface DataModelingDAG {
     name: string
     description: string
     sync_frequency: DataModelingSyncInterval | null
-    /** True when per-model freshness targets drive scheduling, making the DAG-level frequency read-only */
-    frequency_managed_by_nodes?: boolean
     node_count: number
     created_at: string
     updated_at: string
@@ -6310,8 +6321,6 @@ export interface DataWarehouseSavedQuery {
     columns: DatabaseSchemaField[]
     last_run_at?: string
     sync_frequency?: string
-    /** True when the DAG's single schedule owns the cadence, so `sync_frequency` is not editable per view */
-    sync_frequency_managed_by_dag?: boolean
     /** Which cadences this view's lineage allows, and what withholds the rest. Single fetches only */
     sync_frequency_bounds?: SyncFrequencyBoundsApi
     status?: string
@@ -7834,11 +7843,22 @@ export interface FeaturePreviewGateConfig {
     description: string
     docsURL?: string
     /**
+     * Scene whose name and icon the gated state renders as its header. Without it the gate
+     * falls back to the router's active scene, which can resolve to Error404 ("Not found")
+     * and mislabel the page.
+     */
+    sceneId?: string
+    /**
      * Offer a "Request access" support CTA. Set this for betas that aren't self-serve early-access
      * features, so the gated state offers a way to request access instead of dead-ending on the
      * feature previews page.
      */
     offerRequestAccess?: boolean
+    /**
+     * Product intent recorded when a user joins the waitlist from the gate, so waitlist sign-ups
+     * count as product intent the same way opting in from the feature previews page does.
+     */
+    productIntent?: ProductKey
 }
 
 export interface ProductManifest {

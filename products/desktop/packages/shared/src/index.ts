@@ -15,6 +15,7 @@ export type {
   AgentToolCallLocation,
   AgentToolCallStatus,
   AgentToolKind,
+  AgentTurnUsage,
 } from "./agent-conversation";
 export * from "./agent-runtime";
 export * from "./analytics-events";
@@ -51,6 +52,7 @@ export {
   tabsSnapshotSchema,
   tabViewStateSchema,
 } from "./browser-tabs-schemas";
+export { omitNullCallToolResultFields } from "./call-tool-result";
 export * from "./canvas-contracts";
 export * from "./canvas-platform";
 export type { CloudRunSource, PrAuthorshipMode } from "./cloud";
@@ -94,6 +96,14 @@ export {
   pickAllowedModel,
 } from "./cloud-task-models";
 export {
+  type CustomCloud,
+  configureCustomCloud,
+  customCloudSchema,
+  getCustomCloud,
+  isCustomCloudHost,
+  normalizeCustomCloud,
+} from "./custom-cloud";
+export {
   buildLoopDeeplink,
   buildScoutDeeplink,
   decodePlanBase64,
@@ -120,6 +130,7 @@ export {
   isSkillBundleArtifactMetadata,
   isTerminalStatus,
   type PendingFollowupMessage,
+  type StoreSkillStub,
   type Task,
   type TaskRun,
   type TaskRunArtifact,
@@ -209,9 +220,12 @@ export {
   splitMentionSegments,
 } from "./mentions";
 export {
+  customModelMeta,
   DEFAULT_OPTION_META_KEY,
   defaultEligibleModel,
+  isCustomModelOption,
   isDefaultSelectOption,
+  isHiddenPiModelId,
   isRestrictedModelOption,
   modelHarnessMeta,
   OPTION_DOCS_URL_META_KEY,
@@ -220,6 +234,8 @@ export {
   selectOptionHarness,
 } from "./models";
 export {
+  DEV_CALLBACK_PORT,
+  DEV_REDIRECT_URI,
   getOauthClientIdFromRegion,
   OAUTH_SCOPE_VERSION,
   OAUTH_SCOPES,
@@ -273,8 +289,11 @@ export {
 } from "./reasoning-effort";
 export { REFUND_REASON_OPTIONS } from "./refund-reasons";
 export {
+  CLOUD_REGIONS,
   type CloudRegion,
+  describeRegion,
   REGION_LABELS,
+  type RegionLabel,
 } from "./regions";
 export { normalizeRepoKey } from "./repo";
 export { getTaskRepository, parseRepository } from "./repository";
@@ -344,6 +363,7 @@ export {
   getLocalDayKey,
   getRelativeDateGroup,
 } from "./time";
+export { singleLineTitle } from "./title-text";
 export {
   mcpToolKey,
   parseMcpToolName,

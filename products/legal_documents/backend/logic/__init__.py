@@ -12,7 +12,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from django.conf import settings
-from django.db.models import QuerySet
+from django.db.models import Exists, OuterRef, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -36,6 +36,9 @@ logger = structlog.get_logger(__name__)
 
 # Addon types that entitle an organization to a BAA.
 BAA_ADDON_TYPES = frozenset({"boost", "scale", "enterprise"})
+
+# Attribute `annotate_signed_baa` writes onto each Organization row.
+SIGNED_BAA_ANNOTATION = "has_signed_baa"
 
 # PostHog-side mailbox used both as the CC recipient on every signing envelope
 # and as the document owner. PandaDoc sends the signing email on behalf of the
@@ -79,6 +82,26 @@ def has_qualifying_baa_addon(organization: Organization) -> bool:
             if addon.get("type") in BAA_ADDON_TYPES and addon.get("subscribed"):
                 return True
     return False
+
+
+def _signed_baa_subquery() -> QuerySet[LegalDocument]:
+    return LegalDocument.objects.filter(
+        organization_id=OuterRef("pk"),
+        document_type=DocumentType.BAA,
+        status=LegalDocument.Status.SIGNED,
+    )
+
+
+def has_signed_baa(organization_id: UUID) -> bool:
+    return LegalDocument.objects.filter(
+        organization_id=organization_id,
+        document_type=DocumentType.BAA,
+        status=LegalDocument.Status.SIGNED,
+    ).exists()
+
+
+def annotate_signed_baa(queryset: QuerySet[Organization]) -> QuerySet[Organization]:
+    return queryset.annotate(**{SIGNED_BAA_ANNOTATION: Exists(_signed_baa_subquery())})
 
 
 def exists_for_organization_and_type(organization_id: UUID, document_type: str) -> bool:

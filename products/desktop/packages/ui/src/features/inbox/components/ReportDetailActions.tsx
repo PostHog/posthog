@@ -14,11 +14,13 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   Popover,
   PopoverContent,
   PopoverTrigger,
-  Spinner,
   Textarea,
   Tooltip,
   TooltipContent,
@@ -27,6 +29,7 @@ import {
 import type { SignalReport } from "@posthog/shared/types";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
+import { InboxReportCopyLinkMenu } from "@posthog/ui/features/inbox/components/InboxReportCopyLinkMenu";
 import { RefundReportDialog } from "@posthog/ui/features/inbox/components/RefundReportDialog";
 import { ReportChatToggle } from "@posthog/ui/features/inbox/components/ReportChatToggle";
 import { useCreateCanvasReport } from "@posthog/ui/features/inbox/hooks/useCreateCanvasReport";
@@ -36,6 +39,7 @@ import { useRefundReport } from "@posthog/ui/features/inbox/hooks/useRefundRepor
 import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
 import { copyInboxReportLink } from "@posthog/ui/features/inbox/utils/copyInboxReportLink";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useCallback, useState } from "react";
 
@@ -132,10 +136,30 @@ export function ReportDetailActions({
         }
       />
       <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
-        <DropdownMenuItem onClick={() => copyInboxReportLink(report)}>
-          <LinkIcon size={13} />
-          Copy link
-        </DropdownMenuItem>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <LinkIcon size={13} />
+            Copy link
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent
+            side="right"
+            sideOffset={4}
+            className="min-w-44"
+          >
+            <DropdownMenuItem
+              data-attr="inbox-copy-web-link"
+              onClick={() => copyInboxReportLink(report, "web")}
+            >
+              Copy web link
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              data-attr="inbox-copy-desktop-link"
+              onClick={() => copyInboxReportLink(report, "desktop")}
+            >
+              Copy desktop link
+            </DropdownMenuItem>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
         {refund.canRefund && !isResolved && (
           <DropdownMenuItem
             disabled={refund.disabledReason !== null}
@@ -207,23 +231,21 @@ export function ReportDetailActions({
             Dismiss
           </Button>
         )}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                type="button"
-                variant="outline"
-                size="icon-xs"
-                className="h-7 w-7"
-                aria-label="Copy link"
-                onClick={() => copyInboxReportLink(report)}
-              />
-            }
-          >
-            <LinkIcon size={13} />
-          </TooltipTrigger>
-          <TooltipContent>Copy link</TooltipContent>
-        </Tooltip>
+        <InboxReportCopyLinkMenu
+          report={report}
+          trigger={
+            <Button
+              type="button"
+              variant="outline"
+              size="icon-xs"
+              className="h-7 w-7"
+              aria-label="Copy link"
+              title="Copy link"
+            >
+              <LinkIcon size={13} />
+            </Button>
+          }
+        />
         {refund.canRefund && (
           <Tooltip>
             <TooltipTrigger

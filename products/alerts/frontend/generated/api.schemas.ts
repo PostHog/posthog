@@ -695,9 +695,9 @@ export interface AlertApi {
      * @nullable
      */
     readonly last_value: number | null
-    /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
+    /** When enabled, an investigation agent runs on each check where the alert fires, up to three times per firing episode, and writes findings to a Notebook linked from the alert check. An episode is the run of consecutive firing checks since the last check that did not fire. A later investigation of the same episode that reaches a different verdict sends one follow-up notification, unless investigation_inconclusive_action suppresses it. Only effective for detector-based (anomaly) alerts. */
     investigation_agent_enabled?: boolean
-    /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
+    /** When enabled (and investigation_agent_enabled is on), the first fire of an episode is held until the investigation agent produces a verdict, and that notification is suppressed when the verdict is false_positive (and optionally when inconclusive). Later fires of the same episode notify without waiting. A safety-net task force-fires after a few minutes if the investigation stalls. */
     investigation_gates_notifications?: boolean
     /** How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.
      *
@@ -784,9 +784,9 @@ export interface PatchedAlertApi {
      * @nullable
      */
     readonly last_value?: number | null
-    /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
+    /** When enabled, an investigation agent runs on each check where the alert fires, up to three times per firing episode, and writes findings to a Notebook linked from the alert check. An episode is the run of consecutive firing checks since the last check that did not fire. A later investigation of the same episode that reaches a different verdict sends one follow-up notification, unless investigation_inconclusive_action suppresses it. Only effective for detector-based (anomaly) alerts. */
     investigation_agent_enabled?: boolean
-    /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
+    /** When enabled (and investigation_agent_enabled is on), the first fire of an episode is held until the investigation agent produces a verdict, and that notification is suppressed when the verdict is false_positive (and optionally when inconclusive). Later fires of the same episode notify without waiting. A safety-net task force-fires after a few minutes if the investigation stalls. */
     investigation_gates_notifications?: boolean
     /** How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.
      *
@@ -795,6 +795,42 @@ export interface PatchedAlertApi {
     investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null
+}
+
+/**
+ * * `slack` - slack
+ */
+export type ChannelTypeEnumApi = (typeof ChannelTypeEnumApi)[keyof typeof ChannelTypeEnumApi]
+
+export const ChannelTypeEnumApi = {
+    Slack: 'slack',
+} as const
+
+export interface AlertCreateDestinationApi {
+    /** Destination type. Slack is the only type this endpoint creates.
+     *
+     * * `slack` - slack */
+    type?: ChannelTypeEnumApi
+    /** Integration ID of the Slack workspace to post in. List them with the integrations endpoint. */
+    slack_workspace_id: number
+    /** Slack channel ID to post in, for example C0123456789. */
+    slack_channel_id: string
+    /** Channel name shown on the destination, for example product-alerts. */
+    slack_channel_name?: string
+}
+
+export interface AlertDestinationResponseApi {
+    /** IDs of the created destination. Pass them to destinations/delete to remove it. */
+    hog_function_ids: string[]
+}
+
+export interface AlertDeleteDestinationApi {
+    /**
+     * Destination IDs to delete, as returned when the destination was created.
+     * @minItems 1
+     * @maxItems 100
+     */
+    hog_function_ids: string[]
 }
 
 /**

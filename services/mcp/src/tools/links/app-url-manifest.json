@@ -309,16 +309,6 @@
         "params": [],
         "scope": "global"
     },
-    "comment": {
-        "template": "/data-management/comments/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "comments": {
-        "template": "/data-management/comments",
-        "params": [],
-        "scope": "project"
-    },
     "communitySkills": {
         "template": "/skills/community",
         "params": [],
@@ -396,6 +386,11 @@
     },
     "customerAnalyticsNotes": {
         "template": "/customer_analytics/notes",
+        "params": [],
+        "scope": "project"
+    },
+    "customerAnalyticsTasks": {
+        "template": "/customer_analytics/tasks",
         "params": [],
         "scope": "project"
     },
@@ -1701,6 +1696,11 @@
     },
     "webAnalyticsBotAnalytics": {
         "template": "/web/bots",
+        "params": [],
+        "scope": "project"
+    },
+    "webAnalyticsContentAutopilot": {
+        "template": "/web/content-autopilot",
         "params": [],
         "scope": "project"
     },
