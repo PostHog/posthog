@@ -41,7 +41,9 @@ def test_properties_chain_groups():
 
     with pytest.raises(ValidationError) as e:
         get_properties_chain(breakdown_type=BreakdownType.GROUP, breakdown_field="anything", group_type_index=None)
-    assert "The breakdown on 'anything' needs a group type." in str(e.value)
+    assert "This breakdown needs a group type." in str(e.value)
+    # A single quote in the message defeats the ErrorDetail repr parser the dashboard path uses.
+    assert "'" not in str(e.value.detail[0])
 
 
 def test_properties_chain_events():

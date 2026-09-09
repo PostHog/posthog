@@ -42,10 +42,15 @@ def get_properties_chain(
         if group_type_index is None:
             # The schema allows a `group` breakdown with no group type index, so a saved insight
             # can hold this pair. It is bad input and not a server fault, so raise a
-            # ValidationError to make the query return a 400 that names what to fix.
+            # ValidationError to make the query return a 400 that says what to fix.
+            #
+            # Keep the message free of single quotes, and keep the property name out of it. The
+            # dashboard and saved-insight paths store `str(exc)`, which wraps the message in an
+            # `ErrorDetail(...)` repr, and `parseErrorMessage` in frontend/src/queries/query.ts
+            # recovers the sentence from that repr only when it holds no single quote.
             raise ValidationError(
-                f"The breakdown on '{breakdown_field}' needs a group type. "
-                "Select a group type for it, or break down by something else."
+                "This breakdown needs a group type. Select a group type for it, or break down by something else.",
+                code="breakdown_group_type_index_missing",
             )
 
         group_type_index_int = int(group_type_index)
