@@ -2570,6 +2570,17 @@ export const InitialPermissionModeEnumApi = {
 } as const
 
 /**
+ * * `posthog-gateway` - posthog-gateway
+ * * `own-subscription` - own-subscription
+ */
+export type ClaudeModelAccessEnumApi = (typeof ClaudeModelAccessEnumApi)[keyof typeof ClaudeModelAccessEnumApi]
+
+export const ClaudeModelAccessEnumApi = {
+    PosthogGateway: 'posthog-gateway',
+    OwnSubscription: 'own-subscription',
+} as const
+
+/**
  * Request body for creating a new task run
  */
 export interface ClaudeTaskRunCreateSchemaApi {
@@ -2669,6 +2680,11 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ClaudeModelAccessEnumApi | null
 }
 
 /**
@@ -2795,6 +2811,11 @@ export interface CodexTaskRunCreateSchemaApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ClaudeModelAccessEnumApi | null
 }
 
 export interface TaskRunResumeRequestSchemaApi {
@@ -3057,10 +3078,9 @@ export interface PaginatedTaskRunDetailDTOListApi {
  * * `local` - local
  * * `cloud` - cloud
  */
-export type TaskRunBootstrapCreateRequestEnvironmentEnumApi =
-    (typeof TaskRunBootstrapCreateRequestEnvironmentEnumApi)[keyof typeof TaskRunBootstrapCreateRequestEnvironmentEnumApi]
+export type RunEnvironmentEnumApi = (typeof RunEnvironmentEnumApi)[keyof typeof RunEnvironmentEnumApi]
 
-export const TaskRunBootstrapCreateRequestEnvironmentEnumApi = {
+export const RunEnvironmentEnumApi = {
     Local: 'local',
     Cloud: 'cloud',
 } as const
@@ -3083,7 +3103,7 @@ export interface TaskRunBootstrapCreateRequestApi {
      *
      * * `local` - local
      * * `cloud` - cloud */
-    environment?: TaskRunBootstrapCreateRequestEnvironmentEnumApi
+    environment?: RunEnvironmentEnumApi
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
      *
      * * `interactive` - interactive
@@ -3166,6 +3186,11 @@ export interface TaskRunBootstrapCreateRequestApi {
      * @nullable
      */
     benjamin_enabled?: boolean | null
+    /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    claude_model_access?: ClaudeModelAccessEnumApi | null
 }
 
 /**
@@ -3724,6 +3749,7 @@ export const JsonrpcEnumApi = {
  * * `permission_response` - permission_response
  * * `set_config_option` - set_config_option
  * * `mcp_response` - mcp_response
+ * * `credential_response` - credential_response
  * * `pi/rpc` - pi/rpc
  * * `queue_get` - queue_get
  * * `queue_clear` - queue_clear
@@ -3739,6 +3765,7 @@ export const TaskRunCommandRequestMethodEnumApi = {
     PermissionResponse: 'permission_response',
     SetConfigOption: 'set_config_option',
     McpResponse: 'mcp_response',
+    CredentialResponse: 'credential_response',
     PiRpc: 'pi/rpc',
     QueueGet: 'queue_get',
     QueueClear: 'queue_clear',
@@ -3761,6 +3788,7 @@ export interface TaskRunCommandRequestApi {
      * * `permission_response` - permission_response
      * * `set_config_option` - set_config_option
      * * `mcp_response` - mcp_response
+     * * `credential_response` - credential_response
      * * `pi/rpc` - pi/rpc
      * * `queue_get` - queue_get
      * * `queue_clear` - queue_clear
@@ -3773,7 +3801,7 @@ export interface TaskRunCommandRequestApi {
 }
 
 /**
- * Error details on failure
+ * JSON-RPC error details, including failures returned with HTTP 200
  */
 export type TaskRunCommandResponseApiError = { [key: string]: unknown }
 
@@ -3785,9 +3813,9 @@ export interface TaskRunCommandResponseApi {
     jsonrpc: string
     /** Request ID echoed back (string or number) */
     id?: unknown
-    /** Command result on success */
+    /** Command result. Permission responses confirm acceptance only with resolved=true. */
     result?: unknown
-    /** Error details on failure */
+    /** JSON-RPC error details, including failures returned with HTTP 200 */
     error?: TaskRunCommandResponseApiError
 }
 
@@ -3907,6 +3935,11 @@ export interface TaskRunRelayMessageRequestApi {
      * @items.maxLength 10000
      */
     text_parts?: string[]
+    /**
+     * AI observability trace id of the turn that wrote this answer, when the sandbox reported one.
+     * @nullable
+     */
+    trace_id?: string | null
 }
 
 export interface TaskRunRelayMessageResponseApi {
@@ -3975,9 +4008,9 @@ export interface TaskSessionSyncResponseApi {
  * * `file` - file
  * * `github_pr` - github_pr
  */
-export type ArtifactTypeEnumApi = (typeof ArtifactTypeEnumApi)[keyof typeof ArtifactTypeEnumApi]
+export type ArtifactType2f0EnumApi = (typeof ArtifactType2f0EnumApi)[keyof typeof ArtifactType2f0EnumApi]
 
-export const ArtifactTypeEnumApi = {
+export const ArtifactType2f0EnumApi = {
     SlackMessage: 'slack_message',
     SlackCanvas: 'slack_canvas',
     Document: 'document',
@@ -4037,7 +4070,7 @@ export interface TaskRunLivingArtifactResponseApi {
      * * `dashboard` - dashboard
      * * `file` - file
      * * `github_pr` - github_pr */
-    artifact_type: ArtifactTypeEnumApi
+    artifact_type: ArtifactType2f0EnumApi
     /** Adapter that currently stores or edits the artifact.
      *
      * * `slack_message` - slack_message
@@ -4096,7 +4129,7 @@ export interface TaskRunLivingArtifactCreateRequestApi {
      * * `dashboard` - dashboard
      * * `file` - file
      * * `github_pr` - github_pr */
-    artifact_type?: ArtifactTypeEnumApi
+    artifact_type?: ArtifactType2f0EnumApi
     /** Optional preferred external storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted Slack-run documents use Slack canvas, omitted Slack-run files and spreadsheets use Slack file upload, and document_connector uses a connected external document provider.
      *
      * * `slack_message` - slack_message
@@ -4147,7 +4180,7 @@ export interface TaskRunLivingArtifactOpenResponseApi {
      * * `dashboard` - dashboard
      * * `file` - file
      * * `github_pr` - github_pr */
-    artifact_type: ArtifactTypeEnumApi
+    artifact_type: ArtifactType2f0EnumApi
     /** Adapter that currently stores or edits the artifact.
      *
      * * `slack_message` - slack_message
@@ -5042,6 +5075,10 @@ export type TasksListParams = {
      * @minLength 1
      */
     archived?: TasksListArchived
+    /**
+     * Return a basic payload with heavy fields dropped, for surfaces that render only a summary of each task. Defaults to false. Currently this omits the description body, which dominates the list payload; the search parameter still matches description text server-side.
+     */
+    basic?: boolean
     /**
      * Filter tasks to a channel's feed.
      */

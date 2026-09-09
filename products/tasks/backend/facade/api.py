@@ -13,7 +13,10 @@ from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.core import signing
-from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.exceptions import (
+    PermissionDenied,
+    ValidationError as DjangoValidationError,
+)
 from django.db import IntegrityError, transaction
 from django.db.models import (
     Case,
@@ -88,6 +91,7 @@ from products.tasks.backend.logic.services.network_policy import (
     MAX_SANDBOX_ALLOWED_DOMAINS,
     normalize_requested_domains,
 )
+from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     MCP_CREDENTIAL_OWNER_STATE_KEY,
@@ -228,6 +232,9 @@ __all__ = [
     "task_run_preview_ready",
     "get_task_run_living_artifact",
     "capture_relay_command_telemetry",
+    "PermissionResponseUnavailable",
+    "validate_permission_response_target",
+    "classify_permission_response",
     "get_task_run_stream_info",
     "get_task_summaries",
     "is_internal_debug_team",
@@ -415,6 +422,8 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "ai_stage",
         "auto_publish",
         "benjamin_enabled",
+        "claude_model_access",
+        "claude_subscription_user_id",
         "context_window",
         "custom_image_id",
         "fast_mode",
@@ -867,14 +876,22 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
     - ``SIGNAL_REPORT`` linked to a report in this team, repo-less, and carrying no GitHub
       integration (the Inbox "Discuss" fallback). Reports are minted by scouts and the link is
       team-scoped by the write serializer, so a caller can't forge one. Acting on a report is
-      entitled through self-driving (`product-autonomy`). A report task that resolved a
-      repository, or that carries the team integration for a repo-less discussion, is not
-      exempt, because `create_task` only gives it either after the gate passed. Re-checking
+      entitled through self-driving (`product-autonomy`). A discussion that resolved a
+      repository, or that carries the team integration while repo-less, is not exempt under
+      this shape, because `create_task` only gives it either after the gate passed. Re-checking
       here costs the caller nothing.
     - ``SIGNALS_CHAT`` (Inbox scout chat), reserved for server-side creation by the signals
       scout-chat endpoint; the write serializer rejects it from API callers. Only while
       repo-less: chat tasks are minted without repositories, and attaching one via update
       would turn the exemption into ungated cloud code work.
+    - ``SIGNAL_REPORT`` linked to a report in this team that also carries an ``implementation``
+      ``SignalReportTask`` row for this task (the Inbox "Create PR"). Such a task holds a
+      repository by design, so the repo-less shape above can never cover it. Auto-start opens the
+      same PR run for the same report from the server without consulting the gate, and
+      self-driving prices a PR flat and caps it per report, so gating the button would only make
+      the outcome depend on who started the run. ``record_report_task`` writes the row on both
+      paths. The relationship label is client input, but it counts only on a row scoped to this
+      team and to the report the task itself links, so asserting it buys nothing on its own.
 
     A bare ``SIGNAL_REPORT`` origin without a report link deliberately does not qualify:
     ``origin_product`` is client input, so an FK-less claim would be a one-field waitlist
@@ -896,6 +913,13 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
             repositories=[],
             github_integration__isnull=True,
             github_user_integration__isnull=True,
+        )
+        | Q(
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report__team_id=team_id,
+            signal_report_tasks__team_id=team_id,
+            signal_report_tasks__report_id=F("signal_report_id"),
+            signal_report_tasks__relationship="implementation",
         ),
         id=task_id,
         team_id=team_id,
@@ -2255,6 +2279,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "provider",
         "model",
         "reasoning_effort",
+        "claude_model_access",
+        "claude_subscription_user_id",
         "rtk_effective",
         "benjamin_effective",
         "usage_metrics_recorded",
@@ -3909,6 +3935,33 @@ def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID, fo
 # --- Task run commands (user_message signal + sandbox proxy) ---
 
 
+class PermissionResponseUnavailable(Exception):
+    def __init__(self, *, target_ended: bool) -> None:
+        self.code = "permission_target_ended" if target_ended else "agent_session_not_ready"
+        self.status_code = 409 if target_ended else 503
+        super().__init__("This run has ended." if target_ended else "The agent is still starting. Please try again.")
+
+
+def validate_permission_response_target(run_id: str | UUID, task_id: str | UUID, team_id: int) -> None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None or run.is_terminal:
+        raise PermissionResponseUnavailable(target_ended=True)
+
+
+def classify_permission_response(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, status_code: int, data: object
+) -> bool:
+    from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415
+        is_agent_session_not_ready,
+        permission_response_succeeded,
+    )
+
+    validate_permission_response_target(run_id, task_id, team_id)
+    if is_agent_session_not_ready(status_code, data):
+        raise PermissionResponseUnavailable(target_ended=False)
+    return 200 <= status_code < 300 and permission_response_succeeded(data)
+
+
 def validate_task_run_artifact_ids(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_ids: list[str]
 ) -> tuple[list[str], bool]:
@@ -3947,6 +4000,10 @@ def signal_task_run_user_message(
     """
     from temporalio.service import RPCError, RPCStatusCode  # noqa: PLC0415 — keep temporalio off the api import path
 
+    from products.tasks.backend.exceptions import (
+        ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
+        SandboxNotFoundError,
+    )
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         signal_task_followup_message,
     )
@@ -3954,9 +4011,22 @@ def signal_task_run_user_message(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    from products.tasks.backend.exceptions import (
-        ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
-    )
+    if (run.state or {}).get("claude_model_access") == "own-subscription" and (run.state or {}).get(
+        "claude_subscription_user_id"
+    ) != actor_user_id:
+        raise PermissionDenied("Only the user who started this run can use its Claude plan.")
+    if run.is_terminal or (run.state or {}).get("cancel_requested_at"):
+        if not run.is_terminal:
+            raise RuntimeError("Task run is still stopping. Try again shortly.")
+        sandbox_id = (run.state or {}).get("sandbox_id")
+        if sandbox_id:
+            try:
+                sandbox = get_sandbox_class_for_sandbox_id(sandbox_id).get_by_id(sandbox_id)
+                if sandbox.is_running():
+                    raise RuntimeError("Task run is still stopping. Try again shortly.")
+            except SandboxNotFoundError:
+                pass
+        return False
     from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason  # noqa: PLC0415
 
     if reason := get_compute_quota_denial_reason(run.task):
@@ -4443,6 +4513,7 @@ def relay_task_run_message(
     text: str,
     text_parts: list[str] | None = None,
     message_id: str | None = None,
+    trace_id: str | None = None,
 ) -> tuple[str, str | None]:
     """Queue a Slack relay workflow for a run message, or under the agent-design
     flag signal the running task workflow to stream the text inline.
@@ -4455,6 +4526,10 @@ def relay_task_run_message(
     post-last-tool-use answer, and posting only that keeps the interim narration
     ("Let me check…") out of the Slack thread. Older callers still send just
     ``text`` and get the previous behavior unchanged.
+
+    ``trace_id`` is the gateway trace id of the turn that wrote this answer, which the
+    posted reply keeps so a rating on it can name the turn. Absent when the sandbox
+    reported none.
     """
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
         SlackThreadTaskMapping,
@@ -4491,6 +4566,7 @@ def relay_task_run_message(
             text=trimmed,
             delete_progress=True,
             message_id=message_id,
+            trace_id=trace_id,
         )
     except Exception:
         logger.exception("task_run_relay_message_enqueue_failed", extra={"run_id": str(run.id)})
@@ -4666,6 +4742,7 @@ def bootstrap_task_run(
         "fast_mode": fast_mode,
         "rtk_enabled": validated_data.get("rtk_enabled"),
         "benjamin_enabled": validated_data.get("benjamin_enabled"),
+        "claude_model_access": validated_data.get("claude_model_access"),
     }.items():
         if value is not None:
             extra_state = extra_state or {}
@@ -5900,7 +5977,7 @@ def create_task(
     # report-linked task that can never open a PR. "Implementation" (Create PR) and legacy clients
     # (no relationship) always resolve one. "Discuss" (and any other non-implementation label)
     # resolves one only for a caller the Desktop gate passed: the run endpoint gates a
-    # repository-backed report task, so resolving for anyone else would 403 the very click this
+    # repository-backed discussion, so resolving for anyone else would 403 the very click this
     # path exists to unblock (see `task_exempt_from_code_access`).
     signal_report = validated_data.get("signal_report")
     if (
@@ -6506,7 +6583,7 @@ def _warm_sandbox_selection_is_accessible(
 def _idling_warm_run_for_task(task: Task) -> TaskRun | None:
     """The task's latest run iff it is an idling pre-warmed Run (non-terminal, awaiting first message)."""
     run = task.latest_run
-    if run is None or run.is_terminal:
+    if run is None or run.is_terminal or (run.state or {}).get("cancel_requested_at"):
         return None
     if not (run.state or {}).get("await_user_message"):
         return None
@@ -6930,6 +7007,8 @@ def warm_task_resume_sandbox(
         return None
 
     previous_state = parse_run_state(previous_run.state)
+    if previous_state.claude_model_access == "own-subscription":
+        return None
     resolved_runtime_adapter = runtime_adapter or previous_state.runtime_adapter
     resolved_model = model or previous_state.model
     resolved_reasoning_effort = reasoning_effort or previous_state.reasoning_effort
@@ -7122,7 +7201,13 @@ def run_task(
             internal=task.internal,
         )
 
+    claude_model_access = validated_data.get("claude_model_access")
+    if claude_model_access is None and previous_state is not None:
+        claude_model_access = previous_state.claude_model_access
+
     warm_run = _idling_warm_run_for_task(task)
+    if warm_run is not None and claude_model_access == "own-subscription":
+        warm_run = None
     if warm_run is not None:
         _warm_retry_message_id(warm_retry_token, warm_run)
         warm_state = warm_run.state or {}
@@ -7260,6 +7345,7 @@ def run_task(
         ("initial_permission_mode", initial_permission_mode),
         ("rtk_enabled", validated_data.get("rtk_enabled")),
         ("benjamin_enabled", validated_data.get("benjamin_enabled")),
+        ("claude_model_access", claude_model_access),
     ):
         if value is not None:
             extra_state = extra_state or {}
@@ -9056,7 +9142,9 @@ def forward_thread_message(
         author = message.author
         author_name = (author.get_full_name() or author.email) if author else "A teammate"
         content = f"[Thread comment from {author_name}] {message.content}"
-        signal_result = signal_task_run_user_message(run.id, task.id, team_id, content=content, artifact_ids=[])
+        signal_result = signal_task_run_user_message(
+            run.id, task.id, team_id, content=content, artifact_ids=[], actor_user_id=user_id
+        )
         if not signal_result:
             return "signal_failed", None
 

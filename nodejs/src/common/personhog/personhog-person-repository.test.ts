@@ -76,6 +76,7 @@ function createMockPostgres(): jest.Mocked<PersonRepository> {
         fetchPersonsByPersonIds: jest.fn(),
         fetchPersonsForUpdateByDistinctIds: jest.fn(),
         fetchDistinctIdsForPersons: jest.fn(),
+        fetchPersonDistinctIdMappings: jest.fn(),
         deletePersons: jest.fn(),
         claimLifecycleMarks: jest.fn(),
         releaseLifecycleMarks: jest.fn(),

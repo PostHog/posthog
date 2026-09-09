@@ -1,4 +1,3 @@
-import { Theme } from "@radix-ui/themes";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -37,12 +36,11 @@ function renderPending(
   } = {},
 ) {
   render(
-    <Theme>
-      <PendingChatView
-        content={props.content ?? "Ship the login fix"}
-        attachments={props.attachments}
-      />
-    </Theme>,
+    <PendingChatView
+      executionTarget="local"
+      content={props.content ?? "Ship the login fix"}
+      attachments={props.attachments}
+    />,
   );
 }
 
@@ -59,7 +57,10 @@ describe("PendingChatView", () => {
   it("renders the prompt with a loading state", () => {
     renderPending();
     expect(screen.getByText("Ship the login fix")).toBeInTheDocument();
-    expect(screen.getByText("Loading")).toBeInTheDocument();
+    expect(screen.getByText("Starting local agent")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Your prompt is saved with this task/),
+    ).not.toBeInTheDocument();
   });
 
   it("renders file mentions as chips so the bubble matches the live transcript", () => {

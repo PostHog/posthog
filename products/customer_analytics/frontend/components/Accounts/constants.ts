@@ -45,6 +45,7 @@ export const AccountsEvents = {
     RelationshipDeleted: 'customer analytics accounts relationship deleted',
     TagsUpdated: 'customer analytics account tags updated',
     CustomPropertyUpdated: 'customer analytics account custom property updated',
+    PinnedPropertiesSaved: 'customer analytics account pinned properties saved',
     LinkClicked: 'customer analytics account link clicked',
     NoteClicked: 'customer analytics account note clicked',
     NoteCreated: 'customer analytics accounts note created',
