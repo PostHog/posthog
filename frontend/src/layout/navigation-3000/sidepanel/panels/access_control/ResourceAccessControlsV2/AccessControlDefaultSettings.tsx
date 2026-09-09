@@ -9,10 +9,20 @@ import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 import { AccessControlLevel, AvailableFeature } from '~/types'
 
 import { accessControlsLogic } from './accessControlsLogic'
-import { getLevelOptionsForResource } from './helpers'
+import { describeAccessControlLevel, getLevelOptionsForResource } from './helpers'
 import { ObjectAccessRules } from './ObjectAccessRules'
 import { PropertyAccessRules } from './PropertyAccessRules'
 import { ScopeIcon } from './ScopeIcon'
+
+/** A level and what it grants, so the menu says who ends up with the access. */
+function LevelOptionLabel({ label, description }: { label: string; description: string }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-[2px] py-1">
+            <span>{label}</span>
+            <span className="max-w-72 text-xs font-normal text-tertiary text-wrap">{description}</span>
+        </div>
+    )
+}
 
 export function AccessControlDefaultSettings({ projectId }: { projectId: string }): JSX.Element {
     const logic = accessControlsLogic({ projectId })
@@ -28,7 +38,7 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
     return (
         <PayGateMini feature={AvailableFeature.ACCESS_CONTROL} featureDetail="resource-access-control-default-settings">
             <div className="space-y-4">
-                <div className="p-3 bg-surface-primary rounded border border-border flex flex-row justify-between items-center">
+                <div className="p-3 bg-surface-primary rounded border border-border flex flex-row gap-4 justify-between items-center">
                     <div>
                         <h4 className="mb-0 font-semibold flex items-center gap-2">
                             <span className="text-lg flex items-center">
@@ -36,13 +46,15 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                             </span>
                             Default access to this project
                         </h4>
-                        <p className="text-xs text-muted-alt mb-0">
-                            This is the default level of access for everyone in your organization
+                        <p className="text-xs text-muted-alt mb-0 max-w-md">
+                            Everyone in your organization gets this level of access to the project. Roles and
+                            person-level rules can add more access, but cannot take it away.
                         </p>
                     </div>
                     <div className="max-w-sm">
                         <LemonSelect
-                            dropdownPlacement="bottom-start"
+                            dropdownPlacement="bottom-end"
+                            dropdownMatchSelectWidth={false}
                             value={defaults?.project_access_level ?? null}
                             disabledReason={loading ? 'Loading...' : !canEdit ? 'Cannot edit' : undefined}
                             size="small"
@@ -50,7 +62,16 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                             onChange={(newValue) => {
                                 updateAccessControlDefault(newValue as AccessControlLevel, 'v2')
                             }}
-                            options={getLevelOptionsForResource(projectLevels)}
+                            options={getLevelOptionsForResource(projectLevels).map(({ value, label }) => ({
+                                value,
+                                label,
+                                labelInMenu: (
+                                    <LevelOptionLabel
+                                        label={label}
+                                        description={describeAccessControlLevel(value, 'project')}
+                                    />
+                                ),
+                            }))}
                         />
                     </div>
                 </div>

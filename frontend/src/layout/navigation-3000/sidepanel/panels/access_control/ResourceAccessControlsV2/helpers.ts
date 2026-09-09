@@ -5,24 +5,27 @@ import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry } from 
 import type { InheritedAccess } from '../accessControlLogic'
 import { AccessControlMemberEntry, AccessControlRoleEntry, AccessControlSettingsEntry, InheritedReason } from './types'
 
+/** What a project level grants, so a picker can say who ends up with the access. */
+const PROJECT_LEVEL_DESCRIPTIONS: Partial<Record<AccessControlLevel, string>> = {
+    [AccessControlLevel.None]: 'No access to the project, unless a role or a person-level rule grants it.',
+    [AccessControlLevel.Viewer]: 'Read-only access to the project.',
+    [AccessControlLevel.Member]: 'Can use the project, but cannot manage project settings.',
+    [AccessControlLevel.Admin]: 'Full access, including managing project settings and access.',
+}
+
 export function describeAccessControlLevel(
     level: AccessControlLevel | null | undefined,
     resourceKey: APIScopeObject
 ): string {
-    if (level === null || level === undefined || level === AccessControlLevel.None) {
-        return 'No access.'
+    if (resourceKey === 'project') {
+        const projectDescription = PROJECT_LEVEL_DESCRIPTIONS[level ?? AccessControlLevel.None]
+        if (projectDescription) {
+            return projectDescription
+        }
     }
 
-    if (resourceKey === 'project') {
-        if (level === AccessControlLevel.Member) {
-            return 'Project member access. Can use the project, but cannot manage project settings.'
-        }
-        if (level === AccessControlLevel.Admin) {
-            return 'Project admin access. Full access, including managing project settings.'
-        }
-        if (level === AccessControlLevel.Viewer) {
-            return 'Read-only access to the project.'
-        }
+    if (level === null || level === undefined || level === AccessControlLevel.None) {
+        return 'No access.'
     }
 
     if (level === AccessControlLevel.Viewer) {
