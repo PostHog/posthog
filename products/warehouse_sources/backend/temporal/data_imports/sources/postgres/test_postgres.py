@@ -25,6 +25,8 @@ from parameterized import parameterized
 from psycopg import sql
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from posthog.dataclasses import frozen
+
 import products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_SCALE,
@@ -2551,13 +2553,20 @@ class TestConnectToPostgresMultiAddressFailover:
         assert connect_mock.call_args.kwargs["hostaddr"] == "203.0.113.5"
 
 
+@frozen
+class _ProductionCloud:
+    getaddrinfo: MagicMock
+    connect: MagicMock
+
+
 class TestConnectToPostgresDialsOnlyValidatedAddresses:
     @staticmethod
+    # nosemgrep: semgrep.rules.devex.tuple-return-prefer-dataclass -- mirrors socket.getaddrinfo's positional result
     def _addrinfo(*addresses: str) -> list[tuple[int, int, int, str, tuple[str, int]]]:
         return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, 5432)) for address in addresses]
 
     @contextmanager
-    def _production_cloud(self, resolver_result: Any) -> Iterator[tuple[MagicMock, MagicMock]]:
+    def _production_cloud(self, resolver_result: Any) -> Iterator[_ProductionCloud]:
         resolver_kwargs = (
             {"side_effect": resolver_result}
             if isinstance(resolver_result, BaseException) or callable(resolver_result)
@@ -2577,7 +2586,7 @@ class TestConnectToPostgresDialsOnlyValidatedAddresses:
             mock_settings.TEST = False
             mock_settings.DEBUG = False
             mock_settings.E2E_TESTING = False
-            yield getaddrinfo_mock, connect_mock
+            yield _ProductionCloud(getaddrinfo=getaddrinfo_mock, connect=connect_mock)
 
     @staticmethod
     def _connect(host: str = "db.example.com", **kwargs: Any) -> psycopg.Connection:
@@ -2596,11 +2605,11 @@ class TestConnectToPostgresDialsOnlyValidatedAddresses:
     def test_an_internal_address_anywhere_in_the_resolved_set_refuses_the_connect(
         self, addresses: tuple[str, ...]
     ) -> None:
-        with self._production_cloud(self._addrinfo(*addresses)) as (_, connect_mock):
+        with self._production_cloud(self._addrinfo(*addresses)) as cloud:
             with pytest.raises(Exception, match="Database host not allowed"):
                 self._connect(team_id=999)
 
-        connect_mock.assert_not_called()
+        cloud.connect.assert_not_called()
 
     @pytest.mark.parametrize(
         "resolver_result",
@@ -2610,59 +2619,59 @@ class TestConnectToPostgresDialsOnlyValidatedAddresses:
         ],
     )
     def test_a_failed_lookup_refuses_the_connect_rather_than_letting_libpq_resolve(self, resolver_result: Any) -> None:
-        with self._production_cloud(resolver_result) as (_, connect_mock):
+        with self._production_cloud(resolver_result) as cloud:
             with pytest.raises(Exception, match="Database host not allowed"):
                 self._connect(team_id=999)
 
-        connect_mock.assert_not_called()
+        cloud.connect.assert_not_called()
 
     def test_a_public_set_is_dialed_whole_with_the_hostname_kept_for_sni(self) -> None:
-        with self._production_cloud(self._addrinfo("2600:1f18::1", "52.1.2.3")) as (_, connect_mock):
+        with self._production_cloud(self._addrinfo("2600:1f18::1", "52.1.2.3")) as cloud:
             self._connect(team_id=999)
 
-        assert connect_mock.call_args.kwargs["host"] == "db.example.com,db.example.com"
-        assert connect_mock.call_args.kwargs["hostaddr"] == "2600:1f18::1,52.1.2.3"
+        assert cloud.connect.call_args.kwargs["host"] == "db.example.com,db.example.com"
+        assert cloud.connect.call_args.kwargs["hostaddr"] == "2600:1f18::1,52.1.2.3"
 
     def test_an_allowlisted_team_dials_its_internal_addresses_pinned(self) -> None:
-        with self._production_cloud(self._addrinfo("10.0.0.5")) as (_, connect_mock):
+        with self._production_cloud(self._addrinfo("10.0.0.5")) as cloud:
             self._connect(team_id=2)
 
-        assert connect_mock.call_args.kwargs["host"] == "db.example.com"
-        assert connect_mock.call_args.kwargs["hostaddr"] == "10.0.0.5"
+        assert cloud.connect.call_args.kwargs["host"] == "db.example.com"
+        assert cloud.connect.call_args.kwargs["hostaddr"] == "10.0.0.5"
 
     def test_a_missing_team_fails_closed(self) -> None:
-        with self._production_cloud(self._addrinfo("10.0.0.5")) as (_, connect_mock):
+        with self._production_cloud(self._addrinfo("10.0.0.5")) as cloud:
             with pytest.raises(Exception, match="Database host not allowed"):
                 self._connect()
 
-        connect_mock.assert_not_called()
+        cloud.connect.assert_not_called()
 
     def test_an_exempt_host_whose_lookup_failed_is_left_for_libpq_to_resolve(self) -> None:
-        with self._production_cloud(socket.gaierror(-2, "Name or service not known")) as (_, connect_mock):
+        with self._production_cloud(socket.gaierror(-2, "Name or service not known")) as cloud:
             self._connect(team_id=2)
 
-        assert connect_mock.call_args.kwargs["host"] == "db.example.com"
-        assert "hostaddr" not in connect_mock.call_args.kwargs
+        assert cloud.connect.call_args.kwargs["host"] == "db.example.com"
+        assert "hostaddr" not in cloud.connect.call_args.kwargs
 
     def test_an_ip_literal_host_is_dialed_as_is_without_a_lookup(self) -> None:
-        with self._production_cloud(self._addrinfo("127.0.0.1")) as (getaddrinfo_mock, connect_mock):
+        with self._production_cloud(self._addrinfo("127.0.0.1")) as cloud:
             self._connect(host="127.0.0.1", team_id=999)
 
-        getaddrinfo_mock.assert_not_called()
-        assert connect_mock.call_args.kwargs["host"] == "127.0.0.1"
-        assert "hostaddr" not in connect_mock.call_args.kwargs
+        cloud.getaddrinfo.assert_not_called()
+        assert cloud.connect.call_args.kwargs["host"] == "127.0.0.1"
+        assert "hostaddr" not in cloud.connect.call_args.kwargs
 
     def test_a_stalled_lookup_stays_a_retryable_timeout(self) -> None:
         release = threading.Event()
         try:
-            with self._production_cloud(lambda *a, **k: release.wait()) as (_, connect_mock):
+            with self._production_cloud(lambda *a, **k: release.wait()) as cloud:
                 with pytest.raises(psycopg.OperationalError, match="Timed out resolving") as exc_info:
                     self._connect(team_id=999, connect_timeout=0)
         finally:
             release.set()
 
         assert "Database host not allowed" not in str(exc_info.value)
-        connect_mock.assert_not_called()
+        cloud.connect.assert_not_called()
 
 
 class TestPostgresSourceDialsOnlyValidatedAddresses:
