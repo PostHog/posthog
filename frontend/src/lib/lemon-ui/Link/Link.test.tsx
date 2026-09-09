@@ -52,9 +52,7 @@ describe('Link', () => {
         expect(onClick).toHaveBeenCalledTimes(expectedCalls)
     })
 
-    // An untargeted docs link used to be intercepted and shown in a side panel. Once that panel went
-    // away, the same link replaced the app in the current tab, which costs the reader their place
-    // mid-onboarding.
+    // Guards the regression where a docs link with no target replaced the app in the current tab.
     const docsTargetCases: [label: string, to: string, target: string | undefined, expected: string | null][] = [
         ['docs link with no target', 'https://posthog.com/docs/libraries/vue-js', undefined, '_blank'],
         ['docs link on www', 'https://www.posthog.com/docs/libraries/vue-js', undefined, '_blank'],

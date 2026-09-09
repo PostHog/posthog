@@ -96,13 +96,8 @@ const isPostHogComDocs = (url: string): url is PostHogComDocsURL => {
     return /^https:\/\/(www\.)?posthog\.com\/docs/.test(url)
 }
 
-/**
- * Resolve the effective `target` of a link.
- *
- * Docs links default to a new tab, so that reading the docs never replaces the app in the
- * current tab and costs the reader their place. Pass an explicit `target` (`"_self"` for the
- * same tab) to override this.
- */
+// Docs links default to a new tab, so that reading the docs does not replace the app in the
+// current tab. An explicit `target` overrides this, for example `"_self"` to stay in the tab.
 function resolveTarget(to: LinkPrimitiveProps['to'], target: string | undefined): string | undefined {
     if (target) {
         return target
@@ -267,7 +262,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         ref
     ) => {
         const href = resolveHref(to, disableClientSideRouting)
-        // Only for the icon below; `LinkPrimitive` owns the resolution that drives navigation.
+        // Only drives the icon below. `LinkPrimitive` owns the resolution that drives navigation.
         const resolvedTarget = resolveTarget(to, target)
 
         const elementClasses = buttonProps
