@@ -8,6 +8,11 @@ The implementation lives in `products/canvas/backend/sketchpad/`. Its presentati
 package owns the API views, serializers, and actor formatting. Shared channel and
 sandbox access rules come from `CanvasAccessMixin`.
 
+Append requests accept at most 1000 operations. Clients split larger pending queues
+into ordered batches. Sandbox attribution uses the authenticated task binding and
+rejects a conflicting task ID. Desktop callers can name only tasks they can control;
+the operation also records the authenticated user, independently of the claimed actor kind.
+
 `SketchpadRecord` stores fragments, source text, compiled output, and shared state.
 The record key is unique within a board and record kind. Source keys are hashes of
 the source text. Record timestamps track creation and updates; operation sequence

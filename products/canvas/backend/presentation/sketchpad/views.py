@@ -9,7 +9,8 @@ from django.utils import timezone
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 
@@ -176,10 +177,24 @@ class SketchpadViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             sketchpad,
             data["ops"],
             data["actor"]["kind"],
-            data["actor"].get("task_id"),
+            self._actor_task_id(request, data["actor"].get("task_id")),
             self._request_user(),
         )
         return Response(SketchpadAppendResultSerializer(instance=result).data)
+
+    def _actor_task_id(self, request: Request, claimed_task_id: UUID | None) -> UUID | None:
+        if self._is_sandbox_authenticated(request):
+            bound_task_id = self._sandbox_task_id(request)
+            if bound_task_id is None or claimed_task_id not in (None, bound_task_id):
+                raise PermissionDenied("The acting task must match the sandbox's task.")
+            return bound_task_id
+        if claimed_task_id is not None:
+            user = self._request_user()
+            if user is None or not tasks_facade.task_accessible_for_run_view(
+                claimed_task_id, self.team_id, user.id, for_control=True
+            ):
+                raise PermissionDenied("You cannot act for this task.")
+        return claimed_task_id
 
 
 def _apply_sketchpad_patch(sketchpad: Sketchpad, data: dict[str, Any]) -> list[str]:

@@ -12,7 +12,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.scoping import team_scope
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
-from products.canvas.backend.models import Canvas, Sketchpad
+from products.canvas.backend.models import Canvas, Sketchpad, SketchpadOp
 from products.tasks.backend.models import Channel, Task
 
 
@@ -45,6 +45,49 @@ class TestCanvasOAuthAccess(APIBaseTest):
             sandbox_task_id=sandbox_task_id,
         )
         return token.token
+
+    @parameterized.expand(
+        [
+            ("sandbox_omitted", True, "omitted", 200),
+            ("sandbox_matching", True, "own", 200),
+            ("sandbox_other", True, "other", 403),
+            ("desktop_own", False, "own", 200),
+            ("desktop_other", False, "other", 403),
+            ("desktop_missing", False, "missing", 403),
+        ]
+    )
+    def test_sketchpad_actor_task_requires_authority(
+        self, _name: str, sandbox: bool, claim: str, expected_status: int
+    ) -> None:
+        channel = Channel.objects.for_team(self.team.id).create(team=self.team, name="general")
+        own = Task.objects.create(team=self.team, channel=channel, created_by=self.user, title="Own task")
+        other = Task.objects.create(
+            team=self.team, channel=channel, created_by=self._create_user("other@example.com"), title="Other task"
+        )
+        sketchpad = Sketchpad.objects.for_team(self.team.id).create(
+            team=self.team, channel=channel, created_by=self.user, name="Sketchpad"
+        )
+        token = self._bearer(
+            "canvas:write", client_id=ARRAY_APP_CLIENT_ID_DEV, sandbox_task_id=own.id if sandbox else None
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}", HTTP_X_POSTHOG_TASK_ID=str(own.id))
+        actor = {"kind": "agent"}
+        if claim != "omitted":
+            actor["task_id"] = str({"own": own.id, "other": other.id, "missing": uuid4()}[claim])
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/sketchpads/{sketchpad.id}/ops/",
+            {"ops": [{"op_id": "edit", "op": {"type": "set_state", "key": "title", "value": "Notes"}}], "actor": actor},
+            format="json",
+        )
+        assert response.status_code == expected_status, response.data
+        rows = SketchpadOp.objects.for_team(self.team.id).filter(sketchpad=sketchpad)
+        if expected_status == 200:
+            row = rows.get()
+            assert row.actor_task_id == own.id
+            assert row.actor_user_id == self.user.id
+        else:
+            assert not rows.exists()
 
     @parameterized.expand(
         [

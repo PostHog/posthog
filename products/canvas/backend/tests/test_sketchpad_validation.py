@@ -11,7 +11,7 @@ from parameterized import parameterized
 
 from products.canvas.backend.models import Sketchpad, SketchpadOp, SketchpadRecord
 from products.canvas.backend.presentation.sketchpad.serializers import SketchpadAppendOpsSerializer
-from products.tasks.backend.models import Channel
+from products.tasks.backend.models import Channel, Task
 
 FRAGMENT = {"id": "note", "x": 0, "y": 0, "w": 360, "h": 240, "code": "export default () => null"}
 SNAPSHOT = {"schemaVersion": 1, "fragments": [FRAGMENT], "state": {"title": "Notes"}}
@@ -22,6 +22,20 @@ def append_payload(op: object, **overrides: object) -> dict[str, object]:
 
 
 class TestSketchpadValidation(SimpleTestCase):
+    @parameterized.expand([("empty", 0, True), ("at_limit", 1000, True), ("over_limit", 1001, False)])
+    def test_operation_batch_limit(self, _name: str, count: int, accepted: bool) -> None:
+        serializer = SketchpadAppendOpsSerializer(
+            data={
+                "actor": {"kind": "user"},
+                "ops": [
+                    {"op_id": str(index), "op": {"type": "remove_fragment", "id": "note"}} for index in range(count)
+                ],
+            }
+        )
+        assert serializer.is_valid() is accepted
+        if not accepted:
+            assert serializer.errors["ops"]["non_field_errors"][0].code == "max_length"
+
     @parameterized.expand(
         [
             ("missing_fragment", {"type": "add_fragment"}),
@@ -133,6 +147,7 @@ class TestSketchpadValidationEndpoint(APIBaseTest):
         response = self.client.post(f"{url}ops/", {"ops": operations, "actor": {"kind": "user"}})
         assert response.status_code == 200
         assert response.json()["replayed"] == []
+        task = Task.objects.create(team=self.team, channel=channel, created_by=self.user, title="Edit sketchpad")
         retry = self.client.post(
             f"{url}ops/",
             {
@@ -142,7 +157,7 @@ class TestSketchpadValidationEndpoint(APIBaseTest):
                         "op": {"type": "add_fragment", "fragment": {**FRAGMENT, "id": "one", "code": "different"}},
                     }
                 ],
-                "actor": {"kind": "agent", "task_id": "00000000-0000-4000-8000-000000000001"},
+                "actor": {"kind": "agent", "task_id": str(task.id)},
             },
             format="json",
         )

@@ -1670,7 +1670,7 @@ export const SketchpadsOpsAppendBody = /* @__PURE__ */ zod.object({
                     .describe('The op. Restore uses the request size limit; other ops are capped at 256 KB.'),
             })
         )
-        .describe('Ops to record, in order. An empty list makes no change.'),
+        .describe('Up to 1000 ops to record, in order. An empty list makes no change.'),
     actor: zod
         .object({
             kind: zod
@@ -1679,7 +1679,12 @@ export const SketchpadsOpsAppendBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'user for a direct edit, agent for a change made by an agent.\n\n\* `user` - User\n\* `agent` - Agent'
                 ),
-            task_id: zod.uuid().nullish().describe('Id of the agent task making the change, if any.'),
+            task_id: zod
+                .uuid()
+                .nullish()
+                .describe(
+                    'Acting task, if any. Must match the sandbox binding or a task the signed-in user can control.'
+                ),
         })
         .describe('Who is making the change.'),
 })

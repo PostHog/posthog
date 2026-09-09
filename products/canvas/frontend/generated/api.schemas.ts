@@ -2184,14 +2184,14 @@ export interface SketchpadActorInputApi {
      * * `agent` - Agent */
     kind: SketchpadActorKindEnumApi
     /**
-     * Id of the agent task making the change, if any.
+     * Acting task, if any. Must match the sandbox binding or a task the signed-in user can control.
      * @nullable
      */
     task_id?: string | null
 }
 
 export interface SketchpadAppendOpsApi {
-    /** Ops to record, in order. An empty list makes no change. */
+    /** Up to 1000 ops to record, in order. An empty list makes no change. */
     ops: SketchpadOpDraftApi[]
     /** Who is making the change. */
     actor: SketchpadActorInputApi

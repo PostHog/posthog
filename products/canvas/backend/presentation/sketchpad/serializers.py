@@ -240,7 +240,9 @@ class SketchpadActorInputSerializer(serializers.Serializer):
         choices=SketchpadActorKind.choices, help_text="user for a direct edit, agent for a change made by an agent."
     )
     task_id = serializers.UUIDField(
-        required=False, allow_null=True, help_text="Id of the agent task making the change, if any."
+        required=False,
+        allow_null=True,
+        help_text="Acting task, if any. Must match the sandbox binding or a task the signed-in user can control.",
     )
 
 
@@ -255,7 +257,12 @@ class SketchpadOpDraftSerializer(serializers.Serializer):
 
 class SketchpadAppendOpsSerializer(serializers.Serializer):
     ops = SketchpadOpDraftSerializer(
-        many=True, allow_empty=True, help_text="Ops to record, in order. An empty list makes no change."
+        # DRF passes max_length to the ListSerializer that many=True builds, but the stubs
+        # type this call against the child serializer, which has no such argument.
+        many=True,  # type: ignore[call-arg]
+        allow_empty=True,
+        max_length=1000,
+        help_text="Up to 1000 ops to record, in order. An empty list makes no change.",
     )
     actor = SketchpadActorInputSerializer(help_text="Who is making the change.")
 
