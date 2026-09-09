@@ -34,6 +34,7 @@ from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
 
 from posthog.api.authentication import password_reset_token_generator, social_login_notification
+from posthog.api.email_verification import is_email_verification_disabled
 from posthog.auth import (
     InternalAPIUser,
     OAuthAccessTokenAuthentication,
@@ -544,6 +545,11 @@ class TestLoginAPI(APIBaseTest):
 
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch("posthog.ph_client.posthoganalytics.get_feature_flag", side_effect=RuntimeError("flags down"))
+    @patch("posthog.ph_client.posthoganalytics.feature_enabled", side_effect=RuntimeError("flags down"))
+    def test_verification_flag_failure_reads_as_verification_required(self, _mock_enabled, _mock_get):
+        assert is_email_verification_disabled(self.user) is False
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.email_verification_code_verifier.send_code")
@@ -2261,6 +2267,16 @@ class TestTimeSensitivePermissions(APIBaseTest):
             res = self.client.post(
                 "/api/users/@me/scene_personalisation",
                 {"scene": "Person", "dashboard": dashboard.id},
+                format="json",
+            )
+            assert res.status_code == 200
+
+    def test_user_can_mark_a_product_intro_seen_without_recent_authentication(self):
+        now = datetime.now()
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.patch(
+                "/api/users/@me/product_intro_seen",
+                {"product_key": "posthog_ai_onboarding"},
                 format="json",
             )
             assert res.status_code == 200

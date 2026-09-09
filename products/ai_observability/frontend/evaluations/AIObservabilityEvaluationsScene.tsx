@@ -46,6 +46,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { evaluationsEmptyState } from '../emptyState/evaluationsEmptyState'
 import type { EvaluationDirectoryApi } from '../generated/api.schemas'
 import { LLMProviderKey } from '../settings/llmProviderKeysLogic'
 import {
@@ -71,6 +72,7 @@ export const scene: SceneExport = {
     component: AIObservabilityEvaluationsScene,
     logic: llmEvaluationsLogic,
     productKey: ProductKey.AI_OBSERVABILITY,
+    emptyState: evaluationsEmptyState,
 }
 
 function getActiveTab(

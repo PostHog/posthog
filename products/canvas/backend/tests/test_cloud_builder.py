@@ -1,4 +1,5 @@
 import os
+import re
 import hashlib
 import tempfile
 import subprocess
@@ -14,7 +15,7 @@ from parameterized import parameterized
 from products.canvas.backend.build_service import node_executable, run_cloud_builder, validate_builder_output
 from products.canvas.backend.contract import allowed_import_specifiers, canvas_sdk_version, platform_dependencies
 from products.canvas.backend.presentation.serializers import CanvasSourceProjectSerializer
-from products.canvas.backend.source import synthetic_source_project, validate_source_project
+from products.canvas.backend.source import _PLATFORM_ELEMENT_TOKENS, synthetic_source_project, validate_source_project
 
 
 class TestCanvasCloudBuilder(SimpleTestCase):
@@ -55,6 +56,13 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn(".md\\:grid-cols-2", stylesheet["content"])
         self.assertIn(".quill-button", stylesheet["content"])
         self.assertIn("--background", stylesheet["content"])
+        # Source validation rejects author declarations of the tokens Quill sets
+        # on every element; that list must follow the pinned Quill version.
+        universal_rule = re.search(r"^\* \{\n(.*?)^\}", stylesheet["content"], re.MULTILINE | re.DOTALL)
+        assert universal_rule is not None
+        self.assertEqual(
+            set(re.findall(r"^\s*--([\w-]+):", universal_rule.group(1), re.MULTILINE)), _PLATFORM_ELEMENT_TOKENS
+        )
 
     def test_publication_validation_allows_relative_worker_and_asset_imports(self) -> None:
         payload = synthetic_source_project(
@@ -293,6 +301,12 @@ class TestCanvasCloudBuilder(SimpleTestCase):
                 'if (!requests.some((m) => m.payload.hogql === "SELECT 1")) { console.error("pre-connect request was dropped"); process.exit(1); }',
                 'if (requests.some((m) => m.payload.hogql === "SELECT expired")) { console.error("expired request was still delivered"); process.exit(1); }',
                 'if (!received.some((m) => m.type === "ready")) { console.error("ready was not posted"); process.exit(1); }',
+                'Object.defineProperty(globalThis, "navigator", { value: { userActivation: { isActive: false } }, configurable: true });',
+                'try { window.ph.connectors.connect("github"); throw new Error("connector navigation did not require activation"); } catch (error) { if (!error.message.includes("user action")) throw error; }',
+                'if (received.some((message) => message.type === "navigate")) throw new Error("connector navigation escaped without activation");',
+                "navigator.userActivation.isActive = true;",
+                'window.ph.connectors.connect("github");',
+                'if (!received.some((message) => message.type === "navigate" && message.nav.provider === "github")) throw new Error("connector navigation was not delivered");',
                 "process.exit(0);",
             ]
         )

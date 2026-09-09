@@ -76,11 +76,16 @@ from products.tasks.backend.facade.access import (
     usage_limit_response,
 )
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
-from products.tasks.backend.facade.client_provenance import get_task_client_provenance
+from products.tasks.backend.facade.client_provenance import get_task_client_provenance, is_sandbox_oauth_request
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
 from products.tasks.backend.facade.contracts import TaskAnalysisError
 from products.tasks.backend.facade.metrics import (
     StreamConnectionOutcome,
+    observe_stream_backlog_bytes,
+    observe_stream_backlog_gap,
+    observe_stream_backlog_oversized,
+    observe_stream_backlog_served,
+    observe_stream_backlog_throttled,
     observe_stream_connection_closed,
     observe_stream_connection_opened,
     observe_stream_length_on_connect,
@@ -94,9 +99,13 @@ from products.tasks.backend.facade.streams import (
     TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS,
     TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS,
     TaskRunRedisStream,
+    TaskRunStreamBacklogIndex,
     TaskRunStreamError,
+    format_log_cursor,
     get_task_run_stream_key,
+    parse_log_cursor,
     run_stream_presence_gated,
+    run_stream_thin_tail,
     run_uses_dedicated_stream,
 )
 from products.tasks.backend.presentation.serializers import (
@@ -117,6 +126,7 @@ from products.tasks.backend.presentation.serializers import (
     SlackThreadContextThreadSerializer,
     StreamReadTokenResponseSerializer,
     TaskArtifactsResponseSerializer,
+    TaskBasicSerializer,
     TaskCommentDetailQuerySerializer,
     TaskCommentDetailSerializer,
     TaskCommentsQuerySerializer,
@@ -128,8 +138,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskPinResponseSerializer,
     TaskPresenceBeaconRequestSerializer,
     TaskRepositoriesResponseSerializer,
-    TaskRunAnalysisInsightRequestSerializer,
-    TaskRunAnalysisInsightResponseSerializer,
+    TaskRunAnalysisActivityRequestSerializer,
+    TaskRunAnalysisActivityResponseSerializer,
     TaskRunAnalyzeResponseSerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
@@ -244,7 +254,7 @@ UUID_LOOKUP_REGEX = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0
 TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME = "keepalive"
 TASK_RUN_STREAM_KEEPALIVE_PAYLOAD = {"type": "keepalive"}
-# Long-lived SSE connections pin NGINX Unit processes during recycle-drain, so
+# Long-lived SSE connections pin worker processes during recycle-drain, so
 # cap each one: emit `event: end` so clients can tell rotation from run
 # completion, then close. Clients resume from their Last-Event-ID cursor.
 TASK_RUN_STREAM_CONNECTION_MAX_SECONDS = 15 * 60
@@ -253,6 +263,43 @@ TASK_RUN_STREAM_ROTATED_PAYLOAD = {"type": "rotated"}
 # Distinct from the rotation `end` event above: this fires once when the run itself
 # completes, so clients stop reconnecting instead of resuming from Last-Event-ID.
 TASK_RUN_STREAM_COMPLETE_EVENT_NAME = "stream-end"
+# A backlog replay holds its whole parsed run log in memory for the length of the
+# replay, and SSE admission is shared across endpoints with no per-user bound, so
+# concurrent replays are budgeted by byte size per process. All mutation happens
+# on the event loop with no await between check and update, so a plain int is safe.
+_backlog_inflight_bytes = 0
+
+
+def _try_reserve_backlog_bytes(size_bytes: int) -> bool:
+    global _backlog_inflight_bytes
+    if _backlog_inflight_bytes + size_bytes > settings.TASK_RUN_STREAM_BACKLOG_INFLIGHT_MAX_BYTES:
+        return False
+    _backlog_inflight_bytes += size_bytes
+    return True
+
+
+def _release_backlog_bytes(size_bytes: int) -> None:
+    global _backlog_inflight_bytes
+    _backlog_inflight_bytes -= size_bytes
+
+
+def _parse_backlog(log_content: str) -> tuple[list[dict], TaskRunStreamBacklogIndex]:
+    # Runs via asyncio.to_thread: parsing a log at the byte cap takes long
+    # enough to stall every other stream on the ASGI event loop.
+    entries: list[dict] = []
+    for log_line in log_content.splitlines():
+        log_line = log_line.strip()
+        if not log_line:
+            continue
+        try:
+            parsed_line = json.loads(log_line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed_line, dict):
+            entries.append(parsed_line)
+    return entries, TaskRunStreamBacklogIndex(entries)
+
+
 TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
 
 
@@ -417,7 +464,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(response=TaskSerializer, description="List of tasks"),
         },
         summary="List tasks",
-        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task.",
+        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task. Pass basic=true for a summary payload that drops the description body from each row; use the search parameter to match description text server-side.",
     )
     def list(self, request, *args, **kwargs):
         filters = {key: request.query_params.get(key) for key in request.query_params}
@@ -434,8 +481,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         page = self.paginate_queryset(tasks)
         assert page is not None, "TaskViewSet list requires an active paginator"
+        # Description bodies dominate the list payload. A summary surface asks for basic=true
+        # and gets the smaller rows without them.
+        basic = getattr(request, "validated_query_data", {}).get("basic", False)
+        serializer_class = TaskBasicSerializer if basic else TaskSerializer
         return self.get_paginated_response(
-            TaskSerializer(tasks_facade._tasks_to_dtos(page, self.team_id), many=True).data
+            serializer_class(tasks_facade._tasks_to_dtos(page, self.team_id), many=True).data
         )
 
     @validated_request(
@@ -567,6 +618,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         request=TaskCreateSerializer,
+        parameters=[
+            OpenApiParameter(
+                "X-PostHog-Warm-Retry",
+                str,
+                OpenApiParameter.HEADER,
+                description="Retry token from a warm_run_activation_unavailable response; prevents creating a replacement run.",
+            )
+        ],
         responses={
             201: TaskSerializer,
             403: OpenApiResponse(
@@ -582,7 +641,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
             503: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="PostHog Desktop access could not be verified",
+                description=(
+                    "PostHog Desktop access could not be verified, or warm run activation is unavailable "
+                    "(code `warm_run_activation_unavailable`). After confirmed nondelivery, a retry_token permits "
+                    "retrying the same run and message with X-PostHog-Warm-Retry. Web retries for up to 20 seconds."
+                ),
             ),
         },
     )
@@ -606,8 +669,24 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if limit_response := usage_limit_response(request.user, self.team_id):
                 return limit_response
 
-        # Read before create_task, which pops the relationship out of the dict it's handed.
-        relationship = serializer.validated_data.get("signal_report_task_relationship")
+        validated_data = dict(serializer.validated_data)
+        relationship = validated_data.get("signal_report_task_relationship")
+        discussion_question = validated_data.pop("signal_report_discussion_question", None)
+
+        # Inbox "Discuss" runs repo-less so the generally-available Inbox never 403s a caller the
+        # Desktop gate refuses. An entitled caller gets the shape a normal cloud task has instead: a
+        # resolved repository and the team's GitHub credential, so the sandbox can clone a private
+        # repository and update the report's PR. Only the request layer can evaluate the gate, so it
+        # runs here and the outcome travels into the facade. A resolution error (503) counts as
+        # refused, which keeps the discussion starting repo-less.
+        code_access_allowed = False
+        if (
+            relationship not in (None, "implementation")
+            and validated_data.get("signal_report") is not None
+            and validated_data.get("origin_product") == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
+        ):
+            code_access_allowed = code_access_required_response(request, self.organization) is None
+
         from products.signals.backend.facade.api import (  # noqa: PLC0415 — keeps the signals stack off this module's import path
             ReportTaskCapExceeded,
         )
@@ -616,15 +695,35 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             task = tasks_facade.create_task(
                 self.team_id,
                 self._user_id(),
-                validated_data=dict(serializer.validated_data),
+                validated_data=validated_data,
                 client_provenance=get_task_client_provenance(request),
+                code_access_allowed=code_access_allowed,
+                **(
+                    {"warm_retry_token": request.headers["X-PostHog-Warm-Retry"]}
+                    if "X-PostHog-Warm-Retry" in request.headers
+                    else {}
+                ),
             )
         except ComputeBillingLimitExceeded as error:
             return compute_quota_limit_response(error.reason)
         except ReportTaskCapExceeded as error:
             return self._report_task_cap_response(error.detail)
-        self._forward_signals_discussion_note(request, task, relationship)
+        except tasks_facade.WarmRunActivationUnavailable as error:
+            return self._warm_activation_unavailable_response(error)
+        self._forward_signals_discussion_note(request, task, relationship, discussion_question)
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
+
+    def _warm_activation_unavailable_response(self, error: tasks_facade.WarmRunActivationUnavailable) -> Response:
+        return Response(
+            TaskRunErrorResponseSerializer(
+                {
+                    "code": error.code,
+                    "error": str(error),
+                    **({"retry_token": error.retry_token} if error.retry_token else {}),
+                }
+            ).data,
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
     def _one_shot_analysis_response(self, task_id: str) -> Response | None:
         """Refuse to add runs to a server-created analysis task; see the facade reader."""
@@ -648,7 +747,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
     def _forward_signals_discussion_note(
-        self, request, task: tasks_contracts.TaskDetailDTO, relationship: str | None
+        self,
+        request,
+        task: tasks_contracts.TaskDetailDTO,
+        relationship: str | None,
+        question: str | None,
     ) -> None:
         """Hand an inbox "Discuss" question to Signals, which leaves it as a note for the report's scout.
 
@@ -669,6 +772,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             report_id=str(task.signal_report),
             relationship=relationship,
             text=task.description or "",
+            question=question,
             user_id=self._user_id(),
             scoped_team_ids=get_authenticator_scoped_team_ids(authenticator),
             api_scopes=get_authenticator_scopes(authenticator),
@@ -680,6 +784,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(request=TaskWriteSerializer, responses={200: TaskSerializer})
     def partial_update(self, request, pk=None, **kwargs):
+        authenticator = request.successful_authenticator
+        if (
+            "channel" in request.data
+            and isinstance(authenticator, OAuthAccessTokenAuthentication)
+            and authenticator.access_token.sandbox_task_id is not None
+        ):
+            raise PermissionDenied("Task agents cannot move tasks between channels.")
         serializer = self._write_serializer(request.data, partial=True)
         task = tasks_facade.update_task(
             pk, self.team_id, self._user_id(), validated_data=dict(serializer.validated_data)
@@ -829,8 +940,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Fetch task summaries by ID",
         description=(
-            "Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, "
-            "`updated_at`, and the latest run's `status` and `environment`."
+            "Returns summary for the requested tasks, including the creator ID and the latest run's "
+            "ID, status, and environment."
         ),
         parameters=[
             OpenApiParameter(
@@ -1021,7 +1132,17 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = TaskStagedArtifactsFinalizeUploadResponseSerializer({"artifacts": result.artifacts})
         return Response(serializer.data)
 
-    @extend_schema(request=TaskRunCreateRequestSchemaSerializer)
+    @extend_schema(
+        request=TaskRunCreateRequestSchemaSerializer,
+        parameters=[
+            OpenApiParameter(
+                "X-PostHog-Warm-Retry",
+                str,
+                OpenApiParameter.HEADER,
+                description="Retry token from a warm_run_activation_unavailable response; prevents creating a replacement run.",
+            )
+        ],
+    )
     @validated_request(
         request_serializer=TaskRunCreateRequestSerializer,
         responses={
@@ -1034,7 +1155,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             404: OpenApiResponse(description="Task not found"),
             503: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="PostHog Desktop access could not be verified",
+                description=(
+                    "PostHog Desktop access could not be verified, or warm run activation is unavailable "
+                    "(code `warm_run_activation_unavailable`). After confirmed nondelivery, a retry_token permits "
+                    "retrying the same run and message with X-PostHog-Warm-Retry. Web retries for up to 20 seconds."
+                ),
             ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
@@ -1076,8 +1201,18 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         try:
             result = tasks_facade.run_task(
-                pk, self.team_id, self._user_id(), validated_data=dict(request.validated_data)
+                pk,
+                self.team_id,
+                self._user_id(),
+                validated_data=dict(request.validated_data),
+                **(
+                    {"warm_retry_token": request.headers["X-PostHog-Warm-Retry"]}
+                    if "X-PostHog-Warm-Retry" in request.headers
+                    else {}
+                ),
             )
+        except tasks_facade.WarmRunActivationUnavailable as error:
+            return self._warm_activation_unavailable_response(error)
         except ReportTaskCapExceeded as error:
             return self._report_task_cap_response(error.detail)
         if result is None:
@@ -1294,15 +1429,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-@extend_schema(tags=["task-runs", "tasks"])
-def is_sandbox_oauth_request(request) -> bool:
-    authenticator = request.successful_authenticator
-    if not isinstance(authenticator, OAuthAccessTokenAuthentication):
-        return False
-    application = authenticator.access_token.application
-    return application is not None and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS
-
-
 def _sandbox_bound_task_id(request) -> UUID | None:
     if not is_sandbox_oauth_request(request):
         return None
@@ -1318,6 +1444,7 @@ def is_sandbox_agent_request(request, task_id: str) -> bool:
 _HUMAN_STEERING_COMMAND_METHODS = frozenset({"user_message", "side_question"})
 
 
+@extend_schema(tags=["task-runs", "tasks"])
 class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     API for managing task runs. Each run represents an execution of a task.
@@ -1416,6 +1543,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if run is None:
             raise NotFound()
         return run
+
+    def _ensure_subscription_owner(self, task_id: str, run_id: str) -> None:
+        run = tasks_facade.get_task_run_detail(run_id, task_id, self.team_id)
+        if run is None:
+            raise NotFound()
+        if (
+            run.state.get("claude_model_access") == "own-subscription"
+            and run.state.get("claude_subscription_user_id") != self._user_id()
+        ):
+            raise PermissionDenied("Only the user who started this run can use its Claude plan.")
 
     @validated_request(
         responses={
@@ -1908,6 +2045,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def relay_message(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        trace_id = request.validated_data.get("trace_id")
         relay_status, relay_id = tasks_facade.relay_task_run_message(
             pk,
             task_id,
@@ -1915,6 +2053,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             text=request.validated_data["text"],
             text_parts=request.validated_data.get("text_parts"),
             message_id=request.validated_data.get("message_id"),
+            # Validated as a UUID, carried on as the string form the events it ends up on use.
+            trace_id=str(trace_id) if trace_id else None,
         )
         if relay_status == "failed":
             return Response(
@@ -2442,42 +2582,45 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
     @validated_request(
-        request_serializer=TaskRunAnalysisInsightRequestSerializer,
+        request_serializer=TaskRunAnalysisActivityRequestSerializer,
         responses={
             201: OpenApiResponse(
-                response=TaskRunAnalysisInsightResponseSerializer,
-                description="Finding stored on the run",
+                response=TaskRunAnalysisActivityResponseSerializer,
+                description="Activity stored on the run, or the index of the identical activity already stored",
             ),
-            400: OpenApiResponse(description="The finding is invalid, or the run already holds the maximum"),
-            403: OpenApiResponse(description="Only the run's own analysis sandbox may report findings"),
+            400: OpenApiResponse(
+                description="The activity is invalid, overlaps a stored activity, or the run already holds the maximum"
+            ),
+            403: OpenApiResponse(description="Only the run's own analysis sandbox may report activities"),
             404: OpenApiResponse(description="Run not found"),
         },
-        summary="Report an analysis finding",
+        summary="Report an analysis activity",
         description=(
-            "Store one verified inefficiency finding on a task-analysis run. Only the run's own "
-            "task-bound sandbox agent may call it, and only on a task-analysis run. The findings "
-            "list is server-owned: it is not writable through the run update endpoint."
+            "Store one activity record on a task-analysis run. Only the run's own task-bound sandbox "
+            "agent may call it, and only on a task-analysis run. Activities arrive in log order and do "
+            "not overlap. An exact repeat of a stored activity returns its index without storing it "
+            "again. The activities list is server-owned: it is not writable through the run update endpoint."
         ),
         strict_request_validation=True,
     )
-    @action(detail=True, methods=["post"], url_path="analysis-insight", required_scopes=["task:write"])
-    def analysis_insight(self, request, pk=None, **kwargs):
+    @action(detail=True, methods=["post"], url_path="analysis-activity", required_scopes=["task:write"])
+    def analysis_activity(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
         if not self._is_sandbox_agent_request(task_id):
             return Response(
-                {"error": "Only the run's own analysis agent can report findings."},
+                {"error": "Only the run's own analysis agent can report activities."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         try:
-            index = tasks_facade.report_task_analysis_insight(
-                pk, task_id, self.team_id, insight=dict(request.validated_data)
+            index = tasks_facade.report_task_analysis_activity(
+                pk, task_id, self.team_id, activity=dict(request.validated_data)
             )
         except TaskAnalysisError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         if index is None:
             raise NotFound()
         return Response(
-            TaskRunAnalysisInsightResponseSerializer({"insight_index": index}).data,
+            TaskRunAnalysisActivityResponseSerializer({"activity_index": index}).data,
             status=status.HTTP_201_CREATED,
         )
 
@@ -2584,6 +2727,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def connection_token(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        self._ensure_subscription_owner(task_id, pk)
         if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
             access_response := code_access_required_response(request, self.organization, task_id=task_id)
         ):
@@ -2617,13 +2761,21 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def stream_token(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        stream_info = tasks_facade.get_task_run_stream_info(pk, task_id, self.team_id)
         token = tasks_facade.create_task_run_stream_read_token(pk, task_id, self.team_id)
-        if token is None:
+        if stream_info is None or token is None:
             raise NotFound()
-        stream_base_url = tasks_facade.resolve_stream_base_url(
-            distinct_id=request.user.distinct_id,
-            organization_id=self.team.organization_id,
-            force_proxy=tasks_facade.task_uses_pi_runtime(task_id, self.team_id),
+        # Only the Django read leg serves the durable backlog, so thin-tail runs must
+        # not be routed to the agent-proxy — a proxy reader would silently lose
+        # everything behind the 500-entry live window.
+        stream_base_url = (
+            None
+            if run_stream_thin_tail(stream_info.state)
+            else tasks_facade.resolve_stream_base_url(
+                distinct_id=request.user.distinct_id,
+                organization_id=self.team.organization_id,
+                force_proxy=tasks_facade.task_uses_pi_runtime(task_id, self.team_id),
+            )
         )
         return Response(StreamReadTokenResponseSerializer({"token": token, "stream_base_url": stream_base_url}).data)
 
@@ -2645,7 +2797,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             404: OpenApiResponse(description="Task run not found"),
             409: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="Task run workflow has ended",
+                description="Task run workflow has ended; permission_target_ended for an ended approval target",
             ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
@@ -2654,13 +2806,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             502: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Agent server unreachable"),
             503: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="PostHog Desktop access could not be verified",
+                description="agent_session_not_ready: approval rejected before execution while the agent starts; "
+                "or PostHog Desktop access could not be verified",
             ),
         },
         summary="Send command to task run",
         description="Queue user_message JSON-RPC commands through the task workflow and forward sandbox control "
         "commands to the agent server. Supports user_message, cancel, close, permission_response, "
-        "set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations.",
+        "set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations. "
+        "Permission responses return 503 agent_session_not_ready only when rejected before execution; "
+        "clients may retry that code within a bounded startup wait. HTTP 200 preserves JSON-RPC errors; "
+        "permission acceptance requires result.resolved=true.",
         strict_request_validation=True,
     )
     @action(
@@ -2672,6 +2828,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def command(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
         method = request.validated_data["method"]
+        if method not in {"cancel", "close", "credential_response"}:
+            self._ensure_subscription_owner(task_id, pk)
+        if method == "credential_response":
+            run = tasks_facade.get_task_run_detail(pk, task_id, self.team_id)
+            if (
+                run is None
+                or is_sandbox_oauth_request(request)
+                or run.state.get("claude_subscription_user_id") != self._user_id()
+            ):
+                raise PermissionDenied("Only the user who started this run can send a Claude token.")
         # Steering an analysis run spends model tokens on a task whose generations are excluded
         # from the customer's rollup, so these are the reuse path the one-shot rule closes. Cancel
         # and the agent's own operations stay open.
@@ -2816,9 +2982,24 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if connection is None:
             raise NotFound()
 
+        if method == "permission_response":
+            try:
+                tasks_facade.validate_permission_response_target(pk, task_id, self.team_id)
+            except tasks_facade.PermissionResponseUnavailable as error:
+                return Response(
+                    TaskRunErrorResponseSerializer({"code": error.code, "error": str(error)}).data,
+                    status=error.status_code,
+                )
+
         if not connection.sandbox_url:
             return Response(
-                TaskRunErrorResponseSerializer({"error": "No active sandbox for this task run"}).data,
+                TaskRunErrorResponseSerializer(
+                    {
+                        "type": "runtime_unavailable",
+                        "code": "sandbox_not_ready",
+                        "error": "No active sandbox for this task run",
+                    }
+                ).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -2849,17 +3030,25 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 sandbox_token_param=connection.sandbox_token_param,
             )
 
+            try:
+                response_data = agent_response.json()
+            except ValueError:
+                if agent_response.ok:
+                    raise
+                response_data = {}
+            success = agent_response.ok
+            if method == "permission_response":
+                success = tasks_facade.classify_permission_response(
+                    pk, task_id, self.team_id, status_code=agent_response.status_code, data=response_data
+                )
             tasks_facade.capture_relay_command_telemetry(
-                pk, task_id, self.team_id, method=method, params=params, success=agent_response.ok
+                pk, task_id, self.team_id, method=method, params=params, success=success
             )
             if agent_response.ok:
                 tasks_facade.signal_task_run_client_activity(pk, task_id, self.team_id)
-                return Response(agent_response.json())
+                return Response(response_data)
 
-            try:
-                error_body = agent_response.json()
-            except Exception:
-                error_body = {}
+            error_body = response_data if isinstance(response_data, dict) else {}
 
             if agent_response.status_code == 401:
                 error_msg = error_body.get("error", "Agent server authentication failed")
@@ -2875,6 +3064,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
+        except tasks_facade.PermissionResponseUnavailable as error:
+            tasks_facade.capture_relay_command_telemetry(
+                pk, task_id, self.team_id, method=method, params=params, success=False
+            )
+            return Response(
+                TaskRunErrorResponseSerializer({"code": error.code, "error": str(error)}).data,
+                status=error.status_code,
+            )
         except http_requests.ConnectionError:
             logger.warning(f"Agent server unreachable for task run {pk}")
             tasks_facade.capture_relay_command_telemetry(
@@ -2965,7 +3162,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             json=payload,
             headers=headers,
             params=params,
-            timeout=600,
+            timeout=5 if payload.get("method") == "credential_response" else 600,
+            allow_redirects=payload.get("method") != "credential_response",
         )
 
     @validated_request(
@@ -3183,16 +3381,28 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         description=(
             "Server-Sent Events stream of task run events. Events carry an `id:` line "
-            "(a Redis stream id) usable as a resume cursor.\n\n"
+            "(a Redis stream id, or a synthetic `log-<n>` id during backlog replay) usable as a "
+            "resume cursor.\n\n"
             f"The server caps each connection at {TASK_RUN_STREAM_CONNECTION_MAX_SECONDS} seconds: it emits "
             '`event: end` with `data: {"type": "rotated"}` and closes. This does NOT mean the run '
             "finished — reconnect with the `Last-Event-ID` header set to the last received event id to "
-            "resume without gaps or duplicates. Only treat the stream as complete when the run itself "
+            "resume. Only treat the stream as complete when the run itself "
             "reaches a terminal status.\n\n"
             "Resume guarantees cover mirrored events only: on runs where live mirroring is "
             "presence-gated, events produced while no viewer was connected are not in the live stream. "
             "Reload the run's session logs to recover the agent's output; run-state and progress "
             "frames are not in those logs, so refetch the run itself for its current state.\n\n"
+            "On runs with durable backlog serving, a connection without `Last-Event-ID` first replays "
+            "history from the run log under synthetic `log-<n>` event ids, then attaches the live "
+            "stream, skipping live entries the backlog already covered. Reconnecting with a `log-<n>` "
+            "id resumes the backlog replay from that point; reconnecting with a Redis id resumes the "
+            "live stream, may re-deliver a few events already served as backlog frames, and falls back "
+            "to a full backlog replay when the resume point was trimmed or the stream expired. Runs "
+            "whose log exceeds the backlog byte cap skip the replay and serve only the recent live "
+            "window. When the backlog is temporarily unavailable (a storage read failure, or a worker "
+            "at its concurrent replay budget), the stream emits an `event: error` frame and closes; "
+            "reconnect with the same cursor to retry. Treat delivery as at-least-once across "
+            "reconnects.\n\n"
             "`?start=latest` consumers must also carry `Last-Event-ID` across reconnects: reconnecting "
             "without it re-resolves to the then-current latest event, silently skipping anything published "
             "while disconnected.\n\n"
@@ -3238,6 +3448,22 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         format_sse_event = self._format_sse_event
         origin_product = stream_info.origin_product
         presence_gated = run_stream_presence_gated(stream_info.state)
+        run_is_terminal = stream_info.is_terminal
+        run_state_event = stream_info.state_event
+
+        # Thin-tail runs keep only a short live tail in Redis; history is served
+        # from the durable run log at connect time, under `log-<n>` event ids.
+        # Only cheap resolution happens here — the log read and parse run inside
+        # the generator, after SSE admission, off the event loop.
+        thin_tail = run_stream_thin_tail(stream_info.state) and not start_latest
+        backlog_serve_after: int | None = None
+        backlog_log_urls: list[str] = []
+        if thin_tail:
+            if not last_event_id:
+                backlog_serve_after = -1
+            else:
+                backlog_serve_after = parse_log_cursor(last_event_id)
+            backlog_log_urls = tasks_facade.get_task_run_log_urls(pk, task_id, self.team_id) or []
 
         async def async_stream() -> AsyncGenerator[bytes]:
             redis_stream = TaskRunRedisStream(stream_key, use_dedicated_stream)
@@ -3249,6 +3475,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # the open succeeded — keeps opened/closed balanced for the
             # active-connections gauge regardless of which increment fails.
             opened = False
+            resume_cursor = last_event_id
+            serve_after = backlog_serve_after
+            backlog_index: TaskRunStreamBacklogIndex | None = None
+            backlog_contiguity_pending = False
 
             try:
                 observe_stream_connection_opened(origin_product)
@@ -3258,8 +3488,116 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 last_keepalive_at = wait_started_at
                 await redis_stream.refresh_watched()
 
+                if thin_tail and serve_after is None and resume_cursor:
+                    # A Redis-id reconnect whose resume point was trimmed — or
+                    # whose stream key expired entirely — would silently skip
+                    # the evicted interval; fall back to a full backlog replay
+                    # instead (at-least-once, per the endpoint description).
+                    # Best-effort: never break the stream.
+                    try:
+                        stream_exists = await redis_stream.exists()
+                        if not stream_exists or await redis_stream.resume_point_trimmed(resume_cursor):
+                            observe_stream_resume_gap(origin_product)
+                            logger.warning(
+                                "task_run_stream_resume_gap",
+                                extra={
+                                    "stream_key": stream_key,
+                                    "last_event_id": resume_cursor,
+                                    "reason": "trimmed" if stream_exists else "expired",
+                                },
+                            )
+                            serve_after = -1
+                    except Exception:
+                        logger.warning(
+                            "task_run_stream_attach_observe_failed",
+                            extra={"stream_key": stream_key},
+                            exc_info=True,
+                        )
+
+                if serve_after is not None:
+                    resume_cursor = None
+                    backlog_reserved = 0
+                    try:
+                        try:
+                            backlog_bytes = await asyncio.to_thread(
+                                tasks_facade.get_task_run_log_size, backlog_log_urls
+                            )
+                            observe_stream_backlog_bytes(origin_product, backlog_bytes)
+                            backlog_oversized = backlog_bytes > settings.TASK_RUN_STREAM_BACKLOG_MAX_BYTES
+                            if backlog_oversized:
+                                # Parsing a log past the byte cap risks the worker's
+                                # memory; degrade to the plain Redis window instead.
+                                observe_stream_backlog_oversized(origin_product)
+                                logger.warning(
+                                    "task_run_stream_backlog_oversized",
+                                    extra={"stream_key": stream_key, "backlog_bytes": backlog_bytes},
+                                )
+                                log_content = ""
+                            elif not _try_reserve_backlog_bytes(backlog_bytes):
+                                # The worker already holds its budget's worth of parsed
+                                # logs; refuse this replay so RSS stays bounded no matter
+                                # how many connections arrive. Transient — retryable.
+                                outcome = "backlog_busy"
+                                observe_stream_backlog_throttled(origin_product)
+                                logger.warning(
+                                    "task_run_stream_backlog_throttled",
+                                    extra={"stream_key": stream_key, "backlog_bytes": backlog_bytes},
+                                )
+                                yield format_sse_event({"error": "Backlog busy"}, event_name="error")
+                                return
+                            else:
+                                backlog_reserved = backlog_bytes
+                                log_content = await asyncio.to_thread(
+                                    tasks_facade.read_task_run_log_content, backlog_log_urls
+                                )
+                            backlog_entries, backlog_index = await asyncio.to_thread(_parse_backlog, log_content)
+                            del log_content
+                        except Exception:
+                            outcome = "backlog_error"
+                            logger.exception("task_run_stream_backlog_read_failed", extra={"stream_key": stream_key})
+                            yield format_sse_event({"error": "Backlog unavailable"}, event_name="error")
+                            return
+                        # An oversized backlog serves nothing, so an empty index would
+                        # flag every stamped live entry as a false gap — skip the check.
+                        backlog_contiguity_pending = not backlog_oversized
+                        if serve_after >= len(backlog_entries):
+                            # Cursor beyond the loaded log: not one we issued — replay in full.
+                            serve_after = -1
+                        backlog_served = 0
+                        try:
+                            for backlog_position in range(serve_after + 1, len(backlog_entries)):
+                                yield format_sse_event(
+                                    backlog_entries[backlog_position],
+                                    event_id=format_log_cursor(backlog_position),
+                                )
+                                backlog_served += 1
+                                await redis_stream.refresh_watched()
+                                now = asyncio.get_running_loop().time()
+                                if now - connection_started_at >= TASK_RUN_STREAM_CONNECTION_MAX_SECONDS:
+                                    outcome = "rotated"
+                                    yield format_sse_event(
+                                        TASK_RUN_STREAM_ROTATED_PAYLOAD,
+                                        event_name=TASK_RUN_STREAM_END_EVENT_NAME,
+                                    )
+                                    return
+                        finally:
+                            # In a finally so a client that goes away mid-replay still
+                            # counts the frames it was sent.
+                            observe_stream_backlog_served(origin_product, backlog_served)
+                        backlog_entries.clear()
+                    finally:
+                        # Covers every exit — replay done, rotation, read failure,
+                        # client disconnect mid-replay — so the budget never leaks.
+                        if backlog_reserved:
+                            _release_backlog_bytes(backlog_reserved)
+
                 waited_for_stream = False
                 while not await redis_stream.exists():
+                    if run_is_terminal:
+                        outcome = "drained"
+                        yield format_sse_event(run_state_event)
+                        yield format_sse_event({"status": "complete"}, event_name=TASK_RUN_STREAM_COMPLETE_EVENT_NAME)
+                        return
                     waited_for_stream = True
                     if presence_gated:
                         break
@@ -3287,14 +3625,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 # point, and that's the only case where stream depth vs the trim
                 # cap is interesting — so skip the extra Redis reads on fresh
                 # connects. Best-effort: never break the stream.
-                if last_event_id:
+                if resume_cursor:
                     try:
                         observe_stream_length_on_connect(await redis_stream.get_length())
-                        if await redis_stream.resume_point_trimmed(last_event_id):
+                        if await redis_stream.resume_point_trimmed(resume_cursor):
                             observe_stream_resume_gap(origin_product)
                             logger.warning(
                                 "task_run_stream_resume_gap",
-                                extra={"stream_key": stream_key, "last_event_id": last_event_id},
+                                extra={"stream_key": stream_key, "last_event_id": resume_cursor},
                             )
                     except Exception:
                         logger.warning(
@@ -3303,8 +3641,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                             exc_info=True,
                         )
 
-                start_id = last_event_id or "0"
-                if not last_event_id and start_latest and not waited_for_stream:
+                start_id = resume_cursor or "0"
+                if not resume_cursor and start_latest and not waited_for_stream:
                     start_id = await redis_stream.get_latest_stream_id() or "0"
                 try:
                     async for stream_item in redis_stream.read_stream_entries(
@@ -3318,7 +3656,20 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                             )
                         else:
                             event_id, event = stream_item
-                            yield format_sse_event(event, event_id=event_id)
+                            if backlog_index is None or not backlog_index.covers(event):
+                                if backlog_contiguity_pending and backlog_index is not None and event.get("event_id"):
+                                    # First id-carrying live entry past the backlog: a
+                                    # hole before it means Redis evicted events whose
+                                    # log batch never landed — the loss mode thin-tail
+                                    # trimming assumes away. Count it before rollout.
+                                    backlog_contiguity_pending = False
+                                    if backlog_index.has_gap_before(event):
+                                        observe_stream_backlog_gap(origin_product)
+                                        logger.warning(
+                                            "task_run_stream_backlog_gap",
+                                            extra={"stream_key": stream_key, "event_id": event.get("event_id")},
+                                        )
+                                yield format_sse_event(event, event_id=event_id)
                         now = asyncio.get_running_loop().time()
                         await redis_stream.refresh_watched()
                         if now - connection_started_at >= TASK_RUN_STREAM_CONNECTION_MAX_SECONDS:
@@ -3347,7 +3698,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         # Releases the request-thread DB connection (auth, task lookup) before the
         # long-lived stream begins — see sse_streaming_response. The stream body is
-        # Redis-only, so it never re-acquires one.
+        # Redis and object storage only, so it never re-acquires one.
         return sse_streaming_response(
             async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream()),
             endpoint="task_run_log",

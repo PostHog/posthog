@@ -182,25 +182,41 @@ class TestWebAuthnLogin(APIBaseTest):
         response = self.client.post("/api/webauthn/login/complete/", {})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_login_complete_without_user_handle_fails(self):
+    @parameterized.expand(
+        [
+            (
+                "missing_user_handle",
+                {"authenticatorData": "data", "clientDataJSON": "data", "signature": "sig"},
+                "some-raw-id",
+                "userHandle",
+            ),
+            (
+                "missing_raw_id",
+                {"authenticatorData": "data", "clientDataJSON": "data", "signature": "sig", "userHandle": "handle"},
+                None,
+                "credential ID",
+            ),
+            (
+                "missing_signature",
+                {"authenticatorData": "data", "clientDataJSON": "data", "userHandle": "handle"},
+                "some-raw-id",
+                "Missing required fields",
+            ),
+        ]
+    )
+    def test_login_complete_with_unreadable_assertion_fails(
+        self, _name: str, response_data: dict, raw_id: str | None, expected_error: str
+    ):
         self.client.post("/api/webauthn/login/begin/")
 
-        response = self.client.post(
-            "/api/webauthn/login/complete/",
-            {
-                "id": "some-id",
-                "rawId": "some-raw-id",
-                "type": "public-key",
-                "response": {
-                    "authenticatorData": "data",
-                    "clientDataJSON": "data",
-                    "signature": "sig",
-                },
-            },
-            format="json",
-        )
+        payload = {"id": "some-id", "type": "public-key", "response": response_data}
+        if raw_id is not None:
+            payload["rawId"] = raw_id
+
+        response = self.client.post("/api/webauthn/login/complete/", payload, format="json")
+
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("userHandle", response.json()["error"])
+        self.assertIn(expected_error, response.json()["error"])
 
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_complete_success(self, mock_verify):

@@ -29,10 +29,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.cloud_utils import is_cloud
-from posthog.constants import (
-    SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
-    SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY,
-)
+from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY
 from posthog.dataclasses import frozen
 from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.exceptions import QuotaLimitExceeded
@@ -41,6 +38,7 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
 from posthog.scopes import APIScopeObject
+from posthog.security.url_validation import is_microsoft_teams_webhook_url
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
@@ -50,6 +48,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import (
+    AIQueryPlanStatus,
     Subscription,
     SubscriptionDelivery,
     attribute_subscription_saves,
@@ -58,12 +57,15 @@ from products.exports.backend.models.subscription import (
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
     PromptRejectedError,
+    get_ai_query_plan_status as derive_ai_query_plan_status,
     sanitize_prompt,
 )
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_CHARTS_KEY,
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
+    AI_REPORT_QUERY_FAILURE_TYPE,
+    AI_REPORT_QUERY_PLAN_STATUS_KEY,
     AI_REPORT_SNAPSHOT_KEY,
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
@@ -73,6 +75,7 @@ from products.product_analytics.backend.facade.models import Insight
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
+from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, TEAMS_WEBHOOK_URL_MASKED_ERROR
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
@@ -315,6 +318,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "when resource_type is 'ai_prompt'. Replaced wholesale on writes."
         ),
     )
+    ai_query_plan_status = serializers.SerializerMethodField(
+        help_text=(
+            "Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. "
+            "Null for other subscription types."
+        )
+    )
     delivery_config = DeliveryConfigSerializer(
         required=False,
         help_text="Per-delivery rendering options. Each option documents which delivery targets it applies to.",
@@ -344,6 +353,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "dashboard_export_insights",
             "prompt",
             "ai_prompt_config",
+            "ai_query_plan_status",
             "target_type",
             "target_value",
             "frequency",
@@ -385,9 +395,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             },
             "dashboard": {"help_text": "Dashboard ID to subscribe to (mutually exclusive with insight on create)."},
             "insight": {"help_text": "Insight ID to subscribe to (mutually exclusive with dashboard on create)."},
-            "target_type": {"help_text": "Delivery channel: email or slack."},
+            "target_type": {"help_text": "Delivery channel: email, slack, or teams."},
             "target_value": {
-                "help_text": "Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack."
+                "help_text": (
+                    "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, "
+                    "or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as "
+                    "its host, because the URL authorizes a post to the channel by itself. On update, omit the "
+                    "field to keep the stored URL, or send a full URL to replace it."
+                )
             },
             "frequency": {"help_text": "How often to deliver: daily, weekly, monthly, or yearly."},
             "interval": {
@@ -405,7 +420,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 "help_text": "Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last)."
             },
             "count": {"help_text": "Total number of deliveries before the subscription stops. Null for unlimited."},
-            "start_date": {"help_text": "When to start delivering (ISO 8601 datetime)."},
+            "start_date": {
+                "help_text": (
+                    "When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in "
+                    "the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted "
+                    "for backward compatibility, but delivery happens during the next cycle instead of at that exact minute."
+                )
+            },
             "until_date": {"help_text": "When to stop delivering (ISO 8601 datetime). Null for indefinite."},
             "title": {"help_text": "Human-readable name for this subscription."},
             "deleted": {"help_text": "Set to true to soft-delete. Subscriptions cannot be hard-deleted."},
@@ -438,6 +459,17 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         info = obj.resource_info
         return info.name if info else None
 
+    @extend_schema_field(
+        serializers.ChoiceField(
+            choices=AIQueryPlanStatus.choices,
+            allow_null=True,
+        )
+    )
+    def get_ai_query_plan_status(self, subscription: Subscription) -> Optional[str]:
+        if subscription.resource_type != Subscription.ResourceType.AI_PROMPT:
+            return None
+        return derive_ai_query_plan_status(subscription.ai_query_plan).value
+
     def _validate_insight_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
         if not (attrs.get("insight") or (existing and existing.insight_id)):
             raise ValidationError({"insight": ["Insight is required for insight subscriptions."]})
@@ -466,8 +498,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if target_type and target_type not in (
             Subscription.SubscriptionTarget.EMAIL,
             Subscription.SubscriptionTarget.SLACK,
+            Subscription.SubscriptionTarget.TEAMS,
         ):
-            raise ValidationError({"target_type": ["AI subscriptions only support email or slack delivery."]})
+            raise ValidationError({"target_type": ["AI subscriptions only support email, slack, or teams delivery."]})
         # Gates fire on create only; existing AI subs stay editable.
         if existing is None:
             gate_reason = _ai_create_gate_reason(self.context["get_organization"](), self._caller_distinct_id())
@@ -536,6 +569,15 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         self._validate_dashboard_export_subscription(attrs)
 
         target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)
+        if (
+            self.instance
+            and self.instance.target_type == Subscription.SubscriptionTarget.TEAMS
+            and target_type != Subscription.SubscriptionTarget.TEAMS
+            and "target_value" not in attrs
+        ):
+            raise ValidationError(
+                {"target_value": ["A new target value is required when changing from Microsoft Teams."]}
+            )
         # Use explicit-key check for integration_id so a deliberate `null` in the PATCH
         # body falls through to the validation below — `or` would silently coalesce
         # to the stale instance value and pass `validate_re_enable` with the wrong id.
@@ -593,6 +635,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 raise ValidationError({"start_date": [f"{base}."]})
             raise ValidationError(f"{base}.")
 
+        if target_type == Subscription.SubscriptionTarget.TEAMS:
+            submitted = (attrs.get("target_value") or "").strip()
+            if self.instance and submitted and submitted == self.instance.recipient_label:
+                raise ValidationError({"target_value": [TEAMS_WEBHOOK_URL_MASKED_ERROR]})
+            target_value = submitted or (self.instance.target_value if self.instance else "")
+            if not is_microsoft_teams_webhook_url(target_value):
+                raise ValidationError({"target_value": [TEAMS_WEBHOOK_URL_ERROR]})
+
         if target_type == Subscription.SubscriptionTarget.SLACK:
             if not integration_id:
                 raise ValidationError({"integration_id": ["A Slack integration is required for Slack subscriptions."]})
@@ -624,15 +674,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 {"delivery_config": ["post_all_insights_in_main_message is only supported for Slack subscriptions."]}
             )
 
-        # Only gate non-empty writes to `summary_prompt_guide`. Clearing (empty string)
-        # and field-absent PATCHes always pass through so users aren't stuck with a value
-        # they can no longer edit if the flag flips off after they set one.
         prompt_guide = attrs.get("summary_prompt_guide")
-        if prompt_guide:
-            if len(prompt_guide) > 500:
-                raise ValidationError({"summary_prompt_guide": ["AI summary context must be 500 characters or fewer."]})
-            if not self._prompt_guide_feature_enabled():
-                raise exceptions.PermissionDenied("Setting AI summary context is not enabled for this organization.")
+        if prompt_guide and len(prompt_guide) > 500:
+            raise ValidationError({"summary_prompt_guide": ["AI summary context must be 500 characters or fewer."]})
 
         if attrs.get("summary_enabled"):
             organization = self.context["get_organization"]()
@@ -725,33 +769,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             # Telemetry must never poison the validation path.
             pass
 
-    def _evaluate_feature_flag(self, flag_key: str) -> bool:
-        """Evaluate a feature flag for the caller's organization.
-
-        Scoped by organization (not user) so gates are stable across a team's
-        members. `only_evaluate_locally=False` so we respect server-side cohort
-        / property conditions — these checks aren't on a hot path.
-        (`_ai_create_gate_reason` is intentionally person-scoped instead — it
-        backs a per-user early-access opt-in — so don't unify the two.)
-        """
-        request = self.context.get("request")
-        if not request or not getattr(request, "user", None) or not getattr(request.user, "distinct_id", None):
-            return False
-        organization = self.context["get_organization"]()
-        org_id = str(organization.id) if organization else ""
-        return bool(
-            posthoganalytics.feature_enabled(
-                flag_key,
-                str(request.user.distinct_id),
-                groups={"organization": org_id},
-                group_properties={"organization": {"id": org_id}},
-                only_evaluate_locally=False,
-            )
-        )
-
-    def _prompt_guide_feature_enabled(self) -> bool:
-        return self._evaluate_feature_flag(SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY)
-
     def _validate_dashboard_export_subscription(self, attrs):
         dashboard = attrs.get("dashboard") or (self.instance.dashboard if self.instance else None)
         if dashboard is None:
@@ -841,6 +858,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     ]
                 }
             )
+
+    def to_representation(self, instance: Subscription) -> dict:
+        data = super().to_representation(instance)
+        if instance.target_type == Subscription.SubscriptionTarget.TEAMS:
+            data["target_value"] = instance.recipient_label
+        return data
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Subscription:
         request = self.context["request"]
@@ -1158,7 +1181,7 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
                 enum=[m.value for m in Subscription.SubscriptionTarget],
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by delivery channel (email or Slack).",
+                description="Filter by delivery channel: email, Slack, or Microsoft Teams.",
             ),
             OpenApiParameter(
                 name="insight",
@@ -1486,6 +1509,11 @@ class AIReportQueryDiagnosticSerializer(serializers.Serializer):
     error_type = serializers.CharField(
         allow_null=True, help_text="Exception class name when the query failed; null on success."
     )
+    error_code = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Stable query API error code when available; null on success and for unclassified errors.",
+    )
     human_readable_error = serializers.CharField(
         allow_null=True,
         required=False,
@@ -1496,11 +1524,16 @@ class AIReportQueryDiagnosticSerializer(serializers.Serializer):
 
 
 class SubscriptionDeliverySerializer(serializers.ModelSerializer):
+    AI_REPORT_SCRUBBED_ERROR = {
+        "type": AI_REPORT_QUERY_FAILURE_TYPE,
+        "message": "The report could not be computed.",
+    }
     # Delivery fields that embed the query-derived AI report, mapped to the value each returns when
     # scrubbed for a caller without query access (content_snapshot is a non-null object, the rest
     # nullable). Single source of truth — keep in sync when adding AI-derived delivery fields.
     # ai_report_prompt is user-authored (not query-derived) and already readable on the parent
     # subscription, so it is intentionally not scrubbed.
+    # ai_query_plan_status is harmless execution metadata, so it also stays visible without query access.
     # recipient_results is also intentionally not scrubbed: its human_readable_error values are
     # audience-independent delivery failure reasons (auto-disable causes, prompt rejections, Slack
     # thread-failure counts) that carry no query-derived data. New producers of
@@ -1525,6 +1558,12 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
     )
     ai_report_prompt = serializers.SerializerMethodField(
         help_text="The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries."
+    )
+    ai_query_plan_status = serializers.SerializerMethodField(
+        help_text=(
+            "Query plan state recorded for this delivery: frozen, not_frozen, or planner_updated. "
+            "Null for older deliveries and non-AI deliveries."
+        )
     )
 
     class Meta:
@@ -1551,6 +1590,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "ai_report_diagnostics",
             "ai_report_charts",
             "ai_report_prompt",
+            "ai_query_plan_status",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -1560,8 +1600,13 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "idempotency_key": {"help_text": "Dedupes activity retries for the same logical run."},
             "trigger_type": {"help_text": "Why the run started (e.g. scheduled, manual, subscription update)."},
             "scheduled_at": {"help_text": "Planned send time when applicable."},
-            "target_type": {"help_text": "Channel snapshot at send time (email or slack)."},
-            "target_value": {"help_text": "Destination snapshot at send time (emails, channel id, URL)."},
+            "target_type": {"help_text": "Channel snapshot at send time: email, slack, or teams."},
+            "target_value": {
+                "help_text": (
+                    "Destination snapshot at send time: the email list, the Slack channel id, or the "
+                    "host of the Microsoft Teams webhook. The webhook URL itself is never returned."
+                )
+            },
             "exported_asset_ids": {"help_text": "ExportedAsset ids generated for this send."},
             "content_snapshot": {
                 "help_text": (
@@ -1611,6 +1656,14 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
         charts = snapshot.get(AI_REPORT_CHARTS_KEY)
         return charts if isinstance(charts, list) else None
 
+    @extend_schema_field(serializers.ChoiceField(choices=AIQueryPlanStatus.choices, allow_null=True))
+    def get_ai_query_plan_status(self, delivery: SubscriptionDelivery) -> Optional[str]:
+        snapshot = delivery.content_snapshot
+        if not isinstance(snapshot, dict):
+            return None
+        status = snapshot.get(AI_REPORT_QUERY_PLAN_STATUS_KEY)
+        return status if isinstance(status, str) and status in AIQueryPlanStatus.values else None
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         # The viewset sets this flag when an AI prompt delivery is read by a caller without query
@@ -1619,6 +1672,8 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
         # user-authored and already readable on the subscription, so it is deliberately not scrubbed.
         if self.context.get("hide_ai_report"):
             data.update(self.AI_REPORT_SCRUBBED)
+            if isinstance(data.get("error"), dict) and data["error"].get("type") == AI_REPORT_QUERY_FAILURE_TYPE:
+                data["error"] = self.AI_REPORT_SCRUBBED_ERROR
             return data
         # The AI report now ships via the typed ai_report / ai_report_diagnostics / ai_report_prompt
         # fields, so drop the same keys from content_snapshot to avoid shipping the report twice.
@@ -1629,6 +1684,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             or AI_REPORT_PROMPT_SNAPSHOT_KEY in snapshot
             or AI_REPORT_DIAGNOSTICS_KEY in snapshot
             or AI_REPORT_CHARTS_KEY in snapshot
+            or AI_REPORT_QUERY_PLAN_STATUS_KEY in snapshot
         ):
             data["content_snapshot"] = {
                 key: value
@@ -1639,6 +1695,7 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
                     AI_REPORT_PROMPT_SNAPSHOT_KEY,
                     AI_REPORT_DIAGNOSTICS_KEY,
                     AI_REPORT_CHARTS_KEY,
+                    AI_REPORT_QUERY_PLAN_STATUS_KEY,
                 )
             }
         return data

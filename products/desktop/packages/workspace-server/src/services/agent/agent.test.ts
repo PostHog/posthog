@@ -35,6 +35,16 @@ const mockAcpClient = vi.hoisted(() => ({
             _meta?: { codeToolKind?: string };
           };
         }) => Promise<unknown>;
+        sessionUpdate: (params: {
+          update: {
+            sessionUpdate: "tool_call" | "tool_call_update";
+            toolCallId: string;
+            status?: string;
+            rawInput?: unknown;
+            rawOutput?: unknown;
+            _meta?: unknown;
+          };
+        }) => Promise<void>;
       }
     | undefined,
 }));
@@ -318,6 +328,7 @@ describe("AgentService", () => {
     it.each([
       { action: "login" as const, expected: "'auth' 'login'" },
       { action: "logout" as const, expected: "'auth' 'logout'" },
+      { action: "setup-token" as const, expected: "'setup-token'" },
     ])(
       "describes the claude auth $action terminal",
       async ({ action, expected }) => {
@@ -587,6 +598,59 @@ describe("AgentService", () => {
     });
   });
 
+  describe("MCP tool result forwarding", () => {
+    it.each([
+      [
+        "legacy claudeCode channel (Claude adapter)",
+        { claudeCode: { toolName: "mcp__posthog__query" } },
+      ],
+      [
+        "canonical posthog channel (Codex adapter)",
+        {
+          posthog: {
+            toolName: "mcp__posthog__query",
+            mcp: { server: "posthog", tool: "query" },
+          },
+        },
+      ],
+    ])(
+      "forwards tool input/result to McpAppsService for the %s",
+      async (_label, meta) => {
+        await service.startSession(baseSessionParams);
+
+        await mockAcpClient.current?.sessionUpdate({
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "tc-1",
+            rawInput: { sql: "SELECT 1" },
+            _meta: meta,
+          },
+        });
+        expect(deps.mcpAppsService.notifyToolInput).toHaveBeenCalledWith(
+          "mcp__posthog__query",
+          "tc-1",
+          { sql: "SELECT 1" },
+        );
+
+        await mockAcpClient.current?.sessionUpdate({
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "tc-1",
+            status: "completed",
+            rawOutput: { content: [{ type: "text", text: "42 rows" }] },
+            _meta: meta,
+          },
+        });
+        expect(deps.mcpAppsService.notifyToolResult).toHaveBeenCalledWith(
+          "mcp__posthog__query",
+          "tc-1",
+          { content: [{ type: "text", text: "42 rows" }] },
+          false,
+        );
+      },
+    );
+  });
+
   describe("reconnect", () => {
     it("preserves conversation context when native reconnect fails", async () => {
       const apiClient = {};
@@ -738,6 +802,7 @@ describe("AgentService", () => {
 
       expect(mockNewSession).toHaveBeenCalledTimes(1);
       expect(mockNewSession.mock.calls[0][0]._meta).toMatchObject({
+        taskId: "task-1",
         taskRunId: "run-1",
         environment: "local",
       });

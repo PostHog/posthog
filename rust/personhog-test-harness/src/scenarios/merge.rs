@@ -230,6 +230,7 @@ pub async fn run_merges(
                     state.mark_merge_pending(source).await;
                 }
                 let op_id = uuid::Uuid::new_v4();
+                let creator_event_uuid = uuid::Uuid::new_v4();
                 let event = MergeEvent::new(&op_id);
 
                 let start = Instant::now();
@@ -244,6 +245,7 @@ pub async fn run_merges(
                             json!(event.set),
                             json!(event.set_once),
                             &op_id,
+                            &creator_event_uuid,
                             allow_identified_sources,
                             move_limit,
                         )
@@ -670,6 +672,7 @@ pub fn outcome_name(outcome: MergeSourceOutcome) -> &'static str {
         MergeSourceOutcome::SkippedIllegal => "skipped_illegal",
         MergeSourceOutcome::SkippedAlreadyIdentified => "skipped_already_identified",
         MergeSourceOutcome::SkippedConflict => "skipped_conflict",
+        MergeSourceOutcome::SkippedRefused => "skipped_refused",
         MergeSourceOutcome::SkippedMoveLimit => "skipped_move_limit",
         MergeSourceOutcome::Error => "error",
         MergeSourceOutcome::Unspecified => "unspecified",
