@@ -231,9 +231,9 @@ class TestRetrieveDueAlerts:
 
         assert [item.alert_id for item in result] == [str(due_alert.id)]
         record_metrics.assert_called_once()
-        recorded_alerts, polled_at = record_metrics.call_args.args
-        recorded_alert_ids = await sync_to_async(lambda: [alert.id for alert in recorded_alerts])()
-        assert recorded_alert_ids == [due_alert.id]
+        due_count, oldest_due_at, polled_at = record_metrics.call_args.args
+        assert due_count == 1
+        assert oldest_due_at == datetime(2026, 9, 9, 11, 0, tzinfo=UTC)
         assert polled_at == datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
 
 
