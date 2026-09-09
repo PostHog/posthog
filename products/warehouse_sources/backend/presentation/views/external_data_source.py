@@ -240,6 +240,15 @@ def _hide_noncanonical_managed_warehouse_sources(
     return queryset.exclude(hidden_sources)
 
 
+# Failures to reach the source database that only the customer can fix. Handlers return them as a
+# 400 without capturing, so they stay out of error tracking.
+_EXPECTED_CONNECTION_ERRORS = (
+    OperationalError,
+    BaseSSHTunnelForwarderError,
+    SSLRequiredError,
+    DatabaseHostNotAllowedError,
+)
+
 REFRESH_SCHEMAS_EXPECTED_ERROR_MESSAGES = {
     "timeout": "Connection timed out while fetching schemas from the source.",
     "timed out": "Connection timed out while fetching schemas from the source.",
@@ -2688,12 +2697,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                                 schema_name = cdc_schema_name_by_location.get((db_schema, table_name))
                                 if schema_name is not None:
                                     pk_columns_by_table[schema_name] = primary_key_columns
-                except (
-                    OperationalError,
-                    BaseSSHTunnelForwarderError,
-                    SSLRequiredError,
-                    DatabaseHostNotAllowedError,
-                ) as e:
+                except _EXPECTED_CONNECTION_ERRORS as e:
                     # Connecting to the user's database to detect CDC primary keys is expected to
                     # fail when the host, port, credentials, or SSH tunnel are wrong, or the server
                     # requires/refuses SSL. Surface it as a 400, but don't capture it — these are
@@ -4152,7 +4156,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 publication_name=publication_name,
                 team_id=self.team_id,
             )
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError, DatabaseHostNotAllowedError) as e:
+        except _EXPECTED_CONNECTION_ERRORS as e:
             # Probing a user-supplied database to validate it is expected to fail when the host,
             # credentials, or SSH tunnel are wrong or the server drops the connection. Surface it
             # to the wizard as a 400, but don't capture it — these are user/upstream connection
@@ -4221,7 +4225,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 slot_name=request.data.get("cdc_slot_name") or None,
                 publication_name=request.data.get("cdc_publication_name") or None,
             )
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError, DatabaseHostNotAllowedError) as e:
+        except _EXPECTED_CONNECTION_ERRORS as e:
             # Probing the source's database to validate it is expected to fail when the host,
             # credentials, or SSH tunnel are wrong, the server requires/refuses SSL, or it drops the
             # connection. Surface it as a 400, but don't capture it — these are user/upstream
@@ -4296,7 +4300,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 slot_name=request.data.get("cdc_slot_name") or None,
                 publication_name=request.data.get("cdc_publication_name") or None,
             )
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError, DatabaseHostNotAllowedError) as e:
+        except _EXPECTED_CONNECTION_ERRORS as e:
             # Expected user/upstream connection failure (bad host/credentials/SSH tunnel, server
             # requires/refuses SSL, dropped connection). Surface as a 400 without capturing — see the
             # check_cdc_prerequisites_for_source handler above.
@@ -4500,7 +4504,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             return Response(status=status.HTTP_409_CONFLICT, data={"message": str(e)})
         except CDCRepairError as e:
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError, DatabaseHostNotAllowedError) as e:
+        except _EXPECTED_CONNECTION_ERRORS as e:
             # Expected user/upstream connection failure — surface as a 400 without capturing,
             # mirroring the enable_cdc handler.
             return Response(
@@ -4581,7 +4585,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # back into the same deterministic failure.
         try:
             live_status = adapter.get_status(instance)
-        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError, DatabaseHostNotAllowedError) as e:
+        except _EXPECTED_CONNECTION_ERRORS as e:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={
