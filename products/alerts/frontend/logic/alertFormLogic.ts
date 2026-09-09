@@ -1186,7 +1186,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     forecast_points: forecastSimulationResult.forecast_dates.length,
                 })
             },
-            simulateForecastFailure: ({ error }) => {
+            simulateForecastFailure: ({ error, errorObject }) => {
                 const forecastConfig = values.alertForm.forecast_config
                 posthog.capture('alert simulation run', {
                     success: false,
@@ -1197,7 +1197,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         values.alertForm.calculation_interval,
                         props.insightInterval
                     ),
-                    error: error ?? 'Unknown error',
+                    // A saved query the schema rejects answers with the parser's own message, and
+                    // that message quotes the value it read, which can be a person-property filter
+                    // value. So the message goes to the toast only, and the event keeps the status
+                    // and the code, which name the failure without carrying query content.
+                    error_status: errorObject?.status ?? null,
+                    error_code: errorObject?.code ?? null,
                 })
                 lemonToast.error(`Simulation failed: ${error || 'Unknown error'}`)
             },

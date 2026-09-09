@@ -624,11 +624,15 @@ describe('alertFormLogic', () => {
             expect(logic.values.forecastSimulationResultLoading).toBe(false)
         })
 
-        it('surfaces the reason from a rejected simulation', async () => {
+        it('surfaces the reason from a rejected simulation without capturing the message', async () => {
             const rejection = await ApiError.fromResponse(
-                new Response(JSON.stringify({ detail: "Forecast alerts don't support breakdowns yet" }), {
-                    status: 400,
-                })
+                new Response(
+                    JSON.stringify({
+                        detail: "Forecast alerts don't support breakdowns yet",
+                        code: 'invalid_input',
+                    }),
+                    { status: 400 }
+                )
             )
             ;(alertsSimulateForecastCreate as jest.Mock).mockRejectedValueOnce(rejection)
             const logic = mountForecastForm()
@@ -639,6 +643,16 @@ describe('alertFormLogic', () => {
 
             expect(errorToastSpy).toHaveBeenCalledWith(
                 "Simulation failed: Forecast alerts don't support breakdowns yet"
+            )
+            expect(captureSpy).toHaveBeenCalledWith(
+                'alert simulation run',
+                expect.objectContaining({ success: false, error_status: 400, error_code: 'invalid_input' })
+            )
+            // A rejected saved query answers with the parser's own message, which can quote a filter
+            // value, so no server message may reach the event.
+            expect(captureSpy).not.toHaveBeenCalledWith(
+                'alert simulation run',
+                expect.objectContaining({ error: expect.anything() })
             )
         })
 
