@@ -33,6 +33,18 @@ DEFAULT_FREE_TIER_CREDITS = 2000
 
 POSTHOG_AI_USAGE_REPORT_ASSISTANT_MESSAGE_TITLE = "PostHog AI usage"
 
+# Names for the `ai_product` values that bill into the PostHog AI credit bucket. A value with no
+# entry keeps its raw property, so a new product still appears in the breakdown.
+AI_PRODUCT_LABELS = {
+    "posthog_ai": "PostHog AI",
+    "slack_app": "Slack app",
+    "subscriptions": "Subscriptions",
+    "alert_investigation_agent": "Alert investigation",
+    "product_analytics": "Product analytics",
+    "surveys": "Surveys",
+    "replay_vision": "Replay vision",
+}
+
 # Default GA launch date - don't count usage before this date
 DEFAULT_GA_LAUNCH_DATE = datetime(2025, 11, 17, tzinfo=UTC)
 
@@ -47,6 +59,16 @@ class AiUsagePeriod:
     start: datetime
     end: datetime
     query_start: datetime
+
+
+@frozen
+class AiProductCredits:
+    ai_product: str
+    credits: int
+
+    @property
+    def label(self) -> str:
+        return AI_PRODUCT_LABELS.get(self.ai_product, self.ai_product)
 
 
 def _get_billing_config_payload() -> dict | None:
@@ -136,14 +158,18 @@ def get_conversation_start_time(conversation_id: UUID) -> Optional[datetime]:
         return None
 
 
-def get_ai_credits(
+def _query_ai_credits(
     team_id: int,
     begin: datetime,
     end: datetime,
     conversation_id: Optional[UUID] = None,
-) -> int:
+    *,
+    breakdown_by_product: bool = False,
+) -> list[tuple]:
     """
     Calculate AI credits used for a specific team (and optionally a specific conversation) in the given time period.
+
+    With `breakdown_by_product`, return one row per `ai_product` instead of a single total.
     """
     # Depending on the region, events are stored in different teams
     # Default to EU (team_id 1) for local dev or unknown regions
@@ -159,7 +185,7 @@ def get_ai_credits(
     if region in CLOUD_REGION_TO_TEAM_ID:
         region_filter = build_ai_billing_region_filter(team_to_query, CLOUD_REGION_TO_URL[region_value])
         if region_filter is None:
-            return 0
+            return []
         region_filter_params = region_filter
         region_filter_clause = "AND JSONExtractString(properties, %(region_group_property)s) = %(region_url)s"
 
@@ -168,7 +194,17 @@ def get_ai_credits(
         "AND JSONExtractString(properties, '$ai_session_id') = %(session_id)s" if conversation_id else ""
     )
 
-    usage_report_kind = "posthog_ai_credits_for_conversation" if conversation_id else "posthog_ai_credits_for_team"
+    if breakdown_by_product:
+        usage_report_kind = "posthog_ai_credits_by_product"
+    elif conversation_id:
+        usage_report_kind = "posthog_ai_credits_for_conversation"
+    else:
+        usage_report_kind = "posthog_ai_credits_for_team"
+
+    breakdown_select = "c.ai_product AS ai_product," if breakdown_by_product else ""
+    breakdown_group_by = (
+        "GROUP BY ai_product HAVING ai_credits > 0 ORDER BY ai_credits DESC" if breakdown_by_product else ""
+    )
 
     with tags_context(
         product=Product.MAX_AI,
@@ -240,12 +276,14 @@ def get_ai_credits(
                 customer_team_id,
                 trace_id,
                 session_id,
+                ai_product,
                 cost_usd
             FROM (
                 SELECT
                     JSONExtractInt(properties, 'team_id') AS customer_team_id,
                     JSONExtractString(properties, '$ai_trace_id') AS trace_id,
                     JSONExtractString(properties, '$ai_session_id') AS session_id,
+                    JSONExtractString(properties, 'ai_product') AS ai_product,
                     toDecimal32OrNull(JSONExtractString(properties, '$ai_total_cost_usd'), 5) AS cost_usd,
                     JSONExtractBool(properties, '$ai_billable') AS ai_billable
                 FROM events
@@ -266,12 +304,15 @@ def get_ai_credits(
                 AND cost_usd IS NOT NULL
                 AND customer_team_id = %(team_id)s
         )
-        SELECT toInt64(roundBankers(sum(c.cost_usd * 100 * %(markup_multiplier)s))) AS ai_credits
+        SELECT
+            {breakdown_select}
+            toInt64(roundBankers(sum(c.cost_usd * 100 * %(markup_multiplier)s))) AS ai_credits
         FROM costs c
         LEFT JOIN trace_analysis t
             ON c.trace_id = t.trace_id
            AND c.session_id = t.session_id
         WHERE t.is_billable = 1 OR t.trace_id IS NULL
+        {breakdown_group_by}
         """
 
         params: dict[str, int | datetime | float | list[str] | tuple[str, ...] | str] = {
@@ -290,9 +331,30 @@ def get_ai_credits(
 
         results = sync_execute(query, params, workload=Workload.ONLINE, settings=CH_BILLING_SETTINGS)
 
+    return list(results or [])
+
+
+def get_ai_credits(
+    team_id: int,
+    begin: datetime,
+    end: datetime,
+    conversation_id: Optional[UUID] = None,
+) -> int:
+    """Calculate total AI credits used for a specific team (and optionally a specific conversation)."""
+    results = _query_ai_credits(team_id, begin, end, conversation_id)
     if results and results[0][0] is not None:
         return int(results[0][0])
     return 0
+
+
+def get_ai_credits_by_product(team_id: int, begin: datetime, end: datetime) -> list[AiProductCredits]:
+    """Split a team's AI credits over the products that spent them, highest first."""
+    results = _query_ai_credits(team_id, begin, end, breakdown_by_product=True)
+    return [
+        AiProductCredits(ai_product=str(ai_product), credits=int(credits))
+        for ai_product, credits in results
+        if credits is not None
+    ]
 
 
 def get_ai_credits_for_team(team_id: int, begin: datetime, end: datetime) -> int:
@@ -406,6 +468,7 @@ def format_usage_message(
     free_tier_credits: int,
     conversation_start: Optional[datetime] = None,
     usage_period: Optional[AiUsagePeriod] = None,
+    period_credits_by_product: Optional[list[AiProductCredits]] = None,
 ) -> str:
     """
     Format the usage information into a user-friendly message with a compact layout
@@ -456,6 +519,10 @@ def format_usage_message(
     else:
         overage = abs(remaining)
         lines.append(f"**Overage**: {overage:,} credits over limit\n")
+
+    if period_credits_by_product:
+        breakdown = "\n".join(f"- {p.label}: {p.credits:,} credits" for p in period_credits_by_product)
+        lines.append(f"**Credits by product**\n\n{breakdown}\n")
 
     # Conversation start (optional context)
     if conversation_start:

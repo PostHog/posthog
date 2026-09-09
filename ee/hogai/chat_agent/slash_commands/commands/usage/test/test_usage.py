@@ -23,9 +23,11 @@ from ee.hogai.chat_agent.slash_commands.commands.usage.queries import (
     DEFAULT_FREE_TIER_CREDITS,
     DEFAULT_GA_LAUNCH_DATE,
     POSTHOG_AI_PRODUCTS,
+    AiProductCredits,
     AiUsagePeriod,
     format_usage_message,
     get_ai_credits,
+    get_ai_credits_by_product,
     get_ai_free_tier_credits,
     get_ai_usage_period,
     get_conversation_start_time,
@@ -165,6 +167,52 @@ class TestUsage(BaseTest):
 
             self.assertEqual(credits, 0)
             mock_sync_execute.assert_not_called()
+
+    def test_get_ai_credits_by_product_groups_on_ai_product(self):
+        begin = datetime(2026, 5, 1, tzinfo=UTC)
+        end = datetime(2026, 5, 2, tzinfo=UTC)
+
+        with (
+            patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.get_instance_region") as mock_region,
+            patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.sync_execute") as mock_sync_execute,
+            patch(
+                "ee.hogai.chat_agent.slash_commands.commands.usage.queries.build_ai_billing_region_filter",
+                return_value={"region_group_property": "$group_1", "region_url": "https://eu.posthog.com"},
+            ),
+        ):
+            mock_region.return_value = "EU"
+            mock_sync_execute.return_value = [("posthog_ai", 3900), ("surveys", 120)]
+
+            breakdown = get_ai_credits_by_product(team_id=133393, begin=begin, end=end)
+
+            self.assertEqual(
+                breakdown,
+                [
+                    AiProductCredits(ai_product="posthog_ai", credits=3900),
+                    AiProductCredits(ai_product="surveys", credits=120),
+                ],
+            )
+            query = mock_sync_execute.call_args[0][0]
+            self.assertIn("c.ai_product AS ai_product", query)
+            self.assertIn("GROUP BY ai_product", query)
+
+    def test_get_ai_credits_totals_do_not_group_by_product(self):
+        begin = datetime(2026, 5, 1, tzinfo=UTC)
+        end = datetime(2026, 5, 2, tzinfo=UTC)
+
+        with (
+            patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.get_instance_region") as mock_region,
+            patch("ee.hogai.chat_agent.slash_commands.commands.usage.queries.sync_execute") as mock_sync_execute,
+            patch(
+                "ee.hogai.chat_agent.slash_commands.commands.usage.queries.build_ai_billing_region_filter",
+                return_value={"region_group_property": "$group_1", "region_url": "https://eu.posthog.com"},
+            ),
+        ):
+            mock_region.return_value = "EU"
+            mock_sync_execute.return_value = [(4020,)]
+
+            self.assertEqual(get_ai_credits(team_id=133393, begin=begin, end=end), 4020)
+            self.assertNotIn("GROUP BY ai_product", mock_sync_execute.call_args[0][0])
 
     def test_get_conversation_start_time_exists(self):
         """Test retrieving conversation start time for existing conversation."""
@@ -373,6 +421,27 @@ class TestUsage(BaseTest):
         self.assertIn("**Billing period** (2026-05-02 to 2026-06-02): 500 credits", message)
         self.assertIn("**Remaining**: 1,500 credits", message)
         self.assertIn("25% of free tier", message)
+
+    def test_format_usage_message_credits_by_product(self):
+        message = format_usage_message(
+            conversation_credits=50,
+            period_credits=4030,
+            free_tier_credits=2000,
+            period_credits_by_product=[
+                AiProductCredits(ai_product="posthog_ai", credits=3900),
+                AiProductCredits(ai_product="surveys", credits=120),
+                AiProductCredits(ai_product="new_surface", credits=10),
+            ],
+        )
+        self.assertIn("**Credits by product**", message)
+        self.assertIn("- PostHog AI: 3,900 credits", message)
+        self.assertIn("- Surveys: 120 credits", message)
+        # A product with no label entry still appears, under its raw `ai_product` value.
+        self.assertIn("- new_surface: 10 credits", message)
+
+    def test_format_usage_message_omits_breakdown_without_products(self):
+        message = format_usage_message(conversation_credits=0, period_credits=0, free_tier_credits=2000)
+        self.assertNotIn("**Credits by product**", message)
 
     def test_format_usage_message_over_limit(self):
         """Test formatting when over the free tier limit."""
