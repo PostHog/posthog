@@ -40,7 +40,8 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
-import { AppErrorState, AppLoadingState } from '../components/AppWrapper'
+import { AppErrorState } from '../components/AppErrorState'
+import { AppLoadingState } from '../components/AppLoadingState'
 import { useToolResult } from '../hooks/useToolResult'
 import type { UseToolResultReturn } from '../hooks/useToolResult'
 

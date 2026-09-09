@@ -3,7 +3,8 @@ import type { ReactElement } from 'react'
 
 import { McpThemeDecorator } from '@posthog/mcp-ui/storybook/decorator'
 
-import { AppErrorState, AppLoadingState } from './AppWrapper'
+import { AppErrorState } from './AppErrorState'
+import { AppLoadingState } from './AppLoadingState'
 
 // An app renders in whatever width the host gives its iframe, which a side panel can
 // squeeze to a few hundred pixels, so let the story follow the viewport.
