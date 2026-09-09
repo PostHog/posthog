@@ -77,7 +77,6 @@ def test_add_field_if_missing_skips_present_column_after_one_probe_statement(tem
         _apply_forwards(temp_table)  # a second ADD COLUMN would raise DuplicateColumn
 
     assert FIELD_NAME in _column_names(temp_table)
-    # Two statements can disagree when another migrate process commits an
-    # ADD COLUMN between them, which is how the probe used to abort a migrate
-    # run. One statement leaves no window for that.
+    # Two statements can disagree when a concurrent migrate commits an ADD COLUMN
+    # between them, which is the crash this guards.
     assert len(queries) == 1, f"the probe must be one statement, got {[q['sql'] for q in queries]}"

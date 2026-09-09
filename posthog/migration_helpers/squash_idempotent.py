@@ -19,12 +19,10 @@ reversible; re-applying forward is idempotent either way.
 from django.db import migrations
 from django.db.models.constraints import BaseConstraint
 
-# Django's introspection.get_table_description() runs two statements, a catalog
-# query and a `SELECT * FROM <table> LIMIT 1`, and maps the second through the
-# first by column name. A concurrent migrate process that commits an ADD COLUMN
-# between them makes that mapping raise KeyError, which aborts the migrate run.
-# The other probes in this module are safe: table_names() is one statement, and
-# get_constraints() merges its two by membership test, never by name lookup.
+# One statement, because get_table_description() uses two and maps the second
+# through the first by column name: a concurrent ADD COLUMN between them raises
+# KeyError. Probe-then-add is still not atomic, so a concurrent migrate can fail
+# on DuplicateColumn, which the retry loop in bin/migrate recovers.
 _COLUMN_EXISTS_SQL = """
     SELECT 1
     FROM pg_attribute a
