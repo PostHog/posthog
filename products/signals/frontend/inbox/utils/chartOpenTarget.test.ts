@@ -48,8 +48,8 @@ describe('chartOpenTarget', () => {
     })
 
     it.each([
-        ['a trends chart', trendsChart, 'Open in Trends'],
-        ['a funnel chart', funnelChart, 'Open in insights'],
+        ['a trends chart', trendsChart, 'Open insight'],
+        ['a funnel chart', funnelChart, 'Open insight'],
         ['a SQL chart', sqlChart, 'Open in SQL editor'],
     ])('labels %s by where it actually lands', (_name, query: Node, label: string) => {
         expect(chartOpenTarget(query)?.label).toBe(label)

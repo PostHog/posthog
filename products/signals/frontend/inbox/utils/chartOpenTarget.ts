@@ -1,13 +1,7 @@
 import { urls } from 'scenes/urls'
 
 import { Node, SavedInsightNode } from '~/queries/schema/schema-general'
-import {
-    isDataVisualizationNode,
-    isHogQLQuery,
-    isInsightVizNode,
-    isSavedInsightNode,
-    isTrendsQuery,
-} from '~/queries/utils'
+import { isDataVisualizationNode, isHogQLQuery, isSavedInsightNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
 export interface ChartOpenTarget {
@@ -82,10 +76,5 @@ export function chartOpenTarget(query: Node): ChartOpenTarget | null {
     if (isDataVisualizationNode(query) && isHogQLQuery(query.source)) {
         return { url, label: 'Open in SQL editor' }
     }
-    // Named for the editor the reader lands in, not for the unsaved insight it seeds: nothing is
-    // created until the reader saves.
-    if (isInsightVizNode(query) && isTrendsQuery(query.source)) {
-        return { url, label: 'Open in Trends' }
-    }
-    return { url, label: 'Open in insights' }
+    return { url, label: 'Open insight' }
 }

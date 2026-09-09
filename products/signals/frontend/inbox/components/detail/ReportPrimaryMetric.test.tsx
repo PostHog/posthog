@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 
-import { ensureJsdom } from '@posthog/quill-charts/testing'
+import { ensureJsdom, getHogChart } from '@posthog/quill-charts/testing'
 
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -62,13 +62,13 @@ function primaryMetricElement(container: HTMLElement): HTMLElement {
     return element
 }
 
-function trendsResponse(aggregatedValue: number): Record<string, unknown> {
+function trendsResponse(aggregatedValue: number, data: number[] = [4, 7]): Record<string, unknown> {
     return {
         result: [
             {
                 label: 'Users affected',
                 count: 7,
-                data: [4, 7],
+                data,
                 days: ['2026-08-28', '2026-08-29'],
                 labels: ['2026-08-28', '2026-08-29'],
                 aggregated_value: aggregatedValue,
@@ -95,7 +95,7 @@ describe('ReportPrimaryMetric', () => {
                         query?: { trendsFilter?: { display?: string } }
                     }
                     requestedDisplays.push(body.query?.trendsFilter?.display)
-                    return [200, trendsResponse(42)]
+                    return [200, trendsResponse(42, [0, 1])]
                 },
             },
         })
@@ -113,6 +113,7 @@ describe('ReportPrimaryMetric', () => {
             return element
         })
         expect(chart).toHaveAttribute('data-chart-type', 'bar')
+        expect(getHogChart(chart).yTicks().filter(Boolean)).toEqual(['0', '1'])
         await waitFor(() =>
             expect(requestedDisplays).toEqual(
                 expect.arrayContaining([ChartDisplayType.BoldNumber, ChartDisplayType.ActionsBar])
@@ -191,7 +192,7 @@ describe('ReportPrimaryMetric', () => {
         expect(screen.queryByText(/Refresh the page to try again/)).not.toBeInTheDocument()
     })
 
-    it('describes the count and names the window and filters behind it with a link to open it in Trends', () => {
+    it('describes the count and names the window and filters behind it with a link to open the insight', () => {
         const filteredQuery = {
             ...query,
             source: { ...query.source, properties: [{ key: '$browser', value: 'Chrome', type: 'event' }] },
@@ -211,7 +212,7 @@ describe('ReportPrimaryMetric', () => {
         const source = container.querySelector('[data-attr="report-primary-metric-source"]')
         expect(source).toHaveTextContent('Last 7 days · 1 filter')
         const open = container.querySelector<HTMLAnchorElement>('[data-attr="report-primary-metric-open"]')
-        expect(open).toHaveTextContent('Open in Trends')
+        expect(open).toHaveTextContent('Open insight')
         expect(open?.getAttribute('href')).toContain('/insights/new')
     })
 

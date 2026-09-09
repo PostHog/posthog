@@ -12,6 +12,7 @@ import type { IntervalType } from '~/types'
 import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
 import {
+    formatReportMetricParts,
     formatReportMetricValue,
     type ReportMetricChartType,
     type ReportMetricSeriesPoints,
@@ -21,10 +22,9 @@ import {
 const BAR_MARGINS = { top: 2 }
 
 /**
- * The observation's trend over its window, drawn as a strip rather than a full insight: no value
- * axis or grid, dates along the bottom, exact values in the tooltip. The figure above the strip
- * carries the level, so the strip only has to show the shape. Bars for buckets that add up, a
- * line for buckets that are levels; `reportMetricChartType` decides which.
+ * The observation's trend over its window, drawn as a compact chart rather than a full insight:
+ * formatted values on the left, dates along the bottom, and exact values in the tooltip. Bars for
+ * buckets that add up, a line for buckets that are levels; `reportMetricChartType` decides which.
  */
 export function ReportObservationChart({
     metric,
@@ -48,32 +48,37 @@ export function ReportObservationChart({
         () => (value: number) => formatReportMetricValue(metric, value) ?? String(value),
         [metric]
     )
+    const yAxisValueFormatter = useMemo(
+        () => (value: number) => {
+            if (metric.value_format === 'count' && !Number.isInteger(value)) {
+                return ''
+            }
+            return formatReportMetricParts(metric, value)?.value ?? String(value)
+        },
+        [metric]
+    )
     const xAxis = useMemo(() => ({ timezone, interval: interval ?? 'day' }), [timezone, interval])
-    const maxValue = Math.max(0, ...points.values.filter((value) => Number.isFinite(value)))
 
     const lineConfig = useChartConfig<TimeSeriesLineChartConfig>(
         () => ({
             xAxis,
-            // A rate or duration reads by its movement, so the axis floats to the data like the row strip.
-            yAxis: { hide: true, startAtZero: false },
+            // Rates and durations emphasize change, so the value axis floats to the observed range.
+            yAxis: { startAtZero: false, tickFormatter: yAxisValueFormatter },
             showGrid: false,
-            showAxisLines: { x: true, y: false },
-            showTickMarks: false,
+            showAxisLines: { x: true, y: true },
+            showTickMarks: true,
             showCrosshair: true,
             tooltip: { pinnable: false, valueFormatter },
         }),
-        [xAxis, valueFormatter]
+        [xAxis, yAxisValueFormatter, valueFormatter]
     )
     const barConfig = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
             xAxis,
-            yAxis: { hide: true },
-            // Pinned to the data so the tallest bar reaches the top; nice-rounded headroom is invisible
-            // without a value axis.
-            valueDomain: { min: 0, max: maxValue },
+            yAxis: { tickFormatter: yAxisValueFormatter },
             showGrid: false,
-            showAxisLines: { x: true, y: false },
-            showTickMarks: false,
+            showAxisLines: { x: true, y: true },
+            showTickMarks: true,
             showCrosshair: false,
             barCornerRadius: 1,
             bandPadding: 0.25,
@@ -81,7 +86,7 @@ export function ReportObservationChart({
             margins: BAR_MARGINS,
             tooltip: { pinnable: false, hitArea: 'band', valueFormatter },
         }),
-        [xAxis, maxValue, valueFormatter]
+        [xAxis, yAxisValueFormatter, valueFormatter]
     )
 
     return (

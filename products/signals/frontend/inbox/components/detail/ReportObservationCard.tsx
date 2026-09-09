@@ -13,7 +13,7 @@ import { asReportMetricTrendsQuery, reportMetricFilterCount, reportMetricWindowL
 /**
  * Frame for the report's key observation: what was observed and how it is counted, then the value
  * and chart the caller has, then the window and filters the numbers come from with a way to open
- * the query in Trends.
+ * the full insight.
  */
 export function ReportObservationCard({
     metric,
