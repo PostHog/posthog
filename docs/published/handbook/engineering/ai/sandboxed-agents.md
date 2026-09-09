@@ -51,12 +51,6 @@ The agent inside the sandbox gets:
 - Access to the **PostHog MCP server** for querying data
 - **Code execution** capabilities within the sandbox
 
-In the task scene, sending a message after a run finishes starts a successor run that continues the conversation.
-The message appears immediately in the existing thread, with “Setting up sandbox” while the successor starts.
-Routine sandbox startup steps use this single indicator; setup failures still appear in the thread.
-Context usage and cost stay hidden during this optimistic startup.
-If starting the run fails, the message returns to the composer alongside any newer draft text.
-
 ## Creating a sandboxed agent
 
 Use `Task.create_and_run()` to launch a sandboxed agent from your product code:
