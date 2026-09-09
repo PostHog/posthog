@@ -136,7 +136,9 @@ class PinnedIPAdapter(HTTPAdapter):
     def cert_verify(self, conn: object, url: str, verify: bool | str, cert: None | str | tuple[str, str]) -> None:
         super().cert_verify(conn, url, verify, cert)
         original = getattr(self, "_current_original_host", None)
-        if original:
+        # requests calls this for every scheme, and a plain HTTPConnection rejects
+        # `server_hostname`, so only a TLS connection takes the hostname overrides.
+        if original and url.lower().startswith("https"):
             # We mutate urllib3 pool internals intentionally — these attributes
             # exist at runtime (verified against urllib3 2.6.3) but aren't
             # visible to static type checkers.
