@@ -129,14 +129,13 @@ def validate_azure_blob_connection_string(connection_string: str) -> None:
     # For azure blob, we only care about BlobEndpoint.
     # But the docs also mention all these other ones, so we check all of
     # them if present.
-    for key in ("BLOBENDPOINT", "BLOBSECONDARYENDPOINT", "FILEENDPOINT", "TABLEENDPOINT", "QUEUEENDPOINT"):
+    for key in ("BLOBENDPOINT", "FILEENDPOINT", "TABLEENDPOINT", "QUEUEENDPOINT"):
         if key in settings:
             explicit_endpoints.append(settings[key])
 
     if "BLOBENDPOINT" not in settings:
         suffix = settings.get("ENDPOINTSUFFIX") or "core.windows.net"
         derived_endpoints.append(f"{protocol}://{account_name}.blob.{suffix}")
-        derived_endpoints.append(f"https://{account_name}-secondary.blob.{suffix}")
 
     for endpoint in explicit_endpoints + derived_endpoints:
         if validation_applies and not endpoint.lower().startswith("https://"):
