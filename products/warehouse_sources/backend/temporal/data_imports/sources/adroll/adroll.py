@@ -1,6 +1,7 @@
-import dataclasses
 from typing import Any, Optional
 from urllib.parse import urlencode
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.adroll.settings import ADROLL_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -27,7 +28,7 @@ MAX_RETRY_ATTEMPTS = 3
 _ADVERTISABLE_PARENT = "advertisable"
 
 
-@dataclasses.dataclass
+@frozen
 class AdRollResumeConfig:
     # Framework fan-out checkpoint ({"completed": [...], "current": ..., "child_state": ...}).
     # The unscoped endpoints are one request each, so only fan-out endpoints checkpoint.

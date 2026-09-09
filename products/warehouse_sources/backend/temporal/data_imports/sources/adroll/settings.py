@@ -1,10 +1,12 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@frozen
 class AdRollEndpointConfig:
     name: str
     # Path under https://services.adroll.com.
