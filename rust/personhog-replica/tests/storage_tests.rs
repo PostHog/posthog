@@ -5,6 +5,7 @@ use personhog_replica::storage::postgres::ConsistencyLevel;
 use personhog_replica::storage::{GroupKey, TombstonedDeleteOutcome};
 use rand::Rng;
 use rstest::rstest;
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 #[tokio::test]
@@ -3052,4 +3053,40 @@ async fn test_delete_tombstoned_persons_cross_team_isolation() {
 
     ctx.cleanup().await.ok();
     other.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_tombstoned_persons_gives_up_when_a_writer_holds_the_row() {
+    // The chunk sets lock_timeout so a person mid-revival makes the request fail fast instead of
+    // queueing behind live ingestion traffic. Without it this call would block until the holder
+    // commits, which for a drain means hanging behind the persons writer.
+    let ctx = TestContext::new().await;
+    let person = ctx.insert_person("tomb_locked", None).await.unwrap();
+    ctx.tombstone_person(person.id, None).await.unwrap();
+    let mut holder = ctx.pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM posthog_person WHERE team_id = $1 AND id = $2 FOR UPDATE")
+        .bind(ctx.team_id)
+        .bind(person.id)
+        .execute(&mut *holder)
+        .await
+        .unwrap();
+
+    let started = Instant::now();
+    let result = ctx
+        .storage
+        .delete_tombstoned_persons(ctx.team_id, &[person.uuid])
+        .await;
+
+    assert!(
+        matches!(
+            result,
+            Err(personhog_replica::storage::StorageError::Query(_))
+        ),
+        "expected the lock_timeout to fail the chunk, got {result:?}"
+    );
+    assert!(started.elapsed() < Duration::from_secs(20));
+    holder.rollback().await.unwrap();
+    assert!(ctx.person_row_exists(person.id).await.unwrap());
+
+    ctx.cleanup().await.ok();
 }

@@ -106,6 +106,8 @@ class FakePersonHogClient:
         is_deleted: bool = False,
         tombstoned_distinct_ids: list[str] | None = None,
     ) -> person_pb2.Person:
+        # is_deleted only steers delete_tombstoned_persons. The real replica hides tombstoned persons from
+        # every read; this fake still returns them, so tests can inspect a person a delete left in place.
         person = person_pb2.Person(
             id=person_id,
             uuid=uuid,
