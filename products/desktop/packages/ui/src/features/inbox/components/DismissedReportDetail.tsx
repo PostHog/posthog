@@ -4,7 +4,7 @@ import {
   LinkIcon,
   MagnifyingGlassIcon,
 } from "@phosphor-icons/react";
-import { Button, Spinner } from "@posthog/quill";
+import { Button } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDetailFrame";
 import { InboxReportCopyLinkMenu } from "@posthog/ui/features/inbox/components/InboxReportCopyLinkMenu";
@@ -14,6 +14,7 @@ import {
   useInboxBackTarget,
 } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useInboxRestoreReport } from "@posthog/ui/features/inbox/hooks/useInboxRestoreReport";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useNavigate } from "@tanstack/react-router";
 
 interface DismissedReportDetailProps {
@@ -122,7 +123,7 @@ function RestoreReportButton({ report }: { report: SignalReport }) {
       }
     >
       {restore.isPending ? (
-        <Spinner className="size-3.5" />
+        <Spinner size="sm" />
       ) : (
         <ArrowCounterClockwiseIcon size={12} />
       )}

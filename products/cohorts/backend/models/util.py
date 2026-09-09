@@ -1176,7 +1176,7 @@ def insert_cohort_filter_actors_into_ch(cohort: Cohort, *, team: Team):
     insert_actors_into_cohort_by_query(cohort, query, params, context, team_id=team.id)
 
 
-def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
+def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int) -> None:
     from posthog.helpers.batch_iterators import CursorBatchIterator
 
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
@@ -1205,7 +1205,11 @@ def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
     batch_iterator = CursorBatchIterator(
         fetch_batch, CH_PAGE_SIZE, initial_cursor="00000000-0000-0000-0000-000000000000"
     )
-    cohort._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=False, team_id=team_id)
+    # raise_on_error hands a partial sync to the caller instead of reporting success, which is
+    # what lets the population tasks retry it.
+    cohort._insert_users_list_with_batching(
+        batch_iterator, insert_in_clickhouse=False, team_id=team_id, raise_on_error=True
+    )
 
 
 # ── Cohort membership operations (Postgres / personhog) ───────────────

@@ -1339,3 +1339,9 @@ tools:
     usage-metrics-update:
         operation: groups_types_metrics_update
         enabled: false
+    user-customer-analytics-config-partial-update:
+        operation: user_customer_analytics_config_partial_update
+        enabled: false
+    user-customer-analytics-config-retrieve:
+        operation: user_customer_analytics_config_retrieve
+        enabled: false
