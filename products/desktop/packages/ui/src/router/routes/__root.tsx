@@ -2,9 +2,18 @@ import {
   ArrowSquareOut,
   CaretLeftIcon,
   CaretRightIcon,
+  PlusIcon,
 } from "@phosphor-icons/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
-import { Button, ButtonGroup, cn } from "@posthog/quill";
+import {
+  Button,
+  ButtonGroup,
+  cn,
+  Kbd,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@posthog/quill";
 import { BILLING_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { isContentlessTask } from "@posthog/shared/domain-types";
@@ -37,6 +46,10 @@ import { usePostHogWebFeedbackStore } from "@posthog/ui/features/canvas/stores/p
 import { CommandMenu } from "@posthog/ui/features/command/CommandMenu";
 import { GlobalFilePicker } from "@posthog/ui/features/command/GlobalFilePicker";
 import { KeyboardShortcutsSheet } from "@posthog/ui/features/command/KeyboardShortcutsSheet";
+import {
+  formatHotkey,
+  SHORTCUTS,
+} from "@posthog/ui/features/command/keyboard-shortcuts";
 import { ConnectivityBanner } from "@posthog/ui/features/connectivity/ConnectivityBanner";
 import { useNewTaskDeepLink } from "@posthog/ui/features/deep-links/useNewTaskDeepLink";
 import { useOpenTargetDeepLink } from "@posthog/ui/features/deep-links/useOpenTargetDeepLink";
@@ -224,6 +237,15 @@ function RootLayout() {
     cancelSidebarPeek();
     toggleSidebar();
   };
+  // Files the task into the channel you are in, the same as the sidebar "+"
+  // and the new-task shortcut. openTaskInput reads that scope itself.
+  const handleNewTask = (): void => {
+    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      action_type: "new_task_open",
+      surface: "title_bar",
+    });
+    openTaskInput();
+  };
 
   const sidebarData = useSidebarData({ activeView: view });
   const visualTaskOrder = useVisualTaskOrder(sidebarData);
@@ -357,6 +379,29 @@ function RootLayout() {
                   <SidebarOpen size={10} className="text-muted-foreground" />
                 )}
               </Button>
+              {/* The sidebar holds every "+": its create button and the
+                  "New task" row. A collapsed sidebar, or a destination that
+                  draws no sidebar, takes them all away. Put one back beside
+                  the control that hid them. */}
+              {!sidebarDocked && (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        size="icon-sm"
+                        aria-label="New task"
+                        onClick={handleNewTask}
+                      >
+                        <PlusIcon size={12} className="text-muted-foreground" />
+                      </Button>
+                    }
+                  />
+                  <TooltipContent side="bottom">
+                    New task
+                    <Kbd>{formatHotkey(SHORTCUTS.NEW_TASK)}</Kbd>
+                  </TooltipContent>
+                </Tooltip>
+              )}
             </Flex>
             {localWorkspaces && (
               <ButtonGroup className="no-drag">
