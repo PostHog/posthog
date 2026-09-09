@@ -443,3 +443,19 @@ def _collect_py_files(path: Path) -> list[Path]:
     if path.is_dir():
         return [f for f in path.glob("*.py") if f.name != "__init__.py"]
     return []
+
+
+def module_level_import_nodes(tree: ast.Module) -> list[tuple[ast.Import | ast.ImportFrom, bool]]:
+    """Every module-level import statement as (node, binds_at_runtime).
+
+    An import in an `if TYPE_CHECKING:` block binds no runtime object, so it is returned with
+    binds_at_runtime False. It still names the type that a signature promises, which is why the
+    facade shape check reads it at all.
+    """
+    nodes: list[tuple[ast.Import | ast.ImportFrom, bool]] = []
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            nodes.append((node, True))
+        elif isinstance(node, ast.If) and _is_type_checking_guard(node):
+            nodes.extend((child, False) for child in node.body if isinstance(child, (ast.Import, ast.ImportFrom)))
+    return nodes

@@ -66,7 +66,8 @@ def cmd_bootstrap(
 @click.option(
     "--regenerate-baseline",
     is_flag=True,
-    help="Rewrite products/isolation_baseline.txt from the current tree (adding a line needs DevEx review)",
+    help="Rewrite products/isolation_baseline.txt and products/facade_shape_baseline.txt from the "
+    "current tree (adding a line to either needs DevEx review)",
 )
 def cmd_lint(name: str | None, lint_all: bool, regenerate_baseline: bool) -> None:
     if regenerate_baseline:

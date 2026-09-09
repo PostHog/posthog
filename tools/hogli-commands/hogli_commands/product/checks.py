@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .ast_helpers import module_import_targets
+from .baseline import read_facade_shape_baseline
 from .crossings import driven_wiring_locations
 from .isolation import (
     IsolationStatus,
@@ -961,6 +962,67 @@ class IsolationChainCheck(ProductCheck):
         return result
 
 
+# The remedy the lint prints per finding kind. Each one is the move that removes the row, not advice
+# to think about the row.
+_FACADE_SHAPE_REMEDIES: dict[str, str] = {
+    "returns": "return a frozen contract from facade/contracts.py instead of the ORM object",
+    "accepts": "take ids and contracts, so the caller never holds a Django or a DRF object "
+    "(an `Any` row on team, request or user hides one behind the annotation)",
+    "exports": "stop re-exporting the class, or move it to the wiring location that owns it",
+    "logic": "move the body to the wiring location (backend/hogql_queries/, backend/max_tools.py, "
+    "backend/temporal/, backend/tasks/) and leave the re-export in the facade",
+}
+
+
+class FacadeShapeCheck(ProductCheck):
+    """Read what the facade accepts and returns, not only what it imports.
+
+    tach and import-linter work on the import graph, so a facade that imports its model module to
+    build contracts and one that returns the model from a public function look identical to them.
+    A model or a QuerySet on the boundary gives the caller managers, save()/delete(), and FK
+    descriptors that query on attribute access, so the caller reaches the whole database through a
+    function the doctrine says returns data. A DRF or a Django HTTP type means the facade knows the
+    transport, which belongs in presentation/.
+
+    Runs in both lint modes. A lenient product with a facade folder is exactly where the drawer
+    forms: the folder is public by location while nothing holds its shape.
+    """
+
+    label = "facade shape"
+
+    def should_run(self, ctx: CheckContext) -> bool:
+        return super().should_run(ctx) and (ctx.backend_dir / "facade").is_dir()
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        findings = ctx.isolation_status().facade_shape
+        recorded = {row for row in read_facade_shape_baseline() if row.startswith(f"{ctx.name} ")}
+        current = {f.as_baseline_line(): f for f in findings}
+
+        result = CheckResult(file=f"products/{ctx.name}/backend/facade")
+        for row, finding in sorted(current.items()):
+            if row in recorded:
+                continue
+            remedy = _FACADE_SHAPE_REMEDIES[finding.kind]
+            result.issues.append(
+                f"facade/{finding.facade_module} {finding.kind} {finding.detail} at "
+                f"{finding.symbol} — {remedy}. The baseline only shrinks, so this is not a row to add"
+            )
+        for row in sorted(recorded - set(current)):
+            result.issues.append(
+                f"'{row}' is in products/facade_shape_baseline.txt but no longer occurs — run "
+                f"`hogli product:lint --regenerate-baseline` to shrink the baseline"
+            )
+
+        if result.issues:
+            result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
+        elif recorded:
+            result.warnings.append(f"facade shape debt: {len(recorded)} row(s) in products/facade_shape_baseline.txt")
+            result.lines = [f"⚠ facade shape debt: {len(recorded)} rows"]
+        else:
+            result.lines = ["✓ ok"]
+        return result
+
+
 class ProductYamlCheck(ProductCheck):
     """Validates product.yaml exists, parses, and has correct field types."""
 
@@ -1182,5 +1244,6 @@ CHECKS: list[ProductCheck] = [
     FileFolderConflictsCheck(),
     TachCheck(),
     IsolationChainCheck(),
+    FacadeShapeCheck(),
     OrphanedTestFilesCheck(),
 ]
