@@ -189,12 +189,13 @@ class ActivityLog(UUIDTModel):
             # can answer. Key-path lookups and the `detail::text` search are not GIN-servable
             # under any opclass. `jsonb_path_ops` stores one hash per root-to-leaf path, so it is
             # smaller and cheaper to maintain than `jsonb_ops`, whose only extra operators are the
-            # key-existence family (`?`, `?|`, `?&`) that no query path uses.
+            # key-existence family (`?`, `?|`, `?&`) that no query path uses. It also stores no
+            # entry for a JSON structure that holds no scalar, so containment against an empty
+            # object or array (`detail @> '{"changes": []}'`) falls back to a full index scan.
             GinIndex(
                 name="idx_alog_detail_gin_path_ops",
                 fields=["detail"],
                 opclasses=["jsonb_path_ops"],
-                condition=models.Q(detail__isnull=False),
             ),
             # User-specific filtered queries
             models.Index(
