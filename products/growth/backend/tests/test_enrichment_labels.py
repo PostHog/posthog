@@ -275,16 +275,15 @@ class TestClassifyPayloadToolLoop(SimpleTestCase):
             _FakeResponse(tool_calls=[_fetch_tool_call(url="https://example.com/pricing")]),
             _FakeResponse(content=json.dumps({"is_ai": True, "evidence_url": "https://example.com/pricing"})),
         )
-        page = FirecrawlScrape(
-            url="https://example.com/pricing", markdown="# Pricing\n" + "word " * 500, status_code=200
-        )
+        markdown = "# Pricing\n" + "word " * 500
+        page = FirecrawlScrape(url="https://example.com/pricing", markdown=markdown, status_code=200)
 
         with patch(f"{_TOOLS_MODULE}.scrape", return_value=page):
             result = classify_payload(config, {"name": "Acme"}, "example.com", cast(OpenAI, client))
 
         [stored] = result["inputs"]["tool_calls"]
         assert stored["name"] == "fetch_page"
-        assert stored["result"] == {"url": "https://example.com/pricing", "chars": len(page.markdown)}
+        assert stored["result"] == {"url": "https://example.com/pricing", "chars": len(markdown)}
 
     def test_usage_tokens_are_summed_across_tool_turns(self):
         config = self._config()
