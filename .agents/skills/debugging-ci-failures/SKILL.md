@@ -128,6 +128,12 @@ once, which opens a browser and needs no API key. Do not run it yourself: it
 waits on a consent screen you cannot see. Surface what you find per the Safety
 rules — do not auto-apply a fix.
 
+`hogli: command not found` is a different case: you are in a task sandbox, a
+shallow clone with no dev environment, and no sign-in will fix it. Get the
+cross-run history from the `engineering-analytics-*` MCP tools instead, which
+your token can already read. `references/master-red-incident.md` lists which
+tool replaces which part of the digest.
+
 ### 2. Find the failing run (for a specific failure)
 
 Determine the target in this order:
@@ -227,6 +233,14 @@ history, hand off to `fixing-flaky-tests`, which covers the `search-test` and
 If multiple signals match, choose the most specific class. For example, prefer
 codegen drift over lint, migration over typecheck, and snapshot / visual over a
 generic Playwright test failure.
+
+Master goes red for the same handful of reasons, and
+[references/recurring-failures.md](references/recurring-failures.md) records
+which verdict each family usually turns out to be. Read it before you call a
+failure new: the two mistakes it exists to prevent are treating a months-old
+baseline as today's regression, and pinning a regression on the commit that
+happened to be at the head when a shard layout or an external version changed
+underneath every branch at once.
 
 ## Base rate for infra and setup failures
 
