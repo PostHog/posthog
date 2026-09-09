@@ -462,6 +462,7 @@ export interface marketingAnalyticsLogicActions {
         dateFrom?: string | null
         dateTo?: string | null
         drillDownLevel?: MarketingAnalyticsDrillDownLevel
+        includeNonIntegrated?: boolean
         integrationSourceIds?: string[]
         interval?: IntervalType
         tileColumnSelection?: string
@@ -473,6 +474,7 @@ export interface marketingAnalyticsLogicActions {
             dateFrom?: string | null | undefined
             dateTo?: string | null | undefined
             drillDownLevel?: MarketingAnalyticsDrillDownLevel | undefined
+            includeNonIntegrated?: boolean | undefined
             integrationSourceIds?: string[] | undefined
             interval?: IntervalType | undefined
             tileColumnSelection?: string | undefined
@@ -657,6 +659,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             compare?: boolean
             compare_to?: string
             integrationSourceIds?: string[]
+            includeNonIntegrated?: boolean
             chartDisplayType?: ChartDisplayType
             tileColumnSelection?: string
             drillDownLevel?: MarketingAnalyticsDrillDownLevel
@@ -734,8 +737,15 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 { ...persistConfig, storageKey: 'scenes.webAnalytics.marketingAnalyticsLogic.integrationFilter' },
                 {
                     setIntegrationFilter: (_, { integrationFilter }) => integrationFilter,
-                    syncFromUrl: (state, { params }) =>
-                        params.integrationSourceIds ? { integrationSourceIds: params.integrationSourceIds } : state,
+                    syncFromUrl: (state, { params }) => {
+                        if (!params.integrationSourceIds && params.includeNonIntegrated === undefined) {
+                            return state
+                        }
+                        return {
+                            integrationSourceIds: params.integrationSourceIds ?? state.integrationSourceIds,
+                            includeNonIntegrated: params.includeNonIntegrated ?? state.includeNonIntegrated,
+                        }
+                    },
                 },
             ],
             dateFilter: [
@@ -1320,6 +1330,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             if (values.integrationFilter?.integrationSourceIds?.length) {
                 searchParams.set('integration_sources', values.integrationFilter.integrationSourceIds.join(','))
             }
+            // Only the cleared state travels: absent means included, which is the default.
+            if (values.integrationFilter?.includeNonIntegrated === false) {
+                searchParams.set('include_non_integrated', 'false')
+            }
 
             // Chart display type
             if (values.chartDisplayType) {
@@ -1488,6 +1502,9 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         const integrationSources = searchParams.get('integration_sources')
         if (integrationSources) {
             params.integrationSourceIds = integrationSources.split(',').filter(Boolean)
+        }
+        if (searchParams.get('include_non_integrated') === 'false') {
+            params.includeNonIntegrated = false
         }
         const chartDisplayType = searchParams.get('chart_display_type') as ChartDisplayType | null
         if (chartDisplayType && Object.values(ChartDisplayType).includes(chartDisplayType)) {
