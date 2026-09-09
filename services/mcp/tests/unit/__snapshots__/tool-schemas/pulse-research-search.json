@@ -1,0 +1,12 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "query": {
+            "description": "A public-web research query. It is searched once and only public results are considered.",
+            "maxLength": 500,
+            "type": "string"
+        }
+    },
+    "required": ["query"],
+    "type": "object"
+}
