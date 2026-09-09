@@ -20,7 +20,6 @@ from posthog.dataclasses import frozen
 
 from ..facade.contracts import (
     FLAKINESS_BROKEN_RATE,
-    FLAKINESS_EXPIRY_SOON_DAYS,
     FLAKINESS_MAX_ENTRIES,
     FLAKINESS_MIN_HEADROOM,
     FLAKINESS_MIN_WINDOW_RUNS,
@@ -31,6 +30,7 @@ from ..facade.contracts import (
 from ..facade.enums import ClassificationReason, FlakinessState, ReviewState, RunStatus, SnapshotResult, ToleratedReason
 from ..models import QuarantinedIdentifier, Run, RunSnapshot, ToleratedHash
 from . import run_queries
+from .quarantine import expiry_soon_cutoff, is_expiring_soon
 
 # Rows a run recorded as a difference from the baseline, split by what that
 # difference cost. `_HARD` failed the gate and blocked whoever was merging.
@@ -188,20 +188,7 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
         if quarantine_key not in active_quarantines_by_key:
             active_quarantines_by_key[quarantine_key] = active_quarantine
 
-    # `status=completed` rather than `superseded_by IS NULL`: a freshly started
-    # run on the default branch is un-superseded but has few or no RunSnapshots
-    # ingested yet, which would collapse the universe to whatever it has loaded
-    # so far. Same reasoning as `baseline_overview.get_baselines_overview`.
-    universe_runs = list(
-        Run.objects.filter(
-            repo_id=repo_id,
-            branch__in=run_queries._DEFAULT_BRANCHES,
-            status=RunStatus.COMPLETED,
-        )
-        .order_by("repo_id", "branch", "run_type", "-created_at")
-        .distinct("repo_id", "branch", "run_type")
-        .only("id", "run_type", "created_at")
-    )
+    universe_runs = run_queries.latest_default_branch_runs(repo_id)
     if not universe_runs:
         return _quarantine_only_raw(
             active_quarantines_by_key,
@@ -210,15 +197,7 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
             max_entries=FLAKINESS_MAX_ENTRIES,
         )
 
-    # `universe_runs` holds one run per branch and run type, so a repo with runs
-    # on both master and main has two per run type. The row identity carries no
-    # branch, so keep only the newest run per run type. Otherwise whichever
-    # branch happened to be read last decided the baseline, and two identical
-    # requests could disagree.
-    newest_run_by_type: dict[str, Run] = {}
-    for run in sorted(universe_runs, key=lambda r: r.created_at, reverse=True):
-        newest_run_by_type.setdefault(run.run_type, run)
-
+    newest_run_by_type = run_queries.newest_run_by_run_type(universe_runs)
     run_type_by_run_id = {run.id: run_type for run_type, run in newest_run_by_type.items()}
     universe_run_ids = list(run_type_by_run_id)
 
@@ -363,7 +342,7 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
         if moved_at is not None:
             baseline_moved_at_by_key[_SnapshotKey(run_type=run_type, identifier=identifier)] = moved_at
 
-    expiry_soon_cutoff = now + timedelta(days=FLAKINESS_EXPIRY_SOON_DAYS)
+    expiry_cutoff = expiry_soon_cutoff(now)
 
     # An identity can carry something to report and still have no current
     # baseline: a quarantine opened before the first run, or a snapshot that
@@ -438,7 +417,7 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
                 needs_decision=_needs_decision(
                     quarantine=quarantine,
                     hard_count=hard_count,
-                    expiry_soon_cutoff=expiry_soon_cutoff,
+                    expiry_cutoff=expiry_cutoff,
                 ),
             )
         )
@@ -670,7 +649,7 @@ def _needs_decision(
     *,
     quarantine: QuarantinedIdentifier | None,
     hard_count: int,
-    expiry_soon_cutoff: datetime,
+    expiry_cutoff: datetime,
 ) -> bool:
     """Whether an active quarantine has stopped matching what it was opened for.
 
@@ -696,7 +675,7 @@ def _needs_decision(
         return False
     if hard_count == 0:
         return True
-    return quarantine.expires_at is not None and quarantine.expires_at <= expiry_soon_cutoff
+    return is_expiring_soon(quarantine, expiry_cutoff)
 
 
 def _daily_series(counts_by_day: dict[date, int], *, strip_start: date, length: int) -> list[int]:

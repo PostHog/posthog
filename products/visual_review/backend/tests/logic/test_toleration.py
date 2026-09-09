@@ -158,6 +158,38 @@ class TestToleratedHashes:
         assert snapshot.classification_reason == ""
         assert snapshot.tolerated_hash_match is None
 
+    @pytest.mark.parametrize(
+        "rows,expected",
+        [
+            ([("old_hash", "human", None), ("old_hash", "agent", None)], 2),
+            ([("old_hash", "human", None), ("old_hash", "agent", None), ("old_hash", "human", None)], 3),
+            # Recorded against a baseline that has since moved. The classifier can never match
+            # these again, so counting them would report a pile-up nobody can act on.
+            ([("old_hash", "human", None), ("superseded", "human", None)], 1),
+            ([("old_hash", "human", None), ("old_hash", "human", -1)], 1),
+            # Sub-threshold jitter the diff pipeline minted, not a decision anybody made.
+            ([("old_hash", "human", None), ("old_hash", "auto_threshold", None)], 1),
+            ([("old_hash", "auto_threshold", None)], 0),
+        ],
+    )
+    def test_counts_accepted_variants_of_the_current_baseline(self, repo, mocker, rows, expected):
+        self._create_completed_run(repo, mocker)
+        now = timezone.now()
+        for index, (baseline_hash, reason, expiry_days) in enumerate(rows):
+            ToleratedHash.objects.create(
+                repo=repo,
+                team_id=repo.team_id,
+                identifier="Button",
+                baseline_hash=baseline_hash,
+                alternate_hash=f"variant_{index}",
+                reason=reason,
+                expires_at=None if expiry_days is None else now + timedelta(days=expiry_days),
+            )
+
+        counts = toleration.count_active_variants_against_current_baseline(repo.id, now=now)
+
+        assert counts.get((RunType.STORYBOOK, "Button"), 0) == expected
+
     def test_get_tolerated_hashes_for_identifier(self, repo):
         from products.visual_review.backend.models import ToleratedHash
 

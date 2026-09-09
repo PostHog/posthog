@@ -13,7 +13,7 @@ from posthog.dataclasses import frozen
 
 from ..facade.enums import INTENTIONAL_TOLERATE_REASONS, RunStatus, SnapshotResult
 from ..models import QuarantinedIdentifier, Run, RunSnapshot, ToleratedHash
-from . import run_queries
+from . import run_queries, toleration
 
 
 def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
@@ -28,6 +28,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
       - 1 query for the universe runs (one row per run_type, indexed)
       - 1 query for the universe rows (with thumbnail + artifact prefetch)
       - 2 grouped queries for tolerate counts (30d + 90d)
+      - 3 queries for the accepted variants standing against the current baseline
       - 1 grouped query for active quarantines
       - 1 grouped query for lifetime baseline-flip count
       - 2 queries for the recent-drift average (resolve last-N runs, aggregate)
@@ -35,32 +36,19 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
     """
     from datetime import timedelta
 
-    from ..facade.contracts import BASELINE_DRIFT_RECENT_RUN_COUNT, BASELINE_OVERVIEW_MAX_ENTRIES
+    from ..facade.contracts import BASELINE_DRIFT_RECENT_RUN_COUNT, BASELINE_OVERVIEW_MAX_ENTRIES, VARIANT_PILEUP_MIN
 
     now = timezone.now()
 
-    # 1. Find the latest *completed* run on the default branch per (repo,
-    # branch, run_type). Filtering on `superseded_by IS NULL` looks tempting
-    # but is wrong here: a freshly started PENDING/PROCESSING master run is
-    # un-superseded yet has zero (or sparse) RunSnapshots ingested, and would
-    # collapse the universe to whatever it has loaded so far. `status=completed`
-    # makes the universe fall through to the most recent fully-ingested run.
-    universe_runs = list(
-        Run.objects.filter(
-            repo_id=repo_id,
-            branch__in=run_queries._DEFAULT_BRANCHES,
-            status=RunStatus.COMPLETED,
-        )
-        .order_by("repo_id", "branch", "run_type", "-created_at")
-        .distinct("repo_id", "branch", "run_type")
-        .only("id", "run_type", "completed_at", "created_at")
-    )
+    # 1. Find the latest *completed* run on the default branch per (repo, branch, run_type).
+    universe_runs = run_queries.latest_default_branch_runs(repo_id)
     universe_run_ids = [r.id for r in universe_runs]
     if not universe_run_ids:
         return _BaselineOverviewRaw(
             entries=[],
             tolerate_30d_by_id={},
             tolerate_90d_by_id={},
+            active_variants_by_key={},
             active_quarantines_by_key={},
             change_count_by_key={},
             recent_drift_by_key={},
@@ -68,6 +56,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             totals_recent=0,
             totals_frequent=0,
             totals_quarantined=0,
+            totals_variant_pileups=0,
             by_run_type={},
             truncated=False,
             generated_at=now,
@@ -134,6 +123,10 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             .values_list("identifier", "c")
         ):
             tolerate_90d_by_id[identifier] = count
+
+    # 3a-bis. Accepted variants still standing against each baseline's current hash. Scoped to the
+    # whole universe rather than the truncated slice, because the totals below read it too.
+    active_variants_by_key = toleration.count_active_variants_against_current_baseline(repo_id, now=now)
 
     # 3b. Active quarantines for this repo, scoped to the universe identifiers
     # AND the run_types they live on (quarantine is per (repo, run_type, id)).
@@ -314,6 +307,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
         entries=universe,
         tolerate_30d_by_id=tolerate_30d_by_id,
         tolerate_90d_by_id=tolerate_90d_by_id,
+        active_variants_by_key=active_variants_by_key,
         active_quarantines_by_key=active_quarantines_by_key,
         change_count_by_key=change_count_by_key,
         recent_drift_by_key=recent_drift_by_key,
@@ -321,6 +315,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
         totals_recent=len(recent_ids),
         totals_frequent=len(frequent_ids),
         totals_quarantined=quarantined_id_count,
+        totals_variant_pileups=sum(1 for count in active_variants_by_key.values() if count >= VARIANT_PILEUP_MIN),
         by_run_type=by_run_type,
         truncated=truncated,
         generated_at=now,
@@ -337,6 +332,9 @@ class _BaselineOverviewRaw:
     entries: list[RunSnapshot]
     tolerate_30d_by_id: dict[str, int]
     tolerate_90d_by_id: dict[str, int]
+    # Accepted variants standing against each baseline's current hash, keyed by
+    # `(run_type, identifier)`. Only non-zero counts are present.
+    active_variants_by_key: dict[tuple[str, str], int]
     # Latest active QuarantinedIdentifier (with `source_run` preloaded) for each
     # `(run_type, identifier)` in the universe — lets the facade build the rich
     # quarantine summary embedded on each BaselineEntry. Membership doubles as
@@ -351,6 +349,7 @@ class _BaselineOverviewRaw:
     totals_recent: int
     totals_frequent: int
     totals_quarantined: int
+    totals_variant_pileups: int
     by_run_type: dict[str, int]
     truncated: bool
     generated_at: datetime
