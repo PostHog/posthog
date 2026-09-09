@@ -63,7 +63,7 @@ export function ReportDetail({
  * it: reading and asking share one screen, and highlighting a passage quotes
  * it into the chat.
  */
-function ReportDetailContent({
+export function ReportDetailContent({
   report,
   backTo,
   backLabel,
