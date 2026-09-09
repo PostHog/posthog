@@ -4,8 +4,8 @@ description: |
 
     The exact pin makes installs reproducible. setup-uv v7.6.0 resolves
     downloads through Astral's static manifest, not the GitHub releases API.
-    See docs/internal/uv-in-ci.md for the rate-limit history and the jobs
-    that must install directly because they check out older revisions.
+    Jobs that check out an older revision must install uv directly: this
+    action does not exist in those trees.
 
     Defaults suit the root Python project: cache against uv.lock and save
     only on master. Tool-only jobs should disable dependency caching.

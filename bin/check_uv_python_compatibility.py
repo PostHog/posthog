@@ -15,7 +15,6 @@ The shape we enforce:
   mirror and jobs that check out older revisions keep matching exact pins.
   Exact pins prevent CI from floating to a new release. setup-uv v7.6.0 uses
   a static manifest rather than the rate-limited releases API used by v7.3.0.
-  See docs/internal/uv-in-ci.md before changing the installation path.
 
 - .flox/env/manifest.toml mirrors the CI pin for parity between local dev and
   CI. Comparison is on major.minor to allow patch drift.
@@ -225,7 +224,6 @@ def check_workflow_pins() -> tuple[bool, str | None]:
             print(f"  - {name}")
         print()
         print("  Use the shared setup-uv action, or an exact pin for an older-revision job.")
-        print("  See docs/internal/uv-in-ci.md for the installation and rate-limit rules.")
         ok = False
 
     workflow_pin: str | None = None
