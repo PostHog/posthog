@@ -30,7 +30,6 @@ export enum Scene {
     Cohort = 'Cohort',
     CohortCalculationHistory = 'CohortCalculationHistory',
     Cohorts = 'Cohorts',
-    Comments = 'Comments',
     CustomCss = 'CustomCss',
     CustomerAnalytics = 'CustomerAnalytics',
     CustomerAnalyticsAccount = 'CustomerAnalyticsAccount',

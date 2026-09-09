@@ -309,16 +309,6 @@
         "params": [],
         "scope": "global"
     },
-    "comment": {
-        "template": "/data-management/comments/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "comments": {
-        "template": "/data-management/comments",
-        "params": [],
-        "scope": "project"
-    },
     "communitySkills": {
         "template": "/skills/community",
         "params": [],
@@ -1709,6 +1699,11 @@
         "params": [],
         "scope": "project"
     },
+    "webAnalyticsContentAutopilot": {
+        "template": "/web/content-autopilot",
+        "params": [],
+        "scope": "project"
+    },
     "webAnalyticsHealth": {
         "template": "/web/health",
         "params": [],
@@ -1751,6 +1746,11 @@
     },
     "webScriptsNew": {
         "template": "/web-scripts/new",
+        "params": [],
+        "scope": "project"
+    },
+    "wizardRuns": {
+        "template": "/wizard/runs",
         "params": [],
         "scope": "project"
     },

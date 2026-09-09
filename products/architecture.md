@@ -106,6 +106,9 @@ These cross the boundary as classes — allowed only under all three rules:
    A test whose kind the scan cannot read statically counts as `drives(unresolved-kind)` against every query location it could reach, so an unreadable spelling holds the inputs instead of releasing them in silence.
    `hogli product:lint` keeps the location in the inputs while a line for it stands, and lets it go when none does.
    Nothing is declared. Move the driving tests into the product, regenerate the baseline, and the input may leave.
+   A location with several subtrees may be watched one subtree at a time.
+   `product_analytics` watches `backend/hogql_queries/trends/` alone, because trends is the only subtree an outside test still drives, so its funnels, retention, lifecycle, paths and stickiness runners change without re-running the suite.
+   The lint reads coverage per location rather than per subtree, so it cannot hold that scope; the repo invariant `test_product_analytics_drives_only_the_watched_subtree` does, and it fails when a line names code outside the watched subtree.
    The other locations stay in the inputs by presence until their channel (Celery task names, Temporal workflow names, Max tool names) is read the same way.
 3. **Validated registration.**
    Registration points check `issubclass(cls, Base)` and reject anything else.

@@ -163,6 +163,7 @@ async def run_scan(
     preamble_text = scanner.preamble(
         team_name=team_name,
         session_metadata=llm_inputs.metadata.as_prompt_dict(),
+        session_identity=llm_inputs.identity.as_prompt_dict(),
         navigation=[entry.model_dump() for entry in llm_inputs.navigation],
         navigation_dropped=llm_inputs.navigation_dropped,
         events_truncated=llm_inputs.events_truncated,

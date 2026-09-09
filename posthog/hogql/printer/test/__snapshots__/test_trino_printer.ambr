@@ -121,6 +121,22 @@
     }),
   )
 # ---
+# name: test_prepared_trino_transpiler_does_not_rebuild_the_schema_database[SELECT user_id FROM users WHERE user_id IN ['violet', 'amber']]
+  tuple(
+    'SELECT "users"."user_id" FROM "ducklake"."analytics"."users" AS "users" WHERE ("users"."user_id" IN (%(hogql_val_0)s, %(hogql_val_1)s))',
+    dict({
+      'hogql_val_0': 'violet',
+      'hogql_val_1': 'amber',
+    }),
+  )
+# ---
+# name: test_prepared_trino_transpiler_does_not_rebuild_the_schema_database[WITH seed AS (SELECT 7 AS n) SELECT n FROM seed UNION ALL SELECT n FROM seed]
+  tuple(
+    'WITH "seed" AS (SELECT 7 AS "n") (SELECT "seed"."n" FROM "seed") UNION ALL (SELECT "seed"."n" FROM "seed")',
+    dict({
+    }),
+  )
+# ---
 # name: test_wrapper_sort_projections_preserve_output[SELECT a.created_at FROM users a JOIN users b ON a.user_id = b.user_id ORDER BY b.created_at DESC LIMIT 2 BY a.user_id]
   tuple(
     'SELECT "__hogql_trino_source_0"."created_at" FROM (SELECT "a"."created_at" AS "created_at", row_number() OVER (PARTITION BY "a"."user_id" ORDER BY "b"."created_at" DESC) AS "__hogql_limit_by_row_0", "b"."created_at" AS "__hogql_order_0" FROM "ducklake"."analytics"."users" AS "a" JOIN "ducklake"."analytics"."users" AS "b" ON ("a"."user_id" = "b"."user_id")) AS "__hogql_trino_source_0" WHERE ("__hogql_trino_source_0"."__hogql_limit_by_row_0" <= 2) ORDER BY "__hogql_trino_source_0"."__hogql_order_0" DESC',
