@@ -3,6 +3,8 @@ from datetime import datetime
 
 from django.utils import timezone
 
+import structlog
+
 from posthog.clickhouse.query_tagging import Product
 from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
@@ -19,13 +21,14 @@ from products.feature_flags.backend.flag_status import (
     ROLLOUT_PARTIAL,
     FeatureFlagStatusChecker,
     filter_stale_flags,
-    rollout_state_and_variant,
 )
 from products.feature_flags.backend.flag_version_sync import direct_flag_dependency_ids, flags_with_flag_dependencies
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.session_recording_links import replay_linked_flag_ids_for_projects
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
+
+logger = structlog.get_logger(__name__)
 
 # `last_called_at` exists and predates the stale threshold. The column only records received
 # `$feature_flag_called` events, so it says nothing about evaluations that send no event.
@@ -140,14 +143,25 @@ class StaleFeatureFlagsCheck(HealthCheck):
             if flag.id in excluded_ids:
                 continue
             issues.setdefault(flag.team_id, []).append(_build_result(flag, now))
+
+        if issues:
+            # Each issue fires its own alert once dry_run flips, so the flip decision needs the
+            # worst single team, which the framework's batch-wide dry-run summary does not show.
+            issue_counts = [len(team_issues) for team_issues in issues.values()]
+            logger.info(
+                "stale_feature_flags_detected",
+                teams_with_issues=len(issues),
+                issue_count=sum(issue_counts),
+                max_issues_per_team=max(issue_counts),
+            )
         return issues
 
 
 def _excluded_flag_ids(candidates: list[FeatureFlag]) -> set[int]:
     """Flag ids that known blockers reference, not limited to the candidate ids.
 
-    The survey, product tour, dependency, and replay lookups are scoped by team or
-    project, so they also return ids for flags outside this batch.
+    Every lookup is scoped by team or project rather than by candidate flag id, so each
+    one binds a handful of parameters per batch and can return ids for flags outside it.
 
     Every lookup is one set-wise query over the batch; the count stays fixed as the
     candidate volume grows. These exclusions remove known blockers only. They do not prove
@@ -155,8 +169,9 @@ def _excluded_flag_ids(candidates: list[FeatureFlag]) -> set[int]:
 
     The bulk-delete guard in ``products/feature_flags/backend/api/feature_flag.py`` blocks
     the same references and must stay in step with this list. Where the two differ it is on
-    purpose, and this list is the stricter one: the guard blocks only running experiments,
-    this excludes every non-deleted one.
+    purpose, and this list is the stricter one: the guard blocks only running experiments
+    where this excludes every non-deleted one, and the guard's ``find_dependent_flags_batch``
+    counts only active dependent flags where this also lets disabled dependents block.
 
     A survey's user-created ``linked_flag`` is deliberately not excluded, unlike the
     survey flags PostHog generates itself. It is user-managed, bulk delete permits it, and
@@ -180,10 +195,12 @@ def _excluded_flag_ids(candidates: list[FeatureFlag]) -> set[int]:
         ).values_list("internal_targeting_flag_id", flat=True)
     )
     excluded |= set(
-        Experiment.objects.filter(feature_flag_id__in=flag_ids, deleted=False).values_list("feature_flag_id", flat=True)
+        Experiment.objects.filter(team_id__in=team_ids, deleted=False).values_list("feature_flag_id", flat=True)
     )
     excluded |= set(
-        EarlyAccessFeature.objects.filter(feature_flag_id__in=flag_ids).values_list("feature_flag_id", flat=True)
+        EarlyAccessFeature.objects.filter(team_id__in=team_ids, feature_flag_id__isnull=False).values_list(
+            "feature_flag_id", flat=True
+        )
     )
     excluded |= _depended_on_flag_ids(project_ids)
     excluded |= replay_linked_flag_ids_for_projects(project_ids, flag_ids)
@@ -207,7 +224,7 @@ def _depended_on_flag_ids(project_ids: Collection[int]) -> set[int]:
 def _build_result(flag: FeatureFlag, now: datetime) -> HealthCheckResult:
     checker = FeatureFlagStatusChecker(feature_flag=flag)
     summary = checker.get_rollout_summary(flag)
-    rollout_state, winning_variant = rollout_state_and_variant(flag, checker, summary)
+    rollout_state, winning_variant = checker.rollout_state_and_variant(flag, summary)
 
     if flag.last_called_at is not None:
         evidence_class = EVIDENCE_NOT_CALLED_RECENTLY

@@ -247,12 +247,19 @@ class TestStaleFlagsDetect(BaseTest):
         self._create_flag("first", **stale_by_usage())
         self._create_flag("second", **stale_by_config())
         FeatureFlag.objects.create(team=team_two, key="third", created_by=self.user, active=True, **stale_by_usage())
+        # A blocker on the second team proves the exclusion lookups cover the whole batch,
+        # not just the first team.
+        blocked = FeatureFlag.objects.create(
+            team=team_two, key="blocked", created_by=self.user, active=True, **stale_by_usage()
+        )
+        Team.objects.filter(pk=team_two.pk).update(session_recording_linked_flag={"id": blocked.id, "key": blocked.key})
 
         results = self._detect([self.team.id, team_two.id, healthy_team.id])
 
         assert set(results) == {self.team.id, team_two.id}
         assert len(results[self.team.id]) == 2
         assert len(results[team_two.id]) == 1
+        assert results[team_two.id][0].payload["flag_id"] != blocked.id
 
     def test_query_count_does_not_grow_with_candidates_or_teams(self) -> None:
         self._create_flag("baseline", **stale_by_usage())

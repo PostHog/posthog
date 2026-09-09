@@ -118,7 +118,6 @@ from products.feature_flags.backend.flag_status import (
     FeatureFlagStatusChecker,
     exclude_archived_unless_requested,
     filter_flags_by_active_param,
-    rollout_state_and_variant,
 )
 from products.feature_flags.backend.local_evaluation import _get_flag_properties_from_filters
 from products.feature_flags.backend.models.evaluation_context import normalize_context_name
@@ -581,7 +580,7 @@ def _get_flag_rollout_info(flag: FeatureFlag, checker: FeatureFlagStatusChecker)
       - active_variant: variant key if a multivariate flag is fully rolled out to one variant
     """
     summary = checker.get_rollout_summary(flag)
-    rollout_state, active_variant = rollout_state_and_variant(flag, checker, summary)
+    rollout_state, active_variant = checker.rollout_state_and_variant(flag, summary)
     return {"rollout_state": rollout_state, "active_variant": active_variant}
 
 
