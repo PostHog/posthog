@@ -49,7 +49,7 @@ function hasMentionTags(content: string): boolean {
 export const hasFileMentions = hasMentionTags;
 
 const chipClass =
-  "inline-flex min-w-0 max-w-full items-center gap-1 rounded-[var(--radius-1)] bg-[var(--accent-a3)] px-1 py-px align-middle font-medium text-[var(--accent-11)]";
+  "inline-block max-w-full truncate rounded-[var(--radius-1)] bg-[var(--accent-a3)] px-1 py-px align-middle font-medium text-[var(--accent-11)]";
 
 export function MentionChip({
   icon,
@@ -66,8 +66,10 @@ export function MentionChip({
 
   const content = (
     <>
-      {icon}
-      <span className="truncate">{label}</span>
+      {icon && (
+        <span className="mr-1 inline-block align-[-0.125em]">{icon}</span>
+      )}
+      {label}
     </>
   );
 
@@ -105,6 +107,16 @@ function parseMentionTags(content: string): ReactNode[] {
   const parts: ReactNode[] = [];
   let lastIndex = 0;
 
+  const pushText = (text: string, chipFollows: boolean): void => {
+    if (!text.trim()) {
+      if (parts.length > 0) parts.push(" ");
+      return;
+    }
+    if (parts.length > 0 && /^\s/.test(text)) parts.push(" ");
+    parts.push(<InlineMarkdown key={`text-${lastIndex}`} content={text} />);
+    if (chipFollows && /\s$/.test(text)) parts.push(" ");
+  };
+
   const slashMatch = content.match(SLASH_COMMAND_START);
   if (slashMatch) {
     parts.push(
@@ -118,12 +130,7 @@ function parseMentionTags(content: string): ReactNode[] {
     if (matchIndex < lastIndex) continue;
 
     if (matchIndex > lastIndex) {
-      parts.push(
-        <InlineMarkdown
-          key={`text-${lastIndex}`}
-          content={content.slice(lastIndex, matchIndex)}
-        />,
-      );
+      pushText(content.slice(lastIndex, matchIndex), true);
     }
 
     if (match[1]) {
@@ -181,12 +188,7 @@ function parseMentionTags(content: string): ReactNode[] {
   }
 
   if (lastIndex < content.length) {
-    parts.push(
-      <InlineMarkdown
-        key={`text-${lastIndex}`}
-        content={content.slice(lastIndex)}
-      />,
-    );
+    pushText(content.slice(lastIndex), false);
   }
 
   return parts;
