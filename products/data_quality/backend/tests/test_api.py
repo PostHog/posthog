@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -14,10 +15,12 @@ from rest_framework.test import APIRequestFactory
 from posthog.constants import AvailableFeature
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.data_catalog.backend.facade.models import Metric
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade import api
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeverity, CheckType, SubjectType
 from products.data_quality.backend.logic import checks as checks_logic
+from products.data_quality.backend.logic.runner import run_check
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from products.data_quality.backend.presentation.serializers import DataQualitySuiteRunSerializer
 from products.data_quality.backend.presentation.views import SavedQueryCheckViewSet
@@ -26,6 +29,202 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 START_SUITE = "products.data_quality.backend.logic.checks.sync_connect"
 FLAG = "products.data_quality.backend.presentation.views.is_data_quality_checks_enabled"
+
+
+class TestMetricCheckAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.metric = Metric.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="signups",
+            definition={"kind": "HogQLQuery", "query": "SELECT 10 AS signups"},
+            referenced_table_names=[],
+        )
+        self.url = f"/api/projects/{self.team.id}/data_catalog/metrics/{self.metric.id}/checks"
+        self.suites_url = f"/api/projects/{self.team.id}/data_catalog/metrics/{self.metric.id}/check_suite_runs"
+        flag = patch(FLAG, return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
+
+    def _create(self) -> dict:
+        response = self.client.post(
+            f"{self.url}/",
+            {"check_type": "custom_sql", "config": {"query": "SELECT * FROM {metric} WHERE signups < 100"}},
+        )
+        assert response.status_code == 201, response.content
+        return response.json()
+
+    @parameterized.expand(
+        [
+            ("checks_list", "get", "checks/"),
+            ("checks_health", "get", "checks/health/"),
+            ("checks_run_all", "post", "checks/run_all/"),
+            ("suite_runs_list", "get", "check_suite_runs/"),
+        ]
+    )
+    def test_metric_name_in_the_id_segment_is_not_found(self, _name: str, method: str, suffix: str) -> None:
+        # Metrics have their own routes that address them by name, so a caller can land a name in a
+        # segment these routes read as a uuid.
+        url = f"/api/projects/{self.team.id}/data_catalog/metrics/{self.metric.name}/{suffix}"
+
+        response = getattr(self.client, method)(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
+
+    def test_metric_children_do_not_expose_access_control_actions(self) -> None:
+        check = self._create()
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            trigger="manual",
+            subject_type=SubjectType.METRIC,
+            subject_uuid=self.metric.id,
+        )
+        for parent, identifier in ((self.url, check["id"]), (self.suites_url, suite.id)):
+            for action in (
+                "access_controls",
+                "resource_access_controls",
+                "global_access_controls",
+                "users_with_access",
+            ):
+                response = self.client.get(f"{parent}/{identifier}/{action}/")
+                assert response.status_code == 404, response.content
+
+    def test_metric_check_authoring_and_overview(self) -> None:
+        check = self._create()
+        assert [entry["check_type"] for entry in self.client.get(f"{self.url}/check_types/").json()] == ["custom_sql"]
+        assert self.client.get(f"{self.url}/").json()["results"][0]["id"] == check["id"]
+        edited = self.client.patch(
+            f"{self.url}/{check['id']}/", {"config": {"query": "SELECT * FROM {metric} WHERE signups < 50"}}
+        )
+        assert edited.status_code == 200
+        assert edited.json()["fingerprint"] != check["fingerprint"]
+        self.metric.name = "registrations"
+        self.metric.save(update_fields=["name"])
+        row = self.client.get(f"/api/projects/{self.team.id}/data_quality_checks/").json()["results"][0]
+        assert row["subject_metric_name"] == "registrations"
+        assert "definition" not in row and "values" not in row
+        assert self.client.delete(f"{self.url}/{check['id']}/").status_code == 204
+
+    def test_metric_manual_run_and_nested_history(self) -> None:
+        check = self._create()
+        with patch(START_SUITE, return_value=MagicMock(start_workflow=AsyncMock())):
+            response = self.client.post(f"{self.url}/{check['id']}/run/")
+        assert response.status_code == 200, response.content
+        suite = response.json()
+        assert suite["subject_uuid"] == str(self.metric.id)
+        assert self.client.get(f"{self.suites_url}/{suite['id']}/").status_code == 200
+        assert self.client.get(f"{self.suites_url}/{suite['id']}/check_runs/").json() == []
+        assert self.client.get(f"{self.url}/{check['id']}/runs/").json() == []
+
+    def test_catalog_denial_hides_metric_checks_across_surfaces(self) -> None:
+        self._create()
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="data_catalog",
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+        assert self.client.get(f"{self.url}/").status_code == 403
+        assert self.client.get(f"{self.suites_url}/").status_code == 403
+        assert self.client.get(f"/api/projects/{self.team.id}/data_quality_checks/").json()["results"] == []
+
+    def test_nested_cte_cannot_expose_history_after_metric_source_changes(self) -> None:
+        source = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1 AS total"}
+        )
+        self.metric.definition = {
+            "kind": "HogQLQuery",
+            "query": "SELECT * FROM orders UNION ALL "
+            "SELECT * FROM (WITH orders AS (SELECT 123 AS total) SELECT * FROM orders)",
+        }
+        self.metric.referenced_table_names = ["orders"]
+        self.metric.save(update_fields=["definition", "referenced_table_names"])
+        response = self.client.post(
+            f"{self.url}/",
+            {
+                "check_type": "custom_sql",
+                "config": {"query": "SELECT * FROM {metric}"},
+            },
+        )
+        assert response.status_code == 201, response.content
+        check = DataQualityCheck.objects.for_team(self.team.id).get(id=response.json()["id"])
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            trigger="manual",
+            created_by=self.user,
+            subject_type=SubjectType.METRIC,
+            subject_uuid=self.metric.id,
+        )
+        with patch(
+            "products.data_quality.backend.logic.runner.execute_hogql_query",
+            return_value=SimpleNamespace(columns=["failure_count", "observed_value"], results=[[2, 2]]),
+        ):
+            assert run_check(check, suite, self.team).status == CheckRunStatus.FAILED
+        self.metric.definition = {"kind": "HogQLQuery", "query": "SELECT 1 AS total"}
+        self.metric.referenced_table_names = []
+        self.metric.save(update_fields=["definition", "referenced_table_names"])
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_view",
+            resource_id=str(source.id),
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda name, *args, **kwargs: name == "hogql-warehouse-access-control",
+        ):
+            for url in (f"{self.url}/{check.id}/runs/", f"{self.suites_url}/{suite.id}/check_runs/"):
+                history = self.client.get(url)
+                assert history.status_code == 200, history.content
+                assert history.json() == []
+
+    @parameterized.expand(
+        [
+            ("run", "POST", False),
+            ("runs", "GET", False),
+            ("run_all", "POST", False),
+            ("run", "POST", True),
+            ("runs", "GET", True),
+            ("run_all", "POST", True),
+        ]
+    )
+    def test_restricted_member_can_run_and_read_metric_checks(self, action: str, method: str, denied: bool) -> None:
+        check = self._create()
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        if denied:
+            source = DataWarehouseSavedQuery.objects.create(
+                team=self.team, name="restricted_source", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+            )
+            DataQualityCheck.objects.for_team(self.team.id).filter(id=check["id"]).update(
+                config={"query": "SELECT * FROM {metric} JOIN restricted_source ON 1 = 1"}
+            )
+            AccessControl.objects.create(
+                team=self.team,
+                resource="warehouse_view",
+                resource_id=str(source.id),
+                organization_member=self.organization_membership,
+                access_level="none",
+            )
+            warehouse_ac = patch(
+                "posthog.hogql.database.database.feature_enabled_or_false",
+                side_effect=lambda name, *a, **k: name == "hogql-warehouse-access-control",
+            )
+            warehouse_ac.start()
+            self.addCleanup(warehouse_ac.stop)
+        cache.clear()
+        suffix = action if action == "run_all" else f"{check['id']}/{action}"
+        with patch(START_SUITE, return_value=MagicMock(start_workflow=AsyncMock())):
+            response = getattr(self.client, method.lower())(f"{self.url}/{suffix}/")
+        assert response.status_code == (403 if denied else 200), response.content
 
 
 class TestCheckViewSetScopes(SimpleTestCase):
@@ -394,7 +593,15 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         by_type = {row["check_type"]: row for row in response.json()}
-        assert set(by_type) == {t.value for t in CheckType}
+        assert set(by_type) == {
+            "not_null",
+            "unique",
+            "accepted_values",
+            "relationships",
+            "row_count",
+            "freshness",
+            "custom_sql",
+        }
         assert by_type["accepted_values"]["config_schema"]["required"] == ["values"]
         assert by_type["row_count"]["requires_column"] is False
 

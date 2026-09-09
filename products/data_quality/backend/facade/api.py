@@ -12,6 +12,7 @@ from ..logic.checks import (
     edit_check,
     empty_check_suite,
     ensure_name_available,
+    live_subject_checks,
     soft_delete_check,
     start_check_suite,
     subject_health,
@@ -25,6 +26,7 @@ from ..logic.errors import CheckConfigError, CheckEditConflict, SubjectUnresolva
 from ..logic.health import CheckStatusRow, roll_up_health
 from ..logic.navigation import SubjectKey, SubjectLocation, subject_locations
 from ..logic.notifications import notify_materialization_blocked
+from ..logic.permissions import authorized_subject_types, restrict_subject_types
 from ..logic.registry import UnknownCheckTypeError, list_check_types
 from ..logic.run_records import record_check_run
 from ..logic.serialization import compute_fingerprint, from_config_entry, to_config_entry
@@ -60,6 +62,9 @@ __all__ = [
     "SubjectRef",
     "SubjectUnresolvableError",
     "UnknownCheckTypeError",
+    "authorized_subject_types",
+    "restrict_subject_types",
+    "live_subject_checks",
     "caller_denial_context",
     "can_be_object_denied",
     "checks_for_subject",

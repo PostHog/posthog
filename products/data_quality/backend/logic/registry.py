@@ -5,11 +5,11 @@ one import and one entry.
 """
 
 from ..facade.contracts import CheckTypeInfo
-from ..facade.enums import CheckType
-from .spec import CheckTypeSpec
+from ..facade.enums import CheckType, SubjectType
+from .spec import QueryCheckTypeSpec
 from .types import accepted_values, custom_sql, freshness, not_null, relationships, row_count, unique
 
-_SPECS: dict[CheckType, CheckTypeSpec] = {
+_SPECS: dict[CheckType, QueryCheckTypeSpec] = {
     spec.type_name: spec
     for spec in (
         not_null.SPEC,
@@ -23,18 +23,18 @@ _SPECS: dict[CheckType, CheckTypeSpec] = {
 }
 
 
-def get_spec(check_type: str) -> CheckTypeSpec:
+def get_spec(check_type: str) -> QueryCheckTypeSpec:
     try:
         return _SPECS[CheckType(check_type)]
     except (KeyError, ValueError):
         raise UnknownCheckTypeError(check_type)
 
 
-def all_specs() -> list[CheckTypeSpec]:
+def all_specs() -> list[QueryCheckTypeSpec]:
     return [_SPECS[check_type] for check_type in CheckType]
 
 
-def list_check_types() -> list[CheckTypeInfo]:
+def list_check_types(subject_type: str | None = None) -> list[CheckTypeInfo]:
     """The catalog, as plain values. What callers outside the compiler get instead of the specs."""
     return [
         CheckTypeInfo(
@@ -42,8 +42,10 @@ def list_check_types() -> list[CheckTypeInfo]:
             description=spec.description,
             requires_column=spec.requires_column,
             config_schema=spec.json_schema,
+            subject_types=sorted(kind.value for kind in spec.subject_types),
         )
         for spec in all_specs()
+        if subject_type is None or SubjectType(subject_type) in spec.subject_types
     ]
 
 

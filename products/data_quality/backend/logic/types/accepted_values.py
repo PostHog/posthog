@@ -7,7 +7,7 @@ from posthog.hogql import ast
 from ...facade.enums import CheckType
 from ..contracts import CheckPlan, SubjectRef
 from ..errors import CheckConfigError
-from ..spec import CheckConfig, CheckTypeSpec
+from ..spec import CheckConfig, QueryCheckTypeSpec
 from .common import column, diagnostic_of, one, subject_source
 
 
@@ -90,7 +90,7 @@ def _coerce_value(value: str | float | bool, column_type: str) -> str | float | 
     return value
 
 
-class AcceptedValuesSpec(CheckTypeSpec):
+class AcceptedValuesSpec(QueryCheckTypeSpec):
     type_name = CheckType.ACCEPTED_VALUES
     config_model = AcceptedValuesConfig
     requires_column = True

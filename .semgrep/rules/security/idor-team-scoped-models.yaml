@@ -136,6 +136,7 @@ rules:
                               |DataModelingJob
                               |DataQualityCheck
                               |DataQualityCheckRun
+                              |DataQualityCheckSchedule
                               |DataQualitySuiteRun
                               |Dataset
                               |DatasetItem
@@ -545,6 +546,7 @@ rules:
                         |DataModelingJob
                         |DataQualityCheck
                         |DataQualityCheckRun
+                        |DataQualityCheckSchedule
                         |DataQualitySuiteRun
                         |Dataset
                         |DatasetItem

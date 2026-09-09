@@ -4,7 +4,7 @@ from posthog.hogql import ast
 
 from ...facade.enums import CheckType
 from ..contracts import CheckPlan, SubjectRef
-from ..spec import CheckConfig, CheckTypeSpec
+from ..spec import CheckConfig, QueryCheckTypeSpec
 from .common import column, subject_source
 
 STALENESS_ALIAS = "staleness_seconds"
@@ -17,7 +17,7 @@ class FreshnessConfig(CheckConfig):
     )
 
 
-class FreshnessSpec(CheckTypeSpec):
+class FreshnessSpec(QueryCheckTypeSpec):
     """How long ago the newest row landed.
 
     The inner query always returns exactly one row, so staleness is recorded as a time series even

@@ -3,6 +3,7 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.db import DatabaseError, connection
 from django.test.utils import CaptureQueriesContext
 
@@ -12,8 +13,11 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.constants import AvailableFeature
 from posthog.models.team import Team
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.data_catalog.backend.facade.models import Metric
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.api import record_check_run
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeverity, CheckType, SubjectType
@@ -96,6 +100,76 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert rows == [("orders_status_accepted", "orders", "accepted_values", '{"values": ["paid"]}', "error")]
+
+    def test_catalog_denial_hides_metric_definitions_history_and_health(self) -> None:
+        metric = Metric.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="signups",
+            definition={"kind": "HogQLQuery", "query": "SELECT 1 AS signups"},
+            referenced_table_names=[],
+        )
+        check = self._check(
+            subject_type=SubjectType.METRIC,
+            saved_query_id=None,
+            metric_id=metric.id,
+            subject_name="signups",
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT * FROM {metric}"},
+        )
+        self._run_for(check, referenced_subjects=[])
+        for table in ("data_quality_checks", "data_quality_check_runs", "data_quality_health"):
+            assert len(self._query(f"SELECT subject_name FROM system.information_schema.{table}")) == 1
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="data_catalog",
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+        for table in ("data_quality_checks", "data_quality_check_runs", "data_quality_health"):
+            assert self._query(f"SELECT subject_name FROM system.information_schema.{table}") == []
+
+    def test_catalog_only_member_can_discover_only_metric_checks(self) -> None:
+        self._check()
+        metric = Metric.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="signups",
+            definition={"kind": "HogQLQuery", "query": "SELECT 1 AS value"},
+            referenced_table_names=[],
+        )
+        metric_check = self._check(
+            subject_type=SubjectType.METRIC,
+            saved_query_id=None,
+            metric_id=metric.id,
+            subject_name=metric.name,
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT * FROM {metric}"},
+        )
+        self._run_for(metric_check, referenced_subjects=[])
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_objects",
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+        for table in ("data_quality_checks", "data_quality_check_runs", "data_quality_health"):
+            assert self._query(f"SELECT subject_name FROM system.information_schema.{table}") == [("signups",)]
+
+    def test_soft_deleted_subject_hides_active_checks_but_preserves_admin_history(self) -> None:
+        check = self._check()
+        self._run_for(check)
+        self.subject.deleted = True
+        self.subject.save(update_fields=["deleted"])
+        assert self._query("SELECT id FROM system.information_schema.data_quality_checks") == []
+        assert self._query("SELECT subject_uuid FROM system.information_schema.data_quality_health") == []
+        assert len(self._query("SELECT id FROM system.information_schema.data_quality_check_runs")) == 1
 
     def test_deleted_checks_disappear_but_their_runs_stay_queryable(self) -> None:
         check = self._check()

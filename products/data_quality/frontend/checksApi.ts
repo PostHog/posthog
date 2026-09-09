@@ -40,7 +40,7 @@ export function apiErrorDetail(error: unknown): string | null {
     return error instanceof ApiError ? error.detail : null
 }
 
-export type DataQualitySubjectType = 'table' | 'view'
+export type DataQualitySubjectType = 'table' | 'view' | 'metric'
 
 export interface DataQualitySubjectRef {
     subjectType: DataQualitySubjectType

@@ -1,3 +1,4 @@
+from typing import Literal
 from uuid import UUID
 
 from pydantic import Field
@@ -7,17 +8,19 @@ from posthog.hogql import ast
 from ...facade.enums import CheckType, SubjectType
 from ..contracts import CheckPlan, SubjectRef
 from ..errors import SubjectUnresolvableError
-from ..spec import CheckConfig, CheckTypeSpec
+from ..spec import CheckConfig, QueryCheckTypeSpec
 from .common import column, diagnostic_of, one, subject_source
 
 
 class RelationshipsConfig(CheckConfig):
-    to_subject_type: SubjectType = Field(description="Kind of catalog object holding the referenced values.")
+    to_subject_type: Literal[SubjectType.TABLE, SubjectType.VIEW] = Field(
+        description="Kind of catalog object holding the referenced values."
+    )
     to_subject_uuid: UUID = Field(description="Id of the table or view holding the referenced values.")
     to_column: str = Field(min_length=1, description="Column holding the referenced values.")
 
 
-class RelationshipsSpec(CheckTypeSpec):
+class RelationshipsSpec(QueryCheckTypeSpec):
     """Referential integrity: every non-null value must exist in another subject's column."""
 
     type_name = CheckType.RELATIONSHIPS

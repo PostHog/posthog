@@ -29,10 +29,10 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
     subject_type = serializers.ChoiceField(
         choices=[(t.value, t.value) for t in SubjectType],
         read_only=True,
-        help_text="Kind of catalog object being checked: 'table' (a synced warehouse table) or 'view' (a saved query).",
+        help_text="Kind of catalog object being checked: 'table', 'view', or 'metric'.",
     )
     subject_uuid = serializers.SerializerMethodField(
-        help_text="Id of the table or view being checked -- the parent resource in the URL."
+        help_text="Id of the table, view, or metric being checked, from the parent resource in the URL."
     )
     check_type = serializers.ChoiceField(
         choices=[(t.value, t.value) for t in CheckType],
@@ -212,6 +212,9 @@ class DataQualityOverviewCheckSerializer(DataQualityCheckSerializer):
     subject_schema_id = serializers.SerializerMethodField(
         help_text="Warehouse source schema of the table this check audits, or null when the subject is a view."
     )
+    subject_metric_name = serializers.SerializerMethodField(
+        help_text="Current metric name for opening its Tests tab, or null for other subjects."
+    )
 
     class Meta(DataQualityCheckSerializer.Meta):
         fields = [
@@ -219,6 +222,7 @@ class DataQualityOverviewCheckSerializer(DataQualityCheckSerializer):
             "subject_node_id",
             "subject_source_id",
             "subject_schema_id",
+            "subject_metric_name",
         ]
 
     def _location(self, obj: DataQualityCheck) -> api.SubjectLocation:
@@ -237,6 +241,10 @@ class DataQualityOverviewCheckSerializer(DataQualityCheckSerializer):
     @extend_schema_field(serializers.UUIDField(allow_null=True))
     def get_subject_schema_id(self, obj: DataQualityCheck) -> str | None:
         return self._location(obj).schema_id
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_subject_metric_name(self, obj: DataQualityCheck) -> str | None:
+        return self._location(obj).metric_name
 
 
 @extend_schema_serializer(component_name="DataQualityCheckRun")
@@ -314,9 +322,9 @@ class DataQualitySuiteRunSerializer(serializers.ModelSerializer):
     status = serializers.CharField(
         read_only=True, help_text="running, completed, failed, or empty (nothing matched the trigger)."
     )
-    trigger = serializers.CharField(read_only=True, help_text="manual, materialization, or source_sync.")
+    trigger = serializers.CharField(read_only=True, help_text="manual, materialization, source_sync, or scheduled.")
     subject_type = serializers.SerializerMethodField(
-        help_text="'table' or 'view' when the run targets exactly one subject, including a run of a "
+        help_text="'table', 'view', or 'metric' when the run targets exactly one subject, including a run of a "
         "single check on that subject; null for a run spanning several subjects."
     )
 
@@ -351,8 +359,8 @@ class DataQualitySuiteRunSerializer(serializers.ModelSerializer):
 class SubjectHealthSerializer(serializers.Serializer):
     """Per-subject rollup, the same rule the information_schema.data_quality_health table uses."""
 
-    subject_type = serializers.CharField(help_text="'table' or 'view'.")
-    subject_uuid = serializers.CharField(help_text="Id of the table or view.")
+    subject_type = serializers.CharField(help_text="'table', 'view', or 'metric'.")
+    subject_uuid = serializers.CharField(help_text="Id of the table, view, or metric.")
     health = serializers.CharField(
         help_text="failing (an error-severity check failed), erroring (a check could not run), "
         "warn (only warn-severity failures), healthy, or unknown (nothing has run yet)."

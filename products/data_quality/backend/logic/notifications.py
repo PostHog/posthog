@@ -4,7 +4,9 @@ Only the pass-to-fail edge notifies, and only for error-severity checks. A check
 run after run is already known about; re-notifying every run is how an inbox gets ignored.
 """
 
+from collections.abc import Sequence
 from typing import cast
+from urllib.parse import quote
 
 import structlog
 
@@ -28,7 +30,17 @@ from ..facade.enums import CheckRunStatus, SubjectType
 from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from .checks import checks_for_subject
 from .flags import is_data_quality_checks_enabled_for_team_id
-from .subject_access import denied_subject_names, is_subject_denied, referenced_subject_names, referencing_check_types
+from .subject_access import (
+    SubjectMetadata,
+    caller_denial_context,
+    can_be_object_denied,
+    denied_subject_names,
+    is_subject_denied,
+    referenced_subject_names,
+    referencing_check_types,
+    subject_metadata,
+)
+from .subjects import resolve_subject
 
 LOGGER = structlog.get_logger(__name__)
 
@@ -63,15 +75,18 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         subject_type: str,
         subject_uuid: str,
         referenced_names: list[str] | None = None,
+        executed_references: Sequence[dict[str, str]] | None = (),
     ) -> None:
         self._team = team
         self._subject_type = subject_type
         self._subject_uuid = subject_uuid
         self._referenced_names = referenced_names or []
+        self._executed_references = executed_references
         # One access-control object per member, reused across both gates below (and the warehouse
         # database build the referenced-subject gate runs) so a single failing check doesn't rebuild
         # it -- and its membership, role, and access-control lookups -- once per pass.
         self._access: dict[int, UserAccessControl] = {}
+        self._subject_metadata: SubjectMetadata | None = None
 
     def _access_of(self, user: User) -> UserAccessControl:
         access = self._access.get(user.id)
@@ -89,6 +104,8 @@ class _WarehouseSubjectResolver(RecipientsResolver):
     def resolve(self, target_type: TargetType, target_id: str, team_id: int | None) -> list[int]:
         user_ids = super().resolve(target_type, target_id, team_id)
         user_ids = self.filter_by_access_control(user_ids, "query", self._team)
+        if self._subject_type == SubjectType.METRIC:
+            user_ids = self.filter_by_access_control(user_ids, "data_catalog", self._team)
         user_ids = self._filter_by_object_access(user_ids)
         return self._filter_by_referenced_subject_access(user_ids)
 
@@ -112,7 +129,7 @@ class _WarehouseSubjectResolver(RecipientsResolver):
         # The declared subject isn't the only one the count depends on: a relationships check reads
         # its target and a custom_sql check reads arbitrary tables. Drop members denied any of those,
         # matching the run-history endpoint -- resolved by name the same way the loaders resolve them.
-        if not self._referenced_names:
+        if not self._referenced_names and self._executed_references is not None and not self._executed_references:
             return user_ids
 
         # No warehouse access control means no denials, so skip the per-member database build the
@@ -122,37 +139,61 @@ class _WarehouseSubjectResolver(RecipientsResolver):
 
         allowed: list[int] = []
         for user in User.objects.filter(id__in=user_ids):
-            denied = denied_subject_names(self._team, user, self._access_of(user))
+            if self._executed_references is None and can_be_object_denied(self._access_of(user)):
+                continue
+            if self._executed_references:
+                if self._subject_metadata is None:
+                    self._subject_metadata = subject_metadata(self._team.id)
+                context = caller_denial_context(
+                    self._team, user, self._access_of(user), metadata=self._subject_metadata
+                )
+                if not all(
+                    context.readable.contains(ref["subject_type"], ref["subject_uuid"])
+                    for ref in self._executed_references
+                ):
+                    continue
+                denied = context.denied
+            else:
+                denied = denied_subject_names(self._team, user, self._access_of(user))
             if not any(is_subject_denied(name, denied) for name in self._referenced_names):
                 allowed.append(user.id)
         return allowed
 
 
-def notify_check_started_failing(check: DataQualityCheck, failed_row_count: int | None) -> None:
+def notify_check_started_failing(
+    check: DataQualityCheck, failed_row_count: int | None, *, executed_references: Sequence[dict[str, str]] | None = ()
+) -> None:
     """Best-effort: a notification failure must never take down the run that produced it."""
     try:
         if not is_data_quality_checks_enabled_for_team_id(check.team_id) or check.subject_uuid is None:
             return
         team = Team.objects.get(id=check.team_id)
+        subject = resolve_subject(team.id, check.subject_type, check.subject_uuid)
+        is_metric = check.subject_type == SubjectType.METRIC
+        subject_name = subject.name if is_metric else check.subject_name
         create_notification(
             NotificationData(
                 team_id=check.team_id,
                 notification_type=NotificationType.DATA_QUALITY_CHECK_FAILURE,
                 priority=Priority.NORMAL,
-                title=f"Data quality check failed on {check.subject_name}",
+                title=f"Data quality check failed on {subject_name}",
                 body=_body(check, failed_row_count),
                 target_type=TargetType.TEAM,
                 target_id=str(check.team_id),
                 # The body names a warehouse table or view and one of its columns, so it points at
                 # the subject object (not the check) and the resolver filters recipients down to
                 # members with object-level access to it, plus query access for the count.
-                resource_type="warehouse_objects",
+                resource_type="data_catalog" if is_metric else "warehouse_objects",
                 resource_id=str(check.subject_uuid),
+                source_url=f"/project/{team.id}/data-catalog/metrics/{quote(subject_name, safe='')}?tab=tests"
+                if is_metric
+                else "",
                 resolver=_WarehouseSubjectResolver(
                     team,
                     check.subject_type,
                     str(check.subject_uuid),
-                    referenced_names=referenced_subject_names(team.id, check.check_type, check.config),
+                    referenced_names=referenced_subject_names(team.id, check.check_type, check.config, subject=subject),
+                    executed_references=executed_references,
                 ),
             )
         )

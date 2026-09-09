@@ -1055,9 +1055,10 @@ def _can_read_data_quality(context: "HogQLContext") -> bool:
     access_control = _access_control(context)
     if access_control is None:
         return False
-    return access_control.check_access_level_for_resource(
-        "warehouse_view", "viewer"
-    ) or access_control.check_access_level_for_resource("warehouse_table", "viewer")
+    return any(
+        access_control.check_access_level_for_resource(resource, "viewer")
+        for resource in ("warehouse_view", "warehouse_table", "data_catalog")
+    )
 
 
 def _access_control(context: "HogQLContext") -> Any:
@@ -1094,7 +1095,9 @@ def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[st
         from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
 
         denied = context.database._denied_tables if context.database is not None else set()
-        queryset = DataQualityCheck.objects.for_team(team_id).filter(deleted=False).order_by("-created_at")
+        queryset = data_quality.live_subject_checks(
+            DataQualityCheck.objects.for_team(team_id).filter(deleted=False)
+        ).order_by("-created_at")
         if allowed is not None:
             queryset = queryset.filter(name__in=allowed)
         checks = list(queryset)
@@ -1197,7 +1200,9 @@ def _data_quality_health(context: "HogQLContext", allowed: Optional[frozenset[st
         from products.data_quality.backend.facade import api as data_quality  # noqa: PLC0415
 
         denied = context.database._denied_tables if context.database is not None else set()
-        checks_qs = DataQualityCheck.objects.for_team(team_id).filter(deleted=False, enabled=True)
+        checks_qs = data_quality.live_subject_checks(
+            DataQualityCheck.objects.for_team(team_id).filter(deleted=False, enabled=True)
+        )
         if allowed is not None:
             checks_qs = checks_qs.filter(subject_name__in=allowed)
         checks = list(checks_qs)
@@ -1944,7 +1949,7 @@ class InformationSchemaRelationshipProposalsTable(InformationSchemaTable):
 
 class InformationSchemaDataQualityChecksTable(LazyTable):
     description: str = (
-        "Data quality checks defined on the project's warehouse tables and views (dbt-test style); one row "
+        "Data quality checks defined on the project's warehouse tables, views, and HogQL metrics; one row "
         "per check. Query this before authoring a check so you extend the existing coverage instead of "
         "duplicating it. A check passes when its assertion finds zero failing rows; see "
         "information_schema.data_quality_check_runs for outcomes and data_quality_health for the per-subject "
@@ -1953,11 +1958,15 @@ class InformationSchemaDataQualityChecksTable(LazyTable):
     fields: dict[str, FieldOrTable] = {
         "id": _string_field("id", description="Stable UUID of the check (pass to the run/update/delete tools)."),
         "name": _string_field("name", nullable=True, description="Optional handle; NULL when addressed by id."),
-        "subject_type": _string_field("subject_type", description="'table' (synced source) or 'view' (saved query)."),
-        "subject_uuid": _string_field(
-            "subject_uuid", nullable=True, description="UUID of the checked table or view; NULL once hard-deleted."
+        "subject_type": _string_field(
+            "subject_type", description="'table' (synced source), 'view' (saved query), or 'metric' (catalog metric)."
         ),
-        "subject_name": _string_field("subject_name", description="Queryable name of the checked table or view."),
+        "subject_uuid": _string_field(
+            "subject_uuid",
+            nullable=True,
+            description="UUID of the checked table, view, or metric; NULL once hard-deleted.",
+        ),
+        "subject_name": _string_field("subject_name", description="Name of the checked table, view, or metric."),
         "subject_status": _string_field(
             "subject_status", description="'active', or 'orphaned' once the subject stops resolving."
         ),

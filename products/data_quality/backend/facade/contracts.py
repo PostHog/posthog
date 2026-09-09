@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, TypeGuard
 
 CHECK_SUITE_WORKFLOW_NAME = "data-quality-run-suite"
+DISPATCH_SCHEDULED_SUITES_WORKFLOW_NAME = "data-quality-dispatch-scheduled-suites"
 
 MATERIALIZATION_GATE_ACTIVITY_NAME = "data-quality-materialization-gate"
 
@@ -35,3 +36,4 @@ class CheckTypeInfo:
     description: str
     requires_column: bool
     config_schema: dict[str, Any] = field(default_factory=dict)
+    subject_types: list[str] = field(default_factory=list)

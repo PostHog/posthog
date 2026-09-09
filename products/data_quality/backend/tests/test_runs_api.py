@@ -1,17 +1,23 @@
+from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, PersonalAPIKey
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.db_context_capturing import capture_db_queries
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.data_catalog.backend.facade.models import Metric
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node
 from products.data_quality.backend.facade import api
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckType, SubjectStatus, SubjectType
@@ -51,6 +57,14 @@ class TestDataQualityRunAPI(APIBaseTest):
         view.is_materialized = True
         view.save(update_fields=["table", "is_materialized"])
         return backing_table
+
+    def _metric(self, name: str) -> Metric:
+        return Metric.objects.for_team(self.team.id).create(
+            team=self.team,
+            name=name,
+            definition={"kind": "HogQLQuery", "query": "SELECT 1 AS value"},
+            referenced_table_names=[],
+        )
 
     def _check(self, view: DataWarehouseSavedQuery, **overrides) -> DataQualityCheck:
         return DataQualityCheck.objects.for_team(self.team.id).create(
@@ -93,6 +107,167 @@ class TestDataQualityRunAPI(APIBaseTest):
         warehouse_ac.start()
         self.addCleanup(warehouse_ac.stop)
         cache.clear()
+
+    def _authenticate_token(self, kind: str, scopes: list[str]) -> None:
+        if kind == "pat":
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                user=self.user, label="Data quality", secure_value=hash_key_value(token), scopes=scopes
+            )
+        else:
+            application = OAuthApplication.objects.create(
+                name="Data quality",
+                user=self.user,
+                organization=self.organization,
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+            )
+            token = f"pha_{uuid4().hex}"
+            OAuthAccessToken.objects.create(
+                user=self.user,
+                application=application,
+                token=token,
+                expires=timezone.now() + timedelta(hours=1),
+                scope=" ".join(scopes),
+            )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    @parameterized.expand(
+        [
+            (kind, resource, admin)
+            for kind in ("pat", "oauth")
+            for resource in ("warehouse_objects", "data_catalog")
+            for admin in (False, True)
+        ]
+    )
+    def test_project_endpoints_filter_token_subjects(self, kind: str, resource: str, admin: bool) -> None:
+        warehouse_check = self._check(self.orders)
+        metric = self._metric("signups")
+        metric_check = self._check(
+            self.orders,
+            saved_query_id=None,
+            metric_id=metric.id,
+            subject_type=SubjectType.METRIC,
+            subject_name=metric.name,
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT * FROM {metric}"},
+        )
+        allowed, denied = (
+            (warehouse_check, metric_check) if resource == "warehouse_objects" else (metric_check, warehouse_check)
+        )
+        suites = []
+        for check in (allowed, denied):
+            assert check.subject_uuid is not None
+            suites.append(
+                DataQualitySuiteRun.objects.for_team(self.team.id).create(
+                    team=self.team,
+                    trigger="manual",
+                    subject_type=check.subject_type,
+                    subject_uuid=check.subject_uuid,
+                )
+            )
+        mixed = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")
+        for check in (allowed, denied):
+            assert check.subject_uuid is not None
+            api.record_check_run(
+                self.team.id,
+                suite_run=mixed,
+                quality_check=check,
+                subject_type=check.subject_type,
+                subject_uuid=check.subject_uuid,
+                subject_name=check.subject_name,
+                check_type=check.check_type,
+                check_fingerprint=check.fingerprint,
+                status=CheckRunStatus.PASSED,
+                referenced_subjects=[],
+            )
+        if admin:
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save(update_fields=["level"])
+        self._authenticate_token(kind, [f"{resource}:write", "query:read"])
+
+        listed = self.client.get(self.checks_url)
+        assert listed.status_code == 200, listed.json()
+        assert listed.json()["count"] == 1
+        assert [check["id"] for check in listed.json()["results"]] == [str(allowed.id)]
+        health = self.client.get(f"{self.checks_url}health/")
+        assert health.status_code == 200, health.json()
+        assert [row["subject_type"] for row in health.json()] == [allowed.subject_type]
+        history = self.client.get(self.url)
+        assert history.status_code == 200, history.json()
+        assert [suite["id"] for suite in history.json()["results"]] == [str(suites[0].id)]
+        assert self.client.get(f"{self.url}{suites[1].id}/").status_code == 404
+        assert self._run(check_ids=[str(denied.id)]).status_code == 403
+        assert self._run(check_ids=[str(allowed.id)]).status_code == 200
+        temporal = MagicMock(start_workflow=AsyncMock())
+        with patch(START_SUITE, return_value=temporal):
+            swept = self.client.post(self.url, {}, format="json")
+        assert swept.status_code == 200, swept.json()
+        assert temporal.start_workflow.call_args.args[1]["check_ids"] == [str(allowed.id)]
+
+    @parameterized.expand([(kind, admin) for kind in ("pat", "oauth") for admin in (False, True)])
+    def test_catalog_token_cannot_read_warehouse_through_a_metric_check(self, kind: str, admin: bool) -> None:
+        metric = self._metric("signups")
+        check = self._check(
+            self.orders,
+            saved_query_id=None,
+            metric_id=metric.id,
+            subject_type=SubjectType.METRIC,
+            subject_name=metric.name,
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT * FROM {metric} JOIN orders ON 1 = 1"},
+        )
+        if admin:
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save(update_fields=["level"])
+        self._authenticate_token(kind, ["data_catalog:write", "query:read"])
+        listed = self.client.get(self.checks_url)
+        assert listed.status_code == 200
+        assert listed.json()["results"] == []
+        assert self.client.get(f"{self.checks_url}health/").json() == []
+        assert self._run(check_ids=[str(check.id)]).status_code == 403
+        temporal = MagicMock(start_workflow=AsyncMock())
+        with patch(START_SUITE, return_value=temporal):
+            swept = self.client.post(self.url, {}, format="json")
+        assert swept.status_code == 200
+        temporal.start_workflow.assert_not_called()
+        nested_url = f"/api/projects/{self.team.id}/data_catalog/metrics/{metric.id}/checks/"
+        nested = self.client.get(nested_url)
+        assert nested.status_code == 200
+        assert nested.json()["results"] == []
+        with patch(START_SUITE, return_value=temporal):
+            assert self.client.post(f"{nested_url}{check.id}/run/").status_code == 403
+
+    @parameterized.expand(
+        [
+            (["query:read", "data_catalog:read"], 200, 403),
+            (["query:read"], 403, 403),
+            (["data_catalog:write"], 403, 403),
+            (["*"], 200, 200),
+        ]
+    )
+    def test_project_subject_scope_requirements(self, scopes: list[str], read_status: int, write_status: int) -> None:
+        self._authenticate_token("pat", scopes)
+        assert self.client.get(self.checks_url).status_code == read_status
+        assert self._run().status_code == write_status
+
+    @parameterized.expand([("metric",), ("view",)])
+    def test_deleted_subject_checks_disappear_immediately(self, kind: str) -> None:
+        subject = self._metric("signups") if kind == "metric" else self.orders
+        if kind == "metric":
+            self._check(self.orders, saved_query_id=None, metric_id=subject.id, subject_type=SubjectType.METRIC)
+        else:
+            self._check(self.orders)
+        subject.deleted = True
+        subject.save(update_fields=["deleted"])
+        assert self.client.get(self.checks_url).json()["results"] == []
+        assert self.client.get(f"{self.checks_url}health/").json() == []
+        assert self._run().json()["status"] == "empty"
 
     def test_running_with_no_selection_runs_every_enabled_check(self) -> None:
         self._check(self.orders)
@@ -142,6 +317,21 @@ class TestDataQualityRunAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["status"] == "empty"
         connect.assert_not_called()
+
+    @parameterized.expand([("named",), ("swept",)])
+    def test_run_selection_respects_denied_references(self, selection: str) -> None:
+        check = self._check(
+            self.customers,
+            check_type=CheckType.CUSTOM_SQL,
+            column_name="",
+            config={"query": "SELECT * FROM orders"},
+        )
+        self._deny_orders()
+        body = {"check_ids": [str(check.id)]} if selection == "named" else {}
+        response = self._run(**body)
+        assert response.status_code == (403 if selection == "named" else 200), response.json()
+        if selection == "swept":
+            assert response.json()["status"] == "empty"
 
     def test_naming_a_denied_check_is_refused(self) -> None:
         # Naming one is an attempt to read it, so it 403s rather than being silently dropped.
@@ -495,11 +685,26 @@ class TestDataQualityRunAPI(APIBaseTest):
             )
             for index in range(5)
         ]
+        # More metrics than the page checks, so the catalog's size cannot reach the result.
+        metrics = [self._metric(f"metric_{index}") for index in range(5)]
+        metric_checks = [
+            self._check(
+                self.orders,
+                subject_type=SubjectType.METRIC,
+                saved_query_id=None,
+                metric_id=metric.id,
+                subject_name=metric.name,
+                check_type=CheckType.CUSTOM_SQL,
+                column_name="",
+                config={"query": "SELECT * FROM {metric} WHERE value < 1"},
+            )
+            for metric in metrics[:2]
+        ]
 
-        with self.assertNumQueries(2):
-            located = api.subject_locations(self.team.id, [*views, *tables])
+        with self.assertNumQueries(4):
+            located = api.subject_locations(self.team.id, [*views, *tables, *metric_checks])
 
-        assert len(located) == 5
+        assert len(located) == 7
 
     def _synced_table(self, name: str) -> tuple[DataWarehouseTable, ExternalDataSchema]:
         source = ExternalDataSource.objects.create(team=self.team, source_type="Stripe")

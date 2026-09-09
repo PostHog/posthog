@@ -13,7 +13,7 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from ..facade.enums import CheckType
+from ..facade.enums import CheckType, SubjectType
 from .contracts import CheckPlan, SubjectRef
 from .errors import CheckConfigError
 
@@ -39,6 +39,11 @@ class CheckTypeSpec(ABC):
     config_model: ClassVar[type[CheckConfig]]
     requires_column: ClassVar[bool]
     description: ClassVar[str]
+    subject_types: ClassVar[frozenset[SubjectType]] = frozenset({SubjectType.TABLE, SubjectType.VIEW})
+    reads_beyond_subject: ClassVar[bool] = False
+
+    def validate_for_subject(self, config: CheckConfig, subject: SubjectRef) -> None:
+        return None
 
     @property
     def json_schema(self) -> dict[str, Any]:
@@ -82,6 +87,17 @@ class CheckTypeSpec(ABC):
         scope only."""
         return []
 
+    def referenced_table_names_for_subject(self, subject: SubjectRef, config: CheckConfig) -> list[str]:
+        """Warehouse names this check reads after its subject has been resolved.
+
+        Most checks are independent of their subject's definition, so their existing config-only
+        reference list remains sufficient. Custom SQL over metrics binds a saved query into its AST,
+        which needs the resolved subject to identify the tables it reaches.
+        """
+        return self.referenced_table_names(config)
+
+
+class QueryCheckTypeSpec(CheckTypeSpec):
     @abstractmethod
     def build(
         self,

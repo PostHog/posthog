@@ -1,8 +1,8 @@
 """Authoring and triggering data quality checks.
 
 Creation is an upsert on the fingerprint (KTD: agents re-propose the same check constantly, and a
-duplicate row is worse than a no-op). Everything that runs a check goes through Temporal -- nothing
-here waits on a warehouse query.
+duplicate row is worse than a no-op). Check runs go through Temporal. Metric authoring validates
+the composed SQL without executing the query.
 """
 
 import asyncio
@@ -14,7 +14,7 @@ from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from temporalio.common import RetryPolicy
 
@@ -24,15 +24,16 @@ from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
 
 from ..facade.contracts import CHECK_SUITE_WORKFLOW_NAME
-from ..facade.enums import SubjectHealth, SubjectStatus, SubjectType, SuiteRunStatus, SuiteRunTrigger
+from ..facade.enums import CheckType, SubjectHealth, SubjectStatus, SubjectType, SuiteRunStatus, SuiteRunTrigger
 from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from .compiler import related_subject_ref
-from .errors import DuplicateDefinitionError, NameConflictError, SubjectUnresolvableError
+from .errors import CheckConfigError, DuplicateDefinitionError, NameConflictError, SubjectUnresolvableError
 from .exceptions import CheckNameConflict
 from .health import CheckStatusRow, roll_up_health
 from .registry import get_spec
+from .schedules import get_or_create_schedule
 from .serialization import compute_fingerprint
-from .spec import CheckConfig
+from .spec import CheckConfig, QueryCheckTypeSpec
 from .subjects import resolve_subject, subject_column_type
 
 _UPSERTABLE_FIELDS = (
@@ -58,7 +59,11 @@ def _subject_fk(subject_type: str, subject_uuid: str | UUID) -> dict[str, Any]:
     """The FK kwargs for whichever subject kind this is."""
     if subject_type == SubjectType.TABLE:
         return {"table_id": subject_uuid}
-    return {"saved_query_id": subject_uuid}
+    if subject_type == SubjectType.VIEW:
+        return {"saved_query_id": subject_uuid}
+    if subject_type == SubjectType.METRIC:
+        return {"metric_id": subject_uuid}
+    raise ValueError(f"Unknown check subject type: {subject_type}")
 
 
 def validate_check(
@@ -68,6 +73,8 @@ def validate_check(
     check_type: str,
     column_name: str,
     config: dict[str, Any],
+    *,
+    user: User | None = None,
 ) -> CheckConfig:
     """Reject a check the compiler could never run, at authoring time rather than at run time.
 
@@ -75,11 +82,22 @@ def validate_check(
     normalized form rather than whatever representation the request happened to use.
     """
     spec = get_spec(check_type)
+    if SubjectType(subject_type) not in spec.subject_types:
+        raise CheckConfigError(f"A {check_type} check cannot target a {subject_type}. Choose a supported check type.")
     parsed = spec.validate(config, column_name)
 
-    if not resolve_subject(team.id, subject_type, subject_uuid).exists:
+    subject = resolve_subject(team.id, subject_type, subject_uuid)
+    if not subject.exists:
         raise SubjectUnresolvableError(f"No {subject_type} with id {subject_uuid} in this project.")
-
+    if subject.subject_type == SubjectType.METRIC:
+        if check_type != CheckType.CUSTOM_SQL or column_name:
+            raise CheckConfigError("A metric check requires custom_sql and an empty column_name.")
+        if subject.metric_definition is None:
+            raise CheckConfigError("Metric checks require a live HogQL definition.")
+        assert isinstance(spec, QueryCheckTypeSpec)
+        spec.build(subject, column_name, parsed)
+    else:
+        spec.validate_for_subject(parsed, subject)
     # After the subject resolves, so the column type is only looked up for a check that could run.
     parsed = spec.coerce_to_column(parsed, subject_column_type(team.id, subject_type, subject_uuid, column_name))
 
@@ -102,7 +120,7 @@ def upsert_check(
     **optional: Any,
 ) -> tuple[DataQualityCheck, bool]:
     """Create the check, or refine the one already carrying this fingerprint. Returns (check, created)."""
-    parsed = validate_check(team, subject_type, subject_uuid, check_type, column_name, config)
+    parsed = validate_check(team, subject_type, subject_uuid, check_type, column_name, config, user=user)
     subject = resolve_subject(team.id, subject_type, subject_uuid)
 
     # Stored in the same canonical form the fingerprint hashes, so a created check and one edited
@@ -139,6 +157,8 @@ def upsert_check(
                     **_subject_fk(subject_type, subject_uuid),
                     **fields,
                 )
+                if subject_type == SubjectType.METRIC:
+                    get_or_create_schedule(team.id, subject_type, subject_uuid, created_by_id=user.id if user else None)
             return check, True
         except IntegrityError:
             # Check-then-insert race: a concurrent identical request inserted this fingerprint between
@@ -199,26 +219,37 @@ def edit_check(*, team: Team, check: DataQualityCheck, editor: User | None, **fi
     same conflict the precheck raises.
     """
     requested = {key: value for key, value in fields.items() if key in _EDITABLE_FIELDS}
-    try:
-        with transaction.atomic():
-            locked = DataQualityCheck.objects.for_team(team.id).select_for_update().get(id=check.id)
-            return _commit_edit(team, locked, editor, requested)
-    except IntegrityError:
-        # Which constraint lost decides which field the error is addressed to. Asking about the
-        # definition alone would answer "duplicate" for every one of them, since an edit that leaves
-        # the assertion alone still finds its own fingerprint.
-        candidate = _candidate_definition(team, check, requested)
-        if _definition_taken(check, candidate.fingerprint):
-            raise DuplicateDefinitionError()
-        if _name_taken(team.id, requested.get("name") or "", exclude_id=check.id):
-            raise NameConflictError()
-        raise
+    while True:
+        current = DataQualityCheck.objects.for_team(team.id).get(id=check.id)
+        candidate = _candidate_definition(team, current, requested, editor)
+        try:
+            with transaction.atomic():
+                locked = DataQualityCheck.objects.for_team(team.id).select_for_update().get(id=check.id)
+                if (locked.subject_type, locked.subject_uuid, locked.fingerprint) != (
+                    current.subject_type,
+                    current.subject_uuid,
+                    current.fingerprint,
+                ):
+                    continue
+                return _commit_edit(team, locked, editor, requested, candidate)
+        except IntegrityError:
+            # Which constraint lost decides which field the error is addressed to. Asking about the
+            # definition alone would answer "duplicate" for every one of them, since an edit that leaves
+            # the assertion alone still finds its own fingerprint.
+            if _definition_taken(current, candidate.fingerprint):
+                raise DuplicateDefinitionError()
+            if _name_taken(team.id, requested.get("name") or "", exclude_id=check.id):
+                raise NameConflictError()
+            raise
 
 
 def _commit_edit(
-    team: Team, check: DataQualityCheck, editor: User | None, requested: dict[str, Any]
+    team: Team,
+    check: DataQualityCheck,
+    editor: User | None,
+    requested: dict[str, Any],
+    candidate: _CandidateDefinition,
 ) -> DataQualityCheck:
-    candidate = _candidate_definition(team, check, requested)
     _ensure_definition_available(check, candidate.fingerprint)
     if _name_taken(team.id, requested.get("name") or "", exclude_id=check.id):
         raise NameConflictError()
@@ -242,7 +273,9 @@ def _commit_edit(
     return check
 
 
-def _candidate_definition(team: Team, check: DataQualityCheck, requested: dict[str, Any]) -> _CandidateDefinition:
+def _candidate_definition(
+    team: Team, check: DataQualityCheck, requested: dict[str, Any], editor: User | None
+) -> _CandidateDefinition:
     check_type = requested.get("check_type", check.check_type)
     column_name = requested.get("column_name", check.column_name)
     parsed = validate_check(
@@ -252,6 +285,7 @@ def _candidate_definition(team: Team, check: DataQualityCheck, requested: dict[s
         check_type,
         column_name,
         requested.get("config", check.config) or {},
+        user=editor,
     )
     config = parsed.model_dump(mode="json")
     return _CandidateDefinition(
@@ -291,13 +325,26 @@ def soft_delete_check(check: DataQualityCheck) -> None:
     check.save(update_fields=["deleted", "deleted_at", "enabled", "updated_at"])
 
 
+def live_subject_checks(checks: QuerySet[DataQualityCheck]) -> QuerySet[DataQualityCheck]:
+    return (
+        checks.filter(
+            Q(subject_type=SubjectType.METRIC, metric_id__isnull=False)
+            | Q(subject_type=SubjectType.VIEW, saved_query_id__isnull=False)
+            | Q(subject_type=SubjectType.TABLE, table_id__isnull=False)
+        )
+        .exclude(metric__deleted=True)
+        .exclude(saved_query__deleted=True)
+        .exclude(table__deleted=True)
+    )
+
+
 def checks_for_subject(
     team_id: int, subject_type: str, subject_uuid: str | UUID, include_deleted: bool = False
 ) -> QuerySet[DataQualityCheck]:
     queryset = DataQualityCheck.objects.for_team(team_id).filter(**_subject_fk(subject_type, subject_uuid))
     # A soft-deleted check's past runs still sit in the aggregate counts of suites it ran in, so
     # authorization over a *historical* suite has to see it too, even though it no longer runs.
-    return queryset if include_deleted else queryset.filter(deleted=False)
+    return queryset if include_deleted else live_subject_checks(queryset.filter(deleted=False))
 
 
 def latest_run_ids(team_id: int, check_ids: Iterable[UUID]) -> list[UUID]:
@@ -363,6 +410,7 @@ def start_check_suite(
         trigger=trigger,
         saved_query_ids=subject_uuids if subject_type == SubjectType.VIEW else [],
         table_ids=subject_uuids if subject_type == SubjectType.TABLE else [],
+        metric_ids=subject_uuids if subject_type == SubjectType.METRIC else [],
         check_ids=check_ids or [],
         suite_run_id=str(suite_run.id),
         created_by_id=user.id if user else None,
