@@ -156,8 +156,6 @@ def lookup_slack_user_id_by_email(
     slack: SlackIntegration,
     integration: Integration,
     email: str,
-    *,
-    raise_on_error: bool = False,
 ) -> str | None:
     """Resolve a Slack user ID from a PostHog user email.
 
@@ -176,8 +174,6 @@ def lookup_slack_user_id_by_email(
         user_info = normalize_slack_response(slack.client.users_lookupByEmail(email=email))
     except SlackApiError as exc:
         error_code = exc.response.get("error") if exc.response else None
-        if raise_on_error and error_code != "users_not_found":
-            raise
         if error_code != "users_not_found":
             logger.warning(
                 "slack_user_id_by_email_lookup_failed",

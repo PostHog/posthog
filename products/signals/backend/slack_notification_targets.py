@@ -12,6 +12,7 @@ by never being pinged.
 from __future__ import annotations
 
 import re
+import hashlib
 import logging
 
 from django.core.cache import cache
@@ -25,9 +26,6 @@ from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.models import SignalUserAutonomyConfig
 from products.signals.backend.slack_formatting import slack_channel_id_from_target
-from products.slack_app.backend.services.slack_user_info import (
-    lookup_slack_user_id_by_email as cached_lookup_slack_user_id_by_email,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +59,45 @@ def lookup_slack_user_id_by_email(
     slack: SlackIntegration, email: str, integration: Integration | None = None
 ) -> str | None:
     integration = integration or slack.integration
-    return cached_lookup_slack_user_id_by_email(slack, integration, email, raise_on_error=True)
+    normalized_email = email.strip().lower()
+    if not normalized_email:
+        return None
+
+    email_hash = hashlib.sha256(normalized_email.encode()).hexdigest()
+    lookup_key = f"signals/slack/{integration.id}/users_by_email/{email_hash}"
+    cached_member_id = cache.get(lookup_key)
+    if cached_member_id is not None:
+        return cached_member_id or None
+
+    _take_member_lookup_budget(integration)
+    try:
+        response = slack.client.users_lookupByEmail(email=normalized_email)
+    except SlackApiError as exc:
+        error_code = exc.response.get("error") if exc.response else None
+        if error_code == "users_not_found":
+            cache.set(lookup_key, "", 60 * 60)
+            return None
+        logger.warning(
+            "signals_inbox_slack_user_email_lookup_failed",
+            extra={"integration_id": integration.id, "error": error_code},
+        )
+        raise
+
+    data = response.data if hasattr(response, "data") and isinstance(response.data, dict) else response
+    slack_user = data.get("user") if isinstance(data, dict) and data.get("ok") else None
+    member_id = str(slack_user["id"]) if isinstance(slack_user, dict) and slack_user.get("id") else None
+    cache.set(lookup_key, member_id or "", 60 * 60)
+    return member_id
+
+
+def _take_member_lookup_budget(integration: Integration) -> None:
+    budget_key = f"signals/slack/{integration.id}/member_lookup_budget"
+    try:
+        lookups = 1 if cache.add(budget_key, 1, 60) else cache.incr(budget_key)
+    except ValueError:
+        lookups = 1
+    if lookups > _MEMBER_LOOKUPS_PER_MINUTE:
+        raise serializers.ValidationError({"slack_notification_direct_message": _SLACK_UNAVAILABLE_ERROR})
 
 
 def _cached_slack_member(slack: SlackIntegration, integration: Integration, member_id: str) -> dict | None:
@@ -70,14 +106,7 @@ def _cached_slack_member(slack: SlackIntegration, integration: Integration, memb
     if cached_lookup is not None:
         return cached_lookup[0] if cached_lookup else None
 
-    budget_key = f"slack/{integration.id}/users_info_budget"
-    try:
-        lookups = 1 if cache.add(budget_key, 1, 60) else cache.incr(budget_key)
-    except ValueError:
-        lookups = 1
-    if lookups > _MEMBER_LOOKUPS_PER_MINUTE:
-        raise serializers.ValidationError({"slack_notification_direct_message": _SLACK_UNAVAILABLE_ERROR})
-
+    _take_member_lookup_budget(integration)
     member = slack.get_user_by_id(member_id)
     serialized_lookup = (
         [{"id": member["id"], "name": member.get("name", ""), "display_name": _member_display_name(member)}]

@@ -14,11 +14,15 @@ from posthog.models.user_integration import UserIntegration
 from products.signals.backend.models import SignalUserAutonomyConfig
 from products.signals.backend.slack_notification_targets import (
     is_slack_member_target,
+    lookup_slack_user_id_by_email,
     validate_slack_notification_target,
 )
 
 
 class TestSlackNotificationTargets(SimpleTestCase):
+    def setUp(self) -> None:
+        cache.clear()
+
     @parameterized.expand(
         [
             ("member id", "U0123ABC456", True),
@@ -42,6 +46,24 @@ class TestSlackNotificationTargets(SimpleTestCase):
     def test_member_target_without_a_workspace_is_rejected(self) -> None:
         with self.assertRaises(serializers.ValidationError):
             validate_slack_notification_target(MagicMock(), "U0123ABC456|@sam", None)
+
+    def test_email_lookup_reuses_the_cached_result(self) -> None:
+        integration = MagicMock(id=321)
+        slack = MagicMock(integration=integration)
+        slack.client.users_lookupByEmail.return_value = {"ok": True, "user": {"id": "U0123ABC456"}}
+
+        assert lookup_slack_user_id_by_email(slack, "sam@example.com") == "U0123ABC456"
+        assert lookup_slack_user_id_by_email(slack, "sam@example.com") == "U0123ABC456"
+        slack.client.users_lookupByEmail.assert_called_once_with(email="sam@example.com")
+
+    def test_email_lookup_stops_when_the_workspace_budget_is_spent(self) -> None:
+        integration = MagicMock(id=654)
+        slack = MagicMock(integration=integration)
+        cache.set("signals/slack/654/member_lookup_budget", 30, 60)
+
+        with self.assertRaises(serializers.ValidationError):
+            lookup_slack_user_id_by_email(slack, "sam@example.com")
+        slack.client.users_lookupByEmail.assert_not_called()
 
 
 class TestSlackNotificationTargetAPI(APIBaseTest):
