@@ -22,7 +22,7 @@ permissions:
 
 jobs:
     test:
-        name: Go tests
+        name: HogQL language service tests
         runs-on: ubuntu-24.04
         timeout-minutes: 10
 
