@@ -152,7 +152,7 @@ class RedshiftAdapter:
             with request.timings.measure("redshift_execute"), observe_direct_query("redshift"):
                 # `connect` opens the SSH tunnel (if any) and applies the shared Redshift SSL
                 # conventions in one place.
-                with redshift_implementation.connect(source_config) as connection:
+                with redshift_implementation.connect(source_config, team_id=request.team.pk) as connection:
                     # One round trip for the session setup: statement_timeout is a validated int
                     # (milliseconds) so inlining it is injection-safe, and the search_path
                     # identifier is escaped. Multi-statement execute is fine with no parameters.

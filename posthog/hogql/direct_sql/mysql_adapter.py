@@ -168,7 +168,9 @@ class MySQLAdapter:
 
         try:
             with request.timings.measure("mysql_execute"):
-                with mysql_implementation.connect(source_config, read_timeout=statement_timeout_seconds) as connection:
+                with mysql_implementation.connect(
+                    source_config, read_timeout=statement_timeout_seconds, team_id=request.team.pk
+                ) as connection:
                     with connection.cursor() as cursor:
                         try:
                             # MySQL 8 only and SELECT-only; MariaDB uses a different variable.
