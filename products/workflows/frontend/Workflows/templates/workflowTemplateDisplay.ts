@@ -67,7 +67,9 @@ function compareEdges(a: HogFlowEdge, b: HogFlowEdge): number {
 function getSortedEdgesByFrom(edges: HogFlowEdge[]): Map<string, HogFlowEdge[]> {
     const byFrom = new Map<string, HogFlowEdge[]>()
     for (const edge of edges) {
-        byFrom.set(edge.from, [...(byFrom.get(edge.from) ?? []), edge])
+        const group = byFrom.get(edge.from) ?? []
+        group.push(edge)
+        byFrom.set(edge.from, group)
     }
     for (const group of byFrom.values()) {
         group.sort(compareEdges)
@@ -91,8 +93,9 @@ export function getOrderedActions(actions: HogFlowAction[], edges: HogFlowEdge[]
     const reached: string[] = []
     const visited = new Set<string>([trigger.id])
     const queue: string[] = [trigger.id]
-    while (queue.length > 0) {
-        const id = queue.shift() as string
+    // A cursor rather than `shift()`, so a template with many edges stays linear.
+    for (let cursor = 0; cursor < queue.length; cursor++) {
+        const id = queue[cursor]
         reached.push(id)
         for (const edge of edgesByFrom.get(id) ?? []) {
             if (!visited.has(edge.to)) {
