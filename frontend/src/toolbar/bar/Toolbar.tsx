@@ -599,7 +599,7 @@ export function Toolbar(): JSX.Element | null {
                         ) : (
                             <ToolbarButton
                                 menuId="heatmap"
-                                title={heatmapGated ? 'Heatmaps (paid feature)' : undefined}
+                                title={heatmapGated ? 'Heatmaps (Pay-as-you-go subscription required)' : undefined}
                             >
                                 <LockableMenuIcon icon={<IconCursorClick />} locked={heatmapGated} />
                             </ToolbarButton>
@@ -628,7 +628,7 @@ export function Toolbar(): JSX.Element | null {
                         {showFieldNotes && (
                             <ToolbarButton
                                 menuId="heatmap"
-                                title={heatmapGated ? 'Heatmaps (paid feature)' : 'Heatmaps'}
+                                title={heatmapGated ? 'Heatmaps (Pay-as-you-go subscription required)' : 'Heatmaps'}
                             >
                                 <LockableMenuIcon icon={<IconApp />} locked={heatmapGated} />
                             </ToolbarButton>

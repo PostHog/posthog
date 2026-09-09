@@ -24,7 +24,7 @@ export function ToolbarLockedFeature({ featureName }: ToolbarLockedFeatureProps)
                     <IconLock className="text-2xl text-secondary" />
                     <h3 className="text-sm font-semibold m-0">This feature isn't in your plan</h3>
                     <p className="text-secondary m-0">
-                        To use {featureName.toLowerCase()} in the toolbar, choose a plan that includes it.
+                        To use {featureName.toLowerCase()} in the toolbar, upgrade your account to pay-as-you-go.
                     </p>
                 </div>
             </ToolbarMenu.Body>

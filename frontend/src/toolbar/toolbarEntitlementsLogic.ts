@@ -5,7 +5,7 @@ import { FeatureFlagKey } from 'lib/constants'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
+import { toolbarPosthogJS, useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
 import { safeFetch } from '~/toolbar/utils'
 import { AvailableFeature } from '~/types'
 
@@ -96,8 +96,19 @@ export function useToolbarEntitlement(feature: AvailableFeature): boolean {
     return isEntitled(feature)
 }
 
+const HARDCODE_HEATMAP_GATE_FOR_LOCAL_TESTING = true
+
 export function useToolbarFeatureGate(feature: AvailableFeature, rolloutFlag: FeatureFlagKey): boolean {
     const rolloutEnabled = useToolbarFeatureFlag(rolloutFlag)
     const entitled = useToolbarEntitlement(feature)
+    return HARDCODE_HEATMAP_GATE_FOR_LOCAL_TESTING || (rolloutEnabled && !entitled)
+}
+
+export function isToolbarFeatureGated(feature: AvailableFeature, rolloutFlag: FeatureFlagKey): boolean {
+    if (HARDCODE_HEATMAP_GATE_FOR_LOCAL_TESTING) {
+        return true
+    }
+    const rolloutEnabled = !!toolbarPosthogJS.getFeatureFlag(rolloutFlag)
+    const entitled = toolbarEntitlementsLogic.findMounted()?.values.isEntitled(feature) ?? true
     return rolloutEnabled && !entitled
 }
