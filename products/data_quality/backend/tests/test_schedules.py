@@ -286,7 +286,11 @@ class TestSchedules(BaseTest):
         finally:
             activity_storage.clear_user()
         logs = ActivityLog.objects.filter(team_id=self.team.id, scope="DataQualityCheckSchedule", activity="updated")
-        assert {log.detail["name"] for log in logs} == {
+        names = set()
+        for log in logs:
+            assert log.detail is not None
+            names.add(log.detail["name"])
+        assert names == {
             "metric check schedule on revenue",
             "metric check schedule on signups",
         }
