@@ -1,7 +1,9 @@
 import { Text } from "@components/text";
 import {
   formatSignalReportSummaryMarkdown,
+  humanizeReportTitle,
   inboxStatusLabel,
+  parseConventionalCommitTitle,
 } from "@posthog/core/inbox/reportPresentation";
 import type {
   SignalReport,
@@ -43,6 +45,7 @@ import { useThemeColors } from "@/lib/theme";
 import { getReportRepository } from "../api";
 import { useDismissedReportsStore } from "../stores/dismissedReportsStore";
 import { useInboxStore } from "../stores/inboxStore";
+import { ConventionalCommitTag } from "./ConventionalCommitTag";
 import { SwipeableReportCard } from "./SwipeableReportCard";
 
 const log = logger.scope("tinder-view");
@@ -166,9 +169,7 @@ export function TinderView({
         priority: report.priority ?? null,
         actionability: report.actionability ?? null,
         action_type: actionType,
-        // Tinder cards stack like a list of rows the user is acting on
-        // without opening a detail view — closest desktop analogue.
-        surface: "list_row",
+        surface: "triage",
         is_bulk: false,
         bulk_size: 1,
         rank: position,
@@ -407,7 +408,7 @@ export function TinderView({
                   className="flex-1 font-semibold text-[17px] text-gray-12"
                   numberOfLines={1}
                 >
-                  {expandedReport.title ?? "Untitled report"}
+                  {humanizeReportTitle(expandedReport.title, "Untitled report")}
                 </Text>
                 <Pressable
                   onPress={() => setExpandedReport(null)}
@@ -429,6 +430,17 @@ export function TinderView({
                   {expandedReport.priority && (
                     <PriorityBadge priority={expandedReport.priority} />
                   )}
+                  {(() => {
+                    const conv = parseConventionalCommitTitle(
+                      expandedReport.title,
+                    );
+                    return conv ? (
+                      <ConventionalCommitTag
+                        type={conv.type}
+                        scope={conv.scope}
+                      />
+                    ) : null;
+                  })()}
                 </View>
 
                 {/* Summary */}

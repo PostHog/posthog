@@ -58,6 +58,9 @@ GITHUB_ACCOUNT_NAME_HEAL_COOLDOWN_SECONDS = 5 * 60
 # for a process that dies mid-heal, so it just has to outlast the 10s request timeout.
 GITHUB_ACCOUNT_NAME_HEAL_CLAIM_TTL_SECONDS = 60
 
+# GitHub's add-assignees endpoint caps a single call at 10 logins and silently drops the rest.
+MAX_PR_ASSIGNEES = 10
+
 # Reactions cost one extra round trip per reacted comment, and GitHub offers no way to fetch them in
 # bulk, so bound the fan-out. Set high enough that a real pull request never reaches it: past this
 # point a comment renders without its pills, which is worse than the extra requests.
@@ -186,6 +189,21 @@ class GitHubIntegrationBase:
     def github_installation_id(self) -> str | None:
         """The GitHub App installation ID. Override in subclasses where the field name differs."""
         return self.integration.integration_id
+
+    def _installation_cache_scope(self) -> str:
+        """Cache identity for data GitHub scopes to the installation, not to the PostHog row.
+
+        Many rows can share one installation and they all read it through the same installation
+        token, so keying on the row splits one answer into N copies that each refetch it against the
+        one shared rate-limit budget. Same identity rule as the egress limiter (posthog/egress/README.md).
+        A row with no installation id falls back to its own scope so it cannot read another's entry.
+        """
+        installation_id = self.github_installation_id
+        if installation_id:
+            return f"installation:{installation_id}"
+        # Integration and UserIntegration are separate tables with independent primary keys, so the
+        # row id alone names two different rows.
+        return f"{type(self.integration).__name__}:{self.integration.id}"
 
     # --- App-level JWT authentication ---
 
@@ -1145,6 +1163,52 @@ class GitHubIntegrationBase:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
         return self.comment_on_pull_request(parsed.repository, parsed.number, body)
 
+    def add_pull_request_assignees(self, repository: str, pr_number: int, assignees: Iterable[str]) -> dict[str, Any]:
+        """Add assignees to a pull request. ``repository`` is ``owner/repo`` or a bare repo.
+
+        Additive only. GitHub's add-assignees endpoint never removes an assignee, so a caller
+        cannot unassign anybody by leaving them out of ``assignees``, and calling it again with a
+        login that is already assigned changes nothing. GitHub also drops a login without push
+        access to the repository instead of failing the request, so the returned ``assignees``
+        list reports who is on the pull request rather than who was asked for.
+
+        Assignees use the issues endpoint (a PR is an issue for assignment purposes).
+        """
+        wanted = list(dict.fromkeys(login for login in assignees if login))[:MAX_PR_ASSIGNEES]
+        if not wanted:
+            return {"success": True, "assignees": []}
+
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self._installation_authenticated_post(
+            f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/assignees",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/assignees",
+            json_body={"assignees": wanted},
+        )
+        if response is None:
+            return {"success": False, "error": "Network error assigning pull request"}
+        if response.status_code != 201:
+            return {
+                "success": False,
+                "error": f"Failed to assign pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+        try:
+            issue = response.json()
+        except Exception:
+            issue = {}
+        assigned = [
+            entry["login"] for entry in (issue.get("assignees") or []) if isinstance(entry, dict) and entry.get("login")
+        ]
+        return {"success": True, "assignees": assigned}
+
+    def add_pull_request_assignees_from_url(self, pr_url: str, assignees: Iterable[str]) -> dict[str, Any]:
+        """Add assignees to a pull request by its HTML URL."""
+        parsed = self.parse_pull_request_url(pr_url)
+        if parsed is None:
+            return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
+        return self.add_pull_request_assignees(parsed.repository, parsed.number, assignees)
+
     def get_pull_request_checks(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Fetch the CI status for a PR — GitHub Actions check runs plus commit statuses from external
         CI and GitHub Apps, merged into one normalized list (mirrors the checks GitHub shows on the PR page).
@@ -1588,6 +1652,60 @@ class GitHubIntegrationBase:
             "updated_at": pr.get("updatedAt"),
         }
 
+    # Pull requests per aliased CI-rollup query. Each alias reads one PR and the check rollup of its
+    # head commit, so a batch this size stays well inside GitHub's GraphQL node limit. A longer list
+    # is split across several calls, and a failure in any of them raises without the batches that
+    # already landed, so a caller that must keep those feeds this method one batch at a time.
+    PR_CI_STATUS_BATCH_SIZE = 25
+
+    def get_pull_request_ci_statuses(self, references: Iterable[PullRequestRef]) -> dict[PullRequestRef, str]:
+        """The coarse CI rollup of many pull requests, keyed by reference.
+
+        Values use the same vocabulary as :meth:`get_pull_request_snapshot`'s ``ci_status``
+        (``passing`` / ``failing`` / ``pending`` / ``none``). One GraphQL call covers up to
+        ``PR_CI_STATUS_BATCH_SIZE`` pull requests, which is what makes this affordable for a list of
+        pull requests rather than a single one.
+
+        A pull request this installation cannot read is left out of the result instead of raising, so
+        one unreachable repository still lets the rest of the batch resolve. Rate limits raise
+        :class:`GitHubRateLimitError`, a denied egress budget raises ``GitHubEgressBudgetExhausted``,
+        and other failures raise ``GitHubIntegrationError``. Callers own the back-off for all three.
+        """
+        unique = list(dict.fromkeys(references))
+        statuses: dict[PullRequestRef, str] = {}
+        for start in range(0, len(unique), self.PR_CI_STATUS_BATCH_SIZE):
+            batch = unique[start : start + self.PR_CI_STATUS_BATCH_SIZE]
+            declarations = ", ".join(
+                f"$owner{i}: String!, $repo{i}: String!, $number{i}: Int!" for i in range(len(batch))
+            )
+            selections = "\n".join(
+                f"  pr{i}: repository(owner: $owner{i}, name: $repo{i}) {{"
+                f" pullRequest(number: $number{i}) {{ commits(last: 1) {{ nodes {{ commit {{"
+                f" statusCheckRollup {{ state }} }} }} }} }} }}"
+                for i in range(len(batch))
+            )
+            variables: dict[str, Any] = {}
+            for i, reference in enumerate(batch):
+                variables[f"owner{i}"] = reference.owner
+                variables[f"repo{i}"] = reference.repo
+                variables[f"number{i}"] = reference.number
+
+            data = self._gh_graphql(
+                f"query({declarations}) {{\n{selections}\n}}",
+                variables,
+                endpoint="/graphql:pullRequestCiStatuses",
+            )
+            for i, reference in enumerate(batch):
+                pull_request = ((data or {}).get(f"pr{i}") or {}).get("pullRequest")
+                if not pull_request:
+                    continue
+                rollup_nodes = ((pull_request.get("commits") or {}).get("nodes")) or []
+                rollup_state = None
+                if rollup_nodes:
+                    rollup_state = ((rollup_nodes[0].get("commit") or {}).get("statusCheckRollup") or {}).get("state")
+                statuses[reference] = self._map_ci_status(rollup_state)
+        return statuses
+
     _PR_BABYSIT_SNAPSHOT_QUERY = """
     query($owner: String!, $repo: String!, $number: Int!) {
       repository(owner: $owner, name: $repo) {
@@ -1946,7 +2064,7 @@ class GitHubIntegrationBase:
     def get_default_branch(self, repository: str) -> str:
         """Get the default branch for a repository."""
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
-        cache_key = f"github_integration:default_branch:{self.integration.id}:{repo_path}"
+        cache_key = f"github_integration:default_branch:{self._installation_cache_scope()}:{repo_path}"
 
         cached = cache.get(cache_key)
         if isinstance(cached, str):
@@ -2083,7 +2201,7 @@ class GitHubIntegrationBase:
     # --- Cached branch operations ---
 
     def _get_branch_cache_key(self, repo: str) -> str:
-        return f"github_integration:branches:{self.integration.id}:{repo.lower()}"
+        return f"github_integration:branches:{self._installation_cache_scope()}:{repo.lower()}"
 
     def _get_branch_cache(self, repo: str) -> dict[str, Any] | None:
         cached = cache.get(self._get_branch_cache_key(repo))

@@ -136,6 +136,30 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it('initializes axes when columns load after selecting a visualization type', async () => {
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
+
+        await expectLogic(logic).toMatchValues({
+            selectedXAxis: null,
+            selectedYAxis: null,
+        })
+
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            results: [['signed_up', 'Safari', 11]],
+            columns: ['event', 'browser', 'total_count'],
+            types: [
+                ['event', 'String'],
+                ['browser', 'Nullable(String)'],
+                ['total_count', 'UInt64'],
+            ],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            selectedXAxis: 'event',
+            selectedYAxis: [expect.objectContaining({ name: 'total_count' })],
+        })
+    })
+
     it('auto-maps box plot columns when the chart is selected', async () => {
         dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
             columns: ['bucket', 'series', 'min', 'p25', 'median', 'mean', 'p75', 'max'],
@@ -500,13 +524,13 @@ describe('dataVisualizationLogic', () => {
         await expectLogic(logic).toMatchValues({
             visualizationType: ChartDisplayType.Auto,
             effectiveVisualizationType: ChartDisplayType.TwoDimensionalHeatmap,
-            chartSettings: {
+            chartSettings: expect.objectContaining({
                 heatmap: {
                     xAxisColumn: 'region',
                     yAxisColumn: 'segment',
                     valueColumn: 'count',
                 },
-            },
+            }),
         })
     })
 

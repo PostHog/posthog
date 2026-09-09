@@ -75,11 +75,33 @@ class AppleSearchAdsSource(ResumableSource[AppleSearchAdsSourceConfig, AppleSear
             "400 Client Error: Bad Request for url: https://appleid.apple.com/auth/oauth2/token": "Apple rejected the signed client secret. Check your client ID, team ID, key ID and private key.",
             "401 Client Error: Unauthorized for url: https://appleid.apple.com/auth/oauth2/token": "Apple rejected the signed client secret. Check your client ID, team ID, key ID and private key.",
             "401 Client Error: Unauthorized for url: https://api.ads.apple.com": "Apple rejected the access token. Your API client may have been removed. Create a new one in Apple Ads and reconnect this source.",
-            "403 Client Error: Forbidden for url: https://api.ads.apple.com": "Apple denied access to this ad account. Check that the API client has the API Account Read Only role for the ad account ID you entered.",
+            "403 Client Error: Forbidden for url: https://api.ads.apple.com": "Apple denied access to this ad account. Check that the API user has the API Account Read Only role for the ad account ID you entered.",
             "404 Client Error: Not Found for url: https://api.ads.apple.com": "Apple could not find this ad account. Check the ad account ID, which you can read from `adAccount.id` in Apple's Get User ACL endpoint.",
+            "400 Client Error: Bad Request for url: https://api.searchads.apple.com": "Apple rejected a reporting request. Some campaign types don't support keyword reporting. If the error persists, remove the keyword_report table or check your campaign types in Apple Ads.",
+            # Apple occasionally returns an empty HTTP reason phrase for the same 400 condition.
+            "400 Client Error:  for url: https://api.searchads.apple.com": "Apple rejected a reporting request. Some campaign types don't support keyword reporting. If the error persists, remove the keyword_report table or check your campaign types in Apple Ads.",
             "401 Client Error: Unauthorized for url: https://api.searchads.apple.com": "Apple Search Ads rejected the access token. Your API key may have been revoked. Generate a new one and reconnect this source.",
             "403 Client Error: Forbidden for url: https://api.searchads.apple.com": "Apple Search Ads denied access to this organization. Check that the API user has at least read access to the organization ID you entered.",
             "Could not sign the Apple Ads client secret": "The private key isn't a valid unencrypted EC (P-256) PEM. Paste the key you generated for your Apple Ads API client and reconnect.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # Apple's transport already retries these statuses in-process (see the
+        # `status_forcelist` on `APPLE_SEARCH_ADS_RETRY`) with backoff, so one only reaches
+        # here once that budget is exhausted — Apple is rate-limiting us (429) or its API is
+        # briefly unavailable (5xx). Both are transient and self-recovering, so let Temporal
+        # retry the whole activity. Unlike the shared REST engine, this source has its own
+        # client, so `raise_for_status()` surfaces a plain `requests.HTTPError` that no
+        # `RESTClientRetryableError` type-check catches; without this classification the
+        # benign, self-recovering failure is logged at `exception` and reported as an
+        # unclassified error every run. Match the code-anchored fragment, not the volatile
+        # reason phrase or per-request URL.
+        return {
+            "429 Client Error",
+            "500 Server Error",
+            "502 Server Error",
+            "503 Server Error",
+            "504 Server Error",
         }
 
     @property
@@ -88,19 +110,24 @@ class AppleSearchAdsSource(ResumableSource[AppleSearchAdsSourceConfig, AppleSear
             name=SchemaExternalDataSourceType.APPLE_SEARCH_ADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Apple Ads",
+            # Two actors, in this order, because Apple splits the job: an account admin grants the
+            # API role in User Management, and only the user holding that role sees the public key
+            # field on the API tab. Collapsing this into one "an admin creates a client" step reads
+            # tidier and strands every reader who is an admin without an API role.
             caption="""Connect your Apple Ads account, formerly Apple Search Ads, to pull campaigns, ad groups, keywords and daily performance into the PostHog Data warehouse.
 
-Apple does not generate an API key for you. An account admin creates an API client, and you supply your own key pair:
+Apple does not generate an API key for you. You supply your own key pair, and only a user with an API role can register it. An account admin who holds no API role will not see the public key field.
 
-1. Generate an EC P-256 key pair. On macOS or Linux, run `openssl ecparam -genkey -name prime256v1 -noout -out private-key.pem` and then `openssl ec -in private-key.pem -pubout -out public-key.pem`.
-2. In [Apple Ads](https://ads.apple.com), open **Account settings > API** and add an API client. Paste the contents of `public-key.pem` into the public key field and save it.
-3. Apple then shows the client ID, team ID and key ID. Enter those below, along with the contents of `private-key.pem`.
-4. Read your ad account ID from Apple's Get User ACL endpoint, `GET https://api.ads.apple.com/v1/acls`, under `adAccount.id`. This is not the same value as your organization ID.
+1. In [Apple Ads](https://ads.apple.com), an account admin opens **Account settings > User management** and gives the person setting this up the **API Account Read Only** role.
+2. Generate an EC P-256 key pair. On macOS or Linux, run `openssl ecparam -genkey -name prime256v1 -noout -out private-key.pem` and then `openssl ec -in private-key.pem -pubout -out public-key.pem`.
+3. Signed in as that user, open **Account settings > API**, paste the contents of `public-key.pem` into the public key field and save. Saving the key creates the client.
+4. Apple then shows the client ID, team ID and key ID above the field. Enter those below, along with the contents of `private-key.pem`.
+5. Leave **Ad account ID** blank and connect. The connection won't complete, but PostHog reads Apple's ACL for you and the message names the ad account IDs your credentials can read. Paste one in and connect again. To look it up yourself, read `adAccount.id` from Apple's Get User ACL endpoint, `GET https://api.ads.apple.com/v1/acls`. That call needs an access token, so follow [Apple's OAuth guide](https://developer.apple.com/documentation/apple_ads/implementing-oauth-for-the-apple-search-ads-api) to exchange the credentials from step 4 for one. The ad account ID is not the same value as your organization ID.
 
 PostHog stores the private key encrypted and uses it to sign a short-lived token on every sync. The token itself is never stored.
 
 Reporting tables use daily granularity, which Apple serves for the last 90 days only.""",
-            permissionsCaption="""Give the API client the **API Account Read Only** role, which grants read access to the campaign data these tables are built from. The **API Account Manager** role also works if you already use it.""",
+            permissionsCaption="""Assign the **API Account Read Only** role to the user who sets up the connection, under **Account settings > User management**. Apple attaches API roles to users, not to clients. That role grants read access to the campaign data these tables are built from. Pick it rather than the campaign group **API Read Only**, which covers a single campaign group. The **API Account Manager** role also works if you already use it.""",
             iconPath="/static/services/apple_search_ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/apple-search-ads",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -119,7 +146,7 @@ Reporting tables use daily granularity, which Apple serves for the last 90 days 
                         # requires whichever one the source's API version uses.
                         required=False,
                         placeholder="123456789",
-                        caption="Read this from `adAccount.id` in the response from Apple's Get User ACL endpoint, `GET https://api.ads.apple.com/v1/acls`.",
+                        caption="Leave this blank and connect, and PostHog lists the ad account IDs your credentials can read. To look it up yourself, read `adAccount.id` from Apple's Get User ACL endpoint, `GET https://api.ads.apple.com/v1/acls`. That call needs an access token signed with the credentials above, not the credentials themselves.",
                         secret=False,
                     ),
                     SourceFieldInputConfig(

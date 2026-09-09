@@ -12,15 +12,18 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
-from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     CHART_IMAGE_URL_TTL,
     SLACK_MRKDWN_SECTION_LIMIT,
+    TEAMS_REPORT_BLOCK_COUNT,
+    TEAMS_TEXT_BLOCK_LIMIT,
     _build_ai_slack_message,
     _last_scheduled_report_cutoff,
     _persist_ai_query_plan,
     _split_text_into_chunks,
     build_ai_subscription_report,
+    build_ai_teams_card,
     build_chart_image_urls,
     render_ai_email_html,
     send_email_ai_subscription_report,
@@ -31,6 +34,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
 from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
 
 from ee.tasks.subscriptions.slack_subscriptions import SlackMessage
+from ee.tasks.subscriptions.teams_subscriptions import TEAMS_CARD_TEXT_BUDGET
 
 _DELIVERY = "products.exports.backend.temporal.subscriptions.ai_subscription.delivery"
 
@@ -337,6 +341,49 @@ class TestBuildAISlackMessage:
                 assert block["text"]["text"].strip(), "thread section text must be non-empty"
 
 
+class TestBuildAITeamsCard:
+    def _body(self, markdown: str) -> list[dict]:
+        card = build_ai_teams_card(_mock_subscription(), markdown, delivery_id=_DELIVERY_ID)
+        return card["attachments"][0]["content"]["body"]
+
+    def test_long_report_is_split_across_text_blocks(self) -> None:
+        body = self._body("\n\n".join("x" * (TEAMS_TEXT_BLOCK_LIMIT - 50) for _ in range(3)))
+
+        report_blocks = [b for b in body if set(b["text"]) == {"x"}]
+        assert len(report_blocks) == 3
+        assert all(len(b["text"]) <= TEAMS_TEXT_BLOCK_LIMIT for b in report_blocks)
+
+    @pytest.mark.parametrize(
+        "filler",
+        [
+            "x",
+            # Three bytes per character, so a report that fits by character count is far over the
+            # byte count Teams measures the payload in.
+            "詳",
+        ],
+    )
+    def test_report_over_the_card_budget_is_shortened_with_a_link_out(self, filler: str) -> None:
+        body = self._body("\n\n".join(filler * (TEAMS_TEXT_BLOCK_LIMIT - 50) for _ in range(20)))
+
+        assert sum(len(b["text"].encode("utf-8")) for b in body) <= TEAMS_CARD_TEXT_BUDGET
+        assert len([b for b in body if set(b["text"]) == {filler}]) <= TEAMS_REPORT_BLOCK_COUNT
+        assert "This report was shortened to fit." in body[-2]["text"]
+
+    def test_external_links_in_the_report_are_stripped(self) -> None:
+        body = self._body("See [the docs](https://evil.example.com/x) for more.")
+
+        assert "evil.example.com" not in str(body)
+
+    def test_external_links_in_the_subscription_title_are_stripped(self) -> None:
+        subscription = _mock_subscription()
+        subscription.title = "[Open report](https://attacker.example/login)"
+
+        card = build_ai_teams_card(subscription, "A short report.", delivery_id=_DELIVERY_ID)
+        body = card["attachments"][0]["content"]["body"]
+
+        assert body[0]["text"] == "**Open report**"
+
+
 def _mock_integration(scopes: frozenset[str]) -> MagicMock:
     integration = MagicMock()
     integration.kind = "slack"
@@ -448,9 +495,10 @@ class TestPersistAiQueryPlanRaceGuard(APIBaseTest):
         )
         plan = {"version": 1, "plan": {}}
 
-        _persist_ai_query_plan(sub.id, self.team.id, "original prompt?", plan)
+        persisted = _persist_ai_query_plan(sub.id, self.team.id, "original prompt?", plan)
 
         sub.refresh_from_db()
+        assert persisted is written
         assert sub.ai_query_plan == (plan if written else None)
 
 
@@ -567,15 +615,17 @@ class TestFreezePlanPersistence:
                         diagnostics=(),
                         window_end_utc="2026-06-29T16:00:00+00:00",
                         plan_to_persist=fresh_plan,
+                        query_plan_status=AIQueryPlanStatus.FROZEN,
                     )
                 ),
             ),
-            patch(f"{_DELIVERY}._persist_ai_query_plan") as mock_persist,
+            patch(f"{_DELIVERY}._persist_ai_query_plan", return_value=True) as mock_persist,
         ):
-            await build_ai_subscription_report(sub)
+            returned = await build_ai_subscription_report(sub)
 
         # The plan generated on the first delivery is frozen onto the (id, team_id)-scoped subscription.
         mock_persist.assert_called_once_with(sub.id, sub.team_id, sub.prompt, fresh_plan)
+        assert returned.query_plan_status == AIQueryPlanStatus.FROZEN
 
     async def test_persist_failure_does_not_abort_the_delivery(self) -> None:
         # The report is already generated when the freeze write runs; a transient DB error must not
@@ -586,6 +636,7 @@ class TestFreezePlanPersistence:
             diagnostics=(),
             window_end_utc="2026-06-29T16:00:00+00:00",
             plan_to_persist={"version": 1, "plan": {}},
+            query_plan_status=AIQueryPlanStatus.FROZEN,
         )
         with (
             patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
@@ -595,8 +646,28 @@ class TestFreezePlanPersistence:
         ):
             returned = await build_ai_subscription_report(sub)
 
-        assert returned is result
+        assert returned is not result
+        assert returned.markdown == result.markdown
+        assert returned.query_plan_status == AIQueryPlanStatus.NOT_FROZEN
         mock_capture.assert_called_once()
+
+    async def test_prompt_edit_race_records_plan_as_not_frozen(self) -> None:
+        sub = self._subscription(ai_query_plan=None)
+        result = AiReportResult(
+            markdown="# R",
+            diagnostics=(),
+            window_end_utc="2026-06-29T16:00:00+00:00",
+            plan_to_persist={"version": 1, "plan": {}},
+            query_plan_status=AIQueryPlanStatus.FROZEN,
+        )
+        with (
+            patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
+            patch(f"{_DELIVERY}.generate_ai_report", new=AsyncMock(return_value=result)),
+            patch(f"{_DELIVERY}._persist_ai_query_plan", return_value=False),
+        ):
+            returned = await build_ai_subscription_report(sub)
+
+        assert returned.query_plan_status == AIQueryPlanStatus.NOT_FROZEN
 
     async def test_reused_run_does_not_persist(self) -> None:
         frozen = {"overall_intent": "i", "steps": [{"description": "d", "query_type": "hogql", "hogql": "SELECT 1"}]}
@@ -607,13 +678,17 @@ class TestFreezePlanPersistence:
                 f"{_DELIVERY}.generate_ai_report",
                 new=AsyncMock(
                     return_value=AiReportResult(
-                        markdown="# R", diagnostics=(), window_end_utc="2026-06-29T16:00:00+00:00", plan_to_persist=None
+                        markdown="# R",
+                        diagnostics=(),
+                        window_end_utc="2026-06-29T16:00:00+00:00",
+                        plan_to_persist=None,
+                        query_plan_status=AIQueryPlanStatus.FROZEN,
                     )
                 ),
             ) as mock_gen,
             patch(f"{_DELIVERY}._persist_ai_query_plan") as mock_persist,
         ):
-            await build_ai_subscription_report(sub)
+            returned = await build_ai_subscription_report(sub)
 
         # Reuse path returns plan_to_persist=None, so there's no write; the frozen plan is forwarded
         # to generation so it can skip the planner.
@@ -621,3 +696,4 @@ class TestFreezePlanPersistence:
         assert mock_gen.await_args is not None
         assert mock_gen.await_args.kwargs["ai_query_plan"] == frozen
         mock_ctx.assert_called_once()
+        assert returned.query_plan_status == AIQueryPlanStatus.FROZEN

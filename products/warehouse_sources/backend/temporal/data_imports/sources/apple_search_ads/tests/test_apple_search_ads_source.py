@@ -20,7 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apple_sear
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.source import (
     AppleSearchAdsSource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    VersionDeprecation,
+    error_message_matches,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.applesearchads import (
     AppleSearchAdsSourceConfig,
@@ -104,6 +107,7 @@ class TestAppleSearchAdsSource:
         [
             ("platform_unauthorized", 401, "api.ads.apple.com"),
             ("platform_forbidden", 403, "api.ads.apple.com"),
+            ("legacy_bad_request", 400, "api.searchads.apple.com"),
             ("legacy_unauthorized", 401, "api.searchads.apple.com"),
             ("legacy_forbidden", 403, "api.searchads.apple.com"),
         ]
@@ -113,6 +117,27 @@ class TestAppleSearchAdsSource:
 
         assert any(str(status) in key and host in key for key in errors)
         assert all(message for message in errors.values())
+
+    @parameterized.expand(
+        [
+            (
+                "rate_limited",
+                "429 Client Error: Too Many Requests for url: https://api.searchads.apple.com/api/v5/reports",
+            ),
+            (
+                "service_unavailable",
+                "503 Server Error: Service Temporarily Unavailable for url: https://api.searchads.apple.com/api/v5/targetingkeywords/find",
+            ),
+            ("bad_gateway", "502 Server Error: Bad Gateway for url: https://api.ads.apple.com/v1/campaigns"),
+            ("gateway_timeout", "504 Server Error: Gateway Timeout for url: https://api.ads.apple.com/v1/reports"),
+        ]
+    )
+    def test_transient_api_statuses_are_retryable(self, _name: str, error_msg: str) -> None:
+        # These are the statuses the transport already retries; once exhausted they must stay
+        # retryable (and out of the non-retryable set) so a self-recovering blip isn't reported
+        # as an unclassified error and the sync isn't disabled.
+        assert error_message_matches(error_msg, self.source.get_retryable_errors())
+        assert not error_message_matches(error_msg, self.source.get_non_retryable_errors().keys())
 
     def test_get_resumable_source_manager_is_namespaced_per_schema(self) -> None:
         inputs = mock.MagicMock()

@@ -134,9 +134,14 @@ def _publish(result: ObservationPass, registry: CollectorRegistry) -> None:
     )
     chunks_failed = Gauge(
         "posthog_cohort_backfill_chunks_failed",
-        # Retry churn, not wedged work: a chunk under the attempt cap is reclaimed and retried, and
-        # one past it takes its whole run out of the active set within a poll. A run wedged that way
-        # surfaces as `runs_recent{status="failed"}`.
+        # Retry churn, not wedged work: a chunk under the attempt cap is retried once its backoff
+        # elapses, and one past it takes its whole run out of the active set within a poll. A run
+        # wedged that way surfaces as `runs_recent{status="failed"}`.
+        #
+        # The seeder holds a failed chunk in this status for its whole retry wait, which grows per
+        # attempt up to SEEDER_RETRY_BACKOFF_CAP_SECS. So this reads higher than the failure rate
+        # alone would suggest, and a slow rise can mean waits getting longer rather than more
+        # chunks failing.
         "Chunks in `failed` status on a still-active run, by backfill kind — retry activity",
         ["kind"],
         registry=registry,

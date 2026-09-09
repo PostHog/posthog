@@ -15,6 +15,7 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/scenes/tickets/SupportTicketsScene'),
             projectBased: true,
             layout: 'app-container',
+            docsHref: 'https://posthog.com/docs/support',
         },
         SupportTicketDetail: {
             name: 'Ticket detail',

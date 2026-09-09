@@ -1,5 +1,6 @@
 import { CyclotronJobInvocationResult } from '../types'
 import { CapturedEventsService } from './captured-events/captured-events.service'
+import { ConversionWatchersService } from './conversion-watchers/conversion-watchers.service'
 import { InvocationResultsService } from './invocation-results.service'
 import { MessageAssetsService } from './messaging/message-assets.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
@@ -12,6 +13,7 @@ describe('InvocationResultsService', () => {
     let warehouseWebhooksService: jest.Mocked<WarehouseWebhooksService>
     let capturedEventsService: jest.Mocked<CapturedEventsService>
     let messageAssetsService: jest.Mocked<MessageAssetsService>
+    let conversionWatchersService: jest.Mocked<ConversionWatchersService>
     let service: InvocationResultsService
 
     const results = [
@@ -45,12 +47,18 @@ describe('InvocationResultsService', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<MessageAssetsService>
 
+        conversionWatchersService = {
+            queueInvocationResults: jest.fn(),
+            flush: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<ConversionWatchersService>
+
         service = new InvocationResultsService(
             monitoringService,
             invocationResultsRowsService,
             warehouseWebhooksService,
             capturedEventsService,
-            messageAssetsService
+            messageAssetsService,
+            conversionWatchersService
         )
     })
 

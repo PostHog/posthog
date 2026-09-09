@@ -16,26 +16,14 @@ import { HogFlowPropertyFilters } from 'products/workflows/frontend/Workflows/ho
 import { registerTriggerType } from 'products/workflows/frontend/Workflows/hogflows/registry/triggers/triggerTypeRegistry'
 import { workflowLogic } from 'products/workflows/frontend/Workflows/workflowLogic'
 
-import { HogFlowAction } from '../../types'
 import {
     SLACK_POSTER_MODE_OPTIONS,
     SlackPosterMode,
     decodeSlackFilters,
     encodeSlackFilters,
+    InternalEventTriggerConfig,
+    isSlackMessageTriggerConfig,
 } from './slackTriggerFilters'
-
-export type SlackMessageTriggerConfig = {
-    type: 'slack-message'
-    filters: {
-        properties?: any[]
-    }
-}
-
-export function isSlackMessageTriggerConfig(
-    config: Extract<HogFlowAction, { type: 'trigger' }>['config']
-): config is SlackMessageTriggerConfig {
-    return config.type === 'slack-message'
-}
 
 // Slack messages never reach ClickHouse, so the advanced list has no stored values to
 // autocomplete from and the properties have to be declared.
@@ -67,7 +55,7 @@ function StepTriggerConfigurationSlackMessage({ node }: { node: any }): JSX.Elem
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
 
-    const config = node.data.config as SlackMessageTriggerConfig
+    const config = node.data.config as InternalEventTriggerConfig
     const filters = decodeSlackFilters(config.filters?.properties)
     const validationResult = actionValidationErrorsById[node.data.id]
     const integrations = slackIntegrations ?? []
@@ -75,8 +63,12 @@ function StepTriggerConfigurationSlackMessage({ node }: { node: any }): JSX.Elem
 
     const update = (changes: Partial<typeof filters>): void => {
         setWorkflowActionConfig(node.data.id, {
-            type: 'slack-message',
-            filters: { properties: encodeSlackFilters({ ...filters, ...changes }) },
+            type: 'internal-event',
+            filters: {
+                source: 'internal-events',
+                events: [{ id: '$slack_message_received', type: 'events' }],
+                properties: encodeSlackFilters({ ...filters, ...changes }),
+            },
         })
     }
 
@@ -88,8 +80,8 @@ function StepTriggerConfigurationSlackMessage({ node }: { node: any }): JSX.Elem
         return (
             <LemonBanner type="warning" className="w-full">
                 <p className="mb-0">
-                    This trigger needs a Slack connection, and this project doesn't have one yet. Connect Slack, invite
-                    the bot to a channel, then come back and pick it.{' '}
+                    This trigger needs a Slack connection, and this project doesn't have one yet. Connect Slack, add the
+                    bot to the channels you want to use, then come back and select them.{' '}
                     <Link to={urls.settings('project-integrations')} className="font-semibold">
                         Connect Slack
                     </Link>
@@ -101,19 +93,20 @@ function StepTriggerConfigurationSlackMessage({ node }: { node: any }): JSX.Elem
     return (
         <div className="flex flex-col gap-2 w-full">
             <p className="mb-0 text-sm text-muted-alt">
-                This workflow runs once for each message posted in the channel you pick. Runs have no associated person,
+                This workflow runs once for each message posted in any selected channel. Runs have no associated person,
                 so person-dependent steps are unavailable.
             </p>
 
             <LemonField.Pure
-                label="Channel"
+                label="Channels"
                 error={validationResult?.errors?.channel}
                 info="PostHog only receives messages from channels the Slack bot has been invited to."
             >
                 <SlackChannelPicker
                     integration={integrations[0]}
-                    value={filters.channel ?? undefined}
-                    onChange={(value) => update({ channel: value })}
+                    mode="multiple"
+                    value={filters.channels}
+                    onChange={(channels) => update({ channels })}
                 />
             </LemonField.Pure>
 
@@ -185,6 +178,8 @@ function StepTriggerConfigurationSlackMessage({ node }: { node: any }): JSX.Elem
 }
 
 registerTriggerType({
+    // The tile's own identity, not the stored config type: `internal-event` carries every internal
+    // event, so naming the tile after it would make the Slack tile claim all of them.
     value: 'slack-message',
     label: 'Slack message posted',
     icon: <IconSlack />,
@@ -193,10 +188,12 @@ registerTriggerType({
     featureFlag: 'slack-workflow-triggers',
     matchConfig: (config) => isSlackMessageTriggerConfig(config),
     buildConfig: () => ({
-        type: 'slack-message',
+        type: 'internal-event',
         filters: {
+            source: 'internal-events',
+            events: [{ id: '$slack_message_received', type: 'events' }],
             properties: encodeSlackFilters({
-                channel: null,
+                channels: [],
                 posterMode: 'people',
                 posterIds: [],
                 topLevelOnly: true,
@@ -205,12 +202,12 @@ registerTriggerType({
         },
     }),
     validate: (config): { valid: boolean; errors: Record<string, string> } | null => {
-        if (config.type !== 'slack-message') {
+        if (!isSlackMessageTriggerConfig(config)) {
             return null
         }
         const filters = decodeSlackFilters(config.filters?.properties)
-        if (!filters.channel) {
-            return { valid: false, errors: { channel: 'Please pick a Slack channel' } }
+        if (!filters.channels.length) {
+            return { valid: false, errors: { channel: 'Select at least one Slack channel' } }
         }
         const wantsIds = filters.posterMode === 'specific_people' || filters.posterMode === 'specific_apps'
         if (wantsIds && !filters.posterIds.length) {

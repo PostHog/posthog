@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.db import connection
@@ -120,7 +120,7 @@ class TestMetricAPI(APIBaseTest):
     def test_invalid_definition_rejected(self) -> None:
         response = self.client.post(
             self.url,
-            {"name": "mrr", "description": "d", "definition": {"kind": "RetentionQuery"}},
+            {"name": "mrr", "description": "d", "definition": {"kind": "EventsQuery"}},
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -151,6 +151,23 @@ class TestMetricAPI(APIBaseTest):
 
         names = [row["name"] for row in self.client.get(self.url).json()["results"]]
         assert names == ["mine"]
+
+    @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
+    def test_metrics_referencing_denied_tables_are_hidden(self, create_database: MagicMock) -> None:
+        database = MagicMock()
+        database._denied_tables = {"restricted_source"}
+        create_database.return_value = database
+        allowed = self.client.post(self.url, {"name": "allowed", "description": "d"}, format="json").json()
+        hidden = self.client.post(self.url, {"name": "hidden", "description": "d"}, format="json").json()
+        Metric.objects.for_team(self.team.id).filter(pk=allowed["id"]).update(referenced_table_names=["safe_source"])
+        Metric.objects.for_team(self.team.id).filter(pk=hidden["id"]).update(
+            referenced_table_names=["restricted_source"]
+        )
+
+        names = [row["name"] for row in self.client.get(self.url).json()["results"]]
+
+        assert names == ["allowed"]
+        assert self.client.get(f"{self.url}hidden/").status_code == status.HTTP_404_NOT_FOUND
 
 
 class TestMetricLifecycleAPI(APIBaseTest):

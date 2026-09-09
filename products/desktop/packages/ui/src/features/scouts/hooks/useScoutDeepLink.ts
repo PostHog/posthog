@@ -1,6 +1,7 @@
 import { useHostTRPC } from "@posthog/host-router/react";
+import { agentsPageActions } from "@posthog/ui/features/agents/agentsPageStore";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
-import { navigateToScoutDetail } from "@posthog/ui/router/navigationBridge";
+import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { logger } from "@posthog/ui/shell/logger";
 import { useQuery } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
@@ -11,7 +12,7 @@ const log = logger.scope("scout-deep-link");
 /**
  * Hook that handles scout detail deep links (`<scheme>://scout/{skillSlug}?finding={id}`,
  * e.g. `posthog-code://…` in production and `posthog-code-dev://…` in local dev)
- * and opens the scout detail page, expanding the finding when one is supplied.
+ * and opens the agent in Settings, expanding the finding when one is supplied.
  *
  * Mirrors `useInboxDeepLink`: drains any link that arrived before the renderer
  * was ready (the main process clears its pending entry on read) and also
@@ -37,7 +38,8 @@ export function useScoutDeepLink() {
     log.info(
       `Opening scout from deep link: skillSlug=${skillSlug} findingId=${findingId ?? "(none)"}`,
     );
-    navigateToScoutDetail(skillSlug, findingId);
+    agentsPageActions().openAgent(skillSlug, { findingId });
+    openSettings("agents");
   }, []);
 
   useEffect(() => {

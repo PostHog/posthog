@@ -1,7 +1,7 @@
 import { ToggleGroup, ToggleGroupItem } from "@posthog/quill";
 import type { ReactNode } from "react";
 
-export interface SettingsSegmentedOption {
+interface SettingsSegmentedOption {
   value: string;
   label: ReactNode;
 }
