@@ -195,7 +195,37 @@ pub async fn flags_definitions(
 
     let client_etag = extract_etag_from_header(headers.get("if-none-match"));
     let team_key = KeyType::team(team.clone());
-    let current_etag = get_etag_from_redis(&state, &team_key).await;
+    let current_etag = match state
+        .flags_with_cohorts_hypercache_reader
+        .get_etag(&team_key)
+        .await
+    {
+        Ok(Some(etag)) => Some(etag),
+        Ok(None) => {
+            // Redis answered and held no ETag key for this team. Counted apart from a
+            // cluster fault because the two need opposite responses: rebuild the cache
+            // tier, or treat Redis as the fault.
+            inc(
+                FLAG_DEFINITIONS_ETAG_COUNTER,
+                &[("result".to_string(), "redis_missing".to_string())],
+                1,
+            );
+            None
+        }
+        Err(e) => {
+            warn!(
+                team_id = team.id,
+                error = %e,
+                "Failed to read flag definitions ETag"
+            );
+            inc(
+                FLAG_DEFINITIONS_ETAG_COUNTER,
+                &[("result".to_string(), "redis_error".to_string())],
+                1,
+            );
+            None
+        }
+    };
 
     // If client sent a matching ETag, short-circuit with 304 (skip full data fetch)
     if let (Some(ref client_val), Some(ref current_val)) = (&client_etag, &current_etag) {
@@ -295,46 +325,6 @@ pub(crate) fn extract_etag_from_header(header: Option<&axum::http::HeaderValue>)
         None
     } else {
         Some(etag.to_string())
-    }
-}
-
-/// Read the ETag for a team's flag definitions from Redis.
-///
-/// Django stores ETags as separate Redis keys with an `:etag` suffix,
-/// pickle-serialized via Django's cache framework. Returns `None` if the
-/// ETag is unavailable (cache miss, Redis error, deserialization error)
-/// — this gracefully degrades to always returning 200 with full data.
-async fn get_etag_from_redis(state: &AppState, team_key: &KeyType) -> Option<String> {
-    let config = state.flags_with_cohorts_hypercache_reader.config();
-    let cache_key = config.get_redis_cache_key(team_key);
-    let etag_key = format!("{}:etag", cache_key);
-
-    match state.redis_client.get_raw_bytes(etag_key.clone()).await {
-        Ok(raw_bytes) => match serde_pickle::from_slice::<String>(&raw_bytes, Default::default()) {
-            Ok(etag) if !etag.is_empty() => Some(etag),
-            Ok(_) => None,
-            Err(e) => {
-                warn!(
-                    etag_key = %etag_key,
-                    error = %e,
-                    "Failed to deserialize ETag from Redis"
-                );
-                None
-            }
-        },
-        Err(e) => {
-            warn!(
-                etag_key = %etag_key,
-                error = %e,
-                "Failed to read ETag from Redis"
-            );
-            inc(
-                FLAG_DEFINITIONS_ETAG_COUNTER,
-                &[("result".to_string(), "redis_error".to_string())],
-                1,
-            );
-            None
-        }
     }
 }
 
@@ -484,10 +474,11 @@ async fn get_from_cache(
 /// remote-config readers to the shared cluster, where Django writes nothing, so it degrades
 /// more than this queue.
 ///
-/// This is deliberately not the client the payload and the ETag are read from. During the
-/// migration the flags-with-cohorts reader stays pinned to the shared cluster (`server.rs`),
-/// which Django mirrors the cache to. Unifying the queue with the reader severs the queue
-/// from the drain.
+/// This is deliberately not the client the payload and the ETag are read from. The reader has its
+/// own cluster switch (`FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED`, resolved in `server.rs`), so
+/// during the cutover it can sit on either cluster while the queue must stay on the one Celery
+/// drains. Unifying the queue with the reader severs the queue from the drain whenever the two
+/// clusters differ.
 ///
 /// Re-enqueuing a team only updates its score, so a client polling a missing team
 /// every ~30s occupies a single slot. Spawned so it never adds latency to (or

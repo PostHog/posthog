@@ -44,7 +44,6 @@ export default function ReadonlyRunSurfaceImpl({
                     <div className="flex-1 min-h-0">
                         <RunSurface.Thread listClassName={threadListClassName} rowClassName={threadRowClassName} />
                     </div>
-                    <RunSurface.Resources />
                 </div>
             )}
         </RunSurface.Root>

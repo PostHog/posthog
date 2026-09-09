@@ -22,8 +22,19 @@ vi.mock("@tanstack/react-router", () => ({
   useRouterState: ({
     select,
   }: {
-    select: (s: { matches: { fullPath: string }[] }) => unknown;
-  }) => select({ matches: [{ fullPath: mocks.fullPath }] }),
+    select: (s: {
+      matches: { fullPath: string }[];
+      location: { pathname: string; href: string; search: object };
+    }) => unknown;
+  }) =>
+    select({
+      matches: [{ fullPath: mocks.fullPath }],
+      location: {
+        pathname: mocks.fullPath,
+        href: mocks.fullPath,
+        search: {},
+      },
+    }),
 }));
 vi.mock("@posthog/ui/router/routerRef", () => ({
   getRouterOrNull: () => ({

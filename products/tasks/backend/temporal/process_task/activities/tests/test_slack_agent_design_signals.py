@@ -40,8 +40,11 @@ def _tool_call(tool_call_id: str, tool_name: str, file_path: str) -> dict[str, A
     }
 
 
-def _turn_complete() -> dict[str, Any]:
-    return {"type": "notification", "notification": {"method": TURN_COMPLETE_METHOD}}
+def _turn_complete(trace_id: str | None = None) -> dict[str, Any]:
+    notification: dict[str, Any] = {"method": TURN_COMPLETE_METHOD}
+    if trace_id:
+        notification["params"] = {"traceId": trace_id}
+    return {"type": "notification", "notification": notification}
 
 
 def _session_prompt() -> dict[str, Any]:
@@ -85,6 +88,16 @@ class TestSlackAgentDesignSignalEmitter:
 
         emitter.process(_text_chunk("hi"))
         assert emitter.process(_turn_complete()) == [("turn_completed", None)]
+
+    def test_turn_completed_carries_the_turns_trace_id(self) -> None:
+        # The closing reply carries the thumbs, and this event is the only place the id
+        # appears, so a signal that drops it costs every rating on that answer its trace.
+        emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
+        emitter.process(_text_chunk("hi"))
+
+        signals = emitter.process(_turn_complete("f960aead-b2af-4ee0-b0eb-630109a1b2a0"))
+
+        assert signals == [("turn_completed", "f960aead-b2af-4ee0-b0eb-630109a1b2a0")]
 
     def test_second_turn_reopens_after_idle_prompt(self) -> None:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)

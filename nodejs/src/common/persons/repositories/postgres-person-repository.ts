@@ -39,6 +39,7 @@ import {
     InternalPersonWithDistinctId,
     LifecycleMarkPerson,
     PersonClaimedByLifecycleOpError,
+    PersonDistinctIdMapping,
     PersonMessage,
     PersonPropertiesSizeViolationError,
     PersonRepository,
@@ -1849,6 +1850,41 @@ export class PostgresPersonRepository
         )
 
         return rows.map((row) => row.distinct_id)
+    }
+
+    async fetchPersonDistinctIdMappings(teamId: number, distinctIds: string[]): Promise<PersonDistinctIdMapping[]> {
+        if (distinctIds.length === 0) {
+            return []
+        }
+
+        const { rows } = await this.postgres.query<{ distinct_id: string; version: string | null; uuid: string }>(
+            PostgresUse.PERSONS_WRITE,
+            `SELECT pd.distinct_id, pd.version, p.uuid
+                FROM posthog_persondistinctid pd
+                JOIN posthog_person p ON p.id = pd.person_id AND p.team_id = pd.team_id
+                WHERE pd.team_id = $1 AND pd.distinct_id = ANY($2) AND pd.is_deleted = false`,
+            [teamId, distinctIds],
+            'fetchPersonDistinctIdMappings'
+        )
+
+        return rows.map((row) => {
+            const version = Number(row.version || 0)
+            return {
+                distinctId: row.distinct_id,
+                message: {
+                    output: PERSON_DISTINCT_IDS_OUTPUT,
+                    value: Buffer.from(
+                        JSON.stringify({
+                            team_id: teamId,
+                            distinct_id: row.distinct_id,
+                            person_id: row.uuid,
+                            version,
+                            is_deleted: 0,
+                        })
+                    ),
+                },
+            }
+        })
     }
 
     async personPropertiesSize(personId: string, teamId: number): Promise<number> {

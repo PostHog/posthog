@@ -1,13 +1,13 @@
 ---
 name: building-product-empty-states
-description: Guide for adding a product setup empty state — the skippable first-run screen a product scene shows until real data arrives, built on the shared ProductEmptyState component. Use when adding an empty state or first-run/setup screen to a product scene, declaring `emptyState` on a `SceneExport`, writing a product setup-status detection logic, building an animated example-data preview widget, or migrating away from the deprecated `ProductIntroduction` component. Covers the `productSetupStatusLogic` single-layer contract, real-data detection rules, local-only skip semantics, wizard commands, and design tokens.
+description: Guide for adding a product setup empty state — the skippable first-run screen a product scene shows until real data arrives, built on the shared ProductEmptyState component. Use when adding an empty state or first-run/setup screen to a product scene, declaring `emptyState` on a `SceneExport`, writing a product setup-status detection logic, building an animated example-data preview widget, or deciding between the scene-level `ProductEmptyState` gate and an inline `ProductIntroduction` panel. Covers the `productSetupStatusLogic` single-layer contract, real-data detection rules, local-only skip semantics, wizard commands, and design tokens.
 ---
 
 # Building product empty states
 
 Before a user has set a product up, its scene should show a setup empty state: the product pitch and install command on the left, an animated preview of the product filled with realistic example data on the right. The shared component lives in `frontend/src/lib/components/ProductEmptyState/`; MCP analytics (`products/mcp_analytics/frontend/emptyState/`) is the reference adoption.
 
-`ProductIntroduction` is **deprecated** — don't add new call sites. Both of its jobs fold into this system: "product not installed" (data-existence detection) and "no entities yet" (entity-count detection with a `primaryAction` create CTA).
+This system is for product landing scenes. `ProductIntroduction` stays the inline panel for surfaces the gate cannot cover; see "Scene gate or inline panel?" at the end before choosing.
 
 ## How it works
 
@@ -115,12 +115,13 @@ Extend the detection logic's existing jest file with a parameterized push-throug
 
 Add one story per mode to `lib/components/ProductEmptyState/ProductEmptyState.stories.tsx` with `productEmptyStateStory(myProductEmptyState, mode)` (from `storybookHelpers.ts`) - it renders your real config and gives you visual-regression snapshots for free. Default mocks answer queries and product intents so a bare call renders cleanly; pass `mocks` to drive your status indicator into a specific state (see the MCP stories).
 
-## Migrating a ProductIntroduction call site
+## Scene gate or inline panel?
 
-- Full-scene "product not set up" uses → this system, via steps 1-4.
-- Entity-list empties ("create your first X") → detection = entity count, `primaryAction` = the create button.
-- The SetupPrompt family (error_tracking, logs, tracing, metrics, ai_observability) already has detection logics — step 1 is just the `connect` + push; then replace the wrapper with a scene-level `emptyState` declaration.
-- `has_seen_product_intro_for` dismissals are superseded by local skip; don't migrate the flag.
+- The whole scene is empty because the product is not set up, or has no entities yet → this system. "Product not installed" is data-existence detection; "no entities yet" is entity-count detection with a `primaryAction` create CTA.
+- One part of an otherwise working surface is empty → `ProductIntroduction`, rendered inline where the list would be. Typical cases: a tab or sub-list inside an adopted product (workflow channels, message templates), a dashboard widget tile or notebook node, a section of a settings page, an activity log, a flag-off gate, or a state that is not about setup (no ingestion warnings, an empty chat history).
+- Never both on one scene for the same emptiness. When a scene adopts this system, delete the `ProductIntroduction` it rendered for the whole-scene case; keep or add one only for a per-tab or mixed case the gate does not see (alerts keeps a compact table message per kind, pulse keeps a per-focus message).
+- The SetupPrompt family (error_tracking, logs, tracing, metrics, ai_observability) already has detection logics; when one of those scenes adopts, step 1 is just the `connect` + push. Their dashboard widget tiles keep `SetupPrompt`, because tiles are not scenes.
+- `has_seen_product_intro_for` dismissals belong to neither: this system uses a local skip, and `ProductIntroduction` no longer reads the flag.
 
 ## QA checklist
 
