@@ -23,6 +23,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).parents[3]
 LOCAL_SQL_DIRS = ("local-single", "local-multi")
+# hogli clickhouse:logs:init runs this straight at a local server, so it never
+# reaches the generated SQL and needs reading on its own.
+EXTRA_LOCAL_SQL = ("bin/clickhouse-logs.sql",)
 
 # The generator prints one CREATE per statement and orders the settings, so the
 # table name and its consumer count are both on the statement's own line.
@@ -30,18 +33,27 @@ _CREATE = re.compile(r"CREATE TABLE (?:IF NOT EXISTS )?(?:[\w.]*?\.)?(\w+)", re.
 _KAFKA_CONSUMERS = re.compile(r"ENGINE = Kafka\(.*?kafka_num_consumers = (\d+)", re.DOTALL)
 
 
+def _local_sql_files() -> list[tuple[str, Path]]:
+    files = [
+        (env, path)
+        for env in LOCAL_SQL_DIRS
+        for path in sorted((REPO_ROOT / "posthog" / "clickhouse" / "hcl" / "sql" / env).glob("*.sql"))
+    ]
+    files += [(name, REPO_ROOT / name) for name in EXTRA_LOCAL_SQL]
+    return files
+
+
 def _offenders() -> list[tuple[str, str, int]]:
     found: list[tuple[str, str, int]] = []
-    for env in LOCAL_SQL_DIRS:
-        for path in sorted((REPO_ROOT / "posthog" / "clickhouse" / "hcl" / "sql" / env).glob("*.sql")):
-            for statement in path.read_text().split(";"):
-                consumers = _KAFKA_CONSUMERS.search(statement)
-                if consumers is None:
-                    continue
+    for source, path in _local_sql_files():
+        for statement in path.read_text().split(";"):
+            consumers = _KAFKA_CONSUMERS.search(statement)
+            if consumers is None:
+                continue
+            count = int(consumers.group(1))
+            if count != 1:
                 name = _CREATE.search(statement)
-                count = int(consumers.group(1))
-                if count != 1:
-                    found.append((env, name.group(1) if name else "<unknown>", count))
+                found.append((source, name.group(1) if name else "<unknown>", count))
     return found
 
 
@@ -50,7 +62,7 @@ def test_local_kafka_tables_declare_one_consumer() -> None:
 
     assert not offenders, (
         "These Kafka tables declare more than one consumer on a local stack: "
-        + ", ".join(f"{env}/{table} = {count}" for env, table, count in offenders)
+        + ", ".join(f"{source}/{table} = {count}" for source, table, count in offenders)
         + ". Local topics have one partition, so the extra consumers never get an assignment and "
         "spin instead. Lower the count for the local envs: patch_table the engine in the local "
         "layer the stack composes, then rerun posthog/clickhouse/hcl/gen-golden.sh and gen-sql.sh."
@@ -59,19 +71,15 @@ def test_local_kafka_tables_declare_one_consumer() -> None:
 
 def test_the_guard_reads_some_kafka_tables() -> None:
     # A regex that silently matches nothing would make the guard above vacuous.
-    counts = [
-        int(m.group(1))
-        for env in LOCAL_SQL_DIRS
-        for path in (REPO_ROOT / "posthog" / "clickhouse" / "hcl" / "sql" / env).glob("*.sql")
-        for m in _KAFKA_CONSUMERS.finditer(path.read_text())
-    ]
+    counts = [m.group(1) for _, path in _local_sql_files() for m in _KAFKA_CONSUMERS.finditer(path.read_text())]
 
     assert len(counts) >= 10, f"expected the local goldens to hold Kafka tables, parsed {len(counts)}"
 
 
 # The DDL lives in f-string templates, so a call reads "{kafka_num_consumers(8)}"
-# and only a hardcoded count is a bare integer.
-_HARDCODED = re.compile(r"kafka_num_consumers\s*=\s*(\d+)")
+# and only a hardcoded count is a bare integer. The prefix is optional because one
+# template carries a "{num_consumers}" placeholder that its caller fills separately.
+_HARDCODED = re.compile(r"num_consumers\s*=\s*(\d+)")
 
 SEARCH_ROOTS = ("posthog", "products", "ee")
 
