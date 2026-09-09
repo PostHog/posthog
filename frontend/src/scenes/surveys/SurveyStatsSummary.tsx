@@ -307,13 +307,16 @@ export const SurveyStatsSummary = memo(function SurveyStatsSummary(): JSX.Elemen
 
     const countToggle =
         processedSurveyStats[SurveyEventName.SHOWN].total_count > 0 ? (
-            <LemonSwitch
-                data-attr="survey-stats-count-person-once"
-                checked={filterSurveyStatsByDistinctId}
-                onChange={(checked) => setFilterSurveyStatsByDistinctId(checked)}
-                tooltip="If enabled, each user will only be counted once, even if they have multiple responses."
-                label="Count each person once"
-            />
+            <Tooltip title="Count each person once in the performance metrics, even if they see or respond to the survey multiple times. When off, count every view and response. Response completion always counts individual submissions.">
+                <div>
+                    <LemonSwitch
+                        data-attr="survey-stats-count-person-once"
+                        checked={filterSurveyStatsByDistinctId}
+                        onChange={(checked) => setFilterSurveyStatsByDistinctId(checked)}
+                        label="Count each person once"
+                    />
+                </div>
+            </Tooltip>
         ) : null
 
     return (
