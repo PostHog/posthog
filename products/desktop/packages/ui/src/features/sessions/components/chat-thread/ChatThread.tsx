@@ -1220,6 +1220,7 @@ interface SharedChatThreadProps {
   taskId?: string;
   footerState?: Omit<BuildResult, "items">;
   hasPendingPermission?: boolean;
+  currentWork?: string;
   /**
    * Chain index of the oldest loaded entry; 0 means the whole transcript is loaded. Above 0 the
    * thread renders windowed regardless of length, because only that body survives a prepend.
@@ -1328,6 +1329,7 @@ function ChatThreadRenderer({
   taskId,
   footerState,
   hasPendingPermission,
+  currentWork,
   promptRecallRef,
   olderHistoryCursor = 0,
   isLoadingOlderHistory,
@@ -1461,6 +1463,7 @@ function ChatThreadRenderer({
         taskId={taskId}
         footerState={footerState}
         hasPendingPermission={hasPendingPermission}
+        currentWork={currentWork}
       />
     </>
   );

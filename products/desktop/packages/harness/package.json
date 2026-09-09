@@ -48,6 +48,10 @@
       "types": "./dist/extensions/product-engineer/index.d.ts",
       "import": "./dist/extensions/product-engineer/index.js"
     },
+    "./extensions/current-work": {
+      "types": "./dist/extensions/current-work/index.d.ts",
+      "import": "./dist/extensions/current-work/index.js"
+    },
     "./extensions/web-access": {
       "types": "./dist/extensions/web-access/index.d.ts",
       "import": "./dist/extensions/web-access/index.js"

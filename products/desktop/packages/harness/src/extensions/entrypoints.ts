@@ -2,6 +2,7 @@ export const HARNESS_EXTENSION_ENTRYPOINTS = {
   "hog-branding": "hog-branding/index",
   "posthog-provider": "posthog-provider/index",
   "product-engineer": "product-engineer/index",
+  "current-work": "current-work/index",
   "background-jobs": "background-jobs/index",
   orchestration: "orchestration/index",
   "web-access": "web-access/index",
