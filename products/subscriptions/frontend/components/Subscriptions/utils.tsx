@@ -32,6 +32,10 @@ const AI_DISPLAY_CONFIG_FIELDS = [
 
 type AiSubscriptionDisplayConfig = Required<Pick<DeliveryConfigApi, (typeof AI_DISPLAY_CONFIG_FIELDS)[number]>>
 
+function aiSubscriptionPostHogHintApplies(targetType?: SubscriptionType['target_type'] | null): boolean {
+    return !targetType || targetType === SubscriptionTargetEnumApi.Slack
+}
+
 function resolveAiSubscriptionDisplayConfig(
     deliveryConfig: DeliveryConfigApi | null | undefined,
     targetType?: SubscriptionType['target_type'] | null
@@ -40,22 +44,27 @@ function resolveAiSubscriptionDisplayConfig(
         include_images: deliveryConfig?.include_images ?? true,
         include_feedback: deliveryConfig?.include_feedback ?? true,
         include_manage_link: deliveryConfig?.include_manage_link ?? true,
-        include_posthog_hint:
-            targetType && targetType !== SubscriptionTargetEnumApi.Slack
-                ? false
-                : (deliveryConfig?.include_posthog_hint ?? true),
+        include_posthog_hint: aiSubscriptionPostHogHintApplies(targetType)
+            ? (deliveryConfig?.include_posthog_hint ?? true)
+            : false,
     }
 }
 
 export type AiSubscriptionDisplayOption = 'images' | 'feedback' | 'posthog_actions'
 
-function summarizeAiSubscriptionDisplayConfig(resolved: AiSubscriptionDisplayConfig): string {
-    const includePostHogActions = resolved.include_manage_link || resolved.include_posthog_hint
+function summarizeAiSubscriptionDisplayConfig(
+    resolved: AiSubscriptionDisplayConfig,
+    posthogHintApplies: boolean
+): string {
+    // Slack renders the manage link and the @PostHog suggestion separately, so a report missing
+    // either one is not full. Other targets never get the suggestion, so the link alone is full.
+    const allPostHogActions = resolved.include_manage_link && (resolved.include_posthog_hint || !posthogHintApplies)
+    const anyPostHogActions = resolved.include_manage_link || resolved.include_posthog_hint
 
-    if (resolved.include_images && resolved.include_feedback && includePostHogActions) {
+    if (resolved.include_images && resolved.include_feedback && allPostHogActions) {
         return 'Full report'
     }
-    if (!resolved.include_images && !resolved.include_feedback && !includePostHogActions) {
+    if (!resolved.include_images && !resolved.include_feedback && !anyPostHogActions) {
         return 'Report only'
     }
 
@@ -82,7 +91,7 @@ export function getAiSubscriptionDisplaySummary(
     targetType?: SubscriptionType['target_type'] | null
 ): string {
     const resolved = resolveAiSubscriptionDisplayConfig(deliveryConfig, targetType)
-    return summarizeAiSubscriptionDisplayConfig(resolved)
+    return summarizeAiSubscriptionDisplayConfig(resolved, aiSubscriptionPostHogHintApplies(targetType))
 }
 
 export function getAiSubscriptionDisplayOptionState(

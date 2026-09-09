@@ -231,6 +231,13 @@ describe('AI subscription display options', () => {
     })
 
     it.each([
+        ['the PostHog suggestion', { include_posthog_hint: false }, 'Report + charts + feedback + manage link'],
+        ['the manage link', { include_manage_link: false }, 'Report + charts + feedback + PostHog suggestion'],
+    ] as const)('does not call a Slack report full when it drops %s', (_label, deliveryConfig, expected) => {
+        expect(getAiSubscriptionDisplaySummary(deliveryConfig, SubscriptionTargetEnumApi.Slack)).toBe(expected)
+    })
+
+    it.each([
         ['insight', undefined],
         ['dashboard', undefined],
         ['ai_prompt', false],
