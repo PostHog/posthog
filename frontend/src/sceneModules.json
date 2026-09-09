@@ -122,6 +122,7 @@
     "Heatmap": "../../products/web_analytics/frontend/heatmaps/scenes/heatmap/HeatmapScene",
     "HeatmapNew": "../../products/web_analytics/frontend/heatmaps/scenes/heatmap/HeatmapNewScene",
     "HeatmapRecording": "../../products/web_analytics/frontend/heatmaps/scenes/heatmap/HeatmapRecordingScene",
+    "WizardRuns": "../../products/wizard/frontend/WizardRunsScene",
     "Workflows": "../../products/workflows/frontend/WorkflowsScene",
     "Workflow": "../../products/workflows/frontend/Workflows/WorkflowScene",
     "WorkflowsLibraryTemplate": "../../products/workflows/frontend/TemplateLibrary/MessageTemplate",
