@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from django.db import transaction
 from django.utils import timezone
 
 if TYPE_CHECKING:
@@ -72,11 +73,15 @@ def record_companion_job(parent_job_id: str, team_id: int, companion_job_id: str
     A new attempt starts the list over: an earlier attempt's companion was retired or drained by
     the time this attempt reads, and leaving it listed would have the listing proof reject this
     run for good.
+
+    Under the row lock, like every writer of this snapshot: the listing stamp shares the JSON,
+    and an attempt still alive past its timeout can write it between this read and this write.
     """
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
-    parent = ExternalDataJob.objects.get(id=parent_job_id, team_id=team_id)
-    snapshot = dict(parent.schema_snapshot or {})
-    earlier = [] if first_of_attempt else snapshot.get(COMPANION_JOB_IDS_KEY, [])
-    snapshot[COMPANION_JOB_IDS_KEY] = [*earlier, companion_job_id]
-    ExternalDataJob.objects.filter(id=parent.id).update(schema_snapshot=snapshot)
+    with transaction.atomic():
+        parent = ExternalDataJob.objects.select_for_update().get(id=parent_job_id, team_id=team_id)
+        snapshot = dict(parent.schema_snapshot or {})
+        earlier = [] if first_of_attempt else snapshot.get(COMPANION_JOB_IDS_KEY, [])
+        snapshot[COMPANION_JOB_IDS_KEY] = [*earlier, companion_job_id]
+        ExternalDataJob.objects.filter(id=parent.id).update(schema_snapshot=snapshot)

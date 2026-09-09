@@ -15,6 +15,7 @@ import datetime as dt
 from collections.abc import AsyncGenerator, Callable
 from typing import TYPE_CHECKING, Any, Final, Literal
 
+from django.db import transaction
 from django.utils import timezone
 
 import psycopg
@@ -225,12 +226,18 @@ def clear_listing(job_id: str, team_id: int) -> None:
     """
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
-    job = ExternalDataJob.objects.filter(id=job_id, team_id=team_id).only("id", "schema_snapshot").first()
-    stamped = dict(job.schema_snapshot or {}) if job is not None else {}
-    if job is None or not stamped.get(BUFFER_LISTED_AT_KEY):
-        return
-    snapshot = {k: v for k, v in stamped.items() if k != BUFFER_LISTED_AT_KEY}
-    ExternalDataJob.objects.filter(id=job.id).update(schema_snapshot=snapshot)
+    with transaction.atomic():
+        job = (
+            ExternalDataJob.objects.select_for_update()
+            .filter(id=job_id, team_id=team_id)
+            .only("id", "schema_snapshot")
+            .first()
+        )
+        stamped = dict(job.schema_snapshot or {}) if job is not None else {}
+        if job is None or not stamped.get(BUFFER_LISTED_AT_KEY):
+            return
+        snapshot = {k: v for k, v in stamped.items() if k != BUFFER_LISTED_AT_KEY}
+        ExternalDataJob.objects.filter(id=job.id).update(schema_snapshot=snapshot)
 
 
 def _companions_completed(companion_job_ids: list[str]) -> bool:
@@ -595,11 +602,15 @@ class CDCSourceManager:
         from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
         def _stamp() -> None:
-            job = ExternalDataJob.objects.get(id=self._inputs.job_id, team_id=self._inputs.team_id)
-            snapshot = dict(job.schema_snapshot or {})
-            snapshot[BUFFER_LISTED_AT_KEY] = listed_at.isoformat()
-            # Field-scoped: job completion writes status and finished_at, never the snapshot.
-            ExternalDataJob.objects.filter(id=job.id).update(schema_snapshot=snapshot)
+            # Field-scoped: job completion writes status and finished_at, never the snapshot. The
+            # row lock keeps the companion ids a writer on the same JSON puts there.
+            with transaction.atomic():
+                job = ExternalDataJob.objects.select_for_update().get(
+                    id=self._inputs.job_id, team_id=self._inputs.team_id
+                )
+                snapshot = dict(job.schema_snapshot or {})
+                snapshot[BUFFER_LISTED_AT_KEY] = listed_at.isoformat()
+                ExternalDataJob.objects.filter(id=job.id).update(schema_snapshot=snapshot)
 
         await database_sync_to_async_pool(db_read_with_retry)(_stamp)
 
