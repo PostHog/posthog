@@ -36,7 +36,7 @@ from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_charts import ReportChart
-from products.signals.backend.scout_harness import run_costs
+from products.signals.backend.scout_harness import run_costs, scout_costs
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, failure_streak_pause_threshold
@@ -2736,6 +2736,141 @@ async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_canno
         assert resume.call_args.kwargs["origin_key"] == workflow_origin_key
         assert resume.call_args.kwargs["status"] == (outcome if outcome in ("completed", "cancelled") else "failed")
         assert resume.call_args.kwargs["raise_on_error"] is True
+
+
+class TestScoutCosts(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def _run(
+        self,
+        *,
+        skill_name: str = "signals-scout-general",
+        team: Team | None = None,
+        created_days_ago: float = 1,
+        emitted_report_ids: list[str] | None = None,
+        edited_report_ids: list[str] | None = None,
+    ) -> SignalScoutRun:
+        team = team or self.team
+        config, _ = SignalScoutConfig.objects.get_or_create(team=team, skill_name=skill_name)
+        run = SignalScoutRun.objects.create(
+            team=team,
+            task_run=_make_task_run(team),
+            scout_config=config,
+            skill_name=skill_name,
+            skill_version=1,
+            emitted_report_ids=emitted_report_ids or [],
+            edited_report_ids=edited_report_ids or [],
+        )
+        SignalScoutRun.objects.filter(pk=run.pk).update(created_at=timezone.now() - timedelta(days=created_days_ago))
+        run.refresh_from_db()
+        return run
+
+    def test_sums_spend_runs_and_distinct_reports_per_scout(self) -> None:
+        # A team-authored scout has to be named as itself: its generations all carry the same stage
+        # tag, so only the run rows can separate it from every other custom scout.
+        canonical_a = self._run(emitted_report_ids=["r-1"])
+        canonical_b = self._run(emitted_report_ids=["r-1"], edited_report_ids=["r-2"])
+        custom = self._run(skill_name="my-own-scout", edited_report_ids=["r-3"])
+        with patch.object(
+            scout_costs,
+            "get_local_task_run_token_costs",
+            return_value={
+                str(canonical_a.task_run_id): Decimal("1.2"),
+                str(canonical_b.task_run_id): Decimal("0.48"),
+                str(custom.task_run_id): Decimal("0.1"),
+            },
+        ) as query:
+            costs = scout_costs.scout_costs(team_id=self.team.id, window_days=7)
+
+        assert costs.available
+        assert costs.window_days == 7
+        by_skill = {scout.skill_name: scout for scout in costs.scouts}
+        assert by_skill["signals-scout-general"] == scout_costs.ScoutCost(
+            skill_name="signals-scout-general",
+            spend_usd=Decimal("1.68"),
+            run_count=2,
+            priced_run_count=2,
+            # `r-1` was filed by one run and touched again by another, so it counts once.
+            reports_touched=2,
+        )
+        assert by_skill["my-own-scout"].spend_usd == Decimal("0.1")
+        assert by_skill["my-own-scout"].reports_touched == 1
+        # One window read for the whole team rather than a list of every run id, which would be tens
+        # of thousands of ids on the largest fleets.
+        assert query.call_args.kwargs.get("task_run_ids") is None
+        assert query.call_args.kwargs["generated_after"] < min(canonical_a.created_at, custom.created_at)
+
+    def test_run_without_attributed_spend_is_left_out_of_the_priced_count(self) -> None:
+        # Cost per run divides by the runs that were priced, so a run that failed before its first
+        # model call must not pull the average down.
+        priced = self._run()
+        self._run()
+        with patch.object(
+            scout_costs, "get_local_task_run_token_costs", return_value={str(priced.task_run_id): Decimal("2")}
+        ):
+            costs = scout_costs.scout_costs(team_id=self.team.id, window_days=7)
+
+        assert [(scout.run_count, scout.priced_run_count, scout.spend_usd) for scout in costs.scouts] == [
+            (2, 1, Decimal("2"))
+        ]
+
+    def test_runs_outside_the_window_and_other_teams_runs_are_absent(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        mine = self._run()
+        self._run(created_days_ago=9)
+        self._run(team=other_team, skill_name="signals-scout-general")
+        with patch.object(
+            scout_costs, "get_local_task_run_token_costs", return_value={str(mine.task_run_id): Decimal("3")}
+        ):
+            costs = scout_costs.scout_costs(team_id=self.team.id, window_days=7)
+
+        assert [(scout.skill_name, scout.run_count) for scout in costs.scouts] == [("signals-scout-general", 1)]
+
+    def test_second_read_is_served_from_the_cache(self) -> None:
+        # The window's trailing edge moves and the newest runs may still be settling, so the number
+        # is roughly current by design and every roster poll must not re-read the events.
+        run = self._run()
+        with patch.object(
+            scout_costs, "get_local_task_run_token_costs", return_value={str(run.task_run_id): Decimal("1")}
+        ) as query:
+            first = scout_costs.scout_costs(team_id=self.team.id, window_days=7)
+            second = scout_costs.scout_costs(team_id=self.team.id, window_days=7)
+
+        assert second == first
+        query.assert_called_once()
+
+        cached = cache.get(f"scout_costs:v1:{self.team.id}:7")
+        assert cached == {
+            "window_days": 7,
+            "available": True,
+            "scouts": [
+                {
+                    "skill_name": "signals-scout-general",
+                    "spend_usd": "1",
+                    "run_count": 1,
+                    "priced_run_count": 1,
+                    "reports_touched": 0,
+                }
+            ],
+        }
+
+    def test_unreadable_cost_project_is_reported_rather_than_priced_at_zero(self) -> None:
+        self._run()
+        with patch.object(scout_costs, "get_local_task_run_token_costs", side_effect=TaskTokenUsageUnavailable()):
+            costs = scout_costs.scout_costs(team_id=self.team.id, window_days=7)
+
+        assert costs.available is False
+        assert costs.scouts == []
+
+    def test_team_with_no_runs_in_the_window_reads_as_available_and_empty(self) -> None:
+        with patch.object(scout_costs, "get_local_task_run_token_costs") as query:
+            costs = scout_costs.scout_costs(team_id=self.team.id, window_days=7)
+
+        assert costs.available
+        assert costs.scouts == []
+        query.assert_not_called()
 
 
 class TestScoutRunTokenCosts(BaseTest):

@@ -8,7 +8,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("posthog", "1348_taggeditem_experiment"),
+        ("posthog", "1349_taggeditem_experiment"),
     ]
 
     # `CreateIndexConcurrently` drops any invalid leftover from an interrupted build before

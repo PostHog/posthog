@@ -7,7 +7,7 @@ class Migration(migrations.Migration):
         # Only the new relation's target needs pinning (matching the project precedent in 1335);
         # the other TaggedItem FK columns already exist in state via their own earlier migrations.
         ("experiments", "0029_experiment_repository"),
-        ("posthog", "1347_drop_activitylog_detail_jsonb_ops_gin"),
+        ("posthog", "1348_drop_organization_is_hipaa_column"),
     ]
 
     operations = [

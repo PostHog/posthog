@@ -5,7 +5,7 @@ from posthog.migration_helpers import AddForeignKeyNotValid
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1350_taggeditem_experiment_unique_constraint"),
+        ("posthog", "1351_taggeditem_experiment_unique_constraint"),
     ]
 
     # NOT VALID skips the child-row scan, so the lock this takes on posthog_experiment is a brief

@@ -5,7 +5,7 @@ from posthog.migration_helpers import ValidateForeignKey
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1351_taggeditem_experiment_fk"),
+        ("posthog", "1352_taggeditem_experiment_fk"),
     ]
 
     # VALIDATE scans under SHARE UPDATE EXCLUSIVE, so it does not block reads or writes.
