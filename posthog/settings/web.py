@@ -1245,6 +1245,11 @@ WIZARD_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("WIZARD_GATEWAY_TOKEN_TTL_SECOND
 # posture's cap_usd for that program up to its max_cap_usd. Both parsed
 # defensively like AI_GATEWAY_TEAM_TIER_OVERRIDES: a malformed value must not
 # take boot down.
+# The _INVALID flags separate "operator configured nothing" from "operator
+# configured something unreadable", which the empty dict cannot express. Each
+# mint counts the second case so a malformed value is alertable, not just logged.
+WIZARD_GATEWAY_TIERS_INVALID = False
+WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM_INVALID = False
 try:
     WIZARD_GATEWAY_TIERS = json.loads(get_from_env("WIZARD_GATEWAY_TIERS", "{}"))
 except ValueError:
@@ -1252,11 +1257,13 @@ except ValueError:
     # reading. Logged because the operator meant to configure something.
     logger.warning("WIZARD_GATEWAY_TIERS is not JSON, falling back to the in-code tier floors")
     WIZARD_GATEWAY_TIERS = {}
+    WIZARD_GATEWAY_TIERS_INVALID = True
 try:
     WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM = json.loads(get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM", "{}"))
 except ValueError:
     logger.warning("WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM is not JSON, falling back to no per-program caps")
     WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM = {}
+    WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM_INVALID = True
 
 # Exact MCP endpoints that operators explicitly allow the MCP Store to reach even
 # when normal SSRF validation rejects their private/internal address. This is an

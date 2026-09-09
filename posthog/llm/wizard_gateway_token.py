@@ -104,6 +104,7 @@ def parse_limit_override(raw: object) -> WizardLimitOverride:
             raw = json.loads(raw)
         except ValueError:
             logger.warning("wizard_gateway_token: limit override payload is not JSON")
+            WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="override_payload").inc()
             return NO_OVERRIDE
     if not isinstance(raw, dict):
         return NO_OVERRIDE
@@ -115,12 +116,14 @@ def _parse_limit_fields(raw: dict, *, source: str) -> tuple[Decimal | None, int 
     cap = _parse_cap(raw["cap_usd"]) if "cap_usd" in raw else None
     if "cap_usd" in raw and cap is None:
         logger.warning(f"wizard_gateway_token: {source} cap_usd out of contract, ignored", cap=str(raw["cap_usd"]))
+        WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="cap_usd").inc()
     mints = _parse_mints_per_day(raw["mints_per_day"]) if "mints_per_day" in raw else None
     if "mints_per_day" in raw and mints is None:
         logger.warning(
             f"wizard_gateway_token: {source} mints_per_day out of contract, ignored",
             mints_per_day=str(raw["mints_per_day"]),
         )
+        WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="mints_per_day").inc()
     return cap, mints
 
 
@@ -183,6 +186,9 @@ def wizard_tier_limits(posture: WizardPosture) -> WizardTierLimits:
     """The tier for a posture, each field validated on its own and each falling
     back to that posture's floor rather than to the flat setting."""
     floor = _TIER_FLOORS[posture]
+    if getattr(settings, "WIZARD_GATEWAY_TIERS_INVALID", False):
+        # Boot parsed the whole map away, so every posture silently takes its floor.
+        WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="tiers_json").inc()
     tiers = settings.WIZARD_GATEWAY_TIERS
     raw = tiers.get(posture) if isinstance(tiers, dict) else None
     if not isinstance(raw, dict):
@@ -194,6 +200,7 @@ def wizard_tier_limits(posture: WizardPosture) -> WizardTierLimits:
             f"wizard_gateway_token: {posture} tier max_cap_usd out of contract, ignored",
             max_cap_usd=str(raw["max_cap_usd"]),
         )
+        WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="max_cap_usd").inc()
     if max_cap is not None and cap is not None and max_cap < cap:
         # An entry whose ceiling sits under its own cap would let a program tighten
         # rather than size. Ignored rather than absorbed, so the operator sees it.
@@ -202,12 +209,14 @@ def wizard_tier_limits(posture: WizardPosture) -> WizardTierLimits:
             max_cap_usd=str(max_cap),
             cap_usd=str(cap),
         )
+        WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="max_cap_usd_below_cap").inc()
         max_cap = None
     ttl = _parse_ttl(raw["ttl_seconds"]) if "ttl_seconds" in raw else None
     if "ttl_seconds" in raw and ttl is None:
         logger.warning(
             f"wizard_gateway_token: {posture} tier ttl_seconds out of contract, ignored", ttl=str(raw["ttl_seconds"])
         )
+        WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="ttl_seconds").inc()
     return WizardTierLimits(
         cap_usd=cap if cap is not None else floor.cap_usd,
         max_cap_usd=max_cap if max_cap is not None else floor.max_cap_usd,
@@ -219,12 +228,16 @@ def wizard_tier_limits(posture: WizardPosture) -> WizardTierLimits:
 def wizard_program_cap(program: object) -> Decimal | None:
     """A per-program cap from WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM, keyed on the
     program id the CLI sent; None when the program has no usable entry."""
+    if getattr(settings, "WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM_INVALID", False):
+        # Boot parsed the map away, so no program can carry its own cap.
+        WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="program_caps_json").inc()
     caps = settings.WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM
     if not isinstance(program, str) or not isinstance(caps, dict) or program not in caps:
         return None
     cap = _parse_cap(caps[program])
     if cap is None:
         logger.warning("wizard_gateway_token: program cap out of contract, ignored", program=program)
+        WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="program_cap").inc()
     return cap
 
 
@@ -273,6 +286,14 @@ WIZARD_GATEWAY_MINTS = Counter(
     "posthog_wizard_gateway_token_mints_total",
     "Wizard gateway token mints, by outcome (ok/refused/unreachable/malformed)",
     labelnames=["outcome"],
+)
+
+# A rejected value degrades the mint quietly toward a floor, so the warning alone
+# gives nothing to alert on. Labelled by field, never by the rejected value.
+WIZARD_GATEWAY_CONFIG_REJECTS = Counter(
+    "posthog_wizard_gateway_config_rejects_total",
+    "Wizard gateway settings values rejected as out of contract, by field",
+    labelnames=["field"],
 )
 
 
@@ -421,6 +442,7 @@ def _cap_usd(override: Decimal | None, *, program: object, posture: WizardPostur
         cap = _parse_cap(raw)
         if cap is None:
             logger.warning("wizard_gateway_token: cap_usd out of contract, using the default", cap=raw)
+            WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="flat_cap_usd").inc()
             cap = _DEFAULT_CAP_USD
     return f"{cap.quantize(_CAP_QUANTUM):f}"
 

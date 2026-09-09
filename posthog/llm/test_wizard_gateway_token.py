@@ -12,6 +12,7 @@ import requests
 from posthog.llm.wizard_gateway_token import (
     _TIER_FLOORS,
     NO_OVERRIDE,
+    WIZARD_GATEWAY_CONFIG_REJECTS,
     WizardGatewayMintError,
     WizardLimitOverride,
     WizardTierLimits,
@@ -461,3 +462,59 @@ class TestWizardProductNode:
     @override_settings(WIZARD_GATEWAY_PROGRAM_IDS=[])
     def test_no_configured_programs_refuses_every_program(self):
         assert wizard_product_node("audit") is None
+
+
+class TestWizardConfigRejectCounter:
+    """A rejected settings value degrades the mint toward a floor, so every
+    rejection leaves a counter an operator can alert on."""
+
+    @staticmethod
+    def _count(field: str) -> float:
+        return WIZARD_GATEWAY_CONFIG_REJECTS.labels(field=field)._value.get()
+
+    @override_settings(WIZARD_GATEWAY_TIERS={"new": {"cap_usd": "999", "mints_per_day": 0, "ttl_seconds": -1}})
+    def test_each_rejected_tier_field_is_counted_on_its_own_label(self):
+        fields = ("cap_usd", "mints_per_day", "ttl_seconds")
+        before = {f: self._count(f) for f in fields}
+        wizard_tier_limits("new")
+        assert {f: self._count(f) for f in fields} == {f: before[f] + 1 for f in fields}
+
+    @override_settings(WIZARD_GATEWAY_TIERS={"new": {"cap_usd": "5", "max_cap_usd": "3"}})
+    def test_a_ceiling_under_its_own_cap_counts_apart_from_an_unreadable_one(self):
+        before = self._count("max_cap_usd_below_cap")
+        unreadable = self._count("max_cap_usd")
+        wizard_tier_limits("new")
+        assert self._count("max_cap_usd_below_cap") == before + 1
+        assert self._count("max_cap_usd") == unreadable
+
+    @override_settings(WIZARD_GATEWAY_TIERS={"new": {"cap_usd": "5"}})
+    def test_a_readable_tier_counts_nothing(self):
+        fields = ("cap_usd", "mints_per_day", "ttl_seconds", "max_cap_usd", "max_cap_usd_below_cap", "tiers_json")
+        before = {f: self._count(f) for f in fields}
+        wizard_tier_limits("new")
+        assert {f: self._count(f) for f in fields} == before
+
+    @override_settings(WIZARD_GATEWAY_TIERS={}, WIZARD_GATEWAY_TIERS_INVALID=True)
+    def test_a_tier_map_unreadable_at_boot_is_counted_on_every_mint(self):
+        # The empty dict cannot say whether the operator configured nothing or
+        # configured something unparseable, which is why boot carries the flag.
+        before = self._count("tiers_json")
+        assert wizard_tier_limits("new") == _TIER_FLOORS["new"]
+        assert self._count("tiers_json") == before + 1
+
+    @override_settings(WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM={"broken": "lots"})
+    def test_a_rejected_program_cap_is_counted(self):
+        before = self._count("program_cap")
+        assert wizard_program_cap("broken") is None
+        assert self._count("program_cap") == before + 1
+
+    @override_settings(WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM={}, WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM_INVALID=True)
+    def test_a_program_cap_map_unreadable_at_boot_is_counted(self):
+        before = self._count("program_caps_json")
+        assert wizard_program_cap("self-driving") is None
+        assert self._count("program_caps_json") == before + 1
+
+    def test_an_override_payload_that_is_not_json_is_counted(self):
+        before = self._count("override_payload")
+        assert parse_limit_override("{not json") == NO_OVERRIDE
+        assert self._count("override_payload") == before + 1
