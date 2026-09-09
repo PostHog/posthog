@@ -145,3 +145,6 @@ docker run --rm \
 The production binary is compiled with Go 1.27.1 and `go build -trimpath`. The runtime image contains only the static
 service binary, the commit identifier, and CA certificates. BuildKit's `TARGETOS` and `TARGETARCH` arguments allow
 native `linux/amd64` and `linux/arm64` builds.
+
+Merges that change this service publish the `hogql-lang-service` image and send its digest to the matching Charts
+release. Pull requests build both production architectures without publishing them.
