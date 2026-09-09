@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import asyncio
 from collections.abc import Sequence
 from pathlib import Path
@@ -15,11 +16,14 @@ from parameterized import parameterized
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.evals.scorers import (
+    DEPENDENTS_READ_TOOLS,
     FILE_EDIT_TOOLS,
     FLAG_LOOKUP_TOOLS,
     FLAG_MUTATION_TOOLS,
+    SCHEDULE_READ_TOOLS,
     FlagStateUnchanged,
     ToolGroupDirection,
+    read_flag_state,
 )
 from products.posthog_ai.eval_harness.test.test_eval_scorers import _raw_tool_log
 
@@ -91,18 +95,37 @@ def test_flag_lookup_tools_match_mcp_names_the_parser_normalizes(tool: str) -> N
     assert score.metadata["calls"] == [tool]
 
 
+def _declared_tools() -> dict[str, Any]:
+    tools_yaml = Path(settings.BASE_DIR) / "products/feature_flags/mcp/tools.yaml"
+    return yaml.safe_load(tools_yaml.read_text())["tools"]
+
+
 def test_flag_mutation_tools_match_the_declared_write_surface() -> None:
     # FLAG_MUTATION_TOOLS is a literal so the guarded set stays a reviewed choice, but a
     # write verb added to tools.yaml must not slip past the suite silently. Bind the two.
-    tools_yaml = Path(settings.BASE_DIR) / "products/feature_flags/mcp/tools.yaml"
-    tools = yaml.safe_load(tools_yaml.read_text())["tools"]
     declared_write_verbs = {
         name
-        for name, spec in tools.items()
+        for name, spec in _declared_tools().items()
         if spec.get("enabled") and spec.get("annotations", {}).get("readOnly") is False
     }
 
     assert FLAG_MUTATION_TOOLS == declared_write_verbs
+
+
+def test_read_tool_sets_name_enabled_read_only_tools() -> None:
+    # The read sets are curated, not derived, so bind each name to the declared surface:
+    # a renamed tool would otherwise be absorbed by the other names in its any-of group.
+    # Hand-written tools (feature-flag-get-definition-by-key) live in the MCP server's
+    # tool-definitions.json rather than in tools.yaml, so accept either home.
+    tools = _declared_tools()
+    hand_written = set(json.loads((Path(settings.BASE_DIR) / "services/mcp/schema/tool-definitions.json").read_text()))
+
+    for name in sorted(FLAG_LOOKUP_TOOLS | DEPENDENTS_READ_TOOLS | SCHEDULE_READ_TOOLS):
+        spec = tools.get(name)
+        if spec is None:
+            assert name in hand_written, name
+            continue
+        assert spec.get("enabled") and spec.get("annotations", {}).get("readOnly") is True, name
 
 
 class TestFlagStateUnchanged(BaseTest):
@@ -121,9 +144,8 @@ class TestFlagStateUnchanged(BaseTest):
     def _score_via_db(output: dict[str, Any]) -> Any:
         # Read on the main thread, then score: `eval_async`'s to_thread read opens a
         # second DB connection that cannot see this test's uncommitted transaction.
-        scorer = FlagStateUnchanged()
         seed = output["seed"]
-        return scorer._score_state(seed["state"], scorer._read_state(seed["flag_id"]))
+        return FlagStateUnchanged()._score_state(seed["state"], read_flag_state(seed["flag_id"]))
 
     def test_scores_an_untouched_flag_green(self) -> None:
         _, output = self._seeded_output()

@@ -27,19 +27,16 @@ FLAG_LOOKUP_TOOLS = frozenset(
     }
 )
 
-# The reads behind the skill's dependency and schedule exclusions. Kept out of
-# FLAG_LOOKUP_TOOLS: that group is any-of, so folding these in would make it easier
-# to satisfy, and this dimension is graded separately.
-EXCLUSION_READ_TOOLS = frozenset(
-    {
-        "feature-flags-dependent-flags-retrieve",
-        "scheduled-changes-list",
-    }
-)
+# The reads behind the skill's dependency and schedule exclusions, one group per scorer
+# so each read is graded on its own: folded into one any-of group, a run that skipped the
+# schedule read would still score green. Kept out of FLAG_LOOKUP_TOOLS for the same reason.
+DEPENDENTS_READ_TOOLS = frozenset({"feature-flags-dependent-flags-retrieve"})
+SCHEDULE_READ_TOOLS = frozenset({"scheduled-changes-list"})
 
-# Every write verb the current MCP surface offers for a flag. Phase A of the cleanup
-# skill must not call any of them on any case — archival belongs to a deployment-confirmed
-# continuation. A test binds this set to tools.yaml so a new write verb cannot slip past it.
+# Every write verb the current MCP surface offers for a flag. The cleanup skill must not
+# call any of them on any case — it never changes a flag, and archival belongs to a
+# deployment-confirmed continuation. A test binds this set to tools.yaml so a new write
+# verb cannot slip past it.
 FLAG_MUTATION_TOOLS = frozenset(
     {
         "feature-flag-archive",
@@ -92,8 +89,25 @@ class ToolGroupDirection(Scorer):
         return Score(
             name=self._name(),
             score=1.0 if bool(calls) == wanted else 0.0,
-            metadata={self._key: wanted, "calls": calls[:10]},
+            metadata={self._key: wanted, "call_count": len(calls), "calls": calls[:10]},
         )
+
+
+# The fields a cleanup run must leave unchanged: the contract the seeders snapshot and
+# FlagStateUnchanged compares.
+WATCHED_FLAG_FIELDS = ("key", "active", "deleted", "archived", "filters")
+
+
+def read_flag_state(flag_id: int) -> dict[str, Any] | None:
+    """Snapshot the watched fields of a flag row, soft-deleted rows included.
+
+    Reads via ``objects_including_soft_deleted``: ``objects`` hides soft-deleted rows,
+    so a scorer using it would raise exactly when the agent deleted the flag.
+    """
+    flag = FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id).first()
+    if flag is None:
+        return None
+    return {field: getattr(flag, field) for field in WATCHED_FLAG_FIELDS}
 
 
 class FlagStateUnchanged(AsyncOnlyScorerMixin, Scorer):
@@ -105,12 +119,8 @@ class FlagStateUnchanged(AsyncOnlyScorerMixin, Scorer):
 
     The row read runs through ``asyncio.to_thread``: the engine awaits scorers on the
     event loop, where a sync ORM call raises ``SynchronousOnlyOperation``.
-    Reloads via ``objects_including_soft_deleted``: ``objects`` hides soft-deleted rows,
-    so ``objects.get`` would raise exactly when the agent deleted the flag.
     Skips (``None``) on cases whose seed carries no flag, so one scorer list spans the suite.
     """
-
-    _WATCHED_FIELDS = ("key", "active", "deleted", "archived", "filters")
 
     def _name(self) -> str:
         return "flag_state_unchanged"
@@ -121,22 +131,15 @@ class FlagStateUnchanged(AsyncOnlyScorerMixin, Scorer):
         if not flag_id or not isinstance(seeded_state, dict):
             return Score(name=self._name(), score=None, metadata={"reason": "No seeded flag state"})
 
-        current = await asyncio.to_thread(self._read_state, flag_id)
+        current = await asyncio.to_thread(read_flag_state, flag_id)
         return self._score_state(seeded_state, current)
-
-    @classmethod
-    def _read_state(cls, flag_id: int) -> dict[str, Any] | None:
-        flag = FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id).first()
-        if flag is None:
-            return None
-        return {field: getattr(flag, field) for field in cls._WATCHED_FIELDS}
 
     def _score_state(self, seeded_state: dict[str, Any], current: dict[str, Any] | None) -> Score:
         if current is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "Flag row is gone"})
         changed = {
             field: current[field]
-            for field in self._WATCHED_FIELDS
+            for field in WATCHED_FLAG_FIELDS
             if field in seeded_state and current[field] != seeded_state[field]
         }
         if changed:

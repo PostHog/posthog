@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.evals.scorers import FlagStateUnchanged
+from products.feature_flags.evals.scorers import read_flag_state
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 STALE_FULL_ROLLOUT_FLAG_KEY = "sunset-widget-rollout"
@@ -66,7 +66,7 @@ def seed_stale_full_rollout_flag(context: CustomPromptSandboxContext) -> dict[st
         "flag_id": flag.id,
         "flag_key": flag.key,
         "rollout": "full",
-        "state": FlagStateUnchanged._read_state(flag.id),
+        "state": read_flag_state(flag.id),
     }
 
 
@@ -88,5 +88,5 @@ def seed_stale_partial_rollout_flag(context: CustomPromptSandboxContext) -> dict
         "flag_id": flag.id,
         "flag_key": flag.key,
         "rollout": "partial",
-        "state": FlagStateUnchanged._read_state(flag.id),
+        "state": read_flag_state(flag.id),
     }

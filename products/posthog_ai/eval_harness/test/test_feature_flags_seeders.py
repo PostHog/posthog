@@ -6,7 +6,7 @@ from parameterized import parameterized
 
 from products.feature_flags.backend.flag_status import FeatureFlagStatusChecker, filter_stale_flags
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.evals.scorers import FlagStateUnchanged
+from products.feature_flags.evals.scorers import WATCHED_FLAG_FIELDS
 from products.feature_flags.evals.seeders import seed_stale_full_rollout_flag, seed_stale_partial_rollout_flag
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
@@ -46,11 +46,11 @@ class TestFeatureFlagEvalSeeders(BaseTest):
     def test_seed_carries_the_state_snapshot_the_unchanged_scorer_compares(self, _name, seeder) -> None:
         # FlagStateUnchanged skips silently when the seed has no "state", so a seeder
         # that drops the snapshot would turn the mutation check off across the suite.
-        # The snapshot itself comes from the scorer's own reader, so only its presence
-        # and field coverage need pinning here.
+        # The snapshot itself comes from the shared read_flag_state, so only its
+        # presence and field coverage need pinning here.
         seeded = seeder(_context(self.team.id, self.user.id))
 
-        assert set(seeded["state"]) == set(FlagStateUnchanged._WATCHED_FIELDS)
+        assert set(seeded["state"]) == set(WATCHED_FLAG_FIELDS)
 
     @parameterized.expand(
         [
