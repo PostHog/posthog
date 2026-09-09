@@ -18,6 +18,8 @@ This preserves edited joins when selecting a different warehouse table.
 
 When reopening the warehouse picker, combine the table schema with the current filter, giving the filter's selected fields precedence.
 Rebuilding the picker from the table schema alone replaces edited join fields with table defaults.
+The open configuration must also receive schema updates that arrive after opening.
+Saved metrics store field mappings without column schemas, so retaining only the opening snapshot leaves column dropdowns empty on a fresh visit.
 
 Funnel conversion includes warehouse steps alongside events and actions, preserving their configured order.
 The shared source converter handles mean metrics, ratio sources, and retention sources.
