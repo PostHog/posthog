@@ -2503,7 +2503,7 @@ export type LifecycleFilter = {
     /** @default true */
     stacked?: boolean
     /** Take the origin of the history from the date range instead of the person profile creation
-     *  date, so the first activity in the range counts as new.
+     *  date. Activity in the first period counts as new, and activity before the range is ignored.
      * @default false */
     onlyUseInsightDates?: boolean
 }

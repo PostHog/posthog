@@ -5778,7 +5778,8 @@ class LifecycleFilter(BaseModel):
         default=False,
         description=(
             "Take the origin of the history from the date range instead of the person"
-            " profile creation date, so the first activity in the range counts as new."
+            " profile creation date. Activity in the first period counts as new, and"
+            " activity before the range is ignored."
         ),
     )
     showLegend: bool | None = False
