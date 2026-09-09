@@ -337,6 +337,7 @@ const storeSkillStubSchema = z.object({
 export type StoreSkillStub = z.infer<typeof storeSkillStubSchema>;
 
 const taskRunStateFields = {
+  ai_agent_name: optionalField(z.string()),
   ai_stage: optionalField(z.string()),
   auto_publish: optionalField(z.boolean()),
   benjamin_version: optionalField(z.string()),
@@ -354,7 +355,6 @@ const taskRunStateFields = {
   ),
   resume_from_run_id: optionalField(z.string()),
   sandbox_environment_id: optionalField(z.string()),
-  scout_skill_name: optionalField(z.string()),
   slack_artifact_delivery: optionalField(
     z.enum(["none", "message", "canvas_file"]),
   ),

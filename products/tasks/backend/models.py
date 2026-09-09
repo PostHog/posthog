@@ -925,7 +925,7 @@ class Task(DeletedMetaFields, models.Model):
         hog_flow_id: uuid.UUID | None = None,
         origin_key: str | None = None,
         ai_stage: str | None = None,
-        scout_skill_name: str | None = None,
+        ai_agent_name: str | None = None,
         sandbox_environment_id: str | None = None,
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
@@ -1122,9 +1122,10 @@ class Task(DeletedMetaFields, models.Model):
         if ai_stage:
             extra_state["ai_stage"] = ai_stage
 
-        # Reaches $ai_generation by the same path as `ai_stage`, which cannot name a custom scout.
-        if scout_skill_name:
-            extra_state["scout_skill_name"] = scout_skill_name
+        # The team-scoped name of the agent this run executes. `ai_stage` is a fleet-wide tag with
+        # bounded cardinality, so callers that run team-authored agents cannot name them there.
+        if ai_agent_name:
+            extra_state["ai_agent_name"] = ai_agent_name
 
         if initial_permission_mode:
             extra_state["initial_permission_mode"] = initial_permission_mode
@@ -1276,7 +1277,7 @@ class Task(DeletedMetaFields, models.Model):
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
         ai_stage: str | None = None,
-        scout_skill_name: str | None = None,
+        ai_agent_name: str | None = None,
         wizard_config: dict | None = None,
         wizard_head_branch: str | None = None,
         self_driving_head_branch: str | None = None,
@@ -1324,7 +1325,7 @@ class Task(DeletedMetaFields, models.Model):
             sandbox_timeout_seconds=sandbox_timeout_seconds,
             inactivity_timeout_seconds=inactivity_timeout_seconds,
             ai_stage=ai_stage,
-            scout_skill_name=scout_skill_name,
+            ai_agent_name=ai_agent_name,
             wizard_config=wizard_config,
             wizard_head_branch=wizard_head_branch,
             self_driving_head_branch=self_driving_head_branch,

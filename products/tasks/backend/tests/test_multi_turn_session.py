@@ -1419,8 +1419,8 @@ class TestCreateTaskAndTriggerForwardsContext:
         [
             ("ai_stage", "research"),
             ("ai_stage", None),
-            ("scout_skill_name", "signals-scout-errors"),
-            ("scout_skill_name", None),
+            ("ai_agent_name", "signals-scout-errors"),
+            ("ai_agent_name", None),
         ],
     )
     async def test_forwards_attribution_stamps(self, stamp, value):

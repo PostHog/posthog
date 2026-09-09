@@ -649,9 +649,9 @@ export class PiAgentServer {
       task_prewarmed: taskRun ? runState?.prewarmed === true : null,
       ai_stage:
         typeof runState?.ai_stage === "string" ? runState.ai_stage : null,
-      scout_skill_name:
-        typeof runState?.scout_skill_name === "string"
-          ? runState.scout_skill_name
+      ai_agent_name:
+        typeof runState?.ai_agent_name === "string"
+          ? runState.ai_agent_name
           : null,
       task_execution_environment: "cloud",
     });
