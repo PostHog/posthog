@@ -111,8 +111,6 @@ write resubmits the same repository set and the same integration.
 | `previous_repository_count`      | `int`   | The "from"                                                                                        |
 | `repository_count`               | `int`   | The "to"                                                                                          |
 | `added_count` / `removed_count`  | `int`   |                                                                                                   |
-| `added_repositories`             | `str[]` | The delta only, never the full list. Capped at 10 by the serializer                               |
-| `removed_repositories`           | `str[]` | The delta only                                                                                    |
 | `is_first_configuration`         | `bool`  | Previous list was empty                                                                           |
 | `is_cleared`                     | `bool`  | New list is empty                                                                                 |
 | `github_integration_changed`     | `bool`  |                                                                                                   |

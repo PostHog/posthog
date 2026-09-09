@@ -1598,7 +1598,9 @@ class RepositoryConfigAnalyticsTestCase(TestCase):
         self.assertEqual(rows[0]["trigger"], "space_settings_edit")
         self.assertEqual(rows[0]["previous_repository_count"], 0)
         self.assertEqual(rows[0]["repository_count"], 1)
-        self.assertEqual(rows[0]["added_repositories"], ["posthog/posthog"])
+        self.assertEqual(rows[0]["added_count"], 1)
+        self.assertNotIn("added_repositories", rows[0])
+        self.assertNotIn("removed_repositories", rows[0])
         self.assertTrue(rows[0]["is_first_configuration"])
         self.assertTrue(rows[0]["github_integration_changed"])
 

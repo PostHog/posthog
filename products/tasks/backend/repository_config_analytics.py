@@ -68,20 +68,14 @@ def capture_repository_config_changed(
         if previous == current and not integration_changed:
             return
 
-        added = sorted(current - previous)
-        removed = sorted(previous - current)
         properties: dict = {
             "subject": subject,
             "trigger": trigger,
             "team_id": team.id,
             "previous_repository_count": len(previous),
             "repository_count": len(current),
-            "added_count": len(added),
-            "removed_count": len(removed),
-            # The delta only. The full list is customer project naming, and the counts
-            # above already answer "how often" and "how much".
-            "added_repositories": added,
-            "removed_repositories": removed,
+            "added_count": len(current - previous),
+            "removed_count": len(previous - current),
             "is_first_configuration": not previous and bool(current),
             "is_cleared": bool(previous) and not current,
             "github_integration_changed": integration_changed,
