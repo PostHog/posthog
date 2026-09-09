@@ -62,6 +62,11 @@ class BatchExportDestination(UUIDTModel):
 
     class Meta:
         db_table = "posthog_batchexportdestination"
+        # `type` is the only destination column callers filter on after joining from
+        # `posthog_batchexport` (list endpoint, weekly usage report, billing limits).
+        indexes = [
+            models.Index(fields=["type"], name="batch_export_dest_type_idx"),
+        ]
 
     class Destination(models.TextChoices):
         """Enumeration of supported destinations for PostHog BatchExports."""
