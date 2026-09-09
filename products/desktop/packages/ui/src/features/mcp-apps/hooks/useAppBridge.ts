@@ -61,6 +61,15 @@ interface UseAppBridgeArgs {
 
 interface UseAppBridgeReturn {
   sendWhenReady: (fn: (bridge: AppBridge) => void) => void;
+  /**
+   * Delivers a tool result at most once per `toolCallId`, deduplicating
+   * across the redundant callers that can race for the same result (the
+   * live subscription and the exec-replay effect). The "already sent" flag
+   * is a bridge-scoped ref so a bridge teardown (e.g. from a `uiResource`
+   * refetch racing a not-yet-flushed queue) clears it too — otherwise a
+   * result queued right before teardown is lost with no way to retry.
+   */
+  sendResultOnce: (toolCallId: string, raw: unknown) => void;
 }
 
 const HOST_INFO = { name: "posthog-code", version: "1.0.0" };
@@ -131,6 +140,7 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
   const bridgeRef = useRef<AppBridge | null>(null);
   const initializedRef = useRef(false);
   const pendingRef = useRef<Array<(bridge: AppBridge) => void>>([]);
+  const sentResultForCallRef = useRef<string | null>(null);
 
   // Single mutable ref for latest props — handlers read from this
   const latestRef = useRef(args);
@@ -352,6 +362,10 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
       initializedRef.current = false;
       prevContextRef.current = null;
       pendingRef.current = [];
+      // A result queued against this bridge is gone with it — clearing the
+      // flag lets the next bridge (or `oninitialized`'s own remount replay)
+      // legitimately redeliver instead of silently dropping it forever.
+      sentResultForCallRef.current = null;
     };
   }, [iframeEl, uiResource, args.serverName]); // Only re-run when iframe element or resource identity changes
 
@@ -405,5 +419,15 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
     }
   }, []);
 
-  return { sendWhenReady };
+  const sendResultOnce = useCallback(
+    (toolCallId: string, raw: unknown) => {
+      if (sentResultForCallRef.current === toolCallId) return;
+      sentResultForCallRef.current = toolCallId;
+      const toolResult = toCallToolResult(raw);
+      sendWhenReady((bridge) => bridge.sendToolResult(toolResult));
+    },
+    [sendWhenReady],
+  );
+
+  return { sendWhenReady, sendResultOnce };
 }
