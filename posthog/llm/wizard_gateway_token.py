@@ -62,11 +62,8 @@ WIZARD_DECLARABLE_EFFORTS: tuple[str, ...] = ("none", "minimal", "low", "medium"
 # per switchboard flag. The keys mirror the CLI's own model constants (wizard
 # src/lib/constants.ts, the *_MODEL exports), so widen here when one is added.
 WIZARD_MODEL_ALLOWLIST: dict[str, tuple[str, ...]] = {
-    "claude-sonnet-4-6": ("none", "high"),
     "claude-sonnet-5": ("none", "high"),
     "claude-haiku-4-5": ("none",),
-    "claude-haiku-4-5-20251001": ("none",),
-    "claude-opus-4-8": ("none", "high"),
     "gpt-5.6-luna": ("low",),
     "gpt-5.6-sol": ("medium",),
     "gpt-5.6-terra": ("low", "medium", "high"),
