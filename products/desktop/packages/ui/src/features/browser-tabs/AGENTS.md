@@ -197,16 +197,6 @@ note taken as you click away is not enough. Async completion can explicitly
 retarget its originating background tab as described below. `railHistoryStore`
 / `RailHistorySync` were the window-global predecessors and are gone.
 
-### Inbound links (deep links, notification clicks)
-- A deep link or a native-notification click opens its destination in **its own
-  tab** (`focusOrOpenBrowserTab`), focusing a tab that already shows the target.
-  It never replaces the location of the tab the user is on. When browser tabs
-  have no window to open into (the mirror hasn't seeded), the callers fall back
-  to a plain in-tab navigation so the link is never dropped.
-- The new-task deep link is the sync variant (`openInNewBrowserTabSync`): the
-  composer prefill is transient store state that must land in the same tick as
-  the navigation.
-
 ### In-flight task creation
 - Submitting a new task snapshots the prompt and originating `tabId` before its
   first asynchronous preflight. Switching tabs cannot unmount the editor out

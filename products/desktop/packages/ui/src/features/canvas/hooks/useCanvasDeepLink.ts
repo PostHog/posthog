@@ -21,8 +21,6 @@ const log = logger.scope("canvas-deep-link");
  * `posthog-code://…` in production and `posthog-code-dev://…` in local dev) and
  * opens the canvas in the Channels space. These arrive from a shareable https
  * link's web interstitial, so a teammate can open a canvas straight in the app.
- * An inbound link opens its own browser tab (focusing one that already shows
- * the canvas) rather than replacing the tab the user is on.
  *
  * Mirrors `useScoutDeepLink`: drains any link that arrived before the renderer
  * was ready (the main process clears its pending entry on read) and also

@@ -3,9 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BrowserTabsClient } from "./browserTabsClient";
 import {
   focusExistingTab,
+  focusOrOpenBrowserTab,
   getCurrentBrowserTabId,
   navigateBrowserTab,
-  openInNewBrowserTab,
 } from "./imperativeTabNavigation";
 
 const mocks = vi.hoisted(() => ({
@@ -43,7 +43,6 @@ const destination = {
   appView: null,
 };
 
-/** Only openTab is on the open path; the rest of the client stays unmocked. */
 const client = (): BrowserTabsClient =>
   ({ openTab: vi.fn() }) as unknown as BrowserTabsClient;
 
@@ -151,39 +150,20 @@ describe("imperative browser-tab navigation", () => {
   });
 
   it("opens an inbound destination in its own tab without touching the current one", async () => {
-    const tabId = await openInNewBrowserTab(client(), destination);
+    const tabId = await focusOrOpenBrowserTab(client(), destination);
 
-    expect(tabId).toEqual(expect.any(String));
+    expect(tabId).toBe("opened");
     const mirror = mocks.applyLocalTransform.mock.results[0]
       ?.value as TabsSnapshot;
-    // Appends to the window without rewriting either existing tab's location.
     expect(mirror.tabs).toHaveLength(3);
     expect(mirror.tabs.find((t) => t.id === "tab-a")?.href).toBe("/new");
     expect(mirror.tabs.find((t) => t.id === "tab-b")?.href).toBe("/inbox");
-    expect(mirror.windows[0].activeTabId).toBe(tabId);
-    // Focus moves through a tagged history entry, so the strip's navigation
-    // effect treats it as a tab switch.
-    expect(history.push).toHaveBeenCalledWith(destination.href, {
-      tabId,
-    });
+    expect(mirror.windows[0].activeTabId).toEqual(expect.any(String));
+    expect(history.push).toHaveBeenCalledWith(
+      destination.href,
+      expect.objectContaining({ tabId: expect.any(String) }),
+    );
     expect(mocks.persistWrite).toHaveBeenCalledOnce();
-  });
-
-  it("does not open when the mirror has no window, then seeds and opens", async () => {
-    mocks.readMirror.mockReturnValue({ windows: [], tabs: [] });
-    const seeded = snapshot();
-    // reseedMirror applies the fetched snapshot to the mirror, which the open
-    // path then reads back (mirrors the real tabsSync behavior).
-    mocks.reseedMirror.mockImplementation(async () => {
-      mocks.readMirror.mockReturnValue(seeded);
-      return seeded;
-    });
-
-    const tabId = await openInNewBrowserTab(client(), destination);
-
-    expect(tabId).toEqual(expect.any(String));
-    expect(mocks.reseedMirror).toHaveBeenCalledOnce();
-    expect(mocks.applyLocalTransform).toHaveBeenCalledOnce();
   });
 
   it("reports unavailable when there is no window even after a reseed", async () => {
@@ -191,8 +171,8 @@ describe("imperative browser-tab navigation", () => {
     mocks.reseedMirror.mockResolvedValue({ windows: [], tabs: [] });
 
     await expect(
-      openInNewBrowserTab(client(), destination),
-    ).resolves.toBeNull();
+      focusOrOpenBrowserTab(client(), destination),
+    ).resolves.toBe("unavailable");
     expect(mocks.applyLocalTransform).not.toHaveBeenCalled();
     expect(history.push).not.toHaveBeenCalled();
   });

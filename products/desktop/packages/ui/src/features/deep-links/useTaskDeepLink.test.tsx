@@ -81,8 +81,7 @@ describe("useTaskDeepLink", () => {
   // Both entry points (cold-start pending link, warm-start subscription event)
   // run the same routing dispatch: a channel-filed task opens in its /website
   // channel view, otherwise it falls back to /code — and only when the bluebird
-  // flag is on. A deep link opens its own browser tab (`newTab`), focusing one
-  // that already shows the task.
+  // flag is on.
   it.each([
     {
       name: "cold-start unfiled task → /code",

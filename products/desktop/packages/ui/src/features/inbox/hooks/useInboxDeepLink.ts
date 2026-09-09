@@ -17,9 +17,7 @@ import { useCallback, useEffect } from "react";
  * Hook that subscribes to inbox report deep link events (`<scheme>://inbox/{reportId}`,
  * e.g. `posthog-code://…` in production and `posthog-code-dev://…` in local dev)
  * and opens the report in the inbox view. A link with no report segment
- * (`<scheme>://inbox`) opens the inbox itself. An inbound link opens its own
- * browser tab (focusing one that already shows the report) rather than
- * replacing the tab the user is on.
+ * (`<scheme>://inbox`) opens the inbox itself.
  *
  * The actual open – fetch by id, seed the detail cache, reset filters, and
  * navigate to the right tab (Pulls if it has an implementation PR, otherwise

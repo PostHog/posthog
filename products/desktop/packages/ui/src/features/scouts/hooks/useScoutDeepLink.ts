@@ -22,8 +22,6 @@ const log = logger.scope("scout-deep-link");
  * Hook that handles scout detail deep links (`<scheme>://scout/{skillSlug}?finding={id}`,
  * e.g. `posthog-code://…` in production and `posthog-code-dev://…` in local dev)
  * and opens the agent in Settings, expanding the finding when one is supplied.
- * An inbound link opens its own browser tab (focusing one that already shows
- * the agent) rather than replacing the tab the user is on.
  *
  * Mirrors `useInboxDeepLink`: drains any link that arrived before the renderer
  * was ready (the main process clears its pending entry on read) and also
@@ -51,9 +49,6 @@ export function useScoutDeepLink() {
       log.info(
         `Opening scout from deep link: skillSlug=${skillSlug} findingId=${findingId ?? "(none)"}`,
       );
-      // One navigation carries the whole target: a second call (openSettings
-      // after openAgent) builds its own entry and clears the agent fields the
-      // first one wrote.
       const destination = {
         href: "/settings/agents",
         appView: "settings" as const,
@@ -62,8 +57,6 @@ export function useScoutDeepLink() {
         if (resolved === "unavailable") {
           openSettings("agents");
         } else {
-          // openSettings navigates, so it also resets the page store; the tab
-          // path doesn't, and a reused tab would carry stale settings context.
           prepareSettingsPage();
         }
         agentsPageActions().openAgent(skillSlug, { findingId });

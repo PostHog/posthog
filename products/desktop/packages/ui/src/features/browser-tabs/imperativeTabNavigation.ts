@@ -16,12 +16,6 @@ import {
   reseedMirror,
 } from "./tabsSync";
 
-/**
- * Synchronous variant of {@link openInNewBrowserTab} for callers whose transient
- * state (a composer prefill) must land in the same tick as the navigation.
- * Opens only from the warm mirror; returns null when it hasn't seeded, and the
- * caller falls back to an in-tab navigation.
- */
 export function openInNewBrowserTabSync(
   client: BrowserTabsClient,
   destination: BrowserTabDestination,
@@ -50,55 +44,15 @@ export function openInNewBrowserTabSync(
   return tabId;
 }
 
-/**
- * Opens an inbound destination (a deep link, a notification click) in its own
- * tab, without disturbing the tab the user is on. Resolves to the new tab's id,
- * or null when browser tabs have no window to open into (the caller then falls
- * back to a plain navigation, so the link is never dropped).
- *
- * The write follows the strip's local-first contract: apply the shared
- * `openTab` transform to the mirror synchronously, push the tagged history
- * entry in the same tick, then persist in the background. The strip's
- * navigation effect sees the new history entry, treats its tag as a live tab
- * switch, and focuses it.
- */
-export async function openInNewBrowserTab(
-  client: BrowserTabsClient,
-  destination: BrowserTabDestination,
-): Promise<string | null> {
-  if (readMirror().windows.length > 0) {
-    return openInNewBrowserTabSync(client, destination);
-  }
-  // The mirror may not have seeded yet (a link that arrives during boot). Pull
-  // the authoritative snapshot once; open only when a window exists afterwards.
-  const server = await reseedMirror();
-  if (primaryWindow(server ?? readMirror())) {
-    return openInNewBrowserTabSync(client, destination);
-  }
-  return null;
-}
-
-/** What an inbound destination resolved to in the tab strip. */
 export type InboundTabResolution = "focused" | "opened" | "unavailable";
 
-/**
- * Focus the tab that already shows the destination, or open it in a new tab.
- * Resolves "unavailable" only when browser tabs have no window to open into, so
- * the caller can fall back to a plain navigation and the link is never dropped.
- */
 export async function focusOrOpenBrowserTab(
   client: BrowserTabsClient,
   destination: BrowserTabDestination,
 ): Promise<InboundTabResolution> {
+  if (readMirror().windows.length === 0) await reseedMirror();
   if (focusExistingTab(destination)) return "focused";
-  if (readMirror().windows.length > 0) {
-    return (await openInNewBrowserTab(client, destination))
-      ? "opened"
-      : "unavailable";
-  }
-  await reseedMirror();
-  if (focusExistingTab(destination)) return "focused";
-  return (await openInNewBrowserTab(client, destination))
+  return (await openInNewBrowserTabSync(client, destination))
     ? "opened"
     : "unavailable";
 }

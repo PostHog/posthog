@@ -34,9 +34,7 @@ function targetDestination(target: NotificationTarget): BrowserTabDestination {
 /**
  * Consumes generic "open this target" intents emitted when a native
  * notification is clicked (any tier, any producer) and navigates by target
- * kind. A click opens the target in its own browser tab (focusing one that
- * already shows it) rather than replacing the tab the user is on. Sibling of
- * {@link useTaskDeepLink}, which handles the task URL scheme.
+ * kind. Sibling of {@link useTaskDeepLink}, which handles the task URL scheme.
  */
 export function useOpenTargetDeepLink() {
   const client = useHostTRPCClient();
@@ -48,10 +46,6 @@ export function useOpenTargetDeepLink() {
       log.info("Opening notification target", { kind: target.kind });
 
       switch (target.kind) {
-        // The task path keeps the open-task saga (fetch, workspace
-        // provisioning, view tracking); openTask's newTab option focuses a tab
-        // that already shows the task or opens one, falling back to a plain
-        // navigation when browser tabs are unavailable.
         case "task":
           void handleOpenTask(target.taskId, target.taskRunId);
           break;

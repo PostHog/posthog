@@ -11,7 +11,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
 import { useCallback, useEffect } from "react";
 
-/** Handles loop deep links; an inbound link opens its own browser tab. */
 export function useLoopDeepLink() {
   const trpcReact = useHostTRPC();
   const tabsClient = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);

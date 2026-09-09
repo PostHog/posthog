@@ -7,9 +7,8 @@ import {
   type BrowserTabsClient,
 } from "@posthog/ui/features/browser-tabs/browserTabsClient";
 import {
-  focusExistingTab,
+  focusOrOpenBrowserTab,
   navigateBrowserTab,
-  openInNewBrowserTab,
   openInNewBrowserTabSync,
 } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
@@ -46,11 +45,6 @@ export async function openTask(
   opts?: {
     channelId?: string;
     tabId?: string | null;
-    /**
-     * Open the task in a new browser tab (an inbound deep link or notification
-     * click) instead of replacing the tab the user is on. A tab already showing
-     * the task is focused instead of duplicated.
-     */
     newTab?: boolean;
   },
 ): Promise<void> {
@@ -72,20 +66,15 @@ export async function openTask(
   };
 
   if (opts?.newTab) {
-    // A tab already showing the task is focused, not duplicated, and the rest
-    // of the flow (activation analytics, workspace binding) is skipped with it.
-    if (focusExistingTab(destination)) return;
     const tabsClient =
       resolveServiceOptional<BrowserTabsClient>(BROWSER_TABS_CLIENT);
     if (tabsClient) {
-      const opened = await openInNewBrowserTab(tabsClient, destination);
-      if (opened) {
+      const resolved = await focusOrOpenBrowserTab(tabsClient, destination);
+      if (resolved !== "unavailable") {
         await bindTaskWorkspace(task, opts);
         return;
       }
     }
-    // Browser tabs unavailable: fall through to a plain navigation so the task
-    // still opens.
   }
 
   const navigationResult = navigateBrowserTab(
@@ -166,7 +155,6 @@ export interface TaskInputNavigationOptions {
    * routing through here is what clears any stale prefill.
    */
   channelId?: string;
-  /** Open the composer in a new browser tab (an inbound deep link). */
   newTab?: boolean;
 }
 
@@ -222,9 +210,6 @@ export function openTaskInput(
     (options.unscoped
       ? null
       : useCurrentChannelStore.getState().currentChannelId);
-  // A deep link that hands the composer a prompt opens it in a new browser
-  // tab, so it can't clobber a draft in the tab the user is on. The composer
-  // keys its draft by tabId, so the new tab starts a fresh one.
   if (options.newTab) {
     const tabsClient =
       resolveServiceOptional<BrowserTabsClient>(BROWSER_TABS_CLIENT);

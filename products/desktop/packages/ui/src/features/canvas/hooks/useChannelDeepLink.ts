@@ -25,8 +25,7 @@ const log = logger.scope("channel-deep-link");
  * production and `posthog-code-dev://…` in local dev) and opens the channel —
  * or a thread inside it — in the Channels space. These arrive from a shareable
  * https link's web interstitial, so a teammate can open a channel straight in
- * the app. An inbound link opens its own browser tab (focusing one that already
- * shows the channel) rather than replacing the tab the user is on.
+ * the app.
  *
  * Mirrors `useCanvasDeepLink`: drains any link that arrived before the renderer
  * was ready (the main process clears its pending entry on read) and also
