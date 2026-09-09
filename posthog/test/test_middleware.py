@@ -13,6 +13,7 @@ from django.http import HttpResponse, HttpResponseRedirect
 from django.test import (
     Client as DjangoClient,
     RequestFactory,
+    SimpleTestCase,
 )
 from django.urls import reverse
 
@@ -25,7 +26,7 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.middleware import per_request_logging_context_middleware
+from posthog.middleware import app_csp_header_name, per_request_logging_context_middleware
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -1939,6 +1940,16 @@ class TestCSPMiddleware(APIBaseTest):
         assert "Content-Security-Policy-Report-Only" in response
         assert "Content-Security-Policy" not in response
 
+    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
+    def test_enforcement_reaches_an_app_page_but_not_an_embeddable_one(self, _mock_flag):
+        # The wiring guard for app_csp_header_name. The matrix of paths lives in
+        # TestAppCspHeaderName, which needs no database.
+        assert "Content-Security-Policy" in self.client.get("/")
+
+        embedded = self.client.get("/shared/notarealtoken")
+        assert "Content-Security-Policy" not in embedded
+        assert "frame-ancestors" in embedded["Content-Security-Policy-Report-Only"]
+
     @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
     def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):
         # Browsers only deliver crash reports to the endpoint named `default`, so dropping or
@@ -2480,3 +2491,58 @@ class TestPerRequestLoggingContextMiddlewareMcpHeaders(APIBaseTest):
         assert "mcp_session_id" not in ctx
         assert "mcp_conversation_id" not in ctx
         span.set_attribute.assert_not_called()
+
+
+class TestAppCspHeaderName(SimpleTestCase):
+    def _request(self, path: str, *, distinct_id: str | None = "abc"):
+        request = RequestFactory().get(path)
+        request.user = MagicMock(is_authenticated=distinct_id is not None, distinct_id=distinct_id)
+        return request
+
+    @parameterized.expand(
+        [
+            ("shared_dashboard", "/shared_dashboard/abc123"),
+            ("shared", "/shared/abc123"),
+            ("embedded", "/embedded/abc123"),
+            ("interview", "/interview/abc123"),
+            ("exporter_with_token", "/exporter/abc123"),
+            ("exporter_render", "/exporter"),
+            ("render_query", "/render_query"),
+            ("external_survey", "/external_surveys/019efb7e-0672-0000-729b-e234586f6177"),
+        ]
+    )
+    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
+    def test_embeddable_document_stays_report_only_under_enforcement(self, _name, path, _mock_flag):
+        # A customer's site frames each of these. The app policy names only PostHog origins in
+        # frame-ancestors, so enforcing it here stops the document rendering on their page.
+        assert app_csp_header_name(self._request(path)) == "Content-Security-Policy-Report-Only"
+
+    @parameterized.expand(
+        [
+            ("app_root", "/"),
+            ("project_page", "/project/2/dashboard"),
+            # Neither prefix owns these. A shorter prefix match would hand the app catch-all the
+            # carve-out and quietly exempt an ordinary page from enforcement.
+            ("shared_prefix_without_separator", "/sharedthing"),
+            ("exporter_prefix_without_separator", "/exporterthing"),
+        ]
+    )
+    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
+    def test_ordinary_page_is_enforced_for_a_flagged_user(self, _name, path, _mock_flag):
+        assert app_csp_header_name(self._request(path)) == "Content-Security-Policy"
+
+    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=False)
+    def test_ordinary_page_stays_report_only_without_the_flag(self, _mock_flag):
+        assert app_csp_header_name(self._request("/")) == "Content-Security-Policy-Report-Only"
+
+    @patch("posthog.middleware.posthoganalytics.feature_enabled", return_value=True)
+    def test_anonymous_request_stays_report_only(self, mock_flag):
+        # Nothing identifies an anonymous viewer, so the flag cannot bucket them. Login and signup
+        # keep the report-only header until enforcement covers everyone.
+        assert app_csp_header_name(self._request("/login", distinct_id=None)) == "Content-Security-Policy-Report-Only"
+        mock_flag.assert_not_called()
+
+    @patch("posthog.middleware.posthoganalytics.feature_enabled", side_effect=Exception("flags unavailable"))
+    def test_a_failing_flag_lookup_leaves_the_policy_report_only(self, _mock_flag):
+        # Fail safe: an enforced policy that nobody meant to turn on breaks the page.
+        assert app_csp_header_name(self._request("/")) == "Content-Security-Policy-Report-Only"

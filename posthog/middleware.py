@@ -29,6 +29,7 @@ from django.utils.deprecation import MiddlewareMixin
 from django.utils.http import http_date, url_has_allowed_host_and_scheme
 
 import structlog
+import posthoganalytics
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
@@ -1161,6 +1162,54 @@ def csp_report_endpoint(**params: str) -> str:
 # prefix match would also hand the app document this policy and stop it from starting.
 REPLAY_PLAYER_FRAME_PATH = "/replay_player_frame/index.html"
 
+# The app policy names only PostHog origins in `frame-ancestors`. Enforcing it on these paths stops
+# every embedded dashboard, shared link and survey from rendering on a customer's site.
+#
+# The list follows `posthog/urls.py`. The Contour ingress keeps a similar list in
+# `charts/argocd/contour-ingress/values/values.{dev,prod-us,prod-eu}.yaml`, which omits
+# `/interview/` and the bare `/exporter`. Sync to the URL patterns, not to that list.
+EMBEDDABLE_PATH_PREFIXES = (
+    "/shared_dashboard/",
+    "/shared/",
+    "/embedded/",
+    "/interview/",
+    "/exporter/",
+    "/external_surveys/",
+)
+EMBEDDABLE_PATHS = frozenset({"/render_query", "/exporter"})
+
+
+def is_embeddable_document(path: str) -> bool:
+    return path in EMBEDDABLE_PATHS or path.startswith(EMBEDDABLE_PATH_PREFIXES)
+
+
+CSP_ENFORCE_APP_POLICY_FLAG = "csp-enforce-app-policy"
+
+
+def csp_enforcement_enabled(request) -> bool:
+    user = getattr(request, "user", None)
+    distinct_id = getattr(user, "distinct_id", None) if user is not None and user.is_authenticated else None
+    if not distinct_id:
+        # An anonymous page has nobody to bucket, so login, signup and the OAuth pages keep the
+        # report-only header until enforcement covers everyone.
+        return False
+    try:
+        # Local evaluation only. A network call here would sit in the path of every HTML response,
+        # and an unevaluable flag returns None, which leaves the policy report-only.
+        return bool(
+            posthoganalytics.feature_enabled(CSP_ENFORCE_APP_POLICY_FLAG, distinct_id, only_evaluate_locally=True)
+        )
+    except Exception:
+        return False
+
+
+def app_csp_header_name(request) -> str:
+    if is_embeddable_document(request.path):
+        return "Content-Security-Policy-Report-Only"
+    if csp_enforcement_enabled(request):
+        return "Content-Security-Policy"
+    return "Content-Security-Policy-Report-Only"
+
 
 class CSPMiddleware:
     def __init__(self, get_response):
@@ -1300,7 +1349,7 @@ class CSPMiddleware:
                 # Browsers only deliver crash reports to the endpoint named `default`; the CSP
                 # `report-to posthog` directive keeps routing violations to `posthog`.
                 response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'
-            response.headers["Content-Security-Policy-Report-Only"] = "; ".join(csp_parts)
+            response.headers[app_csp_header_name(request)] = "; ".join(csp_parts)
 
         return response
 
