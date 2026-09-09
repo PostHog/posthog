@@ -3,7 +3,6 @@ import typing
 import datetime as dt
 import collections.abc
 
-from django.conf import settings
 from django.db import OperationalError, close_old_connections
 
 import grpc
@@ -37,6 +36,7 @@ from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import tracked_interceptors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Column, Table
@@ -206,11 +206,14 @@ def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> Googl
         if config.is_mcc_account and config.is_mcc_account.enabled:
             login_customer_id = clean_customer_id(config.is_mcc_account.mcc_client_id)
 
+        resolved = integration_secrets.get_secrets(
+            ["GOOGLE_ADS_DEVELOPER_TOKEN", "GOOGLE_ADS_APP_CLIENT_ID", "GOOGLE_ADS_APP_CLIENT_SECRET"]
+        )
         config_dict: dict[str, object] = {
-            "developer_token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+            "developer_token": resolved["GOOGLE_ADS_DEVELOPER_TOKEN"],
             "refresh_token": integration.refresh_token,
-            "client_id": settings.GOOGLE_ADS_APP_CLIENT_ID,
-            "client_secret": settings.GOOGLE_ADS_APP_CLIENT_SECRET,
+            "client_id": resolved["GOOGLE_ADS_APP_CLIENT_ID"],
+            "client_secret": resolved["GOOGLE_ADS_APP_CLIENT_SECRET"],
             "use_proto_plus": False,
         }
         if login_customer_id is not None:
