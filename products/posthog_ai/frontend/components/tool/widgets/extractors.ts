@@ -19,7 +19,7 @@ import { asRecord, parseToolOutputRecord } from '../parseToolOutput'
 /**
  * Shared shape extractors for the sandbox MCP tool renderer widgets. Each turns a flattened
  * `ToolCallMessage` (built by `runStreamLogic` from ACP frames) into the props the atomic
- * `messages/*` widgets expect. Generic output parsing lives in `../toolOutput`.
+ * `messages/*` widgets expect. Generic output parsing lives in `../parseToolOutput`.
  */
 
 function asString(value: unknown): string | undefined {
