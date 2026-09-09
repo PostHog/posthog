@@ -2068,6 +2068,34 @@ export interface QueryStatusResponseApi {
     query_status: QueryStatusApi
 }
 
+export interface AnnouncementTemplateApi {
+    readonly id: string
+    /**
+     * Unique, human-friendly name for the template (unique per team).
+     * @maxLength 255
+     */
+    name: string
+    /** Reusable message body, rendered as Slack mrkdwn when the announcement is sent. */
+    message: string
+    /** When the template was created. */
+    readonly created_at: string
+    /**
+     * When the template was last edited.
+     * @nullable
+     */
+    readonly updated_at: string | null
+    readonly created_by: UserBasicApi
+}
+
+export interface PaginatedAnnouncementTemplateListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AnnouncementTemplateApi[]
+}
+
 /**
  * * `pending` - Pending
  * * `sending` - Sending
@@ -4140,6 +4168,17 @@ export type AccountsSummariesListParams = {
 }
 
 export type AccountsSupportTicketMessagesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type AnnouncementTemplatesListParams = {
     /**
      * Number of results to return per page.
      */

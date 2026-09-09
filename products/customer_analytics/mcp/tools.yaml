@@ -453,6 +453,21 @@ tools:
     accounts-update:
         operation: accounts_update
         enabled: false
+    announcement-templates-create:
+        operation: announcement_templates_create
+        enabled: false
+    announcement-templates-destroy:
+        operation: announcement_templates_destroy
+        enabled: false
+    announcement-templates-list:
+        operation: announcement_templates_list
+        enabled: false
+    announcement-templates-retrieve:
+        operation: announcement_templates_retrieve
+        enabled: false
+    announcement-templates-update:
+        operation: announcement_templates_update
+        enabled: false
     announcements-channels-list:
         operation: announcements_channels_list
         enabled: true

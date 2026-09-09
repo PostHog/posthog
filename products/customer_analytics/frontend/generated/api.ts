@@ -33,6 +33,8 @@ import type {
     AccountsTableQueryResponseApi,
     AnnouncementApi,
     AnnouncementChannelApi,
+    AnnouncementTemplateApi,
+    AnnouncementTemplatesListParams,
     AnnouncementsListParams,
     CalendarSyncStatusApi,
     CalendarSyncTriggerApi,
@@ -89,6 +91,7 @@ import type {
     PaginatedAccountSupportTicketMessageListApi,
     PaginatedAccountTrackRuleRunViewListApi,
     PaginatedAnnouncementListApi,
+    PaginatedAnnouncementTemplateListApi,
     PaginatedCustomPropertyDefinitionListApi,
     PaginatedCustomPropertySourceListApi,
     PaginatedCustomPropertySyncRunListApi,
@@ -898,6 +901,133 @@ export const customerAnalyticsAccountsTableQueryCreate = async (
             body: JSON.stringify(accountsTableQueryRequestApi),
         }
     )
+}
+
+export const getAnnouncementTemplatesListUrl = (projectId: string, params?: AnnouncementTemplatesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/announcement_templates/?${stringifiedParams}`
+        : `/api/projects/${projectId}/announcement_templates/`
+}
+
+/**
+ * Team-shared library of reusable announcement message bodies.
+ *
+ * Templates store only the message. Recipients are still chosen fresh per send in the
+ * announcement composer. All data is reached through the facade; no product models are
+ * imported here.
+ */
+export const announcementTemplatesList = async (
+    projectId: string,
+    params?: AnnouncementTemplatesListParams,
+    options?: RequestInit
+): Promise<PaginatedAnnouncementTemplateListApi> => {
+    return apiMutator<PaginatedAnnouncementTemplateListApi>(getAnnouncementTemplatesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAnnouncementTemplatesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/announcement_templates/`
+}
+
+/**
+ * Team-shared library of reusable announcement message bodies.
+ *
+ * Templates store only the message. Recipients are still chosen fresh per send in the
+ * announcement composer. All data is reached through the facade; no product models are
+ * imported here.
+ */
+export const announcementTemplatesCreate = async (
+    projectId: string,
+    announcementTemplateApi: NonReadonly<AnnouncementTemplateApi>,
+    options?: RequestInit
+): Promise<AnnouncementTemplateApi> => {
+    return apiMutator<AnnouncementTemplateApi>(getAnnouncementTemplatesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(announcementTemplateApi),
+    })
+}
+
+export const getAnnouncementTemplatesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/announcement_templates/${id}/`
+}
+
+/**
+ * Team-shared library of reusable announcement message bodies.
+ *
+ * Templates store only the message. Recipients are still chosen fresh per send in the
+ * announcement composer. All data is reached through the facade; no product models are
+ * imported here.
+ */
+export const announcementTemplatesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AnnouncementTemplateApi> => {
+    return apiMutator<AnnouncementTemplateApi>(getAnnouncementTemplatesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAnnouncementTemplatesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/announcement_templates/${id}/`
+}
+
+/**
+ * Team-shared library of reusable announcement message bodies.
+ *
+ * Templates store only the message. Recipients are still chosen fresh per send in the
+ * announcement composer. All data is reached through the facade; no product models are
+ * imported here.
+ */
+export const announcementTemplatesUpdate = async (
+    projectId: string,
+    id: string,
+    announcementTemplateApi: NonReadonly<AnnouncementTemplateApi>,
+    options?: RequestInit
+): Promise<AnnouncementTemplateApi> => {
+    return apiMutator<AnnouncementTemplateApi>(getAnnouncementTemplatesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(announcementTemplateApi),
+    })
+}
+
+export const getAnnouncementTemplatesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/announcement_templates/${id}/`
+}
+
+/**
+ * Team-shared library of reusable announcement message bodies.
+ *
+ * Templates store only the message. Recipients are still chosen fresh per send in the
+ * announcement composer. All data is reached through the facade; no product models are
+ * imported here.
+ */
+export const announcementTemplatesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAnnouncementTemplatesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
 }
 
 export const getAnnouncementsListUrl = (projectId: string, params?: AnnouncementsListParams) => {
