@@ -4,7 +4,9 @@ from uuid import uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
+from clickhouse_driver.errors import NetworkError
 from parameterized import parameterized
 from rest_framework import status
 
@@ -26,6 +28,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
+from posthog.errors import CHQueryErrorUnknownTable
 from posthog.models import Team
 from posthog.test.persons import create_person
 
@@ -601,6 +604,33 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/logs/query", data={"query": query_params})
         self.assertEqual(response.status_code, expected_status)
         return response.json() if expected_status == status.HTTP_200_OK else response
+
+    @parameterized.expand(
+        [
+            (
+                "missing_schema",
+                CHQueryErrorUnknownTable("Table logs does not exist", code=60),
+                status.HTTP_400_BAD_REQUEST,
+                "logs_not_available",
+            ),
+            (
+                "unreachable_workload",
+                NetworkError("Connection refused"),
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "logs_workload_unreachable",
+            ),
+        ]
+    )
+    def test_query_reports_unavailable_logs_storage(self, _name, error, expected_status, expected_code):
+        with patch(
+            "products.logs.backend.presentation.views.api.time_sliced_results",
+            side_effect=error,
+        ):
+            response = self._make_logs_api_request(
+                {"dateRange": {"date_from": "-1h", "date_to": None}, "limit": 1},
+                expected_status=expected_status,
+            )
+        self.assertEqual(response.json()["code"], expected_code)
 
     @freeze_time("2025-12-16T10:33:00Z")
     def test_logs_integration_exact_limit(self):

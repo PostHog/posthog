@@ -56,6 +56,7 @@ from products.logs.backend.impact_query_runner import ImpactQueryRunner
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_facet_values_query_runner import FACET_FIELDS, LogFacetValuesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
+from products.logs.backend.logs_availability import logs_unavailable_reason
 from products.logs.backend.logs_query_runner import (
     MAX_CUSTOM_COLUMNS,
     CachedLogsQueryResponse,
@@ -1192,6 +1193,15 @@ class _LogsValuesResponseSerializer(serializers.Serializer):
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
     serializer_class = _FallbackSerializer
+
+    def handle_exception(self, exc: Exception) -> Response:
+        # Every action here queries the logs workload, which is provisioned separately from the main
+        # ClickHouse. Mapping at this layer covers all of them, so a deployment without logs storage
+        # gets the same typed answer whichever panel of the scene asked first.
+        unavailable = logs_unavailable_reason(exc)
+        if unavailable is not None:
+            exc = unavailable()
+        return super().handle_exception(exc)
 
     def get_throttles(self) -> list[BaseThrottle]:
         # patterns_diff mines two windows per request (current + baseline), roughly doubling the

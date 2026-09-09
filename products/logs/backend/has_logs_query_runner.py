@@ -9,6 +9,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
+from products.logs.backend.logs_availability import logs_unavailable_reason
+
 HAS_LOGS_CACHE_TTL = int(dt.timedelta(days=7).total_seconds())
 
 
@@ -20,12 +22,17 @@ class HasLogsQueryRunner:
         query = parse_select("SELECT 1 FROM logs LIMIT 1")
         assert isinstance(query, ast.SelectQuery)
 
-        response = execute_hogql_query(
-            query_type="HasLogsQuery",
-            query=query,
-            team=self.team,
-            workload=Workload.LOGS,
-        )
+        try:
+            response = execute_hogql_query(
+                query_type="HasLogsQuery",
+                query=query,
+                team=self.team,
+                workload=Workload.LOGS,
+            )
+        except Exception as err:
+            if logs_unavailable_reason(err) is not None:
+                return False
+            raise
 
         return len(response.results) > 0
 
