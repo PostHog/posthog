@@ -1215,12 +1215,13 @@ class TestBytecodeExecute:
             ("extractRegex", ""),
         ]
     )
-    def test_regex_functions_run_in_linear_time(self, fn_name, expected):
+    def test_regex_functions_run_in_linear_time(self, fn_name: str, expected: bool | str) -> None:
         # Python's re engine needs exponential time on this pattern, so this pins the engine choice.
+        # CPU time rather than wall clock, so a paused runner cannot fail the assertion on its own.
         subject = "a" * 26 + "!"
-        start = time.time()
+        start = time.process_time()
         result = STL[fn_name].fn([subject, "(a+)+$"], None, None, 5.0)
-        elapsed = time.time() - start
+        elapsed = time.process_time() - start
         assert result == expected
         assert elapsed < 1.0
 
