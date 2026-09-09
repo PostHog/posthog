@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+import json
 import subprocess
 from pathlib import Path
 
@@ -755,3 +757,62 @@ def test_first_team_owner_skips_handles() -> None:
     assert first_team_owner(["@someone", "team-a"]) == "team-a"
     assert first_team_owner(["@someone"]) == ""
     assert first_team_owner(None) == ""
+
+
+def _run_entrypoint(repo: Path, *args: str, stdin: str = "") -> subprocess.CompletedProcess[str]:
+    """The JSON entrypoint the way a non-Python consumer runs it."""
+    return subprocess.run(
+        [sys.executable, "-m", "posthog_owners", *args],
+        cwd=repo,
+        input=stdin,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_json_entrypoint_resolves_against_an_explicit_repo_root(registry_repo: Path) -> None:
+    """--repo-root points the resolver at a tree that is not a git worktree.
+
+    A consumer that fetched only the ownership files has no .git directory, so
+    the git rev-parse default cannot find a root for it.
+    """
+    assert not (registry_repo / ".git").exists()
+
+    result = _run_entrypoint(registry_repo, "--repo-root", str(registry_repo), "reg/x.py")
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "reg/x.py": {
+            "owners": ["team-registry"],
+            "status": "active",
+            "slack": "#registry-chan",
+            "source": "reg/owners.yaml",
+        }
+    }
+
+
+def test_json_entrypoint_repo_root_reads_stdin_paths_and_honors_purpose(registry_repo: Path) -> None:
+    """The flag composes with the stdin batch and the purpose selection."""
+    result = _run_entrypoint(
+        registry_repo,
+        "--repo-root",
+        str(registry_repo),
+        "--purpose",
+        "notifications",
+        stdin="split/x.py\nderive/x.py\n",
+    )
+
+    assert result.returncode == 0, result.stderr
+    wire = json.loads(result.stdout)
+    assert wire["split/x.py"]["slack"] == "#split-bots"
+    assert wire["derive/x.py"]["slack"] == "#team-nonreg"
+
+
+def test_json_entrypoint_rejects_a_repo_root_that_is_not_a_directory(registry_repo: Path) -> None:
+    """A bad root would otherwise read as a repo with no ownership files, and
+    every path would answer unowned."""
+    result = _run_entrypoint(registry_repo, "--repo-root", str(registry_repo / "nope"), "reg/x.py")
+
+    assert result.returncode == 2
+    assert "--repo-root" in result.stderr
+    assert result.stdout == ""

@@ -13,3 +13,27 @@ uvx --from "git+https://github.com/PostHog/posthog#subdirectory=tools/owners" ow
 ```
 
 Pin to a commit for CI so the resolver semantics can't shift under you: append `@<sha>` to the URL (`...posthog@<sha>#subdirectory=tools/owners`).
+
+### From a consumer that is not Python
+
+`python -m posthog_owners` answers the same question as JSON, with no click and no project sync — stdlib plus pyyaml is enough.
+It reads repo-relative paths from stdin or argv and writes one object per path:
+
+```bash
+echo "posthog/models/team.py" | uv run --with pyyaml python -m posthog_owners --repo-root /path/to/checkout
+```
+
+```json
+{
+  "posthog/models/team.py": {
+    "owners": ["team-x"],
+    "status": "active",
+    "slack": "#team-x",
+    "source": "posthog/owners.yaml"
+  }
+}
+```
+
+Without `--repo-root` the resolver locates the repo with `git rev-parse`, so it needs a real worktree.
+Pass the flag when the ownership files sit in a directory that is not one — a sparse fetch, an export, or a scratch copy of just the `owners.yaml` / `product.yaml` files.
+Add `--purpose notifications` to resolve `slack` to each team's automation channel instead of its people channel.
