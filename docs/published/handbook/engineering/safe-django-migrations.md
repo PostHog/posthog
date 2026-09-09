@@ -130,17 +130,22 @@ class Migration(migrations.Migration):
                 migrations.DeleteModel(name='OldFeature'),
             ],
             database_operations=[
-                # If table has FKs to frequently-truncated tables (User, Team, Organization),
-                # drop those FK constraints to avoid blocking TransactionTestCase teardown.
-                # migrations.RunSQL(
-                #     sql="ALTER TABLE posthog_oldfeature DROP CONSTRAINT IF EXISTS posthog_oldfeature_team_id_fkey",
-                # ),
+                # Required when the table has an FK to a hot parent (Team, User, Organization,
+                # Project). Django stops cascading into a table it cannot see, so the child rows
+                # outlive a parent delete. The constraint is DEFERRABLE INITIALLY DEFERRED, so the
+                # parent delete completes its cascade and then fails at COMMIT.
+                migrations.RunSQL(
+                    sql="ALTER TABLE posthog_oldfeature DROP CONSTRAINT IF EXISTS posthog_oldfeature_team_id_fkey",
+                    reverse_sql=migrations.RunSQL.noop,
+                ),
             ],
         ),
     ]
 ```
 
 5. Deploy this PR and verify no errors in production
+
+**Deleting a parent becomes impossible if you skip that constraint drop.** Once the model leaves Django's state, a `Team.objects.delete()` cascade no longer reaches the table, so its rows keep referencing the team. Because the constraint is deferred, Postgres raises the violation at `COMMIT`, after the whole cascade has run, and the delete can never succeed. Team and organization deletion stay broken for every tenant with rows in that table until someone drops it. Run `python manage.py audit_orphan_hot_table_fks` against a long-lived database to list tables already in this state; a squashed history leaves no trace of them in the migration files.
 
 **Test infrastructure note:** If your table has foreign keys pointing TO frequently-truncated tables like `User`, `Team`, or `Organization`, you may see test failures like `cannot truncate a table referenced in a foreign key constraint`. This happens because:
 
@@ -159,6 +164,7 @@ class Migration(migrations.Migration):
 
 - Safe to leave unused tables temporarily, but long-term they can clutter schema introspection and slow migrations
 - Ensure no other models reference this table via foreign keys before dropping (Django won't cascade automatically)
+- `DROP TABLE` takes `ACCESS EXCLUSIVE` on every table its own foreign keys reference. If one of those is a hot parent, add `SET LOCAL lock_timeout` to bound the wait, because queries arriving while the lock request queues wait behind it
 - If you must drop it, use `RunSQL` with raw SQL (see example below)
 - In the PR description, reference the model removal PR (e.g., "Model removed in #12345, deployed X days ago") so reviewers can verify the safety window
 
