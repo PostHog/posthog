@@ -18,7 +18,7 @@ const VISUALIZATION_SUPPORT: Record<ChartDisplayType, VisualizationSupport> = {
     [ChartDisplayType.ActionsLineGraphCumulative]: 'axes',
     [ChartDisplayType.ScatterPlot]: 'manual',
     [ChartDisplayType.TwoDimensionalHeatmap]: 'manual',
-    [ChartDisplayType.ActionsBarValue]: 'manual',
+    [ChartDisplayType.ActionsBarValue]: 'axes',
     [ChartDisplayType.Metric]: 'axes',
     [ChartDisplayType.WorldMap]: 'manual',
     [ChartDisplayType.CalendarHeatmap]: 'manual',

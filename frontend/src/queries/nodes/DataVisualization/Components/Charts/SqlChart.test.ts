@@ -26,6 +26,7 @@ describe('sqlChartComponentFor', () => {
     it.each([
         ['line', ChartDisplayType.ActionsLineGraph, 'SqlLineGraph'],
         ['bar', ChartDisplayType.ActionsBar, 'SqlBarGraph'],
+        ['horizontal bar', ChartDisplayType.ActionsBarValue, 'SqlBarGraph'],
         // Pie is not routed here — it has its own wrapper (see PieChart.test.tsx).
         ['pie (handled by the PieChart wrapper, not here)', ChartDisplayType.ActionsPie, 'SqlLineGraph'],
     ])('routes %s to the right component', (_name, visualizationType, expected) => {
@@ -37,6 +38,13 @@ describe('sqlChartComponentFor', () => {
         ['a line-base chart', ChartDisplayType.ActionsLineGraph],
     ])('routes mixed bar + line series on %s to SqlComboGraph', (_name, visualizationType) => {
         expect(sqlChartComponentFor({ ...baseProps(visualizationType), yData: mixedYData }).name).toBe('SqlComboGraph')
+    })
+
+    it('keeps horizontal bars when a series has a saved line display type', () => {
+        const lineSeries = [ySeries('a', { display: { displayType: 'line' } })]
+        expect(sqlChartComponentFor({ ...baseProps(ChartDisplayType.ActionsBarValue), yData: lineSeries }).name).toBe(
+            'SqlBarGraph'
+        )
     })
 
     it('routes an all-bar line chart to SqlBarGraph', () => {

@@ -21,6 +21,7 @@ import {
     type SqlLineYSeries,
     barLayoutForDisplay,
     buildBarChartConfig,
+    buildBarValueChartConfig,
     buildComboChartConfig,
     buildLineChartConfig,
     buildSeries,
@@ -75,6 +76,7 @@ describe('sqlLineGraphAdapter', () => {
             ['line graph', ChartDisplayType.ActionsLineGraph, 'line'],
             ['area graph', ChartDisplayType.ActionsAreaGraph, 'line'],
             ['bar graph', ChartDisplayType.ActionsBar, 'bar'],
+            ['horizontal bar graph', ChartDisplayType.ActionsBarValue, 'bar'],
             ['stacked bar graph', ChartDisplayType.ActionsStackedBar, 'bar'],
             // Pie never reaches dispatch — PieChart wraps it separately.
             ['pie graph', ChartDisplayType.ActionsPie, 'line'],
@@ -211,6 +213,7 @@ describe('sqlLineGraphAdapter', () => {
             ['auto on a line graph is a line', ChartDisplayType.ActionsLineGraph, {}, 'line'],
             ['auto on an area graph is an area', ChartDisplayType.ActionsAreaGraph, {}, 'area'],
             ['auto on a bar graph is a bar', ChartDisplayType.ActionsBar, {}, 'bar'],
+            ['auto on a horizontal bar graph is a bar', ChartDisplayType.ActionsBarValue, {}, 'bar'],
             ['auto on a stacked bar graph is a bar', ChartDisplayType.ActionsStackedBar, {}, 'bar'],
             [
                 "the 'auto' display type defers to the chart type",
@@ -946,6 +949,45 @@ describe('sqlLineGraphAdapter', () => {
                 { id: 'left', position: 'left', scale: 'linear' },
                 { id: 'right', position: 'right', scale: 'linear' },
             ])
+        })
+    })
+
+    describe('buildBarValueChartConfig', () => {
+        const xData: AxisSeries<string> = {
+            column: { name: 'path', type: { name: 'STRING', isNumerical: false }, label: 'path', dataIndex: 0 },
+            data: ['/pricing', '/signup'],
+        }
+
+        it('maps SQL category and value settings onto horizontal chart axes', () => {
+            const config = buildBarValueChartConfig({
+                xData,
+                chartSettings: {
+                    xAxisLabel: 'Page',
+                    showXAxisTicks: false,
+                    showXAxisBorder: false,
+                    leftYAxisSettings: { label: 'Revenue', showTicks: false },
+                },
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBarValue,
+                ySeriesData: [ySeries('revenue', [1200, 1800], { formatting: { prefix: '$' } })],
+                goalLines: [{ label: 'Target', value: 2000 }],
+                embedded: true,
+            })
+
+            expect(config).toMatchObject({
+                axisOrientation: 'horizontal',
+                barLayout: 'grouped',
+                hideXAxis: true,
+                hideYAxis: true,
+                xAxisLabel: 'Revenue',
+                yAxisLabel: 'Page',
+                showAxisLines: { x: true, y: false },
+                maxCategoryLabelWidth: MAX_CATEGORY_LABEL_WIDTH,
+                bars: { fitToHeight: true, valueDomain: { include: [2000] } },
+            })
+            expect(config.xTickFormatter?.('0', 0)).toBe('/pricing')
+            expect(config.yTickFormatter?.(1200)).toBe('$1200')
+            expect(config.tooltip?.labelFormatter?.('1')).toBe('/signup')
         })
     })
 

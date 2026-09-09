@@ -263,6 +263,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     } else if (
         effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
         effectiveVisualizationType === ChartDisplayType.ActionsBar ||
+        effectiveVisualizationType === ChartDisplayType.ActionsBarValue ||
         effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph ||
         effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
     ) {
@@ -281,6 +282,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     insightNumericId={insight?.id || 'new'}
                     showAnnotations={!props.inSharedMode && isDateXAxis && chartSettings.showAnnotations === true}
                     presetChartHeight={presetChartHeight}
+                    embedded={props.embedded}
                 />
             </BindLogic>
         )

@@ -23,7 +23,7 @@ const DISPLAY_TYPE_LABELS: Record<ChartDisplayType, string> = {
     [ChartDisplayType.Metric]: 'Metric',
     [ChartDisplayType.ActionsPie]: 'Pie chart',
     [ChartDisplayType.ActionsDonut]: 'Donut chart',
-    [ChartDisplayType.ActionsBarValue]: 'Value chart',
+    [ChartDisplayType.ActionsBarValue]: 'Horizontal bar chart',
     [ChartDisplayType.ActionsTable]: 'Table',
     [ChartDisplayType.WorldMap]: 'World map',
     [ChartDisplayType.CalendarHeatmap]: 'Calendar heatmap',
@@ -106,6 +106,15 @@ export function getTableDisplayOptions(
                     value: ChartDisplayType.ActionsBar,
                     icon: <IconGraph />,
                     label: 'Bar chart',
+                },
+                {
+                    value: ChartDisplayType.ActionsBarValue,
+                    icon: <IconGraph className="rotate-90" />,
+                    label: 'Horizontal bar chart',
+                    disabledReason:
+                        numericalColumns.length === 0 || columns.every((column) => column.type.isNumerical)
+                            ? 'Requires a category column and a numeric column'
+                            : undefined,
                 },
                 {
                     value: ChartDisplayType.ActionsStackedBar,
