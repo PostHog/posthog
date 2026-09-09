@@ -1836,6 +1836,10 @@ snapshots:
         hash: v1.k794b7964.de021a6d2a8c7ec6bc031fc7c9586a2d9f12e80804b9a92ec1a9f464c096314e.jqj7jfnrY7rf7IO2Uqrc784pV_YXfH52sTArLcXn8c0
     components-product-empty-state--endpoints-needs-setup--light:
         hash: v1.k794b7964.f704e98aa8d0102c164b7db7390449584c4b84f461cc5bbeac426e48a16dc200.S0QeUPtO_6LQsU5lZ09MyJMaf_Q_CPBBuYbvKzik1cU
+    components-product-empty-state--engineering-analytics-needs-setup--dark:
+        hash: v1.k794b7964.f7882e375c8b2730c69d683328d88541ef262da3287cfd29f169da8726a56ffc.03tjEZ1wDOe8_yDAZMUx1bTS8YVSLa5q_fhO3sz3oYE
+    components-product-empty-state--engineering-analytics-needs-setup--light:
+        hash: v1.k794b7964.77d16ba7ab8cbf85db31ec8d482970fe3ad311978901ffea75688390a3894824.GTpSlL6ZixDiYCyrG1IhtXxM1_i25Hk2pW_PYVPs4X8
     components-product-empty-state--error-tracking-needs-setup--dark:
         hash: v1.k794b7964.a3fcfa83eb816f90ccc0a031486d1d493e3893df6d9b23ab8138efbbfe833374.AIGP2LVUdagSan_3zq5NEx5QT3To4HN4BwQv06ML7Nw
     components-product-empty-state--error-tracking-needs-setup--light:
