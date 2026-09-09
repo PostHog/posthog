@@ -1,6 +1,7 @@
 from posthog.temporal.session_replay.delete_recordings.activities import (
     cleanup_session_id_chunks,
     delete_recordings,
+    delete_team_metadata,
     load_recordings_with_person,
     load_recordings_with_query,
     load_recordings_with_team_id,
@@ -30,5 +31,6 @@ DELETE_RECORDINGS_ACTIVITIES = [
     load_session_id_chunk,
     cleanup_session_id_chunks,
     delete_recordings,
+    delete_team_metadata,
     purge_deleted_metadata,
 ]

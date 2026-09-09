@@ -48,6 +48,7 @@ DELETE_RECORDINGS_ACTIVITY_TYPES = {
     "load-session-id-chunk",
     "cleanup-session-id-chunks",
     "delete-recordings",
+    "delete-team-metadata",
     "purge-deleted-metadata",
 }
 
