@@ -16,11 +16,18 @@ Create the reusable browser profile once:
 flox activate -- .venv/bin/python products/data_catalog/scripts/semantic_layer_canary.py --browser-login
 ```
 
-A dedicated Chrome window opens. Sign in to PostHog and leave the window open until the command confirms authentication. The profile is stored at `.context/semantic-layer-canary-browser` by default and is reused by headless runs. The browser helper returns only the session and CSRF cookies directly to the runner in process memory; they are never included in the command, output, dataset item, or workflow response.
+A dedicated Chrome window opens. Sign in to PostHog and leave the window open until the command confirms authentication. The profile is stored at `.context/semantic-layer-canary-browser` by default and is reused by headless runs. That directory holds live session state, so treat it as a credential: keep it inside `.context/`, which the repository ignores, and do not copy it between machines or workspaces. The browser helper returns only the session and CSRF cookies directly to the runner in process memory; they are never included in the command, output, dataset item, or workflow response.
 
 If a run reports `auth_required`, repeat the login command and retry the original run. For an interactive run, `--browser-login-if-needed` can open the login window automatically when the saved session has expired. Do not use that option in an unattended workflow because it waits for a person to complete login.
 
 The defaults target `https://us.posthog.com`, project `2`, and dataset `semantic-layer-canaries-v1`. Override the host or project explicitly when needed.
+
+### Trust boundary
+
+The runner sends each dataset question to an agent that runs with the signed-in operator's own PostHog access, under `initial_permission_mode: auto`, with nobody reviewing tool calls. The dataset is therefore a trusted input, not user input: anyone who can edit the selected revision can direct that agent. Two consequences follow.
+
+- Treat dataset write access to the canary dataset as equivalent to acting as the operator.
+- Pin a reviewed revision with `--revision N` for an unattended run, rather than taking whichever revision is current.
 
 ### Dataset contract
 
