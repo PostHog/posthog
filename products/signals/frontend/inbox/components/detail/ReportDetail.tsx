@@ -37,9 +37,9 @@ import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
-import { CreatePrButton } from './CreatePrButton'
 import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
+import { ImplementButton } from './ImplementButton'
 import { PrChecksSection } from './PrChecksSection'
 import { PrCommentsSection } from './PrCommentsSection'
 import { PullRequestDiffPending, PullRequestDiffStat, PullRequestDiffStatSkeleton } from './PullRequestDiffPanel'
@@ -245,14 +245,9 @@ export function InboxDetailFrame({
     // the report directly.
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
 
-    // Create PR is the report's main call to action, so it takes the primary slot (styled like
-    // "Open in GitHub" on PR-bearing reports). The rest render inline as buttons on wide layouts
-    // and as a standard `LemonMenu` on narrow ones.
     const reportActions = useReportDetailActions(report)
     const showCreatePr = canCreateImplementationPr(report)
-    const createPrButton = showCreatePr ? <CreatePrButton report={report} /> : null
-    // `ReportSummaryBody` renders Create PR under the Solution section, so the header only carries it
-    // when the summary has no Solution section — otherwise an actionable report shows it twice.
+    const implementButton = showCreatePr ? <ImplementButton report={report} /> : null
     const summaryHasSolution = parseReportSummary(report.summary).sections.some(
         (section) => section.kind === 'solution'
     )
@@ -318,7 +313,7 @@ export function InboxDetailFrame({
                     <ReportSummaryBody
                         summary={report.summary}
                         chartPlacements={chartPlacements}
-                        createPrButton={createPrButton}
+                        implementButton={implementButton}
                         pullRequestNote={pullRequestNote}
                     />
                 ) : (
@@ -483,7 +478,7 @@ export function InboxDetailFrame({
                 </LemonButton>
                 <div className="flex items-center gap-2">
                     {primaryAction}
-                    {!summaryHasSolution && createPrButton}
+                    {!summaryHasSolution && implementButton}
                     {/* Discuss is always available and stays inline as its own dropdown button. */}
                     <DiscussReportButton report={report} reportUrl={reportUrl} />
                     {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
