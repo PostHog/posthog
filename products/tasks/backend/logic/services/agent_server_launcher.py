@@ -483,7 +483,7 @@ class AgentServerLaunchMixin(SandboxBase):
         )
         return SandboxTimeoutError(
             "Agent-server failed to start",
-            {"sandbox_id": self.id, "timeout_seconds": str(timeout_seconds), **diagnostics},
+            {"sandbox_id": self.id, "timeout_seconds": timeout_seconds, **diagnostics},
             cause=RuntimeError(diagnostics.get("failure_reason", f"health poll exceeded {timeout_seconds}s")),
         )
 

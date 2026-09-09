@@ -533,8 +533,8 @@ class TestModalSandboxAgentServer:
 
         assert exc.value.__cause__ is launch_timeout
         assert "never reported hasSession=true" in exc.value.context["failure_reason"]
-        assert exc.value.context["timeout_seconds"] == str(
-            30 + health_check_timeout_seconds(AGENT_SERVER_HEALTH_MAX_ATTEMPTS)
+        assert exc.value.context["timeout_seconds"] == 30 + health_check_timeout_seconds(
+            AGENT_SERVER_HEALTH_MAX_ATTEMPTS
         )
 
     def test_start_agent_server_success_without_domains_skips_agentsh(self, mock_sandbox: Any):
