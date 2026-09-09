@@ -61,7 +61,7 @@ export function ReportCardImpactMetric({ metrics }: { metrics?: ReportMetricApi[
                         <ReportCardSparkline values={series} type={reportMetricChartType(metric)} />
                     ) : null}
                 </div>
-                <div className="flex min-w-0 flex-col items-end gap-0.5 text-right">
+                <div className="flex min-w-0 flex-col items-center gap-0.5 text-center">
                     <span className="font-mono text-sm font-semibold leading-tight tabular-nums text-primary">
                         {parts.value}
                     </span>
