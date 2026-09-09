@@ -24,7 +24,7 @@ IncrementalParamFormat = Literal["epoch_seconds", "iso8601"]
 CONVERSATIONS_NEXT_CURSOR_KEYS = ("next_page_cursor", "next_cursor", "next_page_updated_after")
 
 
-@dataclass
+@dataclass(frozen=True)
 class DecagonEndpointConfig:
     name: str
     path: str
