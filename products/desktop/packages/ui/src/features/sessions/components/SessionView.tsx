@@ -199,6 +199,9 @@ export function SessionView({
   const startupPhase = useSessionStore((state) =>
     taskId ? state.startingTaskIds[taskId]?.phase : undefined,
   );
+  // Cloud sessions report `isRunning` for the whole sandbox boot, so the
+  // startup row has to key off the boot state itself, not off `!isRunning`.
+  const showStartupStatus = isProvisioning || isInitializing || !isRunning;
   const isLoadingOlderHistory = useSessionSelector(
     taskId,
     (session) => session?.isLoadingOlderTranscript ?? false,
@@ -769,9 +772,9 @@ export function SessionView({
                   <Box className="relative shrink-0">
                     <Box
                       className={`absolute inset-0 flex min-h-[66px] flex-col items-center justify-center gap-2 transition-opacity duration-200 ${
-                        isRunning
-                          ? "pointer-events-none opacity-0"
-                          : "opacity-100"
+                        showStartupStatus
+                          ? "opacity-100"
+                          : "pointer-events-none opacity-0"
                       }`}
                     >
                       {isProvisioning ? (
@@ -793,9 +796,9 @@ export function SessionView({
                     </Box>
                     <Box
                       className={`transition-all duration-300 ease-out ${
-                        isRunning
-                          ? "translate-y-0 opacity-100"
-                          : "pointer-events-none translate-y-4 opacity-0"
+                        showStartupStatus
+                          ? "pointer-events-none translate-y-4 opacity-0"
+                          : "translate-y-0 opacity-100"
                       }`}
                     >
                       <ComposerWidth compact={compact}>

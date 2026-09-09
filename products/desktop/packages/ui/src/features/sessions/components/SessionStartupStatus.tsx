@@ -20,7 +20,8 @@ function statusLabel(
 }
 
 export interface SessionStartupStatusProps {
-  executionTarget: SessionStartupTarget;
+  /** Omitted when the target isn't known yet; a `label` is required then. */
+  executionTarget?: SessionStartupTarget;
   phase?: SessionStartupPhase;
   /** Overrides the target's default label, e.g. "Connecting to agent...". */
   label?: string;
@@ -35,6 +36,9 @@ export function SessionStartupStatus({
   detail,
   className,
 }: SessionStartupStatusProps) {
+  const resolvedLabel =
+    label ??
+    (executionTarget ? statusLabel(executionTarget, phase) : undefined);
   return (
     <output
       className={cn(
@@ -43,9 +47,7 @@ export function SessionStartupStatus({
       )}
     >
       <Spinner aria-hidden size="sm" className="shrink-0 text-accent-11" />
-      <span className="shrink-0">
-        {label ?? statusLabel(executionTarget, phase)}
-      </span>
+      {resolvedLabel ? <span className="shrink-0">{resolvedLabel}</span> : null}
       <AnimatePresence initial={false}>
         {detail && (
           <motion.span
