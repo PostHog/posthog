@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React, { useLayoutEffect, useState } from 'react'
+import React, { useCallback, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -291,12 +291,24 @@ export function Activity({
     children?: React.ReactNode
 }): JSX.Element {
     const hasDetails = substeps.length > 0 || !!details
-    const shouldExpandDetails = hasDetails && status !== 'completed' && status !== 'failed'
-    const [isDetailsExpanded, setIsDetailsExpanded] = useState(shouldExpandDetails)
+    const isRunning = status !== 'completed' && status !== 'failed'
+    const [isDetailsExpanded, setIsDetailsExpanded] = useState(hasDetails && isRunning)
+    const hasReaderToggled = useRef(false)
 
+    // Auto-expand a running card once it has a body, and then leave it alone. Collapsing the body when the
+    // tool finishes removes its height from a thread that is still streaming, which moves the rest of the
+    // thread under the reader — once per completed tool call. A card that mounts already finished (a run
+    // opened after the fact) still starts collapsed, so a settled thread stays one or two lines per tool.
     useLayoutEffect(() => {
-        setIsDetailsExpanded(shouldExpandDetails)
-    }, [shouldExpandDetails])
+        if (hasDetails && isRunning && !hasReaderToggled.current) {
+            setIsDetailsExpanded(true)
+        }
+    }, [hasDetails, isRunning])
+
+    const toggleDetails = useCallback(() => {
+        hasReaderToggled.current = true
+        setIsDetailsExpanded((expanded) => !expanded)
+    }, [])
 
     return (
         <div className="flex flex-col rounded w-full min-w-0 gap-1 text-xs">
@@ -307,7 +319,7 @@ export function Activity({
                 animate={animate}
                 hasDetails={hasDetails}
                 isDetailsExpanded={isDetailsExpanded}
-                onToggleDetails={() => setIsDetailsExpanded(!isDetailsExpanded)}
+                onToggleDetails={toggleDetails}
                 showCompletionIcon={showCompletionIcon}
                 showProgressIcon={showProgressIcon}
                 failedIcon={failedIcon}
