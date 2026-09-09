@@ -134,8 +134,28 @@ class Migration(migrations.Migration):
                 # Project). Django stops cascading into a table it cannot see, so the child rows
                 # outlive a parent delete. The constraint is DEFERRABLE INITIALLY DEFERRED, so the
                 # parent delete completes its cascade and then fails at COMMIT.
+                # Django names foreign keys with a hash suffix, so never hardcode the name with
+                # IF EXISTS: a wrong guess drops nothing and the migration still succeeds. Read the
+                # name from the catalog. The loop drops nothing on a re-run, so bin/migrate can
+                # retry the migration safely.
                 migrations.RunSQL(
-                    sql="ALTER TABLE posthog_oldfeature DROP CONSTRAINT IF EXISTS posthog_oldfeature_team_id_fkey",
+                    sql="""
+                    DO $$
+                    DECLARE fk record;
+                    BEGIN
+                        FOR fk IN
+                            SELECT con.conname
+                            FROM pg_constraint con
+                            JOIN pg_class src ON src.oid = con.conrelid
+                            JOIN pg_class tgt ON tgt.oid = con.confrelid
+                            WHERE con.contype = 'f'
+                              AND src.relname = 'posthog_oldfeature'
+                              AND tgt.relname = 'posthog_team'
+                        LOOP
+                            EXECUTE format('ALTER TABLE posthog_oldfeature DROP CONSTRAINT %I', fk.conname);
+                        END LOOP;
+                    END $$;
+                    """,
                     reverse_sql=migrations.RunSQL.noop,
                 ),
             ],
@@ -152,7 +172,7 @@ class Migration(migrations.Migration):
 - Django's `TransactionTestCase` uses `TRUNCATE` to clean up between tests
 - PostgreSQL won't truncate a table that has FKs pointing to it
 - Since the model is removed from Django's state, Django doesn't know to include it in the truncate list
-- Fix: Drop the FK constraints in `database_operations` (see commented example above) - you're dropping the table soon anyway
+- Fix: Drop the FK constraints in `database_operations` (see the example above) - required anyway, because leaving them breaks parent deletion
 
 **Step 2: Wait for safety window**
 
