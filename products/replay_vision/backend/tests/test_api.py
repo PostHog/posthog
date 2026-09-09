@@ -25,7 +25,10 @@ from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.experiments.backend.models.experiment import Experiment
-from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
+from products.replay_vision.backend.api.scanners import (
+    ReplayScannerSerializer,
+    ScannerRecentObservationsQuerySerializer,
+)
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.enqueue_claims import _scanner_key, _team_key, pending_enqueue_claims_for_team
@@ -4048,6 +4051,148 @@ class TestInlineScanAction(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 400, resp.content)
         self.assertFalse(ReplayScanner.all_origins.filter(origin=ScannerOrigin.INLINE).exists())
         start_workflow.assert_not_called()
+
+
+class TestScannerRecentObservationsQueryValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("missing", {}),
+            ("empty", {"scanner_ids": ""}),
+            ("not_uuid", {"scanner_ids": "not-a-uuid"}),
+            ("too_many_ids", {"scanner_ids": ",".join(str(uuid7()) for _ in range(51))}),
+            ("per_scanner_too_high", {"scanner_ids": str(uuid7()), "per_scanner": "6"}),
+            ("per_scanner_zero", {"scanner_ids": str(uuid7()), "per_scanner": "0"}),
+        ]
+    )
+    def test_rejects_invalid_query(self, _name: str, params: dict[str, str]) -> None:
+        serializer = ScannerRecentObservationsQuerySerializer(data=params)
+        assert not serializer.is_valid()
+
+
+class TestScannerRecentObservationsAPI(_VisionAPITestCase):
+    @property
+    def recent_url(self) -> str:
+        return f"{self.scanners_url}recent_observations/"
+
+    def _succeeded_observation(self, scanner: ReplayScanner, session_id: str, minutes_ago: int) -> ReplayObservation:
+        obs = ReplayObservation.objects.create(
+            scanner=scanner,
+            session_id=session_id,
+            scanner_snapshot=_snapshot_for(scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+        )
+        # auto_now_add ignores a passed created_at, so stagger recency with an update.
+        ReplayObservation.objects.filter(pk=obs.pk).update(created_at=timezone.now() - timedelta(minutes=minutes_ago))
+        return obs
+
+    def _grouped(self, body: dict[str, Any]) -> dict[str, list[str]]:
+        grouped: dict[str, list[str]] = {}
+        for row in body["results"]:
+            grouped.setdefault(row["scanner_id"], []).append(row["session_id"])
+        return grouped
+
+    def test_caps_at_per_scanner_newest_succeeded_rows(self) -> None:
+        scanner_a = self._create_scanner(name="a")
+        scanner_b = self._create_scanner(name="b")
+        for i in range(7):
+            self._succeeded_observation(scanner_a, f"a-{i}", minutes_ago=i)
+        self._succeeded_observation(scanner_b, "b-0", minutes_ago=0)
+        self._succeeded_observation(scanner_b, "b-1", minutes_ago=1)
+        # Newer than every succeeded row; must not appear or displace one.
+        ReplayObservation.objects.create(
+            scanner=scanner_a,
+            session_id="a-pending",
+            scanner_snapshot=_snapshot_for(scanner_a),
+            triggered_by=ObservationTrigger.SCHEDULE,
+        )
+        ReplayObservation.objects.create(
+            scanner=scanner_a,
+            session_id="a-failed",
+            scanner_snapshot=_snapshot_for(scanner_a),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.FAILED,
+            completed_at=timezone.now(),
+        )
+
+        resp = self.client.get(f"{self.recent_url}?scanner_ids={scanner_a.id},{scanner_b.id}")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        grouped = self._grouped(resp.json())
+        self.assertEqual(grouped[str(scanner_a.id)], ["a-0", "a-1", "a-2", "a-3", "a-4"])
+        self.assertEqual(grouped[str(scanner_b.id)], ["b-0", "b-1"])
+
+        resp = self.client.get(f"{self.recent_url}?scanner_ids={scanner_a.id}&per_scanner=2")
+        self.assertEqual(self._grouped(resp.json())[str(scanner_a.id)], ["a-0", "a-1"])
+
+    def test_unreadable_and_cross_team_scanner_ids_are_dropped_silently(self) -> None:
+        visible = self._create_scanner(name="visible")
+        hidden = self._create_scanner(name="hidden")
+        self._succeeded_observation(visible, "visible-sess", minutes_ago=0)
+        self._succeeded_observation(hidden, "hidden-sess", minutes_ago=0)
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        foreign = ReplayScanner.objects.create(
+            team=other_team,
+            name="foreign",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+        )
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk) if qs.model is ReplayScanner else qs,
+        ):
+            resp = self.client.get(f"{self.recent_url}?scanner_ids={visible.id},{hidden.id},{foreign.id}")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(self._grouped(resp.json()), {str(visible.id): ["visible-sess"]})
+
+    def test_restricted_snapshot_rows_do_not_consume_slots(self) -> None:
+        # The experiment row-gate must run before ranking: a restricted newest row silently
+        # shrinking the visible window would hide readable history.
+        experiment = create_experiment(self.team, "restricted-flag")
+        scanner = self._create_scanner(name="retargeted", experiment_targeting={"experiment_id": experiment.id})
+        self._succeeded_observation(scanner, "restricted-sess", minutes_ago=0)
+        scanner.experiment_targeting = None
+        scanner.save()
+        self._succeeded_observation(scanner, "open-1", minutes_ago=1)
+        self._succeeded_observation(scanner, "open-2", minutes_ago=2)
+        self._succeeded_observation(scanner, "open-3", minutes_ago=3)
+
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
+        ):
+            resp = self.client.get(f"{self.recent_url}?scanner_ids={scanner.id}&per_scanner=3")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(self._grouped(resp.json())[str(scanner.id)], ["open-1", "open-2", "open-3"])
+
+    def test_missing_scanner_ids_is_a_400(self) -> None:
+        resp = self.client.get(self.recent_url)
+        self.assertEqual(resp.status_code, 400, resp.json())
+
+    def test_requires_session_recording_read(self) -> None:
+        scanner = self._create_scanner()
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
+            return_value=False,
+        ):
+            resp = self.client.get(f"{self.recent_url}?scanner_ids={scanner.id}")
+        self.assertEqual(resp.status_code, 403, resp.json())
+
+    def test_query_count_stays_flat_as_scanners_grow(self) -> None:
+        first = self._create_scanner(name="s0")
+        self._succeeded_observation(first, "s0-sess", minutes_ago=0)
+        self.client.get(f"{self.recent_url}?scanner_ids={first.id}")  # warm request-scoped caches
+        with CaptureQueriesContext(connection) as one:
+            self.assertEqual(self.client.get(f"{self.recent_url}?scanner_ids={first.id}").status_code, 200)
+        ids = [str(first.id)]
+        for i in range(1, 6):
+            scanner = self._create_scanner(name=f"s{i}")
+            self._succeeded_observation(scanner, f"s{i}-sess", minutes_ago=0)
+            ids.append(str(scanner.id))
+        with CaptureQueriesContext(connection) as six:
+            self.assertEqual(self.client.get(f"{self.recent_url}?scanner_ids={','.join(ids)}").status_code, 200)
+        self.assertEqual(len(one.captured_queries), len(six.captured_queries))
 
 
 class TestScannerSelfDrivingStatsAPI(_VisionAPITestCase):

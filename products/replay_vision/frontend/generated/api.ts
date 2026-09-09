@@ -46,6 +46,7 @@ import type {
     RetryResponseApi,
     ScannerCreatorsResponseApi,
     ScannerImpactApi,
+    ScannerRecentObservationsResponseApi,
     ScannerScoutCreateApi,
     ScannerScoutCreateResponseApi,
     ScannerSelfDrivingStatsApi,
@@ -73,6 +74,7 @@ import type {
     VisionScannersObservationsRetrieveParams,
     VisionScannersObservationsStatsRetrieveParams,
     VisionScannersPromptSuggestionsListParams,
+    VisionScannersRecentObservationsRetrieveParams,
     VisionSpendSeriesApi,
 } from './api.schemas'
 
@@ -1475,6 +1477,42 @@ export const visionScannersInlineScanCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(inlineScanRequestApi),
     })
+}
+
+export const getVisionScannersRecentObservationsRetrieveUrl = (
+    projectId: string,
+    params: VisionScannersRecentObservationsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/recent_observations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/recent_observations/`
+}
+
+/**
+ * Newest succeeded observations for each requested scanner, in one query — feeds the highlights view.
+ */
+export const visionScannersRecentObservationsRetrieve = async (
+    projectId: string,
+    params: VisionScannersRecentObservationsRetrieveParams,
+    options?: RequestInit
+): Promise<ScannerRecentObservationsResponseApi> => {
+    return apiMutator<ScannerRecentObservationsResponseApi>(
+        getVisionScannersRecentObservationsRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getVisionScannersStatsRetrieveUrl = (projectId: string) => {

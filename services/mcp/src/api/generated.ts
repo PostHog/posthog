@@ -78270,6 +78270,14 @@ export namespace Schemas {
     }
 
     /**
+     * Response of GET /vision/scanners/recent_observations/.
+     */
+    export interface ScannerRecentObservationsResponse {
+      /** Newest succeeded observations across the requested scanners, newest first within each scanner. Group client-side by `scanner_id`; a scanner the caller can't read contributes no rows. */
+      results: ReplayObservation[];
+    }
+
+    /**
      * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
      * @nullable
      */
@@ -103178,6 +103186,20 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type VisionScannersRecentObservationsRetrieveParams = {
+    /**
+     * Newest succeeded observations to return per scanner, at most 5.
+     * @minimum 1
+     * @maximum 5
+     */
+    per_scanner?: number;
+    /**
+     * Comma-separated scanner UUIDs to fetch recent observations for, at most 50.
+     * @minLength 1
+     */
+    scanner_ids: string;
     };
 
     export type VisualReviewReposListParams = {

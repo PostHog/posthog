@@ -3,8 +3,21 @@ from typing import Any, NoReturn, cast
 from uuid import UUID
 
 from django.db import IntegrityError, models, transaction
-from django.db.models import CharField, Count, F, IntegerField, OuterRef, Prefetch, Q, QuerySet, Subquery, Sum, Value
-from django.db.models.functions import Coalesce, NullIf
+from django.db.models import (
+    CharField,
+    Count,
+    F,
+    IntegerField,
+    OuterRef,
+    Prefetch,
+    Q,
+    QuerySet,
+    Subquery,
+    Sum,
+    Value,
+    Window,
+)
+from django.db.models.functions import Coalesce, NullIf, RowNumber
 from django.utils import timezone
 
 import structlog
@@ -56,6 +69,7 @@ from products.replay_vision.backend.api.filters import (
     split_csv,
     validate_csv_choices,
 )
+from products.replay_vision.backend.api.observations import ReplayObservationSerializer
 from products.replay_vision.backend.api.trigger import (
     WorkflowStartOutcome,
     check_observation_quota,
@@ -79,6 +93,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
+    hydrate_for_serialization,
 )
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
@@ -106,7 +121,11 @@ from products.replay_vision.backend.quota import (
     current_period_bounds,
     spend_projection,
 )
-from products.replay_vision.backend.scanner_access import is_experiment_accessible
+from products.replay_vision.backend.scanner_access import (
+    accessible_observations,
+    is_experiment_accessible,
+    readable_observation_scanner_ids,
+)
 from products.replay_vision.backend.scanner_config import (
     MAX_PROMPT_LENGTH,
     MAX_TAG_LENGTH,
@@ -1297,6 +1316,53 @@ class ScannerStatsResponseSerializer(serializers.Serializer):
     )
 
 
+MAX_RECENT_OBSERVATIONS_SCANNERS = 50
+MAX_RECENT_OBSERVATIONS_PER_SCANNER = 5
+
+
+class ScannerRecentObservationsQuerySerializer(serializers.Serializer):
+    """Query parameters of GET /vision/scanners/recent_observations/."""
+
+    scanner_ids = serializers.CharField(
+        help_text=(
+            f"Comma-separated scanner UUIDs to fetch recent observations for, "
+            f"at most {MAX_RECENT_OBSERVATIONS_SCANNERS}."
+        ),
+    )
+    per_scanner = serializers.IntegerField(
+        required=False,
+        default=MAX_RECENT_OBSERVATIONS_PER_SCANNER,
+        min_value=1,
+        max_value=MAX_RECENT_OBSERVATIONS_PER_SCANNER,
+        help_text=f"Newest succeeded observations to return per scanner, at most {MAX_RECENT_OBSERVATIONS_PER_SCANNER}.",
+    )
+
+    def validate_scanner_ids(self, value: str) -> list[UUID]:
+        raw_ids = split_csv(value)
+        if not raw_ids:
+            raise serializers.ValidationError("At least one scanner id is required.")
+        if len(raw_ids) > MAX_RECENT_OBSERVATIONS_SCANNERS:
+            raise serializers.ValidationError(
+                f"At most {MAX_RECENT_OBSERVATIONS_SCANNERS} scanner ids are allowed per request."
+            )
+        try:
+            return [UUID(raw_id) for raw_id in raw_ids]
+        except ValueError:
+            raise serializers.ValidationError("Scanner ids must be UUIDs.")
+
+
+class ScannerRecentObservationsResponseSerializer(serializers.Serializer):
+    """Response of GET /vision/scanners/recent_observations/."""
+
+    results = ReplayObservationSerializer(
+        many=True,
+        help_text=(
+            "Newest succeeded observations across the requested scanners, newest first within each scanner. "
+            "Group client-side by `scanner_id`; a scanner the caller can't read contributes no rows."
+        ),
+    )
+
+
 class ScannerCreatorsResponseSerializer(serializers.Serializer):
     """Distinct creators across all scanners on the team — feeds the `Created by` filter dropdown."""
 
@@ -1640,7 +1706,14 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
     scope_object = "replay_scanner"
     # Custom actions must be listed explicitly or personal-API-key callers 403 silently.
-    scope_object_read_actions = ["list", "retrieve", "creators", "stats", "self_driving_stats"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "creators",
+        "stats",
+        "self_driving_stats",
+        "recent_observations",
+    ]
     scope_object_write_actions = [
         "create",
         "update",
@@ -1816,6 +1889,49 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 bucket["enabled"] += row["c"]
                 enabled += row["c"]
         return Response({"total": total, "enabled": enabled, "by_type": by_type})
+
+    @extend_schema(
+        parameters=[ScannerRecentObservationsQuerySerializer],
+        responses={200: ScannerRecentObservationsResponseSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        pagination_class=None,
+        required_scopes=["replay_scanner:read", "session_recording:read"],
+    )
+    def recent_observations(self, request: Request, **kwargs: Any) -> Response:
+        """Newest succeeded observations for each requested scanner, in one query — feeds the highlights view."""
+        query = ScannerRecentObservationsQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        # Observations expose recording-derived output, so reading them requires session_recording read.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Reading replay observations requires session_recording read access.")
+        requested_ids: list[UUID] = query.validated_data["scanner_ids"]
+        per_scanner: int = query.validated_data["per_scanner"]
+        # Scanner RBAC plus current experiment targeting; unreadable ids drop out silently so the
+        # response never confirms which of the requested scanners exist.
+        readable_ids = set(readable_observation_scanner_ids(self.user_access_control, self.team_id))
+        allowed_ids = [scanner_id for scanner_id in requested_ids if scanner_id in readable_ids]
+        observations = ReplayObservation.objects.filter(
+            team_id=self.team_id,
+            scanner_id__in=allowed_ids,
+            status=ObservationStatus.SUCCEEDED,
+        )
+        # Row-gate on each row's snapshot experiment before ranking, so a restricted row can't
+        # consume one of the per-scanner slots.
+        observations = accessible_observations(self.user_access_control, self.team_id, observations)
+        observations = observations.annotate(
+            recency_rank=Window(
+                RowNumber(),
+                partition_by=F("scanner_id"),
+                order_by=[F("created_at").desc(), F("id").desc()],
+            )
+        ).filter(recency_rank__lte=per_scanner)
+        rows = hydrate_for_serialization(observations, viewer_id=request.user.id).order_by(
+            "scanner_id", "-created_at", "-id"
+        )
+        return Response({"results": ReplayObservationSerializer(rows, many=True).data})
 
     @extend_schema(
         request=ObserveRequestSerializer,

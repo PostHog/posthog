@@ -2173,6 +2173,14 @@ export interface InlineScanResponseApi {
 }
 
 /**
+ * Response of GET /vision/scanners/recent_observations/.
+ */
+export interface ScannerRecentObservationsResponseApi {
+    /** Newest succeeded observations across the requested scanners, newest first within each scanner. Group client-side by `scanner_id`; a scanner the caller can't read contributes no rows. */
+    results: ReplayObservationApi[]
+}
+
+/**
  * Per-scanner-type count of enabled vs total scanners.
  */
 export interface ScannerTypeStatsApi {
@@ -2698,4 +2706,18 @@ export type VisionScannersPromptSuggestionsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type VisionScannersRecentObservationsRetrieveParams = {
+    /**
+     * Newest succeeded observations to return per scanner, at most 5.
+     * @minimum 1
+     * @maximum 5
+     */
+    per_scanner?: number
+    /**
+     * Comma-separated scanner UUIDs to fetch recent observations for, at most 50.
+     * @minLength 1
+     */
+    scanner_ids: string
 }
