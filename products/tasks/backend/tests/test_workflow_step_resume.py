@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.cdp.workflow_step_resume import RESULT_BYTE_CAP
+
 from products.tasks.backend.facade.api import update_task_run
 from products.tasks.backend.logic.services.workflow_step_resume import (
     DEFERRED_RESUME_TASK,
@@ -97,6 +99,12 @@ class TestResumeWorkflowStepForRun(BaseTest):
                     "The task finished, but its output does not match the output variables: 'score' is a required property"
                 ],
             ),
+            (
+                "field_too_long_for_the_step_result",
+                TaskRun.Status.COMPLETED,
+                {"verdict": "x" * (RESULT_BYTE_CAP + 1), "score": 0.9},
+                ["The task's output was cut to fit the step result: verdict"],
+            ),
             ("failed_run_is_not_judged", TaskRun.Status.FAILED, {}, None),
         ]
     )
@@ -112,6 +120,20 @@ class TestResumeWorkflowStepForRun(BaseTest):
         assert result["output"] == structured_output
         assert result["warnings"] == warnings
         assert resume.call_args.kwargs["status"] == ("failed" if status == TaskRun.Status.FAILED else "completed")
+
+    def test_a_schema_the_validator_cannot_use_warns_instead_of_blocking_the_wake(self) -> None:
+        schema = {"type": "object", "properties": {"verdict": {"$ref": "https://example.com/s.json"}}}
+        run = self._run(json_schema=schema, structured_output={"verdict": "ship"})
+
+        with patch(_RESUME) as resume:
+            resume_workflow_step_for_run(run)
+
+        result = resume.call_args.kwargs["result"]
+        assert result["output"] == {"verdict": "ship"}
+        assert result["warnings"] == [
+            "The task finished, but its output could not be checked against the output variables: "
+            "Unresolvable: https://example.com/s.json"
+        ]
 
     @parameterized.expand(
         [
