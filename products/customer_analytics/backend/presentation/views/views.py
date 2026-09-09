@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import builtins
 from dataclasses import asdict
+from functools import cached_property
 from typing import Any, cast
 from uuid import UUID
 
@@ -37,17 +38,20 @@ from rest_framework.throttling import UserRateThrottle
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
+from posthog.auth import SessionAuthentication
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import (
     PostHogFeatureFlagPermission,
     TeamMemberAccessPermission,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
     is_service_auth,
 )
@@ -107,6 +111,8 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     MeetingSerializer,
     SupportTicketMessageSerializer,
     SupportTicketSerializer,
+    UserCustomerAnalyticsConfigSerializer,
+    UserCustomerAnalyticsConfigUpdateSerializer,
 )
 
 from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
@@ -776,6 +782,104 @@ class FeatureRequestViewSet(
         if history is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(FeatureRequestStatusHistorySerializer(instance=history, many=True).data)
+
+
+class UserConfigCanonicalTeamAccessPermission(BasePermission):
+    message = "You don't have access to the project."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        if not request.user.is_authenticated:
+            return True
+        config_view = cast(UserCustomerAnalyticsConfigViewSet, view)
+        canonical_team = config_view.canonical_team
+        if canonical_team.id == config_view.team_id:
+            return True
+        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        if scoped_team_ids and canonical_team.id not in scoped_team_ids:
+            return False
+        return config_view.user_permissions.team(canonical_team).effective_membership_level is not None
+
+
+class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    scope_object = "account"
+    scope_object_read_actions = ["retrieve"]
+    scope_object_write_actions = ["partial_update"]
+    serializer_class = UserCustomerAnalyticsConfigSerializer
+    queryset = None
+    lookup_value_regex = "@me"
+    permission_classes = [UserConfigCanonicalTeamAccessPermission]
+
+    @cached_property
+    def canonical_team(self) -> Team:
+        return self.team.parent_team or self.team
+
+    @cached_property
+    def user_access_control(self) -> UserAccessControl:
+        return UserAccessControl(
+            user=cast(User, self.request.user),
+            team=self.canonical_team,
+            organization_id=self.organization_id,
+        )
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # Browser viewers can personalize their own sidebar without account edit access.
+        # Scoped credentials still need write permission to change their owner's preferences.
+        if self.action == "partial_update" and isinstance(request.successful_authenticator, SessionAuthentication):
+            return ["account:read"]
+        return None
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=UserCustomerAnalyticsConfigSerializer,
+                description="The requesting user's account sidebar configuration.",
+            )
+        },
+        summary="Get account sidebar configuration",
+        description=(
+            "Get the requesting user's account sidebar configuration for this project. "
+            "The first read creates an empty configuration row."
+        ),
+    )
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        config = api.get_user_customer_analytics_config(
+            team_id=self.team_id,
+            user_id=cast(User, request.user).id,
+        )
+        return Response(UserCustomerAnalyticsConfigSerializer(instance=config).data)
+
+    @validated_request(
+        request_serializer=UserCustomerAnalyticsConfigUpdateSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=UserCustomerAnalyticsConfigSerializer,
+                description="The updated account sidebar configuration.",
+            ),
+            400: OpenApiResponse(description="A pinned definition is invalid for this project."),
+        },
+        summary="Update account sidebar configuration",
+        description=(
+            "Replace the requesting user's ordered account sidebar properties when pinned_properties is provided. "
+            "Omitting pinned_properties leaves the configuration unchanged. "
+            "At most 50 account custom properties and relationships can be pinned."
+        ),
+    )
+    def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        if "pinned_properties" not in request.validated_data:
+            return self.retrieve(request, *args, **kwargs)
+        pinned_properties = [
+            contracts.PinnedAccountProperty(kind=reference["kind"], id=reference["id"])
+            for reference in request.validated_data["pinned_properties"]
+        ]
+        try:
+            config = api.update_user_customer_analytics_config(
+                team_id=self.team_id,
+                user_id=cast(User, request.user).id,
+                pinned_properties=pinned_properties,
+            )
+        except api.InvalidPinnedAccountProperties as error:
+            raise ValidationError({"pinned_properties": error.errors})
+        return Response(UserCustomerAnalyticsConfigSerializer(instance=config).data)
 
 
 class CustomerProfileConfigViewSet(
@@ -2162,8 +2266,10 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         values = api.list_active_custom_property_values(self.team_id, account_id)
         return Response(CustomPropertyValueSerializer(values, many=True).data)
 
-    @extend_schema(request=CustomPropertyValueWriteSerializer, responses={201: CustomPropertyValueSerializer})
-    def create(self, request: Request, *args, **kwargs) -> Response:
+    @extend_schema(
+        request=CustomPropertyValueWriteSerializer, responses={201: CustomPropertyValueSerializer, 204: None}
+    )
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         account_id = self._accessible_account_id()
         if account_id is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -2171,6 +2277,14 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         write.is_valid(raise_exception=True)
 
         try:
+            if write.validated_data["value"] is None:
+                api.clear_custom_property_value(
+                    team_id=self.team_id,
+                    account_id=account_id,
+                    definition_id=write.validated_data["definition"],
+                    actor=cast(User, request.user),
+                )
+                return Response(status=status.HTTP_204_NO_CONTENT)
             value = api.set_custom_property_value(
                 team_id=self.team_id,
                 account_id=account_id,
@@ -2183,7 +2297,7 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         except api.CustomPropertyDefinitionNotFound:
             raise ValidationError({"definition": "Custom property definition not found."})
-        except api.CustomPropertyValueSourceManaged as exc:
+        except (api.CustomPropertyValueSourceManaged, api.CanonicalCustomPropertyReadOnlyError) as exc:
             raise ValidationError({"definition": str(exc)})
         except api.InvalidCustomPropertyValue as exc:
             raise ValidationError({"value": str(exc)})

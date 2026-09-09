@@ -25,7 +25,7 @@ export function SessionInitializingView({
   if (!revealed) {
     return (
       <div className="absolute inset-0 flex items-center justify-center gap-2 bg-background">
-        <Spinner size={16} className="text-gray-9" />
+        <Spinner size="md" className="text-gray-9" />
         <span className="font-medium text-base">Loading</span>
       </div>
     );
@@ -38,7 +38,7 @@ export function SessionInitializingView({
       </div>
       <div className="flex flex-col items-center gap-2">
         <div className="flex items-center gap-2">
-          <Spinner size={16} className="text-gray-9" />
+          <Spinner size="md" className="text-gray-9" />
           <span className="font-medium text-base">Loading</span>
         </div>
         <span className="text-gray-11 text-sm">{subtitle}</span>

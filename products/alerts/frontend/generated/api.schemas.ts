@@ -662,6 +662,8 @@ export interface AlertApi {
      * @nullable
      */
     schedule_start_time?: string | null
+    /** @nullable */
+    readonly next_check_at: string | null
     /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
     readonly checks: readonly AlertCheckApi[]
     /**
@@ -681,8 +683,6 @@ export interface AlertApi {
      * * `weekly` - weekly
      * * `monthly` - monthly */
     calculation_interval?: CalculationIntervalEnumApi
-    /** @nullable */
-    readonly next_check_at: string | null
     /**
      * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
      * @nullable
@@ -756,6 +756,8 @@ export interface PatchedAlertApi {
      * @nullable
      */
     schedule_start_time?: string | null
+    /** @nullable */
+    readonly next_check_at?: string | null
     /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
     readonly checks?: readonly AlertCheckApi[]
     /**
@@ -775,8 +777,6 @@ export interface PatchedAlertApi {
      * * `weekly` - weekly
      * * `monthly` - monthly */
     calculation_interval?: CalculationIntervalEnumApi
-    /** @nullable */
-    readonly next_check_at?: string | null
     /**
      * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
      * @nullable
@@ -805,6 +805,42 @@ export interface PatchedAlertApi {
     investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null
+}
+
+/**
+ * * `slack` - slack
+ */
+export type ChannelTypeEnumApi = (typeof ChannelTypeEnumApi)[keyof typeof ChannelTypeEnumApi]
+
+export const ChannelTypeEnumApi = {
+    Slack: 'slack',
+} as const
+
+export interface AlertCreateDestinationApi {
+    /** Destination type. Slack is the only type this endpoint creates.
+     *
+     * * `slack` - slack */
+    type?: ChannelTypeEnumApi
+    /** Integration ID of the Slack workspace to post in. List them with the integrations endpoint. */
+    slack_workspace_id: number
+    /** Slack channel ID to post in, for example C0123456789. */
+    slack_channel_id: string
+    /** Channel name shown on the destination, for example product-alerts. */
+    slack_channel_name?: string
+}
+
+export interface AlertDestinationResponseApi {
+    /** IDs of the created destination. Pass them to destinations/delete to remove it. */
+    hog_function_ids: string[]
+}
+
+export interface AlertDeleteDestinationApi {
+    /**
+     * Destination IDs to delete, as returned when the destination was created.
+     * @minItems 1
+     * @maxItems 100
+     */
+    hog_function_ids: string[]
 }
 
 /**

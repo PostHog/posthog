@@ -732,7 +732,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "domain_whitelist",
         "setup_section_2_completed",
         "plugins_access_level",
-        "is_hipaa",
         "never_drop_data",
     ],
     "BatchExport": [

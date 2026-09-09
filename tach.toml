@@ -135,9 +135,11 @@ depends_on = [
     "products.tasks",
     "products.tracing",
     "products.user_interviews",
+    "products.visual_review",
     "products.mcp_analytics",
     "products.mcp_registry",
     "products.web_analytics",
+    "products.wizard",
     "products.workflows",
     "products.actions",
     "products.alerts", "products.warehouse_sources", "products.data_tools", "products.exports", "products.annotations",
@@ -912,6 +914,8 @@ depends_on = [
     "products.tasks",
     # The annotations.create action verb (via the annotations facade).
     "products.annotations",
+    # MCP connector calls made with the viewer's own installation (via the mcp_store facade).
+    "products.mcp_store",
 ]
 layer = "modules"
 

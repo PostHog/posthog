@@ -5,7 +5,7 @@ Three assets on the same daily partition as the dataset dag, each writing under 
     inbox_ranking_training_examples/v1/dt=D/   scoring-moment examples over the trailing snapshots
     inbox_ranking_models/v1/dt=D/<head>.ubj    one booster per head + metadata.json (the candidate)
     inbox_ranking_models/v1/champion.json      pointer to the model version the scoring sweep loads
-    inbox_ranking_unseen_scores/v1/dt=D/       the day's models on reports no example covers
+    inbox_ranking_unseen_scores/v1/dt=D/       the day's models on the reports born that day
 
 Partition dt=D trains on the report-state/labels snapshots dt=D-lookback..D (issue 13's
 scoring-moment join, `training/examples.py`), grades each head on the last `holdout_days` of
@@ -19,11 +19,11 @@ graded on the candidate's holdout through its `<head>.holdout.ubj` (the train-on
 promotion rule compares both models on one set of reports.
 
 Two further assets grade the day's models on data no example covers. `inbox_ranking_unseen_scores`
-samples reports absent from the dt=D examples and scores them; `inbox_ranking_unseen_graded` reads
-each head's scores from `D - horizon_days` and grades them against the dt=D labels. The holdout AUC
-grades the recipe, because the shipped booster is refit on train plus holdout; the unseen AUC
-grades the model on reports it never saw, and the two are comparable because both apply the same
-`Head` cohort, label and horizon.
+scores every report born on D (`unseen_pool` explains why no example can cover one);
+`inbox_ranking_unseen_graded` reads each head's scores from `D - horizon_days` and grades them
+against the dt=D labels. The holdout AUC grades the recipe, because the shipped booster is refit on
+train plus holdout; the unseen AUC grades the model on reports it never saw, and the two are
+comparable because both apply the same `Head` cohort, label and horizon.
 """
 
 import json
@@ -84,13 +84,14 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     UnseenModel,
     graded_rows,
     head_grades,
+    leaked_report_ids,
     missing_label_columns,
     model_mismatch,
     readable_head_files,
     report_grade_rows,
-    sample_unseen,
     score_event_rows,
-    score_sample,
+    score_pool,
+    scored_pool,
     scores_table,
     unseen_pool,
 )
@@ -481,7 +482,7 @@ def load_unseen_models(
     models: list[UnseenModel] = []
     for role, metadata in records:
         if metadata is None:
-            context.log.warning(f"no {role} metadata to score the unseen sample with")
+            context.log.warning(f"no {role} metadata to score the unseen pool with")
             continue
         mismatch = model_mismatch(metadata)
         if mismatch is not None:
@@ -519,20 +520,27 @@ def inbox_ranking_unseen_scores(context: dagster.AssetExecutionContext) -> None:
     day = datetime.date.fromisoformat(partition_key)
 
     snapshot = load_snapshots(client, bucket, prefix, [day], required=day)[day]
-    examples = read_parquet(client, bucket, partition_object_key(prefix, EXAMPLES_TABLE, partition_key))
-    pool = unseen_pool(snapshot.state, day, examples.column("report_id").to_pylist())
-    sample = sample_unseen(pool, partition_key)
+    # Only the ids: the examples table is one row per (report, snapshot, head) over the lookback.
+    example_ids = read_parquet(
+        client, bucket, partition_object_key(prefix, EXAMPLES_TABLE, partition_key), columns=["report_id"]
+    )
+    pool = unseen_pool(snapshot.state, day)
+    leaked = leaked_report_ids(pool, example_ids.column("report_id").unique().to_pylist())
+    if leaked:
+        raise dagster.Failure(
+            f"{len(leaked)} reports created on {partition_key} already appear in that day's training examples, "
+            f"so the unseen read would grade a model on its own data: {leaked[:10]}"
+        )
     models = load_unseen_models(context, client, bucket, prefix, partition_key)
-    scores = score_sample(sample, snapshot.labels, models, snapshot_date=day)
+    scores = score_pool(pool, snapshot.labels, models, snapshot_date=day)
     if scores.empty:
-        context.log.warning(f"nothing scored for dt={partition_key}: {len(pool)} unseen reports, {len(models)} models")
+        context.log.warning(f"nothing scored for dt={partition_key}: {len(pool)} newborn reports, {len(models)} models")
 
     key = partition_object_key(prefix, UNSEEN_SCORES_TABLE, partition_key)
     write_parquet(client, bucket, key, scores_table(scores), snapshot_date=partition_key)
     context.add_output_metadata(
         {
             "unseen_pool": dagster.MetadataValue.int(len(pool)),
-            "sample_size": dagster.MetadataValue.int(len(sample)),
             "models_scored": dagster.MetadataValue.int(len(models)),
             **{f"{model.model_role}_heads_scored": dagster.MetadataValue.int(len(model.boosters)) for model in models},
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
@@ -541,9 +549,7 @@ def inbox_ranking_unseen_scores(context: dagster.AssetExecutionContext) -> None:
     capture_training_events(
         context,
         partition_key,
-        unseen_score_events(
-            run_id=context.run.run_id, rows=score_event_rows(scores, sample, unseen_pool_size=len(pool))
-        ),
+        unseen_score_events(run_id=context.run.run_id, rows=score_event_rows(scores, pool)),
     )
 
 
@@ -590,6 +596,7 @@ def inbox_ranking_unseen_graded(context: dagster.AssetExecutionContext) -> None:
             skipped.update({head.name: f"no unseen scores for dt={scoring_partition}" for head in heads})
             continue
         scores = table.to_pandas()
+        pool = scored_pool(scores)
         graded_by_head: dict[str, pd.DataFrame] = {}
         for head in heads:
             missing = missing_label_columns(labels, head)
@@ -602,9 +609,9 @@ def inbox_ranking_unseen_graded(context: dagster.AssetExecutionContext) -> None:
                 continue
             graded = graded_rows(head_scores, labels, head)
             graded_by_head[head.name] = graded
-            grades.extend(head_grades(graded, head, scoring_partition=scoring_partition))
+            grades.extend(head_grades(graded, head, pool=pool, scoring_partition=scoring_partition))
         report_rows.extend(
-            report_grade_rows(graded_by_head, horizon_days=horizon_days, scoring_partition=scoring_partition)
+            report_grade_rows(graded_by_head, pool=pool, horizon_days=horizon_days, scoring_partition=scoring_partition)
         )
 
     for grade in grades:
