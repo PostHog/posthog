@@ -830,7 +830,9 @@ class TestRunEvaluationWorkflow:
         ):
             outcome = await run_local_evaluation_activity(
                 RunLocalEvaluationInputs(
-                    evaluation_id="eval-1", event_data=dict(THIN_REFERENCE), start_time=datetime.now(UTC)
+                    evaluation_id="eval-1",
+                    event_data=dict(THIN_REFERENCE),
+                    start_time=datetime(2024, 1, 1, 12, 0, tzinfo=UTC),
                 )
             )
 
@@ -854,7 +856,7 @@ class TestRunEvaluationWorkflow:
                     evaluation=_local_evaluation(evaluation_type="llm_judge"),
                     event_data=dict(THIN_REFERENCE),
                     result={"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False},
-                    start_time=datetime.now(UTC),
+                    start_time=datetime(2024, 1, 1, 12, 0, tzinfo=UTC),
                 )
             )
 

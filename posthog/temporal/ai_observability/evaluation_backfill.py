@@ -138,7 +138,13 @@ def _workflow_safe_id(value: str) -> str:
     # Trace and session ids are user-controlled and unbounded, so the live scheduler hashes long
     # ones to keep the workflow id valid. Backfill ids must collide with the live path's ids to
     # inherit its at-most-once guard, so the same threshold and hash apply here.
-    return hashlib.md5(value.encode()).hexdigest() if len(value) > 128 else value
+    return hashlib.md5(value.encode(), usedforsecurity=False).hexdigest() if len(value) > 128 else value
+
+
+@frozen
+class ChildWorkflow:
+    name: str
+    workflow_id: str
 
 
 def child_workflow_name_and_id(
@@ -149,7 +155,7 @@ def child_workflow_name_and_id(
     unit_id: str,
     backfill_id: str,
     rerun_existing: bool,
-) -> tuple[str, str]:
+) -> ChildWorkflow:
     if target == "generation":
         name = "run-evaluation"
         # The live scheduler suffixes "-ingestion"; matching it is what makes a unit the live path
@@ -162,7 +168,7 @@ def child_workflow_name_and_id(
         live_suffix = ""
     # A fresh id sidesteps the live path's at-most-once guard on purpose.
     workflow_id += f"-backfill-{backfill_id}" if rerun_existing else live_suffix
-    return name, workflow_id
+    return ChildWorkflow(name=name, workflow_id=workflow_id)
 
 
 def cancel_backfill(team_id: int, backfill_id: str | UUID) -> int:
@@ -378,7 +384,7 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
     ) -> bool:
         """Start one evaluation child. False means the unit already had a run, so it was skipped."""
         unit_id = candidate.unit_id
-        name, workflow_id = child_workflow_name_and_id(
+        child = child_workflow_name_and_id(
             evaluation_id=tick.evaluation_id,
             evaluation_type=tick.evaluation_type,
             target=tick.target,
@@ -417,9 +423,9 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
             )
         try:
             await temporalio.workflow.start_child_workflow(
-                name,
+                child.name,
                 args,
-                id=workflow_id,
+                id=child.workflow_id,
                 task_queue=settings.LLMA_EVALS_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                 parent_close_policy=ParentClosePolicy.ABANDON,

@@ -328,7 +328,7 @@ class TestEvaluationBackfillWorkflow:
 def test_child_workflow_ids_match_live_scheduler_unless_rerun(
     target, evaluation_type, rerun_existing, unit_id, expected_name, expected_id
 ) -> None:
-    name, workflow_id = child_workflow_name_and_id(
+    child = child_workflow_name_and_id(
         evaluation_id="E",
         evaluation_type=evaluation_type,
         target=target,
@@ -337,7 +337,7 @@ def test_child_workflow_ids_match_live_scheduler_unless_rerun(
         rerun_existing=rerun_existing,
     )
 
-    assert (name, workflow_id) == (expected_name, expected_id)
+    assert (child.name, child.workflow_id) == (expected_name, expected_id)
 
 
 def test_backfill_verdict_timestamps_are_stable_and_stay_inside_the_unit_second() -> None:
