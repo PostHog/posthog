@@ -283,7 +283,9 @@ def seed_read_only_mcp_org(context: CustomPromptSandboxContext) -> dict[str, Any
         active=True,
     )
 
-    organization = Organization.objects.get(teams__id=context.team_id)
+    # `Team.organization` sets related_query_name="team", so a filter spells it `team`
+    # even though the accessor is `organization.teams`.
+    organization = Organization.objects.get(team__id=context.team_id)
     features = list(organization.available_product_features or [])
     if not organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
         features.append(
