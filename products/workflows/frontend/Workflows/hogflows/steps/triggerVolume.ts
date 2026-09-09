@@ -24,11 +24,17 @@ export const AI_TASKS_PER_WORKFLOW_PER_DAY = 100
 // they are what turns the estimate from a note into a warning.
 const AI_RUN_TEMPLATE_IDS = ['template-posthog-create-task', 'template-posthog-run-scout']
 
-/** Whether any step of this workflow starts an AI agent run, so each entry costs AI usage. */
-export function hogFlowStartsAiRuns(workflow?: { actions?: HogFlowAction[] } | null): boolean {
-    return (workflow?.actions ?? []).some(
+/**
+ * Steps of this workflow that start an AI agent run.
+ *
+ * A count rather than a flag, because every step a run reaches creates its own task: two AI steps
+ * reach the daily cap at half the runs. Branches mean a run does not always reach all of them, so
+ * the count is a ceiling, which is the safe side for a cost warning.
+ */
+export function countAiRunSteps(workflow?: { actions?: HogFlowAction[] } | null): number {
+    return (workflow?.actions ?? []).filter(
         (action) => action.type === 'function' && AI_RUN_TEMPLATE_IDS.includes(action.config.template_id)
-    )
+    ).length
 }
 
 /**
@@ -64,6 +70,10 @@ export function eventTriggerVolumeQuery(filters: EventTriggerFilters): TrendsQue
         interval: 'day',
         dateRange: {
             date_from: `-${TRIGGER_VOLUME_DAYS}d`,
+            // End at yesterday, so the window holds exactly TRIGGER_VOLUME_DAYS whole days. An open
+            // end adds today's partial day as an eighth bucket, which the daily average would then
+            // divide as though it were complete.
+            date_to: '-1d',
         },
         trendsFilter: {
             display: ChartDisplayType.ActionsBar,

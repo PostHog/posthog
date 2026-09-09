@@ -14,8 +14,8 @@ import { HogFlowAction } from '../../types'
 import {
     AI_TASKS_PER_WORKFLOW_PER_DAY,
     TRIGGER_VOLUME_DAYS,
+    countAiRunSteps,
     eventTriggerVolumeFilters,
-    hogFlowStartsAiRuns,
 } from '../triggerVolume'
 import { triggerVolumeLogic } from '../triggerVolumeLogic'
 
@@ -35,8 +35,12 @@ export function TriggerVolumeEstimate({ action }: { action: HogFlowAction }): JS
         return null
     }
 
-    const startsAiRuns = hogFlowStartsAiRuns(workflow)
-    const overAiLimit = startsAiRuns && volume != null && volume.perDay > AI_TASKS_PER_WORKFLOW_PER_DAY
+    const aiSteps = countAiRunSteps(workflow)
+    // Every AI step a run reaches creates its own task, so the tasks a day is the runs a day times
+    // the steps, not the runs alone.
+    const aiTasksPerDay = volume != null ? volume.perDay * aiSteps : 0
+    const overAiLimit = aiSteps > 0 && aiTasksPerDay > AI_TASKS_PER_WORKFLOW_PER_DAY
+    const perRunCopy = aiSteps > 1 ? `Each run can start up to ${aiSteps} AI tasks` : 'Each run starts an AI task'
 
     return (
         <div className="flex flex-col gap-2 w-full">
@@ -79,23 +83,21 @@ export function TriggerVolumeEstimate({ action }: { action: HogFlowAction }): JS
                                           onClick: () =>
                                               openSupportForm({
                                                   kind: 'support',
-                                                  message: `Please raise the daily AI task limit for my workflow "${workflow.name}". Its trigger matches about ${humanFriendlyNumber(volume.perDay)} events a day.`,
+                                                  message: `Please raise the daily AI task limit for my workflow "${workflow.name}". Its trigger matches about ${humanFriendlyNumber(volume.perDay)} events a day, which is about ${humanFriendlyNumber(aiTasksPerDay)} AI tasks a day.`,
                                               }),
                                       }
                                     : undefined
                             }
                         >
-                            Each run starts an AI task, and a workflow creates at most {AI_TASKS_PER_WORKFLOW_PER_DAY}{' '}
-                            tasks a day. At this volume most runs would be skipped, and the tasks that do run count
-                            toward your AI usage.{' '}
+                            {perRunCopy}, and a workflow creates at most {AI_TASKS_PER_WORKFLOW_PER_DAY} tasks a day. At
+                            this volume most runs would be skipped, and the tasks that do run count toward your AI
+                            usage.{' '}
                             {preflight?.cloud
                                 ? 'Narrow the trigger with filters, set a frequency limit, or ask PostHog to raise the limit.'
                                 : 'Narrow the trigger with filters, or set a frequency limit.'}
                         </LemonBanner>
-                    ) : startsAiRuns ? (
-                        <p className="mb-0 text-secondary">
-                            Each run starts an AI task, which counts toward your AI usage.
-                        </p>
+                    ) : aiSteps > 0 ? (
+                        <p className="mb-0 text-secondary">{perRunCopy}. AI tasks count toward your AI usage.</p>
                     ) : null}
                 </>
             )}

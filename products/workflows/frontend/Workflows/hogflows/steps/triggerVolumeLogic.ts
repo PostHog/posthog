@@ -99,11 +99,14 @@ export const triggerVolumeLogic = kea<triggerVolumeLogicType>([
                     const series = response.results?.[0]
                     const daily: number[] = series?.data ?? []
                     const total: number = series?.count ?? 0
+                    // Divide by the days the response actually carries, so a range that resolves to
+                    // a different number of buckets than asked for cannot skew the average.
+                    const days = daily.length || TRIGGER_VOLUME_DAYS
                     return {
                         total,
                         daily,
                         labels: series?.labels ?? [],
-                        perDay: Math.round(total / TRIGGER_VOLUME_DAYS),
+                        perDay: Math.round(total / days),
                     }
                 },
             },

@@ -1,14 +1,14 @@
 import { HogFlowAction } from '../types'
 import {
     TRIGGER_VOLUME_DAYS,
+    countAiRunSteps,
     eventTriggerVolumeFilters,
     eventTriggerVolumeQuery,
-    hogFlowStartsAiRuns,
 } from './triggerVolume'
 
-function functionAction(templateId: string): HogFlowAction {
+function functionAction(templateId: string, id: string = 'function_1'): HogFlowAction {
     return {
-        id: 'function_1',
+        id,
         type: 'function',
         name: 'Step',
         description: '',
@@ -49,18 +49,32 @@ describe('triggerVolume', () => {
         })
     })
 
-    describe('hogFlowStartsAiRuns', () => {
+    describe('countAiRunSteps', () => {
         it.each([
-            ['an AI task step', 'template-posthog-create-task', true],
-            ['a scout step', 'template-posthog-run-scout', true],
-            ['a webhook step', 'template-webhook', false],
+            ['an AI task step', 'template-posthog-create-task', 1],
+            ['a scout step', 'template-posthog-run-scout', 1],
+            ['a webhook step', 'template-webhook', 0],
         ])('%s', (_name, templateId, expected) => {
-            expect(hogFlowStartsAiRuns({ actions: [functionAction(templateId as string)] })).toBe(expected)
+            expect(countAiRunSteps({ actions: [functionAction(templateId as string)] })).toBe(expected)
         })
 
-        it('is false for a workflow with no steps', () => {
-            expect(hogFlowStartsAiRuns({ actions: [] })).toBe(false)
-            expect(hogFlowStartsAiRuns(null)).toBe(false)
+        // Each step a run reaches creates its own task, so two steps reach the daily cap at half
+        // the runs. A flag here would leave the warning silent at that volume.
+        it('counts every AI step, not just the first', () => {
+            expect(
+                countAiRunSteps({
+                    actions: [
+                        functionAction('template-posthog-create-task', 'task_1'),
+                        functionAction('template-webhook', 'webhook_1'),
+                        functionAction('template-posthog-run-scout', 'scout_1'),
+                    ],
+                })
+            ).toBe(2)
+        })
+
+        it('is zero for a workflow with no steps', () => {
+            expect(countAiRunSteps({ actions: [] })).toBe(0)
+            expect(countAiRunSteps(null)).toBe(0)
         })
     })
 
@@ -72,6 +86,9 @@ describe('triggerVolume', () => {
             })
 
             expect(query.dateRange?.date_from).toBe(`-${TRIGGER_VOLUME_DAYS}d`)
+            // Ends yesterday, so the window is whole days only. An open end would add today's
+            // partial day, which the daily average divides as though it were complete.
+            expect(query.dateRange?.date_to).toBe('-1d')
             expect(query.interval).toBe('day')
             expect(query.filterTestAccounts).toBe(true)
             expect(JSON.stringify(query.properties)).toContain("event = 'purchase'")
