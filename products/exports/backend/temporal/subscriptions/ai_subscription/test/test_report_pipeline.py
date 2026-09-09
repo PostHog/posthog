@@ -20,8 +20,11 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.charts impo
     ValidatedChart,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
+    _FIX_LLM_TIMEOUT_SECONDS,
     _MAX_CONCURRENT_STEPS,
+    _QUERY_STEP_BUDGET_SECONDS,
     QUERY_FAILED_PREFIX,
+    QUERY_TIMED_OUT_CAUSE,
     AiReportStageError,
     PlanExecution,
     QueryStepDiagnostic,
@@ -412,6 +415,63 @@ async def test_run_steps_keeps_wrapped_error_out_of_recipient_copy_and_records_s
     mock_hogql_fix.assert_awaited_once()
 
 
+@parameterized.expand(
+    [
+        ("poll_budget_exhausted", MaxToolRetryableError("Query hasn't completed in time"), ClickHouseQueryTimeOut()),
+        ("outer_backstop", TimeoutError(), None),
+    ]
+)
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_tells_recipients_a_step_ran_out_of_time(
+    _name: str,
+    error: BaseException,
+    cause: Optional[BaseException],
+    mock_executor_cls: MagicMock,
+    _mock_hogql_fix: AsyncMock,
+) -> None:
+    error.__cause__ = cause
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=error)
+
+    execution = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+
+    assert execution.failed_count == 1
+    assert (
+        execution.rendered[0]
+        == f"### s0\n\n_{QUERY_FAILED_PREFIX} ({QUERY_TIMED_OUT_CAUSE}) — metric not computed, not empty data._"
+    )
+
+
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_bounds_the_executor_poll_loop_to_the_step_budget(mock_executor_cls: MagicMock) -> None:
+    run_query = AsyncMock(return_value=FormattedQueryResult(formatted="ok", fallback_used=False, response=_RESPONSE))
+    mock_executor_cls.return_value.arun_format_and_capture = run_query
+
+    await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
+
+    assert run_query.await_args is not None
+    poll_timeout = run_query.await_args.kwargs["poll_timeout_seconds"]
+    assert 0 < poll_timeout <= _QUERY_STEP_BUDGET_SECONDS
+
+
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value="SELECT 2")
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_skips_the_fix_llm_when_the_step_budget_is_spent(
+    mock_executor_cls: MagicMock, mock_hogql_fix: AsyncMock
+) -> None:
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=MaxToolRetryableError("too slow"))
+
+    with patch(f"{_RP}._QUERY_STEP_BUDGET_SECONDS", _FIX_LLM_TIMEOUT_SECONDS):
+        execution = await _run_steps(
+            _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+        )
+
+    assert execution.failed_count == 1
+    mock_hogql_fix.assert_not_awaited()
+
+
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
 @patch(f"{_RP}.AssistantQueryExecutor")
 async def test_run_steps_forwards_exposed_query_error_message_to_fix(
@@ -512,7 +572,7 @@ async def test_run_steps_bounds_concurrent_query_execution(mock_executor_cls: Ma
     max_concurrent = 0
     saturated = asyncio.Event()
 
-    async def _track(_query: object) -> FormattedQueryResult:
+    async def _track(_query: object, **_kwargs: object) -> FormattedQueryResult:
         nonlocal concurrent, max_concurrent
         concurrent += 1
         max_concurrent = max(max_concurrent, concurrent)
@@ -769,7 +829,7 @@ async def test_run_steps_substitutes_fresh_window_into_placeholder_sql(mock_exec
     # window advances) while the rest of the SQL is byte-identical (so the metric structure is frozen).
     captured: list[str] = []
 
-    async def _capture(query: object) -> FormattedQueryResult:
+    async def _capture(query: object, **_kwargs: object) -> FormattedQueryResult:
         captured.append(query.query)  # type: ignore[attr-defined]
         return FormattedQueryResult(formatted="formatted", fallback_used=False, response=_RESPONSE)
 

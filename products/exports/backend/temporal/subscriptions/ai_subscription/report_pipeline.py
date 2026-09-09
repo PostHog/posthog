@@ -1,3 +1,4 @@
+import time
 import uuid
 import asyncio
 import contextlib
@@ -14,6 +15,7 @@ from posthog.schema import AssistantHogQLQuery
 
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.ph_client import ph_background_capture
@@ -61,7 +63,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     build_enriched_prompt,
     build_frozen_prompt,
 )
-from products.exports.backend.temporal.subscriptions.types import safe_query_error_details
+from products.exports.backend.temporal.subscriptions.types import safe_query_error_details, walk_exception_chain
 
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.llm import MaxChatOpenAI
@@ -73,7 +75,14 @@ logger = structlog.get_logger(__name__)
 # activity timeout for scheduled, request timeout for ad-hoc) is the ultimate cap; these prevent a
 # single slow upstream from soaking it.
 _SYNTHESIS_LLM_TIMEOUT_SECONDS = 90.0
-_HOGQL_STEP_TIMEOUT_SECONDS = 60.0
+# One wall-clock budget for a whole query step — the query, any fix LLM call, and the reruns. It is
+# handed to the executor as its async-poll ceiling, so the poll loop gives up when the step does
+# instead of being cancelled part way through it. Bounding the step rather than each attempt keeps a
+# step that keeps timing out from soaking the activity's deadline.
+_QUERY_STEP_BUDGET_SECONDS = 60.0
+# Slack on the outer `asyncio.wait_for` so the executor's own bounded timeout raises first. The outer
+# wait is the backstop for a query that never reaches the poll loop at all.
+_STEP_BUDGET_GRACE_SECONDS = 5.0
 # Backstop length cap on a single step's formatted results before they enter the synthesis prompt.
 # The executor already truncates; this is defense-in-depth against a giant value.
 _QUERY_RESULT_MAX_CHARS = 50_000
@@ -89,6 +98,9 @@ _MIN_STEP_RESULT_CHARS = _SYNTHESIS_RESULTS_CHAR_BUDGET // MAX_QUERY_PLAN_STEPS
 # instead of "no data"; it's injected into that prompt (the {{{failure_marker}}} placeholder) from this
 # same constant in `_synthesize`, so the rendered marker and the prompt instruction can't drift apart.
 QUERY_FAILED_PREFIX = "Query failed to run"
+# Cause shown to recipients when a step ran out of its budget. A timeout says nothing about the
+# team's data, so unlike the safe error details (owner-only) it is safe to render.
+QUERY_TIMED_OUT_CAUSE = "ran out of time"
 
 # Per-step query-fix budget: the planner occasionally emits HogQL that fails to parse, so we feed the
 # error back and ask for a rewrite rather than dropping the step. Worst case per step is one original
@@ -102,14 +114,24 @@ _FIX_LLM_TIMEOUT_SECONDS = 30.0
 # queue and run as slots free up — every step still executes.
 _MAX_CONCURRENT_STEPS = 5
 
-# Errors signalling "the query itself is wrong" — rewriting may help. Everything else (timeouts, infra
-# failures, generic exceptions) falls through to the "_Query failed to run_" placeholder without retrying,
-# since a different SELECT won't fix a ClickHouse outage or a heartbeat timeout.
+# Errors signalling "the query itself is wrong, or too big" — rewriting may help. A timeout the
+# query-failure breaker replays straight away lands here too and leaves budget for a narrower rewrite;
+# a timeout that burned the whole step budget does not, and the guard below stops it. Everything else
+# (infra failures, generic exceptions) falls through to the "_Query failed to run_" placeholder without
+# retrying, since a different SELECT won't fix a ClickHouse outage.
 _RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
     MaxToolRetryableError,
     ExposedHogQLError,
     InternalHogQLError,
 )
+
+
+def _timed_out(exc: Optional[BaseException]) -> bool:
+    # The executor raises ClickHouseQueryTimeOut when its poll budget runs out, wrapped in
+    # MaxToolRetryableError; TimeoutError is the outer backstop firing.
+    if exc is None:
+        return False
+    return any(isinstance(current, TimeoutError | ClickHouseQueryTimeOut) for current in walk_exception_chain(exc))
 
 
 def _all_queries_failed_notice(total_steps: int) -> str:
@@ -519,16 +541,20 @@ async def _run_steps(
         # every attempt. The diagnostic records the executed SQL (placeholder resolved) for debugging.
         current_hogql = step.hogql
         last_exc: Optional[BaseException] = None
+        step_deadline = time.monotonic() + _QUERY_STEP_BUDGET_SECONDS
         # planner output — strip framing markers so it can't break the <query_results> envelope
         safe_description = strip_llm_framing_markers(step.description, max_len=500)
 
         for attempt in range(_MAX_QUERY_FIX_RETRIES + 1):
+            remaining_s = step_deadline - time.monotonic()
+            if remaining_s <= 0:
+                break
             executable_hogql = window.render_window_filter(current_hogql)
             try:
                 query = AssistantHogQLQuery(query=executable_hogql)
                 query_result = await asyncio.wait_for(
-                    executor.arun_format_and_capture(query),
-                    timeout=_HOGQL_STEP_TIMEOUT_SECONDS,
+                    executor.arun_format_and_capture(query, poll_timeout_seconds=remaining_s),
+                    timeout=remaining_s + _STEP_BUDGET_GRACE_SECONDS,
                 )
                 # result values are attacker-influenceable (public project tokens) — strip framing markers
                 safe_formatted = strip_llm_framing_markers(query_result.formatted, per_step_cap)
@@ -561,6 +587,10 @@ async def _run_steps(
             except Exception as exc:
                 last_exc = exc
                 if attempt >= _MAX_QUERY_FIX_RETRIES or not isinstance(exc, _RETRYABLE_QUERY_ERRORS):
+                    break
+                if step_deadline - time.monotonic() <= _FIX_LLM_TIMEOUT_SECONDS:
+                    # Too little budget left for a rewrite and a rerun, so don't spend it on a fix
+                    # the step can never run.
                     break
                 logger.info(
                     "ai_report.query_fix_attempt",
@@ -600,7 +630,12 @@ async def _run_steps(
             capture_exception(last_exc, {"trace_correlation_id": trace_correlation_id, "stage": "query"})
         # Safe query details belong in the owner-only diagnostics below. The rendered output is fed
         # into synthesis and eventually delivered to recipients, who may not have query access.
-        cause = "" if error_details else f" ({type_name})"
+        if _timed_out(last_exc):
+            cause = f" ({QUERY_TIMED_OUT_CAUSE})"
+        elif error_details:
+            cause = ""
+        else:
+            cause = f" ({type_name})"
         return StepOutcome(
             rendered=f"### {safe_description}\n\n_{QUERY_FAILED_PREFIX}{cause} — metric not computed, not empty data._",
             diagnostic=QueryStepDiagnostic(
