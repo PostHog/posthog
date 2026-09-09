@@ -271,3 +271,17 @@ test('a regex filter with a pathological pattern stays linear', () => {
 
     expect(elapsedMs).toBeLessThan(1000)
 })
+
+test('a regex pattern RE2 cannot compile does not throw and is treated as no match', () => {
+    // Lookahead is valid JavaScript regex but RE2 rejects it. The keep-if-match filter should
+    // process the event without throwing, treating the incompatible pattern as no match.
+    const regexFilters: Filter[] = [{ property: '$pathname', type: 'string', operator: 'regex', value: '(?=/admin)' }]
+    const regexMeta = {
+        global: { filters: regexFilters, eventsToDrop: [] },
+    } as unknown as LegacyTransformationPluginMeta
+    const event = createEvent({ properties: { $pathname: '/admin' } }) as unknown as PluginEvent
+
+    expect(() => processEvent(event, regexMeta)).not.toThrow()
+    // No match, so the keep-if-match filter is not satisfied and the event is dropped.
+    expect(processEvent(event, regexMeta)).toBeUndefined()
+})

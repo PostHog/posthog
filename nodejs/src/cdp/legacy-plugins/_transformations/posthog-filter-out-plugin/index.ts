@@ -26,6 +26,17 @@ export type PluginMeta = Meta<{
     }
 }>
 
+// RE2 rejects some JavaScript-valid patterns, such as lookahead and backreferences. Treat an
+// uncompilable pattern as no match rather than letting it throw and error the whole event, matching
+// how the action matcher handles user-supplied patterns.
+const safeRegexTest = (value: any, pattern: any): boolean => {
+    try {
+        return createTrackedRE2(pattern, undefined, 'filter-out:regex').test(value)
+    } catch {
+        return false
+    }
+}
+
 const operations: Record<Filter['type'], Record<string, (a: any, b: any) => boolean>> = {
     string: {
         is: (a, b) => a === b,
@@ -34,8 +45,8 @@ const operations: Record<Filter['type'], Record<string, (a: any, b: any) => bool
         not_contains: (a, b) => !a.includes(b),
         // RE2 evaluates user patterns in linear time, matching the engine used elsewhere for
         // user-supplied patterns (HogVM match, action matcher).
-        regex: (a, b) => createTrackedRE2(b, undefined, 'filter-out:regex').test(a),
-        not_regex: (a, b) => !createTrackedRE2(b, undefined, 'filter-out:not_regex').test(a),
+        regex: (a, b) => safeRegexTest(a, b),
+        not_regex: (a, b) => !safeRegexTest(a, b),
     },
     number: {
         gt: (a, b) => a > b,
