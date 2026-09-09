@@ -160,6 +160,12 @@ new_case_dir
 run_render gcp-service-name POSTHOG_API_KEY=phc_test GCP_PROJECT_ID=my-project \
     GCP_METRICS='compute.googleapis.com/instance/cpu/utilization' GCP_SERVICE_NAME=gcp-prod
 
+# A mounted but empty gcp_metrics_list.yaml yields no metrics_list entries and
+# must be rejected like a missing GCP_METRICS, not rendered into a bad config.
+new_case_dir
+: >"$CASE_DIR/gcp_metrics_list.yaml"
+expect_failure gcp-mounted-metrics-list-empty GCP_METRICS POSTHOG_API_KEY=phc_test GCP_PROJECT_ID=my-project
+
 new_case_dir
 expect_failure gcp-missing-metrics GCP_METRICS POSTHOG_API_KEY=phc_test GCP_PROJECT_ID=my-project
 

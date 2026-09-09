@@ -57,12 +57,14 @@ Use each path for what it is for:
 
 ```sh
 # The service account needs roles/monitoring.viewer (monitoring.timeSeries.list).
-# The key file must be readable by the agent's uid 10001 (chmod 644 sa.json).
+# Keep a dedicated copy of the key readable only by the agent's uid 10001
+# (install -m 0600 -o 10001 sa.json /run/posthog-gcp/sa.json). Do not chmod 644
+# the original key: that makes the private key readable by every local user.
 docker run -d --name posthog-gcp-agent \
   -e POSTHOG_API_KEY=<your project API key> \
   -e GCP_PROJECT_ID=<gcp-project-id> \
   -e GCP_METRICS=compute.googleapis.com/instance/cpu/utilization,cloudsql.googleapis.com/database/cpu/utilization \
-  -v "$PWD/sa.json:/etc/gcp/sa.json:ro" \
+  -v /run/posthog-gcp/sa.json:/etc/gcp/sa.json:ro \
   -e GOOGLE_APPLICATION_CREDENTIALS=/etc/gcp/sa.json \
   posthog/metrics-agent:latest
 ```

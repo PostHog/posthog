@@ -204,11 +204,11 @@ EOF
             done
             IFS=$OLDIFS
         fi
-        if ! grep -q 'metric_' "$GCP_SNIPPET"; then
-            echo "error: GCP_METRICS or GCP_METRIC_FILTERS is required with GCP_PROJECT_ID" \
-                "(or mount $CONFIG_DIR/gcp_metrics_list.yaml)" >&2
-            exit 1
-        fi
+    fi
+    if ! grep -q 'metric_' "$GCP_SNIPPET"; then
+        echo "error: GCP_METRICS or GCP_METRIC_FILTERS is required with GCP_PROJECT_ID" \
+            "(or mount $CONFIG_DIR/gcp_metrics_list.yaml with at least one entry)" >&2
+        exit 1
     fi
 fi
 
