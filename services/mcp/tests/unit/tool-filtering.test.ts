@@ -959,6 +959,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'customer-analytics-csp',
                 'customer-analytics-feature-requests',
                 'notebooks-collaboration',
+                'notebook-generated-widgets',
                 'revamped-py-notebooks',
                 'notebook-generated-widgets',
                 'tasks',

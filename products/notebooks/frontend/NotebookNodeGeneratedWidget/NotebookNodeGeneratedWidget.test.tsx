@@ -5,7 +5,7 @@ import { BindLogic } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { buildMarkdownNotebookContent } from 'scenes/notebooks/Notebook/markdownNotebookV2'
+import { buildMarkdownNotebookContent, getMarkdownNotebookMarkdown } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { MarkdownNotebookV2 } from 'scenes/notebooks/Notebook/MarkdownNotebookV2Renderer'
 import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookType } from 'scenes/notebooks/types'
@@ -15,13 +15,17 @@ import { AccessControlLevel } from '~/types'
 
 import {
     notebooksWidgetCancel,
+    notebooksWidgetFrame,
+    notebooksWidgetPin,
     notebooksWidgetSource,
     notebooksWidgetStatus,
     notebooksWidgetVersions,
 } from 'products/notebooks/frontend/generated/api'
+import type { WidgetStatusApi } from 'products/notebooks/frontend/generated/api.schemas'
 
 import { notebookNodeGeneratedWidgetLogic } from './notebookNodeGeneratedWidgetLogic'
 import { NotebookWidgetGenerationModal } from './NotebookWidgetGenerationModal'
+import { NOTEBOOK_FRAME_KEY_PREFIX } from './widgetArtifactBridge'
 
 jest.mock('scenes/notebooks/Notebook/migrations/migrate', () => {
     const actual = jest.requireActual('scenes/notebooks/Notebook/migrations/migrate')
@@ -32,6 +36,7 @@ jest.mock('products/notebooks/frontend/generated/api', () => ({
     notebooksWidgetCancel: jest.fn(),
     notebooksWidgetFrame: jest.fn(),
     notebooksWidgetGenerate: jest.fn(),
+    notebooksWidgetPin: jest.fn(),
     notebooksWidgetRevert: jest.fn(),
     notebooksWidgetSource: jest.fn(),
     notebooksWidgetStatus: jest.fn(),
@@ -68,12 +73,20 @@ describe('NotebookNodeGeneratedWidget', () => {
         initKeaTests()
         jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as never)
         jest.spyOn(api.notebooks, 'get').mockResolvedValue(cachedNotebook)
+        jest.spyOn(api.notebooks, 'markdownSave').mockImplementation(async (_shortId, notebook) => ({
+            ...cachedNotebook,
+            ...notebook,
+            version: notebook.version + 1,
+        }))
         jest.mocked(notebooksWidgetStatus).mockResolvedValue({
             lifecycle_status: 'generating',
             error_detail: null,
             artifact_url: null,
             frame_names: [],
+            input_bindings: {},
+            input_contract: [],
             current_version_id: '00000000-0000-0000-0000-000000000002',
+            pinned_version_id: null,
             widget_id: '00000000-0000-0000-0000-000000000003',
             instance_id: '00000000-0000-0000-0000-000000000004',
             has_versions: true,
@@ -86,6 +99,7 @@ describe('NotebookNodeGeneratedWidget', () => {
                 started_at: '2026-08-27T12:00:00Z',
             },
             security_review: null,
+            is_reusable: false,
             build_hash: null,
         })
         jest.mocked(notebooksWidgetVersions).mockResolvedValue({ results: [], count: 0, next_offset: null })
@@ -194,91 +208,126 @@ describe('NotebookNodeGeneratedWidget', () => {
         widgetLogic.unmount()
     })
 
-    it('opens the current source with an improvement prompt', async () => {
-        const versionId = '00000000-0000-0000-0000-000000000002'
-        jest.mocked(notebooksWidgetStatus).mockResolvedValue({
-            lifecycle_status: 'ready',
-            error_detail: null,
-            artifact_url: 'https://example.com/widget.html',
-            frame_names: [],
-            current_version_id: versionId,
-            widget_id: '00000000-0000-0000-0000-000000000003',
-            instance_id: '00000000-0000-0000-0000-000000000004',
-            has_versions: true,
-            active_job: null,
-            security_review: null,
-            build_hash: 'a'.repeat(64),
-        })
-        jest.mocked(notebooksWidgetVersions).mockResolvedValue({
-            results: [
-                {
-                    id: versionId,
-                    parent_version_id: null,
-                    version: 1,
-                    version_operation: 'initial',
-                    prompt_delta: 'Render a globe',
-                    effective_prompt: 'Render a globe',
-                    model: 'claude-sonnet-4-6',
-                    created_at: '2026-08-27T12:00:00Z',
-                    build_status: 'ready',
-                    artifact_url: 'https://example.com/widget.html',
-                    frame_names: [],
-                    is_current: true,
-                    security_review: null,
-                    build_hash: 'a'.repeat(64),
-                },
-            ],
-            count: 1,
-            next_offset: null,
-        })
-        jest.mocked(notebooksWidgetSource).mockResolvedValue({
-            source: 'export default function Widget() {}',
-        })
-        render(
-            <BindLogic logic={notebookLogic} props={logicProps}>
-                <MarkdownNotebookV2 />
-            </BindLogic>
-        )
-
-        const improveButton = await screen.findByText('Improve…')
-        const actionContainer = improveButton.closest('button')!.parentElement!
-        const actionButtons = [
-            improveButton,
-            within(actionContainer).getByText('Regenerate…'),
-            within(actionContainer).getByText('View source'),
-            within(actionContainer).getByText('Reload preview'),
-        ]
-        actionButtons.slice(0, -1).forEach((button, index) => {
-            expect(
-                button.compareDocumentPosition(actionButtons[index + 1]) & Node.DOCUMENT_POSITION_FOLLOWING
-            ).toBeTruthy()
-        })
-        jest.mocked(notebooksWidgetStatus).mockClear()
-        fireEvent.click(actionButtons[3])
-        await waitFor(() =>
-            expect(notebooksWidgetStatus).toHaveBeenCalledWith(
-                String(MOCK_TEAM_ID),
-                SHORT_ID,
-                'globe',
-                expect.objectContaining({ signal: expect.anything() })
+    it.each(['showFilters', 'showFilters showResults'])(
+        'keeps version controls, publishing, and source available with %s',
+        async (panels) => {
+            logic.actions.setLocalContent(
+                buildMarkdownNotebookContent(`<Widget ${panels} prompt="Render a table" inputs="rows" />`)
             )
-        )
-
-        fireEvent.click(actionButtons[2])
-
-        await waitFor(() =>
-            expect(notebooksWidgetSource).toHaveBeenCalledWith(
-                String(MOCK_TEAM_ID),
-                SHORT_ID,
-                'globe',
-                { version_id: versionId },
-                expect.objectContaining({ signal: expect.anything() })
+            const versionId = '00000000-0000-0000-0000-000000000002'
+            const readyStatus: WidgetStatusApi = {
+                lifecycle_status: 'ready',
+                error_detail: null,
+                artifact_url: 'https://example.com/widget.html',
+                frame_names: [],
+                input_bindings: {},
+                input_contract: [],
+                current_version_id: versionId,
+                pinned_version_id: null,
+                widget_id: '00000000-0000-0000-0000-000000000003',
+                instance_id: '00000000-0000-0000-0000-000000000004',
+                has_versions: true,
+                active_job: null,
+                security_review: null,
+                is_reusable: false,
+                build_hash: 'a'.repeat(64),
+            }
+            jest.mocked(notebooksWidgetStatus).mockResolvedValue(readyStatus)
+            jest.mocked(notebooksWidgetPin).mockImplementation(async (_project, _notebook, _node, request) => {
+                const nextStatus = { ...readyStatus, pinned_version_id: request.version_id ?? null }
+                jest.mocked(notebooksWidgetStatus).mockResolvedValue(nextStatus)
+                return nextStatus
+            })
+            jest.mocked(notebooksWidgetVersions).mockResolvedValue({
+                results: [
+                    {
+                        id: versionId,
+                        parent_version_id: null,
+                        version: 1,
+                        version_operation: 'initial',
+                        prompt_delta: 'Render a globe',
+                        effective_prompt: 'Render a globe',
+                        model: 'claude-sonnet-4-6',
+                        created_at: '2026-08-27T12:00:00Z',
+                        build_status: 'ready',
+                        artifact_url: 'https://example.com/widget.html',
+                        frame_names: [],
+                        is_current: true,
+                        security_review: null,
+                        build_hash: 'a'.repeat(64),
+                    },
+                ],
+                count: 1,
+                next_offset: null,
+            })
+            jest.mocked(notebooksWidgetSource).mockResolvedValue({
+                source: 'export default function Widget() {}',
+            })
+            render(
+                <BindLogic logic={notebookLogic} props={logicProps}>
+                    <MarkdownNotebookV2 />
+                </BindLogic>
             )
-        )
-        expect(screen.getByText('Widget source')).toBeTruthy()
-        expect(screen.getByText('What would you like to change?')).toBeTruthy()
-        expect(screen.getByText('Build changes')).toBeTruthy()
-    })
+
+            await screen.findByText('Improve…')
+            const widgetNodeId = jest.mocked(notebooksWidgetStatus).mock.calls.at(-1)![2]
+            expect(await screen.findByText('Following latest version')).toBeTruthy()
+            expect(screen.queryByText('Follow latest version')).toBeNull()
+            expect(getMarkdownNotebookMarkdown(logic.values.content)).toContain('inputs="rows"')
+            fireEvent.click(screen.getByText('Pin this version'))
+            await waitFor(() =>
+                expect(getMarkdownNotebookMarkdown(logic.values.content)).toContain(`version="${versionId}"`)
+            )
+            expect(getMarkdownNotebookMarkdown(logic.values.content)).toContain(`nodeId="${widgetNodeId}"`)
+            expect(getMarkdownNotebookMarkdown(logic.values.content)).toContain('inputs="rows"')
+            fireEvent.click(await screen.findByText('Follow latest version'))
+            await waitFor(() => expect(getMarkdownNotebookMarkdown(logic.values.content)).not.toContain('version='))
+            expect(getMarkdownNotebookMarkdown(logic.values.content)).toContain(`nodeId="${widgetNodeId}"`)
+            expect(getMarkdownNotebookMarkdown(logic.values.content)).toContain('inputs="rows"')
+            expect(await screen.findByText('Following latest version')).toBeTruthy()
+            fireEvent.click(screen.getByText('Make reusable…'))
+            expect(await screen.findAllByText('Make widget reusable')).toHaveLength(1)
+            fireEvent.click(screen.getByText('Cancel'))
+            const improveButton = await screen.findByText('Improve…')
+            const actionContainer = improveButton.closest('button')!.parentElement!
+            const actionButtons = [
+                improveButton,
+                within(actionContainer).getByText('Regenerate…'),
+                within(actionContainer).getByText('View source'),
+                within(actionContainer).getByText('Reload preview'),
+            ]
+            actionButtons.slice(0, -1).forEach((button, index) => {
+                expect(
+                    button.compareDocumentPosition(actionButtons[index + 1]) & Node.DOCUMENT_POSITION_FOLLOWING
+                ).toBeTruthy()
+            })
+            jest.mocked(notebooksWidgetStatus).mockClear()
+            fireEvent.click(actionButtons[3])
+            await waitFor(() =>
+                expect(notebooksWidgetStatus).toHaveBeenCalledWith(
+                    String(MOCK_TEAM_ID),
+                    SHORT_ID,
+                    widgetNodeId,
+                    expect.objectContaining({ signal: expect.anything() })
+                )
+            )
+
+            fireEvent.click(actionButtons[2])
+
+            await waitFor(() =>
+                expect(notebooksWidgetSource).toHaveBeenCalledWith(
+                    String(MOCK_TEAM_ID),
+                    SHORT_ID,
+                    widgetNodeId,
+                    { version_id: versionId },
+                    expect.objectContaining({ signal: expect.anything() })
+                )
+            )
+            expect(screen.getByText('Widget source')).toBeTruthy()
+            expect(screen.getByText('What would you like to change?')).toBeTruthy()
+            expect(screen.getByText('Build changes')).toBeTruthy()
+        }
+    )
 
     it('shows security findings before mounting the exact build', async () => {
         const versionId = '00000000-0000-0000-0000-000000000005'
@@ -302,12 +351,16 @@ describe('NotebookNodeGeneratedWidget', () => {
             error_detail: null,
             artifact_url: 'https://example.com/untrusted-widget.html',
             frame_names: [],
+            input_bindings: {},
+            input_contract: [],
             current_version_id: versionId,
+            pinned_version_id: null,
             widget_id: '00000000-0000-0000-0000-000000000006',
             instance_id: '00000000-0000-0000-0000-000000000007',
             has_versions: true,
             active_job: null,
             security_review: securityReview,
+            is_reusable: false,
             build_hash: buildHash,
         })
         jest.mocked(notebooksWidgetVersions).mockResolvedValue({
@@ -355,18 +408,116 @@ describe('NotebookNodeGeneratedWidget', () => {
         expect(container.querySelector('iframe')?.getAttribute('title')).toBe('Widget')
     })
 
+    it('sends only contract columns to a reusable widget after applying its mapping', async () => {
+        jest.spyOn(HTMLIFrameElement.prototype, 'contentWindow', 'get').mockReturnValue(window)
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue({
+            lifecycle_status: 'ready',
+            error_detail: null,
+            artifact_url: 'https://example.com/revenue-widget.html',
+            frame_names: ['revenue'],
+            input_bindings: {
+                revenue: { source: 'orders', hog: 'return rows', bytecode: ['_H', 1, 32, 'rows', 1, 1, 38] },
+            },
+            input_contract: [
+                {
+                    slot: 'revenue',
+                    sourceName: 'orders',
+                    schemaHash: 'test-schema',
+                    columns: [
+                        { name: 'plan', type: 'string' },
+                        { name: 'revenue', type: 'float64' },
+                    ],
+                },
+            ],
+            current_version_id: '00000000-0000-0000-0000-000000000014',
+            pinned_version_id: null,
+            widget_id: '00000000-0000-0000-0000-000000000015',
+            instance_id: '00000000-0000-0000-0000-000000000016',
+            has_versions: true,
+            active_job: null,
+            security_review: null,
+            is_reusable: true,
+            build_hash: 'd'.repeat(64),
+        })
+        jest.mocked(notebooksWidgetFrame).mockResolvedValue({
+            name: 'revenue',
+            runId: '00000000-0000-0000-0000-000000000017',
+            columns: [
+                { name: 'plan', type: 'string' },
+                { name: 'revenue', type: 'float64' },
+                { name: 'internal_note', type: 'string' },
+            ],
+            rows: [['Enterprise', 500, 'Private note']],
+            totalRowCount: 1,
+            includedRowCount: 1,
+            offset: 0,
+            nextOffset: null,
+            truncated: false,
+        })
+        const port = {
+            postMessage: jest.fn(),
+            addEventListener: jest.fn(),
+            removeEventListener: jest.fn(),
+            start: jest.fn(),
+            close: jest.fn(),
+        }
+        const { container } = render(
+            <BindLogic logic={notebookLogic} props={logicProps}>
+                <MarkdownNotebookV2 />
+            </BindLogic>
+        )
+        await waitFor(() => expect(container.querySelector('[data-attr="notebook-widget-run"]')).not.toBeNull())
+        fireEvent.click(container.querySelector('[data-attr="notebook-widget-run"]')!)
+        const iframe = (await screen.findByTitle('Widget')) as HTMLIFrameElement
+        fireEvent(
+            window,
+            new MessageEvent('message', {
+                data: { channel: 'posthog-canvas', type: 'notebook-connect' },
+                source: iframe.contentWindow,
+                ports: [port as unknown as MessagePort],
+            })
+        )
+        const route = port.addEventListener.mock.calls[0][1] as (event: { data: unknown }) => Promise<void>
+
+        await route({
+            data: {
+                channel: 'posthog-canvas',
+                type: 'data-request',
+                id: 'revenue-page',
+                method: 'stateGet',
+                payload: { key: `${NOTEBOOK_FRAME_KEY_PREFIX}revenue:0:100` },
+            },
+        })
+
+        expect(port.postMessage).toHaveBeenCalledWith({
+            channel: 'posthog-canvas',
+            type: 'data-response',
+            id: 'revenue-page',
+            ok: true,
+            result: expect.objectContaining({
+                columns: [
+                    { name: 'plan', type: 'unknown' },
+                    { name: 'revenue', type: 'unknown' },
+                ],
+                rows: [['Enterprise', 500]],
+            }),
+        })
+    })
+
     it.each([
         {
             label: 'runs a green widget immediately when it has no data access',
             frameNames: [],
             autoRuns: true,
+            isReusable: true,
         },
         {
             label: 'requires consent for a green widget with dataframe access',
             frameNames: ['events_df'],
             autoRuns: false,
+            isReusable: false,
         },
-    ])('$label', async ({ frameNames, autoRuns }) => {
+    ])('$label', async ({ frameNames, autoRuns, isReusable }) => {
         const versionId = '00000000-0000-0000-0000-000000000008'
         const buildHash = 'c'.repeat(64)
         const securityReview = {
@@ -382,14 +533,19 @@ describe('NotebookNodeGeneratedWidget', () => {
             error_detail: null,
             artifact_url: 'https://example.com/reviewed-widget.html',
             frame_names: frameNames,
+            input_bindings: {},
+            input_contract: [],
             current_version_id: versionId,
+            pinned_version_id: null,
             widget_id: '00000000-0000-0000-0000-000000000009',
             instance_id: '00000000-0000-0000-0000-000000000010',
             has_versions: true,
             active_job: null,
             security_review: securityReview,
+            is_reusable: isReusable,
             build_hash: buildHash,
         })
+        jest.mocked(notebooksWidgetSource).mockResolvedValue({ source: 'export default function Widget() {}' })
         jest.mocked(notebooksWidgetVersions).mockResolvedValue({
             results: [
                 {
@@ -418,13 +574,44 @@ describe('NotebookNodeGeneratedWidget', () => {
             </BindLogic>
         )
 
-        await screen.findByText('Automated review: No potential issues flagged')
+        await screen.findByLabelText('More actions')
         await waitFor(() => expect(container.querySelector('iframe') !== null).toBe(autoRuns))
         expect(screen.queryByText('Review this widget before running it') !== null).toBe(!autoRuns)
         expect(container.querySelector('[data-attr="notebook-widget-run"]') !== null).toBe(!autoRuns)
         expect(container.querySelector('iframe')?.getAttribute('src') ?? null).toBe(
             autoRuns ? 'https://example.com/reviewed-widget.html?sandbox=allow-pointer-lock#theme=light' : null
         )
+        const results = container.querySelector('.MarkdownNotebook__component-panel--results')!
+        if (autoRuns) {
+            expect(within(results as HTMLElement).queryByText('View source')).toBeNull()
+            expect(
+                within(results as HTMLElement).queryByText('Automated review: No potential issues flagged')
+            ).toBeNull()
+            expect(within(results as HTMLElement).queryByText(`Build ${buildHash.slice(0, 12)}`)).toBeNull()
+        }
+        expect(screen.queryByText('Open reusable widget')).toBeNull()
+        fireEvent.click(screen.getByLabelText('More actions'))
+        expect(screen.queryByText('Open reusable widget') !== null).toBe(isReusable)
+        if (isReusable) {
+            expect(screen.getByText('Open reusable widget').closest('a')?.getAttribute('href')).toContain(
+                '/notebooks/widgets/00000000-0000-0000-0000-000000000009'
+            )
+        }
+        const sourceMenuItem = document.querySelector('[role="menuitem"][data-attr="notebook-widget-view-source"]')!
+        expect(sourceMenuItem).not.toBeNull()
+        expect(screen.getAllByText('Automated review: No potential issues flagged')).toHaveLength(autoRuns ? 1 : 2)
+        expect(screen.getAllByText(`Build ${buildHash.slice(0, 12)}`)).toHaveLength(autoRuns ? 1 : 2)
+        fireEvent.click(sourceMenuItem)
+        await waitFor(() =>
+            expect(notebooksWidgetSource).toHaveBeenCalledWith(
+                String(MOCK_TEAM_ID),
+                SHORT_ID,
+                'globe',
+                { version_id: versionId },
+                expect.objectContaining({ signal: expect.anything() })
+            )
+        )
+        expect(screen.getAllByText('Widget source')).toHaveLength(1)
     })
 
     it('opens regeneration from a failed preview when the filters are closed', async () => {
@@ -434,12 +621,16 @@ describe('NotebookNodeGeneratedWidget', () => {
             error_detail: 'The widget build failed.',
             artifact_url: null,
             frame_names: [],
+            input_bindings: {},
+            input_contract: [],
             current_version_id: versionId,
+            pinned_version_id: null,
             widget_id: '00000000-0000-0000-0000-000000000012',
             instance_id: '00000000-0000-0000-0000-000000000013',
             has_versions: true,
             active_job: null,
             security_review: null,
+            is_reusable: false,
             build_hash: null,
         })
         jest.mocked(notebooksWidgetVersions).mockResolvedValue({
@@ -497,12 +688,16 @@ describe('NotebookNodeGeneratedWidget', () => {
             error_detail: null,
             artifact_url: null,
             frame_names: [],
+            input_bindings: {},
+            input_contract: [],
             current_version_id: versionId,
+            pinned_version_id: null,
             widget_id: '00000000-0000-0000-0000-000000000015',
             instance_id: '00000000-0000-0000-0000-000000000016',
             has_versions: true,
             active_job: null,
             security_review: null,
+            is_reusable: false,
             build_hash: null,
         })
         jest.mocked(notebooksWidgetSource).mockResolvedValue({

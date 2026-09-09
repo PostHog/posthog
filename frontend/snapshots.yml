@@ -5524,6 +5524,10 @@ snapshots:
         hash: v1.k794b7964.97a5e7b5f92071f677d09773a3dea88ead3c9a71e85dbd6f6de8875ffc7a3036.9u2VOZ-O_aSU002VK8iAydGcjIYBXzRIacAelaDLJ6Y
     products-notebooks-notebook-widget-trust-controls--gate--light:
         hash: v1.k794b7964.db2c004b22e5c8c098101130cf153cab0366a18ec4218702f64f0e5fbaa52fd9.cNi_DSrdmSUZpn9RiLWqAXVJotr231Hl1B0Fu80Mnjg
+    products-notebooks-notebook-widget-trust-controls--menu--dark:
+        hash: v1.k794b7964.26570d9a2a594b95f244eed15b21f318a3eb50ca42220fcf9a5baf7bf9c80b42.MHvxN65bydwioiBDCwKWp_8y0UBbnXdre7OpQXy6JXE
+    products-notebooks-notebook-widget-trust-controls--menu--light:
+        hash: v1.k794b7964.dd4447ec67f2fe159d05d7182e410c790a0dd77058acb56e2024aab5f241b65d.2LspmzCOCDomPPW2Z0rekMoYXykafx0sBfYMLqS_AHQ
     products-notebooks-notebook-widget-trust-controls--missing-build-hash--dark:
         hash: v1.k794b7964.260fe7a0225889c379701f4469916084332cae77401477686bd5ce52cb290b81.peQXbUDXlvGWY-ObtWEe5ZtUwdUGLsL4urRaOb2eLL8
     products-notebooks-notebook-widget-trust-controls--missing-build-hash--light:
@@ -5532,6 +5536,18 @@ snapshots:
         hash: v1.k794b7964.7152b3d7c5901a84315c4be4bba827bbacc795e169bef6293c557ffa6f6aac3e.dbzTA4TpkRhVxzeO6ZI4yMDDYm5hPp4vlMN2snZuZ_U
     products-notebooks-notebook-widget-trust-controls--toolbar--light:
         hash: v1.k794b7964.69bffab30393759acd64d77faebacd006a7f898f70bd01fd78bb22de881db16a.-TW2Tbin6bPS5VNWYI86bOekMUtNwEPqmjOHWW0GqvY
+    products-notebooks-reusable-widget-demo-data--historical-version--dark:
+        hash: v1.k794b7964.ff51d9f90a84960df08b87aa8899ee47a8cc1128598f827da427f2f56592b532.4L7pjNx9fxz-5ZtEicpMhK2xG1mTDVMNPsSU3S_2iWI
+    products-notebooks-reusable-widget-demo-data--historical-version--light:
+        hash: v1.k794b7964.f909dc8dbe226a6d0849e50f6c00981f526b39363de1592e5120c48a0f40a3c1.EA_wGv3e9WwJnS4qV0P89_4cgnGHF2weS0BczEL_ZcU
+    products-notebooks-reusable-widget-demo-data--load-error--dark:
+        hash: v1.k794b7964.adc24d1284e7cfff1f8184e2e148cd5e62e5d2b90ac98cd4c6b42a3fe6b50bba.w4nz7K-B4roFz7uxVsGxPE24lRtLtc7MzndbcaM91V0
+    products-notebooks-reusable-widget-demo-data--load-error--light:
+        hash: v1.k794b7964.ec7339584b6230174f3804ed2a81fd57a5e99302f1e5b583a523297684155a28.5SbFVatcnwZH8Gu2jvSvYmMS_qowck2Gzm24kxltd_M
+    products-notebooks-reusable-widget-demo-data--saved-rows--dark:
+        hash: v1.k794b7964.cd796f8bdf81f4be7523e91ec94d28e9166569b370a209dc7a3d2b0b3787119f.sTeEzTaA9FK49QGnqSNQwLDw-ZXCpI5tEtuCviRL05w
+    products-notebooks-reusable-widget-demo-data--saved-rows--light:
+        hash: v1.k794b7964.788102e71febf7d1776acc322b338a454826ba0e0f7f3c21a840e2fb9994bf0d.rfoaPrgycJItC9opMYSJxXMhikR61ECcGY8EWUh0x_g
     products-posthog-ai-composer--default--dark:
         hash: v1.k794b7964.4ccf5eb666de2b3315dc3f142ded80b445748d58ce8ae2d7d154272d7b194b3b.E61uR16UwC5qC1XkQquxMh1z3bonN6IYLdYDyzcorTA
     products-posthog-ai-composer--default--light:
@@ -8265,9 +8281,9 @@ snapshots:
     scenes-app-notebooks--notebook-not-found--light:
         hash: v1.k794b7964.f22f15db87b69cc7ebc8aef74e170320626997e7219e36bfdd6bc74ac2feec25._PnuneTSXvkT_YRO-WBWQNKNyXR5pYpzAsbcsuT5WMk
     scenes-app-notebooks--notebooks-list--dark:
-        hash: v1.k794b7964.baf4fc466fbced17064724ab6c94d11af99c29943b8f32f408fd33b570209535.tkMoZnQtPstAfDJC0Y30JU4jDU_Mgh5TErG-r243fqY
+        hash: v1.k794b7964.0815d1eac9470c83505a2c8b54a71c16bb4fa3d6b6b62b38a47c1b9150530157.H6zpAlFdCUW8vwQzYm3Pxb6GPqEzbIdBofexQ6rMYag
     scenes-app-notebooks--notebooks-list--light:
-        hash: v1.k794b7964.a44af46b8044dced45f84a8500bcab13184d121a3699fec328eb92b2e7cf4abc.DVq7wYvX-gKFgCReciySK-5Z04UW1l03C5UFleTWQ9k
+        hash: v1.k794b7964.aa729600bcb9d44362b6c6f7ea759a34cfb81f7e9a234ee891f66d987a16821d.xTE1282qT_roMmjinam7kqquC-WNKKej4oAqH4Nh4Y4
     scenes-app-notebooks--numbered-list--dark:
         hash: v1.k794b7964.86be64e99289f071f001be1201bf1a53b21dcdba2d84eeeb20583bb1706fd7bc.2p2YpMbAI1Zs3y8io1jfp7HMXqAkYksELj67-lNWrRk
     scenes-app-notebooks--numbered-list--light:

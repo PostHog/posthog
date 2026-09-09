@@ -10,8 +10,11 @@ import { NotebookNodeType } from 'scenes/notebooks/types'
 import { initKeaTests } from '~/test/init'
 
 import {
+    notebooksWidgetAttach,
     notebooksWidgetCancel,
     notebooksWidgetGenerate,
+    notebooksWidgetFork,
+    notebooksWidgetPin,
     notebooksWidgetRevert,
     notebooksWidgetSource,
     notebooksWidgetStatus,
@@ -26,15 +29,19 @@ import type {
 import {
     formatWidgetElapsed,
     getWidgetDataDependencies,
+    getWidgetSourceFrameNames,
     getWidgetWorkingStatus,
     notebookNodeGeneratedWidgetLogic,
 } from './notebookNodeGeneratedWidgetLogic'
 import { DEFAULT_WIDGET_PROMPT } from './widgetModels'
 
 jest.mock('products/notebooks/frontend/generated/api', () => ({
+    notebooksWidgetAttach: jest.fn(),
     notebooksWidgetCancel: jest.fn(),
     notebooksWidgetFrame: jest.fn(),
     notebooksWidgetGenerate: jest.fn(),
+    notebooksWidgetFork: jest.fn(),
+    notebooksWidgetPin: jest.fn(),
     notebooksWidgetRevert: jest.fn(),
     notebooksWidgetSource: jest.fn(),
     notebooksWidgetStatus: jest.fn(),
@@ -47,12 +54,16 @@ function status(overrides: Partial<WidgetStatusApi> = {}): WidgetStatusApi {
         error_detail: null,
         artifact_url: null,
         frame_names: [],
+        input_bindings: {},
+        input_contract: [],
         current_version_id: null,
+        pinned_version_id: null,
         widget_id: null,
         instance_id: null,
         has_versions: false,
         active_job: null,
         security_review: null,
+        is_reusable: false,
         build_hash: null,
         ...overrides,
     }
@@ -76,7 +87,10 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
     beforeEach(() => {
         initKeaTests()
         jest.mocked(notebooksWidgetCancel).mockReset()
+        jest.mocked(notebooksWidgetAttach).mockReset()
         jest.mocked(notebooksWidgetGenerate).mockReset()
+        jest.mocked(notebooksWidgetFork).mockReset()
+        jest.mocked(notebooksWidgetPin).mockReset()
         jest.mocked(notebooksWidgetRevert).mockReset()
         jest.mocked(notebooksWidgetSource).mockReset()
         jest.mocked(notebooksWidgetStatus).mockReset()
@@ -104,6 +118,113 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         )
         expect(notebooksWidgetGenerate).not.toHaveBeenCalled()
     })
+
+    it.each(['pin', 'pin-history', 'follow'] as const)(
+        'keeps the rendered preview available when %s selects the same version',
+        async (operation) => {
+            const selectedId = operation === 'pin-history' ? 'version-0' : 'version-1'
+            const ready = status({
+                lifecycle_status: 'ready',
+                current_version_id: 'version-1',
+                artifact_url: 'https://example.com/widget.html',
+                is_reusable: true,
+                has_versions: true,
+            })
+            jest.mocked(notebooksWidgetStatus).mockResolvedValue(ready)
+            jest.mocked(notebooksWidgetPin).mockResolvedValue({
+                ...ready,
+                current_version_id: selectedId,
+                pinned_version_id: operation === 'follow' ? null : selectedId,
+            })
+            logic = notebookNodeGeneratedWidgetLogic(props)
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.selectVersion(selectedId)
+            logic.actions.artifactAvailable()
+            await expectLogic(logic, () =>
+                operation === 'follow' ? logic.actions.followLatestVersion() : logic.actions.pinSelectedVersion()
+            ).toFinishAllListeners()
+            expect(logic.values.artifactLoading).toBe(false)
+            expect(logic.values.selectedVersionId).toBe(selectedId)
+        }
+    )
+
+    it('refreshes a running preview when an agent changes its persisted input bindings', async () => {
+        const ready = status({
+            lifecycle_status: 'ready',
+            current_version_id: 'version-1',
+            artifact_url: 'https://example.com/widget.html',
+            input_bindings: { revenue: { source: 'original_df' } },
+        })
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(ready)
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const revision = logic.values.frameRevision
+        logic.actions.artifactAvailable()
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue({
+            ...ready,
+            input_bindings: { revenue: { source: 'replacement_df' } },
+        })
+        await expectLogic(logic, () => logic.actions.loadStatus()).toFinishAllListeners()
+        expect(logic.values.frameRevision).toBe(revision + 1)
+        expect(logic.values.artifactLoading).toBe(true)
+        await expectLogic(logic, () => logic.actions.loadStatus()).toFinishAllListeners()
+        expect(logic.values.frameRevision).toBe(revision + 1)
+    })
+
+    it('forks the historical version selected in the preview', async () => {
+        const ready = status({
+            lifecycle_status: 'ready',
+            current_version_id: 'latest',
+            is_reusable: true,
+            has_versions: true,
+        })
+        jest.mocked(notebooksWidgetStatus).mockResolvedValue(ready)
+        jest.mocked(notebooksWidgetFork).mockResolvedValue(status({ current_version_id: 'forked' }))
+        logic = notebookNodeGeneratedWidgetLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.selectVersion('historical')
+        await expectLogic(logic, () => logic.actions.forkReusableWidget()).toFinishAllListeners()
+        expect(notebooksWidgetFork).toHaveBeenCalledWith(
+            String(MOCK_TEAM_ID),
+            props.notebookShortId,
+            props.nodeId,
+            { version_id: 'historical' },
+            expect.anything()
+        )
+    })
+
+    it.each([true, false])(
+        'attaches a saved widget written as MDX only for an editor (editable=%s)',
+        async (isEditable) => {
+            const widgetId = '00000000-0000-4000-8000-000000000042'
+            const attached = status({ instance_id: 'instance-42', widget_id: widgetId, is_reusable: true })
+            jest.mocked(notebooksWidgetStatus).mockResolvedValue(status())
+            jest.mocked(notebooksWidgetAttach).mockResolvedValue(attached)
+            logic = notebookNodeGeneratedWidgetLogic({
+                ...props,
+                isEditable,
+                reusableWidgetId: widgetId,
+                inputBindings: { revenue: { source: 'sales_df' } },
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.status?.widget_id).toBe(isEditable ? widgetId : null)
+            if (isEditable) {
+                expect(notebooksWidgetAttach).toHaveBeenCalledWith(
+                    String(MOCK_TEAM_ID),
+                    props.notebookShortId,
+                    props.nodeId,
+                    { widget_id: widgetId, version_id: null, input_bindings: { revenue: { source: 'sales_df' } } }
+                )
+            } else {
+                expect(notebooksWidgetAttach).not.toHaveBeenCalled()
+            }
+            expect(notebooksWidgetGenerate).not.toHaveBeenCalled()
+        }
+    )
 
     it('persists a newly inserted widget before retrying its initial status', async () => {
         jest.mocked(notebooksWidgetStatus)
@@ -740,6 +861,15 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
             missingFrameNames: [],
             nodeIds: ['source', 'transform'],
         })
+    })
+
+    it('uses notebook-local dataframe names when resolving reusable widget dependencies', () => {
+        expect(
+            getWidgetSourceFrameNames(['customers', 'revenue'], {
+                customers: { source: 'enterprise_accounts' },
+                revenue: { source: 'monthly_revenue', hog: 'return rows' },
+            })
+        ).toEqual(['enterprise_accounts', 'monthly_revenue'])
     })
 
     it('does not run a partial data chain when a widget frame has no matching cell', async () => {

@@ -1,5 +1,8 @@
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
+
+from django.db import transaction
+from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models import User
@@ -144,6 +147,8 @@ def prepare_notebook_canvas_source(
             project=project,
             has_expected_version=True,
             expected_version_id=str(expected_current_version_id) if expected_current_version_id else None,
+            # A discarded draft must not delete a concurrent publish's staged source object.
+            source_upload_id=uuid4(),
         )
     except build_service.CanvasVersionConflict as error:
         raise NotebookCanvasVersionConflictError from error
@@ -193,6 +198,148 @@ def publish_prepared_notebook_canvas_source(
     return result.version.id
 
 
+def publish_prepared_notebook_canvas_draft(
+    *, team_id: int, user_id: int, prepared: PreparedNotebookCanvasSource
+) -> UUID:
+    canvas = (
+        Canvas.objects.for_team(team_id)
+        .filter(id=prepared.canvas_id, deleted=False, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
+        .first()
+    )
+    user = User.objects.filter(id=user_id).first()
+    if canvas is None or user is None:
+        raise NotebookCanvasNotFoundError
+    try:
+        version, _build = build_service.commit_source_project_draft(
+            canvas,
+            prepared=prepared.prepared,
+            prompt=prepared.prompt,
+            has_expected_version=True,
+            expected_version_id=(
+                str(prepared.expected_current_version_id) if prepared.expected_current_version_id else None
+            ),
+            task_id=None,
+            created_by=user,
+        )
+    except build_service.CanvasVersionConflict as error:
+        raise NotebookCanvasVersionConflictError from error
+    except build_service.CanvasBuildCapacityExceeded as error:
+        raise NotebookCanvasBuildCapacityError from error
+    except ObjectStorageError as error:
+        raise NotebookCanvasError from error
+    return version.id
+
+
+def promote_notebook_canvas_draft(
+    *, team_id: int, canvas_id: UUID, user_id: int, version_id: UUID, expected_current_version_id: UUID
+) -> None:
+    canvas = (
+        Canvas.objects.for_team(team_id)
+        .filter(id=canvas_id, deleted=False, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
+        .first()
+    )
+    user = User.objects.filter(id=user_id).first()
+    if canvas is None or user is None:
+        raise NotebookCanvasNotFoundError
+    try:
+        build_service.promote_draft_version(
+            canvas,
+            version_id,
+            expected_current_version_id,
+            user=user,
+        )
+    except build_service.CanvasVersionConflict as error:
+        raise NotebookCanvasVersionConflictError from error
+    except build_service.CanvasBuildCapacityExceeded as error:
+        raise NotebookCanvasBuildCapacityError from error
+    except CanvasSourceVersion.DoesNotExist as error:
+        raise NotebookCanvasNotFoundError from error
+
+
+def discard_notebook_canvas_draft(*, team_id: int, canvas_id: UUID, version_id: UUID) -> None:
+    from products.canvas.backend.tasks import cleanup_notebook_canvas_draft  # noqa: PLC0415
+
+    with transaction.atomic():
+        canvas = (
+            Canvas.objects.for_team(team_id)
+            .select_for_update()
+            .filter(id=canvas_id, deleted=False, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
+            .first()
+        )
+        if canvas is None:
+            raise NotebookCanvasNotFoundError
+        version = CanvasSourceVersion.objects.for_team(team_id).filter(id=version_id, canvas=canvas, draft=True).first()
+        if version is None or canvas.current_source_version_id == version_id:
+            raise NotebookCanvasNotFoundError
+        CanvasBuild.objects.for_team(team_id).filter(source_version=version).update(
+            status=CanvasBuild.STATUS_FAILED,
+            diagnostics=[{"severity": "warning", "code": "draft_discarded", "message": "The draft was discarded."}],
+            finished_at=timezone.now(),
+            lease_expires_at=None,
+        )
+        transaction.on_commit(lambda: cleanup_notebook_canvas_draft.delay(team_id, str(canvas_id), str(version_id)))
+
+
+def requeue_discarded_notebook_canvas_drafts() -> None:
+    from products.canvas.backend.tasks import cleanup_notebook_canvas_draft  # noqa: PLC0415
+
+    # Retain the draft rows until storage cleanup succeeds so a lost task can be retried by this sweep.
+    discarded = (
+        CanvasSourceVersion.objects.unscoped()
+        .filter(
+            draft=True,
+            canvas__source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET,
+            builds__diagnostics__contains=[{"code": "draft_discarded"}],
+        )
+        .values_list("team_id", "canvas_id", "id")
+        .distinct()
+    )
+    for team_id, canvas_id, version_id in discarded.iterator(chunk_size=100):
+        cleanup_notebook_canvas_draft.delay(team_id, str(canvas_id), str(version_id))
+
+
+def cleanup_discarded_notebook_canvas_draft(*, team_id: int, canvas_id: UUID, version_id: UUID) -> None:
+    from posthog.storage import object_storage  # noqa: PLC0415
+
+    version = (
+        CanvasSourceVersion.objects.for_team(team_id)
+        .filter(
+            id=version_id,
+            canvas_id=canvas_id,
+            draft=True,
+            canvas__source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET,
+        )
+        .exclude(canvas__current_source_version_id=version_id)
+        .first()
+    )
+    if version is None:
+        return
+    builds = list(CanvasBuild.objects.for_team(team_id).filter(source_version=version))
+    if not builds or any(
+        build.status != CanvasBuild.STATUS_FAILED
+        or not any(item.get("code") == "draft_discarded" for item in build.diagnostics or [])
+        for build in builds
+    ):
+        return
+    keys = [
+        f"{build.artifact_object_prefix}/{asset['path']}"
+        for build in builds
+        if build.artifact_object_prefix
+        for asset in (build.manifest or {}).get("assets", [])
+    ]
+    # Identical versions share their content-addressed source object.
+    if (
+        not CanvasSourceVersion.objects.for_team(team_id)
+        .filter(source_object_key=version.source_object_key)
+        .exclude(id=version.id)
+        .exists()
+    ):
+        keys.append(version.source_object_key)
+    if keys:
+        object_storage.delete_objects(keys)
+    version.delete()
+
+
 def list_notebook_canvas_versions(
     *, team_id: int, canvas_id: UUID, version_ids: list[UUID] | None = None
 ) -> list[NotebookCanvasVersion]:
@@ -203,11 +350,13 @@ def list_notebook_canvas_versions(
     )
     if canvas is None:
         raise NotebookCanvasNotFoundError
-    versions_queryset = CanvasSourceVersion.objects.for_team(team_id).filter(canvas_id=canvas.id, draft=False)
+    versions_queryset = CanvasSourceVersion.objects.for_team(team_id).filter(canvas_id=canvas.id)
     builds_queryset = CanvasBuild.objects.for_team(team_id).filter(canvas_id=canvas.id)
     if version_ids is not None:
         versions_queryset = versions_queryset.filter(id__in=version_ids)
         builds_queryset = builds_queryset.filter(source_version_id__in=version_ids)
+    else:
+        versions_queryset = versions_queryset.filter(draft=False)
     versions = list(versions_queryset.order_by("created_at"))
     builds = builds_queryset.order_by("-created_at")
     latest_builds: dict[UUID, CanvasBuild] = {}
@@ -240,7 +389,9 @@ def list_notebook_canvas_versions(
     return result
 
 
-def get_notebook_canvas_source(*, team_id: int, canvas_id: UUID, version_id: UUID | None = None) -> str:
+def get_notebook_canvas_source(
+    *, team_id: int, canvas_id: UUID, version_id: UUID | None = None, allow_draft: bool = False
+) -> str:
     canvas = (
         Canvas.objects.for_team(team_id)
         .filter(id=canvas_id, deleted=False, source_policy=Canvas.SOURCE_POLICY_NOTEBOOK_WIDGET)
@@ -251,11 +402,10 @@ def get_notebook_canvas_source(*, team_id: int, canvas_id: UUID, version_id: UUI
     resolved_version_id = version_id or canvas.current_source_version_id
     if resolved_version_id is None:
         raise NotebookCanvasNotFoundError
-    version = (
-        CanvasSourceVersion.objects.for_team(team_id)
-        .filter(id=resolved_version_id, canvas_id=canvas.id, draft=False)
-        .first()
-    )
+    versions = CanvasSourceVersion.objects.for_team(team_id).filter(id=resolved_version_id, canvas_id=canvas.id)
+    if not allow_draft:
+        versions = versions.filter(draft=False)
+    version = versions.first()
     if version is None:
         raise NotebookCanvasNotFoundError
     try:

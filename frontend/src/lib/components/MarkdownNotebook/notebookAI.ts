@@ -22,18 +22,32 @@ export function replaceNotebookAIResponseMarkdown(
     markdown: string,
     responseNodeIndex: number,
     replacementMarkdown: string,
-    replacedNodeCount: number = 1
+    replacedNodeCount: number = 1,
+    enabledComponentTags: readonly string[] = ['Query']
 ): NotebookAIResponseMarkdownResult {
-    return applyNotebookAIResponseMarkdown(markdown, responseNodeIndex, replacementMarkdown, replacedNodeCount)
+    return applyNotebookAIResponseMarkdown(
+        markdown,
+        responseNodeIndex,
+        replacementMarkdown,
+        replacedNodeCount,
+        enabledComponentTags
+    )
 }
 
 export function streamNotebookAIResponseMarkdown(
     markdown: string,
     responseNodeIndex: number,
     replacementMarkdown: string,
-    replacedNodeCount: number = 1
+    replacedNodeCount: number = 1,
+    enabledComponentTags: readonly string[] = ['Query']
 ): NotebookAIStreamResponseMarkdownResult {
-    return applyNotebookAIStreamResponseMarkdown(markdown, responseNodeIndex, replacementMarkdown, replacedNodeCount)
+    return applyNotebookAIStreamResponseMarkdown(
+        markdown,
+        responseNodeIndex,
+        replacementMarkdown,
+        replacedNodeCount,
+        enabledComponentTags
+    )
 }
 
 export function rebaseNotebookAIResponseRange(
@@ -136,9 +150,10 @@ function applyNotebookAIResponseMarkdown(
     markdown: string,
     responseNodeIndex: number,
     insertedMarkdown: string,
-    replacedNodeCount: number = 1
+    replacedNodeCount: number = 1,
+    enabledComponentTags: readonly string[] = ['Query']
 ): NotebookAIResponseMarkdownResult {
-    const trimmedInsertedMarkdown = normalizeNotebookAIInsertedMarkdown(insertedMarkdown).trim()
+    const trimmedInsertedMarkdown = normalizeNotebookAIInsertedMarkdown(insertedMarkdown, enabledComponentTags).trim()
     if (!trimmedInsertedMarkdown) {
         return { markdown, responseNodeIndex }
     }
@@ -183,9 +198,10 @@ function applyNotebookAIStreamResponseMarkdown(
     markdown: string,
     responseNodeIndex: number,
     insertedMarkdown: string,
-    replacedNodeCount: number = 1
+    replacedNodeCount: number = 1,
+    enabledComponentTags: readonly string[] = ['Query']
 ): NotebookAIStreamResponseMarkdownResult {
-    const trimmedInsertedMarkdown = normalizeNotebookAIInsertedMarkdown(insertedMarkdown).trim()
+    const trimmedInsertedMarkdown = normalizeNotebookAIInsertedMarkdown(insertedMarkdown, enabledComponentTags).trim()
     if (!trimmedInsertedMarkdown) {
         return { markdown, responseNodeIndex, responseNodeCount: Math.max(1, replacedNodeCount) }
     }
@@ -380,7 +396,7 @@ function getCommonPrefixLength(leftText: string, rightText: string): number {
     return maxLength
 }
 
-function normalizeNotebookAIInsertedMarkdown(markdown: string): string {
+function normalizeNotebookAIInsertedMarkdown(markdown: string, enabledComponentTags: readonly string[]): string {
     const normalizedMarkdown = markdown
         .replace(
             /(^|\n)<insight>\s*([A-Za-z0-9_-]+)\s*<\/insight>(?=\n|$)/gi,
@@ -396,30 +412,37 @@ function normalizeNotebookAIInsertedMarkdown(markdown: string): string {
     }
 
     const document = parseMarkdownNotebook(normalizedMarkdown)
-    let unwrappedWidget = false
+    let unwrappedComponent = false
     const nodes = document.nodes.flatMap((node): NotebookBlockNode[] => {
-        if (node.type !== 'code' || !['', 'md', 'markdown'].includes(node.language ?? '') || node.refs?.length) {
+        if (
+            node.type !== 'code' ||
+            !['', 'md', 'markdown', 'mdx', 'jsx'].includes(node.language ?? '') ||
+            node.refs?.length
+        ) {
             return [node]
         }
 
-        const widgetDocument = parseMarkdownNotebook(node.text)
+        const componentDocument = parseMarkdownNotebook(node.text)
         if (
-            widgetDocument.errors.length ||
-            !widgetDocument.nodes.length ||
-            widgetDocument.nodes.some(
+            componentDocument.errors.length ||
+            !componentDocument.nodes.length ||
+            componentDocument.nodes.some(
                 (candidate) =>
-                    candidate.type !== 'component' || candidate.tagName !== 'Widget' || candidate.errors?.length
+                    candidate.type !== 'component' ||
+                    !['Query', 'SQLV2', 'PythonV2', 'Widget'].includes(candidate.tagName) ||
+                    !enabledComponentTags.includes(candidate.tagName) ||
+                    candidate.errors?.length
             )
         ) {
             return [node]
         }
 
-        unwrappedWidget = true
-        widgetDocument.nodes[0] = { ...widgetDocument.nodes[0], startsGroup: node.startsGroup }
-        return widgetDocument.nodes
+        unwrappedComponent = true
+        componentDocument.nodes[0] = { ...componentDocument.nodes[0], startsGroup: node.startsGroup }
+        return componentDocument.nodes
     })
 
-    return unwrappedWidget ? serializeMarkdownNotebook({ ...document, nodes }) : normalizedMarkdown
+    return unwrappedComponent ? serializeMarkdownNotebook({ ...document, nodes }) : normalizedMarkdown
 }
 
 function getSavedInsightQueryMarkdown(shortId: string): string {

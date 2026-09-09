@@ -11,11 +11,45 @@ function replaceMarkdown(
     replacementMarkdown: string,
     replacedNodeCount: number = 1
 ): string {
-    return replaceNotebookAIResponseMarkdown(markdown, responseNodeIndex, replacementMarkdown, replacedNodeCount)
-        .markdown
+    return replaceNotebookAIResponseMarkdown(markdown, responseNodeIndex, replacementMarkdown, replacedNodeCount, [
+        'Query',
+        'SQLV2',
+        'PythonV2',
+        'Widget',
+    ]).markdown
 }
 
 describe('notebookAI', () => {
+    it.each([
+        ['SQLV2', ['Widget'], false],
+        ['PythonV2', ['Widget'], false],
+        ['Widget', ['SQLV2', 'PythonV2'], false],
+        ['SQLV2', ['SQLV2', 'PythonV2'], true],
+        ['PythonV2', ['SQLV2', 'PythonV2'], true],
+        ['Widget', ['Widget'], true],
+    ])('only unwraps enabled %s cells with %j enabled', (tag, enabledTags, enabled) => {
+        const component = `<${tag} title="Example" />`
+        const fenced = `\`\`\`mdx\n${component}\n\`\`\``
+        for (const insert of [replaceNotebookAIResponseMarkdown, streamNotebookAIResponseMarkdown]) {
+            expect(insert('Thinking...', 0, fenced, 1, enabledTags as string[]).markdown).toBe(
+                enabled ? component : fenced
+            )
+        }
+    })
+
+    it.each(['', 'mdx', 'jsx'])('inserts a fenced %s component as a live notebook cell', (language) => {
+        const tag = '<PythonV2 title="Revenue table" code="sales.head()" returnVariable="summary_df" />'
+        expect(replaceMarkdown('Thinking...', 0, `\`\`\`${language}\n${tag}\n\`\`\``)).toBe(tag)
+    })
+
+    it.each([
+        '```python\nprint(42)\n```',
+        '```html\n<PythonV2 code="print(42)" />\n```',
+        '```\n<CustomExample />\n```',
+        '```\n<PythonV2 code="unterminated />\n```',
+    ])('preserves source examples and incomplete tags: %s', (example) => {
+        expect(replaceMarkdown('Thinking...', 0, example)).toBe(example)
+    })
     it('replaces the AI response row with assistant markdown', () => {
         const markdown = '# Notebook\n\nThinking...'
 
@@ -248,7 +282,8 @@ describe('notebookAI', () => {
                 result.markdown,
                 result.responseNodeIndex,
                 response,
-                result.responseNodeCount
+                result.responseNodeCount,
+                ['Widget']
             )
         }
 

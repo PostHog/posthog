@@ -559,7 +559,7 @@ class TestWidgetData(APIBaseTest):
             },
         )
 
-    def _mapping(self) -> NotebookWidgetInstance:
+    def _mapping(self, *, pinned: bool = True, with_version: bool = True) -> NotebookWidgetInstance:
         widget = GeneratedWidget.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             name="Render a globe",
@@ -573,6 +573,8 @@ class TestWidgetData(APIBaseTest):
             widget=widget,
             created_by=self.user,
         )
+        if not with_version:
+            return instance
         version = GeneratedWidgetVersion.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             widget=widget,
@@ -593,7 +595,7 @@ class TestWidgetData(APIBaseTest):
         )
         widget.current_version = version
         widget.save(update_fields=["current_version"])
-        instance.pinned_version = version
+        instance.pinned_version = version if pinned else None
         instance.save(update_fields=["pinned_version"])
         return instance
 
@@ -627,7 +629,7 @@ class TestWidgetData(APIBaseTest):
 
         assert error.exception.code == "input_schema_too_large"
 
-    def test_version_contract_keeps_only_frame_authorization_metadata(self) -> None:
+    def test_version_contract_keeps_frame_schema_without_row_data(self) -> None:
         self._run()
         contract = inspect_widget_inputs(self.notebook, [self.INPUT_NAME], lambda _run: None).contract
 
@@ -635,6 +637,7 @@ class TestWidgetData(APIBaseTest):
             {
                 "slot": self.INPUT_NAME,
                 "sourceName": self.INPUT_NAME,
+                "columns": [{"name": "lat", "type": "float64"}, {"name": "label", "type": "string"}],
                 "schemaHash": contract[0]["schemaHash"],
             }
         ]
@@ -1014,12 +1017,16 @@ class TestWidgetData(APIBaseTest):
             error_detail=None,
             artifact_url=None,
             frame_names=[self.INPUT_NAME],
+            input_bindings={},
+            input_contract=[],
             current_version_id=None,
+            pinned_version_id=None,
             widget_id=None,
             instance_id=None,
             has_versions=False,
             active_job=None,
             security_review=None,
+            is_reusable=False,
         )
 
         with patch(
@@ -1545,15 +1552,24 @@ class TestWidgetData(APIBaseTest):
         assert job.result_version_id is None
         assert GeneratedWidgetVersion.objects.for_team(self.team.id).filter(widget=instance.widget).count() == 1
 
-    def test_generation_worker_persists_an_advisory_review_before_publication(self) -> None:
-        instance = self._mapping()
-        base_version = self._pinned_version(instance)
+    @parameterized.expand(
+        [
+            (GeneratedWidgetVersion.Operation.INITIAL, False),
+            (GeneratedWidgetVersion.Operation.IMPROVE, False),
+            (GeneratedWidgetVersion.Operation.IMPROVE, True),
+        ]
+    )
+    def test_generation_worker_persists_review_and_preserves_version_following(
+        self, operation: str, pinned: bool
+    ) -> None:
+        instance = self._mapping(pinned=pinned, with_version=operation != GeneratedWidgetVersion.Operation.INITIAL)
+        base_version = instance.widget.current_version
         job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             widget=instance.widget,
             instance=instance,
             requested_by=self.user,
-            operation=GeneratedWidgetVersion.Operation.IMPROVE,
+            operation=operation,
             prompt="Make it lighter",
             model="claude-sonnet-4-6",
             base_version=base_version,
@@ -1609,6 +1625,9 @@ class TestWidgetData(APIBaseTest):
         job.refresh_from_db()
         assert job.status == GeneratedWidgetGenerationJob.Status.COMPLETED
         assert job.result_version_id is not None
+        instance.refresh_from_db()
+        assert instance.widget.current_version_id == job.result_version_id
+        assert instance.pinned_version_id == (job.result_version_id if pinned else None)
         version = GeneratedWidgetVersion.objects.for_team(self.team.id).get(id=job.result_version_id)
         assert version.canvas_source_version_id == publication_id
         assert version.security_review_severity == "critical"

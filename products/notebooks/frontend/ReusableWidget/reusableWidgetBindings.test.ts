@@ -1,0 +1,166 @@
+import api from 'lib/api'
+import { convertHogToJS, execHog } from 'lib/hog'
+
+import type { WidgetFrameApi } from 'products/notebooks/frontend/generated/api.schemas'
+
+import { applyReusableWidgetBinding, getReusableWidgetInputBinding } from './reusableWidgetBindings'
+
+jest.mock('lib/hog', () => ({ convertHogToJS: jest.fn(), execHog: jest.fn() }))
+
+const sourceFrame: WidgetFrameApi = {
+    name: 'orders',
+    runId: '00000000-0000-0000-0000-000000000001',
+    columns: [
+        { name: 'plan_name', type: 'string' },
+        { name: 'amount', type: 'float64' },
+    ],
+    rows: [['Enterprise', 500]],
+    totalRowCount: 1,
+    includedRowCount: 1,
+    offset: 0,
+    nextOffset: null,
+    truncated: false,
+}
+
+describe('reusableWidgetBindings', () => {
+    beforeEach(() => {
+        jest.resetAllMocks()
+    })
+
+    afterEach(() => jest.restoreAllMocks())
+
+    it('retries failed compilation and shares successful compilation across frame requests', async () => {
+        const compile = jest
+            .spyOn(api.hog, 'create')
+            .mockRejectedValueOnce(new Error('Compiler unavailable'))
+            .mockResolvedValue({ bytecode: ['_H', 1] } as never)
+        jest.mocked(execHog).mockReturnValue({ finished: true, error: null, result: [] } as never)
+        jest.mocked(convertHogToJS).mockReturnValue([{ amount: 500 }] as never)
+        const binding = { source: 'orders', hog: "return arrayMap(row -> {'amount': row.amount}, rows)" }
+        await expect(applyReusableWidgetBinding(sourceFrame, 'revenue', binding, ['amount'])).rejects.toThrow(
+            'Compiler unavailable'
+        )
+        const frames = await Promise.all([
+            applyReusableWidgetBinding(sourceFrame, 'revenue', binding, ['amount']),
+            applyReusableWidgetBinding(sourceFrame, 'revenue', binding, ['amount']),
+        ])
+        expect(frames.map((frame) => frame.rows)).toEqual([[[500]], [[500]]])
+        expect(compile).toHaveBeenCalledTimes(2)
+    })
+
+    it('renames a directly bound notebook dataframe to the logical contract slot', async () => {
+        const result = await applyReusableWidgetBinding(sourceFrame, 'revenue', { source: 'orders' }, [
+            'plan_name',
+            'amount',
+        ])
+
+        expect(result).toEqual({ ...sourceFrame, name: 'revenue' })
+        expect(execHog).not.toHaveBeenCalled()
+    })
+
+    it('runs compiled Hog in the bounded browser VM and rebuilds the output frame', async () => {
+        jest.mocked(execHog).mockReturnValue({ finished: true, error: null, result: ['hog-result'] } as never)
+        jest.mocked(convertHogToJS).mockReturnValue([{ plan: 'Enterprise', revenue: 500 }] as never)
+
+        const result = await applyReusableWidgetBinding(
+            sourceFrame,
+            'revenue',
+            { source: 'orders', hog: 'return rows', bytecode: ['_H', 1] },
+            ['plan', 'revenue']
+        )
+
+        expect(execHog).toHaveBeenCalledWith(
+            ['_H', 1],
+            expect.objectContaining({
+                functions: {},
+                maxAsyncSteps: 0,
+                memoryLimit: 16 * 1024 * 1024,
+                timeout: 100,
+            })
+        )
+        expect(result).toEqual({
+            ...sourceFrame,
+            name: 'revenue',
+            columns: [
+                { name: 'plan', type: 'unknown' },
+                { name: 'revenue', type: 'unknown' },
+            ],
+            rows: [['Enterprise', 500]],
+            totalRowCount: 1,
+            includedRowCount: 1,
+            nextOffset: null,
+            truncated: false,
+        })
+    })
+
+    it.each([
+        {
+            label: 'extra columns in a different order',
+            mappedRows: [{ revenue: 500, internal_note: 'Private note', plan: 'Enterprise' }],
+            expectedColumns: ['plan', 'revenue'],
+            expectedRows: [['Enterprise', 500]],
+        },
+        {
+            label: 'an empty page',
+            mappedRows: [],
+            expectedColumns: ['plan', 'revenue'],
+            expectedRows: [],
+        },
+        {
+            label: 'a contract without columns',
+            mappedRows: [{ internal_note: 'Private note' }],
+            expectedColumns: [],
+            expectedRows: [[]],
+        },
+    ])('returns only declared columns for $label', async ({ mappedRows, expectedColumns, expectedRows }) => {
+        jest.mocked(execHog).mockReturnValue({ finished: true, error: null, result: ['hog-result'] } as never)
+        jest.mocked(convertHogToJS).mockReturnValue(mappedRows as never)
+
+        const result = await applyReusableWidgetBinding(
+            sourceFrame,
+            'revenue',
+            { source: 'orders', hog: 'return rows', bytecode: ['_H', 1] },
+            expectedColumns
+        )
+
+        expect(result.columns).toEqual(expectedColumns.map((name) => ({ name, type: 'unknown' })))
+        expect(result.rows).toEqual(expectedRows)
+    })
+
+    it('ignores malformed persisted bindings', () => {
+        expect(getReusableWidgetInputBinding({ revenue: { source: 42 } }, 'revenue')).toBeUndefined()
+    })
+
+    it('preserves source pagination after mapping a page', async () => {
+        jest.mocked(execHog).mockReturnValue({ finished: true, error: null, result: ['hog-result'] } as never)
+        jest.mocked(convertHogToJS).mockReturnValue([{ revenue: 500 }] as never)
+
+        const result = await applyReusableWidgetBinding(
+            { ...sourceFrame, totalRowCount: 200, nextOffset: 100, truncated: true },
+            'revenue',
+            { source: 'orders', hog: 'return rows', bytecode: ['_H', 1] },
+            ['revenue']
+        )
+
+        expect(result.totalRowCount).toBe(200)
+        expect(result.nextOffset).toBe(100)
+        expect(result.truncated).toBe(true)
+    })
+
+    it.each([
+        { rows: [{ amount: 500 }], missingColumn: 'plan' },
+        { rows: [{ plan: 'Enterprise', revenue: 500 }, { plan: 'Enterprise' }], missingColumn: 'revenue' },
+    ])('rejects mapped rows missing $missingColumn', async ({ rows, missingColumn }) => {
+        jest.mocked(execHog).mockReturnValue({ finished: true, error: null, result: ['hog-result'] } as never)
+        jest.mocked(convertHogToJS).mockReturnValue(rows as never)
+
+        await expect(
+            applyReusableWidgetBinding(
+                sourceFrame,
+                'revenue',
+                { source: 'orders', hog: 'return rows', bytecode: ['_H', 1] },
+                ['plan', 'revenue']
+            )
+        ).rejects.toThrow(`must return the contract column "${missingColumn}"`)
+    })
+})
