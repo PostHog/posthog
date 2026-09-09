@@ -49,6 +49,13 @@ export interface ModifiedResponse<T = unknown> extends Omit<Response, 'headers'>
 // Guards against recursing into a cyclic or pathologically deep payload
 const MAX_OMIT_EMPTY_VALUES_DEPTH = 10
 
+// Keeps a large response body, such as a lookup result, out of the destination logs.
+// A vendor rejection message is short, so this is enough to read one.
+const MAX_LOGGED_RESPONSE_LENGTH = 256
+
+const truncateForLog = (text: string): string =>
+    text.length > MAX_LOGGED_RESPONSE_LENGTH ? `${text.slice(0, MAX_LOGGED_RESPONSE_LENGTH)}... [truncated]` : text
+
 const isPlainObject = (value: unknown): value is Record<string, unknown> => {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
         return false
@@ -338,6 +345,15 @@ export class SegmentDestinationExecutorService {
                                 }: Request failed with status ${fetchResponse?.status} (${reportableResponseText})`
                             )
                         }
+                    } else if (fetchResponseText.trim() !== '') {
+                        // A vendor can answer 2xx and still reject the event in the body. Log the body
+                        // so the destination logs show the rejection instead of only a completed run.
+                        addLog(
+                            'info',
+                            `HTTP request completed with status ${fetchResponse.status} (${truncateForLog(
+                                redactSensitiveValues(fetchResponseText, sensitiveValues)
+                            )}).`
+                        )
                     }
 
                     if (method !== 'GET') {

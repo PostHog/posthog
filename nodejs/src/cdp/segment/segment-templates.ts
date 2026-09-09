@@ -230,7 +230,9 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
             modifiedVal = modifiedVal.replaceAll('integrations.Actions Amplitude.session_id', '')
         }
         if (modifiedVal.includes('event.userId')) {
-            modifiedVal = modifiedVal.replaceAll('event.userId', 'person.id')
+            // Segment's userId is the identifier the customer knows the user by, which is the
+            // distinct ID. PostHog's person ID is internal and no vendor can match on it.
+            modifiedVal = modifiedVal.replaceAll('event.userId', 'event.distinct_id')
         }
         if (modifiedVal.includes('event.messageId')) {
             modifiedVal = modifiedVal.replaceAll('event.messageId', 'event.uuid')
@@ -294,7 +296,8 @@ const translateInputs = (defaultVal: any, multiple: boolean = false) => {
                 } else if (val !== '' && fallbackVal === '') {
                     return `{${val}}`
                 } else {
-                    return `{${multiple ? '[' : ''}${val} ?? ${fallbackVal}${multiple ? ']' : ''}}`
+                    const inner = val === fallbackVal ? val : `${val} ?? ${fallbackVal}`
+                    return `{${multiple ? `[${inner}]` : inner}}`
                 }
             }
         } else if (defaultVal && '@arrayPath' in defaultVal) {
