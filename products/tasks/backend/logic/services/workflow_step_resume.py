@@ -2,6 +2,7 @@ from typing import Any
 from uuid import UUID
 
 from celery import current_app
+from jsonschema import ValidationError, validate
 
 from posthog.cdp.workflow_step_resume import WorkflowStepResumeStatus, resume_workflow_step
 
@@ -19,10 +20,44 @@ FINAL_MESSAGE_GRACE_SECONDS = 30
 DEFERRED_RESUME_TASK = "products.tasks.backend.tasks.tasks.resume_workflow_step_for_run_deferred"
 
 
+# Keys the tasks product writes into `TaskRun.output` next to the agent's structured output.
+_RUN_OUTPUT_BOOKKEEPING_KEYS = frozenset({"final_message", "pr_url", "pr_urls", "commit_push"})
+
+
+def _structured_output_for_run(task_run: TaskRun) -> tuple[dict[str, Any] | None, list[str]]:
+    """The agent's schema-shaped output and the warnings a mismatch produces.
+
+    The structured output sits at the top level of `run.output`, next to bookkeeping the tasks
+    product writes there. The schema's `properties` say which keys are the agent's; a schema
+    without `properties` falls back to dropping the known bookkeeping keys.
+    """
+    schema = task_run.task.json_schema
+    if not schema:
+        return None, []
+    output = task_run.output if isinstance(task_run.output, dict) else {}
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        structured = {key: output[key] for key in properties if key in output}
+    else:
+        structured = {key: value for key, value in output.items() if key not in _RUN_OUTPUT_BOOKKEEPING_KEYS}
+    if task_run.status != TaskRun.Status.COMPLETED:
+        return structured, []
+    try:
+        validate(instance=structured, schema=schema)
+    except ValidationError as error:
+        return structured, [f"The task finished, but its output does not match the output variables: {error.message}"]
+    return structured, []
+
+
 def _result_for_run(task_run: TaskRun) -> dict[str, Any]:
     output = task_run.output or {}
+    structured, warnings = _structured_output_for_run(task_run)
+    # `output` goes first: the byte cap trims later keys first, and prose can lose its tail while
+    # a structured field cannot.
     return {
         "run_id": str(task_run.id),
+        "output": structured,
+        "warnings": warnings or None,
         "final_message": output.get("final_message"),
         "pr_urls": output.get("pr_urls") or ([output["pr_url"]] if output.get("pr_url") else None),
         "error_message": task_run.error_message,

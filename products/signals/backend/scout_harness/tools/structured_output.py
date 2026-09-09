@@ -45,6 +45,11 @@ from referencing import Registry
 from referencing.exceptions import NoSuchResource
 
 from posthog.api.capture import capture_batch_internal
+from posthog.cdp.output_schema import (
+    MAX_SCHEMA_BYTES as SHARED_MAX_SCHEMA_BYTES,
+    OutputSchemaError,
+    validate_output_schema,
+)
 from posthog.event_usage import groups
 from posthog.models import Team
 
@@ -64,9 +69,9 @@ MAX_RECORDS_PER_RUN = 1000
 MAX_RECORD_BYTES = 16_384
 # Cap on the scout-chosen `subject` key, sized like a name column, not a document.
 MAX_SUBJECT_LENGTH = 200
-# Serialized size cap on the configured schema, enforced by the config serializers. Kept
-# here so the schema validator and the write path agree on one constant.
-MAX_SCHEMA_BYTES = 20_000
+# Serialized size cap on the configured schema, enforced by the config serializers. Re-exported so
+# the schema validator and the write path agree on one constant.
+MAX_SCHEMA_BYTES = SHARED_MAX_SCHEMA_BYTES
 
 # Customer-facing per-record event (see `tools/report.py` for the `$`-prefix convention:
 # a PostHog-generated event kept out of the customer's own custom-event namespace).
@@ -94,19 +99,6 @@ def _refuse_retrieval(uri: str) -> Any:
 # documented keyword; the type stubs don't model the attrs alias, hence the ignore.
 _NO_RETRIEVAL_REGISTRY: Registry = Registry(retrieve=_refuse_retrieval)  # type: ignore[call-arg]
 
-# Keys whose value is a reference the validator would try to resolve.
-_REFERENCE_KEYS = ("$ref", "$dynamicRef", "$recursiveRef")
-# Regex-bearing keywords. Python's `re` backtracks, so a pathological pattern (`^(a+)+$`)
-# against a near-matching payload can pin a worker for minutes, and nothing can interrupt a
-# match in flight — the size caps bound bytes, not regex time. Measurement records don't
-# need regex (enums, types, ranges, required cover the channel), so these fail closed.
-_REGEX_KEYWORDS = ("pattern", "patternProperties")
-# Keys whose immediate child keys are user-chosen names (e.g. property names), not JSON
-# Schema keywords — a property legitimately named `pattern` must not read as the keyword.
-_NAME_MAP_KEYS = ("properties", "$defs", "definitions", "dependentSchemas")
-# Keys whose value is data, not schema — an example payload may contain a `pattern` key.
-_DATA_KEYS = ("default", "const", "enum", "examples")
-
 
 class InvalidStructuredOutputError(ValueError):
     """The submission is malformed: no schema configured, the channel is off for this scout
@@ -114,7 +106,7 @@ class InvalidStructuredOutputError(ValueError):
     failed validation against the configured schema."""
 
 
-class StructuredOutputSchemaError(ValueError):
+class StructuredOutputSchemaError(OutputSchemaError):
     """The supplied JSON Schema itself is invalid (raised at config-write time)."""
 
 
@@ -153,56 +145,13 @@ def validate_structured_output_schema(schema: Any) -> dict[str, Any]:
     boundary rather than failing every run's record call. Requires a JSON object rooted at
     `"type": "object"` — the record endpoint stores dict payloads, and an object root is
     what keeps each record breakdown-friendly downstream — and bounds serialized size so
-    the schema stays a cheap per-record validation, not a document."""
-    if not isinstance(schema, dict) or not schema:
-        raise StructuredOutputSchemaError("structured_output_schema must be a non-empty JSON object")
-    if schema.get("type") != "object":
-        raise StructuredOutputSchemaError('structured_output_schema must declare "type": "object" at its root')
-    encoded = json.dumps(schema)
-    if len(encoded.encode("utf-8")) > MAX_SCHEMA_BYTES:
-        raise StructuredOutputSchemaError(f"structured_output_schema exceeds {MAX_SCHEMA_BYTES} bytes serialized")
-    _assert_supported_constructs(schema)
+    the schema stays a cheap per-record validation, not a document. The rules live in
+    `posthog.cdp.output_schema` so every product that takes an agent output schema shares them;
+    the no-retrieval registry below is the fail-closed backstop for schemas that predate them."""
     try:
-        Draft202012Validator.check_schema(schema)
-    except Exception as exc:
-        raise StructuredOutputSchemaError(f"structured_output_schema is not a valid JSON Schema: {exc}") from exc
-    return schema
-
-
-def _assert_supported_constructs(node: Any) -> None:
-    """Reject schema constructs that would let a schema author attack the validating worker.
-
-    Two families, both walked recursively. Non-fragment `$ref` / `$dynamicRef` /
-    `$recursiveRef` would ask the validator to fetch an arbitrary URL at record time
-    (SSRF) — only in-document `#...` references are supported, with the no-retrieval
-    registry as the fail-closed backstop for schemas that predate this rule. Regex keywords
-    (`pattern`, `patternProperties`) are rejected outright: a catastrophic expression pins
-    the worker during `iter_errors` and cannot be interrupted (see `_REGEX_KEYWORDS`).
-    Name-map containers (`properties`, `$defs`, ...) and data positions (`default`,
-    `enum`, ...) are walked without reading their user-chosen keys as keywords."""
-    if isinstance(node, dict):
-        for key, value in node.items():
-            if key in _DATA_KEYS:
-                continue
-            if key in _NAME_MAP_KEYS and isinstance(value, dict):
-                for subschema in value.values():
-                    _assert_supported_constructs(subschema)
-                continue
-            if key in _REFERENCE_KEYS and isinstance(value, str) and not value.startswith("#"):
-                raise StructuredOutputSchemaError(
-                    f"structured_output_schema must not use remote references ({key}: {value!r}); "
-                    "only in-document '#/...' references are supported"
-                )
-            if key in _REGEX_KEYWORDS:
-                raise StructuredOutputSchemaError(
-                    f"structured_output_schema must not use regex keywords ({key}): a pathological "
-                    "pattern can stall validation indefinitely. Express the constraint with enum, "
-                    "type, length, or numeric bounds instead."
-                )
-            _assert_supported_constructs(value)
-    elif isinstance(node, list):
-        for item in node:
-            _assert_supported_constructs(item)
+        return validate_output_schema(schema, field_name="structured_output_schema")
+    except OutputSchemaError as exc:
+        raise StructuredOutputSchemaError(str(exc)) from exc
 
 
 def record_structured_output_sync(

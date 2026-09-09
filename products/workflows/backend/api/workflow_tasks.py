@@ -10,6 +10,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
+from posthog.cdp import output_schema as output_schema_rules
 from posthog.models.team.team import Team
 
 from products.tasks.backend.facade.workflow_tasks import (
@@ -132,6 +133,22 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
         required=False,
         help_text="Stable key for this invocation. A retried request with the same key returns the existing task.",
     )
+    output_schema = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "JSON Schema the agent's final output must match. The fields come back on the step result as "
+            "`output.<name>` for the workflow's output variables."
+        ),
+    )
+
+    def validate_output_schema(self, value: dict | None) -> dict | None:
+        if value is None:
+            return None
+        try:
+            return output_schema_rules.validate_output_schema(value)
+        except output_schema_rules.OutputSchemaError as exc:
+            raise serializers.ValidationError(str(exc))
 
 
 class WorkflowTaskResponseSerializer(serializers.Serializer):
@@ -218,6 +235,7 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                     WorkflowTaskSlackContext(**data["slack_context"]) if data.get("slack_context") else None
                 ),
                 rate_limits=rate_limits,
+                output_schema=data.get("output_schema"),
             )
         except WorkflowTaskConnectorsInvalid as error:
             raise serializers.ValidationError(

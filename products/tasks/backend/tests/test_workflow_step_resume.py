@@ -29,6 +29,8 @@ class TestResumeWorkflowStepForRun(BaseTest):
         origin_key: str | None = "job:step:1",
         status: str = TaskRun.Status.COMPLETED,
         final_message: str | None = "Collected 3 PRs",
+        json_schema: dict | None = None,
+        structured_output: dict | None = None,
     ) -> TaskRun:
         task = Task.objects.create(
             team=self.team,
@@ -37,8 +39,9 @@ class TestResumeWorkflowStepForRun(BaseTest):
             origin_product=origin_product,
             origin_key=origin_key,
             hog_flow_id=uuid.uuid4() if origin_key else None,
+            json_schema=json_schema,
         )
-        output = {"pr_url": "https://example.com/pr/1"}
+        output: dict = {"pr_url": "https://example.com/pr/1", **(structured_output or {})}
         if final_message is not None:
             output["final_message"] = final_message
         return TaskRun.objects.create(
@@ -69,11 +72,46 @@ class TestResumeWorkflowStepForRun(BaseTest):
             status=expected,
             result={
                 "run_id": str(run.id),
+                "output": None,
+                "warnings": None,
                 "final_message": "Collected 3 PRs",
                 "pr_urls": ["https://example.com/pr/1"],
                 "error_message": "boom" if run_status == TaskRun.Status.FAILED else None,
             },
         )
+
+    _SCHEMA = {
+        "type": "object",
+        "properties": {"verdict": {"type": "string"}, "score": {"type": "number"}},
+        "required": ["verdict", "score"],
+    }
+
+    @parameterized.expand(
+        [
+            ("matching_output", TaskRun.Status.COMPLETED, {"verdict": "ship", "score": 0.9}, None),
+            (
+                "missing_field",
+                TaskRun.Status.COMPLETED,
+                {"verdict": "ship"},
+                [
+                    "The task finished, but its output does not match the output variables: 'score' is a required property"
+                ],
+            ),
+            ("failed_run_is_not_judged", TaskRun.Status.FAILED, {}, None),
+        ]
+    )
+    def test_reports_the_agent_output_against_the_task_schema(
+        self, _name: str, status: str, structured_output: dict, warnings: list[str] | None
+    ) -> None:
+        run = self._run(status=status, json_schema=self._SCHEMA, structured_output=structured_output)
+
+        with patch(_RESUME) as resume:
+            resume_workflow_step_for_run(run)
+
+        result = resume.call_args.kwargs["result"]
+        assert result["output"] == structured_output
+        assert result["warnings"] == warnings
+        assert resume.call_args.kwargs["status"] == ("failed" if status == TaskRun.Status.FAILED else "completed")
 
     @parameterized.expand(
         [
