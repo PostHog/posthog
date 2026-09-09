@@ -540,16 +540,14 @@ describe('CanvasReplayerPlugin', () => {
     })
 
     describe('preload failures', () => {
-        it('reports a preload decode failure through onError', async () => {
-            ;(globalThis.createImageBitmap as jest.Mock).mockRejectedValueOnce(
-                new Error('Cannot decode the data in the argument to createImageBitmap')
-            )
+        const undecodableBlobType = 'image/broken'
 
-            const event = {
+        const imageBitmapEvent = (id: number, timestamp: number, blobType: string): eventWithTime =>
+            ({
                 type: EventType.IncrementalSnapshot as const,
                 data: {
                     source: IncrementalSource.CanvasMutation as const,
-                    id: 7,
+                    id,
                     type: 0,
                     commands: [
                         {
@@ -557,7 +555,13 @@ describe('CanvasReplayerPlugin', () => {
                             args: [
                                 {
                                     rr_type: 'ImageBitmap',
-                                    args: [{ rr_type: 'Blob', data: [{ rr_type: 'ArrayBuffer', base64: '' }], type: '' }],
+                                    args: [
+                                        {
+                                            rr_type: 'Blob',
+                                            data: [{ rr_type: 'ArrayBuffer', base64: '' }],
+                                            type: blobType,
+                                        },
+                                    ],
                                 },
                                 0,
                                 0,
@@ -565,13 +569,50 @@ describe('CanvasReplayerPlugin', () => {
                         },
                     ],
                 },
-                timestamp: 1000,
-            }
+                timestamp,
+            }) as eventWithTime
+
+        afterEach(() => {
+            ;(globalThis.createImageBitmap as jest.Mock).mockReset().mockResolvedValue({})
+        })
+
+        it('reports a preload decode failure through onError', async () => {
+            ;(globalThis.createImageBitmap as jest.Mock).mockRejectedValueOnce(
+                new Error('Cannot decode the data in the argument to createImageBitmap')
+            )
             const onError = jest.fn()
 
-            CanvasReplayerPlugin([event] as eventWithTime[], onError)
+            CanvasReplayerPlugin([imageBitmapEvent(7, 1000, undecodableBlobType)], onError)
             await new Promise((resolve) => setTimeout(resolve, 10))
 
+            expect(onError).toHaveBeenCalledTimes(1)
+        })
+
+        it('reports an undecodable event once and preloads the rest of the window', async () => {
+            ;(globalThis.createImageBitmap as jest.Mock).mockImplementation((blob: Blob) =>
+                blob?.type === undecodableBlobType
+                    ? Promise.reject(new Error('Cannot decode the data in the argument to createImageBitmap'))
+                    : Promise.resolve({})
+            )
+
+            const events = [
+                imageBitmapEvent(1, 1000, 'image/webp'),
+                imageBitmapEvent(2, 1001, undecodableBlobType),
+                imageBitmapEvent(3, 1002, 'image/webp'),
+            ]
+            const onError = jest.fn()
+
+            const plugin = CanvasReplayerPlugin(events, onError)
+            await new Promise((resolve) => setTimeout(resolve, 10))
+
+            expect(globalThis.createImageBitmap).toHaveBeenCalledTimes(3)
+            expect(onError).toHaveBeenCalledTimes(1)
+
+            // The next window starts one event later, so it holds the undecodable event again.
+            plugin.handler!(events[0], false, { replayer: mockReplayer } as any)
+            await new Promise((resolve) => setTimeout(resolve, 10))
+
+            expect(globalThis.createImageBitmap).toHaveBeenCalledTimes(3)
             expect(onError).toHaveBeenCalledTimes(1)
         })
     })
