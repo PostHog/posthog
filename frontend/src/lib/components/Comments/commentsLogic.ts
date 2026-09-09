@@ -15,11 +15,10 @@ import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
 import { CommentType } from '~/types'
+import type { OrganizationMemberType, UserType } from '~/types'
 
 import { commentsSendToSlackCreate } from 'products/platform_features/frontend/generated/api'
 
-import type { UserType } from '../../types'
-import type { OrganizationMemberType } from '../../types'
 import { sendCommentToSlackLogic } from './sendCommentToSlackLogic'
 import { discussionsSlug, getTextContent } from './utils'
 
@@ -381,7 +380,7 @@ export type commentsLogicType = MakeLogicType<
 >
 
 export const commentsLogic = kea<commentsLogicType>([
-    path(() => ['scenes', 'notebooks', 'Notebook', 'commentsLogic']),
+    path(() => ['lib', 'components', 'Comments', 'commentsLogic']),
     props({} as CommentsLogicProps),
     key((props) => `${props.scope}-${props.item_id || ''}`),
 
