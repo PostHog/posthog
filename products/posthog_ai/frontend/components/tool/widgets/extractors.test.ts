@@ -173,6 +173,7 @@ describe('mcp tool adapter extractors', () => {
             { kind: 'HogQLQuery', query: 'SELECT 1' },
             { kind: 'InsightVizNode', source: { kind: 'StickinessQuery', series: [] } },
             { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'SELECT 1' } },
+            { kind: 'DataTableNode', source: { kind: 'EventsQuery', select: ['*'] } },
         ])('preserves a saved insight query ($kind) and its overridden link', (query) => {
             const url = '/project/1/insights/example?variables_override=%7B%7D'
             const result = extractQueryResult(
@@ -255,6 +256,7 @@ describe('mcp tool adapter extractors', () => {
             expect(extractQueryResult(toolMessage(undefined, { insightId: 'example' }, 'insight-query'))).toBeNull()
             expect(extractQueryResult(toolMessage({ query: { kind: 'InsightVizNode' } }))).toBeNull()
             expect(extractQueryResult(toolMessage({ query: { kind: 'DataVisualizationNode' } }))).toBeNull()
+            expect(extractQueryResult(toolMessage({ query: { kind: 'DataTableNode' } }))).toBeNull()
         })
     })
 })
