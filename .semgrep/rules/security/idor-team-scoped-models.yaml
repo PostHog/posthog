@@ -102,6 +102,7 @@ rules:
                               |ChangeRequest
                               |ChannelContextGeneration
                               |ChannelInstructions
+                              |ChannelMembership
                               |ChannelStar
                               |ClusteringConfig
                               |ClusteringJob
@@ -306,6 +307,7 @@ rules:
                               |ReplayObservation
                               |ReplayObservationLabel
                               |ReplayObservationUsage
+                              |ReplayObservationView
                               |ReplayScanner
                               |ReplayScannerBackfill
                               |ReplayScannerPromptSuggestion
@@ -506,6 +508,7 @@ rules:
                         |ChangeRequest
                         |ChannelContextGeneration
                         |ChannelInstructions
+                        |ChannelMembership
                         |ChannelStar
                         |ClusteringConfig
                         |ClusteringJob
@@ -700,6 +703,7 @@ rules:
                         |ReplayObservation
                         |ReplayObservationLabel
                         |ReplayObservationUsage
+                        |ReplayObservationView
                         |ReplayScanner
                         |ReplayScannerBackfill
                         |ReplayScannerPromptSuggestion

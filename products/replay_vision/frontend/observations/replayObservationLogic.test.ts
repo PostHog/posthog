@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -9,12 +10,16 @@ import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
 describe('replayObservationLogic', () => {
     let retrySpy: jest.Mock
+    let viewedSpy: jest.Mock
     let scannerOrigin: 'configured' | 'inline'
+    let observationStatus: 'failed' | 'running'
     let sceneLogic: ReturnType<typeof replayObservationSceneLogic.build>
 
     beforeEach(() => {
         scannerOrigin = 'configured'
+        observationStatus = 'failed'
         retrySpy = jest.fn(() => [202, { workflow_id: 'wf-retry' }])
+        viewedSpy = jest.fn(() => [204])
         useMocks({
             get: {
                 '/api/projects/:team/vision/observations/:id/': () => [
@@ -24,7 +29,7 @@ describe('replayObservationLogic', () => {
                         scanner_id: 'scanner-9',
                         scanner_origin: scannerOrigin,
                         session_id: 'sess-1',
-                        status: 'failed',
+                        status: observationStatus,
                         error_reason: 'internal_error:boom',
                         scanner_snapshot: {
                             // An inline scanner carries no name.
@@ -38,12 +43,14 @@ describe('replayObservationLogic', () => {
                         },
                         scanner_result: null,
                         triggered_by: 'schedule',
+                        viewed: false,
                         created_at: '2026-07-01T00:00:00Z',
                     },
                 ],
             },
             post: {
                 '/api/projects/:team/vision/observations/:id/retry/': retrySpy,
+                '/api/projects/:team/vision/observations/:id/viewed/': viewedSpy,
             },
         })
         initKeaTests()
@@ -53,6 +60,24 @@ describe('replayObservationLogic', () => {
 
     afterEach(() => {
         sceneLogic?.unmount()
+    })
+
+    test.each([
+        { status: 'failed' as const, marks: true },
+        { status: 'running' as const, marks: false },
+    ])('$status observation marks viewed: $marks', async ({ status, marks }) => {
+        observationStatus = status
+        const logic = replayObservationLogic({ id: 'obs-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadObservationSuccess'])
+        if (marks) {
+            await expectLogic(logic).toDispatchActions(['markViewed'])
+            await waitFor(() => expect(viewedSpy).toHaveBeenCalledTimes(1))
+        } else {
+            await expectLogic(logic).toNotHaveDispatchedActions(['markViewed'])
+            expect(viewedSpy).not.toHaveBeenCalled()
+        }
+        logic.unmount()
     })
 
     // A one-off "Summarize this recording" scan mints an inline scanner the scanner endpoints refuse to

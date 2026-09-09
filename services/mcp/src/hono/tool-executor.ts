@@ -28,6 +28,7 @@ import {
     formatInputValidationError,
     parseExecCallInnerArgs,
     parseExecCallInnerToolName,
+    rewrapFlattenedArguments,
     type ExecCommandMeta,
     type ExecInnerCallTracker,
 } from '@/tools/exec'
@@ -47,6 +48,8 @@ import type { InstructionsBuilder } from './instructions'
 import { getEffectiveMCPClientContext } from './mcp-context'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
+import type { SkillCatalogService } from './skill-catalog-service'
+import { buildSkillsSessionState } from './skills-session'
 import type { ToolCatalog } from './tool-catalog'
 
 interface ResolvedTool {
@@ -77,11 +80,10 @@ interface ExecMetricState {
  *
  * MCP gives the executor no way to prove that a call came from the app, so this reads
  * connection state instead of call provenance. In tools mode the model calls tools
- * directly, which makes the two indistinguishable, so suppression still applies there and
- * a UI app loaded that way still gets nothing. To fix that case, pass `forceUiDataToMeta`
- * and `includeUiResponseMeta` together, which moves the app payload to `_meta` instead of
- * widening what the model reads. `buildToolResultPayload` writes that payload only when
- * both flags are set.
+ * directly, which makes the two indistinguishable, so suppression still applies there.
+ * A UI app loaded that way still renders, because `buildToolResultPayload` moves the app
+ * payload to the app-only `_meta` key whenever it suppresses `structuredContent` for a
+ * tool that has a UI resource, without widening what the model reads.
  */
 function shouldSuppressStructuredContent(args: {
     isCliModeEnabled: boolean
@@ -95,10 +97,16 @@ function shouldSuppressStructuredContent(args: {
 export class ToolExecutor {
     private readonly catalog: ToolCatalog
     private readonly instructionsBuilder: InstructionsBuilder
+    private readonly skillCatalogService: SkillCatalogService | undefined
 
-    constructor(catalog: ToolCatalog, instructionsBuilder: InstructionsBuilder) {
+    constructor(
+        catalog: ToolCatalog,
+        instructionsBuilder: InstructionsBuilder,
+        skillCatalogService?: SkillCatalogService
+    ) {
         this.catalog = catalog
         this.instructionsBuilder = instructionsBuilder
+        this.skillCatalogService = skillCatalogService
     }
 
     async handleToolsList(state: ResolvedState): Promise<ListToolsResult> {
@@ -230,8 +238,13 @@ export class ToolExecutor {
         state: ResolvedState,
         intentMeta?: ToolCallIntentMeta
     ): Promise<unknown> {
-        const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
-        const validation = tool.schema.safeParse(toolArgs, { reportInput: true })
+        const rawToolArgs = (params?.arguments ?? {}) as Record<string, unknown>
+        const firstPass = tool.schema.safeParse(rawToolArgs, { reportInput: true })
+        const rewrapped = firstPass.success
+            ? undefined
+            : rewrapFlattenedArguments(firstPass.error, rawToolArgs, tool.schema)
+        const toolArgs = rewrapped ?? rawToolArgs
+        const validation = rewrapped ? tool.schema.safeParse(toolArgs, { reportInput: true }) : firstPass
         if (!validation.success) {
             toolCallsTotal.inc({ tool: tool.name, status: 'validation_error' })
             const message = formatInputValidationError(tool.name, validation.error, toolArgs, tool.schema)
@@ -558,14 +571,21 @@ export class ToolExecutor {
         const execTool = createExecTool(
             execTools,
             state.context,
-            this.instructionsBuilder.buildExecToolDescription(),
+            this.instructionsBuilder.buildExecToolDescription(state),
             commandReference,
             clientContext.mcpConsumer,
             trackInnerCall,
             state.scopeGatedTools,
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
-                helpCatalog: this.instructionsBuilder.buildExecHelpCatalog(state),
+                learnCatalog: this.instructionsBuilder.buildExecLearnCatalog(
+                    state,
+                    this.skillCatalogService?.getCatalog()
+                ),
+                flagGatedTools: state.flagGatedTools,
+                skillsSession: this.instructionsBuilder.execSkillsEnabled(state)
+                    ? buildSkillsSessionState(state.reqCtx, state.requestContext.mcpSessionId)
+                    : undefined,
                 ...(state.gatewayToolsEnabled ? { gatewayToolsProvider: () => this.gatewayToolsFor(state) } : {}),
                 // A verb-only report lands first; `search` then reports again with its query
                 // and counts. Merge so the richer report wins without losing the verb.
@@ -859,7 +879,10 @@ function execCommandAnalyticsProperties(execArgs: unknown, state: ResolvedState)
     }
     const { verb, targetTool } = describeExecCommand(
         command,
-        (name) => state.allTools.some((t) => t.name === name) || state.scopeGatedTools.some((t) => t.name === name)
+        (name) =>
+            state.allTools.some((t) => t.name === name) ||
+            state.scopeGatedTools.some((t) => t.name === name) ||
+            state.flagGatedTools.some((t) => t.name === name)
     )
     return {
         ...(verb !== undefined ? { $mcp_exec_verb: verb } : {}),

@@ -1,4 +1,5 @@
 use crate::{
+    api::flag_definitions::FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET,
     cohorts::cohort_models::{Cohort, CohortId, CohortType},
     config::{Config, DEFAULT_TEST_CONFIG},
     flags::{
@@ -211,12 +212,23 @@ pub async fn read_flag_definitions_rebuild_requests(redis_url: &str) -> Vec<Stri
     let redis = setup_redis_client(Some(redis_url.to_string())).await;
     redis
         .zrangebyscore(
-            "flag_definitions:rebuild_requests".to_string(),
+            FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string(),
             "-inf".to_string(),
             "+inf".to_string(),
         )
         .await
         .unwrap_or_default()
+}
+
+/// Clear the flag-definitions self-heal rebuild-requests sorted set. Nothing flushes the
+/// test redis between runs, and team ids restart when the test database is recreated, so a
+/// stale member with a reused id would satisfy a poll on its first read.
+pub async fn clear_flag_definitions_rebuild_requests(redis_url: &str) {
+    let redis = setup_redis_client(Some(redis_url.to_string())).await;
+    redis
+        .del(FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string())
+        .await
+        .unwrap();
 }
 
 /// An S3 client that reports every key as NotFound. Lets integration tests force a
@@ -541,9 +553,9 @@ async fn insert_organization_if_not_exists(
 
     sqlx::query(
         r#"INSERT INTO posthog_organization
-        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys, allow_publicly_shared_resources, default_anonymize_ips)
+        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys, allow_publicly_shared_resources, default_anonymize_ips)
         VALUES
-        ($1::uuid, 'Test Organization', $2, '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, false, NULL, '{}', '{}', true, '{}', true, true, false)
+        ($1::uuid, 'Test Organization', $2, '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, NULL, '{}', '{}', true, '{}', true, true, false)
         ON CONFLICT DO NOTHING"#,
     )
     .bind(org_id)
@@ -1625,7 +1637,7 @@ impl TestContext {
         team_id: i32,
         label: &str,
         scopes: Option<Vec<&str>>,
-    ) -> Result<String, Error> {
+    ) -> Result<(String, String), Error> {
         let key_id = format!("test_psk_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let raw_key = format!("phs_{}", &uuid::Uuid::new_v4().to_string()[..12]);
 
@@ -1651,7 +1663,7 @@ impl TestContext {
         .execute(&mut *conn)
         .await?;
 
-        Ok(raw_key)
+        Ok((key_id, raw_key))
     }
 
     /// Creates a team with both public token and secret API token

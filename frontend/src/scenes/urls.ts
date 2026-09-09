@@ -10,7 +10,7 @@ import {
     ProductKey,
     SharingConfigurationSettings,
 } from '~/queries/schema/schema-general'
-import { ActivityTab, AnnotationType, CommentType, OnboardingStepKey, SDKKey } from '~/types'
+import { ActivityTab, AnnotationType, OnboardingStepKey, SDKKey } from '~/types'
 
 import type { MetricFormPrefill } from 'products/data_catalog/frontend/common'
 
@@ -18,7 +18,6 @@ import type { BillingSectionId } from './billing/types'
 import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
 import { OutputTab } from './data-warehouse/editor/outputPaneLogic'
 import type { HogFunctionSceneTab } from './hog-functions/HogFunctionScene'
-import type { ModelsSceneTab } from './models/modelsSceneLogic'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
 /**
@@ -56,7 +55,7 @@ export const urls = {
     webScripts: (): string => '/web-scripts',
     webScriptsNew: (): string => '/web-scripts/new',
     destinations: (): string => '/data-management/destinations',
-    models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
+    models: (): string => '/models',
     transformations: (): string => '/data-management/transformations',
     eventFiltering: (): string => '/data-management/event-filtering',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
@@ -152,8 +151,6 @@ export const urls = {
     },
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
-    comments: (): string => '/data-management/comments',
-    comment: (id: CommentType['id'] | ':id'): string => `/data-management/comments/${id}`,
     variables: (): string => '/data-management/variables',
     variable: (id: string | ':id'): string => `/data-management/variables/${id}`,
     variableEdit: (id: string | ':id'): string => `/data-management/variables/${id}/edit`,

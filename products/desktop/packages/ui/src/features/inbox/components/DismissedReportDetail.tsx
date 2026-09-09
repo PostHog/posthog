@@ -4,16 +4,18 @@ import {
   LinkIcon,
   MagnifyingGlassIcon,
 } from "@phosphor-icons/react";
-import { Button, Spinner } from "@posthog/quill";
+import { Button } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDetailFrame";
 import { InboxReportCopyLinkMenu } from "@posthog/ui/features/inbox/components/InboxReportCopyLinkMenu";
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
+import { useReportPage } from "@posthog/ui/features/inbox/components/ReportPageContext";
 import {
   type InboxBackTarget,
   useInboxBackTarget,
 } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useInboxRestoreReport } from "@posthog/ui/features/inbox/hooks/useInboxRestoreReport";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useNavigate } from "@tanstack/react-router";
 
 interface DismissedReportDetailProps {
@@ -61,7 +63,7 @@ export function DismissedReportDetail({
   );
 }
 
-function DismissedReportDetailContent({
+export function DismissedReportDetailContent({
   report,
   back,
 }: {
@@ -106,6 +108,7 @@ function DismissedReportDetailContent({
 function RestoreReportButton({ report }: { report: SignalReport }) {
   const restore = useInboxRestoreReport();
   const navigate = useNavigate();
+  const reportPage = useReportPage();
 
   return (
     <Button
@@ -117,12 +120,14 @@ function RestoreReportButton({ report }: { report: SignalReport }) {
       title="Restore this report to Self-driving"
       onClick={() =>
         restore.mutate(report.id, {
-          onSuccess: () => navigate({ to: "/inbox/dismissed" }),
+          onSuccess: () => {
+            if (!reportPage) void navigate({ to: "/inbox/dismissed" });
+          },
         })
       }
     >
       {restore.isPending ? (
-        <Spinner className="size-3.5" />
+        <Spinner size="sm" />
       ) : (
         <ArrowCounterClockwiseIcon size={12} />
       )}

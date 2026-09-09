@@ -218,7 +218,6 @@
 1 products/tasks/backend/temporal/slack_relay/activities.py
 1 products/tasks/backend/temporal/task_management/activities/ensure_execute_sandbox_started.py
 1 products/tasks/backend/tests/agent_log_fixtures.py
-1 products/visual_review/backend/diff.py
 1 products/warehouse_sources/backend/models/ssh_tunnel.py
 1 products/warehouse_sources/backend/temporal/data_imports/cdc/workflows.py
 1 products/warehouse_sources/backend/temporal/data_imports/pipelines/core/delta/memory_governor.py
@@ -1385,7 +1384,7 @@
 1 posthog/hogql/context.py
 2 posthog/hogql/database/models.py
 2 posthog/management/commands/generate_test_events.py
-2 posthog/management/migration_analysis/models.py
+1 posthog/management/migration_analysis/models.py
 2 posthog/models/data_deletion_request.py
 2 posthog/models/js_snippet_versioning.py
 2 posthog/models/kafka_partition_stats/sql.py
@@ -1508,7 +1507,7 @@
 3 posthog/cdp/internal_events.py
 3 posthog/dags/backups.py
 3 posthog/hogql/compiler/bytecode.py
-3 posthog/hogql_queries/insights/trends/test/test_trends_query_runner.py
+3 products/product_analytics/backend/hogql_queries/trends/test/test_trends_query_runner.py
 3 posthog/hogql_queries/utils/test/test_time_sliced_query.py
 3 posthog/local_bootstrap/importer.py
 3 posthog/models/kafka_debug/sql.py

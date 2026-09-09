@@ -183,8 +183,29 @@ export interface ExperimentRecordingsListRenderedContext extends ExperimentRecor
      */
     retention_period: string | null
     replay_opt_in: boolean
-    /** Replay's default floor drops sessions under 5 active seconds, so it can empty a list. */
+    /**
+     * Whether any duration filter was applied. Replay applies a default floor to every list, so
+     * this is true on nearly every render and separates almost nothing. A dashboard tile reads it,
+     * so its meaning is frozen; the four properties below are what answers whether the floor is
+     * why the list came back empty.
+     */
     duration_filter_active: boolean
+    /** Which duration the floor measures: `active_seconds`, `duration`, or `inactive_seconds`. */
+    duration_filter_key: string | null
+    /** The floor's threshold in seconds. */
+    duration_filter_seconds: number | null
+    /** `gt` for a floor, `lt` for a ceiling. The viewer can flip it in the playlist filter bar. */
+    duration_filter_operator: string | null
+    /**
+     * How many duration filters were applied. The three properties above describe the first, so a
+     * count above one says they describe part of the set rather than all of it.
+     */
+    duration_filter_count: number
+    /**
+     * Whether the applied filter differs from replay's default floor, which counts removing the
+     * filter as a difference. The three properties above are null when the viewer removed it.
+     */
+    duration_filter_customized: boolean
     /** Whether the exposure event is ever seen with a session id. Null while the check is out. */
     exposure_linkable: boolean | null
 }
@@ -222,6 +243,17 @@ export interface ExperimentWatchLoadFailedContext {
 export interface ExperimentWatchEmptyActionContext {
     empty_reason: string | null
     /** 'exposure_docs' or 'replay_settings'. */
+    action: string
+}
+
+/**
+ * An action on the empty recordings list was taken. Joined to `empty_reason` on
+ * `experiment recordings list rendered`, this says which explanations people act on.
+ */
+export interface ExperimentRecordingsEmptyActionContext {
+    /** One of the tab's `ExperimentReplayListEmptyReason` values. */
+    empty_reason: string | null
+    /** One of the tab's `ExperimentRecordingsEmptyAction` values. */
     action: string
 }
 
@@ -272,12 +304,21 @@ export interface ExperimentRecordingsBucketFailedContext {
 // by `version` (1 = legacy, 2 = context-first redesign) and `flow_variant`. Stamping properties
 // instead of renaming keeps every existing dashboard and alert on the v1 events working. The
 // redesign's v2 events live in `scenes/onboarding/onboardingEventUsageLogic`.
+// `entry_point` names the surface the flow starts on. It rides along with every funnel event, not
+// only `started`, so a breakdown by entry point stays populated for the whole funnel.
+export type OnboardingEntryPoint = 'product_selection' | 'welcome'
+
 export type OnboardingEventProperties = {
+    entry_point: OnboardingEntryPoint
     flow_variant: 'context_first' | 'legacy'
     version: 1 | 2
 }
 
-const LEGACY_ONBOARDING_EVENT_PROPS: OnboardingEventProperties = { version: 1, flow_variant: 'legacy' }
+const LEGACY_ONBOARDING_EVENT_PROPS: OnboardingEventProperties = {
+    version: 1,
+    flow_variant: 'legacy',
+    entry_point: 'product_selection',
+}
 
 function retentionWindowDays(metric: ExperimentRetentionMetric): number | undefined {
     const unitToDays: Record<string, number> = { day: 1, week: 7, month: 30 }
@@ -1380,6 +1421,13 @@ export interface eventUsageLogicActions {
         context: ExperimentRecordingsBucketLoadedContext
         experimentId: ExperimentIdType
     }
+    reportExperimentRecordingsEmptyActionClicked: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsEmptyActionContext
+    ) => {
+        context: ExperimentRecordingsEmptyActionContext
+        experimentId: ExperimentIdType
+    }
     reportExperimentRecordingsListRendered: (
         experimentId: ExperimentIdType,
         context: ExperimentRecordingsListRenderedContext
@@ -1861,11 +1909,7 @@ export interface eventUsageLogicActions {
         recommendationSource: string
         selected: boolean
     }
-    reportOnboardingStarted: (
-        entrypoint: string,
-        properties?: OnboardingEventProperties
-    ) => {
-        entrypoint: string
+    reportOnboardingStarted: (properties?: OnboardingEventProperties) => {
         properties: OnboardingEventProperties | undefined
     }
     reportOnboardingStepCompleted: (
@@ -2862,6 +2906,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experimentId: ExperimentIdType,
             context: ExperimentRecordingsListRenderedContext
         ) => ({ experimentId, context }),
+        reportExperimentRecordingsEmptyActionClicked: (
+            experimentId: ExperimentIdType,
+            context: ExperimentRecordingsEmptyActionContext
+        ) => ({ experimentId, context }),
         reportExperimentRecordingOpened: (
             experimentId: ExperimentIdType,
             context: ExperimentRecordingsFilterContext
@@ -3037,8 +3085,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportProductTourListViewed: true,
         reportProductUnsubscribed: (product: string) => ({ product }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
-        reportOnboardingStarted: (entrypoint: string, properties?: OnboardingEventProperties) => ({
-            entrypoint,
+        reportOnboardingStarted: (properties?: OnboardingEventProperties) => ({
             properties,
         }),
         reportOnboardingStepCompleted: (
@@ -4116,6 +4163,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ...context,
             })
         },
+        reportExperimentRecordingsEmptyActionClicked: ({ experimentId, context }) => {
+            posthog.capture('experiment recordings empty state action clicked', {
+                experiment_id: experimentId,
+                ...context,
+            })
+        },
         reportExperimentRecordingOpened: ({ experimentId, context }) => {
             posthog.capture('experiment recording opened', {
                 experiment_id: experimentId,
@@ -4561,9 +4614,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 product_key: productKey,
             })
         },
-        reportOnboardingStarted: ({ entrypoint, properties }) => {
+        reportOnboardingStarted: ({ properties }) => {
             posthog.capture('onboarding started', {
-                entry_point: entrypoint,
                 ...LEGACY_ONBOARDING_EVENT_PROPS,
                 ...properties,
             })
