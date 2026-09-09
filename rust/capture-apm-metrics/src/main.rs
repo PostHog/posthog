@@ -132,6 +132,11 @@ async fn start_series_label_gate(config: &Config) -> Arc<SeriesLabelGate> {
 
 #[tokio::main]
 async fn main() {
+    // Without this, the first TLS handshake to Valkey panics the task that made it.
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("failed to install rustls CryptoProvider");
+
     setup_tracing();
     info!("Starting up...");
 
