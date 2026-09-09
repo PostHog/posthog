@@ -62,7 +62,7 @@ export type sendCommentToSlackLogicType = MakeLogicType<
 >
 
 export const sendCommentToSlackLogic = kea<sendCommentToSlackLogicType>([
-    path(['scenes', 'comments', 'sendCommentToSlackLogic']),
+    path(['lib', 'components', 'Comments', 'sendCommentToSlackLogic']),
     connect(() => ({ values: [teamLogic, ['currentProjectId']] })),
     actions({
         openModal: (comment: CommentType) => ({ comment }),
