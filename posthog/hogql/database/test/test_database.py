@@ -1276,6 +1276,26 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert isinstance(table, RevenueAnalyticsChargeView)
         assert len(context.captured_queries) == 0
 
+    def test_partial_serialize_skips_revenue_view_build(self):
+        self._configure_revenue_events()
+        database = Database.create_for(team=self.team)
+        context = HogQLContext(team_id=self.team.pk, database=database)
+
+        with patch(
+            "products.revenue_analytics.backend.views.orchestrator.build_revenue_views_for_handles",
+            wraps=build_revenue_views_for_handles,
+        ) as builder:
+            # The sidebar hydrates one table's fields at a time; that request must not build
+            # every revenue view only to discard them.
+            partial = database.serialize(context, include_only={"events"})
+            assert builder.call_count == 0
+
+            full = database.serialize(context)
+            assert builder.call_count == 1
+
+        assert "events" in partial
+        assert "revenue_analytics.events.purchase.charge_events_revenue_view" in full
+
     def test_warm_cached_serialize_reuses_prebuilt_revenue_views(self):
         self._configure_revenue_events()
         Database.create_for(team=self.team, user=self.user, use_cached_sources=True)

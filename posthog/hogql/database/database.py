@@ -841,11 +841,13 @@ class Database(BaseModel):
     def _ensure_revenue_views_built(self) -> None:
         """Build the deferred revenue-analytics views and graft them into the tree, at most once.
 
-        Building a view resolves no tables, but the guard mirrors _ensure_foreign_keys_built so a
-        mid-pass failure keeps the work pending and concurrent query threads observe either no
-        views or all of them. Runs before serialization and whenever a name under a revenue prefix
-        fails to resolve — including build-time consumers such as warehouse joins and saved
-        expressions, which reach the views through has_table / get_table.
+        Building a view resolves no tables, but the guard mirrors _ensure_foreign_keys_built: a
+        failure of the pass itself keeps the work pending for retry, and concurrent query threads
+        block on the lock until the builder finishes rather than observing a half-grafted tree.
+        A view whose own builder raises is skipped and reported, as on the eager path. Runs when
+        enumeration surfaces list tables and whenever a name under a revenue prefix fails to
+        resolve, including build-time consumers such as warehouse joins and saved expressions,
+        which reach the views through has_table / get_table.
         """
         if self._revenue_views_built or self._revenue_views_building_thread == threading.get_ident():
             return
@@ -1185,8 +1187,11 @@ class Database(BaseModel):
         include_hidden_posthog_tables: bool = False,
         include_fields: bool = True,
     ) -> dict[str, DatabaseSchemaTable]:
-        # The schema browser and editor list every table, so deferred revenue views must exist here.
-        self._ensure_revenue_views_built()
+        # The schema browser and editor list every table, so deferred revenue views must exist
+        # here. A partial request (the sidebar hydrating one table's fields) skips the build
+        # unless a requested name falls under a revenue prefix.
+        if include_only is None or any(self._should_build_revenue_views_for(name) for name in include_only):
+            self._ensure_revenue_views_built()
         from posthog.schema import (  # noqa: PLC0415
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaEndpointTable,
@@ -1254,7 +1259,9 @@ class Database(BaseModel):
 
         # Data Warehouse Tables and Views - Fetch all related data in one go
         warehouse_table_names = self.get_warehouse_table_names()
-        views = [] if self._is_direct_query() else self.get_view_names()
+        # Raw name cache, not get_view_names(): whether deferred revenue views belong in this
+        # serialization was decided once at the top, and get_view_names would force the build.
+        views = [] if self._is_direct_query() else list(self._view_table_names)
 
         direct_query_source_ids = [self._connection_id] if self._is_direct_query() and self._connection_id else None
         warehouse_tables_query = (
