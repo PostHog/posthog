@@ -54,6 +54,23 @@ class DateWhereExprs:
         return [self.date_from_expr, self.date_to_expr]
 
 
+@frozen
+class ActorsDateWindow:
+    """Date window for actors queries, with comparison operator for the end boundary."""
+
+    from_datetime: datetime
+    to_datetime: datetime
+    to_op: ast.CompareOperationOp
+
+
+@frozen
+class ActorsExprs:
+    """Expression pair for active users calculations."""
+
+    from_expr: ast.Expr
+    to_expr: ast.Expr
+
+
 class TrendsActorsQueryBuilder:
     trends_query: TrendsQuery
     team: Team
@@ -423,18 +440,18 @@ class TrendsActorsQueryBuilder:
         query_from, query_to = date_range.date_from(), date_range.date_to()
 
         if self.is_total_value:
-            actors_from, actors_to, actors_to_op = self._total_value_actors_window(query_from, query_to)
+            window = self._total_value_actors_window(query_from, query_to)
         else:
-            actors_from, actors_to, actors_to_op = self._time_series_actors_window(date_range, query_from, query_to)
+            window = self._time_series_actors_window(date_range, query_from, query_to)
 
-        actors_from_expr: ast.Expr
-        actors_to_expr: ast.Expr
         # adjust date_from for weekly and monthly active calculations
         if self.is_active_users_math:
-            actors_from_expr, actors_to_expr = self._active_users_exprs(actors_from, actors_to, query_from, query_to)
+            exprs = self._active_users_exprs(window.from_datetime, window.to_datetime, query_from, query_to)
+            actors_from_expr = exprs.from_expr
+            actors_to_expr = exprs.to_expr
         else:
-            actors_from_expr = ast.Constant(value=actors_from)
-            actors_to_expr = ast.Constant(value=actors_to)
+            actors_from_expr = ast.Constant(value=window.from_datetime)
+            actors_to_expr = ast.Constant(value=window.to_datetime)
 
         return DateWhereExprs(
             date_from_expr=ast.CompareOperation(
@@ -444,25 +461,27 @@ class TrendsActorsQueryBuilder:
             ),
             date_to_expr=ast.CompareOperation(
                 left=ast.Field(chain=["timestamp"]),
-                op=actors_to_op,
+                op=window.to_op,
                 right=actors_to_expr,
             ),
         )
 
-    def _total_value_actors_window(
-        self, query_from: datetime, query_to: datetime
-    ) -> tuple[datetime, datetime, ast.CompareOperationOp]:
+    def _total_value_actors_window(self, query_from: datetime, query_to: datetime) -> ActorsDateWindow:
         if self.time_frame is not None:
             raise QueryError("A `day` is forbidden for trends actors queries with total value aggregation")
 
-        return query_from, query_to, ast.CompareOperationOp.LtEq
+        return ActorsDateWindow(
+            from_datetime=query_from,
+            to_datetime=query_to,
+            to_op=ast.CompareOperationOp.LtEq,
+        )
 
     def _time_series_actors_window(
         self,
         date_range: QueryDateRange | QueryCompareToDateRange | QueryPreviousPeriodDateRange,
         query_from: datetime,
         query_to: datetime,
-    ) -> tuple[datetime, datetime, ast.CompareOperationOp]:
+    ) -> ActorsDateWindow:
         if self.time_frame is None:
             raise QueryError("A `day` is required for trends actors queries without total value aggregation")
 
@@ -483,7 +502,11 @@ class TrendsActorsQueryBuilder:
                 actors_to_op = ast.CompareOperationOp.LtEq
                 actors_to = query_to
 
-        return actors_from, actors_to, actors_to_op
+        return ActorsDateWindow(
+            from_datetime=actors_from,
+            to_datetime=actors_to,
+            to_op=actors_to_op,
+        )
 
     def _previous_period_time_frame(
         self,
@@ -505,7 +528,7 @@ class TrendsActorsQueryBuilder:
 
     def _active_users_exprs(
         self, actors_from: datetime, actors_to: datetime, query_from: datetime, query_to: datetime
-    ) -> tuple[ast.Expr, ast.Expr]:
+    ) -> ActorsExprs:
         actors_from_expr: ast.Expr
         actors_to_expr: ast.Expr
 
@@ -535,7 +558,7 @@ class TrendsActorsQueryBuilder:
             actors_from_expr = ast.Call(name="greatest", args=[actors_from_expr, ast.Constant(value=query_from)])
             actors_to_expr = ast.Call(name="least", args=[ast.Constant(value=actors_to), ast.Constant(value=query_to)])
 
-        return actors_from_expr, actors_to_expr
+        return ActorsExprs(from_expr=actors_from_expr, to_expr=actors_to_expr)
 
     def _breakdown_where_expr(self) -> list[ast.Expr]:
         conditions: list[ast.Expr] = []
