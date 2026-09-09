@@ -160,7 +160,19 @@ def validate_forecast_interval(interval: IntervalType | None) -> None:
 
 
 def min_forecast_points(interval: IntervalType | None) -> int:
-    return 48 if interval == IntervalType.HOUR else 14
+    """Points a fit needs before Prophet keeps the shortest seasonality of the interval.
+
+    Prophet turns a seasonality on from the elapsed span of the history, not from the point count.
+    Daily seasonality needs two days of span, and weekly seasonality needs two weeks, so a window
+    one point short fits the trend alone and flattens a normal cycle. A weekly or monthly step is
+    wider than both periods, so Prophet always fits those trend only and the floor is a plain
+    sample size.
+    """
+    if interval == IntervalType.HOUR:
+        return 2 * 24 + 1
+    if interval in (None, IntervalType.DAY):
+        return 2 * 7 + 1
+    return 14
 
 
 @frozen

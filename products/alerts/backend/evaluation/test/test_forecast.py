@@ -347,8 +347,8 @@ class TestTargetHorizonContract:
 class TestHistoryRequirements:
     @parameterized.expand(
         [
-            ("daily base minimum", IntervalType.DAY, 3, 13, 14),
-            ("hourly base minimum", IntervalType.HOUR, 3, 47, 48),
+            ("daily base minimum", IntervalType.DAY, 3, 14, 15),
+            ("hourly base minimum", IntervalType.HOUR, 3, 48, 49),
             ("four history points per forecast point", IntervalType.DAY, 8, 31, 32),
         ]
     )
@@ -380,7 +380,7 @@ class TestHistoryRequirements:
         assert result.breaches == []
 
     def test_a_repeated_bucket_label_is_collapsed_before_fitting(self) -> None:
-        extraction = _series(49, interval=IntervalType.HOUR)
+        extraction = _series(50, interval=IntervalType.HOUR)
         points = extraction.series[0].points
         points[25].date = points[24].date
         points[25].value = 123.0
@@ -396,8 +396,8 @@ class TestHistoryRequirements:
         assert result.is_inconclusive is False
         dates = engine.calls[0]["dates"]
         values = engine.calls[0]["values"]
-        assert len(dates) == len(set(dates)) == 48
-        assert len(values) == 48
+        assert len(dates) == len(set(dates)) == 49
+        assert len(values) == 49
         assert values[dates.index(points[24].date)] == 123.0
 
     def test_stale_data_cannot_hide_a_long_effective_target_horizon(self) -> None:

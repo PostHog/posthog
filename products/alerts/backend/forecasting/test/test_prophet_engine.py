@@ -1,4 +1,5 @@
 import os
+import math
 import logging
 import datetime
 from dataclasses import fields
@@ -23,6 +24,7 @@ from products.alerts.backend.forecasting.engine import (
     forecast_reach_days,
     get_forecast_engine,
     horizon_for_target_date,
+    min_forecast_points,
     validate_forecast_days_of_week,
     validate_forecast_horizon,
 )
@@ -138,6 +140,26 @@ class TestProphetEngine:
         engine = get_forecast_engine({"engine": "prophet"})
         result = engine.forecast(_daily_dates(60), values, horizon=7, interval_width=0.95, interval=IntervalType.DAY)
         assert check(result)
+
+    @parameterized.expand(
+        [
+            ("hourly keeps the hour of day cycle", IntervalType.HOUR, datetime.timedelta(hours=1), 24),
+            ("daily keeps the day of week cycle", IntervalType.DAY, datetime.timedelta(days=1), 7),
+        ]
+    )
+    def test_the_minimum_window_is_long_enough_for_the_cycle_of_the_interval(self, _name, interval, step, period):
+        engine = get_forecast_engine({"engine": "prophet"})
+        history = min_forecast_points(interval)
+        start = datetime.datetime(2026, 1, 1)
+        dates = [(start + step * index).isoformat() for index in range(history)]
+        values = [100 + 40 * math.sin(2 * math.pi * index / period) for index in range(history)]
+
+        result = engine.forecast(dates, values, horizon=period, interval_width=0.95, interval=interval)
+
+        # Prophet reads a seasonality from the elapsed span of the history, not from the point
+        # count, so a window one point shorter fits the trend alone and flattens this 80-wide
+        # cycle to under 20.
+        assert max(result.yhat) - min(result.yhat) > 40
 
     def test_band_contains_point_forecast(self):
         engine = get_forecast_engine({"engine": "prophet"})
@@ -282,7 +304,7 @@ class TestForecastReach:
             ("monthly caps on duration", 91, IntervalType.MONTH, 24),
             ("daily caps on duration", 733, IntervalType.DAY, 730),
             ("a small window is untouched", 91, IntervalType.DAY, 91),
-            ("never below the fit minimum", 1, IntervalType.HOUR, 48),
+            ("never below the fit minimum", 1, IntervalType.HOUR, 49),
         ]
     )
     def test_bounded_training_points(self, _name, requested, interval, expected) -> None:
