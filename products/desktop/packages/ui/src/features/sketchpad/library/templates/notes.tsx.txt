@@ -1,0 +1,49 @@
+import { SharedTextArea, useSharedText } from "@posthog/canvas-sdk";
+import { Button } from "@posthog/quill";
+import { useState } from "react";
+import Markdown from "react-markdown";
+
+export default function Notes({ fragmentId }) {
+  const storageKey = "notes:" + fragmentId;
+  const { text } = useSharedText(storageKey);
+  const [editing, setEditing] = useState(false);
+
+  return (
+    <div className="group/notes flex h-full flex-col p-4">
+      <div className="flex items-center justify-between gap-2 pb-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          Notes
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          className={
+            editing
+              ? "h-6 px-2 text-xs"
+              : "h-6 px-2 text-xs opacity-0 transition-opacity focus-visible:opacity-100 group-hover/notes:opacity-100"
+          }
+          onClick={() => setEditing((value) => !value)}
+        >
+          {editing ? "Done" : "Edit"}
+        </Button>
+      </div>
+      {editing ? (
+        <SharedTextArea
+          keyName={storageKey}
+          placeholder="Write notes in markdown"
+          className="min-h-0 flex-1 resize-none text-[13px] leading-[1.6]"
+        />
+      ) : null}
+      {!editing && text ? (
+        <div className="prose-sm min-h-0 flex-1 overflow-auto text-[13px] leading-[1.6] text-foreground [&_a]:underline [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_h1]:mb-1 [&_h1]:font-semibold [&_h1]:text-base [&_h2]:mb-1 [&_h2]:font-semibold [&_h2]:text-sm [&_li]:ml-4 [&_li]:list-disc [&_p]:mb-2 [&_ul]:mb-2">
+          <Markdown>{text}</Markdown>
+        </div>
+      ) : null}
+      {!editing && !text ? (
+        <p className="text-[13px] text-muted-foreground">
+          No notes yet. Select Edit to write some.
+        </p>
+      ) : null}
+    </div>
+  );
+}

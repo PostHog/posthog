@@ -1,0 +1,27 @@
+import { useSharedText } from "@posthog/canvas-sdk";
+
+export default function SketchpadHeading({ fragmentId }) {
+  const title = useSharedText("heading:" + fragmentId + ":title");
+  const subtitle = useSharedText("heading:" + fragmentId + ":subtitle");
+
+  return (
+    <div className="flex h-full flex-col justify-center gap-1">
+      <input
+        value={title.text}
+        placeholder="Sketchpad title"
+        aria-label="Sketchpad title"
+        spellCheck={false}
+        className="w-full border-0 bg-transparent p-0 font-semibold text-3xl leading-tight tracking-tight outline-none placeholder:text-foreground/25"
+        onChange={(event) => title.setText(event.target.value, null)}
+      />
+      <input
+        value={subtitle.text}
+        placeholder="Add a line"
+        aria-label="Subtitle"
+        spellCheck={false}
+        className="w-full border-0 bg-transparent p-0 text-muted-foreground text-sm outline-none placeholder:text-foreground/20"
+        onChange={(event) => subtitle.setText(event.target.value, null)}
+      />
+    </div>
+  );
+}

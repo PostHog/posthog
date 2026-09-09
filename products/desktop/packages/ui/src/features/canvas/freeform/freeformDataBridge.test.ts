@@ -1,14 +1,14 @@
 import { assertCanvasCapability } from "@posthog/core/canvas/canvasCapabilities";
 import type { CanvasCapabilities } from "@posthog/shared";
 import { QueryClient } from "@tanstack/react-query";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { useAuthStore } from "../../auth/store";
 import { handleFreeformDataRequest } from "./freeformDataBridge";
 
 const loadInsight = vi.fn();
 const setState = vi.fn();
 const listState = vi.fn();
 const invokeAction = vi.fn();
-const callConnector = vi.fn();
 vi.mock("../hostClient", () => ({
   hostClient: () => ({
     canvasData: { loadInsight: { mutate: loadInsight } },
@@ -16,7 +16,6 @@ vi.mock("../hostClient", () => ({
       setState: { mutate: setState },
       listState: { query: listState },
       invokeAction: { mutate: invokeAction },
-      callConnector: { mutate: callConnector },
     },
   }),
 }));
@@ -31,7 +30,6 @@ const capabilities: CanvasCapabilities = {
     actions: ["tasks.create"],
   },
   network: { origins: [] },
-  connectors: [{ provider: "github", tools: ["list_pull_requests"] }],
 };
 
 describe("assertCanvasCapability", () => {
@@ -42,15 +40,6 @@ describe("assertCanvasCapability", () => {
     ["stateSet", { scope: "shared", key: "k", value: 1 }],
     ["actionInvoke", { verb: "annotations.create", payload: {} }],
     ["agentRequest", { prompt: "Change it" }],
-    // Declaring a provider does not declare every tool on it.
-    [
-      "connectorCall",
-      { provider: "github", tool: "search_issues", arguments: {} },
-    ],
-    [
-      "connectorCall",
-      { provider: "mcp:mcp.example.com", tool: "list_pull_requests" },
-    ],
   ])("rejects undeclared %s access", (method, payload) => {
     expect(() => assertCanvasCapability(capabilities, method, payload)).toThrow(
       "not allowed",
@@ -62,10 +51,6 @@ describe("assertCanvasCapability", () => {
     ["capture", { event: "allowed-event" }],
     ["stateGet", { scope: "user", key: "k" }],
     ["actionInvoke", { verb: "tasks.create", payload: {} }],
-    [
-      "connectorCall",
-      { provider: "github", tool: "list_pull_requests", arguments: {} },
-    ],
   ])("allows declared %s access", (method, payload) => {
     expect(() =>
       assertCanvasCapability(capabilities, method, payload),
@@ -99,89 +84,44 @@ describe("assertCanvasCapability", () => {
 });
 
 describe("handleFreeformDataRequest", () => {
-  it.each([true, false])(
-    "requires viewer consent before fetching (allowed: %s)",
-    async (allowed) => {
-      const queryClient = new QueryClient({
-        defaultOptions: { queries: { retry: false } },
-      });
-      const confirm = vi.spyOn(window, "confirm").mockReturnValue(allowed);
-      callConnector.mockReset().mockResolvedValue({ status: "ok", result: {} });
-      const read = () =>
-        handleFreeformDataRequest(
-          "connectorCall",
-          { provider: "github", tool: "list_pull_requests" },
-          queryClient,
-          { dashboardId: "canvas-1", sourceVersionId: "version-1" },
-        );
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        if (allowed) await read();
-        else await expect(read()).rejects.toThrow("not granted");
-        expect(confirm).toHaveBeenCalledTimes(1);
-        expect(callConnector).toHaveBeenCalledTimes(allowed ? 1 : 0);
-      }
-      if (!allowed) {
-        vi.stubGlobal("navigator", { userActivation: { isActive: true } });
-        confirm.mockReturnValue(true);
-        await read();
-        expect(confirm).toHaveBeenCalledTimes(2);
-        expect(callConnector).toHaveBeenCalledTimes(1);
-      }
-      queryClient.clear();
-    },
-  );
-
-  it("removes connector results and consent on an authentication change", async () => {
+  it("does not reuse a read from another project", async () => {
+    const previous = useAuthStore.getState().authState;
     const queryClient = new QueryClient();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-    callConnector
+    loadInsight
       .mockReset()
-      .mockResolvedValueOnce({ status: "ok", result: { viewer: "first" } })
-      .mockResolvedValueOnce({ status: "ok", result: { viewer: "second" } });
+      .mockResolvedValueOnce("first")
+      .mockResolvedValueOnce("second");
     const read = () =>
       handleFreeformDataRequest(
-        "connectorCall",
-        { provider: "github", tool: "list_pull_requests" },
+        "loadInsight",
+        { shortId: "abc123" },
         queryClient,
-        { dashboardId: "canvas-1", sourceVersionId: "version-1" },
       );
-    await expect(read()).resolves.toMatchObject({
-      result: { viewer: "first" },
-    });
-    queryClient.removeQueries({
-      predicate: (query) => query.meta?.authScoped === true,
-    });
-    await expect(read()).resolves.toMatchObject({
-      result: { viewer: "second" },
-    });
-    expect(confirm).toHaveBeenCalledTimes(2);
-    queryClient.clear();
-  });
-
-  it("requests consent again for a different canvas version or tool", async () => {
-    const queryClient = new QueryClient();
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-    callConnector.mockReset().mockResolvedValue({ status: "ok", result: {} });
-    for (const [sourceVersionId, tool] of [
-      ["version-1", "list_pull_requests"],
-      ["version-2", "list_pull_requests"],
-      ["version-2", "get_file_contents"],
-    ]) {
-      await handleFreeformDataRequest(
-        "connectorCall",
-        { provider: "github", tool },
-        queryClient,
-        { dashboardId: "canvas-1", sourceVersionId },
-      );
+    try {
+      useAuthStore.getState().setAuthState({
+        ...previous,
+        status: "authenticated",
+        cloudRegion: "us",
+        currentProjectId: 1,
+      });
+      expect(await read()).toBe("first");
+      expect(await read()).toBe("first");
+      useAuthStore.getState().setAuthState({
+        ...useAuthStore.getState().authState,
+        currentProjectId: 2,
+      });
+      expect(await read()).toBe("second");
+      expect(loadInsight).toHaveBeenCalledTimes(2);
+      expect(
+        queryClient
+          .getQueryCache()
+          .getAll()
+          .every((query) => query.meta?.authScoped),
+      ).toBe(true);
+    } finally {
+      useAuthStore.getState().setAuthState(previous);
+      queryClient.clear();
     }
-    expect(confirm).toHaveBeenCalledTimes(3);
-    expect(callConnector).toHaveBeenCalledTimes(3);
-    queryClient.clear();
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
   });
   // State and actions are canvas-scoped writes: routing them without the canvas
   // identity would write one canvas's state under another's keys.
@@ -208,53 +148,12 @@ describe("handleFreeformDataRequest", () => {
     ["stateSet", { key: "k", value: 1 }],
     ["stateList", {}],
     ["actionInvoke", { verb: "tasks.create", payload: {} }],
-    ["connectorCall", { provider: "github", tool: "list_pull_requests" }],
   ])("%s without a canvas context is refused", async (method, payload) => {
     const queryClient = new QueryClient();
 
     await expect(
       handleFreeformDataRequest(method, payload, queryClient),
     ).rejects.toThrow("requires a canvas context");
-  });
-
-  // The capability check that admits a connector call is per canvas, so a cached
-  // result must not be served to a second canvas that made the same call.
-  it("does not share a cached connector result across canvases", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-    const queryClient = new QueryClient();
-    callConnector.mockReset().mockResolvedValue({
-      status: "ok",
-      result: { pull_requests: [] },
-      detail: "",
-      truncated: false,
-      connect_path: null,
-    });
-    const payload = {
-      provider: "github",
-      tool: "list_pull_requests",
-      arguments: { repository: "app" },
-    };
-
-    await handleFreeformDataRequest("connectorCall", payload, queryClient, {
-      dashboardId: "canvas-1",
-      sourceVersionId: "version-1",
-    });
-    await handleFreeformDataRequest("connectorCall", payload, queryClient, {
-      dashboardId: "canvas-1",
-      sourceVersionId: "version-1",
-    });
-    await handleFreeformDataRequest("connectorCall", payload, queryClient, {
-      dashboardId: "canvas-2",
-      sourceVersionId: "version-1",
-    });
-
-    expect(callConnector).toHaveBeenCalledTimes(2);
-    expect(callConnector).toHaveBeenLastCalledWith({
-      id: "canvas-2",
-      provider: "github",
-      tool: "list_pull_requests",
-      arguments: { repository: "app" },
-    });
   });
 
   // Reads are cached by their content, so `variables` has to be part of the key. If

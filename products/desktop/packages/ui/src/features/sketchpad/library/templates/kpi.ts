@@ -1,0 +1,172 @@
+import { eventField, labelField, selectClass } from "./chartParts";
+
+export const kpiCode = `import {
+  hogqlString,
+  useDateRange,
+  useEventNames,
+  useFragmentSettings,
+  useHogQL,
+} from "@posthog/canvas-sdk";
+import {
+  Button,
+  Field,
+  FieldLabel,
+  Input,
+  SkeletonText,
+  Switch,
+} from "@posthog/quill";
+import { SlidersHorizontal } from "lucide-react";
+import { useState } from "react";
+
+const DEFAULTS = {
+  label: "Pageviews",
+  event: "$pageview",
+  measure: "events",
+  compare: true,
+};
+
+const SELECT_CLASS =
+  "${selectClass}";
+
+const MEASURES = [
+  { value: "events", label: "Events" },
+  { value: "users", label: "Unique users" },
+];
+
+function countExpression(measure) {
+  return measure === "users" ? "count(DISTINCT distinct_id)" : "count()";
+}
+
+function firstNumber(rows) {
+  const cell = rows[0] ? rows[0][0] : null;
+  return cell === null || cell === undefined ? null : Number(cell);
+}
+
+export default function Kpi({ fragmentId }) {
+  const [settings, setSettings] = useFragmentSettings(fragmentId, DEFAULTS);
+  const [open, setOpen] = useState(false);
+  const range = useDateRange(fragmentId);
+  const events = useEventNames();
+  const count = countExpression(settings.measure);
+  const eventLiteral = hogqlString(settings.event);
+  const current = useHogQL(
+    "SELECT " +
+      count +
+      " FROM events WHERE event = " +
+      eventLiteral +
+      " AND timestamp >= " +
+      range.since +
+      " AND timestamp < now()",
+  );
+  const previous = useHogQL(
+    settings.compare
+      ? "SELECT " +
+          count +
+          " FROM events WHERE event = " +
+          eventLiteral +
+          " AND timestamp >= " +
+          range.previousSince +
+          " AND timestamp < " +
+          range.since
+      : null,
+  );
+  const value = firstNumber(current.rows);
+  const before = firstNumber(previous.rows);
+  const change =
+    settings.compare && value !== null && before !== null && before > 0
+      ? ((value - before) / before) * 100
+      : null;
+
+  return (
+    <div className="group/kpi flex h-full flex-col justify-between gap-2 p-4">
+      <div className="flex items-start justify-between gap-2">
+        <p className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          {settings.label}
+        </p>
+        <button
+          type="button"
+          aria-label="Settings"
+          className={
+            open
+              ? "shrink-0 rounded p-1 text-foreground"
+              : "shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/kpi:opacity-100"
+          }
+          onClick={() => setOpen((isOpen) => !isOpen)}
+        >
+          <SlidersHorizontal size={13} />
+        </button>
+      </div>
+
+      {open ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto">
+          ${eventField}
+          <Field>
+            <FieldLabel>Count</FieldLabel>
+            <select
+              aria-label="Count"
+              value={settings.measure}
+              onChange={(change) =>
+                setSettings({ measure: change.target.value })
+              }
+              className={SELECT_CLASS}
+            >
+              {MEASURES.map((measure) => (
+                <option key={measure.value} value={measure.value}>
+                  {measure.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          ${labelField}
+          <label className="flex items-center justify-between gap-2 text-[13px]">
+            Compare with the range before
+            <Switch
+              checked={Boolean(settings.compare)}
+              onCheckedChange={(next) => setSettings({ compare: Boolean(next) })}
+            />
+          </label>
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col justify-center gap-1">
+          {current.error ? (
+            <div className="flex flex-col items-start gap-2">
+              <p className="line-clamp-2 text-xs text-destructive">
+                This number did not load.
+              </p>
+              <Button variant="outline" size="sm" onClick={current.retry}>
+                Try again
+              </Button>
+            </div>
+          ) : null}
+          {!current.error && current.loading ? (
+            <SkeletonText lines={1} className="w-2/3 text-4xl" />
+          ) : null}
+          {!current.error && !current.loading ? (
+            <div className="flex items-baseline gap-2">
+              <span className="truncate font-semibold text-4xl leading-none tracking-tight tabular-nums">
+                {Number(value ?? 0).toLocaleString()}
+              </span>
+              {change === null ? null : (
+                <span
+                  className={
+                    change >= 0
+                      ? "shrink-0 font-medium text-[12px] text-success-foreground tabular-nums"
+                      : "shrink-0 font-medium text-[12px] text-destructive tabular-nums"
+                  }
+                >
+                  {change >= 0 ? "+" : ""}
+                  {change.toFixed(0)}%
+                </span>
+              )}
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      <p className="truncate text-[11px] text-muted-foreground">
+        {range.label}
+      </p>
+    </div>
+  );
+}
+`;

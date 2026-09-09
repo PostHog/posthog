@@ -1,0 +1,155 @@
+import { useDateRange, useHogQL, useSharedState } from "@posthog/canvas-sdk";
+import {
+  Button,
+  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  Textarea,
+} from "@posthog/quill";
+import {
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+} from "@tanstack/react-table";
+import { SlidersHorizontal } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+
+const DEFAULT_QUERY =
+  "SELECT event, count() AS events, count(DISTINCT distinct_id) AS people\nFROM events\nWHERE timestamp >= {since} AND timestamp < now()\nGROUP BY event\nORDER BY events DESC\nLIMIT 20";
+
+export default function SqlTable({ fragmentId }) {
+  const range = useDateRange(fragmentId);
+  const [stored, setStored] = useSharedState("sql:" + fragmentId, DEFAULT_QUERY);
+  const query = typeof stored === "string" && stored ? stored : DEFAULT_QUERY;
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(query);
+  const result = useHogQL(query.split("{since}").join(range.since));
+
+  useEffect(() => {
+    setDraft(query);
+  }, [query]);
+
+  const columns = useMemo(
+    () =>
+      (result.columns ?? []).map((name, index) => ({
+        id: String(index),
+        header: String(name),
+        accessorFn: (row) => (row ? row[index] : null),
+      })),
+    [result.columns],
+  );
+
+  const table = useReactTable({
+    data: result.rows,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+  });
+
+  const empty = !result.loading && !result.error && result.rows.length === 0;
+
+  const run = () => {
+    if (draft === query) {
+      result.retry();
+      return;
+    }
+    setStored(draft);
+  };
+
+  return (
+    <div className="group/sql flex h-full flex-col p-4">
+      <div className="flex items-baseline justify-between gap-3 pb-3">
+        <p className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          HogQL query
+        </p>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-[11px] text-muted-foreground tabular-nums">
+            {result.rows.length} rows
+          </span>
+          <button
+            type="button"
+            aria-label="Edit the query"
+            className={
+              open
+                ? "rounded p-1 text-foreground"
+                : "rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/sql:opacity-100"
+            }
+            onClick={() => setOpen((isOpen) => !isOpen)}
+          >
+            <SlidersHorizontal size={13} />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        {open ? (
+          <div className="flex flex-col gap-2">
+            <Textarea
+              value={draft}
+              onChange={(change) => setDraft(change.target.value)}
+              className="h-28 w-full resize-none font-mono text-xs"
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={result.loading}
+                onClick={run}
+              >
+                Run
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {"{since}"} becomes {range.label.toLowerCase()}
+              </span>
+            </div>
+          </div>
+        ) : null}
+        <div className="min-h-0 flex-1 overflow-auto">
+          {result.loading ? <Skeleton className="h-24 w-full" /> : null}
+          {result.error ? (
+            <p className="text-xs text-destructive">
+              This query did not run. {result.error}
+            </p>
+          ) : null}
+          {empty ? (
+            <p className="text-[13px] text-muted-foreground">
+              The query returned no rows.
+            </p>
+          ) : null}
+          {!result.loading && !result.error && result.rows.length > 0 ? (
+            <Table>
+              <TableHeader>
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <TableRow key={headerGroup.id}>
+                    {headerGroup.headers.map((header) => (
+                      <TableHead key={header.id}>
+                        {flexRender(
+                          header.column.columnDef.header,
+                          header.getContext(),
+                        )}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableHeader>
+              <TableBody>
+                {table.getRowModel().rows.map((row) => (
+                  <TableRow key={row.id}>
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell key={cell.id}>
+                        {String(cell.getValue() ?? "")}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}

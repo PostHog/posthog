@@ -1,0 +1,106 @@
+import { useFragmentSettings, useSharedList } from "@posthog/canvas-sdk";
+import { Checkbox, Input } from "@posthog/quill";
+import { useState } from "react";
+
+export default function Checklist({ fragmentId }) {
+  const { items, insert, remove, update } = useSharedList(
+    "checklist:" + fragmentId,
+  );
+  const [settings, setSettings] = useFragmentSettings(fragmentId, {
+    title: "Checklist",
+  });
+  const [draft, setDraft] = useState("");
+  const done = items.filter((item) => item.value && item.value.done).length;
+  const progress = items.length ? (done / items.length) * 100 : 0;
+
+  const addItem = () => {
+    const label = draft.trim();
+    if (!label) {
+      return;
+    }
+    insert({ label, done: false });
+    setDraft("");
+  };
+
+  return (
+    <div className="flex h-full flex-col gap-3 p-4">
+      <div className="flex flex-col gap-2">
+        <div className="flex items-baseline justify-between gap-2">
+          <input
+            value={settings.title}
+            aria-label="Checklist title"
+            placeholder="Checklist"
+            spellCheck={false}
+            className="min-w-0 flex-1 border-0 bg-transparent p-0 font-semibold text-sm tracking-tight outline-none placeholder:text-foreground/30"
+            onChange={(event) => setSettings({ title: event.target.value })}
+          />
+          <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+            {done} of {items.length}
+          </span>
+        </div>
+        <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full rounded-full bg-primary transition-[width] duration-300"
+            style={{ width: progress + "%" }}
+          />
+        </div>
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-auto">
+        {items.length === 0 ? (
+          <p className="py-2 text-[13px] text-muted-foreground">
+            No items yet. Add the first one below.
+          </p>
+        ) : null}
+        {items.map((item) => {
+          const label = String((item.value && item.value.label) ?? "");
+          const isDone = Boolean(item.value && item.value.done);
+          return (
+            <div
+              key={item.id}
+              className="group/item -mx-1.5 flex items-center gap-2.5 rounded-md px-1.5 py-1.5 transition-colors hover:bg-muted/60"
+            >
+              <Checkbox
+                id={item.id}
+                checked={isDone}
+                onCheckedChange={(checked) =>
+                  update(item.id, { label, done: Boolean(checked) })
+                }
+              />
+              <label
+                htmlFor={item.id}
+                className={
+                  isDone
+                    ? "min-w-0 flex-1 cursor-pointer truncate text-[13px] text-muted-foreground line-through"
+                    : "min-w-0 flex-1 cursor-pointer truncate text-[13px]"
+                }
+              >
+                {label}
+              </label>
+              <button
+                type="button"
+                aria-label={"Remove " + label}
+                className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover/item:opacity-100"
+                onClick={() => remove(item.id)}
+              >
+                ×
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      <Input
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            addItem();
+          }
+        }}
+        placeholder="Add an item, then press Enter"
+        className="h-8 text-[13px]"
+      />
+    </div>
+  );
+}

@@ -1,0 +1,225 @@
+import {
+  ph,
+  useSketchpadFocus,
+  useContainer,
+  useSharedState,
+  useSharedText,
+} from "@posthog/canvas-sdk";
+import { ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+const PADDING = 14;
+const HEADER = 38;
+
+function readSlots(plan, ids, wanted) {
+  const stored = plan && typeof plan === "object" ? plan : {};
+  const order = Array.isArray(stored.order) ? stored.order : [];
+  const slots = order.map((id) =>
+    typeof id === "string" && ids.indexOf(id) !== -1 ? id : null,
+  );
+  const count = Math.max(1, Number(stored.count) || 0, slots.length);
+  while (slots.length < count) slots.push(null);
+
+  for (const id of ids) {
+    if (slots.indexOf(id) !== -1) continue;
+    const here =
+      wanted >= 0 && wanted < slots.length && slots[wanted] === null
+        ? wanted
+        : slots.indexOf(null);
+    if (here === -1) slots.push(id);
+    else slots[here] = id;
+  }
+  return slots;
+}
+
+export default function Slideshow({ fragmentId }) {
+  const title = useSharedText("frame:" + fragmentId + ":title");
+  const [plan, setPlan] = useSharedState("slides:" + fragmentId, null);
+  const [storedIndex, setIndex] = useSharedState("slide:" + fragmentId, 0);
+  const presenting = useSketchpadFocus() === fragmentId;
+
+  const [tick, setTick] = useState(0);
+  const visible = useRef(undefined);
+
+  const layout = useCallback((contents, box) => {
+    if (visible.current === undefined) return [];
+    return contents.map((child) => ({
+      id: child.id,
+      x: box.x,
+      y: box.y,
+      w: box.w,
+      h: box.h,
+      hidden: child.id !== visible.current,
+    }));
+  }, [tick]);
+
+  const { self, children } = useContainer(fragmentId, {
+    padding: PADDING,
+    header: HEADER,
+    layout,
+  });
+
+  const wanted = Math.max(0, Number(storedIndex) || 0);
+  const slots = readSlots(
+    plan,
+    children.map((child) => child.id),
+    wanted,
+  );
+  const count = slots.length;
+  const at = Math.min(wanted, count - 1);
+  const currentId = slots[at];
+  const current = children.find((child) => child.id === currentId) || null;
+
+  useEffect(() => {
+    if (visible.current === currentId) return;
+    visible.current = currentId;
+    setTick((value) => value + 1);
+  }, [currentId]);
+
+  const latest = useRef(null);
+  latest.current = { slots, at };
+  const known = useRef(null);
+  const idsKey = children.map((child) => child.id).join("|");
+  useEffect(() => {
+    const ids = idsKey ? idsKey.split("|") : [];
+    const before = known.current;
+    known.current = ids;
+    if (before === null) return;
+    const fresh = ids.filter((id) => before.indexOf(id) === -1);
+    if (fresh.length === 0) return;
+    const landed = latest.current.slots.indexOf(fresh[0]);
+    if (landed !== -1 && landed !== latest.current.at) setIndex(landed);
+  }, [idsKey, setIndex]);
+
+  const signature = slots.map((id) => id || "").join("|");
+  const storedSignature = (
+    plan && Array.isArray(plan.order) ? plan.order : []
+  )
+    .map((id) => id || "")
+    .join("|");
+  useEffect(() => {
+    if (signature === storedSignature) return;
+    setPlan({ order: slots, count });
+  }, [signature, storedSignature]);
+
+  const show = (next) => setIndex(((next % count) + count) % count);
+
+  const addSlide = () => {
+    setPlan({ order: slots.concat([null]), count: count + 1 });
+    setIndex(count);
+  };
+
+  const removeSlide = () => {
+    if (currentId && self) {
+      ph.board
+        .arrange([
+          { id: currentId, x: self.x + self.w + 24, y: self.y, hidden: false },
+        ])
+        .catch(() => {});
+    }
+    const rest = slots.filter((_, position) => position !== at);
+    if (rest.length === 0) rest.push(null);
+    setPlan({ order: rest, count: rest.length });
+    setIndex(Math.min(at, rest.length - 1));
+  };
+
+  const step = useRef(null);
+  step.current = show;
+  useEffect(() => {
+    if (!presenting || count < 2) return;
+    const onKey = (event) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const active = document.activeElement;
+      const tag = active && active.tagName ? active.tagName.toLowerCase() : "";
+      if (tag === "input" || tag === "textarea" || tag === "select") return;
+      if (active && active.isContentEditable) return;
+      const forward =
+        event.key === "ArrowRight" ||
+        event.key === "PageDown" ||
+        event.key === " ";
+      const back = event.key === "ArrowLeft" || event.key === "PageUp";
+      if (!forward && !back) return;
+      event.preventDefault();
+      step.current(forward ? at + 1 : at - 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [presenting, count, at]);
+
+  return (
+    <div
+      className={
+        presenting
+          ? "flex h-full w-full flex-col"
+          : "flex h-full w-full flex-col rounded-xl border border-border border-dashed bg-muted/20"
+      }
+    >
+      <div
+        className="flex shrink-0 items-center gap-2 px-2.5"
+        style={{ height: HEADER }}
+      >
+        <input
+          value={title.text}
+          placeholder="Slideshow"
+          aria-label="Slideshow name"
+          spellCheck={false}
+          className="min-w-0 flex-1 border-0 bg-transparent p-0 font-medium text-[13px] outline-none placeholder:text-foreground/30"
+          onChange={(event) => title.setText(event.target.value, null)}
+        />
+        <div className="flex shrink-0 items-center gap-0.5 rounded-full border border-border bg-card p-0.5">
+          <button
+            type="button"
+            aria-label="Previous slide"
+            className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            onClick={() => show(at - 1)}
+          >
+            <ChevronLeft size={12} />
+          </button>
+          <span className="px-1 text-[11px] text-muted-foreground tabular-nums">
+            {at + 1} of {count}
+          </span>
+          <button
+            type="button"
+            aria-label="Next slide"
+            className="rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            onClick={() => show(at + 1)}
+          >
+            <ChevronRight size={12} />
+          </button>
+        </div>
+        {presenting ? null : (
+          <>
+            <button
+              type="button"
+              aria-label="Add slide"
+              className="flex shrink-0 items-center gap-1 rounded-full border border-border bg-card px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              onClick={addSlide}
+            >
+              <Plus size={11} />
+              Add slide
+            </button>
+            <button
+              type="button"
+              aria-label={
+                current ? "Take this slide off the frame" : "Remove this slide"
+              }
+              className="shrink-0 rounded-full border border-border bg-card p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              onClick={removeSlide}
+            >
+              <X size={11} />
+            </button>
+          </>
+        )}
+      </div>
+
+      {current || presenting ? null : (
+        <div
+          className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-border border-dashed text-center text-[12px] text-muted-foreground"
+          style={{ margin: PADDING, marginTop: 0 }}
+        >
+          Drag a fragment onto this frame to fill the slide.
+        </div>
+      )}
+    </div>
+  );
+}

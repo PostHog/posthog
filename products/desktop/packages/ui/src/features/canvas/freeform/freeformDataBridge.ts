@@ -6,6 +6,8 @@ import type {
 } from "@posthog/core/canvas/freeformSchemas";
 import { canvasConnectorCallInput } from "@posthog/core/canvas/freeformSchemas";
 import type { QueryClient } from "@tanstack/react-query";
+import { getAuthIdentity, useAuthStore } from "../../auth/store";
+import { AUTH_SCOPED_QUERY_META } from "../../auth/useCurrentUser";
 import { hostClient } from "../hostClient";
 
 // Capability gating (assertCanvasCapability) lives in
@@ -54,7 +56,13 @@ function cachedRead<T>(
   refreshSeconds?: number,
 ) {
   return queryClient.fetchQuery({
-    queryKey: [CANVAS_QUERY_KEY, method, stableStringify(input)] as const,
+    queryKey: [
+      CANVAS_QUERY_KEY,
+      getAuthIdentity(useAuthStore.getState().authState),
+      method,
+      stableStringify(input),
+    ] as const,
+    meta: AUTH_SCOPED_QUERY_META,
     queryFn: run,
     meta: method === "connectorCall" ? { authScoped: true } : undefined,
     staleTime: (refreshSeconds ?? 5 * 60) * 1_000,
