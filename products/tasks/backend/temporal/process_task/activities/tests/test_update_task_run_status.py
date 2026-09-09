@@ -627,7 +627,7 @@ def test_terminal_transition_wakes_the_workflow_step_that_started_the_run(
     test_task_run.save(update_fields=["output"])
     input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
 
-    with patch("products.tasks.backend.logic.services.workflow_step_resume.resume_workflow_step") as resume:
+    with patch("products.tasks.backend.logic.services.workflow_step_resume.emit_workflow_step_resume") as resume:
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
 

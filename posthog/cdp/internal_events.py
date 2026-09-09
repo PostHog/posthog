@@ -23,14 +23,14 @@ _MANAGED_ALERT_EVENT = re.compile(MANAGED_ALERT_EVENT_PATTERN)
 
 WORKFLOW_STEP_RESUME_EVENT = "$workflow_step_resume"
 
-# Internal events a product emits for its own consumer, carrying that product's data. A
-# user-created destination filtered on one of these forwards it off-platform without the
-# read permission the owning product requires.
+# Internal events that only the product which emits them may consume. A user-created
+# destination cannot subscribe to one, because its properties carry that product's data and
+# forwarding them off-platform would bypass the read permission the product enforces on it.
 RESERVED_INTERNAL_EVENTS = frozenset({WORKFLOW_STEP_RESUME_EVENT})
 
 
 def is_reserved_internal_event(event_name: object) -> bool:
-    """Return whether an internal event is reserved from user-created destinations."""
+    """Return whether an internal event is closed to user-created destinations."""
     return isinstance(event_name, str) and event_name in RESERVED_INTERNAL_EVENTS
 
 

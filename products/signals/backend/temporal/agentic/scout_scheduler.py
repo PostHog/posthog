@@ -16,7 +16,7 @@ from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import ActivityError, is_cancelled_exception
 
-from posthog.cdp.workflow_step_resume import WorkflowStepResumeStatus, resume_workflow_step
+from posthog.cdp.workflow_step_resume import WorkflowStepResumeStatus, emit_workflow_step_resume
 from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -91,7 +91,7 @@ def _resume_workflow_step(
     status: WorkflowStepResumeStatus = "failed"
     if output.status in ("completed", "failed", "cancelled"):
         status = cast(WorkflowStepResumeStatus, output.status)
-    resume_workflow_step(
+    emit_workflow_step_resume(
         team_id=input.team_id,
         origin_key=input.workflow_origin_key,
         status=status,

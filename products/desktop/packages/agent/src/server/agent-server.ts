@@ -1521,18 +1521,20 @@ export class AgentServer {
           }
 
           this.recordTurnUsage(result.usage);
-          this.broadcastTurnComplete(
-            result.stopReason,
-            this.promptResultTraceId(result),
-          );
+          const turnTraceId = this.promptResultTraceId(result);
+          this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
           if (result.stopReason === "end_turn") {
             // Relay the response to Slack. For follow-ups this is the primary
             // delivery path — the HTTP caller only handles reactions. Echo the
-            // initiating message's id so the backend can attribute the answer.
-            this.relayAgentResponse(commandSession.payload, messageId).catch(
-              (err) =>
-                this.logger.debug("Failed to relay follow-up response", err),
+            // initiating message's id so the backend can attribute the answer,
+            // and the turn's trace id so a rating on the reply names the turn.
+            this.relayAgentResponse(
+              commandSession.payload,
+              messageId,
+              turnTraceId,
+            ).catch((err) =>
+              this.logger.debug("Failed to relay follow-up response", err),
             );
           }
 
@@ -1557,6 +1559,9 @@ export class AgentServer {
           const outcome = {
             stopReason: result.stopReason,
             ...(assistantMessage && { assistant_message: assistantMessage }),
+            // The caller posts this answer itself when the relay above found no
+            // message to send, so it needs the turn's trace id on the same terms.
+            ...(turnTraceId && { trace_id: turnTraceId }),
           };
           resolveDelivery(outcome);
           return outcome;
@@ -2837,13 +2842,11 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      this.broadcastTurnComplete(
-        result.stopReason,
-        this.promptResultTraceId(result),
-      );
+      const turnTraceId = this.promptResultTraceId(result);
+      this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
       if (result.stopReason === "end_turn") {
-        await this.relayAgentResponse(payload);
+        await this.relayAgentResponse(payload, undefined, turnTraceId);
       }
 
       await this.finalizeRunTelemetry(payload);
@@ -3226,13 +3229,11 @@ export class AgentServer {
       }
 
       this.recordTurnUsage(result.usage);
-      this.broadcastTurnComplete(
-        result.stopReason,
-        this.promptResultTraceId(result),
-      );
+      const turnTraceId = this.promptResultTraceId(result);
+      this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
       if (result.stopReason === "end_turn") {
-        await this.relayAgentResponse(payload);
+        await this.relayAgentResponse(payload, undefined, turnTraceId);
       }
 
       await this.finalizeRunTelemetry(payload);
@@ -5426,6 +5427,7 @@ ${commonInstructions}
   private async relayAgentResponse(
     payload: JwtPayload,
     messageId?: string,
+    traceId?: string | null,
   ): Promise<void> {
     if (!this.session) {
       return;
@@ -5471,6 +5473,7 @@ ${commonInstructions}
         message,
         messageParts,
         messageId,
+        traceId,
       );
     } catch (error) {
       this.logger.debug("Failed to relay initial agent response to Slack", {

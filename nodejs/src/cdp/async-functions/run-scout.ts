@@ -7,6 +7,7 @@ import { defaultConfig } from '~/common/config/config'
 import { registerAsyncFunction } from '../async-function-registry'
 import { PosthogJwtAudience } from '../utils/jwt-utils'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
+import { workflowStepDispatchKeyFromInvocation } from '../utils/workflow-step-dispatch-key'
 
 // The token rides the staged fetch verbatim through every engine retry (executeFetch re-queues
 // the identical request), so its lifetime must cover the whole backoff chain plus queue lag,
@@ -31,12 +32,12 @@ registerAsyncFunction('postHogRunScout', {
         }
 
         // Both come from the flow-spawned invocation, never from step inputs: the hog_flow_id
-        // claim is what the endpoint trusts to resolve the calling workflow, and the action id
-        // makes the idempotency key step-scoped (the run id alone is shared by every step in
-        // the run, so two run-scout steps in one workflow would dedupe against each other).
+        // claim is what the endpoint trusts to resolve the calling workflow, and the dispatch key
+        // scopes the idempotency key to this step and visit (the run id alone is shared by every
+        // step in the run, so two run-scout steps in one workflow would dedupe against each other).
         const hogFlow = (context.invocation as { hogFlow?: HogFlow }).hogFlow
-        const actionId = context.invocation.state.actionId
-        if (!hogFlow?.id || !actionId) {
+        const idempotencyKey = workflowStepDispatchKeyFromInvocation(context.invocation)
+        if (!hogFlow?.id || !idempotencyKey) {
             throw new Error('postHogRunScout only runs inside a workflow')
         }
 
@@ -58,7 +59,7 @@ registerAsyncFunction('postHogRunScout', {
             },
             body: JSON.stringify({
                 skill_name: payload.skill_name,
-                idempotency_key: `${context.invocation.id}:${actionId}`,
+                idempotency_key: idempotencyKey,
             }),
         })
     },

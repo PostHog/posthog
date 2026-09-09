@@ -123,6 +123,7 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     public claimedWatcherIds: string[] | null = null
     public wakeRows: MockRow[] = []
     public moveRows: MockRow[] = []
+    public resumeRows: { id: string; status: string; state?: Buffer | null }[] = []
     public updateRowCount = 0
 
     constructor() {
@@ -152,6 +153,9 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
             }
             if (sql.includes('SELECT id, state FROM cyclotron_jobs')) {
                 return Promise.resolve({ rows: this.wakeRows, rowCount: this.wakeRows.length })
+            }
+            if (sql.includes('SELECT id, status, state FROM cyclotron_jobs')) {
+                return Promise.resolve({ rows: this.resumeRows, rowCount: this.resumeRows.length })
             }
             if (sql.includes('SELECT id, team_id, distinct_id, function_id, action_id, state')) {
                 return Promise.resolve({ rows: this.moveRows, rowCount: this.moveRows.length })
@@ -1846,6 +1850,101 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             } else {
                 expect(update).toBeUndefined()
             }
+        })
+    })
+
+    describe('step resumes', () => {
+        const jobId = 'b1f0c2d4-0000-4000-8000-000000000001'
+        const originKey = `${jobId}:task_node:3`
+        const rawResume = (properties: Record<string, any>, team_id = 2): any => ({
+            value: Buffer.from(
+                JSON.stringify({
+                    team_id,
+                    event: {
+                        uuid: 'evt-uuid-resume',
+                        event: '$workflow_step_resume',
+                        distinct_id: `team_${team_id}`,
+                        properties,
+                        timestamp: '2024-01-01T00:00:00Z',
+                    },
+                })
+            ),
+        })
+        const parkedState = (key = originKey): Buffer =>
+            stateBuffer({
+                actionStepCount: 3,
+                currentAction: {
+                    id: 'task_node',
+                    startedAtTimestamp: 1,
+                    awaitingResume: { key, deadlineAt: 'x', dispatch: {} },
+                },
+            })
+        const resume = { origin_key: originKey, status: 'completed', result: { final_message: 'done' } }
+        const resumeUpdate = () =>
+            matcher.calls.find(
+                (c) => c.sql.startsWith('UPDATE cyclotron_jobs') && c.sql.includes('SET scheduled = NOW(), state')
+            )
+        const writtenState = (): any => parseJSON(resumeUpdate()!.params[1][0].toString('utf-8'))
+
+        it('routes a resume out of the events stream even for a team with no wait steps', () => {
+            const other = { value: Buffer.from(JSON.stringify({ team_id: 2, event: { event: 'other' } })) }
+
+            const { resumes, rest } = matcher._splitStepResumes([rawResume(resume), other])
+
+            expect(resumes).toEqual([{ ...resume, jobId, actionId: 'task_node' }])
+            expect(rest).toEqual([other])
+        })
+
+        it.each([
+            'nope',
+            'not-a-uuid:task:3',
+            `${jobId}::3`,
+            `${jobId}:task:-1`,
+            `${jobId}:task:3.r0`,
+            `${jobId}:task:NaN`,
+        ])('drops an invalid key: %s', (origin_key) => {
+            const { resumes, rest } = matcher._splitStepResumes([rawResume({ ...resume, origin_key })])
+
+            expect(resumes).toEqual([])
+            expect(rest).toEqual([])
+        })
+
+        it('wakes a parked job and stamps the result on its step', async () => {
+            matcher.resumeRows = [{ id: jobId, status: 'available', state: parkedState() }]
+
+            await matcher.processStepResumes([{ ...resume, status: 'completed', jobId, actionId: 'task_node' }])
+
+            expect(resumeUpdate()!.params[0]).toEqual([jobId])
+            expect(writtenState().state.currentAction.resumeResult).toEqual({
+                key: originKey,
+                status: 'completed',
+                result: { final_message: 'done' },
+            })
+        })
+
+        it.each([
+            ['the job is still running', 'running', parkedState()],
+            ['the job already finished', 'completed', parkedState()],
+            ['the job failed', 'failed', parkedState()],
+            ['the wake belongs to an earlier visit', 'available', parkedState(`${jobId}:task_node:2`)],
+        ])('wakes nothing when %s', async (_, status, state) => {
+            matcher.resumeRows = [{ id: jobId, status, state }]
+
+            await matcher.processStepResumes([{ ...resume, status: 'completed', jobId, actionId: 'task_node' }])
+
+            expect(resumeUpdate()).toBeUndefined()
+        })
+
+        it('applies the current wake when a stale one shares the batch', async () => {
+            matcher.resumeRows = [{ id: jobId, status: 'available', state: parkedState() }]
+            const parsedResume = { ...resume, status: 'completed' as const, jobId, actionId: 'task_node' }
+
+            await matcher.processStepResumes([
+                { ...parsedResume, origin_key: `${jobId}:task_node:2`, status: 'failed' },
+                parsedResume,
+            ])
+
+            expect(writtenState().state.currentAction.resumeResult.key).toBe(originKey)
         })
     })
 })

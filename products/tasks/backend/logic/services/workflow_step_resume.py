@@ -4,7 +4,7 @@ from uuid import UUID
 from celery import current_app
 from jsonschema import ValidationError, validate
 
-from posthog.cdp.workflow_step_resume import WorkflowStepResumeStatus, resume_workflow_step
+from posthog.cdp.workflow_step_resume import WorkflowStepResumeStatus, emit_workflow_step_resume
 
 from products.tasks.backend.models import Task, TaskRun
 
@@ -72,7 +72,7 @@ def _workflow_origin_key(task_run: TaskRun) -> str | None:
 
 
 def _emit(task_run: TaskRun, origin_key: str, status: WorkflowStepResumeStatus) -> None:
-    resume_workflow_step(
+    emit_workflow_step_resume(
         team_id=task_run.task.team_id, origin_key=origin_key, status=status, result=_result_for_run(task_run)
     )
 
