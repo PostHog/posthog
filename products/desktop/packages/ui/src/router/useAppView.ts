@@ -3,6 +3,10 @@ import {
   type TaskInputReportAssociation,
   useTaskInputPrefillStore,
 } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
+import {
+  isReportPath,
+  reportSourceHrefFromLocation,
+} from "@posthog/ui/router/reportNavigation";
 import { useRouterState } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { getCurrentMatches } from "./navigationBridge";
@@ -158,6 +162,35 @@ export function useAppView(): AppView {
     }
     return view;
   }, [fullPath, taskId, pendingKey, folderId, prefill]);
+}
+
+/**
+ * The legacy navigation row a report's source path belongs to. Only the types
+ * the legacy sidebar highlights; settings, tasks and other non-row surfaces
+ * return null.
+ */
+export function legacyNavTypeForPath(path: string): AppViewType | null {
+  if (/^\/inbox(\/|$)/.test(path)) return "inbox";
+  if (/^\/activity(\/|$)/.test(path)) return "activity";
+  if (/^\/loops(\/|$)/.test(path)) return "loops";
+  if (/^\/command-center(\/|$)/.test(path)) return "command-center";
+  return null;
+}
+
+/**
+ * On a report, the legacy navigation row its source names; null on any other
+ * route (or a report with no row-shaped source). Lets the legacy sidebar keep
+ * "you are here" while a report is open, matching what the rail does with the
+ * same `?from=`.
+ */
+export function useReportSourceNavType(): AppViewType | null {
+  return useRouterState({
+    select: (s) => {
+      if (!isReportPath(s.location.pathname)) return null;
+      const source = reportSourceHrefFromLocation(s.location);
+      return source ? legacyNavTypeForPath(source.split(/[?#]/)[0]) : null;
+    },
+  });
 }
 
 /**
