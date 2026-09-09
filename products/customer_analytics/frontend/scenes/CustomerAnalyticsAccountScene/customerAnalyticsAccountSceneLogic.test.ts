@@ -130,6 +130,39 @@ describe('customerAnalyticsAccountSceneLogic', () => {
         }
     })
 
+    it('keeps the latest presence response when an earlier request resolves later', async () => {
+        const staleRequest = createDeferred<AccountPresenceViewerApi[]>()
+        const latestRequest = createDeferred<AccountPresenceViewerApi[]>()
+        const staleRequestStarted = createDeferred<void>()
+        const latestRequestStarted = createDeferred<void>()
+        const latestViewers: AccountPresenceViewerApi[] = [{ user_id: 3, display_name: 'Sam Patel' }]
+        mockAccountsRetrieve.mockResolvedValue(account)
+        mockAccountsPresenceCreate
+            .mockImplementationOnce(() => {
+                staleRequestStarted.resolve()
+                return staleRequest.promise
+            })
+            .mockImplementationOnce(() => {
+                latestRequestStarted.resolve()
+                return latestRequest.promise
+            })
+
+        mountLogic()
+        await staleRequestStarted.promise
+        logic.actions.loadAccountPresence()
+        await latestRequestStarted.promise
+
+        latestRequest.resolve(latestViewers)
+        await Promise.resolve()
+        await Promise.resolve()
+        staleRequest.reject(new Error('Unavailable'))
+        await Promise.resolve()
+        await Promise.resolve()
+
+        expect(logic.values.accountPresenceViewers).toEqual(latestViewers)
+        expect(logic.values.accountPresenceError).toBeNull()
+    })
+
     it('classifies a missing account without reporting an exception', async () => {
         const captureException = jest.spyOn(posthog, 'captureException')
         mockAccountsRetrieve.mockRejectedValue(new ApiError('Not found', 404))

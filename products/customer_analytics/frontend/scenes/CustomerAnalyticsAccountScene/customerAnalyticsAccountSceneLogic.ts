@@ -225,7 +225,7 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
             ],
         ],
     }),
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions, cache, props, values }) => ({
         loadAccount: async () => {
             try {
                 actions.loadAccountSuccess(await accountsRetrieve(String(values.currentTeamId), props.accountId))
@@ -242,12 +242,17 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
             })
         },
         loadAccountPresence: async () => {
+            cache.accountPresenceRequestSequence = (cache.accountPresenceRequestSequence ?? 0) + 1
+            const requestSequence = cache.accountPresenceRequestSequence
             try {
-                actions.loadAccountPresenceSuccess(
-                    await accountsPresenceCreate(String(values.currentTeamId), props.accountId)
-                )
+                const viewers = await accountsPresenceCreate(String(values.currentTeamId), props.accountId)
+                if (requestSequence === cache.accountPresenceRequestSequence) {
+                    actions.loadAccountPresenceSuccess(viewers)
+                }
             } catch (error) {
-                actions.loadAccountPresenceFailure(error)
+                if (requestSequence === cache.accountPresenceRequestSequence) {
+                    actions.loadAccountPresenceFailure(error)
+                }
             }
         },
         setActiveTab: ({ tab }) => {

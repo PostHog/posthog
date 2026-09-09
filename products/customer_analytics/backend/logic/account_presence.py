@@ -17,12 +17,15 @@ logger = structlog.get_logger(__name__)
 @frozen
 class _AccountPresenceKeys:
     roster: str
-    profiles: str
+    profile_prefix: str
+
+    def get_profile_key(self, user_id: int) -> str:
+        return f"{self.profile_prefix}:{user_id}"
 
 
 def _presence_keys(team_id: int, account_id: str) -> _AccountPresenceKeys:
     prefix = f"customer_analytics:account_presence:{team_id}:{account_id}"
-    return _AccountPresenceKeys(roster=f"{prefix}:viewers", profiles=f"{prefix}:profiles")
+    return _AccountPresenceKeys(roster=f"{prefix}:viewers", profile_prefix=f"{prefix}:profiles")
 
 
 def heartbeat_account_presence(
@@ -36,13 +39,16 @@ def heartbeat_account_presence(
         redis_client = get_client()
         pipeline = redis_client.pipeline()
         pipeline.zadd(keys.roster, {str(viewer.user_id): expires_at})
-        pipeline.hset(keys.profiles, str(viewer.user_id), json.dumps({"display_name": viewer.display_name}))
+        pipeline.set(
+            keys.get_profile_key(viewer.user_id),
+            json.dumps({"display_name": viewer.display_name}),
+            ex=ACCOUNT_PRESENCE_TTL_SECONDS,
+        )
         pipeline.expire(keys.roster, ACCOUNT_PRESENCE_TTL_SECONDS)
-        pipeline.expire(keys.profiles, ACCOUNT_PRESENCE_TTL_SECONDS)
         pipeline.zremrangebyscore(keys.roster, "-inf", now)
         pipeline.zrangebyscore(keys.roster, now, "+inf")
         active_user_ids = pipeline.execute()[-1]
-        profiles = redis_client.hmget(keys.profiles, active_user_ids)
+        profiles = redis_client.mget([keys.get_profile_key(int(user_id)) for user_id in active_user_ids])
     except RedisError:
         logger.warning("customer_analytics_account_presence_redis_error", exc_info=True)
         return []
