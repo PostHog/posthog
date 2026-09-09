@@ -27,14 +27,19 @@ import json
 import time
 import statistics
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
+from posthoganalytics.client import Client
+
+from posthog.exceptions_capture import capture_exception
+from posthog.models.organization import Organization
 from posthog.ph_client import get_regional_ph_client
 from posthog.utils import get_instance_region
 
 from products.growth.backend.enrichment import icp_lists as icp_lists_module
+from products.growth.backend.enrichment.bridge import read_organization_bridge_inputs
 from products.growth.backend.enrichment.core import latest_matched_payload
 from products.growth.backend.enrichment.fit_score import IcpFitResult, score_company
 from products.growth.backend.enrichment.harmonic_adapter import normalize_graphql_company
@@ -47,7 +52,9 @@ from products.growth.backend.enrichment.icp_lists import (
 )
 from products.growth.backend.enrichment.labels import recent_latest_fetches_qs, signup_domain_for_organization
 from products.growth.backend.enrichment.writer import write_organization_enrichment
-from products.growth.backend.models import OrganizationEnrichment
+from products.growth.backend.models import OrganizationEnrichment, OrganizationEnrichmentFetch
+
+_BackfillOutcome = Literal["written", "skipped_org_gone", "skipped_wizard_unavailable"]
 
 
 class _Stats:
@@ -112,6 +119,39 @@ def _lists_from_csvs(tags_csv: str, investors_csv: str) -> CuratedLists:
     )
 
 
+def _wizard_ai_sdk_for_backfill(*, organization_id: str, record: Optional[OrganizationEnrichment]) -> Optional[bool]:
+    flags = record.data.get("icp_fit_flags") if record else None
+    persisted = isinstance(flags, dict) and flags.get("wizard_ai_sdk") is True
+    try:
+        return read_organization_bridge_inputs(organization_id=organization_id).wizard.ai_sdk_detected
+    except Exception as e:
+        capture_exception(e, {"organization_id": organization_id})
+        return True if persisted else None
+
+
+def _score_backfill_fetch(
+    *, fetch: OrganizationEnrichmentFetch, organization: Organization, lists: CuratedLists
+) -> Optional[IcpFitResult]:
+    domain = signup_domain_for_organization(organization)
+    record = OrganizationEnrichment.objects.filter(organization_id=fetch.organization_id).first()
+    role = record.data.get("signup_role") if record else None
+
+    payload = _normalize_any_payload(fetch.payload)
+    if payload is None:
+        payload = _normalize_any_payload(latest_matched_payload(str(fetch.organization_id)))
+
+    wizard_ai_sdk = _wizard_ai_sdk_for_backfill(organization_id=str(fetch.organization_id), record=record)
+    if wizard_ai_sdk is None:
+        return None
+    return score_company(
+        payload,
+        lists=lists,
+        role=role,
+        domain=domain,
+        wizard_ai_sdk=wizard_ai_sdk,
+    )
+
+
 def _iter_parity_payloads(path: str):
     """Yield (domain, payload) from a JSONL(.gz) file or a directory of per-domain JSON files."""
     p = Path(path)
@@ -171,6 +211,40 @@ class Command(BaseCommand):
             )
         return lists
 
+    def _process_fetch(
+        self,
+        *,
+        fetch: OrganizationEnrichmentFetch,
+        lists: CuratedLists,
+        stats: _Stats,
+        pha_client: Client,
+        dry_run: bool,
+        delay: float,
+    ) -> _BackfillOutcome:
+        try:
+            organization = fetch.organization
+        except Exception:
+            organization = None
+        if organization is None:
+            return "skipped_org_gone"
+
+        result = _score_backfill_fetch(fetch=fetch, organization=organization, lists=lists)
+        if result is None:
+            return "skipped_wizard_unavailable"
+        stats.add(result)
+
+        if dry_run:
+            self.stdout.write(f"would write {fetch.organization_id}: {result.status} score={result.score}")
+            return "written"
+
+        write_organization_enrichment(
+            organization_id=str(fetch.organization_id), fields=None, pha_client=pha_client, fit=result
+        )
+        self.stdout.write(f"wrote {fetch.organization_id}: {result.status} score={result.score}")
+        if delay:
+            time.sleep(delay)
+        return "written"
+
     def _run_backfill(self, options: dict[str, Any]) -> None:
         if get_instance_region() not in ("US", "EU"):
             raise CommandError("Signup enrichment is Cloud-only; refusing to backfill in this region")
@@ -193,50 +267,34 @@ class Command(BaseCommand):
         if limit is not None:
             fetches = fetches[:limit]
 
+        outcomes: dict[_BackfillOutcome, int] = {
+            "written": 0,
+            "skipped_org_gone": 0,
+            "skipped_wizard_unavailable": 0,
+        }
         try:
-            considered = written = skipped_org_gone = 0
+            considered = 0
             for fetch in fetches.iterator():
                 considered += 1
-                try:
-                    organization = fetch.organization
-                except Exception:
-                    organization = None
-                if organization is None:
-                    # db_constraint=False allows orphan archive rows after org deletion; a score
-                    # write (and its group projection) for a dead org is pointless.
-                    skipped_org_gone += 1
-                    continue
-
-                domain = signup_domain_for_organization(organization)
-                record = OrganizationEnrichment.objects.filter(organization_id=fetch.organization_id).first()
-                role = record.data.get("signup_role") if record else None
-
-                payload = _normalize_any_payload(fetch.payload)
-                if payload is None:
-                    # Same lookback the live path uses: the latest fetch alone can be a flaky
-                    # miss even when an earlier one matched.
-                    payload = _normalize_any_payload(latest_matched_payload(str(fetch.organization_id)))
-                result = score_company(payload, lists=lists, role=role, domain=domain)
-                stats.add(result)
-
-                if dry_run:
-                    written += 1
-                    self.stdout.write(f"would write {fetch.organization_id}: {result.status} score={result.score}")
-                    continue
-
-                write_organization_enrichment(
-                    organization_id=str(fetch.organization_id), fields=None, pha_client=pha_client, fit=result
+                outcome = self._process_fetch(
+                    fetch=fetch,
+                    lists=lists,
+                    stats=stats,
+                    pha_client=pha_client,
+                    dry_run=dry_run,
+                    delay=delay,
                 )
-                written += 1
-                self.stdout.write(f"wrote {fetch.organization_id}: {result.status} score={result.score}")
-                if delay:
-                    time.sleep(delay)
+                outcomes[outcome] += 1
         finally:
             pha_client.shutdown()
 
         verb = "would write" if dry_run else "wrote"
         self.stdout.write(
-            self.style.SUCCESS(f"considered {considered}, {verb} {written}, skipped_org_gone {skipped_org_gone}")
+            self.style.SUCCESS(
+                f"considered {considered}, {verb} {outcomes['written']}, "
+                f"skipped_org_gone {outcomes['skipped_org_gone']}, "
+                f"skipped_wizard_unavailable {outcomes['skipped_wizard_unavailable']}"
+            )
         )
         if options["stats"]:
             self.stdout.write(stats.summary())

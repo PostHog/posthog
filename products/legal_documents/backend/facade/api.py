@@ -12,6 +12,7 @@ from collections.abc import Callable
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import QuerySet
 from django.utils import timezone
 
 import structlog
@@ -21,6 +22,7 @@ from posthog.models.organization import Organization
 from posthog.ph_client import ph_scoped_capture
 
 from .. import logic
+from ..logic import SIGNED_BAA_ANNOTATION as SIGNED_BAA_ANNOTATION
 from ..logic.pandadoc import (
     PandaDocError,
     verify_webhook_signature as _verify_pandadoc_webhook_signature,
@@ -82,6 +84,26 @@ def get_signed_pdf_download_url(document_id: UUID, organization_id: UUID) -> str
 
 def has_qualifying_baa_addon(organization: Organization) -> bool:
     return logic.has_qualifying_baa_addon(organization)
+
+
+def has_signed_baa(organization_id: UUID) -> bool:
+    """
+    True once the organization has a countersigned BAA on file. This is the
+    standing HIPAA gate: it decides whether AI training stays locked off, so it
+    must read the signature state rather than a cached flag.
+
+    One query per call. Use `annotate_signed_baa` when serializing a list, and
+    keep this for a single organization and for validating a write.
+    """
+    return logic.has_signed_baa(organization_id)
+
+
+def annotate_signed_baa(queryset: QuerySet[Organization]) -> QuerySet[Organization]:
+    """
+    Add the signed-BAA flag to an Organization queryset as `SIGNED_BAA_ANNOTATION`,
+    so serializing N organizations costs one query rather than N.
+    """
+    return logic.annotate_signed_baa(queryset)
 
 
 def verify_pandadoc_webhook_signature(*, secret: str, body: bytes, signature: str) -> bool:

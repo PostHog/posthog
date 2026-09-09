@@ -503,6 +503,7 @@ tools:
         param_overrides:
             uuid:
                 description: User UUID, or `@me` to target the authenticated user.
+                default: '@me'
         response:
             include:
                 - id

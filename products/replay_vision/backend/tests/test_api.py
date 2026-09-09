@@ -15,6 +15,7 @@ from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.tagged_item import set_tags_on_object
+from posthog.event_usage import EventSource
 from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
@@ -1049,30 +1050,71 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         expected = flag_value if isinstance(flag_value, str) else None
         self.assertEqual(created[0].kwargs["properties"]["creation_flow_variant"], expected)
 
-    def test_create_reports_how_the_scanner_was_built(self):
+    @parameterized.expand(
+        [
+            ("app", {}, "ai", "ai"),
+            ("wizard", {"HTTP_USER_AGENT": "posthog/wizard 1.2.3"}, "scratch", "wizard"),
+        ]
+    )
+    def test_create_reports_how_the_scanner_was_built(
+        self, _name: str, headers: dict[str, Any], claimed: str, expected: str
+    ) -> None:
         # The arm says which flow the person was offered; this says what they did with it. Someone
         # offered the AI flow can still fill the form by hand, so a metric comparing AI-built against
         # hand-built scanners needs this and cannot read it off the arm.
+        #
+        # Only the app has a form, so a caller that has none reports its surface instead of what it
+        # claims. Resolved from a real user agent, since the question is whether a caller's surface
+        # reaches the serializer at all — a patched source asserts only that the branch exists.
         with patch("posthoganalytics.capture") as capture:
             resp = self.client.post(
                 self.scanners_url,
                 data={
-                    "name": "telemetry-method",
+                    "name": f"telemetry-method-{_name}",
                     "scanner_type": ScannerType.MONITOR,
                     "scanner_config": {"prompt": "did checkout complete?"},
                     "model": ScannerModel.GEMINI_3_8_FLASH,
-                    "creation_method": "ai",
+                    "creation_method": claimed,
                 },
                 format="json",
+                **headers,
             )
 
         self.assertEqual(resp.status_code, 201, resp.json())
         created = [
             call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_scanner_created"
         ]
-        self.assertEqual(created[0].kwargs["properties"]["creation_method"], "ai")
+        self.assertEqual(created[0].kwargs["properties"]["creation_method"], expected)
         # Telemetry only: it must not reach the model, whose constructor would reject it.
         self.assertFalse(hasattr(ReplayScanner.objects.get(id=resp.json()["id"]), "creation_method"))
+
+    def test_create_without_a_request_reports_the_declared_surface(self) -> None:
+        # Max reaches the serializer directly, so there is no request to derive a surface from and
+        # nothing would be reported at all. It declares one in the context instead, the same way it
+        # passes `user`. Left unattributed, its scanners land in the same bucket as the app's.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        serializer = ReplayScannerSerializer(
+            data={
+                "name": "telemetry-surface-max",
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "did checkout complete?"},
+                "model": ScannerModel.GEMINI_3_8_FLASH,
+            },
+            context={
+                "get_team": lambda: self.team,
+                "user": self.user,
+                "event_source": EventSource.POSTHOG_AI,
+            },
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        with patch("posthoganalytics.capture") as capture:
+            serializer.save()
+
+        created = [
+            call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_scanner_created"
+        ]
+        self.assertEqual(created[0].kwargs["properties"]["creation_method"], "posthog_ai")
 
     def test_update_ignores_how_the_scanner_was_built(self):
         # The UI PATCHes the whole form back, so an edit resends this. A scanner is built once, and
@@ -2048,7 +2090,11 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             scanner_type=ScannerType.SCORER,
             scanner_config={"prompt": "p", "scale": {"min": 0, "max": 10}},
         )
-        for idx, score in enumerate([1.0, 2.0, 3.0, 4.0, 5.0]):
+        # Schema drift can leave `score` a string or absent; those rows must drop out, not 500 the stats.
+        for idx, score in enumerate([1.0, 2.0, 3.0, 4.0, 5.0, "not-a-number", None]):
+            model_output: dict[str, Any] = {"scanner_type": "scorer", "reasoning": "r", "confidence": 0.5}
+            if score is not None:
+                model_output["score"] = score
             ReplayObservation.objects.create(
                 scanner=scorer,
                 session_id=f"sess-{idx}",
@@ -2056,10 +2102,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
                 triggered_by=ObservationTrigger.SCHEDULE,
                 status=ObservationStatus.SUCCEEDED,
                 completed_at=timezone.now(),
-                scanner_result={
-                    "model_output": {"scanner_type": "scorer", "score": score, "reasoning": "r", "confidence": 0.5},
-                    "signals_count": 0,
-                },
+                scanner_result={"model_output": model_output, "signals_count": 0},
             )
         resp = self.client.get(f"{self.observations_url(str(scorer.id))}stats/")
         self.assertEqual(resp.status_code, 200)
