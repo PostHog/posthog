@@ -287,11 +287,6 @@ export function WorkspaceModeSelect({
               <div className="flex items-center justify-between px-2 py-1">
                 <MenuLabel className="p-0">Cloud environments</MenuLabel>
                 <div className="flex items-center gap-1.5">
-                  {githubSetupRequired && (
-                    <span className="whitespace-nowrap text-[11px] text-warning-foreground">
-                      GitHub setup required
-                    </span>
-                  )}
                   <Button
                     type="button"
                     size="icon-xs"
@@ -310,6 +305,7 @@ export function WorkspaceModeSelect({
                     key={option.key}
                     option={option}
                     isFavorite={favoriteKey === option.key}
+                    githubSetupRequired={githubSetupRequired}
                     onSelect={selectTarget}
                     onToggleFavorite={toggleFavorite}
                   />
@@ -327,6 +323,7 @@ export function WorkspaceModeSelect({
                         key={option.key}
                         option={option}
                         isFavorite={favoriteKey === option.key}
+                        githubSetupRequired={githubSetupRequired}
                         onSelect={selectTarget}
                         onToggleFavorite={toggleFavorite}
                       />
@@ -353,11 +350,13 @@ export function WorkspaceModeSelect({
 function CloudTargetItem({
   option,
   isFavorite,
+  githubSetupRequired,
   onSelect,
   onToggleFavorite,
 }: {
   option: CloudTargetOption;
   isFavorite: boolean;
+  githubSetupRequired: boolean;
   onSelect: (target: CloudTarget) => void;
   onToggleFavorite: (target: CloudTarget) => void;
 }) {
@@ -377,6 +376,11 @@ function CloudTargetItem({
             </ItemDescription>
           </ItemContent>
           <ItemActions className="mr-1.5 ml-auto self-center">
+            {githubSetupRequired && (
+              <span className="whitespace-nowrap text-[11px] text-warning-foreground">
+                Connect GitHub
+              </span>
+            )}
             <Button
               type="button"
               size="icon-xs"

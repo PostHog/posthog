@@ -35,6 +35,12 @@ import type { DetectedRepo } from "../types";
 import { OptionalBadge } from "./OptionalBadge";
 import { StepActions } from "./StepActions";
 
+function handleDragOver(event: DragEvent<HTMLDivElement>): void {
+  if (!event.dataTransfer.types.includes("Files")) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+}
+
 interface SelectRepoStepProps {
   onComplete: (skipped: boolean) => void | Promise<void>;
   onBack: () => void;
@@ -95,12 +101,6 @@ export function SelectRepoStep({
     event.preventDefault();
     dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
     if (dragDepthRef.current === 0) setIsDraggingFolder(false);
-  };
-
-  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
-    if (!event.dataTransfer.types.includes("Files")) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
   };
 
   const handleFolderDrop = async (event: DragEvent<HTMLDivElement>) => {
