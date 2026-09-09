@@ -34,8 +34,6 @@ export const dashboardRecordSchema = z.object({
   componentMeta: componentMetaSchema.nullish(),
   templateId: z.string().default("freeform"),
   canvasType: z.enum(["canvas", "sketchpad"]).default("canvas"),
-  // The live author-written context (markdown) passed to the agent.
-  context: z.string().default(""),
   // Id of the task currently generating this canvas (freeform gen runs as a
   // dedicated task, like CONTEXT.md). null/absent = no generation in flight.
   generationTaskId: z.string().nullish(),
