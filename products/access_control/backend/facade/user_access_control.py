@@ -342,6 +342,8 @@ def model_to_resource(model: Model | type[Model]) -> Optional[APIScopeObject]:
         return "customer_task"
     if name in ("replayscanner", "replayobservation"):
         return "replay_scanner"
+    if name == "llmskill":
+        return "llm_skill"
     if name in ("visionalertconfiguration", "visionalertevent"):
         return "vision_alert"
     # These scopes are served by several viewsets, each with its own model
