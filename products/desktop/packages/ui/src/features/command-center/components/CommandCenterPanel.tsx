@@ -12,6 +12,8 @@ import {
 } from "@phosphor-icons/react";
 import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import { isBrainrotCell } from "@posthog/core/command-center/grid";
+import { readRunMode } from "@posthog/core/sidebar/buildSidebarData";
+import { resolveEffectiveCloudStatus } from "@posthog/core/task-detail/cloudRunState";
 import {
   Button,
   Empty,
@@ -20,7 +22,6 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-  Spinner as QuillSpinner,
   Text as QuillText,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS, type WorkspaceMode } from "@posthog/shared";
@@ -31,6 +32,7 @@ import { useDashboard } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { destroyShellTerminal } from "@posthog/ui/features/terminal/destroyShellTerminal";
 import { ShellTerminal } from "@posthog/ui/features/terminal/ShellTerminal";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
@@ -100,20 +102,24 @@ function CellStatusBadge({
     taskRunEnvironment: task.latest_run?.environment,
   });
 
-  const label = STATUS_LABEL[status];
+  const displayStatus = cell.hasUnseenCompletion ? "completed" : status;
+  const label = STATUS_LABEL[displayStatus];
   if (label === null) return null;
 
   const taskRunStatus = isCloud
-    ? (session?.cloudStatus ?? task.latest_run?.status ?? undefined)
+    ? (resolveEffectiveCloudStatus(task, session) ?? undefined)
     : undefined;
 
   return (
-    <span className="inline-flex items-center gap-0.5 rounded bg-gray-3 px-1 py-0.5 text-[10px] text-gray-11">
+    <span
+      className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] ${cell.hasUnseenCompletion ? "bg-primary text-primary-foreground" : "bg-gray-3 text-gray-11"}`}
+    >
       <TaskIcon
         workspaceMode={workspaceMode ?? undefined}
-        isGenerating={session?.isPromptPending}
-        needsPermission={(session?.pendingPermissions?.size ?? 0) > 0}
+        isGenerating={status === "running"}
+        needsPermission={status === "waiting"}
         taskRunStatus={taskRunStatus}
+        runMode={readRunMode(task.latest_run?.state)}
         prState={prState}
         hasDiff={hasDiff}
         size={10}
@@ -451,11 +457,7 @@ function BrainrotCell({ cellIndex }: { cellIndex: number }) {
           onLoad={handleLoad}
           className="h-full w-full border-0"
         />
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center text-gray-11">
-            <QuillSpinner className="h-6 w-6" />
-          </div>
-        )}
+        {loading && <LoadingState className="absolute inset-0" />}
       </div>
     </div>
   );
@@ -576,9 +578,7 @@ function CanvasCell({
       </div>
       <div className="min-h-0 flex-1">
         {isLoading ? (
-          <div className="flex h-full items-center justify-center">
-            <QuillSpinner className="h-6 w-6" />
-          </div>
+          <LoadingState />
         ) : dashboard?.kind === "grid" ? (
           <GridCanvasView canvasId={canvasId} interactive={false} />
         ) : dashboard ? (
@@ -625,7 +625,9 @@ function PopulatedCell({
   }, [clearCell, cell.cellIndex]);
 
   return (
-    <Flex direction="column" height="100%">
+    <div
+      className={`flex h-full flex-col ${cell.hasUnseenCompletion ? "ring-2 ring-primary ring-inset" : ""}`}
+    >
       <Flex
         align="center"
         gap="2"
@@ -677,7 +679,7 @@ function PopulatedCell({
           isActiveSession={isActiveSession}
         />
       </Flex>
-    </Flex>
+    </div>
   );
 }
 

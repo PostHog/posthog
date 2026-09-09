@@ -77,6 +77,49 @@ giving it richer context about PostHog's data model.
 
 Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Code).
 
+## Claude web and desktop exec schema budget
+
+Claude web and desktop silently drop a tool when its serialized `inputSchema` reaches 16,384 characters, so the final `exec` input schema has a test budget below that limit.
+Keep only guidance needed on nearly every call inline, including the compact tool-domain index.
+Everything else belongs in the `learn` catalog: Claude web and desktop guides, and, behind the `mcp-exec-skills` flag, PostHog and project skills.
+Skill names, descriptions, and bodies never go into the tool schema; agents discover them with `learn -s "<query>"` and read them with `learn <source>:<skill> [path]`.
+Project skill search applies the caller's per-skill read permissions before ranking and limiting results; restricted skills contribute no metadata or excerpts.
+The search endpoint uses dedicated burst and sustained budgets at the standard API rates (480 requests/minute and 4,800/hour). Personal API keys have separate budgets; OAuth and browser sessions share a budget per user. Exceeding either budget returns HTTP 429 with `Retry-After`, before the search runs.
+The project skill API defaults to 8,000-character body pages. For `learn`, MCP requests up to 1,000,000 characters in one call, covering the API's 1 MB UTF-8 body limit, and rejects oversized or incomplete bodies before searching or formatting them. The separate 44,000-character display budget directs agents to search or read line ranges for larger files.
+
+File reads and scoped searches scan lines incrementally. Search stops after 50 matches or when the display budget is full, preserving two context lines on either side where they fit. Heading outlines are bounded while being built, and oversized line ranges fail with a request to narrow the range. Files with many short lines do not require an array containing every line.
+Do not trim endpoint serializers or generated tool schemas to meet the budget; they stay the source of truth for `info` and `schema`.
+
+The eval runner's `--skill-delivery exec` mode removes bundled skills and defaults cases without an explicit interaction origin to the `eval` MCP consumer, which supports skill `learn`. Explicit case origins take precedence in both delivery modes. Bundled mode leaves unspecified origins unchanged.
+The runner applies the selected delivery mode to both Python's sandbox-provisioning flag override and MCP's flag override. Bundled mode preserves native skills unless a case explicitly disables them; exec mode removes them. Compare the `expected_skill_loaded` and `skill_loaded_before_tool` scores: a completed eval run can report `PASS` despite zero scores unless `--fail-under` sets a score threshold.
+Bundled-mode evals explicitly disable `mcp-exec-skills` through the dev/test process override, which skips skill-catalog warmup and polling. Exec-mode evals allow 120 seconds for MCP startup, covering the 60-second warmup budget plus an in-flight download and development build; bundled mode keeps the 30-second startup limit. Production feature-flag evaluation does not control this process lifecycle.
+
+## Rolling out MCP skill discovery
+
+Deploy the Django skills API, task launcher, and MCP changes before enabling `mcp-exec-skills`.
+Create or reuse a boolean flag with that exact key in the analytics project used by the two services; start disabled and enable a narrow user or organization condition first.
+A missing flag evaluates as off. Development `FEATURE_FLAG_OVERRIDES` do not enable production behavior.
+
+Verify the published skills archive loads, then start a new MCP session and sandbox task for an enabled user.
+Exercise `learn -s`, a qualified skill read, and a product call, and check that a disabled user retains the prior behavior.
+The `plugin` and `posthog-code` consumers remain excluded regardless of the flag.
+Monitor archive validation errors, catalog size, MCP memory, and task failures before expanding the release condition.
+
+To roll back access, disable the flag and start fresh sessions/tasks. This does not restore skills already removed from an existing sandbox.
+Background cache behavior during rollback is described below.
+
+## Shared skill archive cache
+
+Each MCP process holds a parsed catalog in memory. Redis stores immutable archive bytes under a SHA-256 key and one JSON pointer containing the current SHA, ETag, and last successful upstream validation time. Writers store the bytes before replacing the pointer; readers fetch the named blob and verify its hash before using it. Polling an unchanged version never transfers the archive bytes.
+
+For rollout and rollback, disabling `mcp-exec-skills` blocks caller access to product and project skills but does not unload the production catalog or stop archive polling. Stopping background catalog work requires a deployment change; restarting the same deployment reloads the catalog. The dev/test override described above does not apply in production.
+
+The `v2` keys are separate from the earlier split-key layout, so a rolling deploy starts a new cache without changing the old processes' data. A failed write leaves the previous generation readable. Missing blobs trigger a full download; a 304 refresh extends the referenced blob's TTL and updates the pointer only if that pointer is still current. Old archive generations expire after the 30-day archive TTL. The context-mill slim manifest uses the same helper with its own namespace and seven-day TTL; its resource bodies remain keyed by URI.
+
+The shared archive is checked for upstream changes after ten minutes. Use `mcp_skill_archive_last_validated_timestamp_seconds` to detect validation outages, including across process restarts. A successful 304 advances this timestamp. `mcp_skill_catalog_age_seconds` instead measures time since parsing and can grow while an unchanged archive remains healthy.
+
+A candidate alert expression is `time() - mcp_skill_archive_last_validated_timestamp_seconds > 1800`, sustained for five minutes. Zero means the process has not observed a successful shared validation. Pair this with `mcp_skill_archive_events_total{result="error"}` and `mcp_skill_catalog_skills` when investigating. This metric does not prove that each process has adopted the latest archive. The alert must be configured in the monitoring system; exposing the metric does not send notifications.
+
 ## SQL-first MCP: HogQL system tables
 
 Most list/get endpoints exposed as MCP tools should have a corresponding HogQL system table.

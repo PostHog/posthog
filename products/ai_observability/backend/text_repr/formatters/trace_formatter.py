@@ -24,6 +24,7 @@ from .message_formatter import (
     format_input_messages,
     format_output_messages,
     reduce_by_uniform_sampling,
+    sanitize_surrogates,
     truncate_content,
 )
 
@@ -548,4 +549,4 @@ def format_trace_text_repr(
     if max_length and len(formatted_text) > max_length:
         formatted_text, was_sampled = reduce_by_uniform_sampling(formatted_text, max_length)
 
-    return formatted_text, was_sampled
+    return sanitize_surrogates(formatted_text), was_sampled

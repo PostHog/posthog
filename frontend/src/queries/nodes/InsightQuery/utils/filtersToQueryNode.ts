@@ -395,15 +395,16 @@ export const filtersToQueryNode = (
         })
     }
 
-    if (!filters.insight) {
-        throw new Error('filtersToQueryNode expects "insight"')
-    }
-    if (!isKeyOf(filters.insight, insightTypeToNodeKind)) {
-        throw new Error(`insightTypeToNodeKind has no key ${filters.insight}`)
+    // A stored filter object can omit `insight`. The server's converter reads that as trends
+    // (`_insight_type` in filter_to_query.py), so this reads it the same way rather than throwing on
+    // a shape the server accepts.
+    const insightType = filters.insight ?? InsightType.TRENDS
+    if (!isKeyOf(insightType, insightTypeToNodeKind)) {
+        throw new Error(`insightTypeToNodeKind has no key ${insightType}`)
     }
 
     const query: InsightsQueryBase<AnalyticsQueryResponseBase> = {
-        kind: insightTypeToNodeKind[filters.insight],
+        kind: insightTypeToNodeKind[insightType],
         properties: cleanGlobalProperties(filters.properties),
         filterTestAccounts: filters.filter_test_accounts,
     }

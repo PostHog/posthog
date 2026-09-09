@@ -96,6 +96,7 @@ from products.customer_analytics.backend.facade.contracts import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
 )
 from products.customer_analytics.backend.facade.email_matching import schedule_email_thread_link_recalculation
+from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 from products.customer_analytics.backend.logic import (
     account_track_rules as _account_track_rules_logic,
     announcements as _announcements_logic,
@@ -104,6 +105,7 @@ from products.customer_analytics.backend.logic import (
     customer_tasks as _customer_tasks_logic,
     feature_requests as _feature_requests_logic,
     relationships as _relationships_logic,
+    user_customer_analytics_config as _user_customer_analytics_config_logic,
 )
 from products.customer_analytics.backend.logic.account_filters import (
     InvalidAccountFilter,
@@ -154,6 +156,7 @@ from products.customer_analytics.backend.models import (
     SyncStatus,
     SyncTrigger,
     TargetType,
+    UserCustomerAnalyticsConfig as UserCustomerAnalyticsConfigModel,
 )
 from products.customer_analytics.backend.models.account import (
     RETIRED_ROLE_KEYS,
@@ -885,9 +888,9 @@ class CustomPropertyDefinitionConflictError(Exception):
 
 
 class CanonicalCustomPropertyReadOnlyError(Exception):
-    """Raised when an update would change a field PostHog owns on a canonical custom property —
-    its name or display type. Both are what the write path matches on, so a user editing them
-    would silently stop the values from being recorded (→ 400)."""
+    """Canonical names and types identify the properties that PostHog records.
+    Manual API writes must preserve those identifiers and their system-managed values.
+    """
 
 
 class ResourceForbiddenError(Exception):
@@ -1163,6 +1166,40 @@ def delete_customer_profile_config(
     return True
 
 
+# --- UserCustomerAnalyticsConfig ---
+
+
+InvalidPinnedAccountProperties = _user_customer_analytics_config_logic.InvalidPinnedAccountProperties
+
+
+def _to_user_customer_analytics_config(
+    config: UserCustomerAnalyticsConfigModel,
+) -> contracts.UserCustomerAnalyticsConfig:
+    raw_references = config.properties[_user_customer_analytics_config_logic.PINNED_PROPERTIES_KEY]
+    return contracts.UserCustomerAnalyticsConfig(
+        pinned_properties=[
+            contracts.PinnedAccountProperty(kind=reference["kind"], id=UUID(str(reference["id"])))
+            for reference in raw_references
+        ]
+    )
+
+
+def get_user_customer_analytics_config(*, team_id: int, user_id: int) -> contracts.UserCustomerAnalyticsConfig:
+    config = _user_customer_analytics_config_logic.get_or_create_config(team_id=team_id, user_id=user_id)
+    return _to_user_customer_analytics_config(config)
+
+
+def update_user_customer_analytics_config(
+    *, team_id: int, user_id: int, pinned_properties: list[contracts.PinnedAccountProperty]
+) -> contracts.UserCustomerAnalyticsConfig:
+    config = _user_customer_analytics_config_logic.update_pinned_properties(
+        team_id=team_id,
+        user_id=user_id,
+        references=[(AccountPropertyPinKind(reference.kind), reference.id) for reference in pinned_properties],
+    )
+    return _to_user_customer_analytics_config(config)
+
+
 # --- CustomPropertyDefinition ---
 
 
@@ -1260,7 +1297,7 @@ def list_custom_property_definitions(
     ``has_workflow_reference`` is included for every caller. ``references`` carries only workflow
     metadata the caller can read. ``exclude_group_targets`` hides group-target definitions from callers
     without ``group`` read authorization."""
-    queryset = CustomPropertyDefinition.objects.filter(team_id=team_id).select_related("source").order_by("name")
+    queryset = CustomPropertyDefinition.objects.for_team(team_id).select_related("source").order_by("name")
     if exclude_group_targets:
         queryset = queryset.exclude(target_type=TargetType.GROUP.value)
     total_count = queryset.count()
@@ -1287,14 +1324,14 @@ def list_custom_property_definitions(
 
 
 def get_custom_property_definition_target_type(team_id: int, definition_id: str) -> str | None:
-    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    definition = _get_custom_property_definition(team_id, definition_id)
     return definition.target_type if definition is not None else None
 
 
 def get_custom_property_definition(
     team_id: int, definition_id: str, *, user_access_control: "UserAccessControl"
 ) -> contracts.CustomPropertyDefinitionView | None:
-    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    definition = _get_custom_property_definition(team_id, definition_id)
     if definition is None:
         return None
     workflow_references_by_definition_id = _custom_property_references_by_definition_id(
@@ -1335,7 +1372,7 @@ def create_custom_property_definition(
     was_impersonated: bool,
 ) -> contracts.CustomPropertyDefinitionView:
     try:
-        definition = CustomPropertyDefinition.objects.create(
+        definition = CustomPropertyDefinition.objects.for_team(team_id).create(
             team_id=team_id,
             created_by=user,
             name=name,
@@ -1389,11 +1426,11 @@ def update_custom_property_definition(
 ) -> contracts.CustomPropertyDefinitionView | None:
     """Apply ``fields`` (only the keys the caller sent) to a team-scoped definition. Returns the
     updated view, or None when no definition matches the id for this team (→ 404)."""
-    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    definition = _get_custom_property_definition(team_id, definition_id)
     if definition is None:
         return None
     _assert_canonical_fields_unchanged(definition, fields)
-    previous = CustomPropertyDefinition.objects.get(pk=definition.pk)
+    previous = CustomPropertyDefinition.objects.for_team(team_id).get(pk=definition.pk)
     for attr, value in fields.items():
         setattr(definition, attr, value)
     # Re-coerce against the effective display type: a PATCH that only flips the type to a
@@ -1455,7 +1492,7 @@ def delete_custom_property_definition(
     was_impersonated: bool,
 ) -> bool:
     """Delete a team-scoped definition. Returns False when none matched (→ 404)."""
-    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    definition = _get_custom_property_definition(team_id, definition_id)
     if definition is None:
         return False
     _log_activity_swallowing(
@@ -2202,7 +2239,7 @@ def create_custom_property_source(
     column_descriptions: dict | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> contracts.CustomPropertySourceView:
-    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    definition = _get_custom_property_definition(team_id, definition_id)
     if definition is None:
         raise CustomPropertySourceValidationError("Custom property definition not found for this team.")
 
@@ -4266,6 +4303,13 @@ def _get_team_scoped(model, team_id: int, pk: str | UUID):
         return None
 
 
+def _get_custom_property_definition(team_id: int, definition_id: str | UUID) -> CustomPropertyDefinition | None:
+    try:
+        return CustomPropertyDefinition.objects.for_team(team_id).get(pk=definition_id)
+    except (CustomPropertyDefinition.DoesNotExist, ValidationError, ValueError):
+        return None
+
+
 def _get_object_or_raise(queryset, pk: str, model):
     """Fetch by pk from an already-scoped queryset, raising ``model.DoesNotExist`` for
     absent/malformed ids (the view maps that to 404)."""
@@ -4335,6 +4379,11 @@ def set_custom_property_value(
     *,
     actor: "User | None" = None,
 ) -> contracts.CustomPropertyValue:
+    definition = _get_custom_property_definition(team_id, definition_id)
+    if definition is not None and definition.name in CANONICAL_DISPLAY_TYPE_BY_NAME:
+        raise CanonicalCustomPropertyReadOnlyError(
+            "This custom property is managed by PostHog and can't be edited manually."
+        )
     if _source_backed_definition_ids(team_id, [definition_id]):
         raise CustomPropertyValueSourceManaged(
             "This custom property is managed by a data warehouse source and can't be set manually."
@@ -4348,6 +4397,27 @@ def set_custom_property_value(
         actor=actor,
     )
     return _to_custom_property_value(row)
+
+
+def clear_custom_property_value(
+    team_id: int,
+    account_id: str | UUID,
+    definition_id: str | UUID,
+    *,
+    actor: "User | None" = None,
+) -> None:
+    definition = _get_custom_property_definition(team_id, definition_id)
+    if definition is not None and definition.name in CANONICAL_DISPLAY_TYPE_BY_NAME:
+        raise CanonicalCustomPropertyReadOnlyError(
+            "This custom property is managed by PostHog and can't be edited manually."
+        )
+    if _source_backed_definition_ids(team_id, [definition_id]):
+        raise CustomPropertyValueSourceManaged(
+            "This custom property is managed by a data warehouse source and can't be cleared manually."
+        )
+    _custom_property_values_logic.set_account_custom_properties_by_id(
+        team_id=team_id, account_id=account_id, properties={str(definition_id): None}, actor=actor
+    )
 
 
 def record_last_slack_message_at(*, team_id: int, account_id: str | UUID, timestamp: datetime) -> bool:
