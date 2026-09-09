@@ -7,7 +7,7 @@ from typing import Any, Union, cast
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
-from django.db import transaction
+from django.db import DatabaseError, transaction
 from django.db.models import Count, F, Max, QuerySet
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
@@ -2544,11 +2544,16 @@ When set, the specified dashboard's filters and date range override will be appl
             ).values_list("id", flat=True)
         )
 
-        record_insight_views(
-            team_id=self.team.pk,
-            user_id=cast(User, request.user).pk,
-            last_viewed_at_by_insight_id=dict.fromkeys(visible_insight_ids, now()),
-        )
+        try:
+            record_insight_views(
+                team_id=self.team.pk,
+                user_id=cast(User, request.user).pk,
+                last_viewed_at_by_insight_id=dict.fromkeys(visible_insight_ids, now()),
+            )
+        except DatabaseError:
+            # Nobody reads this response, so a write that loses a race for the same rows costs a
+            # stale "Last viewed" timestamp. Log it, and keep the dashboard load that sent it working.
+            logger.warning("insight_viewed_write_failed", team_id=self.team.pk, insight_count=len(visible_insight_ids))
 
         return Response(status=status.HTTP_201_CREATED)
 
