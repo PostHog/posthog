@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core.cache import cache
-from django.http import HttpResponse, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.test import (
     Client as DjangoClient,
     RequestFactory,
@@ -25,7 +25,7 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.middleware import per_request_logging_context_middleware
+from posthog.middleware import CSPMiddleware, per_request_logging_context_middleware
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -1901,6 +1901,19 @@ class TestCSPMiddleware(APIBaseTest):
         assert response.status_code == 200
         assert "Content-Security-Policy-Report-Only" in response
         assert "Content-Security-Policy" not in response
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_html_response_with_view_managed_csp_is_not_overlaid(self) -> None:
+        def view(_request: HttpRequest) -> HttpResponse:
+            response = HttpResponse("<html><body>artifact</body></html>", content_type="text/html; charset=utf-8")
+            response["Content-Security-Policy"] = "sandbox allow-scripts; default-src 'none'"
+            return response
+
+        response = CSPMiddleware(view)(RequestFactory().get("/"))
+
+        assert response["Content-Security-Policy"] == "sandbox allow-scripts; default-src 'none'"
+        assert "Content-Security-Policy-Report-Only" not in response
+        assert "Reporting-Endpoints" not in response
 
     @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
     def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):

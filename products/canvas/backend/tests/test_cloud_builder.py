@@ -19,9 +19,22 @@ from products.canvas.backend.source import _PLATFORM_ELEMENT_TOKENS, synthetic_s
 
 
 class TestCanvasCloudBuilder(SimpleTestCase):
-    def test_legacy_canvas_build_mounts_react_and_injects_the_runtime_bridge(self) -> None:
+    @parameterized.expand(
+        [
+            ("double_quotes", 'src="/src/canvas.tsx"'),
+            ("single_quotes", "src='/src/canvas.tsx'"),
+            ("attribute_whitespace", "src = '/src/canvas.tsx'"),
+            ("data_src_before_src", 'data-src="/src/canvas.tsx" src="/src/canvas.tsx"'),
+        ]
+    )
+    def test_legacy_canvas_build_mounts_react_and_injects_the_runtime_bridge(
+        self, _name: str, source_attribute: str
+    ) -> None:
         payload = synthetic_source_project(
             'import React from "react"; export default function Canvas() { return <div>Hello</div> }'
+        )
+        payload["files"]["index.html"] = payload["files"]["index.html"].replace(
+            'src="/src/canvas.tsx"', source_attribute
         )
 
         result = run_cloud_builder(payload)
@@ -32,6 +45,9 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         html = next(file["content"] for file in result["files"] if file["path"] == "index.html")
         self.assertIn("createRoot", javascript)
         self.assertIn("canvas-runtime", html)
+        meta_csp = html.split('content="', 1)[1].split('"', 1)[0]
+        self.assertNotIn("sandbox", meta_csp.split(";")[0])
+        self.assertIn("default-src 'none'", meta_csp)
 
     def test_legacy_canvas_build_compiles_tailwind_and_quill_styles(self) -> None:
         payload = synthetic_source_project(

@@ -19,6 +19,11 @@ off the live canvas. A publish creates a source version and queues its build.
 The live artifact changes only after a successful build. A failed build leaves
 the last successful artifact available.
 
+For a component entry at `/src/canvas.tsx`, the builder adds the React mount code.
+The script's `src` attribute can use single or double quotes, with spaces around `=`.
+Builder fixes apply to new builds, not existing artifacts.
+Republish an affected canvas after the builder fix is deployed to replace a blank artifact.
+
 Use `expected_current_version_id` when publishing. A stale version returns HTTP 409.
 Read the current source, apply the change again, and retry against that version.
 Use version history to inspect earlier source and revert an unwanted change.
