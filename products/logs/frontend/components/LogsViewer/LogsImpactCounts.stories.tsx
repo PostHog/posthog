@@ -34,6 +34,7 @@ function makeImpact(overrides: Partial<_LogsImpactResponseApi> = {}): _LogsImpac
             { value: 'user-191@example.com', count: 2600 },
         ],
         sessionGroupKey: { source: 'log', key: 'sessionId' },
+        personGroupKey: { source: 'log', key: 'posthogDistinctId' },
         ...overrides,
     }
 }

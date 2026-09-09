@@ -13,6 +13,8 @@ export interface LogsImpactCountsProps {
     impact: _LogsImpactResponseApi
     /** Pivots the viewer to Group mode grouped by the dominant session ID key. */
     onGroupBySessions?: () => void
+    /** Pivots the viewer to Group mode grouped by the dominant distinct ID key. */
+    onGroupByUsers?: () => void
 }
 
 /**
@@ -21,7 +23,11 @@ export interface LogsImpactCountsProps {
  * something different from the same count over all of them. Each count opens a
  * popover with the top values behind it, linking into replay and person profiles.
  */
-export function LogsImpactCounts({ impact, onGroupBySessions }: LogsImpactCountsProps): JSX.Element | null {
+export function LogsImpactCounts({
+    impact,
+    onGroupBySessions,
+    onGroupByUsers,
+}: LogsImpactCountsProps): JSX.Element | null {
     if (impact.total === 0) {
         return null
     }
@@ -110,6 +116,20 @@ export function LogsImpactCounts({ impact, onGroupBySessions }: LogsImpactCounts
                                     <PersonDisplay person={{ distinct_id: value }} noEllipsis inline />
                                 </span>
                             )}
+                            action={
+                                onGroupByUsers && (
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="secondary"
+                                        fullWidth
+                                        center
+                                        onClick={onGroupByUsers}
+                                        data-attr="logs-impact-group-by-users"
+                                    >
+                                        Group logs by distinct ID
+                                    </LemonButton>
+                                )
+                            }
                         />
                     }
                 >

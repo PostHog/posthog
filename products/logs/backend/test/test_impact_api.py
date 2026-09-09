@@ -22,6 +22,7 @@ _ZERO_IMPACT = {
     "topSessions": [],
     "topUsers": [],
     "sessionGroupKey": None,
+    "personGroupKey": None,
 }
 
 
@@ -64,7 +65,7 @@ class TestImpactApi(ClickhouseTestMixin, APIBaseTest):
         super().setUpTestData()
         rows = [
             _log_row(cls.team.id, "checkout started", attributes={"sessionId": "s1", "posthogDistinctId": "u1"}),
-            _log_row(cls.team.id, "cart loaded", attributes={"sessionId": "s1"}),
+            _log_row(cls.team.id, "cart loaded", attributes={"sessionId": "s1", "posthogDistinctId": "u1"}),
             _log_row(cls.team.id, "payment authorized", attributes={"session_id": "s2", "distinct_id": "u2"}),
             _log_row(cls.team.id, "receipt rendered", resource_attributes={"sessionId": "s3"}),
             _log_row(cls.team.id, "upstream timed out", severity_text="error", severity_number=17),
@@ -91,17 +92,19 @@ class TestImpactApi(ClickhouseTestMixin, APIBaseTest):
                     "total": 6,
                     "logsWithSessionId": 4,
                     "sessions": 3,
-                    "logsWithDistinctId": 2,
+                    "logsWithDistinctId": 3,
                     "users": 2,
                     "topSessions": [
                         {"value": "s1", "count": 2},
                         {"value": "s2", "count": 1},
                         {"value": "s3", "count": 1},
                     ],
-                    "topUsers": [{"value": "u1", "count": 1}, {"value": "u2", "count": 1}],
+                    "topUsers": [{"value": "u1", "count": 2}, {"value": "u2", "count": 1}],
                     # Two rows carry `sessionId` in the log attributes; every other session
-                    # key appears once, so this is the dominant group-by dimension.
+                    # key appears once, so this is the dominant group-by dimension. Same
+                    # shape for `posthogDistinctId` on the person side.
                     "sessionGroupKey": {"source": "log", "key": "sessionId"},
+                    "personGroupKey": {"source": "log", "key": "posthogDistinctId"},
                 },
             ),
             ("empty_window", {"date_from": "2000-01-01T00:00:00Z", "date_to": "2000-01-02T00:00:00Z"}, _ZERO_IMPACT),

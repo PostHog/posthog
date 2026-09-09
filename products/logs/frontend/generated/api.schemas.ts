@@ -1771,14 +1771,14 @@ export interface _LogsImpactTopValueApi {
     count: number
 }
 
-export interface _LogsImpactSessionGroupKeyApi {
+export interface _LogsImpactGroupKeyApi {
     /** Attribute map the key lives in, in the group-by endpoint's vocabulary: "log" or "resource".
      *
      * * `log` - log
      * * `resource` - resource
      * * `column` - column */
     source: LogsGroupBySourceEnumApi
-    /** The attribute key that carries the session ID on most matching logs. */
+    /** The attribute key that carries the ID on most matching logs. */
     key: string
 }
 
@@ -1798,7 +1798,9 @@ export interface _LogsImpactResponseApi {
     /** Top person distinct IDs on the matching logs, ordered by log count descending (topK, at most 5). */
     topUsers: _LogsImpactTopValueApi[]
     /** The dimension that carries the session ID on most matching logs. Group by this dimension to reproduce the session counts. Null when no matching log carries a session ID. */
-    sessionGroupKey: _LogsImpactSessionGroupKeyApi | null
+    sessionGroupKey: _LogsImpactGroupKeyApi | null
+    /** The dimension that carries the person distinct ID on most matching logs. Group by this dimension to reproduce the user counts. Null when no matching log carries a distinct ID. */
+    personGroupKey: _LogsImpactGroupKeyApi | null
 }
 
 export interface LogsMetricRuleApi {

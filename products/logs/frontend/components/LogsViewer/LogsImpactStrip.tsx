@@ -13,11 +13,11 @@ export interface LogsImpactStripProps {
  */
 export function LogsImpactStrip({ id }: LogsImpactStripProps): JSX.Element | null {
     const { impact } = useValues(logsImpactLogic({ id }))
-    const { groupBySessions } = useActions(logsImpactLogic({ id }))
+    const { groupBySessions, groupByUsers } = useActions(logsImpactLogic({ id }))
 
     if (!impact) {
         return null
     }
 
-    return <LogsImpactCounts impact={impact} onGroupBySessions={groupBySessions} />
+    return <LogsImpactCounts impact={impact} onGroupBySessions={groupBySessions} onGroupByUsers={groupByUsers} />
 }

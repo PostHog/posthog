@@ -64,6 +64,15 @@ def _top_values(entries: list[tuple] | None) -> list[dict]:
     return [{"value": value, "count": int(count)} for value, count, _error in entries or []]
 
 
+def _group_key(entries: list[tuple] | None) -> dict | None:
+    # The dominant tag is "source:key"; keys can contain dots but never a colon
+    # before the source prefix, so the first colon is the split point.
+    if not entries:
+        return None
+    source, _, key = entries[0][0].partition(":")
+    return {"source": source, "key": key}
+
+
 class ImpactQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
     """Counts the unique sessions and users behind the log entries matching the given filters.
 
@@ -95,13 +104,7 @@ class ImpactQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunner
             limit_context=self.limit_context,
             settings=self.settings,
         )
-        row = response.results[0] if response.results else (0, 0, 0, 0, 0, [], [], [])
-        session_group_key = None
-        if row[7]:
-            # The dominant tag is "source:key"; keys can contain dots but never a colon
-            # before the source prefix, so the first colon is the split point.
-            source, _, key = row[7][0][0].partition(":")
-            session_group_key = {"source": source, "key": key}
+        row = response.results[0] if response.results else (0, 0, 0, 0, 0, [], [], [], [])
         return LogsQueryResponse(
             results={
                 "total": row[0],
@@ -111,7 +114,8 @@ class ImpactQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunner
                 "users": row[4],
                 "topSessions": _top_values(row[5]),
                 "topUsers": _top_values(row[6]),
-                "sessionGroupKey": session_group_key,
+                "sessionGroupKey": _group_key(row[7]),
+                "personGroupKey": _group_key(row[8]),
             }
         )
 
@@ -121,6 +125,7 @@ class ImpactQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunner
         # topK is approximate in the same way. count(x)/uniq(x)/topK(x) skip NULLs, so rows
         # without an identity need no explicit predicate and stay out of the top lists.
         session_id_keys = resolved_session_id_attribute_keys(self.team)
+        distinct_id_keys = resolved_distinct_id_attribute_keys(self.team)
         query = parse_select(
             """
             SELECT
@@ -131,20 +136,23 @@ class ImpactQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunner
                 uniq(person_value) AS users,
                 topK({top_n}, 3, 'counts')(session_value) AS top_sessions,
                 topK({top_n}, 3, 'counts')(person_value) AS top_users,
-                topK(1, 3, 'counts')(session_key) AS session_keys
+                topK(1, 3, 'counts')(session_key) AS session_keys,
+                topK(1, 3, 'counts')(person_key) AS person_keys
             FROM (
                 SELECT
                     {session_value} AS session_value,
                     {person_value} AS person_value,
-                    {session_key} AS session_key
+                    {session_key} AS session_key,
+                    {person_key} AS person_key
                 FROM logs
                 WHERE {where}
             )
             """,
             placeholders={
                 "session_value": _identity_value_expr(session_id_keys),
-                "person_value": _identity_value_expr(resolved_distinct_id_attribute_keys(self.team)),
+                "person_value": _identity_value_expr(distinct_id_keys),
                 "session_key": _identity_key_expr(session_id_keys),
+                "person_key": _identity_key_expr(distinct_id_keys),
                 "where": self.where_with_timestamp_bounds(),
                 "top_n": ast.Constant(value=TOP_IDENTITY_VALUES),
             },
