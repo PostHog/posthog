@@ -269,6 +269,21 @@ class TestEmailReputationAPI(APIBaseTest):
         assert data["email_sending_suspended_at"] == suspended_at.isoformat().replace("+00:00", "Z")
         assert data["email_sending_suspension_reason"] == "critical bounce rate"
 
+    def test_email_sending_suspension_endpoint_reports_the_sending_allowance(self):
+        with patch(
+            "products.workflows.backend.api.hog_flow.fetch_app_metric_totals_by_team_and_source",
+            return_value={self.team.id: {"source": {"email_sent": 7}}},
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/email_sending_suspension")
+
+        assert response.status_code == status.HTTP_200_OK
+        allowance = response.json()["sending_allowance"]
+        assert allowance["emails_sent_last_hour"] == 7
+        assert allowance["emails_sent_last_day"] == 7
+        # Tier caps are deployment configuration, so assert only that the scene gets numbers to compare against.
+        assert allowance["emails_per_hour"] > 0
+        assert allowance["emails_per_day"] > 0
+
     def _verify_sending_domain(self, domain: str = "mail.example.com") -> None:
         Integration.objects.create(
             team=self.team,
@@ -536,3 +551,8 @@ class TestEmailReputationAccessControl(APIBaseTest):
         assert data["reputation"] is None
         assert data["isps"] == []
         assert [row["hog_flow_id"] for row in data["workflows"]] == [str(flow.id)]
+
+        # The cheap banner endpoint gates the allowance the same way: it pools every workflow's sending.
+        banner = self.client.get(f"/api/projects/{self.team.id}/hog_flows/email_sending_suspension")
+        assert banner.status_code == status.HTTP_200_OK
+        assert banner.json()["sending_allowance"] is None

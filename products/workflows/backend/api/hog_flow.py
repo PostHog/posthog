@@ -2629,7 +2629,7 @@ class TeamEmailReputationResponseSerializer(serializers.Serializer):
 
 
 class EmailSendingSuspensionStatusSerializer(serializers.Serializer):
-    """Cheap suspension-only read for the persistent scene-wide banner — no reputation computation."""
+    """Cheap read for the persistent scene-wide banners: suspension state and the sending allowance."""
 
     email_sending_suspended = serializers.BooleanField(
         read_only=True,
@@ -2644,6 +2644,14 @@ class EmailSendingSuspensionStatusSerializer(serializers.Serializer):
         read_only=True,
         allow_blank=True,
         help_text="Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended.",
+    )
+    sending_allowance = EmailSendingAllowanceSerializer(
+        allow_null=True,
+        read_only=True,
+        help_text=(
+            "The project's sending tier, what it allows, and how much of it has been used, so the scene can "
+            "warn when a cap is reached; null when the caller lacks project-wide workflow access."
+        ),
     )
 
 
@@ -5312,9 +5320,11 @@ class HogFlowViewSet(
     )
     def email_sending_suspension(self, request: Request, **kwargs) -> Response:
         """
-        Cheap read for the scene-wide suspension banner: single-row `TeamWorkflowsConfig` lookup
-        with no reputation computation. Every project member sees this — a suspension stops
-        everyone's email, so hiding it would leave silent send failures unexplained.
+        Cheap read for the scene-wide email banners: a single-row `TeamWorkflowsConfig` lookup plus
+        the briefly cached sending allowance, with no reputation computation. Every project member
+        sees the suspension — it stops everyone's email, so hiding it would leave silent send
+        failures unexplained. The allowance keeps the reputation endpoint's project-wide gate,
+        because it pools every workflow's sending.
         """
         suspension = (
             TeamWorkflowsConfig.objects.filter(team_id=self.team_id)
@@ -5330,6 +5340,9 @@ class HogFlowViewSet(
                     "email_sending_suspension_reason": (
                         suspension["email_sending_suspension_reason"] if suspension and suspended_at is not None else ""
                     ),
+                    "sending_allowance": _team_email_sending_allowance(self.team_id)
+                    if self.user_access_control.check_access_level_for_resource("hog_flow", "viewer")
+                    else None,
                 }
             ).data
         )

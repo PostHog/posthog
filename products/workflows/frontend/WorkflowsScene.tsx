@@ -2,7 +2,7 @@ import { MakeLogicType, actions, kea, path, props, reducers, selectors, useActio
 import { urlToAction } from 'kea-router'
 
 import { IconApple, IconAndroid, IconLetter, IconPlusSmall } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonMenu, LemonMenuItems, LemonTag, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -13,6 +13,7 @@ import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -135,7 +136,8 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
 
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
-    const { emailSendingSuspended, emailSendingSuspensionReason } = useValues(workflowsEmailSuspensionLogic)
+    const { emailSendingSuspended, emailSendingSuspensionReason, reachedEmailSendingCap } =
+        useValues(workflowsEmailSuspensionLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
@@ -325,6 +327,16 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                     Email sending is suspended for this project. Workflow emails are not being delivered.
                     {emailSendingSuspensionReason ? <> Reason: {emailSendingSuspensionReason}.</> : null} Contact
                     support to get sending re-enabled.
+                </LemonBanner>
+            )}
+            {!emailSendingSuspended && reachedEmailSendingCap && (
+                <LemonBanner type="warning" data-attr="workflows-email-cap-banner">
+                    This project reached its email sending limit of {humanFriendlyNumber(reachedEmailSendingCap.limit)}{' '}
+                    emails per {reachedEmailSendingCap.period}. Nothing is lost. Emails above the limit wait in the
+                    queue and go out as the limit frees up, so delivery takes longer than usual.{' '}
+                    {currentTab !== 'reputation' && (
+                        <Link to={urls.workflows('reputation')}>See your sending limits and tier</Link>
+                    )}
                 </LemonBanner>
             )}
             <LemonTabs activeKey={currentTab} tabs={tabs} sceneInset data-attr="workflows-scene-tabs" />

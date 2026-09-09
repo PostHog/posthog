@@ -1354,7 +1354,29 @@ export interface PatchedHogFlowScheduleApi {
 }
 
 /**
- * Cheap suspension-only read for the persistent scene-wide banner — no reputation computation.
+ * How much workflow email this project may send, and how much of that it has used.
+ */
+export interface EmailSendingAllowanceApi {
+    /** The project's current sending tier. Projects start at 0 and move up as they build a clean sending history. */
+    readonly tier: number
+    /** The highest tier there is, so the current tier can be shown as progress. */
+    readonly max_tier: number
+    /** How many emails this tier allows per hour. */
+    readonly emails_per_hour: number
+    /** How many emails this tier allows per day. */
+    readonly emails_per_day: number
+    /** The largest audience this tier allows for a single batch send. */
+    readonly max_batch_audience: number
+    /** Emails sent by this project's workflows in the last hour. */
+    readonly emails_sent_last_hour: number
+    /** Emails sent by this project's workflows in the last 24 hours. */
+    readonly emails_sent_last_day: number
+    /** True when these allowances are applied to sends. False while they are only being measured. */
+    readonly enforced: boolean
+}
+
+/**
+ * Cheap read for the persistent scene-wide banners: suspension state and the sending allowance.
  */
 export interface EmailSendingSuspensionStatusApi {
     /** True while workflow email sending is suspended for this project to protect deliverability. */
@@ -1366,6 +1388,8 @@ export interface EmailSendingSuspensionStatusApi {
     readonly email_sending_suspended_at: string | null
     /** Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended. */
     readonly email_sending_suspension_reason: string
+    /** The project's sending tier, what it allows, and how much of it has been used, so the scene can warn when a cap is reached; null when the caller lacks project-wide workflow access. */
+    readonly sending_allowance: EmailSendingAllowanceApi | null
 }
 
 export interface WorkflowStatsRowApi {
@@ -1559,28 +1583,6 @@ export interface IspSendingHealthApi {
     readonly unavailable: readonly string[]
     /** Sending history for this provider, oldest first, so a drop can be dated rather than averaged into the window. Dates this provider received nothing are omitted. */
     readonly daily: readonly IspDailyPointApi[]
-}
-
-/**
- * How much workflow email this project may send, and how much of that it has used.
- */
-export interface EmailSendingAllowanceApi {
-    /** The project's current sending tier. Projects start at 0 and move up as they build a clean sending history. */
-    readonly tier: number
-    /** The highest tier there is, so the current tier can be shown as progress. */
-    readonly max_tier: number
-    /** How many emails this tier allows per hour. */
-    readonly emails_per_hour: number
-    /** How many emails this tier allows per day. */
-    readonly emails_per_day: number
-    /** The largest audience this tier allows for a single batch send. */
-    readonly max_batch_audience: number
-    /** Emails sent by this project's workflows in the last hour. */
-    readonly emails_sent_last_hour: number
-    /** Emails sent by this project's workflows in the last 24 hours. */
-    readonly emails_sent_last_day: number
-    /** True when these allowances are applied to sends. False while they are only being measured. */
-    readonly enforced: boolean
 }
 
 export interface TeamEmailReputationResponseApi {
