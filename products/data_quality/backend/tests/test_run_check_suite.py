@@ -38,7 +38,7 @@ from products.data_quality.backend.temporal.workflows.run_check_suite import Run
 RUNNER_QUERY = "products.data_quality.backend.logic.runner.execute_hogql_query"
 ACTIVITY_INFO = "products.data_quality.backend.temporal.activities.prepare_check_suite.activity.info"
 PREPARE_FLAG = (
-    "products.data_quality.backend.temporal.activities.prepare_check_suite.is_data_quality_checks_enabled_for_team_id"
+    "products.data_quality.backend.temporal.activities.prepare_check_suite.get_data_quality_checks_flag_for_team_id"
 )
 
 
@@ -166,6 +166,25 @@ class TestCheckSuiteActivities(BaseTest):
             prepared = self._prepare()
 
         assert prepared.batches == []
+
+    def test_an_unreadable_flag_fails_instead_of_preparing_an_empty_suite(self) -> None:
+        metric_id = uuid4()
+        self._check(saved_query_id=None, metric_id=metric_id, subject_type=SubjectType.METRIC)
+        schedule = DataQualityCheckSchedule.objects.for_team(self.team.id).create(
+            team=self.team, subject_type=SubjectType.METRIC, subject_uuid=metric_id, next_run_at=datetime.now(UTC)
+        )
+
+        with patch(PREPARE_FLAG, return_value=None), self.assertRaises(RuntimeError):
+            self._prepare(
+                saved_query_ids=[],
+                metric_ids=[str(metric_id)],
+                trigger=SuiteRunTrigger.SCHEDULED,
+                schedule_id=str(schedule.id),
+            )
+
+        assert not DataQualitySuiteRun.objects.for_team(self.team.id).exists()
+        schedule.refresh_from_db()
+        assert (schedule.last_run_at, schedule.last_suite_run) == (None, None)
 
     def test_a_batch_counts_each_outcome_and_records_a_run_per_check(self) -> None:
         passing = self._check()
