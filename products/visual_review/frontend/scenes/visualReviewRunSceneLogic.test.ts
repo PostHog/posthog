@@ -1,4 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -17,8 +20,14 @@ const failWith = (status: number): Record<string, () => [number, { detail: strin
 describe('visualReviewRunSceneLogic', () => {
     let logic: ReturnType<typeof visualReviewRunSceneLogic.build>
 
+    beforeEach(() => {
+        jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+        jest.spyOn(posthog, 'captureException').mockReturnValue(undefined as any)
+    })
+
     afterEach(() => {
         logic?.unmount()
+        jest.restoreAllMocks()
     })
 
     // A run link from a PR carries a project id the router strips, so the request goes to
@@ -38,6 +47,14 @@ describe('visualReviewRunSceneLogic', () => {
             expect(logic.values.runNotFound).toBe(true)
         })
 
+        // The scene explains this state itself, so the global loader-failure hook must not also
+        // toast it and open an exception for it.
+        it('keeps the handled 404 out of the toasts and error tracking', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(lemonToast.error).not.toHaveBeenCalled()
+            expect(posthog.captureException).not.toHaveBeenCalled()
+        })
+
         it('stops reporting it once the run is loaded again', async () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.runNotFound).toBe(true)
@@ -55,9 +72,11 @@ describe('visualReviewRunSceneLogic', () => {
             logic.mount()
         })
 
-        it('does not report the run as not found', async () => {
+        it('does not report the run as not found, and still surfaces the failure', async () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.runNotFound).toBe(false)
+            expect(lemonToast.error).toHaveBeenCalled()
+            expect(posthog.captureException).toHaveBeenCalled()
         })
     })
 })

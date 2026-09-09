@@ -184,8 +184,8 @@ export const TrackingOnlyMasterRun: StoryObj = {
 // A run the active project can't see. A run link switches you to its project when you have access,
 // so reaching this state means no access to that project, or the run is gone.
 export const RunFromAnotherProject: StoryObj = {
-    // No snapshot: the failed loads raise error toasts, and those outlive the
-    // runner's wait for loaders to clear.
+    // No snapshot: the meta waits for a control that a not-found page never renders, so the
+    // story needs a `waitForSelector` of its own before it can take a baseline.
     tags: ['test-skip'],
     decorators: [
         mswDecorator({
