@@ -369,6 +369,37 @@ describe('alertFormLogic', () => {
         expect(updateSpy.mock.calls[0][1]).not.toHaveProperty('forecast_config')
     })
 
+    // The server refuses any update carrying `forecast_config` once the forecast flag is off, apart
+    // from a plain disable. Resolving the horizon on open must not put the field back in the body,
+    // or the disable the editor tells the user to do is rejected.
+    it('leaves a config saved without a horizon out of the update when the alert is disabled', async () => {
+        const existingAlert = makeSavedAlert({
+            id: 'alert-existing-id',
+            forecast_config: {
+                type: 'ForecastConfig',
+                engine: ForecastEngineType.PROPHET,
+                condition: ForecastConditionType.FUTURE_BREACH,
+            },
+        } as any)
+        const logic = alertFormLogic({
+            alert: existingAlert,
+            insightId: 42,
+            onEditSuccess: jest.fn(),
+            insightVizDataLogicProps: insightLogicProps,
+            insightInterval: 'day',
+        })
+        logic.mount()
+        logic.actions.setAlertFormValue('enabled', false)
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        expect(updateSpy).toHaveBeenCalledTimes(1)
+        expect(updateSpy.mock.calls[0][1]).not.toHaveProperty('forecast_config')
+        expect(updateSpy.mock.calls[0][1]).toMatchObject({ enabled: false })
+    })
+
     it('fills in the horizon the backend resolves for a config saved without one', async () => {
         const existingAlert = makeSavedAlert({
             id: 'alert-existing-id',

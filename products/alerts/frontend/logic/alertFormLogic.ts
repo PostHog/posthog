@@ -20,6 +20,7 @@ import {
     AlertCalculationInterval,
     AlertConditionType,
     ForecastConditionType,
+    ForecastConfig,
     GoalLine,
     HogQLAlertConfig,
     InsightThresholdType,
@@ -264,6 +265,18 @@ function forecastSimulationInputs(alert: AlertFormType, dateFrom: string): strin
     return JSON.stringify([alert.forecast_config, alert.config, alert.threshold, dateFrom])
 }
 
+/** A stored forecast config as the editor holds it. A breach config gets the horizon the backend
+ * resolves for it, so the look-ahead on screen is the one the forecast beside it used. Opening the
+ * editor must not read as an edit, so the unchanged test compares against this, not the raw value. */
+function normalizedForecastConfig(
+    alert: AlertType,
+    insightInterval: IntervalType | null | undefined
+): ForecastConfig | null {
+    return alert.forecast_config?.condition === ForecastConditionType.FUTURE_BREACH
+        ? resolveHorizon(alert.forecast_config, insightInterval)
+        : (alert.forecast_config ?? null)
+}
+
 function alertToFormType(
     alert: AlertType,
     insightId: QueryBasedInsightModel['id'],
@@ -271,10 +284,7 @@ function alertToFormType(
 ): AlertFormType {
     return {
         ...alert,
-        forecast_config:
-            alert.forecast_config?.condition === ForecastConditionType.FUTURE_BREACH
-                ? resolveHorizon(alert.forecast_config, insightInterval)
-                : (alert.forecast_config ?? null),
+        forecast_config: normalizedForecastConfig(alert, insightInterval),
         insight: insightId,
     }
 }
@@ -717,8 +727,15 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     throw new Error(entitlementCheck.message)
                 }
 
+                // Against the resolved config, not the raw stored one. The server refuses any request
+                // that carries `forecast_config` once the flag is off, apart from a plain disable, and
+                // a config stored without a horizon would otherwise always look edited.
                 const forecastConfigUnchanged =
-                    !!props.alert && objectsEqual(alert.forecast_config ?? null, props.alert.forecast_config ?? null)
+                    !!props.alert &&
+                    objectsEqual(
+                        alert.forecast_config ?? null,
+                        normalizedForecastConfig(props.alert, props.insightInterval)
+                    )
 
                 const payload: AlertTypeWrite = {
                     ...alert,
