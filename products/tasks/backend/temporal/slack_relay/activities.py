@@ -442,18 +442,27 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
 
     handler = SlackThreadHandler(context, actor_slack_user_id=target, turn_trace_id=input.trace_id)
     handler.run_footer = load_run_footer(task_run.id)
-    mention_prefix = f"<@{target}> " if target else ""
 
     # The block the answer lands in decides both how much of it fits and whether it needs
     # converting, so the gate is read before the answer is prepared.
     markdown = handler.renders_markdown()
+
+    # Markdown reads a heading, a list, a quote, a table, and a fence only at the start of a
+    # line, so a mention glued to the front of the answer would turn its first construct into
+    # literal text. Giving the mention its own line keeps that construct intact and still
+    # notifies, which is what the streamed replies already do. On the mrkdwn path the mention
+    # stays inline, because nothing there depends on the line it starts.
+    mention_separator = "\n\n" if markdown else " "
+    mention_prefix = f"<@{target}>{mention_separator}" if target else ""
 
     # Pending chart images compose into a single Slack message together with the answer text,
     # whose blocks are tighter than a plain message, so pick the chunk limit before splitting.
     compose_with_charts = has_pending_slack_files and has_pending_slack_image_artifacts(task_run)
     if markdown:
         # One `markdown` block per message either way, so composing costs the answer nothing.
-        chunk_limit = SLACK_MARKDOWN_TEXT_MAX_LEN
+        # The mention rides on the first chunk, so it comes out of the same budget: without
+        # that the chunk it lands on overflows the block and posts as Markdown source.
+        chunk_limit = SLACK_MARKDOWN_TEXT_MAX_LEN - len(mention_prefix)
     else:
         chunk_limit = SLACK_SECTION_TEXT_LIMIT if compose_with_charts else SLACK_MESSAGE_TEXT_LIMIT
 

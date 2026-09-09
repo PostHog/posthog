@@ -1140,18 +1140,24 @@ def _post_composed_answer_message(
     posted_blocks = 0
     for block in section_blocks[:spill_count]:
         # A spilled block is one post each, and a long answer spills several, so this loop
-        # answers to the same budget as the posts below it. Stopping here leaves the answer
-        # short of `section_blocks`, which the caller reads as "repost the whole thing".
+        # answers to the same budget as the posts below it.
         if time.monotonic() >= deadline:
+            # The caller reposts the whole answer once this reports it unsent, so stop here
+            # rather than adding a composed message that the repost would duplicate. The cards
+            # stay pending and the next relay delivers them.
             logger.warning("task_artifact.slack_post_budget_exhausted", spilled=posted_blocks, of=spill_count)
-            break
+            return False
         posted_blocks += 1 if _post_answer_block(slack, mapping=mapping, block=block) else 0
     kept = section_blocks[spill_count:]
 
     # Cards alone can exceed the block cap (17+ charts) — composing would then fail
     # deterministically as invalid_blocks, so go straight to the per-card path.
     if len(kept) + len(card_blocks) <= _SLACK_MESSAGE_BLOCK_LIMIT:
-        fallback_text = sections[0] if sections else _artifact_fallback_text(image_cards[0].artifact)
+        # The fallback names what this message shows, which is the block it kept rather than the
+        # answer's first chunk. Slack reads it for the notification, the screen reader, and the
+        # mentions it pings, so naming a spilled chunk would preview the wrong text and could
+        # ping its mention a second time.
+        fallback_text = _answer_block_text(kept[0]) if kept else _artifact_fallback_text(image_cards[0].artifact)
         try:
             if _post_blocks_with_processing_retry(
                 slack,

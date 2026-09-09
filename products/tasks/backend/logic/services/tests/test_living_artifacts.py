@@ -835,6 +835,29 @@ class TestChartCardBlockBuilders(SimpleTestCase):
         composed = posted[-1]
         self.assertEqual([b["type"] for b in composed if b["type"] == "markdown"], ["markdown"])
         self.assertEqual(composed[0]["text"], "## Third")
+        # Slack reads the top-level text for the notification, the screen reader, and the
+        # mentions it pings, so it has to name the block this message shows.
+        self.assertEqual(slack.chat_postMessage.call_args_list[-1].kwargs["text"], "## Third")
+
+    def test_an_exhausted_budget_stops_before_the_composed_message(self):
+        # A partial spill already makes the caller repost the whole answer, so posting the
+        # composed message too would duplicate it in the thread and burn the chart delivery.
+        slack = MagicMock()
+        slack.chat_postMessage.return_value = {"ok": True, "ts": "1111.2"}
+        cards = [_SlackImageCard(TaskArtifact(name="Chart"), {}, file_id="F0")]
+
+        answer_posted = _post_composed_answer_message(
+            slack,
+            mapping=MagicMock(channel="C123", thread_ts="1111.1"),
+            image_cards=cards,
+            answer_sections=["## First", "## Second", "## Third"],
+            answer_is_markdown=True,
+            mark_delivered=lambda card: None,
+            deadline=time.monotonic() - 1,  # already spent
+        )
+
+        self.assertFalse(answer_posted)
+        slack.chat_postMessage.assert_not_called()
 
     @parameterized.expand(
         [

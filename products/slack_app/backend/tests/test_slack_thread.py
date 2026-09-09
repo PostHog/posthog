@@ -588,7 +588,8 @@ class TestForkMenuOnReplies(SimpleTestCase):
 
 
 class TestMarkdownAnswerBlocks(SimpleTestCase):
-    """What a relayed answer looks like for a workspace on `slack-app-markdown`."""
+    """Under the gate the answer carries a `markdown` block, which takes no accessory and caps
+    at a different length than the `section` it replaces."""
 
     def _handler(self) -> SlackThreadHandler:
         context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
@@ -648,15 +649,18 @@ class TestMarkdownAnswerBlocks(SimpleTestCase):
         assert kwargs["text"] == text
         assert not kwargs.get("blocks")
 
+    @parameterized.expand([("invalid_blocks",), ("invalid_blocks_format",)])
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_a_rejected_markdown_block_falls_back_to_plain_text_without_looping(
-        self, mock_get_client, mock_get_integration
+        self, error_code: str, mock_get_client, mock_get_integration
     ) -> None:
+        # Under the gate every answer carries a block, and the relay has already claimed the
+        # message, so a rejection code this branch does not know loses the answer for good.
         # Recovering by calling post_thread_message again would rebuild the same markdown
         # block, so a rejection Slack repeats would recurse until the stack ran out.
         mock_client = MagicMock()
-        mock_client.chat_postMessage.side_effect = SlackApiError("invalid_blocks", {"error": "invalid_blocks"})
+        mock_client.chat_postMessage.side_effect = SlackApiError(error_code, {"error": error_code})
         mock_get_client.return_value = mock_client
         mock_get_integration.return_value = Integration(id=7, config={"app_id": "A1"}, integration_id="T1")
 

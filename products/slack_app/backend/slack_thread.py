@@ -46,6 +46,11 @@ _TASK_FIELD_LIMIT = 256
 _MARKDOWN_CHUNK_LIMIT = 12000
 _SECTION_TEXT_LIMIT = 3000
 
+# Slack rejects the request outright for these, and repeating the same blocks cannot change the
+# answer, so the reply is posted plainly instead. The same pair is what the scout delivery in
+# signals treats as a block rejection.
+_BLOCK_REJECTION_ERROR_CODES = frozenset({"invalid_blocks", "invalid_blocks_format"})
+
 
 def _split_markdown_text(text: str, limit: int = _MARKDOWN_CHUNK_LIMIT) -> list[str]:
     """≤limit pieces at paragraph/line boundaries. Slack stitches chunks server-side."""
@@ -664,7 +669,7 @@ class SlackThreadHandler:
             # Describing a run must never cost the reader the run's answer. Posting plainly
             # rather than retrying through this method drops every block at once, so a
             # rejection Slack repeats cannot loop.
-            if blocks and e.response.get("error") == "invalid_blocks":
+            if blocks and e.response.get("error") in _BLOCK_REJECTION_ERROR_CODES:
                 logger.warning("slack_app_answer_blocks_rejected", error=str(e))
                 try:
                     self._post_in_thread(text=text)
