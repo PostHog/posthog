@@ -275,6 +275,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/writing-user-facing-copy` — writing or editing any text a user reads (UI labels, tooltips, empty/error states, notifications, docs, support replies), or any code change that adds or changes a visible string
 - `/writing-code-comments` — writing or editing a code comment in any language, or reviewing a diff that adds comments
 - `/writing-pr-descriptions` — writing or editing any PR body, before `gh pr create` or `gh pr edit --body`
+- `/reviewing-with-coderabbit` — before `gh pr create`, and whenever a review of a branch is asked for. Runs the CodeRabbit CLI once over the branch. When the CLI is unavailable, the PR opens without a local pass — never run `/code-review` or review subagents in its place
 
 **Invoke when in the area:**
 

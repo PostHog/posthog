@@ -2,9 +2,9 @@
 name: reviewing-with-coderabbit
 description: >
   Run a CodeRabbit review over the branch from the terminal, with the `coderabbit` CLI, and record the
-  pass in the PR description. Use only when someone asks for a review: a local review, a self-review, a
-  CodeRabbit review, or a review of a branch before its PR opens. A task that says to build something and
-  open a PR does not ask for a review, so do not load this skill for one.
+  pass in the PR description. Use before `gh pr create`, and whenever a review of a branch is asked for:
+  a local review, a self-review, a CodeRabbit review, or a pre-PR review. Run it once per branch. When the
+  CLI is unavailable, the PR opens without a local pass, and no agent review takes its place.
   Trigger terms: coderabbit, cr review, local review, self-review, review my branch, pre-PR review.
 ---
 
@@ -14,9 +14,8 @@ The CodeRabbit CLI runs the same review the bot runs, in the terminal, against t
 A finding handled here is an ordinary pre-push edit.
 The same finding after the PR opens costs a bot comment, a fix push, a stale-thread cleanup, and a CI re-run.
 
-The review is metered.
-The free tier allows 3 reviews per hour, and the usage-based add-on bills per file.
-Run it once, on the branch as it stands.
+Our plan covers these runs, so the review costs nothing to start.
+It still takes time and rate limits still apply, so run it once, on the branch as it stands.
 Do not loop it after every push, and do not re-run it after you address findings.
 
 ## Never substitute an agent review
@@ -26,7 +25,8 @@ If the CLI is absent, signed out, or rate limited, **say so and stop**.
 Do not run `/code-review`.
 Do not spawn review subagents.
 Do not fan out over the diff.
-An agent review of a large diff costs orders of magnitude more than the CodeRabbit review it replaces, and nobody asked for that spend.
+The CodeRabbit run is covered, but an agent review of a large diff bills a person's tokens and can reach hundreds of dollars on one branch.
+That is why this skill exists in place of the one it replaces.
 The correct outcome is a PR that opens without a local pass.
 
 ## Setup
