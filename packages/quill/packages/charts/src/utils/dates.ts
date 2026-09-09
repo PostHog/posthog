@@ -69,13 +69,15 @@ export function createTooltipDateFormatter({
     allDays?: string[]
 }): (label: string) => string {
     const formattedOffsets = new Map<string, Set<string>>()
-    for (const label of allDays ?? []) {
-        const date = parseDateInTimezone(label, timezone)
-        if (date.isValid()) {
-            const formatted = formatTooltipDate(date, interval)
-            const offsets = formattedOffsets.get(formatted) ?? new Set<string>()
-            offsets.add(date.format('Z'))
-            formattedOffsets.set(formatted, offsets)
+    if (interval === 'second' || interval === 'minute' || interval === 'hour') {
+        for (const label of allDays ?? []) {
+            const date = parseDateInTimezone(label, timezone)
+            if (date.isValid()) {
+                const formatted = formatTooltipDate(date, interval)
+                const offsets = formattedOffsets.get(formatted) ?? new Set<string>()
+                offsets.add(date.format('Z'))
+                formattedOffsets.set(formatted, offsets)
+            }
         }
     }
 
