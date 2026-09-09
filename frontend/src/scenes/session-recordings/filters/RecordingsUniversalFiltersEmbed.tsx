@@ -77,6 +77,7 @@ import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
 import { createPlaylist, stripSessionIds, updatePlaylist } from '../playlist/playlistUtils'
 import {
     defaultRecordingDurationFilter,
+    isValidRecordingFilters,
     sessionRecordingsPlaylistLogic,
 } from '../playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -184,8 +185,15 @@ export const RecordingsUniversalFiltersEmbedButton = ({
             : []),
     ] as AttachedContextItem[])
 
+    // The tool call args are raw agent-sent JSON, never zod-validated, so the payload can arrive in a
+    // shape the filter bar cannot read. Keep the filters the user has and tell them, rather than replace
+    // their work with a filter set the list cannot apply.
     const applyFilters = (toolOutput: Record<string, any>): void => {
-        // Improve type
+        if (!isValidRecordingFilters(toolOutput?.recordings_filters)) {
+            lemonToast.error('Max could not apply those filters. Ask again, or set them yourself.')
+            setIsFiltersExpanded(true)
+            return
+        }
         setFilters(toolOutput.recordings_filters)
         setIsFiltersExpanded(true)
     }

@@ -3288,12 +3288,21 @@ export async function onEventImplementation(
                 status: 'completed',
             })
         } else {
-            if (isAssistantMessage(parsedResponse) && parsedResponse.id && parsedResponse.tool_calls?.length) {
-                for (const { name: toolName, args: toolResult } of parsedResponse.tool_calls) {
+            const isLoading = !parsedResponse.id || parsedResponse.id.startsWith('temp-')
+            // A streamed chunk carries a `temp-` id and tool call args parsed from incomplete JSON, so
+            // only the completed message holds args a tool can act on. A tool that writes its args into
+            // the open scene must never see the half-built ones.
+            if (!isLoading && isAssistantMessage(parsedResponse) && parsedResponse.tool_calls?.length) {
+                cache.invokedStaticToolCallIds ??= new Set<string>()
+                for (const { id: toolCallId, name: toolName, args: toolArgs } of parsedResponse.tool_calls) {
                     if (!values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
                         continue // Non-static tools (contextual) operate via ui_payload instead
                     }
-                    await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
+                    if (cache.invokedStaticToolCallIds.has(toolCallId)) {
+                        continue // A reconnect replays the stream, and a second apply overwrites the user's edits
+                    }
+                    cache.invokedStaticToolCallIds.add(toolCallId)
+                    await values.toolMap[toolName]?.callback?.(toolArgs, props.conversationId)
                 }
             }
             // Check if a message with the same ID already exists
@@ -3301,7 +3310,6 @@ export async function onEventImplementation(
                 ? values.threadRaw.findIndex((msg) => msg.id === parsedResponse.id)
                 : -1
 
-            const isLoading = !parsedResponse.id || parsedResponse.id.startsWith('temp-')
             if (existingMessageIndex >= 0) {
                 // When streaming a message with an already-present ID, we simply replace it
                 // (primarily when streaming in-progress messages with a temp- ID)
