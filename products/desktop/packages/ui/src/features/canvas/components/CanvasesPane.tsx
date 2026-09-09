@@ -32,8 +32,8 @@ import { useAllCanvases } from "@posthog/ui/features/canvas/hooks/useDashboards"
 import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
 import { useCanvasViewedStore } from "@posthog/ui/features/canvas/stores/canvasViewedStore";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
-import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { SketchpadTag } from "@posthog/ui/features/sketchpad/components/SketchpadTag";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { navigateToSpaceSketchpad } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate } from "@tanstack/react-router";
