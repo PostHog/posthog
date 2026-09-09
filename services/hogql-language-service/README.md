@@ -148,5 +148,5 @@ The production binary is compiled with Go 1.27.1 and `go build -trimpath`. The r
 service binary, the commit identifier, and CA certificates. BuildKit's `TARGETOS` and `TARGETARCH` arguments allow
 native `linux/amd64` and `linux/arm64` builds.
 
-Merges that change this service publish the `hogql-lang-service` image and send its digest to the matching Charts
-release. Pull requests build both production architectures without publishing them.
+Merges that change this service build and publish the `hogql-lang-service` image once, then send its digest to the
+matching Charts release. Pull requests rely on the service tests and repository Dockerfile lint checks.
