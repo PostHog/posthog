@@ -10,7 +10,7 @@ import posthog.uuidt
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("canvas", "0017_squash_2026_09_07_finalize_fks"),
+        ("canvas", "0018_remove_canvas_context"),
         ("posthog", "1342_drop_cimd_blocklist_table"),
         ("tasks", "0117_task_set_null_cascade_indexes"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
