@@ -3,6 +3,7 @@ import { z } from "zod";
 export const SKETCHPAD_FRAGMENT_DEFAULT_WIDTH = 360;
 export const SKETCHPAD_FRAGMENT_DEFAULT_HEIGHT = 240;
 export const SKETCHPAD_MAX_STATE_VALUE_BYTES = 64 * 1024;
+export const SKETCHPAD_MAX_OPS_PER_BATCH = 1000;
 
 export const SKETCHPAD_FIELD_MAX_ENTRIES = 20_000;
 export const SKETCHPAD_FIELD_MAX_REMOVED = 20_000;
@@ -148,6 +149,8 @@ export const sketchpadSchema = z.object({
   updatedAt: z.string(),
   createdBy: sketchpadActorSchema.optional(),
   headSeq: z.number().int(),
+  historyStartSeq: z.number().int(),
+  historySnapshot: sketchpadSnapshotSchema,
   snapshot: sketchpadSnapshotSchema,
 });
 export type Sketchpad = z.infer<typeof sketchpadSchema>;
@@ -177,6 +180,7 @@ export const sketchpadSummarySchema = z.object({
 export type SketchpadSummary = z.infer<typeof sketchpadSummarySchema>;
 
 export const sketchpadAppendOpsInputSchema = z.object({
+  baseSeq: z.number().int().nonnegative(),
   ops: z.array(z.object({ opId: z.string().min(1), op: sketchpadOpSchema })),
   actor: z.object({
     kind: sketchpadActorKindSchema,
@@ -199,6 +203,8 @@ export type SketchpadAppendOpsResult = z.infer<
 export const sketchpadOpsPageSchema = z.object({
   results: z.array(sketchpadLogEntrySchema),
   headSeq: z.number().int(),
+  historyStartSeq: z.number().int(),
+  historySnapshot: sketchpadSnapshotSchema,
 });
 export type SketchpadOpsPage = z.infer<typeof sketchpadOpsPageSchema>;
 
