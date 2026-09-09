@@ -54,6 +54,7 @@ const cfg = {
     recordingApiSecret: 'secret',
     screenshotFormat: 'jpeg' as const,
     screenshotJpegQuality: 80,
+    maxRecordingCompressedBytes: 512 * 1024 * 1024,
 } as any
 
 describe('rasterizeRecording', () => {
@@ -71,6 +72,11 @@ describe('rasterizeRecording', () => {
         mockedCapturePage.prepare = jest.fn().mockResolvedValue(mockCapturePage)
 
         mockedBlockProxy.prototype.fetchBlocks = jest.fn().mockResolvedValue(3)
+        // The automock drops the getter, and `undefined > cap` would silently disable the size gate.
+        Object.defineProperty(mockedBlockProxy.prototype, 'totalCompressedBytes', {
+            get: () => 1024,
+            configurable: true,
+        })
 
         mockPlayer = {
             load: jest.fn().mockResolvedValue(undefined),
@@ -112,6 +118,20 @@ describe('rasterizeRecording', () => {
         await rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), { cfg })
 
         expect(callOrder).toEqual(['getPage', 'prepare', 'fetchBlocks', 'load', 'waitForStart', 'capturePlayback'])
+    })
+
+    it('fails permanently before loading when the listing exceeds the byte cap', async () => {
+        Object.defineProperty(mockedBlockProxy.prototype, 'totalCompressedBytes', {
+            get: () => cfg.maxRecordingCompressedBytes + 1,
+            configurable: true,
+        })
+
+        await expect(
+            rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), { cfg })
+        ).rejects.toMatchObject({ code: 'RECORDING_TOO_LARGE', retryable: false })
+
+        expect(mockPlayer.load).not.toHaveBeenCalled()
+        expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage)
     })
 
     it('releases page and disposes player on success', async () => {

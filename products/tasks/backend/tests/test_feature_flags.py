@@ -3,7 +3,11 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
-from products.tasks.backend.feature_flags import get_model_access_error, is_dev_stack_image_bake_enabled
+from products.tasks.backend.feature_flags import (
+    get_model_access_error,
+    is_dev_stack_image_bake_enabled,
+    is_mcp_exec_skills_enabled,
+)
 
 
 class TestIsDevStackImageBakeEnabled:
@@ -66,8 +70,17 @@ class TestGetModelAccessError:
 
         feature_enabled_mock.assert_not_called()
 
-    @pytest.mark.parametrize("model", ["moonshotai/kimi-k3", "  MoonshotAI/Kimi-K3  "])
-    def test_gated_model_is_allowed_when_the_flag_is_on(self, model):
+    @pytest.mark.parametrize(
+        "model, flag_key",
+        [
+            ("moonshotai/kimi-k3", "tasks-kimi-k3"),
+            ("  MoonshotAI/Kimi-K3  ", "tasks-kimi-k3"),
+            ("deepseek-ai/deepseek-v4-flash-0731", "posthog-code-deepseek-model"),
+            ("zai-org/glm-5.3", "posthog-code-glm-53-model"),
+            ("zai-org/glm-5.3-flash", "posthog-code-glm-53-flash-model"),
+        ],
+    )
+    def test_gated_model_is_allowed_when_the_flag_is_on(self, model, flag_key):
         with (
             override_settings(DEBUG=False),
             patch(
@@ -77,7 +90,7 @@ class TestGetModelAccessError:
         ):
             assert get_model_access_error(model, distinct_id="d-1") is None
 
-        assert feature_enabled_mock.call_args.args[0] == "tasks-kimi-k3"
+        assert feature_enabled_mock.call_args.args[0] == flag_key
         assert feature_enabled_mock.call_args.kwargs["distinct_id"] == "d-1"
 
     @pytest.mark.parametrize(
@@ -107,3 +120,25 @@ class TestGetModelAccessError:
             ),
         ):
             assert get_model_access_error("moonshotai/kimi-k3", distinct_id="d-1") is not None
+
+
+class TestIsMcpExecSkillsEnabled:
+    def test_evaluates_for_the_user_and_organization_server_side(self):
+        with patch(
+            "products.tasks.backend.feature_flags.posthoganalytics.feature_enabled",
+            return_value=True,
+        ) as feature_enabled_mock:
+            assert is_mcp_exec_skills_enabled("org-1", "user-1") is True
+
+        assert feature_enabled_mock.call_args.args[0] == "mcp-exec-skills"
+        kwargs = feature_enabled_mock.call_args.kwargs
+        assert kwargs["distinct_id"] == "user-1"
+        assert kwargs["groups"] == {"organization": "org-1"}
+        assert kwargs["only_evaluate_locally"] is False
+
+    def test_fails_closed_on_flag_service_error(self):
+        with patch(
+            "products.tasks.backend.feature_flags.posthoganalytics.feature_enabled",
+            side_effect=RuntimeError("flags down"),
+        ):
+            assert is_mcp_exec_skills_enabled("org-1", "user-1") is False

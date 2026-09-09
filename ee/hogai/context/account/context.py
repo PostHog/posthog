@@ -2,9 +2,9 @@ from django.core.exceptions import ObjectDoesNotExist
 
 from posthog.models import Team, User
 from posthog.models.group.util import get_group_by_key
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade.api import get_account_context_data
 from products.customer_analytics.backend.facade.constants import (
     BILLING_SPEND_INSIGHT_SHORT_IDS,

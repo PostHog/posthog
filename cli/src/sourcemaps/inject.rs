@@ -28,17 +28,18 @@ pub struct InjectArgs {
     #[clap(flatten)]
     pub release: ReleaseArgs,
 
-    /// How the release is associated with exceptions. `symbol-set` (the default) stamps the
-    /// release id into the sourcemap so the uploaded symbol set is bound to it: the previous
-    /// behavior. EXPERIMENTAL `event` injects the release id into each chunk as
-    /// `_posthogReleaseId` so the SDK emits it on every exception, and derives
-    /// content-addressed chunk ids that are stable across rebuilds. Also settable via
-    /// `POSTHOG_RELEASE_MODE`.
+    /// How the release is associated with exceptions. `event` (the default) derives
+    /// content-addressed chunk ids that are stable across rebuilds. A web build also injects the
+    /// release id into each chunk as `_posthogReleaseId`, so the SDK emits it on every exception.
+    /// A Hermes build injects no release id, because a bytecode bundle cannot read one back out.
+    /// Each of its events resolves the release from the app version and namespace the SDK sends.
+    /// `symbol-set` stamps the release id into the sourcemap instead, so the uploaded symbol set
+    /// is bound to it. Also settable via `POSTHOG_RELEASE_MODE`.
     #[arg(
         long,
         env = "POSTHOG_RELEASE_MODE",
         value_enum,
-        default_value = "symbol-set"
+        default_value = "event"
     )]
     pub release_mode: ReleaseMode,
 }
@@ -49,11 +50,25 @@ impl InjectArgs {
     }
 }
 
+/// Where an event-mode build's release comes from at runtime.
+///
+/// Web and Node bundles carry it in the chunk. The injected snippet sets `_posthogReleaseId`,
+/// and the SDK emits it on every exception. React Native cannot do this. The injected JS
+/// compiles to Hermes bytecode, and no SDK reads the global out of it. There the server
+/// rebuilds the release from the `$app_namespace` / `$app_version` / `$app_build` that every
+/// event already carries. This is what it does for iOS dSYMs and Android mappings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EventReleaseSource {
+    EmbeddedInChunk,
+    AppMetadata,
+}
+
 pub fn inject_impl(
     args: &InjectArgs,
     matcher: impl Fn(&DirEntry) -> bool + 'static,
     existing_release: Option<&Release>,
-) -> Result<()> {
+    event_release_source: EventReleaseSource,
+) -> Result<Vec<SourcePair>> {
     let InjectArgs {
         file_selection,
         public_path_prefix,
@@ -77,13 +92,20 @@ pub fn inject_impl(
         ReleaseMode::Event => {
             // The release id travels inside each chunk for the SDK to emit, rather than being
             // stamped into the sourcemap, so the release exists but nothing binds a symbol set
-            // to it.
-            let release_id = resolve_release_id(release.clone(), existing_release)?;
-            if release_id.is_none() {
-                warn!(
-                    "no release could be resolved, injecting chunk ids only — events will carry no release"
-                );
-            }
+            // to it. When the SDK reads the release from the app instead, only the chunk ids go
+            // in. The upload then creates the release row that the server resolves onto.
+            let release_id = match event_release_source {
+                EventReleaseSource::EmbeddedInChunk => {
+                    let release_id = resolve_release_id(release.clone(), existing_release)?;
+                    if release_id.is_none() {
+                        warn!(
+                            "no release could be resolved, injecting chunk ids only — events will carry no release"
+                        );
+                    }
+                    release_id
+                }
+                EventReleaseSource::AppMetadata => None,
+            };
             pairs = inject_pairs(pairs, release_id.as_deref())?;
         }
         ReleaseMode::SymbolSet => {
@@ -106,7 +128,7 @@ pub fn inject_impl(
         pair.save()?;
     }
     info!("injecting done");
-    Ok(())
+    Ok(pairs)
 }
 
 /// Event-mode injection (`--release-mode=event`): content-addressed chunk ids plus an optional
@@ -522,5 +544,57 @@ mod tests {
         .expect_err("build-only release args should need git to fill the release name");
 
         assert!(format!("{error:#}").contains("Release fields are incomplete"));
+    }
+
+    #[test]
+    fn inject_impl_returns_the_injected_pairs() {
+        let dir = tempfile::tempdir().unwrap();
+        let js_path = dir.path().join("chunk.js");
+        fs::write(
+            &js_path,
+            "console.log(1);\n//# sourceMappingURL=chunk.js.map\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("chunk.js.map"),
+            r#"{"version":3,"sources":[],"names":[],"mappings":""}"#,
+        )
+        .unwrap();
+
+        let args = InjectArgs {
+            file_selection: FileSelectionArgs {
+                directory: vec![dir.path().to_path_buf()],
+                stdin: false,
+                include: Vec::new(),
+                exclude: Vec::new(),
+            },
+            public_path_prefix: None,
+            release: ReleaseArgs {
+                name: None,
+                version: None,
+                build: None,
+                info_plist: None,
+                skip_release_on_fail: true,
+            },
+            release_mode: ReleaseMode::Event,
+        };
+
+        // AppMetadata skips release resolution, so nothing here touches the network.
+        let pairs = inject_impl(
+            &args,
+            is_javascript_file,
+            None,
+            EventReleaseSource::AppMetadata,
+        )
+        .unwrap();
+
+        assert_eq!(pairs.len(), 1);
+        assert!(pairs[0].get_chunk_id().is_some());
+        // The returned in-memory pair matches what reached disk, so a consumer (the
+        // process command's upload) can act on it without re-reading the directory.
+        assert_eq!(
+            fs::read_to_string(&js_path).unwrap(),
+            pairs[0].source.inner.content
+        );
     }
 }

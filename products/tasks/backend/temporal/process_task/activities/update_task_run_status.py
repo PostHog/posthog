@@ -1,7 +1,8 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from temporalio import activity
@@ -10,8 +11,8 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.error_telemetry import truncate_error_message
-from products.tasks.backend.metrics import observe_wizard_run_unbound
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.metrics import observe_prewarmed_unused_if_never_activated, observe_wizard_run_unbound
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.observability import log_with_activity_context
 
@@ -24,6 +25,7 @@ TIMED_OUT_INACTIVITY_STATE_KEY = "timed_out_inactivity"
 TIMED_OUT_WALL_CLOCK_STATE_KEY = "timed_out_wall_clock"
 # TaskRun.state marker for runs terminalized because their sandbox disappeared.
 SANDBOX_GONE_STATE_KEY = "sandbox_gone"
+USAGE_METRICS_RECORDED_STATE_KEY = "usage_metrics_recorded"
 
 # Allowlist for `timeout_marker` so the activity never writes an arbitrary state key.
 _TERMINAL_STATE_MARKERS = (
@@ -118,11 +120,27 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
     task_run.publish_stream_state_event()
     observe_wizard_run_unbound(task_run)
 
-    if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED] and old_status != input.status:
-        _capture_terminal_analytics(task_run, input)
+    if input.status in _TERMINAL_STATUSES and old_status != input.status:
+        task_run.close_ci_progress_step()
+
+    if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]:
+        if old_status != input.status:
+            _capture_terminal_analytics(task_run, input)
+        _record_terminal_token_usage(task_run, input)
 
     if input.timed_out_inactivity and old_status != input.status:
         task_run.task.soft_delete_if_unclaimed_prewarm(task_run)
+
+    # A warm Run that reaches terminal without ever being activated was never used — the sandbox was
+    # booted and thrown away. Counting it against `prewarmed_activated_total` gives the warm hit rate,
+    # and the reason separates a deliberate hand-back from one nobody reclaimed.
+    if input.status in _TERMINAL_STATUSES and old_status != input.status:
+        observe_prewarmed_unused_if_never_activated(
+            task_run,
+            reason="idle_timeout"
+            if input.timed_out_inactivity
+            else ("released" if input.status == TaskRun.Status.CANCELLED else "other"),
+        )
 
     if input.status in _TERMINAL_STATUSES:
         from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> process_task -> activities import cycle
@@ -142,8 +160,77 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
     )
 
 
+def _capture_posthog_ai_chat_analytics(
+    task_run: TaskRun, input: UpdateTaskRunStatusInput, *, termination_reason: Optional[str]
+) -> None:
+    """Emit the PostHog AI chat outcome events, the sandbox counterpart to legacy `chat with ai`.
+
+    PostHog AI usage series are built on `chat with ai`, which only the LangGraph runner emits
+    (`ee/hogai/chat_agent/runner.py`). A sandbox conversation never reaches that runner, so without
+    this the series decay to zero as conversations move over.
+
+    This sits on the run transition rather than on each turn, so it fires only once the outcome is
+    known. A run spans every turn its sandbox stays alive, so the event counts runs where the legacy
+    one counted turns — `usage_turns` carries the turn count for a series that needs it.
+    """
+    if task_run.task.origin_product != Task.OriginProduct.POSTHOG_AI:
+        return
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    if state.get("await_user_message"):
+        # A prewarmed sandbox that idled out before anyone typed into it. The inactivity timeout
+        # terminalizes it as completed, so without this guard, opening the panel and walking away
+        # counts as a chat. PostHog AI removes the key when it delivers the first message; that
+        # removal is best-effort, so a failed one drops a real chat rather than inventing one.
+        return
+    properties = {
+        "agent_runtime": "sandbox",
+        # Agent modes are a LangGraph concept, and the sandbox runtime has none.
+        "agent_mode": None,
+        "is_new_conversation": _is_first_chat_run_of_task(task_run, state),
+        "duration_seconds": task_run._duration_seconds(),
+        "termination_reason": termination_reason,
+    }
+    if input.status == TaskRun.Status.COMPLETED:
+        task_run.capture_event("chat with ai", properties)
+        return
+    task_run.capture_event(
+        "chat with ai failed",
+        {
+            **properties,
+            "error_message": truncate_error_message(input.error_message or task_run.error_message),
+            "error_type": input.error_type or "unspecified",
+        },
+    )
+
+
+def _is_first_chat_run_of_task(task_run: TaskRun, state: dict[str, Any]) -> bool:
+    """Whether this run opened the conversation, the run-level reading of `is_new_conversation`.
+
+    A terminal run resumes into a successor rather than reopening, so "no earlier run" is what
+    separates a new conversation from a continued one. Two kinds of earlier history do not count:
+
+    - A prewarm nobody typed into. It idles out on its own and the next message resumes into a
+      successor, so counting it would report the user's first real chat as a continuation.
+    - The LangGraph half of a converted conversation. That conversation already counted once on
+      the legacy runtime, and its sandbox side starts on a fresh task with no earlier run.
+    """
+    if state.get("converted_from_langgraph"):
+        return False
+    # Match the prewarm on the key's absence rather than with `exclude`. A queryset `exclude` on a
+    # JSON key compares NULL for every row that lacks the key, so it would drop exactly the earlier
+    # runs that did hold a chat and report every conversation as new.
+    held_a_chat = ~Q(state__has_key="await_user_message") | Q(state__await_user_message=False)
+    return (
+        not TaskRun.objects.filter(
+            task_id=task_run.task_id, team_id=task_run.team_id, created_at__lt=task_run.created_at
+        )
+        .filter(held_a_chat)
+        .exists()
+    )
+
+
 def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInput) -> None:
-    """Emit the terminal analytics event and token-expenditure metrics.
+    """Emit the terminal analytics events.
 
     This activity performs the DB status transition, so it is the single canonical
     emitter of the terminal analytics events for workflow-driven runs — the workflow
@@ -180,17 +267,29 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                 },
             )
 
-        state = task_run.state if isinstance(task_run.state, dict) else {}
-        usage = state.get("token_usage")
-        if isinstance(usage, dict):
-            adapter = state.get("runtime_adapter")
-            record_run_token_usage(
-                usage,
-                origin_product=task_run.task.origin_product,
-                run_environment=task_run.environment,
-                rtk_enabled=task_run.effective_rtk(),
-                runtime_adapter=adapter if isinstance(adapter, str) else None,
-                status=input.status,
-            )
+        _capture_posthog_ai_chat_analytics(task_run, input, termination_reason=termination_reason)
     except Exception:
         activity.logger.warning(f"Failed to capture terminal analytics for run {task_run.id}", exc_info=True)
+
+
+def _record_terminal_token_usage(task_run: TaskRun, input: UpdateTaskRunStatusInput) -> None:
+    try:
+        state = task_run.state if isinstance(task_run.state, dict) else {}
+        usage = state.get("token_usage")
+        if not isinstance(usage, dict) or state.get(USAGE_METRICS_RECORDED_STATE_KEY):
+            return
+        adapter = state.get("runtime_adapter")
+        model = state.get("model")
+        task_run.state = TaskRun.update_state_atomic(task_run.id, updates={USAGE_METRICS_RECORDED_STATE_KEY: True})
+        record_run_token_usage(
+            usage,
+            origin_product=task_run.task.origin_product,
+            run_environment=task_run.environment,
+            rtk_enabled=task_run.effective_rtk(),
+            benjamin_enabled=task_run.effective_benjamin(),
+            model=model if isinstance(model, str) else None,
+            runtime_adapter=adapter if isinstance(adapter, str) else None,
+            status=input.status,
+        )
+    except Exception:
+        activity.logger.warning(f"Failed to record token usage for run {task_run.id}", exc_info=True)

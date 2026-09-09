@@ -4,6 +4,20 @@ Run via the PostHog MCP `execute-sql` against the customer's project. Adjust the
 survey ID. Tables: `events`, `static_cohort_people` (NOT `person_static_cohort` — that's
 the ClickHouse name; HogQL exposes `static_cohort_people`), `persons`.
 
+## Contents
+
+- Shown vs sent, before/after a change (the "none vs fewer" disambiguator)
+- What did the gating flag return, and was group context set
+- Did a static cohort actually populate (with country breakdown)
+- Real reach by survey, before/after a date (find the affected surveys)
+- Was partial-response collection ever on?
+- Full event funnel including abandonment
+- Every question and its answer, keyed off the survey JSON (preferred)
+- Same thing without the survey JSON: unroll `$survey_questions`
+- Answer rate per question (is "incomplete" just branching?)
+- Shown → sent latency (accidental / stray-click submissions)
+- Replay link per response (watch a disputed submission)
+
 ## Shown vs sent, before/after a change (the "none vs fewer" disambiguator)
 
 ```sql

@@ -22,11 +22,11 @@ pytestmark = pytest.mark.django_db
 
 TEAM = 987654
 
-# The test database is built from rust/persons_migrations, which declares
-# posthog_person_new_uuid_idx as UNIQUE. Production does not have it -- that divergence
-# is the entire reason this command exists, and it means the test database physically
-# rejects the duplicate rows we need to seed. Recreate the index non-unique so the
-# fixture holds what production holds, and restore it afterwards.
+# The test database declares a UNIQUE (team_id, uuid) index, so it physically rejects the
+# duplicate rows these tests need to seed. Drop to a non-unique index for the fixture and
+# restore it afterwards. The duplicates this command repairs accumulated while production
+# carried a non-unique index. Production enforces uniqueness, so the command operates on
+# historical rows rather than newly created ones.
 DROP_UNIQUE_UUID_INDEX = "DROP INDEX IF EXISTS posthog_person_new_uuid_idx"
 CREATE_NON_UNIQUE_UUID_INDEX = "CREATE INDEX posthog_person_new_uuid_idx ON posthog_person (team_id, uuid)"
 RESTORE_UNIQUE_UUID_INDEX = "CREATE UNIQUE INDEX posthog_person_new_uuid_idx ON posthog_person (team_id, uuid)"
@@ -1008,12 +1008,22 @@ class TestPersonsDedupLogVisibility:
 
         handler = _Collector()
         original_level = parent.level
+        original_disabled = module_logger.disabled
+        original_global_disable = logging.root.manager.disable
         parent.setLevel(logging.WARNING)
+        # Unrelated suites in the same worker reconfigure logging globally (dictConfig with
+        # disable_existing_loggers, logging.disable), which suppresses every record regardless
+        # of level. Clear both so the assertion isolates the one thing this test guards: the
+        # module's own level beating the parent clamp.
+        module_logger.disabled = False
+        logging.disable(logging.NOTSET)
         module_logger.addHandler(handler)
         try:
             persons_dedup_command.logger.info("persons_dedup.log_visibility_probe", team_id=1)
         finally:
             module_logger.removeHandler(handler)
+            module_logger.disabled = original_disabled
+            logging.disable(original_global_disable)
             parent.setLevel(original_level)
 
         assert captured, "INFO records are dropped, so a production run would leave no log"

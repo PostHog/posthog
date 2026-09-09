@@ -38,8 +38,8 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
-from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend import loop_service
 from products.tasks.backend.github_repository_access import inaccessible_repositories_via_integration

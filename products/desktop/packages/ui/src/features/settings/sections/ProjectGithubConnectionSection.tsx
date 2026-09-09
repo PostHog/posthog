@@ -11,7 +11,7 @@ import {
   formatGithubAccountLabel,
   githubInstallationSettingsUrl,
 } from "@posthog/core/settings/githubRepoSummary";
-import { Button, Spinner, Text } from "@posthog/quill";
+import { Button, Text } from "@posthog/quill";
 import { formatRelativeTimeLong } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
@@ -35,6 +35,7 @@ import {
   SettingsCardRow,
   SettingsSection,
 } from "@posthog/ui/features/settings/components/SettingsCard";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { openUrlInBrowser } from "@posthog/ui/utils/browser";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -69,7 +70,7 @@ export function ProjectGithubConnectionSection() {
   return (
     <SettingsSection
       label="Project connection"
-      description="GitHub access for this project's Self-driving pipeline and cloud tasks."
+      description="GitHub access for this project's Self-driving pipeline and cloud tasks"
     >
       {projectId != null ? (
         <GithubInstallRequestsBanner
@@ -91,7 +92,7 @@ export function ProjectGithubConnectionSection() {
       <SettingsCard>
         {isLoading ? (
           <div className="flex items-center gap-2 px-3.5 py-3">
-            <Spinner />
+            <Spinner size="sm" />
             <Text size="xs" variant="muted">
               Loading…
             </Text>
@@ -108,7 +109,7 @@ export function ProjectGithubConnectionSection() {
         ) : isAwaitingApproval ? (
           <SettingsCardRow
             label="No GitHub connection yet"
-            description="A GitHub organization owner still needs to approve the PostHog app."
+            description="A GitHub organization owner still needs to approve the PostHog app"
           />
         ) : isAdmin === false && projectId != null ? (
           <div className="px-3.5 py-3">
@@ -121,7 +122,7 @@ export function ProjectGithubConnectionSection() {
         ) : (
           <SettingsCardRow
             label="No GitHub connection yet"
-            description="Connect GitHub so Self-driving and cloud tasks can work with your repositories."
+            description="Connect GitHub so Self-driving and cloud tasks can work with your repositories"
           >
             <Button
               type="button"
@@ -262,7 +263,7 @@ function ProjectGithubIntegrationRow({
         }
         description={
           status === "unavailable"
-            ? "The PostHog app is no longer installed on GitHub, so this only removes the stale connection from PostHog."
+            ? "The PostHog app is no longer installed on GitHub, so this only removes the stale connection from PostHog"
             : buildGithubDisconnectDescription(
                 accountLabel,
                 integration.installation_shared === true,

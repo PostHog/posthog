@@ -1,8 +1,9 @@
-import type {
-  McpServerConnection,
-  McpToolApprovalState,
-  McpToolPolicy,
-  StoredLogEntry,
+import {
+  type McpServerConnection,
+  type McpToolApprovalState,
+  type McpToolPolicy,
+  type StoredLogEntry,
+  taskRunStateSchema,
 } from "@posthog/shared";
 import packageJson from "../package.json" with { type: "json" };
 import type {
@@ -109,13 +110,7 @@ export interface PeerMessageSendResult {
 export type TaskRunUpdate = Partial<
   Pick<
     TaskRun,
-    | "status"
-    | "branch"
-    | "stage"
-    | "error_message"
-    | "output"
-    | "state"
-    | "environment"
+    "status" | "branch" | "stage" | "error_message" | "output" | "state"
   >
 > & {
   state_remove_keys?: string[];
@@ -124,6 +119,7 @@ export type TaskRunUpdate = Partial<
 
 export class PostHogAPIClient {
   private config: PostHogAPIConfig;
+  private userNode: string | null | undefined;
 
   constructor(config: PostHogAPIConfig) {
     this.config = config;
@@ -136,8 +132,12 @@ export class PostHogAPIClient {
     return host;
   }
 
-  private isAuthFailure(status: number): boolean {
-    return status === 401 || status === 403;
+  private isTokenRejection(status: number): boolean {
+    // 401 means the token is invalid or expired, which a forced refresh
+    // fixes. 403 means the credential lacks permission; a refresh from the
+    // same grant cannot gain any, and forcing one on every 403 rotates the
+    // refresh token and rebuilds the whole desktop session.
+    return status === 401;
   }
 
   private async resolveApiKey(forceRefresh = false): Promise<string> {
@@ -183,7 +183,7 @@ export class PostHogAPIClient {
   ): Promise<Response> {
     let response = await this.performRequest(endpoint, options);
 
-    if (!response.ok && this.isAuthFailure(response.status)) {
+    if (!response.ok && this.isTokenRejection(response.status)) {
       response = await this.performRequest(endpoint, options, true);
     }
 
@@ -220,6 +220,35 @@ export class PostHogAPIClient {
 
   getLlmGatewayUrl(): string {
     return getLlmGatewayUrl(this.baseUrl);
+  }
+
+  /**
+   * The gateway user node for the signed-in person, or null when the credential
+   * resolves to no user (a task-scoped token). This is the distinct id, not the
+   * uuid: it has to match what a per-person spend limit is keyed on and what a
+   * cloud run pins into its token, so the `user_{id}` fallback mirrors
+   * products/ai_gateway/backend/logic.py (_spend_node) exactly — diverging from it writes a
+   * budget nothing debits. Successful lookups are cached, since the node never
+   * changes for a credential; a failed lookup is not, so a startup network blip
+   * doesn't permanently disable the spend-limit header.
+   */
+  async getUserNode(): Promise<string | null> {
+    if (this.userNode !== undefined) return this.userNode;
+    try {
+      const user = await this.apiRequest<{
+        id?: number;
+        distinct_id?: string;
+      }>("/api/users/@me/", {
+        // Best-effort header on session start: bound the request so a stalled
+        // socket can't hold up the run. The catch below then returns null.
+        signal: AbortSignal.timeout(API_TRANSFER_TIMEOUT_MS),
+      });
+      this.userNode =
+        user.distinct_id || (user.id != null ? `user_${user.id}` : null);
+    } catch {
+      return null;
+    }
+    return this.userNode;
   }
 
   async getTask(taskId: string): Promise<Task> {
@@ -309,38 +338,31 @@ export class PostHogAPIClient {
     signal?: AbortSignal,
   ): Promise<TaskRun> {
     const teamId = this.getTeamId();
-    return this.apiRequest<TaskRun>(
+    const taskRun = await this.apiRequest<TaskRun>(
       `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/`,
       { signal },
     );
+    return { ...taskRun, state: taskRunStateSchema.parse(taskRun.state) };
   }
 
   /**
-   * File one task-analysis finding. The server owns the findings list, validates the
+   * Record one task-analysis activity. The server owns the activities list, validates the
    * shape and enforces the per-run cap, so this is the only way to add one.
    */
-  async reportAnalysisInsight(
+  async reportAnalysisActivity(
     taskId: string,
     runId: string,
-    insight: Record<string, unknown>,
+    activity: Record<string, unknown>,
     signal?: AbortSignal,
-  ): Promise<{ insight_index: number }> {
+  ): Promise<{ activity_index: number }> {
     const teamId = this.getTeamId();
-    return this.apiRequest<{ insight_index: number }>(
-      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/analysis-insight/`,
+    return this.apiRequest<{ activity_index: number }>(
+      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/analysis-activity/`,
       {
         method: "POST",
-        body: JSON.stringify(insight),
+        body: JSON.stringify(activity),
         signal,
       },
-    );
-  }
-
-  async resumeRunInCloud(taskId: string, runId: string): Promise<TaskRun> {
-    const teamId = this.getTeamId();
-    return this.apiRequest<TaskRun>(
-      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/resume_in_cloud/`,
-      { method: "POST" },
     );
   }
 
@@ -457,6 +479,7 @@ export class PostHogAPIClient {
     text: string,
     textParts?: string[],
     messageId?: string,
+    traceId?: string | null,
   ): Promise<void> {
     const teamId = this.getTeamId();
     // Send `text_parts` alongside the joined `text` so backends that understand
@@ -464,7 +487,12 @@ export class PostHogAPIClient {
     // backends still get the flat `text` field they already handle.
     // `message_id` correlates the relay with the user message that initiated
     // the turn; it is omitted when no message id is known (e.g. boot prompt).
-    const body: { text: string; text_parts?: string[]; message_id?: string } = {
+    const body: {
+      text: string;
+      text_parts?: string[];
+      message_id?: string;
+      trace_id?: string;
+    } = {
       text,
     };
     if (textParts && textParts.length > 0) {
@@ -472,6 +500,9 @@ export class PostHogAPIClient {
     }
     if (messageId) {
       body.message_id = messageId;
+    }
+    if (traceId) {
+      body.trace_id = traceId;
     }
     await this.apiRequest<{ status: string }>(
       `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/relay_message/`,

@@ -114,7 +114,13 @@ class ErrorTrackingExternalIssueSearchQuerySerializer(serializers.Serializer):
         help_text="ID of the connected integration to search issues in.",
     )
     search = serializers.CharField(
-        help_text="Text to match against existing issue titles / keys in the provider.",
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "Text to match against existing issue titles / keys in the provider. GitHub matches it "
+            "as an exact phrase. Leave blank for recent issues."
+        ),
     )
     repository = serializers.CharField(
         required=False,

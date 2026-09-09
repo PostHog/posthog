@@ -23,6 +23,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     AccountCustomPropertyFilter,
+    AccountRelationshipPropertyFilter,
     AnyPropertyFilter,
     CohortPropertyFilter,
     EventMetadataPropertyFilter,
@@ -245,6 +246,11 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 }
 
                 // The key is the definition id (a UUID), so keep the human-readable name for display
+                if (propertyType === PropertyFilterType.AccountRelationship && item?.name) {
+                    const accountRelationshipFilter = filter as unknown as AccountRelationshipPropertyFilter
+                    accountRelationshipFilter.label = item.name
+                }
+
                 if (propertyType === PropertyFilterType.AccountCustomProperty && item?.name) {
                     const accountCustomPropertyFilter = filter as AccountCustomPropertyFilter
                     accountCustomPropertyFilter.label = item.name

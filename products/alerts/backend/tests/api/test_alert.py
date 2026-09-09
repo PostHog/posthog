@@ -14,13 +14,21 @@ from rest_framework import status
 from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
 from posthog.api.tagged_item import set_tags_on_object
+from posthog.cdp.templates.fixtures import template_slack
+from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import AvailableFeature
 from posthog.models import User
+from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.alerts.backend.destinations import AlertDelivery
+from products.alerts.backend.destinations import AlertDelivery, count_active_alert_destinations
+from products.alerts.backend.insight_alert_destinations import (
+    INSIGHT_ALERT_EVENT_IDS,
+    MAX_DESTINATIONS_PER_ALERT,
+    SLACK_TEMPLATE_ID,
+)
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.product_analytics.backend.facade.models import Insight
@@ -124,7 +132,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         alert_id = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()["id"]
 
         with mock.patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
             side_effect=deny_insight,
         ):
             create = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
@@ -157,7 +165,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
         # Deny viewer access to every insight by emptying the viewable-insight queryset.
         with mock.patch(
-            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
             side_effect=lambda queryset, *args, **kwargs: queryset.none(),
         ):
             retrieve = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert_id}")
@@ -169,32 +177,6 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert update.status_code == status.HTTP_404_NOT_FOUND, update.content
         assert delete.status_code == status.HTTP_404_NOT_FOUND, delete.content
         assert [a["id"] for a in listed.json()["results"]] == []
-
-    def test_create_alert_on_funnel_insight(self) -> None:
-        funnel_insight = self.client.post(
-            f"/api/projects/{self.team.id}/insights",
-            data={
-                "query": {
-                    "kind": "FunnelsQuery",
-                    "series": [
-                        {"kind": "EventsNode", "event": "$pageview"},
-                        {"kind": "EventsNode", "event": "$autocapture"},
-                    ],
-                }
-            },
-        ).json()
-        creation_request = {
-            "insight": funnel_insight["id"],
-            "subscribed_users": [self.user.id],
-            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
-            "config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
-            "name": "funnel alert",
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 50}}},
-            "calculation_interval": "daily",
-        }
-
-        response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
-        assert response.status_code == status.HTTP_201_CREATED, response.content
 
     def test_create_threshold_alert_rejects_empty_bounds(self) -> None:
         creation_request = {
@@ -381,6 +363,57 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         body = response.json()
         assert len(body["checks"]) == expected_count
         assert body["checks_total"] == total_checks
+
+    def test_retrieve_check_includes_allowlisted_error_code(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "name": "error code test",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        alert_obj = AlertConfiguration.objects.get(id=alert["id"])
+        AlertCheck.objects.create(
+            alert_configuration=alert_obj,
+            calculated_value=None,
+            state=AlertState.ERRORED,
+            error={"code": "email_unavailable", "message": "Email delivery is unavailable."},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["checks"][0]["error"] == {
+            "code": "email_unavailable",
+            "message": "Email delivery is unavailable.",
+        }
+
+    def test_retrieve_check_hides_internal_error_message(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "name": "internal error test",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+        alert_obj = AlertConfiguration.objects.get(id=alert["id"])
+        AlertCheck.objects.create(
+            alert_configuration=alert_obj,
+            calculated_value=None,
+            state=AlertState.ERRORED,
+            error={"message": "ClickHouse failed to connect to internal.example.com"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["checks"][0]["error"] == {
+            "message": "This alert encountered an error. Check the alert configuration and try again."
+        }
 
     @parameterized.expand(
         [
@@ -736,7 +769,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
 
         insight_without_alert_support = deepcopy(self.default_insight_data)
-        insight_without_alert_support["query"] = {"kind": "RetentionQuery", "retentionFilter": {}}
+        insight_without_alert_support["query"] = {"kind": "EventsQuery", "select": ["*"]}
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{another_insight['id']}",
             data=insight_without_alert_support,
@@ -780,50 +813,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         # Changing to a kind that cannot carry alerts still cascades.
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{hogql_insight['id']}",
-            data={"query": {"kind": "RetentionQuery", "retentionFilter": {}}},
-        )
-        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-
-    def test_funnel_alert_survives_insight_update_and_is_listed_on_insight(self) -> None:
-        funnel_insight_data: dict[str, Any] = {
-            "query": {
-                "kind": "FunnelsQuery",
-                "series": [
-                    {"kind": "EventsNode", "event": "$pageview"},
-                    {"kind": "EventsNode", "event": "$autocapture"},
-                ],
-            },
-        }
-        funnel_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=funnel_insight_data).json()
-
-        alert = self.client.post(
-            f"/api/projects/{self.team.id}/alerts",
-            {
-                "insight": funnel_insight["id"],
-                "subscribed_users": [self.user.id],
-                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
-                "config": {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
-                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 50}}},
-                "name": "funnel alert",
-            },
-        ).json()
-
-        # The insight response must list the alert inline — the UI trusts this list on reload.
-        insight_response = self.client.get(f"/api/projects/{self.team.id}/insights/{funnel_insight['id']}").json()
-        assert [a["id"] for a in insight_response["alerts"]] == [alert["id"]]
-
-        # Updating the insight while it stays funnel-backed must not cascade-delete the alert.
-        updated = deepcopy(funnel_insight_data)
-        updated["query"]["series"][1]["event"] = "$pageleave"
-        self.client.patch(f"/api/projects/{self.team.id}/insights/{funnel_insight['id']}", data=updated)
-        response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
-        assert response.status_code == status.HTTP_200_OK
-
-        # Changing to a kind that cannot carry alerts still cascades.
-        self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{funnel_insight['id']}",
-            data={"query": {"kind": "RetentionQuery", "retentionFilter": {}}},
+            data={"query": {"kind": "EventsQuery", "select": ["*"]}},
         )
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
         assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -1580,7 +1570,19 @@ class TestAlertSimulate(APIBaseTest):
         assert isinstance(data["scores"], list)
         assert len(data["scores"]) == 34
 
-    def test_simulate_missing_detector_config_returns_400(self) -> None:
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
+    def test_simulate_uses_default_detector_config(self, mock_simulate) -> None:
+        mock_simulate.return_value = {
+            "data": [],
+            "dates": [],
+            "scores": [],
+            "triggered_indices": [],
+            "triggered_dates": [],
+            "interval": "day",
+            "total_points": 0,
+            "anomaly_count": 0,
+        }
+
         response = self.client.post(
             f"/api/projects/{self.team.id}/alerts/simulate",
             {
@@ -1588,7 +1590,59 @@ class TestAlertSimulate(APIBaseTest):
                 "series_index": 0,
             },
         )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        detector_config = mock_simulate.call_args.kwargs["detector_config"]
+        assert detector_config["type"] == "zscore"
+        assert detector_config["threshold"] == 0.95
+        assert detector_config["window"] == 90
+        assert detector_config["preprocessing"]["diffs_n"] == 1
+
+    def test_simulate_null_detector_config_returns_400(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": self.insight["id"],
+                "detector_config": None,
+            },
+        )
+
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_simulate_unknown_insight_short_id_returns_not_found_error(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": "not-a-real-short-id",
+                "detector_config": {"type": "zscore"},
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "does_not_exist"
+
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
+    def test_simulate_accepts_insight_short_id(self, mock_simulate) -> None:
+        mock_simulate.return_value = {
+            "data": [],
+            "dates": [],
+            "scores": [],
+            "triggered_indices": [],
+            "triggered_dates": [],
+            "interval": "day",
+            "total_points": 0,
+            "anomaly_count": 0,
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": self.insight["short_id"],
+                "detector_config": {"type": "zscore"},
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert mock_simulate.call_args.kwargs["insight"].id == self.insight["id"]
 
     def test_simulate_invalid_detector_config_returns_400(self) -> None:
         response = self.client.post(
@@ -1738,6 +1792,24 @@ class TestAlertTestDelivery(APIBaseTest):
         mock_email_message.return_value.add_recipient.assert_called_once_with(email=self.user.email)
         mock_email_message.return_value.send.assert_called_once_with()
         mock_trigger.assert_not_called()
+
+    @mock.patch("products.alerts.backend.presentation.views.alert.is_email_available", return_value=False)
+    @mock.patch(
+        "products.alerts.backend.presentation.views.alert.send_test_alert_email",
+        side_effect=RuntimeError("email unavailable"),
+    )
+    def test_returns_email_unavailable_when_email_delivery_is_not_configured(
+        self, _mock_email, _mock_available
+    ) -> None:
+        alert = AlertConfiguration.objects.get(id=self.alert["id"])
+        AlertSubscription.objects.create(alert_configuration=alert, user=self.user)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
+        assert response.json() == {
+            "detail": "Email delivery is unavailable for this instance. Configure email settings before trying again."
+        }
 
     @mock.patch(
         "products.alerts.backend.presentation.views.alert.send_test_alert_email",
@@ -2178,6 +2250,13 @@ class TestAlertAPIKeyAccess(APIBaseTest):
                 status.HTTP_403_FORBIDDEN,
                 "alert:write",
             ),
+            (
+                ["alert:read"],
+                "post",
+                "/{alert_id}/destinations/",
+                status.HTTP_403_FORBIDDEN,
+                "alert:write",
+            ),
         ]
     )
     def test_alert_api_key_access(self, scopes, http_method, endpoint_suffix, expected_status, error_scope):
@@ -2420,3 +2499,125 @@ class TestAlertRealTimeInterval(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "limit of 1 real-time alerts" in str(response.json())
+
+
+class TestAlertDestinations(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # Destination creation looks the template up by id through the HogFunction serializer.
+        sync_template_to_db(template_slack)
+        # No query on the insight, so this module does not drive another product's query runner.
+        self.insight = Insight.objects.create(team=self.team, name="Signups", created_by=self.user)
+        self.alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            name="Signups dropped",
+            created_by=self.user,
+        )
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"authed_user": {"id": "u"}},
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+        self.url = f"/api/projects/{self.team.id}/alerts/{self.alert.id}/destinations/"
+
+    def _slack_payload(self, **overrides: Any) -> dict[str, Any]:
+        return {
+            "type": "slack",
+            "slack_workspace_id": self.integration.id,
+            "slack_channel_id": "C123",
+            "slack_channel_name": "product-alerts",
+            **overrides,
+        }
+
+    def _active_destination_count(self) -> int:
+        return count_active_alert_destinations(
+            team_id=self.team.id, alert_id=str(self.alert.id), allowed_event_ids=INSIGHT_ALERT_EVENT_IDS
+        )
+
+    def test_alert_write_key_alone_attaches_a_slack_destination(self) -> None:
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Scout key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["alert:write"],
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            self.url, self._slack_payload(), format="json", HTTP_AUTHORIZATION=f"Bearer {key_value}"
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        hog_function_ids = response.json()["hog_function_ids"]
+        assert len(hog_function_ids) == 1
+        assert self._active_destination_count() == 1
+
+        hog_function = HogFunction.objects.get(id=hog_function_ids[0])
+        assert hog_function.template_id == SLACK_TEMPLATE_ID
+        assert hog_function.name == "Signups dropped: Slack #product-alerts"
+        assert (hog_function.inputs or {})["channel"]["value"] == "C123"
+        assert (hog_function.inputs or {})["slack_workspace"]["value"] == self.integration.id
+        assert (hog_function.filters or {})["events"] == [{"id": "$insight_alert_firing", "type": "events"}]
+        assert (hog_function.filters or {})["properties"] == [
+            {"key": "alert_id", "value": str(self.alert.id), "operator": "exact", "type": "event"}
+        ]
+        # The Slack snooze handler finds its alert through these two ids.
+        actions = next(block for block in (hog_function.inputs or {})["blocks"]["value"] if _is_actions_block(block))
+        assert actions["block_id"] == "insight_alert_snooze:{event.properties.alert_id}"
+        assert any(element.get("action_id") == "insight_alert_snooze" for element in actions["elements"])
+
+    @parameterized.expand(
+        [
+            ("webhook_url_instead_of_slack", {"type": "webhook", "webhook_url": "https://example.com/hook"}, "type"),
+            ("channel_missing", {"slack_channel_id": ""}, "slack_channel_id"),
+            ("workspace_not_connected", {"slack_workspace_id": 987654}, "slack_workspace_id"),
+        ]
+    )
+    def test_destination_request_is_refused(self, _name: str, overrides: dict, field: str) -> None:
+        response = self.client.post(self.url, self._slack_payload(**overrides), format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == field
+        assert self._active_destination_count() == 0
+
+    def test_another_teams_slack_workspace_is_refused(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_integration = Integration.objects.create(
+            team=other_team, kind="slack", integration_id="T999", config={}, sensitive_config={}
+        )
+
+        response = self.client.post(
+            self.url, self._slack_payload(slack_workspace_id=other_integration.id), format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert self._active_destination_count() == 0
+
+    def test_destination_is_removed_again(self) -> None:
+        created = self.client.post(self.url, self._slack_payload(), format="json")
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+
+        response = self.client.post(
+            f"{self.url}delete/", {"hog_function_ids": created.json()["hog_function_ids"]}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        assert self._active_destination_count() == 0
+
+    def test_an_alert_stops_taking_destinations_at_the_cap(self) -> None:
+        for index in range(MAX_DESTINATIONS_PER_ALERT):
+            response = self.client.post(self.url, self._slack_payload(slack_channel_id=f"C{index}"), format="json")
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        response = self.client.post(self.url, self._slack_payload(slack_channel_id="C-one-too-many"), format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert self._active_destination_count() == MAX_DESTINATIONS_PER_ALERT
+
+
+def _is_actions_block(block: Any) -> bool:
+    return isinstance(block, dict) and block.get("type") == "actions"

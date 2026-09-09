@@ -19,15 +19,13 @@ import pyarrow.parquet as pq
 from aiobotocore.config import AioConfig
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import (
-    WebhookSourceManager,
-    _db_read_with_retry,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.db import db_read_with_retry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 _CLOSE_CONNECTIONS_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3.close_old_connections"
+    "products.warehouse_sources.backend.temporal.data_imports.sources.common.db.close_old_connections"
 )
-_SLEEP_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3.time.sleep"
+_SLEEP_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.db.time.sleep"
 
 
 def _table_to_parquet_bytes(table: pa.Table) -> bytes:
@@ -445,7 +443,7 @@ class TestDbReadWithRetry:
         )
 
         with patch(_CLOSE_CONNECTIONS_PATH) as close, patch(_SLEEP_PATH) as sleep:
-            result = _db_read_with_retry(fn)
+            result = db_read_with_retry(fn)
 
         assert result is sentinel
         assert fn.call_count == 3
@@ -459,7 +457,7 @@ class TestDbReadWithRetry:
 
         with patch(_CLOSE_CONNECTIONS_PATH), patch(_SLEEP_PATH):
             with pytest.raises(OperationalError):
-                _db_read_with_retry(fn)
+                db_read_with_retry(fn)
 
         assert fn.call_count == 4
 
@@ -468,7 +466,7 @@ class TestDbReadWithRetry:
 
         with patch(_CLOSE_CONNECTIONS_PATH), patch(_SLEEP_PATH) as sleep:
             with pytest.raises(ValueError):
-                _db_read_with_retry(fn)
+                db_read_with_retry(fn)
 
         assert fn.call_count == 1
         sleep.assert_not_called()

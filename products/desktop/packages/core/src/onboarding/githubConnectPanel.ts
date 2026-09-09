@@ -15,16 +15,16 @@ export interface GithubPanelMessageOptions {
   isPending?: boolean;
 }
 
+/** Null when the connect flow has nothing to report, so the line stays out. */
 export function getGithubPanelMessage(
   options: GithubPanelMessageOptions,
-): string {
+): string | null {
   if (options.hasConnectError) return options.connectErrorMessage;
   if (options.isPending) return GITHUB_INSTALL_PENDING_MESSAGE;
   if (options.timedOut) {
     return GITHUB_CONNECT_TIMEOUT_MESSAGE;
   }
-  if (options.isConnecting) return "Waiting for GitHub...";
-  return "Unlocks cloud runs, branch pushes, and PR review on this account.";
+  return null;
 }
 
 export function resolveSelectedProjectId(
@@ -61,6 +61,17 @@ export function isAnyIntegrationStale(
 ): boolean {
   return integrations.some((integration) =>
     failedInstallationIds.includes(integration.installation_id),
+  );
+}
+
+export function didGithubConnectCompleteFromIntegrations(inputs: {
+  isConnecting: boolean;
+  integrationCountAtStart: number;
+  currentIntegrationCount: number;
+}): boolean {
+  return (
+    inputs.isConnecting &&
+    inputs.currentIntegrationCount > inputs.integrationCountAtStart
   );
 }
 
@@ -141,13 +152,13 @@ export function deriveConnectButtonState(inputs: {
     ? "Retry connection"
     : isRetry
       ? "Try again"
-      : "Connect GitHub";
+      : "Sign in with GitHub";
   return { isRetry, shouldReset: inputs.hasConnectError, label };
 }
 
 export type GithubApprovalState = "none" | "awaiting" | "approved";
 
-export interface GithubInstallRequestSummary {
+interface GithubInstallRequestSummary {
   status: "pending" | "approved" | "unidentified";
 }
 

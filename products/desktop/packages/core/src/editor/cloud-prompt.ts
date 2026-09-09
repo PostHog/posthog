@@ -1,6 +1,5 @@
 import type { ContentBlock } from "@agentclientprotocol/sdk";
 import {
-  CLOUD_PROMPT_PREFIX,
   estimateBase64Bytes,
   getFileExtension,
   getFileName,
@@ -108,10 +107,6 @@ function isTextAttachment(filePath: string): boolean {
   const fileName = getFileName(filePath);
   const ext = getFileExtension(filePath);
   return TEXT_FILENAMES.has(fileName) || TEXT_EXTENSIONS.has(ext);
-}
-
-export function isSupportedCloudTextAttachment(filePath: string): boolean {
-  return isTextAttachment(filePath);
 }
 
 function collectAbsoluteFileTagPaths(prompt: string): string[] {
@@ -278,4 +273,4 @@ export async function buildCloudPromptBlocks(
   return blocks;
 }
 
-export { CLOUD_PROMPT_PREFIX, serializeCloudPrompt };
+export { serializeCloudPrompt };

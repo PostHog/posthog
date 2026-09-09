@@ -16,7 +16,7 @@ const TABS = CHANNEL_SECTIONS.map((s) => ({
 // codebase's convention) rather than Link's activeProps.
 export function ChannelTabs({ channelId }: { channelId: string }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
   const tabs = loopsEnabled ? TABS : TABS.filter((tab) => tab.key !== "loops");
 
   return (

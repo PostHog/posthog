@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
 import * as uploadFiles from 'lib/hooks/useUploadFiles'
@@ -52,6 +53,7 @@ const createdRequest: FeatureRequestApi = {
             updated_at: '2026-01-01T00:00:00Z',
         },
     ],
+    evidence_count: 0,
     product_areas: [
         {
             id: 'area-1',
@@ -72,6 +74,7 @@ describe('featureRequestsLogic', () => {
     let logic: ReturnType<typeof featureRequestsLogic.build>
 
     beforeEach(() => {
+        localStorage.clear()
         useMocks({
             get: {
                 '/api/projects/:team_id/feature_requests/': { count: 0, next: null, previous: null, results: [] },
@@ -89,6 +92,7 @@ describe('featureRequestsLogic', () => {
     afterEach(() => {
         jest.restoreAllMocks()
         logic.unmount()
+        localStorage.clear()
     })
 
     it('keeps the request fields after a failed save so the editor can retry', async () => {
@@ -154,13 +158,16 @@ describe('featureRequestsLogic', () => {
         expect(logic.values.evidenceRequestedOn).toBeNull()
     })
 
-    it('keeps the selected account name and external key while search results reload', () => {
-        logic.actions.loadAccountsSuccess([account])
+    it('keeps selected account options while search results reload', () => {
+        const filterAccount = { ...account, id: 'account-2', name: 'Globex', external_id: 'cust_globex_001' }
+        logic.actions.loadAccountsSuccess([account, filterAccount])
         logic.actions.setAccountId(account.id)
+        logic.actions.setAccountFilter([filterAccount.id])
         logic.actions.loadAccountsSuccess([])
 
         expect(logic.values.accountOptions).toEqual([
-            { key: account.id, label: `${account.name} (${account.external_id})` },
+            { key: filterAccount.id, label: filterAccount.name },
+            { key: account.id, label: account.name },
         ])
     })
 
@@ -238,6 +245,69 @@ describe('featureRequestsLogic', () => {
 
         expect(logic.values.featureRequestsResponse.results).toEqual([renamedRequest])
         expect(logic.values.productAreaFormOpen).toBe(false)
+    })
+
+    it('applies the created-by filter on the first change', async () => {
+        router.actions.push(urls.customerAnalyticsFeatureRequests())
+        await expectLogic(logic).toFinishAllListeners()
+        const listSpy = jest.spyOn(generatedApi, 'featureRequestsList').mockResolvedValue({
+            count: 1,
+            next: null,
+            previous: null,
+            results: [createdRequest],
+        })
+
+        logic.actions.setCreatedByFilter([1])
+        expect(logic.values.createdByFilter).toEqual([1])
+        expect(parseFeatureRequestSearchParams(router.values.searchParams).createdByFilter).toEqual([1])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.createdByFilter).toEqual([1])
+        expect(parseFeatureRequestSearchParams(router.values.searchParams).createdByFilter).toEqual([1])
+        expect(listSpy).toHaveBeenLastCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            expect.objectContaining({ created_by_ids: [1] })
+        )
+    })
+
+    it('sorts requests by a selected table column', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const listSpy = jest.spyOn(generatedApi, 'featureRequestsList').mockResolvedValue({
+            count: 1,
+            next: null,
+            previous: null,
+            results: [createdRequest],
+        })
+
+        await expectLogic(logic, () =>
+            logic.actions.setTableSorting({ columnKey: 'evidence_count', order: -1 })
+        ).toFinishAllListeners()
+
+        expect(logic.values.requestOrdering).toBe('-evidence_count')
+        expect(logic.values.tableSorting).toEqual({ columnKey: 'evidence_count', order: -1 })
+        expect(captureSpy).toHaveBeenCalledWith('customer analytics feature requests sorted', {
+            column: 'evidence_count',
+            direction: 'desc',
+        })
+        expect(listSpy).toHaveBeenLastCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            expect.objectContaining({ request_ordering: '-evidence_count' })
+        )
+    })
+
+    it('keeps filter preferences when revisiting the list without filters in the URL', async () => {
+        await expectLogic(logic, () => logic.actions.setArchiveState('all')).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.setRequestOrdering('title')).toFinishAllListeners()
+        logic.unmount()
+        router.actions.push(urls.customerAnalyticsFeatureRequests())
+        logic = featureRequestsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.archiveState).toBe('all')
+        expect(logic.values.requestOrdering).toBe('title')
     })
 
     it('loads the requested page with 20 requests per page', async () => {
@@ -471,9 +541,7 @@ describe('featureRequestsLogic', () => {
         logic.actions.setAddAccountId(otherAccount.id)
         logic.actions.setEvidenceSummary('Globex needs a weekly export.')
         logic.actions.setEvidenceSource('meeting')
-        expect(logic.values.addAccountOptions).toEqual([
-            { key: otherAccount.id, label: `${otherAccount.name} (${otherAccount.external_id})` },
-        ])
+        expect(logic.values.addAccountOptions).toEqual([{ key: otherAccount.id, label: otherAccount.name }])
 
         await expectLogic(logic, () => logic.actions.saveEvidence()).toFinishAllListeners()
 

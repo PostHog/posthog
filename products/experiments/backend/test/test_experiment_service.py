@@ -33,6 +33,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
@@ -60,9 +61,8 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
-
-from ee.models.rbac.access_control import AccessControl
 
 
 # Note that we use allow_unknown_events here since allowing it was the behavior before validating it
@@ -3556,6 +3556,7 @@ class TestExperimentService(APIBaseTest):
         assert paused.end_date is None
         assert paused.is_paused is True
         assert paused.is_running is True  # status remains running while paused
+        assert ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.pk), activity="paused").exists()
 
     def test_resume_experiment_success(self):
         experiment = self._create_running_experiment(name="Resume Test", feature_flag_key="resume-flag")
@@ -3570,6 +3571,7 @@ class TestExperimentService(APIBaseTest):
         assert resumed.feature_flag.active is True
         assert resumed.start_date is not None
         assert resumed.end_date is None
+        assert ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.pk), activity="resumed").exists()
 
     def test_pause_experiment_already_paused_raises(self):
         experiment = self._create_running_experiment(name="Already Paused", feature_flag_key="already-paused-flag")
@@ -5875,6 +5877,15 @@ class TestExperimentService(APIBaseTest):
 
         updated = service.update_experiment(experiment, {"deleted": True}, allow_unknown_events=True)
         assert updated.deleted is True
+
+    def test_cannot_adopt_a_flag_another_product_owns(self):
+        flag = self._create_flag(key="owned-by-survey")
+        Survey.objects.create(team=self.team, name="s", type="popover", targeting_flag=flag)
+
+        with self.assertRaises(ValidationError) as cm:
+            self._service().create_experiment(name="Poacher", feature_flag_key="owned-by-survey")
+
+        assert "already belongs to a survey" in str(cm.exception)
 
     def test_clone_regenerates_metric_uuids(self):
         """Cloning an experiment must produce metrics with fresh uuids — never shared with the source."""

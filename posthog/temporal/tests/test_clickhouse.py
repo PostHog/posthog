@@ -22,6 +22,8 @@ from posthog.temporal.common.clickhouse import (
     encode_clickhouse_data,
 )
 
+pytestmark = pytest.mark.django_db
+
 
 async def _wait_for_query_status(
     client: ClickHouseClient,
@@ -211,6 +213,22 @@ def test_post_query_disables_http_compression(clickhouse_client):
 
     call_kwargs = mock_factory.return_value.post.call_args.kwargs
     assert call_kwargs["params"]["enable_http_compression"] == "0"
+
+
+def test_post_query_sends_freshly_read_token(tmp_path):
+    token = tmp_path / "token"
+    token.write_text("tok-0")
+    client = ClickHouseClient(user="default", password="static-fallback", password_file=str(token))
+
+    with _mock_internal_session_post(MagicMock(status_code=200)) as mock_factory:
+        with client.post_query("SELECT 1", query_parameters={}, query_id=None):
+            pass
+        assert mock_factory.return_value.post.call_args.kwargs["headers"]["X-ClickHouse-Key"] == "tok-0"
+
+        token.write_text("tok-1")  # a rotation must reach the next request on the long-lived session
+        with client.post_query("SELECT 1", query_parameters={}, query_id=None):
+            pass
+        assert mock_factory.return_value.post.call_args.kwargs["headers"]["X-ClickHouse-Key"] == "tok-1"
 
 
 @pytest.mark.parametrize(

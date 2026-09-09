@@ -1,6 +1,6 @@
 import pytest
 
-from clickhouse_driver.errors import ServerException
+from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import (
@@ -223,6 +223,10 @@ def test_wrap_clickhouse_query_error(error, expected_type, expected_message, exp
     assert label == expected_ch_error
 
 
+# Marked for the database it queries: `django_db_setup` is what creates the ClickHouse test
+# database, so without this the test only passes when some other test in the package happens to
+# run first and create it, and fails wherever sharding isolates it.
+@pytest.mark.django_db
 def test_per_query_memory_limit_phrasing_matches_real_clickhouse():
     with pytest.raises(ClickHouseQueryMemoryLimitExceeded) as ctx:
         sync_execute(
@@ -257,3 +261,14 @@ def test_memory_limit_wraps_by_which_ceiling_was_hit(message, expected_per_query
     if is_cluster:
         assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
         assert classify_query_error(wrapped) == QueryErrorCategory.RATE_LIMITED
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        SocketTimeoutError("(clickhouse.example.com:9440)"),
+        NetworkError("Connection refused (clickhouse.example.com:9440)"),
+    ],
+)
+def test_failing_to_open_a_clickhouse_connection_is_transient(error):
+    assert isinstance(wrap_clickhouse_query_error(error), CH_TRANSIENT_ERRORS)

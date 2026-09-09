@@ -3,9 +3,10 @@
 Per tick (driven by `schedule.py`):
     1. `list_chunks_activity` plans the fan-out — N deterministic hash-partitioned
        chunks, each carrying a `(chunk_id, of_chunks, chunk_size)` spec only.
-    2. All chunks are dispatched via `asyncio.gather` so they run in parallel
-       across the worker pool. Each `score_chunk_activity` is fully self-
-       contained (fetch + predict + write happen inside one activity).
+    2. Chunks are dispatched via `asyncio.gather` behind a semaphore, so at most
+       `MAX_CONCURRENT_SCORE_CHUNKS` run at once and the rest start as slots free.
+       Each `score_chunk_activity` is fully self-contained (fetch + predict +
+       write happen inside one activity).
 
 The workflow stays tiny on purpose:
     * No per-session work in the workflow code path (workflow CPU is precious).
@@ -27,6 +28,7 @@ from temporalio.exceptions import ActivityError
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.session_replay.surfacing_scoring_sweep.constants import (
     LIST_CHUNKS_ACTIVITY_TIMEOUT,
+    MAX_CONCURRENT_SCORE_CHUNKS,
     SCORE_CHUNK_ACTIVITY_TIMEOUT,
     SCORE_CHUNK_HEARTBEAT_TIMEOUT,
     WORKFLOW_NAME,
@@ -46,6 +48,9 @@ with workflow.unsafe.imports_passed_through():
         score_chunk_activity,
     )
     from posthog.temporal.session_replay.surfacing_scoring_sweep.metrics import record_tick_summary
+
+
+_PATCH_BOUNDED_CHUNK_FANOUT = "surfacing-scoring-bounded-chunk-fanout"
 
 
 @workflow.defn(name=WORKFLOW_NAME)
@@ -68,11 +73,23 @@ class ScoreSessionsBatchWorkflow(PostHogWorkflow):
         )
 
         if not plan.chunks:
-            workflow.logger.info("surfacing_scoring_sweep.no_work", estimated=plan.estimated_unscored_sessions)
+            workflow.logger.info(
+                "surfacing_scoring_sweep.no_work", extra={"estimated": plan.estimated_unscored_sessions}
+            )
             return ScoreSessionsBatchResult()
 
+        # Activity dispatch order is recorded in Temporal history, so gate the bound for
+        # deterministic replay of runs that started before it.
+        semaphore = asyncio.Semaphore(
+            MAX_CONCURRENT_SCORE_CHUNKS if workflow.patched(_PATCH_BOUNDED_CHUNK_FANOUT) else len(plan.chunks)
+        )
+
+        async def _score_with_semaphore(spec: ChunkSpec) -> ChunkResult:
+            async with semaphore:
+                return await self._score_chunk(spec)
+
         results = await asyncio.gather(
-            *(self._score_chunk(spec) for spec in plan.chunks),
+            *(_score_with_semaphore(spec) for spec in plan.chunks),
             return_exceptions=True,
         )
 
@@ -108,17 +125,19 @@ def _summarize(chunks: list[ChunkSpec], results: list[ChunkResult | BaseExceptio
             if isinstance(r, ActivityError):
                 workflow.logger.warning(
                     "surfacing_scoring_sweep.chunk_activity_failed",
-                    error=str(r),
+                    extra={"error": str(r)},
                 )
             continue
         summary.total_scored += r.scored
         summary.total_fetched += r.fetched
     workflow.logger.info(
         "surfacing_scoring_sweep.tick_done",
-        chunks_dispatched=summary.chunks_dispatched,
-        chunks_failed=summary.chunks_failed,
-        total_scored=summary.total_scored,
-        total_fetched=summary.total_fetched,
+        extra={
+            "chunks_dispatched": summary.chunks_dispatched,
+            "chunks_failed": summary.chunks_failed,
+            "total_scored": summary.total_scored,
+            "total_fetched": summary.total_fetched,
+        },
     )
     record_tick_summary(
         total_scored=summary.total_scored,

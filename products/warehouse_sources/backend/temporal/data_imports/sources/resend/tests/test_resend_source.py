@@ -28,50 +28,32 @@ class TestResendSource:
         self.team_id = 123
         self.config = _api_key_config()
 
-    def test_audiences_bad_request_is_non_retryable(self):
+    @parameterized.expand(
+        [
+            ("audiences", "https://api.resend.com/audiences", "Audiences"),
+            ("broadcasts", "https://api.resend.com/broadcasts", "Broadcasts"),
+            ("domains", "https://api.resend.com/domains", "Domains"),
+            # The real List Emails failure carries the paginator's ?limit=100 suffix, so the scoped
+            # key must still match it as a prefix.
+            ("emails", "https://api.resend.com/emails?limit=100", "Emails"),
+        ]
+    )
+    def test_scoped_bad_request_is_non_retryable(self, _name: str, url: str, expected_word: str):
         errors = self.source.get_non_retryable_errors()
-        raised = "400 Client Error: Bad Request for url: https://api.resend.com/audiences"
+        raised = f"400 Client Error: Bad Request for url: {url}"
 
         matched = [message for key, message in errors.items() if key in raised]
 
         assert len(matched) == 1
-        assert matched[0] is not None and "Audiences" in matched[0]
+        assert matched[0] is not None and expected_word in matched[0]
 
-    @parameterized.expand(
-        [
-            ("broadcasts_matches", "https://api.resend.com/broadcasts", True),
-            ("other_endpoint_stays_retryable", "https://api.resend.com/emails", False),
-        ]
-    )
-    def test_broadcasts_bad_request_retryability(self, _name: str, url: str, should_match: bool):
+    def test_unclassified_bad_request_stays_retryable(self):
+        # A 400 on an endpoint we haven't scoped a message for could be our own bug, so it must stay
+        # retryable and visible instead of silently disabling the sync.
         errors = self.source.get_non_retryable_errors()
-        raised = f"400 Client Error: Bad Request for url: {url}"
+        raised = "400 Client Error: Bad Request for url: https://api.resend.com/api-keys"
 
-        matched = [message for key, message in errors.items() if key in raised]
-
-        if should_match:
-            assert len(matched) == 1
-            assert matched[0] is not None and "Broadcasts" in matched[0]
-        else:
-            assert not matched
-
-    @parameterized.expand(
-        [
-            ("domains_matches", "https://api.resend.com/domains", True),
-            ("other_endpoint_stays_retryable", "https://api.resend.com/emails", False),
-        ]
-    )
-    def test_domains_bad_request_retryability(self, _name: str, url: str, should_match: bool):
-        errors = self.source.get_non_retryable_errors()
-        raised = f"400 Client Error: Bad Request for url: {url}"
-
-        matched = [message for key, message in errors.items() if key in raised]
-
-        if should_match:
-            assert len(matched) == 1
-            assert matched[0] is not None and "Domains" in matched[0]
-        else:
-            assert not matched
+        assert not [message for key, message in errors.items() if key in raised]
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

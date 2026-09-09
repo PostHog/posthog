@@ -1,1 +1,1 @@
-0040_account_track_rules
+0051_squash_2026_09_07_schema_addons

@@ -17,11 +17,11 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
-import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
 import { PRIORITY_THRESHOLD_OPTIONS, SignalReportPriority } from '../../types'
@@ -230,9 +230,10 @@ function BaseBranchOverrides(): JSX.Element {
  * than the billing usage card: it is "how much should the agents do", not "what does the plan
  * allow", and placing it next to plan usage read as if the two limits were one system. Renders
  * regardless of the auto-start toggle, since the cap pauses report generation, not just PRs.
- * While the billing quota has the pipeline paused, the live count is withheld so remaining daily
- * headroom is not advertised on a day when nothing will arrive. Same collapsed-by-default shape
- * as Base branch overrides: the trigger's count keeps the state readable without opening.
+ * The billing quota deliberately does not overwrite this row: it caps pull requests, not reports,
+ * so stamping its pause here reported the wrong limit as the reason nothing arrived. Same
+ * collapsed-by-default shape as Base branch overrides: the trigger's count keeps the state
+ * readable without opening.
  */
 function DailyReportLimit(): JSX.Element {
     const {
@@ -244,13 +245,11 @@ function DailyReportLimit(): JSX.Element {
         teamConfigUpdating,
     } = useValues(signalTeamConfigLogic)
     const { setDraftMaxReportsPerDay, saveDraftMaxReportsPerDay } = useActions(signalTeamConfigLogic)
-    const { quotaLimited } = useValues(inboxUsageLogic)
 
-    const summary = quotaLimited
-        ? 'Paused by plan limit'
-        : maxReportsPerDay != null
-          ? `${Math.min(reportsGeneratedToday, maxReportsPerDay)} / ${maxReportsPerDay} today`
-          : null
+    const summary =
+        maxReportsPerDay != null
+            ? `${Math.min(reportsGeneratedToday, maxReportsPerDay)} / ${maxReportsPerDay} today`
+            : null
 
     return (
         <>
@@ -288,12 +287,42 @@ function DailyReportLimit(): JSX.Element {
                     </div>
                 </CollapsibleContent>
             </Collapsible>
-            {dailyReportLimitReached && !quotaLimited && (
+            {dailyReportLimitReached && (
                 <p className="text-xs font-medium text-danger mb-0 px-2.5 pb-1.5">
                     Daily report limit reached. New reports resume at midnight in your project's timezone.
                 </p>
             )}
         </>
+    )
+}
+
+/**
+ * Per-user opt-in to being added as a GitHub assignee on the implementation PR for reports that
+ * suggest this user as reviewer. Off by default, because being assigned is visible to everybody on
+ * the pull request. Renders regardless of the auto-start toggle: a PR opened by hand from the inbox
+ * assigns reviewers too.
+ */
+function GitHubAssignmentRow(): JSX.Element {
+    const { autonomyConfig, autonomyConfigLoading, githubAssignUpdating } = useValues(userAutonomyLogic)
+    const { setGithubAssignOnPullRequest } = useActions(userAutonomyLogic)
+
+    return (
+        <div className="flex items-start justify-between gap-2 px-2.5 py-1.5">
+            <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                <span className="text-xs text-secondary">Assign me on GitHub</span>
+                <p className="text-[11px] text-tertiary leading-snug mb-0">
+                    Add you as an assignee on PRs for reports that suggest you as reviewer, across all your projects.
+                </p>
+            </div>
+            <LemonSwitch
+                checked={autonomyConfig?.github_assign_on_pull_request ?? false}
+                loading={githubAssignUpdating}
+                disabledReason={autonomyConfigLoading && autonomyConfig === null ? 'Loading settings' : undefined}
+                onChange={setGithubAssignOnPullRequest}
+                aria-label="Assign me on GitHub pull requests"
+                data-attr="signals-github-assign-on-pull-request"
+            />
+        </div>
     )
 }
 
@@ -307,6 +336,8 @@ function DailyReportLimit(): JSX.Element {
  * threshold) that can't live inside that card's single button/link wrapper.
  */
 export function SelfDrivingSection(): JSX.Element {
+    // The Settings tab wraps this in its own card; the legacy setup rail does not.
+    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const { teamConfig, teamConfigLoading, teamConfigUpdating, autostartEnabled, defaultAutostartPriority } =
         useValues(signalTeamConfigLogic)
     const { patchTeamConfig } = useActions(signalTeamConfigLogic)
@@ -319,7 +350,13 @@ export function SelfDrivingSection(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col rounded border border-primary bg-surface-primary overflow-hidden">
+        <div
+            className={
+                redesign
+                    ? '-mx-2.5 flex flex-col'
+                    : 'flex flex-col rounded border border-primary bg-surface-primary overflow-hidden'
+            }
+        >
             <div className="flex items-start gap-2 px-2.5 py-2">
                 <span className="flex size-7 shrink-0 items-center justify-center rounded bg-surface-secondary text-default [&_svg]:size-4">
                     <IconRocket />
@@ -338,7 +375,7 @@ export function SelfDrivingSection(): JSX.Element {
                 </div>
             </div>
 
-            <div className="border-t border-primary bg-surface-secondary">
+            <div className={redesign ? 'border-t border-primary' : 'border-t border-primary bg-surface-secondary'}>
                 {autostartEnabled ? (
                     <>
                         {/* Label above the control rather than beside it: the rail is narrow enough that a
@@ -393,6 +430,9 @@ export function SelfDrivingSection(): JSX.Element {
                         Reports still arrive and notify your team.
                     </p>
                 )}
+                <div className="border-t border-primary">
+                    <GitHubAssignmentRow />
+                </div>
                 <div className="border-t border-primary">
                     <DailyReportLimit />
                 </div>

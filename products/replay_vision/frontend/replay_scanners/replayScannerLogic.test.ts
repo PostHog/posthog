@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -168,6 +168,63 @@ describe('replayScannerLogic', () => {
             ).toFinishAllListeners()
 
             expect(logic.values.scanner?.query).toEqual({ kind: 'RecordingsQuery' })
+        })
+
+        it('carries the drafted experiment targeting onto the form', async () => {
+            // Targeting is not part of the query, so the form is its only carrier: dropped here, the
+            // saved scanner watches every visitor of the drafted pages instead of the participants.
+            draftSpy.mockReturnValue([
+                200,
+                {
+                    name: 'New entrypoint friction',
+                    description: 'Classifies friction in the new entrypoint.',
+                    scanner_type: 'classifier',
+                    scanner_config: { prompt: 'Classify the friction.', tags: ['smooth'], multi_label: false },
+                    rationale: '',
+                    query: null,
+                    experiment_targeting: { experiment_id: 11, variant: 'test' },
+                },
+            ])
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal('friction in the new AI entrypoint')
+            ).toFinishAllListeners()
+
+            expect(logic.values.scanner?.experiment_targeting).toEqual({ experiment_id: 11, variant: 'test' })
+        })
+
+        it('keeps an experiment prefill the AI draft did not name', async () => {
+            // The experiment cross-sell deep-links targeting the goal text never mentions. Dropping it
+            // here would save a scanner watching every visitor of the drafted pages, not the participants.
+            useMocks({
+                get: {
+                    '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }],
+                },
+            })
+            draftSpy.mockReturnValue([
+                200,
+                {
+                    name: 'Billing drop-off',
+                    description: 'Watches where people give up.',
+                    scanner_type: 'monitor',
+                    scanner_config: { prompt: 'Watch for drop-off.' },
+                    rationale: '',
+                    query: { kind: 'RecordingsQuery' },
+                },
+            ])
+            router.actions.push(urls.replayVisionScannerTemplate('new'), { experiment: '7' })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            expect(logic.values.experimentContext).toMatchObject({ experiment: { id: 7 }, variantKey: null })
+
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal('where do people give up in billing')
+            ).toFinishAllListeners()
+
+            expect(logic.values.scanner).toMatchObject({
+                name: 'Billing drop-off: Checkout redesign',
+                experiment_targeting: { experiment_id: 7, variant: null },
+            })
         })
 
         it('drops a stale draft when the user has left the template step mid-request', async () => {
@@ -348,6 +405,31 @@ describe('replayScannerLogic', () => {
         it('is a no-op for non-classifier scanners', async () => {
             // Default scanner is a monitor — appending classifier tags must not add a tags field.
             await expectLogic(logic, () => logic.actions.appendClassifierTags(['x'])).toMatchValues({
+                scanner: expect.objectContaining({ scanner_type: 'monitor', scanner_config: { prompt: '' } }),
+            })
+        })
+    })
+
+    describe('clearClassifierTags', () => {
+        it('empties the categories of a classifier scanner', async () => {
+            logic.actions.setScannerType('classifier')
+            logic.actions.setScannerValues({
+                scanner_config: {
+                    prompt: 'Categorize intent',
+                    tags: ['checkout', 'pricing'],
+                    multi_label: true,
+                } as ClassifierScanner['scanner_config'],
+            })
+            await expectLogic(logic, () => logic.actions.clearClassifierTags()).toMatchValues({
+                scanner: expect.objectContaining({
+                    scanner_config: expect.objectContaining({ tags: [] }),
+                }),
+            })
+        })
+
+        it('is a no-op for non-classifier scanners', async () => {
+            // Default scanner is a monitor, so clearing must not add a tags field to its config.
+            await expectLogic(logic, () => logic.actions.clearClassifierTags()).toMatchValues({
                 scanner: expect.objectContaining({ scanner_type: 'monitor', scanner_config: { prompt: '' } }),
             })
         })
@@ -1419,6 +1501,19 @@ describe('replayScannerLogic', () => {
                 goal_length: 'find users who get stuck'.length,
             })
         })
+
+        it('the last path taken is what the save reports', async () => {
+            // Each of these replaces the form, so someone who drafts with AI and then picks a
+            // template saved the template's scanner. Reporting the first path would credit the AI
+            // flow with a scanner it did not produce.
+            await expectLogic(logic, () => {
+                logic.actions.draftScannerFromGoal('find users who get stuck')
+            }).toFinishAllListeners()
+            expect(logic.values.creationMethod).toEqual('ai')
+
+            logic.actions.startFromTemplate('dead_end')
+            expect(logic.values.creationMethod).toEqual('template')
+        })
     })
 
     describe('rebuildExperimentContext', () => {
@@ -1454,6 +1549,34 @@ describe('replayScannerLogic', () => {
 
             expect(logic.values.scanner?.experiment_targeting).toBeFalsy()
             expect(logic.values.experimentContext).toBeNull()
+        })
+    })
+
+    describe('team refresh on tab visibility', () => {
+        const setHidden = (hidden: boolean): void => {
+            Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
+        let teamSpy: jest.Mock
+
+        beforeEach(() => {
+            teamSpy = jest.fn(() => [200, MOCK_DEFAULT_TEAM])
+            useMocks({ get: { '/api/environments/@current': teamSpy } })
+            teamLogic.mount()
+        })
+
+        afterEach(() => {
+            setHidden(false)
+        })
+
+        it('refetches the team when the tab becomes visible again, not on mount', async () => {
+            expect(teamSpy).not.toHaveBeenCalled()
+
+            setHidden(true)
+            setHidden(false)
+            await expectLogic(teamLogic).toDispatchActions(['refreshCurrentTeamSuccess'])
+
+            expect(teamSpy).toHaveBeenCalledTimes(1)
         })
     })
 })

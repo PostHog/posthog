@@ -1,4 +1,11 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
+import {
+  DEFAULT_CHANNEL_ITEM_FILTERS,
+  DEFAULT_CHANNEL_ITEM_GROUPING,
+  DEFAULT_CHANNEL_ITEM_SORT,
+} from "@posthog/core/canvas/channelItems";
+import { useAuthStore } from "@posthog/ui/features/auth/store";
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { Theme } from "@radix-ui/themes";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -9,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   isLoading: false,
   channelMissing: false,
   pathname: "/spaces/channel-1",
+  channelReportsFlag: false,
   open: vi.fn(),
 }));
 
@@ -22,7 +30,14 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelItems", () => ({
   }),
 }));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: () => false,
+  useFeatureFlag: (flag: string) =>
+    flag === "posthog-desktop-channel-reports"
+      ? mocks.channelReportsFlag
+      : false,
+}));
+// Reaches for a QueryClient and auth this suite has no stack for.
+vi.mock("@posthog/ui/features/inbox/hooks/useOpenInboxReport", () => ({
+  useOpenInboxReport: () => vi.fn(),
 }));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn(),
@@ -43,6 +58,18 @@ vi.mock("@posthog/ui/features/canvas/components/ChannelsFab", () => ({
 // the same reason.
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [] }),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
+  useFileTaskToChannel: () => vi.fn(),
+}));
+vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
+  useOpenBrowserTab: () => vi.fn(),
+}));
+vi.mock("@posthog/ui/shell/analytics", () => ({
+  track: vi.fn(),
+}));
+vi.mock("@posthog/ui/features/auth/authClient", () => ({
+  useOptionalAuthenticatedClient: () => null,
 }));
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
   useCurrentUser: () => ({ data: { id: 1, email: "u@posthog.com" } }),
@@ -108,20 +135,66 @@ function renderSidebar() {
   return render(sidebar());
 }
 
+beforeEach(() => {
+  useSidebarStore.setState({
+    channelItemFilters: DEFAULT_CHANNEL_ITEM_FILTERS,
+    channelItemSort: DEFAULT_CHANNEL_ITEM_SORT,
+    channelItemGrouping: DEFAULT_CHANNEL_ITEM_GROUPING,
+  });
+});
+
 describe("ChannelSidebar", () => {
   beforeEach(() => {
     mocks.items = [];
     mocks.isLoading = false;
     mocks.channelMissing = false;
     mocks.pathname = "/spaces/channel-1";
+    mocks.channelReportsFlag = false;
   });
+
+  it.each([
+    ["task", "Sessions", "/code/channel/channel-1/tasks/item-1"],
+    ["canvas", "Canvases", "/code/canvas/channel-1/item-1"],
+  ] as const)(
+    "copies the %s link from its context menu",
+    async (kind, tab, path) => {
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      const writeText = vi
+        .spyOn(navigator.clipboard, "writeText")
+        .mockResolvedValue();
+      const previousAuth = useAuthStore.getState().authState;
+      useAuthStore.setState({
+        authState: { ...previousAuth, cloudRegion: "us" },
+      });
+      mocks.items = [
+        item({
+          key: `${kind}:item-1`,
+          kind,
+          id: "item-1",
+          title: "Example item",
+        }),
+      ];
+      try {
+        renderSidebar();
+        await user.click(screen.getByRole("tab", { name: tab }));
+        fireEvent.contextMenu(screen.getByText("Example item"));
+        await user.click(
+          await screen.findByRole("menuitem", { name: "Copy link" }),
+        );
+        expect(writeText).toHaveBeenCalledWith(`https://us.posthog.com${path}`);
+      } finally {
+        useAuthStore.setState({ authState: previousAuth });
+        writeText.mockRestore();
+      }
+    },
+  );
 
   it.each([
     {
       what: "nothing has arrived yet",
       state: { items: [], isLoading: true },
-      shown: [] as string[],
-      hidden: ["Sessions", "No matches", "No sessions yet"],
+      shown: ["Sessions"],
+      hidden: ["No matches", "No sessions yet"],
     },
     {
       what: "the space is settled and genuinely empty",
@@ -212,12 +285,44 @@ describe("ChannelSidebar", () => {
     expect(screen.queryByText("No matches")).not.toBeInTheDocument();
   });
 
+  it("keeps a chosen filter across a remount", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    mocks.items = [
+      item({
+        key: "task:slack",
+        id: "slack",
+        title: "Filed from Slack",
+        source: "slack",
+      }),
+      item({ key: "task:local", id: "local", title: "Started here" }),
+    ];
+    const { unmount } = renderSidebar();
+
+    await user.click(screen.getByRole("button", { name: "Filter" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Source/ }));
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: "Slack" }),
+    );
+    expect(screen.queryByText("Started here")).not.toBeInTheDocument();
+
+    // A space switch remounts the list; the narrowing is the user's, not the
+    // list's, so it has to come back with it.
+    unmount();
+    renderSidebar();
+
+    expect(screen.getByText("Filed from Slack")).toBeInTheDocument();
+    expect(screen.queryByText("Started here")).not.toBeInTheDocument();
+  });
+
   it("shows a single empty state when the last item goes away under a search", async () => {
     const user = userEvent.setup();
     mocks.items = [item()];
     const { rerender } = renderSidebar();
 
-    await user.click(screen.getByRole("button", { name: "Search" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Search sessions" }),
+      "no such session",
+    );
     mocks.items = [];
     rerender(sidebar());
 

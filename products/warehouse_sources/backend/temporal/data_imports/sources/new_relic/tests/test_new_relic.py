@@ -144,12 +144,19 @@ class TestExecuteGraphql:
             ("deadline", "Deadline exceeded"),
             ("throttled", "Too many requests"),
             ("resolver_failure", "An error occurred resolving this field"),
+            ("nrdb_error", "There was an NRDB error"),
         ]
     )
     def test_transient_graphql_errors_are_retryable(self, _name: str, message: str) -> None:
         body = {"errors": [{"message": message}]}
         with pytest.raises(NewRelicRetryableError):
             self._execute(self._response(body=body))
+
+    def test_malformed_json_body_is_retryable(self) -> None:
+        response = self._response()
+        response.json.side_effect = requests.exceptions.JSONDecodeError("Unterminated string", "", 0)
+        with pytest.raises(NewRelicRetryableError):
+            self._execute(response)
 
     def test_returns_data_on_success(self) -> None:
         body = {"data": {"actor": {"account": {"id": ACCOUNT_ID}}}}

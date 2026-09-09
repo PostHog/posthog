@@ -1,18 +1,15 @@
-import {
-  ArrowLeft,
-  ArrowRight,
-  CheckCircle,
-  Cloud,
-  GitPullRequest,
-} from "@phosphor-icons/react";
+import { ArrowLeft, ArrowRight } from "@phosphor-icons/react";
+import { isAnyIntegrationStale } from "@posthog/core/onboarding/githubConnectPanel";
+import { Button, Heading, Text } from "@posthog/quill";
 import type { OnboardingStepCompletedProperties } from "@posthog/shared/analytics-events";
-import { builderHog } from "@posthog/ui/assets/hedgehogs";
-import { useUserGithubIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
+import { GithubConnectionEmpty } from "@posthog/ui/features/integrations/components/GithubConnectionEmpty";
+import {
+  useUserGithubIntegrations,
+  useUserRepositoryIntegration,
+} from "@posthog/ui/features/integrations/useIntegrations";
 import { OptionalBadge } from "@posthog/ui/features/onboarding/components/OptionalBadge";
 import { StepActions } from "@posthog/ui/features/onboarding/components/StepActions";
-import { OnboardingHogTip } from "@posthog/ui/primitives/OnboardingHogTip";
-import { Button, Flex, Text } from "@radix-ui/themes";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { GitHubConnectPanel } from "./GitHubConnectPanel";
 
 type StepContext = Pick<OnboardingStepCompletedProperties, "github_connected">;
@@ -23,102 +20,80 @@ interface ConnectGitHubStepProps {
 }
 
 export function ConnectGitHubStep({ onNext, onBack }: ConnectGitHubStepProps) {
+  const shouldReduceMotion = useReducedMotion() === true;
   const { data: githubUserIntegrations = [] } = useUserGithubIntegrations();
+  const { failedInstallationIds } = useUserRepositoryIntegration();
+  // A revoked installation still leaves its row behind, so the link must not
+  // read as healthy while the card below says it needs reconnecting.
+  const isConnected =
+    githubUserIntegrations.length > 0 &&
+    !isAnyIntegrationStale(githubUserIntegrations, failedInstallationIds);
   const handleContinue = () => {
-    onNext({ github_connected: githubUserIntegrations.length > 0 });
+    onNext({ github_connected: isConnected });
   };
 
   return (
-    <Flex align="center" height="100%" px="8">
-      <Flex
-        direction="column"
-        align="center"
-        className="h-full w-full pt-[24px] pb-[40px]"
-      >
-        <Flex direction="column" className="min-h-0 flex-1 overflow-y-auto">
-          <Flex
-            direction="column"
-            gap="5"
-            className="m-auto w-full max-w-[560px]"
-          >
-            <Flex direction="column" gap="5" className="w-full">
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3 }}
-              >
-                <Flex direction="column" gap="2">
-                  <Flex align="center" gap="2">
-                    <Text className="font-bold text-(--gray-12) text-2xl">
-                      Connect GitHub
-                    </Text>
-                    <OptionalBadge />
-                  </Flex>
-                  <Text className="text-(--gray-11) text-sm">
-                    Unlocks the parts of PostHog that leave your machine.
-                  </Text>
-                </Flex>
-              </motion.div>
+    <main className="w-full">
+      <div className="mx-auto flex w-full max-w-[480px] flex-col gap-4">
+        <motion.div
+          initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25, ease: "easeOut" }}
+          className="flex flex-col gap-1.5"
+        >
+          <div className="flex items-center gap-2">
+            {/* biome-ignore lint/a11y/useHeadingContent: Quill supplies the heading text through this render target. */}
+            <Heading size="xl" render={<h1 className="font-bold" />}>
+              Connect your codebase
+            </Heading>
+            <OptionalBadge />
+          </div>
+          <Text size="sm" variant="muted">
+            Unlocks cloud environments and self-driving tasks.
+          </Text>
+        </motion.div>
 
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: 0.03 }}
-              >
-                <Flex direction="column" gap="2">
-                  <Flex align="center" gap="2">
-                    <Cloud size={16} className="text-(--gray-11)" />
-                    <Text className="text-(--gray-11) text-sm">
-                      Run tasks in cloud sandboxes instead of your machine.
-                    </Text>
-                  </Flex>
-                  <Flex align="center" gap="2">
-                    <GitPullRequest size={16} className="text-(--gray-11)" />
-                    <Text className="text-(--gray-11) text-sm">
-                      Push branches and open pull requests from agents.
-                    </Text>
-                  </Flex>
-                  <Flex align="center" gap="2">
-                    <CheckCircle size={16} className="text-(--gray-11)" />
-                    <Text className="text-(--gray-11) text-sm">
-                      Review PR comments and reply to threads from inside the
-                      app.
-                    </Text>
-                  </Flex>
-                </Flex>
-              </motion.div>
-
-              <motion.div
-                key="github-panel"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: 0.05 }}
-              >
-                <GitHubConnectPanel />
-              </motion.div>
-            </Flex>
-
-            <OnboardingHogTip
-              hogSrc={builderHog}
-              message="You can skip this and still use local tasks. Come back any time to unlock cloud runs."
-              delay={0.15}
-            />
-          </Flex>
-        </Flex>
-
-        <StepActions>
-          {onBack && (
-            <Button size="3" variant="outline" color="gray" onClick={onBack}>
-              <ArrowLeft size={16} weight="bold" />
-              Back
-            </Button>
-          )}
-          <Button size="3" onClick={handleContinue}>
-            Continue
-            <ArrowRight size={16} weight="bold" />
-          </Button>
-        </StepActions>
-      </Flex>
-    </Flex>
+        <motion.div
+          key="github-panel"
+          initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25, delay: 0.03, ease: "easeOut" }}
+        >
+          <div className="flex flex-col gap-4">
+            <GithubConnectionEmpty
+              connected={isConnected}
+              showLearnMore={false}
+              className="border-solid"
+              description={
+                isConnected
+                  ? "GitHub connected"
+                  : "Gives PostHog Desktop read access to your repos"
+              }
+            >
+              <GitHubConnectPanel />
+            </GithubConnectionEmpty>
+            <StepActions
+              primaryAction={
+                <Button
+                  size="lg"
+                  variant={isConnected ? "primary" : "outline"}
+                  onClick={handleContinue}
+                >
+                  {isConnected ? "Continue" : "Skip for now"}
+                  <ArrowRight size={16} weight="bold" />
+                </Button>
+              }
+            >
+              {onBack && (
+                <Button size="lg" onClick={onBack}>
+                  <ArrowLeft size={16} weight="bold" />
+                  Back
+                </Button>
+              )}
+            </StepActions>
+          </div>
+        </motion.div>
+      </div>
+    </main>
   );
 }

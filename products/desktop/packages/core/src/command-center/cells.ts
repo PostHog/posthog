@@ -1,5 +1,6 @@
 import type { AgentSession, WorkspaceMode } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import { narrowFullTask } from "../sidebar/buildSidebarData";
 import {
   getCanvasCellId,
   getTerminalCellCwd,
@@ -8,7 +9,12 @@ import {
   isCanvasCell,
   isTerminalCell,
 } from "./grid";
-import { type CellStatus, deriveStatus, getRepoName } from "./status";
+import {
+  type CellStatus,
+  deriveStatus,
+  deriveTaskCellStatus,
+  getRepoName,
+} from "./status";
 
 export interface CommandCenterCellData {
   cellIndex: number;
@@ -76,7 +82,11 @@ export function buildCommandCenterCells(
     const taskId = cellValue;
     const task = taskId ? taskById.get(taskId) : undefined;
     const session = taskId ? sessionByTaskId.get(taskId) : undefined;
-    const status = taskId ? deriveStatus(session) : "idle";
+    const status = task
+      ? deriveTaskCellStatus(narrowFullTask(task), session)
+      : taskId
+        ? deriveStatus(session)
+        : "idle";
     const repoName = task ? getRepoName(task) : null;
     const workspaceMode = (taskId ? workspaces?.[taskId]?.mode : null) ?? null;
 

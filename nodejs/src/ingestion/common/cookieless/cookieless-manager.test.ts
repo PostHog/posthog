@@ -209,12 +209,6 @@ describe('CookielessManager', () => {
             jest.clearAllTimers()
         })
 
-        const clearRedis = async () => {
-            const client = await infra.redisPool.acquire()
-            await client.flushall()
-            await infra.redisPool.release(client)
-        }
-
         const setModeForTeam = async (mode: CookielessServerHashMode) => {
             await infra.postgres.query(
                 PostgresUse.COMMON_WRITE,
@@ -226,7 +220,6 @@ describe('CookielessManager', () => {
         }
 
         beforeEach(async () => {
-            await clearRedis()
             infra.cookielessManager.deleteAllLocalSalts()
             teamId = await createTeam(infra.postgres, organizationId)
             await setModeForTeam(CookielessServerHashMode.Stateful)

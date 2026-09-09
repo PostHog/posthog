@@ -1,12 +1,24 @@
 import { scoutSkillSlug } from "./scout-naming";
 
-export const DEEPLINK_PROTOCOL_PRODUCTION = "posthog-code";
-export const DEEPLINK_PROTOCOL_DEVELOPMENT = "posthog-code-dev";
+const DEEPLINK_PROTOCOL_PRODUCTION = "posthog-code";
+const DEEPLINK_PROTOCOL_DEVELOPMENT = "posthog-code-dev";
+const DEEPLINK_PROTOCOL_TEST = "posthog-code-test";
+
+// The renderer cannot see app.isPackaged, so the test channel rides in the
+// baked vite env. In plain node (harness, tests) import.meta.env is unset.
+function isTestChannelBuild(): boolean {
+  return (
+    (import.meta as unknown as { env?: Record<string, string | undefined> }).env
+      ?.VITE_POSTHOG_BUILD_CHANNEL === "test"
+  );
+}
 
 export function getDeeplinkProtocol(isDevBuild: boolean): string {
-  return isDevBuild
-    ? DEEPLINK_PROTOCOL_DEVELOPMENT
-    : DEEPLINK_PROTOCOL_PRODUCTION;
+  if (isDevBuild) return DEEPLINK_PROTOCOL_DEVELOPMENT;
+  // A test build registers its own scheme, so a release build installed on
+  // the same machine cannot receive its OAuth callbacks.
+  if (isTestChannelBuild()) return DEEPLINK_PROTOCOL_TEST;
+  return DEEPLINK_PROTOCOL_PRODUCTION;
 }
 
 export function isPostHogCodeDeeplink(
@@ -17,7 +29,8 @@ export function isPostHogCodeDeeplink(
     const protocol = new URL(href).protocol;
     return (
       protocol === `${DEEPLINK_PROTOCOL_PRODUCTION}:` ||
-      protocol === `${DEEPLINK_PROTOCOL_DEVELOPMENT}:`
+      protocol === `${DEEPLINK_PROTOCOL_DEVELOPMENT}:` ||
+      protocol === `${DEEPLINK_PROTOCOL_TEST}:`
     );
   } catch {
     return false;

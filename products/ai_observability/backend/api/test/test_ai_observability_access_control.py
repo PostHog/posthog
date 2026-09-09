@@ -9,17 +9,12 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.dataset_service import archive_dataset, create_dataset, create_dataset_item
 from products.ai_observability.backend.models.clustering_job import ClusteringJob
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
 from products.ai_observability.backend.models.trace_reviews import TraceReview
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
-
 
 _DEFAULT_MODEL_CONFIGURATION = {
     "provider": "openai",

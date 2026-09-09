@@ -19,11 +19,14 @@ from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
 
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.schema.information_schema import references_denied_table
+
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend.facade.models import Insight
 
 from ..facade.enums import CreatedSource, MetricStatus
@@ -36,7 +39,7 @@ from .analytics import (
     METRIC_UPDATED_EVENT,
     capture_metric_event,
 )
-from .drift import canonical_query_hash, compute_drift, effective_insight_query, fetch_insight
+from .drift import canonical_query_hash, compute_drift, fetch_insight
 from .exceptions import MetricDrifted, SourceInsightUnavailable
 from .validation import validate_description, validate_metric_definition
 
@@ -108,11 +111,9 @@ def _snapshot_from_insight(team: Team, short_id: str, user: Optional[User]) -> t
     if insight is None:
         raise ValidationError({"source_insight_short_id": "Insight not found."})
     _require_insight_viewer_access(insight, team, user)
-    query = effective_insight_query(insight)
+    query = insight.query
     if not query:
-        raise ValidationError(
-            {"source_insight_short_id": "Could not convert this insight's query. Define the metric manually."}
-        )
+        raise ValidationError({"source_insight_short_id": "This insight has no query. Define the metric manually."})
     return query, canonical_query_hash(query)
 
 
@@ -373,11 +374,9 @@ def refresh_metric_from_insight(metric: Metric, user: Optional[User], request: "
         if insight is None or insight.deleted:
             raise SourceInsightUnavailable()
         _require_insight_viewer_access(insight, metric.team, user)
-        query = effective_insight_query(insight)
+        query = insight.query
         if not query:
-            raise SourceInsightUnavailable(
-                "Could not convert the source insight's query. Edit the definition or unlink."
-            )
+            raise SourceInsightUnavailable("The source insight has no query. Edit the definition or unlink.")
 
         canonical_def, referenced = _canonical_definition(query, metric.team, user)
         new_hash = canonical_query_hash(query)
@@ -527,6 +526,24 @@ def _reset_to_proposed(metric: Metric) -> None:
 def metrics_for_team(team: Team) -> QuerySet[Metric]:
     """Live (non-deleted) metrics for a team, newest first."""
     return Metric.objects.for_team(team.id).filter(deleted=False).order_by("-created_at")
+
+
+def metrics_visible_to_user(team: Team, user: User, user_access_control: UserAccessControl) -> QuerySet[Metric]:
+    """Live metrics whose definitions do not disclose a warehouse table the caller cannot read."""
+    metrics = metrics_for_team(team)
+    denied_tables = Database.create_for(
+        team=team,
+        user=user,
+        user_access_control=user_access_control,
+    )._denied_tables
+    if not denied_tables:
+        return metrics
+    visible_metric_ids = [
+        metric.id
+        for metric in metrics.only("id", "referenced_table_names")
+        if not references_denied_table(metric.referenced_table_names, denied_tables)
+    ]
+    return metrics.filter(id__in=visible_metric_ids)
 
 
 def approved_metric_names_for_team(team: Team, user: Optional[User]) -> list[str]:

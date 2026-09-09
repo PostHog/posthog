@@ -4,6 +4,8 @@ from parameterized import parameterized
 
 from posthog.temporal.ai.slack_app.activities.classifiers import classify_task_needs_repo
 
+from products.slack_app.backend.services.slack_messages import SlackThreadMessage
+
 
 class TestClassifyTaskNeedsRepo:
     @parameterized.expand(
@@ -40,7 +42,7 @@ class TestClassifyTaskNeedsRepo:
         ]
     )
     def test_heuristic_classification(self, _name, text, expected):
-        result = classify_task_needs_repo(text, [{"user": "Alessandro", "text": text}])
+        result = classify_task_needs_repo(text, [SlackThreadMessage(user="Alessandro", text=text)])
         assert result is expected
 
     @parameterized.expand(
@@ -62,16 +64,16 @@ class TestClassifyTaskNeedsRepo:
             (
                 "tests_and_errors_in_an_analytics_thread",
                 [
-                    {"user": "amy", "text": "we ran some tests on the signup funnel yesterday"},
-                    {"user": "bo", "text": "the numbers look off, error rate is way up in the dashboard"},
+                    SlackThreadMessage(user="amy", text="we ran some tests on the signup funnel yesterday"),
+                    SlackThreadMessage(user="bo", text="the numbers look off, error rate is way up in the dashboard"),
                 ],
                 "why did conversion drop?",
             ),
             (
                 "master_chatter_beside_a_product_bug",
                 [
-                    {"user": "amy", "text": "just merged that to master"},
-                    {"user": "bo", "text": "the survey widget throws an error on mobile"},
+                    SlackThreadMessage(user="amy", text="just merged that to master"),
+                    SlackThreadMessage(user="bo", text="the survey widget throws an error on mobile"),
                 ],
                 "what does the data say?",
             ),
@@ -109,7 +111,7 @@ class TestClassifyTaskNeedsRepo:
         assert result is expected
 
     def _run_with_llm_content(
-        self, text: str, content: str, thread_messages: list[dict[str, str]] | None = None
+        self, text: str, content: str, thread_messages: list[SlackThreadMessage] | None = None
     ) -> bool:
         fake_response = MagicMock()
         fake_response.choices = [MagicMock(message=MagicMock(content=content))]
@@ -119,7 +121,7 @@ class TestClassifyTaskNeedsRepo:
             "posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client",
             return_value=fake_client,
         ):
-            return classify_task_needs_repo(text, thread_messages or [{"user": "Alessandro", "text": text}])
+            return classify_task_needs_repo(text, thread_messages or [SlackThreadMessage(user="Alessandro", text=text)])
 
     def test_llm_failure_defaults_to_false(self):
         """A flaky LLM call must not wall users behind the Connect-GitHub gate."""
@@ -128,5 +130,5 @@ class TestClassifyTaskNeedsRepo:
             "posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client",
             side_effect=RuntimeError("boom"),
         ):
-            result = classify_task_needs_repo(text, [{"user": "Alessandro", "text": text}])
+            result = classify_task_needs_repo(text, [SlackThreadMessage(user="Alessandro", text=text)])
         assert result is False

@@ -10,7 +10,11 @@ vi.mock("./TerminalManager", () => ({
   },
 }));
 
-import { clearPersistedSessionIds, useTerminalStore } from "./terminalStore";
+import {
+  clearPersistedSessionIds,
+  clearPersistedTranscripts,
+  useTerminalStore,
+} from "./terminalStore";
 
 describe("terminalStore persistence", () => {
   beforeEach(() => {
@@ -53,6 +57,25 @@ describe("terminalStore persistence", () => {
           serializedState: "scrollback",
           sessionId: null,
         },
+      },
+    });
+  });
+
+  it("drops only auth terminal transcripts, not task terminal scrollback", () => {
+    expect(
+      clearPersistedTranscripts({
+        terminalStates: {
+          "claude-auth-login-abc": {
+            serializedState: "a login transcript",
+            sessionId: null,
+          },
+          "task-1-shell": { serializedState: "scrollback", sessionId: null },
+        },
+      }),
+    ).toEqual({
+      terminalStates: {
+        "claude-auth-login-abc": { serializedState: null, sessionId: null },
+        "task-1-shell": { serializedState: "scrollback", sessionId: null },
       },
     });
   });

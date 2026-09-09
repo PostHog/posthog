@@ -13,6 +13,10 @@ pub const SYMBOL_SET_DB_FETCHES: &str = "cymbal_symbol_set_db_fetches";
 pub const SYMBOL_SET_DB_HITS: &str = "cymbal_symbol_set_db_hits";
 pub const SYMBOL_SET_DB_MISSES: &str = "cymbal_symbol_set_db_misses";
 pub const SYMBOL_SET_SAVED: &str = "cymbal_symbol_set_saved";
+// Purpose and outcome labels are fixed enums in `write_attribution` so these
+// counters can be safely grouped in Grafana and reconciled with Postgres table stats.
+pub const POSTGRES_WRITE_ATTEMPTS: &str = "cymbal_postgres_write_attempts";
+pub const POSTGRES_ROWS_AFFECTED: &str = "cymbal_postgres_rows_affected";
 pub const SAVED_SYMBOL_SET_LOADED: &str = "cymbal_saved_symbol_set_loaded";
 pub const SAVED_SYMBOL_SET_ERROR_RETURNED: &str = "cymbal_saved_symbol_set_error_returned";
 pub const SYMBOL_SET_NEGATIVE_CACHE_HIT: &str = "cymbal_symbol_set_negative_cache_hit";

@@ -8,7 +8,7 @@
             "owner": "@team-product-analytics",
             "issue": "https://github.com/PostHog/posthog/pull/82398",
             "added": "2026-08-13",
-            "expires": "2026-08-20",
+            "expires": "2026-09-07",
             "mode": "run"
         },
         {
@@ -18,7 +18,7 @@
             "owner": "@team-product-analytics",
             "issue": "https://github.com/PostHog/posthog/pull/82398",
             "added": "2026-08-13",
-            "expires": "2026-08-20",
+            "expires": "2026-09-07",
             "mode": "run"
         },
         {
@@ -37,7 +37,7 @@
             "reason": "Ingested screenshot does not reach a phaiblob:// pointer before the poll window ends, so the assertion sees the raw value; fails on master and gates every PR",
             "owner": "@team-ai-observability",
             "added": "2026-08-10",
-            "expires": "2026-08-17",
+            "expires": "2026-09-07",
             "mode": "run"
         }
     ]

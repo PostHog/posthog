@@ -20,7 +20,7 @@ class TestGongSource:
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
 
         # Only the call-date-filtered endpoints expose a server-side timestamp filter.
-        for name in ("calls", "calls_extensive", "transcripts"):
+        for name in ("calls", "calls_extensive", "calls_content", "transcripts"):
             assert schemas[name].supports_incremental is True
             assert schemas[name].supports_append is True
             assert any(f["field"] == "started" for f in schemas[name].incremental_fields)
@@ -32,6 +32,18 @@ class TestGongSource:
         for name in ("users", "scorecards", "workspaces"):
             assert schemas[name].supports_incremental is False
             assert schemas[name].supports_append is False
+
+    def test_only_call_content_is_default_off(self):
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
+
+        # Call summaries reach the warehouse only when an admin picks them, so one-shot setup and
+        # new-schema auto-sync must leave this table alone.
+        assert schemas["calls_content"].should_sync_default is False
+
+        # Derived from ENDPOINTS rather than a fixed list, so a table added later is covered here
+        # without editing this test.
+        for name in set(ENDPOINTS) - {"calls_content"}:
+            assert schemas[name].should_sync_default is True
 
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["calls"])

@@ -73,8 +73,9 @@ export function AutostartBaseBranchesSettings({
           Base branch for auto-PRs
         </Text>
         <Text className="text-(--gray-11) text-[13px]">
-          Point auto-started inbox PRs at a specific branch per repository.
-          Repositories without an override target their default branch.
+          Point auto-started Self-driving PRs at a specific branch per
+          repository. Repositories without an override target their default
+          branch.
         </Text>
       </Flex>
 

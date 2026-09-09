@@ -28,7 +28,9 @@ import {
   PopoverContent,
   PopoverTrigger,
   Skeleton,
-  Spinner,
+  Tabs,
+  TabsList,
+  TabsTrigger,
 } from "@posthog/quill";
 import {
   formatRelativeTimeShort,
@@ -36,6 +38,7 @@ import {
   readPrUrls,
 } from "@posthog/shared";
 import type {
+  SignalReport,
   Task,
   TaskRunStatus,
   UserBasic,
@@ -46,9 +49,13 @@ import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { TaskTabIcon } from "@posthog/ui/features/browser-tabs/TaskTabIcon";
 import {
   type FeedEntry,
+  type FeedKindFilter,
+  feedEntryMatchesKind,
   mergeFeedEntries,
   stripContextBlocks,
 } from "@posthog/ui/features/canvas/components/channelFeedDisplay";
+import { ReportFeedRow } from "@posthog/ui/features/canvas/components/ReportFeedRow";
+import { ReportFilterControls } from "@posthog/ui/features/canvas/components/ReportFilterControls";
 import {
   TaskRowContextMenu,
   TaskRowDropdownMenu,
@@ -56,6 +63,7 @@ import {
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
 import { buildRows } from "@posthog/ui/features/canvas/components/taskArtifactRows";
 import type { ChannelFeedSystemMessage } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
+import type { ChannelReportsFilters } from "@posthog/ui/features/canvas/hooks/useChannelReports";
 import { useChannelTaskData } from "@posthog/ui/features/canvas/hooks/useChannelTaskData";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskThread } from "@posthog/ui/features/canvas/hooks/useTaskThread";
@@ -80,6 +88,7 @@ import {
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
@@ -118,7 +127,7 @@ const PR_STATE_LABELS: Record<
 function statusBadge(status: TaskRunStatus) {
   return (
     <Badge variant={runStatusVariant(status)}>
-      {status === "in_progress" && <Spinner className="size-2.5" />}
+      {status === "in_progress" && <Spinner size="xs" />}
       {RUN_STATUS_LABELS[status]}
     </Badge>
   );
@@ -152,7 +161,12 @@ function useTaskStatusDisplay(task: Task): TaskStatusDisplay {
   });
   const status = data?.taskRunStatus ?? task.latest_run?.status;
   const environment = data?.taskRunEnvironment ?? task.latest_run?.environment;
-  const displayStatus = taskFeedRunStatus({ status, environment });
+  const displayStatus = taskFeedRunStatus({
+    status,
+    environment,
+    runMode: data?.runMode,
+    isGenerating: data?.isGenerating,
+  });
   // `prState` is resolved async from git/`gh` and is routinely null for cloud
   // tasks (the details fetch hasn't landed, or there's no cached row). But the
   // PR URL itself is a hard signal a PR exists — the card's "PR" link keys off
@@ -172,10 +186,14 @@ function useTaskStatusDisplay(task: Task): TaskStatusDisplay {
     // waiting on the user right now, which matters more than a PR existing.
     base = <Badge variant="warning">Needs input</Badge>;
   } else if (data?.isGenerating) {
+    const label =
+      status === "not_started" || status === "queued"
+        ? "Starting"
+        : "In progress";
     base = (
       <Badge variant="info">
-        <Spinner className="size-2.5" />
-        In progress
+        <Spinner size="xs" />
+        {label}
       </Badge>
     );
   } else if (showPrState) {
@@ -572,7 +590,7 @@ function PrCiLine({ url }: { url: string }) {
     if (!checks.isPending) return null;
     return (
       <div className="flex items-center gap-1.5 text-(--gray-9) text-xs">
-        <Spinner className="size-3" />
+        <Spinner size="sm" />
         Checking CI…
       </div>
     );
@@ -610,7 +628,7 @@ function PrPopoverContent({ url }: { url: string }) {
         // The title resolves via gh after open; hold its line so the card
         // doesn't jump when it lands.
         <div className="flex h-5 items-center">
-          <Spinner className="size-3" />
+          <Spinner size="sm" />
         </div>
       )}
       <PrCiLine url={url} />
@@ -650,7 +668,7 @@ function PrPopoverRow({ url }: { url: string }) {
           style={{ backgroundColor: ci.color }}
         />
       ) : (
-        checks.isPending && <Spinner className="size-3 shrink-0" />
+        checks.isPending && <Spinner size="sm" className="shrink-0" />
       )}
     </button>
   );
@@ -1193,7 +1211,7 @@ function PendingFeedRow({ pending }: { pending: PendingKickoff }) {
             New task
           </span>
           <Badge variant="info">
-            <Spinner className="size-2.5" />
+            <Spinner size="xs" />
             Starting…
           </Badge>
         </div>
@@ -1320,6 +1338,15 @@ function DaySeparator({ label }: { label: string }) {
   );
 }
 
+const FEED_KIND_FILTERS: readonly {
+  value: FeedKindFilter;
+  label: string;
+}[] = [
+  { value: "all", label: "All" },
+  { value: "sessions", label: "Sessions" },
+  { value: "reports", label: "Reports" },
+];
+
 // The channel feed: every task kicked off in the channel, newest first in a
 // plain top-down scroll (Twitter-style, not a bottom-anchored chat).
 // Multiplayer — the list is team-visible and polls for teammates' cards and
@@ -1330,6 +1357,11 @@ export function ChannelFeedView({
   tasks,
   pending = NO_PENDING,
   systemMessages,
+  reports,
+  onOpenReport,
+  showKindFilter = true,
+  reportFilters,
+  onReportFiltersChange,
   isLoading,
   emptyState,
   intro,
@@ -1341,6 +1373,18 @@ export function ChannelFeedView({
   tasks: Task[];
   pending?: PendingKickoff[];
   systemMessages?: ChannelFeedSystemMessage[];
+  /** Reports interleaved into the feed as compact cards. Providing this (even
+   * empty) also shows the sessions/reports kind filter. */
+  reports?: SignalReport[];
+  onOpenReport?: (reportId: string) => void;
+  /** Off for single-kind feeds (a `type:report` saved feed), where the
+   * sessions/reports tabs would only offer empty views. */
+  showKindFilter?: boolean;
+  /** When provided with its setter, the Reports tab shows the same funnel
+   * menu as the sidebar Reports list. The caller owns the state and filters
+   * the `reports` prop with it. */
+  reportFilters?: ChannelReportsFilters;
+  onReportFiltersChange?: (filters: ChannelReportsFilters) => void;
   isLoading: boolean;
   emptyState?: React.ReactNode;
   /** Rendered pinned above the first entry — the Slack-style channel intro
@@ -1363,9 +1407,23 @@ export function ChannelFeedView({
     [tasks, archivedTaskIds],
   );
 
+  // Which entry kinds show. Reset per space so a filter chosen in one channel
+  // doesn't silently empty another. Only rendered when reports are wired in.
+  const [kindFilter, setKindFilter] = useState<{
+    channelId: string;
+    value: FeedKindFilter;
+  }>({ channelId, value: "all" });
+  const activeKindFilter =
+    kindFilter.channelId === channelId ? kindFilter.value : "all";
+
   const entries = useMemo<FeedEntry[]>(
-    () => mergeFeedEntries(visibleTasks, systemMessages ?? []),
-    [visibleTasks, systemMessages],
+    () =>
+      mergeFeedEntries(
+        visibleTasks,
+        systemMessages ?? [],
+        reports ?? [],
+      ).filter((entry) => feedEntryMatchesKind(entry, activeKindFilter)),
+    [visibleTasks, systemMessages, reports, activeKindFilter],
   );
 
   // The channel's dominant repo: on a single-repo channel every card would
@@ -1411,6 +1469,67 @@ export function ChannelFeedView({
     <div className="mx-auto mb-2 w-full max-w-[660px]">{composer}</div>
   );
 
+  // One row: the kind tabs, and — on the Reports kind only — the same compact
+  // funnel the sidebar uses. Reports deliberately get no extra filter chrome
+  // beyond that, so the row reads the same weight whichever kind is active.
+  const kindFilterBlock = reports !== undefined && showKindFilter && (
+    <div className="mx-auto flex w-full max-w-[660px] items-center gap-1 pt-1">
+      <Tabs
+        value={activeKindFilter}
+        onValueChange={(value: string) =>
+          setKindFilter({ channelId, value: value as FeedKindFilter })
+        }
+        className="min-w-0 flex-1"
+      >
+        <TabsList
+          variant="line"
+          className="quill-tabs-fill h-auto gap-0.5 border-b-0"
+        >
+          {FEED_KIND_FILTERS.map(({ value, label }) => (
+            <TabsTrigger
+              key={value}
+              value={value}
+              className="rounded-sm px-2 py-0.5 text-[13px]"
+            >
+              {label}
+              {value === "reports" &&
+                activeKindFilter !== "reports" &&
+                (reports?.length ?? 0) > 0 && (
+                  <span
+                    className="ml-1 size-1.5 shrink-0 rounded-full bg-(--amber-9)"
+                    role="img"
+                    aria-label="Has reports"
+                  />
+                )}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+      {activeKindFilter === "reports" &&
+        reportFilters &&
+        onReportFiltersChange && (
+          <ReportFilterControls
+            filters={reportFilters}
+            onChange={onReportFiltersChange}
+            compact
+          />
+        )}
+    </div>
+  );
+
+  // With the intro pinned, an emptied kind renders nothing below the tabs —
+  // say so, and point at the next action, instead of dead space.
+  const kindEmptyNote =
+    activeKindFilter === "sessions" ? (
+      <p className="mx-auto w-full max-w-[660px] py-6 text-center text-(--gray-10) text-[13px]">
+        No sessions yet. Start one from the composer above.
+      </p>
+    ) : activeKindFilter === "reports" ? (
+      <p className="mx-auto w-full max-w-[660px] py-6 text-center text-(--gray-10) text-[13px]">
+        No reports here yet. Open the filter to widen the list.
+      </p>
+    ) : null;
+
   if (isLoading && pending.length === 0) {
     // Everything already known renders now. The skeleton cards hold the
     // feed's shape while keeping the intro and composer available.
@@ -1432,7 +1551,11 @@ export function ChannelFeedView({
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full px-4 pt-4 pb-10">
           {composerBlock}
-          {emptyState}
+          {/* The filter stays visible while it's what emptied the list, so the
+              user can switch back out of an empty kind. A selected kind shows
+              its own note; the channel welcome is only for a truly empty feed. */}
+          {kindFilterBlock}
+          {activeKindFilter === "all" ? emptyState : kindEmptyNote}
         </div>
       </div>
     );
@@ -1467,6 +1590,12 @@ export function ChannelFeedView({
           onOpenTask={onOpenTask}
           onOpenThread={onOpenThread}
         />
+      ) : entry.kind === "report" ? (
+        <ReportFeedRow
+          key={entry.id}
+          report={entry.report}
+          onOpenReport={onOpenReport ?? (() => {})}
+        />
       ) : (
         <SystemFeedRow key={entry.id} message={entry.message} />
       ),
@@ -1478,7 +1607,8 @@ export function ChannelFeedView({
       <div className="mx-auto w-full px-4 pt-4 pb-10">
         {intro && <div className="mx-auto w-full max-w-[660px]">{intro}</div>}
         {composerBlock}
-        {rows}
+        {kindFilterBlock}
+        {rows.length === 0 ? kindEmptyNote : rows}
       </div>
     </div>
   );

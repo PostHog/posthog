@@ -14,9 +14,9 @@ import { useServerArchiveSync } from "@posthog/ui/features/archive/useServerArch
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { UsageButton } from "@posthog/ui/features/billing/UsageButton";
 import { UsageLimitModal } from "@posthog/ui/features/billing/UsageLimitModal";
+import { useSpendGuardrails } from "@posthog/ui/features/billing/useSpendGuardrails";
 import { BrowserTabStrip } from "@posthog/ui/features/browser-tabs/BrowserTabStrip";
 import { BrowserTabsDndProvider } from "@posthog/ui/features/browser-tabs/BrowserTabsDnd";
-import { TabShortcutFallback } from "@posthog/ui/features/browser-tabs/TabShortcutFallback";
 import { isBluebirdOnlyPath } from "@posthog/ui/features/canvas/bluebirdRoutes";
 import { ChannelHotkeys } from "@posthog/ui/features/canvas/components/ChannelHotkeys";
 import { ChannelRouteSync } from "@posthog/ui/features/canvas/components/ChannelRouteSync";
@@ -42,12 +42,12 @@ import { useNewTaskDeepLink } from "@posthog/ui/features/deep-links/useNewTaskDe
 import { useOpenTargetDeepLink } from "@posthog/ui/features/deep-links/useOpenTargetDeepLink";
 import { useTaskDeepLink } from "@posthog/ui/features/deep-links/useTaskDeepLink";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useSpacesTabs } from "@posthog/ui/features/feature-flags/useSpacesTabs";
 import { useInboxDeepLink } from "@posthog/ui/features/inbox/hooks/useInboxDeepLink";
 import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useLoopDeepLink } from "@posthog/ui/features/loops/hooks/useLoopDeepLink";
 import { useScoutDeepLink } from "@posthog/ui/features/scouts/hooks/useScoutDeepLink";
 import { useSetupDiscovery } from "@posthog/ui/features/setup/useSetupDiscovery";
+import { NAV_RAIL_WIDTH } from "@posthog/ui/features/sidebar/constants";
 import {
   beginSidebarPeek,
   cancelSidebarPeek,
@@ -63,7 +63,8 @@ import { TourOverlay } from "@posthog/ui/features/tour/components/TourOverlay";
 import { UpdateAvailableModal } from "@posthog/ui/features/updates/UpdateAvailableModal";
 import { WhatsNewModal } from "@posthog/ui/features/updates/WhatsNewModal";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
-import LogosLandscape from "@posthog/ui/primitives/Logo";
+import { AnimatedLogo } from "@posthog/ui/primitives/AnimatedLogo";
+import { isSettingsRouteId } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
@@ -194,6 +195,7 @@ function RootLayout() {
   const queryClient = useQueryClient();
   const reconcilingTaskIds = useRef<Set<string>>(new Set());
   const billingEnabled = useFeatureFlag(BILLING_FLAG);
+  useSpendGuardrails();
   // "PostHog Web" is a channels-world affordance — show it only while the user
   // is actually seeing channels (toggle on, which itself requires the flag).
   const bluebirdEnabled = useFeatureFlag(
@@ -204,10 +206,6 @@ function RootLayout() {
   // The new channels layout has exactly one gate: its feature flag (no
   // sidebar toggle). When on it subsumes the channels alpha entirely.
   const channelsLayout = useChannelsLayout();
-  // Tabs exist in the legacy layout already; the flag gates only bringing them
-  // into the spaces layout.
-  const spacesTabs = useSpacesTabs();
-  const showTabStrip = channelsLayout ? spacesTabs : true;
   const { hasSidebar } = useRailSurface();
   // When the sidebar is collapsed (Cmd+B) the title bar's left block shrinks to
   // fit its own controls so the tab strip flushes left with the content pane.
@@ -286,7 +284,7 @@ function RootLayout() {
   // Settings is a full-page route — drop the app chrome (header/sidebar/
   // space-switcher) so the panel occupies the full window.
   const isSettingsRoute = useRouterState({
-    select: (s) => s.matches.some((m) => m.routeId.startsWith("/settings")),
+    select: (s) => s.matches.some((m) => isSettingsRouteId(m.routeId)),
   });
 
   // ShellLayout draws the in-pane header under `_shell`, so the shared
@@ -306,42 +304,18 @@ function RootLayout() {
     }
   }, [flagsLoaded, bluebirdEnabled, onBluebirdOnlyPath]);
 
-  if (isSettingsRoute) {
-    return (
-      <Flex direction="column" height="100%">
-        <ConnectivityBanner />
-        <AnnouncementBanner />
-        <Outlet />
-        <CommandMenu open={commandMenuOpen} onOpenChange={setCommandMenuOpen} />
-        <GlobalFilePicker />
-        <KeyboardShortcutsSheet
-          open={shortcutsSheetOpen}
-          onOpenChange={(open) => (open ? null : closeShortcutsSheet())}
-        />
-        <GlobalEventHandlers
-          allTasks={tasks ?? []}
-          onToggleCommandMenu={toggleCommandMenu}
-          onToggleShortcutsSheet={toggleShortcutsSheet}
-          visualTaskOrder={visualTaskOrder}
-        />
-        {/* The settings shell has never mounted the tab strip, so nothing here
-            was stopping Cmd+W from closing the window. */}
-        <TabShortcutFallback enabled />
-        {billingEnabled && <UsageLimitModal />}
-        <AnnouncementsHost />
-        <UpdateAvailableModal />
-        <WhatsNewModal />
-        <RemoteBranchCheckoutDialog />
-        <ExistingWorktreeDialog />
-      </Flex>
-    );
-  }
-
   return (
     // DnD scope for the tab strip's drag-to-reorder (pill sortables live in
     // the title bar; the provider must sit above them).
     <BrowserTabsDndProvider>
-      <Flex direction="column" height="100%" className="bg-chrome">
+      {/* Settings renders over this tree through a portal. Going inert keeps
+          focus and clicks out of the covered chrome without unmounting it. */}
+      <Flex
+        direction="column"
+        height="100%"
+        className="bg-chrome"
+        inert={isSettingsRoute}
+      >
         {/* Full-width title bar: a window-drag region carrying the PostHog
             mark. The left section sizes to its controls so the tab strip sits
             beside the history buttons; its padding clears the macOS stoplights
@@ -368,9 +342,7 @@ function RootLayout() {
             }}
           >
             <Flex align="center" gap="2" className="no-drag">
-              <Box className="h-[14px] w-[30px] overflow-hidden [&>svg]:h-[14px] [&>svg]:w-auto">
-                <LogosLandscape code={false} />
-              </Box>
+              <AnimatedLogo size={26} animate="hover" />
               <Button
                 size="icon-sm"
                 aria-label="Toggle sidebar"
@@ -413,7 +385,7 @@ function RootLayout() {
               moved to the rail to make room for it (see NavRail). The strip is
               also the only global owner of Cmd+W, so the fallback has to hold
               that key wherever the strip isn't mounted. */}
-          {showTabStrip ? <BrowserTabStrip /> : <TabShortcutFallback enabled />}
+          <BrowserTabStrip />
           {/* Gated so an empty right-side group can't claim a no-drag rect
               in the title bar for nothing — every pixel without controls
               should drag the window. */}
@@ -434,7 +406,10 @@ function RootLayout() {
             </Flex>
           )}
         </Flex>
-        <ConnectivityBanner />
+        {/* Settings draws its own copies over this tree — see the settings
+            route. One instance of each at a time, so an announcement is not
+            reported as seen twice. */}
+        {!isSettingsRoute && <ConnectivityBanner />}
         <Flex flexGrow="1" overflow="hidden" className="relative">
           {/* Scrim under the peeked nav: dims the content while the overlay is
               out. Purely visual (pointer-transparent) and paired with the
@@ -442,6 +417,7 @@ function RootLayout() {
           {!sidebarOpen && (
             <Box
               aria-hidden
+              style={{ left: channelsLayout ? NAV_RAIL_WIDTH : 0 }}
               // The radix preset replaces Tailwind's palette, so plain
               // `bg-black/*` doesn't exist — use the radix black-alpha scale
               // (--black-a2 = 10%, --black-a5 = 30%).
@@ -473,7 +449,7 @@ function RootLayout() {
               <Flex direction="column" height="100%">
                 {/* Inside the framed pane, not the app column: announcements
                     overlay the content, never the sidebar. */}
-                <AnnouncementBanner />
+                {!isSettingsRoute && <AnnouncementBanner />}
                 {/* The shell renders its own header (ShellLayout);
                       everywhere else the shared header carries the view title
                       and, on a task, its action row. */}
@@ -500,7 +476,7 @@ function RootLayout() {
         {/* Renders nothing — owns ⌘1-9 under the channels layout. Mounted here
             rather than in the switcher, which only exists once a channel is
             already scoped. */}
-        <ChannelHotkeys />
+        {!isSettingsRoute && <ChannelHotkeys />}
         {/* Renders nothing — owns which space is scoped. The sidebar used to,
             but the rail can take that column away and the scoping still has to
             happen. */}
@@ -510,9 +486,7 @@ function RootLayout() {
           tasks={visualTaskOrder}
           activeTaskId={activeTaskId}
           allTasks={tasks ?? []}
-          isOnNewTask={
-            view.type === "task-input" || view.type === "task-pending"
-          }
+          isOnNewTask={view.type === "task-input"}
           onNavigateToTask={openTask}
           onNewTask={openTaskInput}
         />

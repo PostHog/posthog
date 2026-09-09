@@ -7,7 +7,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 
 _FLAG_TARGET = "products.marketing_analytics.backend.api.feature_enabled_or_false"
 

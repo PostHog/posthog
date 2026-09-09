@@ -2,7 +2,7 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 
 import { StepDefinition } from '../steps'
 
-export const getPHPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+export const getPHPInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
 
     return [
@@ -49,30 +49,40 @@ export const getPHPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                 </>
             ),
         },
-        {
-            title: 'Send events',
-            badge: 'recommended',
-            content: (
-                <>
-                    <Markdown>Once installed, you can manually send events to test your integration:</Markdown>
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'php',
-                                file: 'PHP',
-                                code: dedent`
+    ]
+}
+
+export const getPHPEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
+    return {
+        title: 'Send events',
+        badge: 'recommended',
+        content: (
+            <>
+                <Markdown>Once installed, you can manually send events to test your integration:</Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'php',
+                            file: 'PHP',
+                            code: dedent`
                                 PostHog::capture([
                                     'distinctId' => 'test-user',
                                     'event' => 'test-event',
                                 ]);
                             `,
-                            },
-                        ]}
-                    />
-                </>
-            ),
-        },
-    ]
+                        },
+                    ]}
+                />
+            </>
+        ),
+    }
 }
+
+export const getPHPSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getPHPInstallSteps(ctx),
+    getPHPEventStep(ctx),
+]
 
 export const PHPInstallation = createInstallation(getPHPSteps)

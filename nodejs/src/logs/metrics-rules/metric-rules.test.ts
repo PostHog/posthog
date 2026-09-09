@@ -118,6 +118,31 @@ describe('metric rules compile + tally', () => {
             expect(entries[0]!.labelValues).toEqual([longValue.slice(0, MAX_LABEL_VALUE_LENGTH), '500', ''])
         })
 
+        it('decodes JSON-encoded attribute values for value_attribute sums', () => {
+            // Attribute values arrive JSON-encoded from capture: a numeric string
+            // attribute is `'"7.5"'` on the wire. parseFloat over the raw value is
+            // NaN, so without decoding the record is silently skipped.
+            const rules = compileMetricRules([
+                ruleRow({ value_attribute: 'attributes.duration_ms', filter_group: null }),
+            ])
+            const tallies = createBatchTallies()
+            tallyRecords(rules, [record({ attributes: { duration_ms: '"7.5"' } })], tallies, NOW_MS)
+            const entries = [...tallies.byRule.get('rule-1')!.values()]
+            expect(entries[0]!.count).toBe(1)
+            expect(entries[0]!.sum).toBe(7.5)
+            expect(tallies.valueSkipped).toBe(0)
+        })
+
+        it('decodes JSON-encoded attribute values for group-by labels', () => {
+            const rules = compileMetricRules([
+                ruleRow({ filter_group: null, group_by: ['resource_attributes.k8s.pod'] }),
+            ])
+            const tallies = createBatchTallies()
+            tallyRecords(rules, [record({ resource_attributes: { 'k8s.pod': '"pod-1"' } })], tallies, NOW_MS)
+            const entries = [...tallies.byRule.get('rule-1')!.values()]
+            expect(entries[0]!.labelValues).toEqual(['pod-1'])
+        })
+
         it('accumulates records with identical label values into one entry', () => {
             const rules = compileMetricRules([ruleRow({ filter_group: null, group_by: ['severity_text'] })])
             const tallies = createBatchTallies()
