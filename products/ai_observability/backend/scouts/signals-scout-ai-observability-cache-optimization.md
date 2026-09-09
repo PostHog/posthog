@@ -10,7 +10,7 @@ scout-tags:
 # AI cache optimization
 
 Watch LLM generation events for workloads that resend a large stable prompt without caching it.
-Report a workload only when you have located a code fix that cuts input cost.
+Report a workload only when you have located a code fix that cuts total cost.
 
 - Cached input tokens cost a tenth to half the uncached rate, so caching is one of the cheapest savings available.
 - Cache gaps also come back silently: a refactor drops a cache marker, or a new feature injects dynamic content ahead of the stable prompt.
@@ -25,14 +25,6 @@ Load these preinstalled skills through the runtime's packaged-skill mechanism wh
 - `querying-posthog-data`
 
 These are packaged runtime skills, not project skill-store entries. Do not use `skill-list` or `skill-get` to load them.
-
-## Avoid duplicate work
-
-- Read this scout's last 14 days of run summaries with `scout-runs-list`. Filter by its exact `skill_name` and current `skill_version`.
-- Retrieve details for relevant runs with `scout-runs-retrieve`.
-- Search the scratchpad and recent Inbox reports for the workflow, the model, and the call site.
-- If a live report covers the same workflow, add only materially new evidence with `scout-edit-report`.
-- Never create a second report for an unchanged issue.
 
 ## Where to look
 
