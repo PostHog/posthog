@@ -894,6 +894,16 @@ class TestQueryRunner(BaseTest):
                 "error",
                 True,
             ),
+            (
+                # A query runner raises DRF ValidationError to reject the request body, e.g. a
+                # group breakdown with no group type index. The API returns it as a 400, so it
+                # must not fail the SLO or reach error tracking.
+                "drf_validation_error",
+                lambda: ValidationError("This breakdown needs a group type."),
+                SloOutcome.SUCCESS,
+                "user_error",
+                False,
+            ),
             ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error", True),
         ]
     )

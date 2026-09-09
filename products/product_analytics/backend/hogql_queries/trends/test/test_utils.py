@@ -1,5 +1,7 @@
 import pytest
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     BaseMathType,
     BreakdownType,
@@ -37,9 +39,11 @@ def test_properties_chain_groups():
     p1 = get_properties_chain(breakdown_type=BreakdownType.GROUP, breakdown_field="anything", group_type_index=1)
     assert p1 == ["group_1", "properties", "anything"]
 
-    with pytest.raises(Exception) as e:
+    with pytest.raises(ValidationError) as e:
         get_properties_chain(breakdown_type=BreakdownType.GROUP, breakdown_field="anything", group_type_index=None)
-        assert "group_type_index missing from params" in str(e.value)
+    assert "This breakdown needs a group type." in str(e.value)
+    # A single quote in the message defeats the ErrorDetail repr parser the dashboard path uses.
+    assert "'" not in str(e.value.detail[0])
 
 
 def test_properties_chain_events():
