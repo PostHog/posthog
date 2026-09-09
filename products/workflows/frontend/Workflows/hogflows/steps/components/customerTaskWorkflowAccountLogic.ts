@@ -1,6 +1,8 @@
 import { MakeLogicType, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { ApiError } from 'lib/api-error'
+
 import { accountsList, accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'
 
 interface AccountChoices {
@@ -69,8 +71,14 @@ export const customerTaskWorkflowAccountLogic = kea<customerTaskWorkflowAccountL
                                 const selected = await accountsRetrieve(String(props.projectId), accountId)
                                 breakpoint()
                                 options.unshift({ key: selected.id, label: selected.name })
-                            } catch {
+                            } catch (error) {
                                 breakpoint()
+                                // Only a 404 proves the saved account is really gone. Any other failure
+                                // leaves that unanswered, so report it as retryable instead of letting the
+                                // picker advise replacing an account that is probably still valid.
+                                if (!(error instanceof ApiError) || error.status !== 404) {
+                                    return { options: [], failed: true }
+                                }
                             }
                         }
                         return { options, failed: false }
