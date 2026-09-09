@@ -26,6 +26,7 @@ from posthog.hogql.errors import BaseHogQLError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.dataclasses import frozen
 from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, APIScopePermission, TeamMemberAccessPermission
 from posthog.rate_limit import AIObservabilityBackfillCreateThrottle, AIObservabilityBackfillEstimateThrottle
@@ -58,6 +59,14 @@ BACKFILL_RETENTION_MARGIN = timedelta(days=1)
 # answers NOT_FOUND for a backfill that is about to be valid. Probing it would let a concurrent
 # create cancel a live run and start a second walk over the same units.
 BACKFILL_START_GRACE = timedelta(minutes=2)
+
+
+@frozen
+class BackfillWindow:
+    """The span a backfill covers once every bound has been applied."""
+
+    start: datetime
+    end: datetime
 
 
 def _duration_label(duration: timedelta) -> str:
@@ -274,7 +283,7 @@ class EvaluationBackfillViewSet(
         plan = resolve_settle_plan(evaluation.target_config, evaluation.target)
         return timedelta(seconds=plan.max_age_seconds + INGESTION_LAG_MARGIN_SECONDS)
 
-    def _clamped_window(self, evaluation: Evaluation, data: dict[str, Any]) -> tuple[datetime, datetime]:
+    def _clamped_window(self, evaluation: Evaluation, data: dict[str, Any]) -> BackfillWindow:
         """The requested window, bounded to the span whose verdicts can be read back."""
         now = timezone.now()
         window_end: datetime = min(data["window_end"], now)
@@ -314,7 +323,7 @@ class EvaluationBackfillViewSet(
                     f"Backfills on this project can only reach back {_duration_label(reach)}, "
                     "because older events are dropped. Try a more recent range."
                 )
-        return window_start, window_end
+        return BackfillWindow(start=window_start, end=window_end)
 
     def _require_enabled(self, evaluation: Evaluation) -> None:
         # The workflow cancels a backfill whose evaluation is disabled, so starting one here would
@@ -379,15 +388,15 @@ class EvaluationBackfillViewSet(
         evaluation = self._evaluation_for_url()
         self._require_enabled(evaluation)
         data = self._validated_request(request)
-        window_start, window_end = self._clamped_window(evaluation, data)
+        window = self._clamped_window(evaluation, data)
         conditions = self._conditions(evaluation, data)
-        total = self._count(evaluation, conditions, window_start, window_end, data["rerun_existing"])
+        total = self._count(evaluation, conditions, window.start, window.end, data["rerun_existing"])
         response = EvaluationBackfillEstimateSerializer(
             {
                 "total_units": total,
                 "unit": evaluation.target,
-                "window_start": window_start,
-                "window_end": window_end,
+                "window_start": window.start,
+                "window_end": window.end,
             }
         )
         return Response(response.data)
@@ -438,7 +447,7 @@ class EvaluationBackfillViewSet(
         evaluation = self._evaluation_for_url()
         self._require_enabled(evaluation)
         data = self._validated_request(request)
-        window_start, window_end = self._clamped_window(evaluation, data)
+        window = self._clamped_window(evaluation, data)
         active = (
             EvaluationBackfill.objects.for_team(self.team_id)
             .filter(evaluation=evaluation, status__in=ACTIVE_BACKFILL_STATUSES)
@@ -449,7 +458,7 @@ class EvaluationBackfillViewSet(
 
         conditions = self._conditions(evaluation, data)
         rerun_existing = data["rerun_existing"]
-        total = self._count(evaluation, conditions, window_start, window_end, rerun_existing)
+        total = self._count(evaluation, conditions, window.start, window.end, rerun_existing)
         if total == 0:
             raise ValidationError(f"No {evaluation.target}s in this range match these conditions. Try a wider range.")
 
@@ -457,8 +466,8 @@ class EvaluationBackfillViewSet(
             backfill = EvaluationBackfill.objects.for_team(self.team_id).create(
                 evaluation=evaluation,
                 team=self.team,
-                window_start=window_start,
-                window_end=window_end,
+                window_start=window.start,
+                window_end=window.end,
                 target=evaluation.target,
                 conditions=conditions,
                 rerun_existing=rerun_existing,
