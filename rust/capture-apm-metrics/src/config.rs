@@ -39,7 +39,7 @@ pub struct Config {
 
     #[envconfig(
         from = "METRICS_SERIES_CACHE_MAX_ENTRIES_PER_TOKEN",
-        default = "200000"
+        default = "2000000"
     )]
     pub metrics_series_cache_max_entries_per_token: usize,
 }
