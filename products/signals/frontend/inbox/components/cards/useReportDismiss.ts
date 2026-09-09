@@ -69,8 +69,9 @@ export function useReportDismiss({
                     })
                     onDismissed?.()
                 } catch (error: any) {
-                    // The dialog stays open on a rejected submit but shows nothing itself and only
-                    // reports 5xx, so a refused dismiss (4xx) is invisible without this toast.
+                    // A rejected submit keeps the dialog open and captures unexpected failures, but
+                    // shows the user nothing, so a refused dismiss needs this toast. Reject after it
+                    // so the reason and note survive for a retry. Matches useReportResolve.
                     lemonToast.error(error?.detail || error?.message || 'Failed to dismiss report')
                     throw error
                 } finally {
