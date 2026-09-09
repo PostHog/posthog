@@ -4942,6 +4942,10 @@ snapshots:
         hash: v1.k794b7964.8d7b111f362b6382b7ab0f8b2faa9896a414b3410378070a6da3fff8df8c4617.X8hju5T08Nzt0NX65InDdmyuCNi6g111Jd27Mk7_OOU
     mcp-apps-ai-observability--single-model--light:
         hash: v1.k794b7964.d9666eafee0eb265527f39de0189f04df01fc001ae7ff2d8f30e7f4eb8bf78b8.tKK0r3f4eUdwxXF1CNsBMdifJyq5jKOGjlgBgjGq9oI
+    mcp-apps-app-states--loading--light:
+        hash: v1.k794b7964.808d990515fe588731d2986ab719a071f0125a7f8cb8e68efbef88deabb2a47a.86Huz6TbAd6glstvcl_q_Fjbqq4kUnzMPIMO8KZTx9I
+    mcp-apps-app-states--no-results--light:
+        hash: v1.k794b7964.ec1850d251b28c2a7cdcfc9af5ae0bfd8815409ef910496dc5be187c7fc71a3f.6oJ3kFtDZfJsymE8sN667fRtzQkLKKHwXjCdzbqsCHA
     mcp-apps-cohorts--calculating--light:
         hash: v1.k794b7964.ccc89a2389eb15f76a817d88dd26ff03f20210f23eed40183436261a92504399.pXD51hUgUtFpzTJd-iaVQJ5d1SRr2Ifr_1geD9qwPwY
     mcp-apps-cohorts--dynamic--light:
