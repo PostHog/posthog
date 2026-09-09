@@ -43,8 +43,10 @@ pub mod releases;
 
 // We consume a huge variety of differently shaped stack frames, which we have special-case
 // transformation for, to produce a single, unified representation of a frame.
+// `remote = "Self"` makes the derived impls inherent methods, so the hand-written
+// `Deserialize` below can tag legacy untagged frames and then delegate to the derived logic.
 #[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(tag = "platform")]
+#[serde(tag = "platform", remote = "Self")]
 pub enum RawFrame {
     #[serde(rename = "python")]
     Python(RawPythonFrame),
@@ -75,6 +77,47 @@ pub enum RawFrame {
     // TODO - remove once we're happy no clients are using this anymore
     #[serde(rename = "javascript")]
     LegacyJS(RawJSFrame),
+}
+
+// Keys only python frames carry. posthog-python < 3.8.0 sent frames without a platform
+// tag, so any of these keys is what identifies such a frame.
+const LEGACY_PYTHON_FRAME_KEYS: [&str; 5] = [
+    "abs_path",
+    "context_line",
+    "module",
+    "pre_context",
+    "post_context",
+];
+
+// Tag an untagged frame as python when a python-only key identifies it. Other frame
+// shapes overlap too much to classify safely, so any other untagged frame still fails,
+// as before.
+impl<'de> Deserialize<'de> for RawFrame {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let mut value = Value::deserialize(deserializer)?;
+        if let Some(object) = value.as_object_mut() {
+            if !object.contains_key("platform")
+                && LEGACY_PYTHON_FRAME_KEYS
+                    .iter()
+                    .any(|key| object.contains_key(*key))
+            {
+                object.insert("platform".to_string(), Value::String("python".to_string()));
+            }
+        }
+        Self::deserialize(&value).map_err(serde::de::Error::custom)
+    }
+}
+
+impl Serialize for RawFrame {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        Self::serialize(self, serializer)
+    }
 }
 
 impl RawFrame {
