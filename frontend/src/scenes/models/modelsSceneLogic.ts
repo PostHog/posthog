@@ -31,7 +31,7 @@ export interface modelsSceneLogicValues {
     nodesLoading: boolean
     savedQueryIdToNodeId: Record<string, string>
     failingNodes: DataModelingNode[]
-    suspendedViews: DataWarehouseSavedQuery[]
+    suspendedNodes: DataModelingNode[]
 }
 
 export interface modelsSceneLogicActions {
@@ -58,7 +58,7 @@ export interface modelsSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         savedQueryIdToNodeId: (nodes: DataModelingNode[]) => Record<string, string>
         failingNodes: (nodes: DataModelingNode[]) => DataModelingNode[]
-        suspendedViews: (dataWarehouseSavedQueries: DataWarehouseSavedQuery[]) => DataWarehouseSavedQuery[]
+        suspendedNodes: (nodes: DataModelingNode[]) => DataModelingNode[]
         dataQualityTabEnabled: (featureFlags: FeatureFlagsSet) => boolean
     }
 }
@@ -119,10 +119,11 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
             (nodes: DataModelingNode[]): DataModelingNode[] =>
                 nodes.filter((node) => node.last_run_status === 'Failed'),
         ],
-        suspendedViews: [
-            (s) => [s.dataWarehouseSavedQueries],
-            (dataWarehouseSavedQueries: DataWarehouseSavedQuery[]): DataWarehouseSavedQuery[] =>
-                dataWarehouseSavedQueries.filter((view) => Object.keys(view.suspended ?? {}).length > 0),
+        // The saved-query list response omits `suspended`, so read it off the nodes.
+        suspendedNodes: [
+            (s) => [s.nodes],
+            (nodes: DataModelingNode[]): DataModelingNode[] =>
+                nodes.filter((node) => Object.keys(node.suspended ?? {}).length > 0),
         ],
         dataQualityTabEnabled: [
             (s) => [s.featureFlags],

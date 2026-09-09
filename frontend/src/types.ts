@@ -82,6 +82,7 @@ import type {
 import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
+import type { NodeApiSuspended } from 'products/data_modeling/frontend/generated/api.schemas'
 import type {
     DataWarehouseSavedQueryApiSuspended,
     SyncFrequencyBoundsApi,
@@ -6282,6 +6283,7 @@ export interface DataModelingNode {
     last_run_at?: string
     last_run_status?: DataModelingJobStatus
     sync_interval?: DataModelingSyncInterval
+    suspended?: NodeApiSuspended
 }
 
 export interface DataModelingEdge {

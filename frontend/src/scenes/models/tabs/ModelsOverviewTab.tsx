@@ -36,9 +36,9 @@ function AttentionTile({ title, count, detail, tone, ...props }: AttentionTilePr
 }
 
 export function ModelsOverviewTab(): JSX.Element {
-    const { failingNodes, suspendedViews } = useValues(modelsSceneLogic)
+    const { failingNodes, suspendedNodes } = useValues(modelsSceneLogic)
 
-    const nothingToDo = failingNodes.length === 0 && suspendedViews.length === 0
+    const nothingToDo = failingNodes.length === 0 && suspendedNodes.length === 0
 
     return (
         <div className="flex flex-col gap-4">
@@ -59,11 +59,11 @@ export function ModelsOverviewTab(): JSX.Element {
                                 data-attr="models-overview-failing"
                             />
                         )}
-                        {suspendedViews.length > 0 && (
+                        {suspendedNodes.length > 0 && (
                             <AttentionTile
                                 title="Suspended"
-                                count={suspendedViews.length}
-                                detail={namesSummary(suspendedViews.map((view) => view.name))}
+                                count={suspendedNodes.length}
+                                detail={namesSummary(suspendedNodes.map((node) => node.name))}
                                 tone="warning"
                                 data-attr="models-overview-suspended"
                             />

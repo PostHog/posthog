@@ -40,10 +40,13 @@ describe('modelsSceneLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/data_modeling_nodes/': {
-                    count: 3,
+                    count: 4,
                     results: [
                         buildNode('healthy', { last_run_status: 'Completed' }),
                         buildNode('broken', { last_run_status: 'Failed' }),
+                        buildNode('paused', {
+                            suspended: { clickhouse: { at: '2024-01-02T00:00:00Z', reason: 'boom', job_id: 'j1' } },
+                        }),
                         buildNode('never-ran'),
                     ],
                 },
@@ -51,13 +54,7 @@ describe('modelsSceneLogic', () => {
                     count: 2,
                     results: [
                         { id: 'query-healthy', name: 'healthy', columns: [], is_materialized: true },
-                        {
-                            id: 'query-broken',
-                            name: 'broken',
-                            columns: [],
-                            is_materialized: true,
-                            suspended: { clickhouse: { at: '2024-01-02T00:00:00Z', reason: 'boom', job_id: 'j1' } },
-                        },
+                        { id: 'query-broken', name: 'broken', columns: [], is_materialized: true },
                     ],
                 },
             },
@@ -95,6 +92,6 @@ describe('modelsSceneLogic', () => {
         await expectLogic(dataWarehouseViewsLogic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
 
         expect(logic.values.failingNodes.map((node) => node.id)).toEqual(['broken'])
-        expect(logic.values.suspendedViews.map((view) => view.id)).toEqual(['query-broken'])
+        expect(logic.values.suspendedNodes.map((node) => node.id)).toEqual(['paused'])
     })
 })

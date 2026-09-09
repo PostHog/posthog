@@ -5,6 +5,8 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 from rest_framework import status
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
@@ -18,7 +20,7 @@ from products.data_modeling.backend.logic.node_suspension import (
     suspension_reset_at,
     suspension_state,
 )
-from products.data_modeling.backend.models import DAG, Edge, Node, NodeType
+from products.data_modeling.backend.models import DAG, DataModelingJob, Edge, Node, NodeType
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
@@ -64,6 +66,37 @@ class TestNodeViewSet(APIBaseTest):
 
         names = {node["name"] for node in response.json()["results"]}
         self.assertEqual(names, {"events", "test_view"})
+
+    @parameterized.expand([("list",), ("retrieve",)])
+    def test_nodes_report_status_from_the_latest_job(self, endpoint: str):
+        """The node carries no status of its own, so both reads have to take it off the newest job."""
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=self.saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            last_run_at=timezone.now() - timedelta(hours=2),
+        )
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=self.saved_query,
+            status=DataModelingJob.Status.FAILED,
+            last_run_at=timezone.now(),
+        )
+
+        base = f"/api/environments/{self.team.id}/data_modeling_nodes/"
+        if endpoint == "list":
+            response = self.client.get(base)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            statuses = {node["name"]: node["last_run_status"] for node in response.json()["results"]}
+        else:
+            statuses = {}
+            for node in (self.view_node, self.table_node):
+                response = self.client.get(f"{base}{node.id}/")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                statuses[response.json()["name"]] = response.json()["last_run_status"]
+
+        self.assertEqual(statuses["test_view"], "Failed")
+        self.assertIsNone(statuses["events"])
 
     def test_list_nodes_filters_by_team(self):
         other_team = Team.objects.create(organization=self.organization)

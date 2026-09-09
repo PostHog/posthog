@@ -190,25 +190,20 @@ def _get_downstream_nodes(node: Node) -> set[str]:
     return nodes
 
 
-def _node_queryset_with_latest_job() -> models.QuerySet:
-    """Node queryset annotated with the latest DataModelingJob status and last_run_at.
-
-    This lets the serializer fall back to job data when node.properties["system"] is unpopulated.
-    - _latest_job_status: status of the most recent job (any status)
-    - _latest_job_run_at: last_run_at of the most recent *successful* job
-    """
+def _annotate_latest_job(queryset: models.QuerySet) -> models.QuerySet:
+    """Status comes from the newest job of any status, but run_at only from the newest successful one."""
     from products.data_modeling.backend.facade.models import DataModelingJob
 
     latest_job = DataModelingJob.objects.filter(saved_query_id=OuterRef("saved_query_id")).order_by("-last_run_at")
     latest_completed_job = latest_job.filter(status=DataModelingJob.Status.COMPLETED)
-    return (
-        Node.objects.select_related("saved_query", "dag")
-        .annotate(
-            _latest_job_status=Subquery(latest_job.values("status")[:1]),
-            _latest_job_run_at=Subquery(latest_completed_job.values("last_run_at")[:1]),
-        )
-        .all()
+    return queryset.annotate(
+        _latest_job_status=Subquery(latest_job.values("status")[:1]),
+        _latest_job_run_at=Subquery(latest_completed_job.values("last_run_at")[:1]),
     )
+
+
+def _node_queryset_with_latest_job() -> models.QuerySet:
+    return _annotate_latest_job(Node.objects.select_related("saved_query", "dag").all())
 
 
 class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -269,7 +264,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return dag_id
 
     def safely_get_queryset(self, queryset):
-        qs = queryset.filter(team_id=self.team_id)
+        qs = _annotate_latest_job(queryset.filter(team_id=self.team_id))
         dag_id = self._get_dag_id_param()
         if dag_id:
             qs = qs.filter(dag_id=dag_id)
