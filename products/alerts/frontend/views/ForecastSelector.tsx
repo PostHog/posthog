@@ -138,7 +138,8 @@ export function ForecastSelector({
                     {
                         value: ForecastConditionType.FUTURE_BREACH,
                         label: 'Upcoming threshold breach',
-                        description: 'Alert if the point forecast crosses a less-than or more-than threshold soon.',
+                        description:
+                            'Alert if the point forecast crosses a less-than or more-than threshold soon, or if the latest value already crosses it.',
                         'data-attr': 'alertForm-forecast-condition-future-breach',
                         disabledReason,
                     },

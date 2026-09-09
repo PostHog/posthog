@@ -115,7 +115,10 @@ function forecastSummary(config: AlertFormType['forecast_config']): string {
             : ''
         return `the point forecast is ${direction} ${target}${on}`
     }
-    return 'the forecast crosses your threshold'
+    // The server tests the latest completed value against the bounds and fires on it before it
+    // forecasts (`_actual_breach` in products/alerts/backend/evaluation/forecast.py), so a summary
+    // that named only the forecast would leave out a rule the alert runs.
+    return 'the latest value or the point forecast crosses your threshold'
 }
 
 /** Build a one-line human summary of what an alert does. Pure (no React) so it can feed a header
