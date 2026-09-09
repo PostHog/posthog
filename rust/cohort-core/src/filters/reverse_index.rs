@@ -217,7 +217,23 @@ impl TeamFiltersBuilder {
     /// Freeze into an immutable [`TeamFilters`]. When `cascade_enabled`, resolvable cycle-free
     /// ref-bearing cohorts become [`CohortEligibility::Stage2ComposableRef`] and join the composable
     /// emit-map by their own leaves; otherwise they stay `Excluded(HasCohortRef)`.
+    ///
+    /// Analyzes the behavioral conditions under a whole catalog budget of its own. A caller freezing
+    /// several teams shares one through [`Self::freeze_within`] instead.
     pub fn freeze_with(self, timezone: Tz, cascade_enabled: bool) -> TeamFilters {
+        self.freeze_within(timezone, cascade_enabled, &mut catalog_analysis_budget())
+    }
+
+    /// [`Self::freeze_with`], analyzing against a budget the caller owns. One budget across every
+    /// team of a catalog bounds the build as a whole rather than each team of it. It is spent in
+    /// call order, so a caller that wants the same plans on every replica freezes its teams in a
+    /// fixed order.
+    pub fn freeze_within(
+        self,
+        timezone: Tz,
+        cascade_enabled: bool,
+        budget: &mut AnalysisBudget,
+    ) -> TeamFilters {
         // Aggregate corrupt leaves per cohort so one large filter tree cannot flood each refresh.
         for (cohort_id, flags) in &self.flags {
             if flags.malformed_leaf_count > 0 {
@@ -323,7 +339,11 @@ impl TeamFiltersBuilder {
 
         let mut behavioral_conditions: Vec<[u8; 16]> = behavioral_conditions.into_iter().collect();
         behavioral_conditions.sort_unstable();
-        let plans = condition_plans(&self.by_condition_to_program, &behavioral_conditions);
+        let plans = condition_plans(
+            &self.by_condition_to_program,
+            &behavioral_conditions,
+            budget,
+        );
         // One leaf populates both maps, so a miss is unreachable. `FULL` is the answer that would
         // be slow rather than wrong if that ever stopped holding.
         let plan_of = |hash: &[u8; 16]| plans.get(hash).copied().unwrap_or(GlobalsPlan::FULL);
@@ -386,14 +406,31 @@ fn collect_leaf_state_keys(node: &FilterNode, out: &mut HashSet<LeafStateKey>) {
     }
 }
 
-/// Walked in order under one shared [`AnalysisBudget`], so a catalog classifies the same way
-/// whatever order its rows arrived in. The budget scales with the catalog rather than being a
-/// constant, or a large team would spend it on its first few conditions and widen the rest.
+/// How many worst-case conditions one catalog analysis may cost, as one budget every condition of
+/// every team shares.
+///
+/// A constant rather than a function of the catalog. A budget of `conditions × ceiling` is the
+/// per-condition ceiling over again, and nothing caps the conditions a catalog carries, so the
+/// build would have no bound of its own. The unit is the worst program the analyzer accepts, and
+/// this many of them keep a build's analysis to a few seconds. A realistic condition spends one
+/// step per instruction and copies nothing, so this many step ceilings cover far more conditions
+/// than any catalog holds. Past the budget a condition takes [`GlobalsPlan::FULL`], which
+/// evaluates the same and only parses roots it did not need.
+const CATALOG_WORST_CASE_CONDITIONS: usize = 8;
+
+/// The budget one catalog build analyzes under. See [`CATALOG_WORST_CASE_CONDITIONS`].
+pub(crate) fn catalog_analysis_budget() -> AnalysisBudget {
+    AnalysisBudget::for_conditions(CATALOG_WORST_CASE_CONDITIONS)
+}
+
+/// Walked in order against the caller's [`AnalysisBudget`], so a catalog classifies the same way
+/// whatever order its rows arrived in. A condition the spent budget refuses takes
+/// [`GlobalsPlan::FULL`] under the budget's own reason, which the counter reports.
 fn condition_plans(
     programs_by_hash: &HashMap<[u8; 16], ConditionProgram>,
     sorted_hashes: &[[u8; 16]],
+    budget: &mut AnalysisBudget,
 ) -> HashMap<[u8; 16], GlobalsPlan> {
-    let mut budget = AnalysisBudget::for_conditions(sorted_hashes.len().max(1));
     sorted_hashes
         .iter()
         .map(|hash| {
@@ -402,7 +439,7 @@ fn condition_plans(
                     .increment(1);
                 return (*hash, GlobalsPlan::FULL);
             };
-            let projection = analyze_condition_within(program.tokens(), &mut budget).projection;
+            let projection = analyze_condition_within(program.tokens(), budget).projection;
             let outcome = match &projection {
                 Projection::Reads(_) => "reads",
                 Projection::FullColumns(reason) => reason.as_str(),
@@ -1274,6 +1311,50 @@ mod tests {
             "a condition the analysis cannot narrow has to claim every root",
         );
         assert_eq!(frozen.behavioral_plan, GlobalsPlan::FULL);
+    }
+
+    #[test]
+    fn a_spent_budget_widens_every_condition_after_it_to_every_root() {
+        // `HASH` sorts before this hash, so the `$pageview` condition is analyzed first.
+        let purchase = behavioral_leaf(
+            "purchase",
+            "purchasehash0002",
+            json!(["_H", 1, 32, "purchase", 32, "event", 1, 1, 11]),
+        );
+        let cohort = wrap(vec![behavioral_performed_event(7), purchase]);
+        let mut builder = TeamFiltersBuilder::default();
+        builder.add_cohort(CohortId(1), TeamId(7), &cohort).unwrap();
+        // STRING, STRING, GET_GLOBAL, EQ, RETURN: exactly what the first condition spends.
+        let mut budget = AnalysisBudget {
+            steps: 5,
+            cells: usize::MAX,
+        };
+        let frozen = builder.freeze_within(UTC, false, &mut budget);
+
+        assert_eq!(
+            budget.steps, 0,
+            "the first condition spent the whole budget"
+        );
+        let pageview = frozen.behavioral_by_event_name["$pageview"].plan;
+        assert!(
+            pageview.reads(GlobalRoot::Event) && !pageview.reads(GlobalRoot::Pdi),
+            "the condition within the budget still narrows",
+        );
+        assert_eq!(
+            frozen.behavioral_by_event_name["purchase"].plan,
+            GlobalsPlan::FULL,
+            "the condition the spent budget refuses takes every root",
+        );
+        assert_eq!(frozen.behavioral_plan, GlobalsPlan::FULL);
+
+        let mut builder = TeamFiltersBuilder::default();
+        builder.add_cohort(CohortId(1), TeamId(7), &cohort).unwrap();
+        assert!(
+            !builder.freeze(UTC).behavioral_by_event_name["purchase"]
+                .plan
+                .reads(GlobalRoot::Pdi),
+            "under the catalog budget the same condition narrows, so the budget was what widened it",
+        );
     }
 
     #[test]
