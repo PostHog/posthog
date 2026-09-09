@@ -7,15 +7,17 @@ import { getPermissionRequestToolInput, type PermissionPreviewProps } from 'prod
 /**
  * Approval-card preview for `cdp-functions-partial-update`: a diff of the agent's proposed update
  * against the hog function the user has open. Reads the mounted `hogFunctionConfigurationLogic` for the
- * live config; when the scene isn't mounted there's no current config to diff against, so it returns
- * the evidence fallback without mounting or fetching the scene. `findAllMounted` (not `findMounted`) because
- * the logic is keyed by function id — the surface can't reconstruct the key — and the edit scene mounts
- * a single instance.
+ * live config; when the scene isn't mounted, or its config has not loaded yet, there's nothing to diff
+ * against, so it returns the evidence fallback without mounting or fetching the scene. `findAllMounted`
+ * (not `findMounted`) because the logic is keyed by function id — the surface can't reconstruct the key —
+ * and the edit scene mounts a single instance.
  */
 export function HogFunctionPermissionPreview({ request, fallback }: PermissionPreviewProps): JSX.Element {
     const mounted = hogFunctionConfigurationLogic.findAllMounted()[0]
     const current = mounted?.values.configuration as Record<string, unknown> | undefined
-    if (!current) {
+    // The scene mounts with an empty form and fills it when its fetch lands. A diff against that empty
+    // config marks every proposed field as newly added, hiding the values the update replaces.
+    if (!mounted?.values.loaded || !current || Object.keys(current).length === 0) {
         return <>{fallback}</>
     }
     const proposed = getPermissionRequestToolInput(request)

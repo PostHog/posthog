@@ -44,12 +44,30 @@ describe('HogFunctionPermissionPreview', () => {
 
     it.each([
         ['no mounted configuration', []],
-        ['configuration unavailable', [{ props: { id: 'function-1' }, values: {} }]],
+        ['configuration unavailable', [{ props: { id: 'function-1' }, values: { loaded: true } }]],
+        [
+            'a configuration still loading',
+            [{ props: { id: 'function-1' }, values: { loaded: false, configuration: {} } }],
+        ],
+        ['an empty configuration', [{ props: { id: 'function-1' }, values: { loaded: true, configuration: {} } }]],
         [
             'different function',
-            [{ props: { id: 'function-2' }, values: { configuration: { name: 'Original destination' } } }],
+            [
+                {
+                    props: { id: 'function-2' },
+                    values: { loaded: true, configuration: { name: 'Original destination' } },
+                },
+            ],
         ],
-        ['no changes', [{ props: { id: 'function-1' }, values: { configuration: { name: 'Updated destination' } } }]],
+        [
+            'no changes',
+            [
+                {
+                    props: { id: 'function-1' },
+                    values: { loaded: true, configuration: { name: 'Updated destination' } },
+                },
+            ],
+        ],
     ])('uses evidence for %s without mounting or fetching a scene', (_name, mounted) => {
         jest.mocked(hogFunctionConfigurationLogic.findAllMounted).mockReturnValue(
             mounted as ReturnType<typeof hogFunctionConfigurationLogic.findAllMounted>
@@ -60,7 +78,7 @@ describe('HogFunctionPermissionPreview', () => {
 
     it('renders the proposed diff against the matching mounted configuration', () => {
         jest.mocked(hogFunctionConfigurationLogic.findAllMounted).mockReturnValue([
-            { props: { id: 'function-1' }, values: { configuration: { name: 'Original destination' } } },
+            { props: { id: 'function-1' }, values: { loaded: true, configuration: { name: 'Original destination' } } },
         ] as ReturnType<typeof hogFunctionConfigurationLogic.findAllMounted>)
         render(<HogFunctionPermissionPreview request={request} fallback={<div>Original evidence</div>} />)
         expect(screen.queryByText('Original evidence')).not.toBeInTheDocument()
