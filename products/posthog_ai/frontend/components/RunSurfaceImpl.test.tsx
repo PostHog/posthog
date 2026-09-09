@@ -141,7 +141,7 @@ describe('RunSurface', () => {
             try {
                 render(<DraftComposer />)
                 fireEvent.change(screen.getByTestId('draft'), { target: { value: 'Continue' } })
-                fireEvent.click(screen.getByRole('button', { name: 'Send draft' }))
+                fireEvent.click(screen.getByText('Send draft'))
                 expect(screen.getByTestId('draft')).toHaveValue('')
                 act(() => jest.runOnlyPendingTimers())
                 expect(screen.getByTestId('draft')).toHaveValue('')
