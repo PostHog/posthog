@@ -710,6 +710,24 @@ describe("failed tool results", () => {
     );
   });
 
+  it("separates two error text blocks instead of running them together", async () => {
+    const update = await failedToolUpdate(
+      [
+        { type: "text", text: "Request failed" },
+        { type: "text", text: "Try again" },
+      ],
+      undefined,
+    );
+    expect(update.error?.message).toBe("Request failed\nTry again");
+  });
+
+  it("truncates a large result so the always-visible reason stays short", async () => {
+    const update = await failedToolUpdate("x".repeat(2500), undefined);
+    expect(update.error?.message).toBe(
+      `${"x".repeat(2000)}… [truncated 500 chars]`,
+    );
+  });
+
   it("keeps a string result out of rawOutput instead of spreading it per character", async () => {
     const update = await failedToolUpdate("boom", "boom");
     expect(update.rawOutput).toEqual({

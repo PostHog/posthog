@@ -300,7 +300,10 @@ function handleToolUseChunk(
   };
 }
 
-function extractTextFromContent(content: unknown): string | null {
+function extractTextFromContent(
+  content: unknown,
+  delimiter = "",
+): string | null {
   if (Array.isArray(content)) {
     const parts: string[] = [];
     for (const item of content) {
@@ -313,7 +316,7 @@ function extractTextFromContent(content: unknown): string | null {
         parts.push((item as { text: string }).text);
       }
     }
-    return parts.length > 0 ? parts.join("") : null;
+    return parts.length > 0 ? parts.join(delimiter) : null;
   }
   if (typeof content === "string") {
     return content;
@@ -328,15 +331,26 @@ function asPlainObject(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
+// The reason renders in the region a failed tool never collapses, and rawOutput
+// already holds the same text in full, so keep this copy short.
+const MAX_ERROR_MESSAGE_CHARS = 2_000;
+
 function toolResultErrorMessage(
   content: unknown,
   toolUseResult: unknown,
 ): string | undefined {
   const structured = asPlainObject(toolUseResult);
   const text =
-    extractTextFromContent(content) ??
-    extractTextFromContent(structured ? structured.content : toolUseResult);
-  return text?.trim() || undefined;
+    extractTextFromContent(content, "\n") ??
+    extractTextFromContent(
+      structured ? structured.content : toolUseResult,
+      "\n",
+    );
+  const trimmed = text?.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.length <= MAX_ERROR_MESSAGE_CHARS) return trimmed;
+  const dropped = trimmed.length - MAX_ERROR_MESSAGE_CHARS;
+  return `${trimmed.slice(0, MAX_ERROR_MESSAGE_CHARS)}… [truncated ${dropped} chars]`;
 }
 
 export function stripCatLineNumbers(text: string): string {
