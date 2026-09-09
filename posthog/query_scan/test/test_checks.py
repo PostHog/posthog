@@ -350,6 +350,18 @@ class TestStartDateCheck(QueryScanCheckTest):
         self.assertEqual(outcome.date_from, date(2026, 3, 8))
 
     @freeze_time(NOW)
+    def test_a_read_the_placeholder_does_not_reach_does_not_blame_the_insight(self) -> None:
+        tree, _context = self.prepare(
+            "SELECT count() FROM events WHERE {filters} UNION ALL SELECT count() FROM events",
+            filters=HogQLFilters(dateRange=DateRange(date_from="-7d")),
+        )
+
+        outcome = check_start_date(tree, has_filters_placeholder=True)
+
+        self.assertEqual(outcome.classification, "none")
+        self.assertIsNone(outcome.reason)
+
+    @freeze_time(NOW)
     def test_filters_placeholder_with_no_date_range_blames_the_insight(self) -> None:
         tree, _context = self.prepare("SELECT count() FROM events WHERE {filters}")
 

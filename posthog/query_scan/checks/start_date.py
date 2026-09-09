@@ -137,9 +137,13 @@ def check_start_date(tree: ast.AST, *, has_filters_placeholder: bool = False) ->
     reason: StartDateReason | None = None
     if worst.classification == "column":
         reason = "column"
-    elif worst.classification == "none" and has_filters_placeholder:
+    elif worst.classification == "none" and has_filters_placeholder and _no_read_is_bounded(bounds):
         # The query asked for a date range through {filters} and none was supplied, so the
         # placeholder expanded to nothing. The fix is on the insight, not in the SQL.
+        #
+        # A read that did get a bound says a range was supplied after all, and the placeholder
+        # only reaches part of the query. Setting a range again would not help the read that
+        # missed out, so that one is told to bound itself.
         reason = "filters"
 
     return StartDateOutcome(
@@ -149,6 +153,10 @@ def check_start_date(tree: ast.AST, *, has_filters_placeholder: bool = False) ->
         date_from=date_from,
         date_to=date_to,
     )
+
+
+def _no_read_is_bounded(bounds: list[_ReadBounds]) -> bool:
+    return all(item.classification == "none" for item in bounds)
 
 
 def _bounds_for_read(read: EventsRead, conditions: list[ast.Expr], now: datetime) -> _ReadBounds:
