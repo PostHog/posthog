@@ -1,12 +1,57 @@
 import {
   type BrowserTab,
+  openTab as openTabLocal,
   primaryWindow,
   setTabTarget as setTabTargetLocal,
   type TabIdentity,
 } from "@posthog/shared";
 import { getRouterOrNull } from "@posthog/ui/router/routerRef";
+import type { BrowserTabsClient } from "./browserTabsClient";
 import { pushTabHistoryEntry } from "./tabHistory";
-import { applyLocalTransform, persistTabTarget, readMirror } from "./tabsSync";
+import {
+  applyLocalTransform,
+  persistTabTarget,
+  persistWrite,
+  readMirror,
+  reseedMirror,
+} from "./tabsSync";
+
+export function openInNewBrowserTabSync(
+  client: BrowserTabsClient,
+  destination: BrowserTabDestination,
+): string | null {
+  const window = primaryWindow(readMirror());
+  const history = getRouterOrNull()?.history;
+  if (!window || !history) return null;
+  const tabId = crypto.randomUUID();
+  const input = {
+    windowId: window.id,
+    href: destination.href,
+    viewState: destination.title ? { title: destination.title } : null,
+    dashboardId: destination.dashboardId ?? null,
+    taskId: destination.taskId ?? null,
+    channelId: destination.channelId ?? null,
+    channelSection: destination.channelSection ?? null,
+    appView: destination.appView ?? null,
+  };
+  applyLocalTransform(
+    (snapshot) =>
+      openTabLocal(snapshot, { ...input, makeId: () => tabId, now: Date.now })
+        .snapshot,
+  );
+  pushTabHistoryEntry(history, destination.href, tabId);
+  void persistWrite(() => client.openTab({ ...input, tabId }));
+  return tabId;
+}
+
+export async function focusOrOpenBrowserTab(
+  client: BrowserTabsClient,
+  destination: BrowserTabDestination,
+): Promise<boolean> {
+  if (readMirror().windows.length === 0) await reseedMirror();
+  if (focusExistingTab(destination)) return true;
+  return openInNewBrowserTabSync(client, destination) !== null;
+}
 
 export interface BrowserTabDestination extends Partial<TabIdentity> {
   href: string;
