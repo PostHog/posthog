@@ -1032,6 +1032,8 @@ doesn't conflict with concurrent PRs.
 - formbricks
 - fortnox
 - fourthwall
+- frappe_crm
+- frappe_helpdesk
 - fred
 - freeagent
 - freightview
@@ -1152,6 +1154,7 @@ doesn't conflict with concurrent PRs.
 - labelbox
 - lambda_labs
 - lawmatics
+- leadsquared
 - learnworlds
 - lemon_squeezy
 - lever
@@ -1321,6 +1324,7 @@ doesn't conflict with concurrent PRs.
 - rss
 - rudderstack
 - safetyculture
+- sage_accounting
 - sage_intacct
 - sailthru
 - salesforce_marketing_cloud
@@ -1432,6 +1436,7 @@ doesn't conflict with concurrent PRs.
 - tremendous
 - triple_whale
 - trustradius
+- turbodocx
 - turso
 - twitch
 - twitter
@@ -1440,6 +1445,7 @@ doesn't conflict with concurrent PRs.
 - tyntec_sms
 - typesense
 - uk_ons
+- ukg
 - umami
 - un_comtrade
 - uploadcare

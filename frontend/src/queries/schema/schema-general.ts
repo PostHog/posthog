@@ -9526,6 +9526,12 @@ export const externalDataSources = [
     'RecallAI',
     'Tenjin',
     'Folk',
+    'FrappeCRM',
+    'FrappeHelpdesk',
+    'LeadSquared',
+    'SageAccounting',
+    'TurboDocx',
+    'UKG',
     'Cybersource',
 ] as const
 

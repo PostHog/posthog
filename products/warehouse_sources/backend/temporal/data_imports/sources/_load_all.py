@@ -452,6 +452,8 @@ from .formbricks.source import FormbricksSource
 from .fortnox.source import FortnoxSource
 from .fourthwall.source import FourthwallSource
 from .framer.source import FramerSource
+from .frappe_crm.source import FrappeCRMSource
+from .frappe_helpdesk.source import FrappeHelpdeskSource
 from .fred.source import FredSource
 from .freeagent.source import FreeAgentSource
 from .freightview.source import FreightviewSource
@@ -677,6 +679,7 @@ from .lattice.source import LatticeSource
 from .launchdarkly.source import LaunchDarklySource
 from .lawmatics.source import LawmaticsSource
 from .leadfeeder.source import LeadfeederSource
+from .leadsquared.source import LeadSquaredSource
 from .learnworlds.source import LearnworldsSource
 from .leexi.source import LeexiSource
 from .lemlist.source import LemlistSource
@@ -1014,6 +1017,7 @@ from .rudderstack.source import RudderStackSource
 from .ruddr.source import RuddrSource
 from .runpod.source import RunPodSource
 from .safetyculture.source import SafetyCultureSource
+from .sage_accounting.source import SageAccountingSource
 from .sage_hr.source import SageHRSource
 from .sage_intacct.source import SageIntacctSource
 from .sailthru.source import SailthruSource
@@ -1213,6 +1217,7 @@ from .triple_whale.source import TripleWhaleSource
 from .trunk_io.source import TrunkIoSource
 from .trustpilot.source import TrustPilotSource
 from .trustradius.source import TrustradiusSource
+from .turbodocx.source import TurboDocxSource
 from .turso.source import TursoSource
 from .tvmaze.source import TVMazeSource
 from .twelve_data.source import TwelveDataSource
@@ -1229,6 +1234,7 @@ from .typesense.source import TypesenseSource
 from .ubidots.source import UbidotsSource
 from .uk_companies_house.source import UkCompaniesHouseSource
 from .uk_ons.source import UkOnsSource
+from .ukg.source import UKGSource
 from .umami.source import UmamiSource
 from .un_comtrade.source import UnComtradeSource
 from .unleash.source import UnleashSource

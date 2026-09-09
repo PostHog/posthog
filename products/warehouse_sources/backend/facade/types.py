@@ -1406,6 +1406,12 @@ class ExternalDataSourceType(models.TextChoices):
     TENJIN = "Tenjin", "Tenjin"
     FOLK = "Folk", "Folk"
     CYBERSOURCE = "Cybersource", "Cybersource"
+    FRAPPECRM = "FrappeCRM", "FrappeCRM"
+    FRAPPEHELPDESK = "FrappeHelpdesk", "FrappeHelpdesk"
+    LEADSQUARED = "LeadSquared", "LeadSquared"
+    SAGEACCOUNTING = "SageAccounting", "SageAccounting"
+    TURBODOCX = "TurboDocx", "TurboDocx"
+    UKG = "UKG", "UKG"
 
 
 def external_data_source_type_choices() -> list[tuple[str, str | Promise]]:
