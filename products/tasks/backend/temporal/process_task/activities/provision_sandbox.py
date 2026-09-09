@@ -4,7 +4,7 @@ import logging
 import threading
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast, get_args
 
 from django.conf import settings
 from django.utils import timezone
@@ -16,6 +16,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.dataclasses import frozen
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
+from posthog.temporal.oauth import McpScopePreset, PosthogMcpScopes
 
 from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.constants import (
@@ -66,6 +67,10 @@ from products.tasks.backend.logic.services.sandbox_usage import (
     measure_sandbox_billed_cpu_usage,
     measure_sandbox_cpu_usage,
     open_sandbox_session,
+)
+from products.tasks.backend.logic.services.staged_task_runs import (
+    get_staged_execution_binding,
+    validate_staged_repository_grant,
 )
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
@@ -360,6 +365,38 @@ def _resolve_sandbox_github_token(
     one only after the create-time Desktop gate passed. So a repo-less run with no integration
     stays credential-less, and an entitled discussion can clone a private repository and push.
     """
+    if ctx.staged_execution:
+        if not has_repo or repository is None or ctx.github_integration_id is None:
+            return ""
+        binding = get_staged_execution_binding(ctx.run_id)
+        if (
+            binding is None
+            or binding.repository != repository
+            or binding.github_integration_id != ctx.github_integration_id
+            or binding.github_installation_id is None
+        ):
+            raise CredentialUnavailableError(
+                "Staged repository binding is unavailable for credential-free materialization",
+                {"task_id": ctx.task_id, "run_id": ctx.run_id},
+            )
+        validate_staged_repository_grant(
+            team_id=ctx.team_id,
+            repository=repository,
+            github_integration_id=ctx.github_integration_id,
+            github_installation_id=binding.github_installation_id,
+        )
+        return (
+            get_sandbox_github_token(
+                ctx.github_integration_id,
+                run_id=ctx.run_id,
+                state=ctx.state,
+                task=task,
+                actor_user=actor_user,
+                github_user_integration_id=None,
+                repository=repository,
+            )
+            or ""
+        )
     if ctx.github_read_access and not has_repo:
         github_token = get_readonly_github_token(ctx.team_id) or ""
         emit_agent_log(
@@ -507,7 +544,7 @@ def _build_environment_variables(
                     f"Skipped reserved/blocked sandbox environment variable keys from '{sandbox_environment.name}': {', '.join(sorted(skipped_keys))}",
                 )
 
-    if github_token:
+    if github_token and not ctx.staged_execution:
         environment_variables["GITHUB_TOKEN"] = github_token
         environment_variables["GH_TOKEN"] = github_token
 
@@ -614,7 +651,12 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         snapshot_mount_path: str | None = None
         # Repo-setup snapshots come from default-base sandboxes; restoring one would silently
         # drop the custom base image. Resume snapshots were taken from this task's own sandbox.
-        if has_repo and ctx.github_integration_id is not None and not ctx.custom_image_name:
+        if (
+            has_repo
+            and ctx.github_integration_id is not None
+            and not ctx.custom_image_name
+            and not ctx.staged_execution
+        ):
             with StepTimer(
                 "snapshot_lookup",
                 origin_product=ctx.origin_product,
@@ -644,8 +686,18 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             ctx, task=task, actor_user=actor_user, repository=credential_repository, has_repo=has_repo
         )
 
+        scopes: PosthogMcpScopes = "read_only"
+        if ctx.staged_execution:
+            binding = get_staged_execution_binding(ctx.run_id)
+            if binding is None or binding.mcp_scope_preset not in get_args(McpScopePreset):
+                raise OAuthTokenError(
+                    "Staged task execution MCP scope is invalid",
+                    {"task_id": ctx.task_id, "run_id": ctx.run_id},
+                    cause=ValueError("invalid staged execution MCP scope"),
+                )
+            scopes = cast(PosthogMcpScopes, binding.mcp_scope_preset)
         try:
-            access_token = create_oauth_access_token_for_run(task, ctx.state)
+            access_token = create_oauth_access_token_for_run(task, ctx.state, scopes=scopes)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to create OAuth access token for task {ctx.task_id}",
@@ -1067,10 +1119,55 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                     cause=RuntimeError(error_output[:200]),
                 )
 
+            if ctx.staged_execution:
+                repo_path = sandbox_repo_path(input.repository)
+                binding = get_staged_execution_binding(ctx.run_id)
+                if binding is None or binding.repository != input.repository or not binding.base_sha:
+                    raise RepositoryCloneError(
+                        "Staged repository binding is unavailable for exact-base checkout",
+                        {"repository": input.repository, "sandbox_id": input.sandbox_id},
+                        cause=RuntimeError("missing staged repository base"),
+                    )
+                checkout_result = sandbox.execute(
+                    " && ".join(
+                        [
+                            f"git -C {shlex.quote(repo_path)} fetch --depth 1 origin {shlex.quote(binding.base_sha)}",
+                            f"git -C {shlex.quote(repo_path)} checkout --detach FETCH_HEAD",
+                        ]
+                    ),
+                    timeout_seconds=60,
+                )
+                if checkout_result.exit_code != 0:
+                    raise RepositoryCloneError(
+                        "Failed to materialize the staged repository at its bound base",
+                        {"repository": input.repository, "sandbox_id": input.sandbox_id},
+                        cause=RuntimeError(checkout_result.stderr or "exact-base checkout failed"),
+                    )
+                scrub_result = sandbox.execute(
+                    " && ".join(
+                        [
+                            f"git -C {shlex.quote(repo_path)} remote set-url origin https://github.com/{shlex.quote(input.repository)}.git",
+                            f"git -C {shlex.quote(repo_path)} config --unset-all remote.origin.pushurl || true",
+                            f"git -C {shlex.quote(repo_path)} config --unset-all credential.helper || true",
+                            f"git -C {shlex.quote(repo_path)} config --unset-all http.https://github.com/.extraheader || true",
+                            f"rm -f {shlex.quote(repo_path)}/.git-credentials ~/.git-credentials",
+                        ]
+                    ),
+                    timeout_seconds=30,
+                )
+                if scrub_result.exit_code != 0:
+                    raise RepositoryCloneError(
+                        "Failed to remove staged repository clone credentials",
+                        {"repository": input.repository, "sandbox_id": input.sandbox_id},
+                        cause=RuntimeError(scrub_result.stderr or "credential scrub failed"),
+                    )
+
         # A fresh single-repository run checks its requested branch out in the next
         # activity. Resumes clone that branch directly, and multi-repo runs do not run
         # the checkout activity, so prepare them here once their final source exists.
-        will_checkout_later = len(ctx.repositories) == 1 and bool(ctx.branch) and not is_resume
+        will_checkout_later = (
+            not ctx.staged_execution and len(ctx.repositories) == 1 and bool(ctx.branch) and not is_resume
+        )
         if not will_checkout_later:
             _prepare_posthog_desktop_cloud_task(ctx, sandbox, input.repository)
 
@@ -1221,7 +1318,9 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         actor_user = get_task_run_credential_user(task, ctx.state)
         github_token = ""
-        if ctx.github_read_access and input.repository is None:
+        if ctx.staged_execution:
+            github_token = ""
+        elif ctx.github_read_access and input.repository is None:
             # Same priority rule as fresh provisioning (_resolve_sandbox_github_token): a repo-less
             # read-only run must never regain the write-capable token on resume. Best-effort — an
             # empty token just leaves the sandbox without GitHub access.
@@ -1270,6 +1369,12 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         if input.repository:
             set_git_remote_token(sandbox, input.repository, github_token or None)
+            if ctx.staged_execution:
+                repo_path = sandbox_repo_path(input.repository)
+                sandbox.execute(
+                    f"git -C {shlex.quote(repo_path)} config --unset-all credential.helper || true",
+                    timeout_seconds=15,
+                )
 
         # Replace both credential domains even when resolution returns no token,
         # so revoked credentials cannot survive in a resumed filesystem snapshot.

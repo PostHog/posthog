@@ -118,6 +118,13 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
     """
     ctx = input.context
 
+    if ctx.staged_execution:
+        return RefreshSandboxCredentialsOutput(
+            next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS,
+            refreshed_kinds=[],
+            no_credentials_left=True,
+        )
+
     with log_activity_execution(
         "refresh_sandbox_credentials",
         sandbox_id=input.sandbox_id,

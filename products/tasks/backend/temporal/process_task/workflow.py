@@ -1483,6 +1483,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 permission_response_task = None
 
             if self._task_completed:
+                await self._save_required_staged_analysis_snapshot(sandbox_id)
                 await self._update_task_run_status(
                     self._completion_status,
                     error_message=self._completion_error,
@@ -2028,7 +2029,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 await self._emit_progress("sandbox", "completed", "Set up sandbox", "setup")
 
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
-        has_clone_credentials = self.context.has_github_credentials or can_clone_without_integration
+        # Staged runs receive a short-lived token only in the clone activity; `has_github_credentials`
+        # deliberately stays false so the normal refresh loop can never re-inject it afterwards.
+        has_clone_credentials = (
+            self.context.has_github_credentials or self.context.staged_execution or can_clone_without_integration
+        )
 
         repositories_to_clone = [] if used_snapshot or not has_clone_credentials else self.context.repositories
         will_clone = bool(repositories_to_clone)
@@ -2705,6 +2710,20 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+
+    async def _save_required_staged_analysis_snapshot(self, sandbox_id: str | None) -> None:
+        """Persist a completed analysis workspace before its status makes it advanceable."""
+        if not (
+            self.context.staged_execution
+            and self.context.staged_phase == "analysis"
+            and self._completion_status == "completed"
+        ):
+            return
+        if sandbox_id is None or not await self._create_resume_snapshot(
+            sandbox_id, reason="staged_analysis_completion", allow_pruning=True
+        ):
+            self._completion_status = "failed"
+            self._completion_error = "Staged analysis could not save its required workspace snapshot"
 
     async def _run_credential_refresh_until_sandbox_gone(self, sandbox_id: str) -> None:
         exit_reason = await run_credential_refresh_loop(self.context, sandbox_id)

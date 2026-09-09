@@ -564,6 +564,8 @@ class SandboxBase(ABC):
         mcp_configs: list[McpServerConfig] | None = None,
         relayed_mcp_servers: list[str] | None = None,
         allowed_domains: list[str] | None = None,
+        disabled_tools: list[str] | None = None,
+        strict_mcp_config: bool = False,
         event_ingest_token: str | None = None,
         task_run_session_token: str | None = None,
         event_ingest_url: str | None = None,

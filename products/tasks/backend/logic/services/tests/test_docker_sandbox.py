@@ -84,6 +84,14 @@ def test_build_agent_server_command_gates_connected_project_operations(sandbox: 
     assert "--posthogExecPermissionRegex" not in without_flag
 
 
+def test_build_agent_server_command_enables_strict_mcp_only_when_protected(sandbox: DockerSandbox):
+    protected = sandbox._build_agent_server_command(None, "t1", "r1", "interactive", True, strict_mcp_config=True)
+    ordinary = sandbox._build_agent_server_command(None, "t1", "r1", "interactive", True)
+
+    assert "--strictMcpConfig true" in protected
+    assert "--strictMcpConfig" not in ordinary
+
+
 def test_start_agent_server_launch_failure_is_captured(sandbox: DockerSandbox):
     failed = ExecutionResult(stdout="", stderr="boom", exit_code=1)
     with (

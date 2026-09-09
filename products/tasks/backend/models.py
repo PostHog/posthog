@@ -2096,6 +2096,57 @@ class LoopFire(TeamScopedRootMixin):
         return f"Fire {self.fire_key} on loop {self.loop_id}"
 
 
+class TaskStagedRun(TeamScopedRootMixin, UUIDModel):
+    """The protected lifecycle binding an analysis run to its optional execution successor."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    caller_id = models.UUIDField()
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="staged_runs")
+    analysis_run = models.ForeignKey("tasks.TaskRun", on_delete=models.CASCADE, related_name="staged_analysis_for")
+    execution_run = models.ForeignKey(
+        "tasks.TaskRun",
+        on_delete=models.CASCADE,
+        related_name="staged_execution_for",
+        null=True,
+        blank=True,
+    )
+    workspace_snapshot_ref = models.CharField(max_length=512, null=True, blank=True)
+    repository = models.CharField(max_length=255, null=True, blank=True)
+    base_sha = models.CharField(max_length=64, null=True, blank=True)
+    base_branch = models.CharField(max_length=255, null=True, blank=True)
+    github_integration_id = models.BigIntegerField(null=True, blank=True)
+    github_installation_id = models.CharField(max_length=255, null=True, blank=True)
+    grant_version = models.CharField(max_length=255, null=True, blank=True)
+    analysis_manifest = models.JSONField(default=dict)
+    execution_manifest = models.JSONField(null=True, blank=True)
+    create_idempotency_key = models.CharField(max_length=255)
+    advance_idempotency_key = models.CharField(max_length=255, null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    capabilities_revoked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_staged_run"
+        constraints = [
+            models.UniqueConstraint(fields=["analysis_run"], name="task_staged_analysis_run_uniq"),
+            models.UniqueConstraint(
+                fields=["execution_run"],
+                condition=models.Q(execution_run__isnull=False),
+                name="task_staged_execution_run_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "caller_id", "create_idempotency_key"],
+                name="task_staged_create_idempotency_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "caller_id", "advance_idempotency_key"],
+                condition=models.Q(advance_idempotency_key__isnull=False),
+                name="task_staged_advance_idempotency_uniq",
+            ),
+        ]
+
+
 class TaskRun(models.Model):
     class Status(models.TextChoices):
         NOT_STARTED = "not_started", "Not Started"

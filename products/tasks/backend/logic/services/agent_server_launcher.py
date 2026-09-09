@@ -141,6 +141,8 @@ class AgentServerLaunchMixin(SandboxBase):
         mcp_servers_arg: str = "",
         relay_mcp_servers_arg: str = "",
         allowed_domains: list[str] | None = None,
+        disabled_tools: list[str] | None = None,
+        strict_mcp_config: bool = False,
         event_ingest_token: str | None = None,
         task_run_session_token: str | None = None,
         event_ingest_url: str | None = None,
@@ -180,6 +182,8 @@ class AgentServerLaunchMixin(SandboxBase):
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
+        disabled_tools_flag = f" --disabledTools {shlex.quote(json.dumps(disabled_tools))}" if disabled_tools else ""
+        strict_mcp_config_flag = " --strictMcpConfig true" if strict_mcp_config else ""
         repo_ready_flag = f" --repoReadyFile {shlex.quote(repo_ready_file)}" if repo_ready_file else ""
         exec_permission_flag = (
             f" --posthogExecPermissionRegex {shlex.quote(posthog_exec_permission_regex)}"
@@ -196,7 +200,8 @@ class AgentServerLaunchMixin(SandboxBase):
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
-            f"{domains_flag}{repo_ready_flag}{exec_permission_flag}{subscription_flag}"
+            f"{domains_flag}{disabled_tools_flag}{strict_mcp_config_flag}{repo_ready_flag}{exec_permission_flag}"
+            f"{subscription_flag}"
         )
         launch_started_at = "export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N)"
 
@@ -292,6 +297,8 @@ class AgentServerLaunchMixin(SandboxBase):
         mcp_configs: list[McpServerConfig] | None = None,
         relayed_mcp_servers: list[str] | None = None,
         allowed_domains: list[str] | None = None,
+        disabled_tools: list[str] | None = None,
+        strict_mcp_config: bool = False,
         event_ingest_token: str | None = None,
         task_run_session_token: str | None = None,
         event_ingest_url: str | None = None,
@@ -376,6 +383,8 @@ class AgentServerLaunchMixin(SandboxBase):
             mcp_servers_arg=mcp_servers_arg,
             relay_mcp_servers_arg=relay_mcp_servers_arg,
             allowed_domains=allowed_domains,
+            disabled_tools=disabled_tools,
+            strict_mcp_config=strict_mcp_config,
             event_ingest_token=event_ingest_token,
             task_run_session_token=task_run_session_token,
             event_ingest_url=event_ingest_url,

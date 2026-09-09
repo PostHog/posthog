@@ -4,6 +4,7 @@ import shlex
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import cast, get_args
 
 from django.conf import settings
 from django.db import connection
@@ -19,7 +20,7 @@ from posthog.temporal.common.activity_context import current_activity_attempt
 from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
-from posthog.temporal.oauth import PosthogMcpScopes
+from posthog.temporal.oauth import McpScopePreset, PosthogMcpScopes
 
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
@@ -29,6 +30,7 @@ from products.tasks.backend.exceptions import (
     SandboxMissingRepositoryError,
 )
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
+from products.tasks.backend.logic.services.credential_free_workspace import resolve_credential_free_repository_workspace
 from products.tasks.backend.logic.services.sandbox import (
     REPO_READY_FILE,
     SNAPSHOT_KIND_DIRECTORY,
@@ -36,6 +38,7 @@ from products.tasks.backend.logic.services.sandbox import (
     get_sandbox_class_for_sandbox_id,
     sandbox_repo_path,
 )
+from products.tasks.backend.logic.services.staged_task_runs import get_staged_execution_binding
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
@@ -164,6 +167,17 @@ def _ensure_repository_on_disk(ctx: TaskProcessingContext, sandbox: SandboxBase)
                 },
                 cause=RuntimeError(f"missing repository directory {repo_path}"),
             )
+    if ctx.staged_execution and ctx.repository:
+        binding = get_staged_execution_binding(ctx.run_id)
+        if binding is None or binding.base_sha is None:
+            raise SandboxMissingRepositoryError(
+                "Staged task execution binding is unavailable",
+                {"task_id": ctx.task_id, "run_id": ctx.run_id},
+                cause=RuntimeError("missing staged execution binding"),
+            )
+        resolve_credential_free_repository_workspace(
+            sandbox=sandbox, repository=ctx.repository, base_sha=binding.base_sha
+        )
 
 
 def _is_agent_shadow_enabled(ctx: TaskProcessingContext) -> bool:
@@ -389,6 +403,15 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
 
 def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbox_id: str) -> _LaunchParams:
     task = retry_on_db_connection_drop(lambda: Task.objects.select_related("created_by", "team").get(id=ctx.task_id))
+    if ctx.staged_execution:
+        binding = get_staged_execution_binding(ctx.run_id)
+        if binding is None or binding.mcp_scope_preset not in get_args(McpScopePreset):
+            raise OAuthTokenError(
+                "Staged task execution MCP scope is invalid",
+                {"task_id": ctx.task_id, "run_id": ctx.run_id},
+                cause=ValueError("invalid staged execution MCP scope"),
+            )
+        scopes = cast(PosthogMcpScopes, binding.mcp_scope_preset)
     try:
         actor_user = get_task_run_credential_user(task, ctx.state)
         access_token = create_oauth_access_token_for_run(task, ctx.state, scopes=scopes)
@@ -441,28 +464,28 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         task_id=str(ctx.task_id),
         origin_product=task.origin_product,
     )
-    include_personal = _include_personal_mcp_for_task(task)
-    user_mcp_configs = get_user_mcp_server_configs(
-        token=access_token,
-        team_id=ctx.team_id,
-        user_id=actor_user.id if actor_user else None,
-        include_personal=include_personal,
-        interaction_origin=ctx.interaction_origin,
-        slack_reply_context=ctx.slack_reply_context,
-        allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
-        origin_product=task.origin_product,
-        task_agent_key=task.mcp_builtin_agent_key,
-        credential_owner_id=task.mcp_credential_owner_id,
-        allowed_gateway_server_ids=task.mcp_gateway_server_allowlist,
-    )
-    if user_mcp_configs:
-        mcp_configs = mcp_configs + user_mcp_configs
-
-    imported_mcp_configs = get_imported_mcp_server_configs(task_run, {config.name for config in mcp_configs})
-    if imported_mcp_configs:
-        mcp_configs = mcp_configs + imported_mcp_configs
-
-    relayed_names = get_relayed_mcp_server_names(task_run, {config.name for config in mcp_configs})
+    if ctx.staged_execution:
+        relayed_names: list[str] = []
+    else:
+        user_mcp_configs = get_user_mcp_server_configs(
+            token=access_token,
+            team_id=ctx.team_id,
+            user_id=actor_user.id if actor_user else None,
+            include_personal=_include_personal_mcp_for_task(task),
+            interaction_origin=ctx.interaction_origin,
+            slack_reply_context=ctx.slack_reply_context,
+            allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
+            origin_product=task.origin_product,
+            task_agent_key=task.mcp_builtin_agent_key,
+            credential_owner_id=task.mcp_credential_owner_id,
+            allowed_gateway_server_ids=task.mcp_gateway_server_allowlist,
+        )
+        if user_mcp_configs:
+            mcp_configs = mcp_configs + user_mcp_configs
+        imported_mcp_configs = get_imported_mcp_server_configs(task_run, {config.name for config in mcp_configs})
+        if imported_mcp_configs:
+            mcp_configs = mcp_configs + imported_mcp_configs
+        relayed_names = get_relayed_mcp_server_names(task_run, {config.name for config in mcp_configs})
     if relayed_names:
         emit_agent_log(
             ctx.run_id,
@@ -551,6 +574,8 @@ def _invoke_start_agent_server(
             mcp_configs=params.mcp_configs or None,
             relayed_mcp_servers=params.relayed_mcp_servers or None,
             allowed_domains=params.agentsh_domains,
+            disabled_tools=ctx.staged_disabled_tools,
+            strict_mcp_config=ctx.staged_execution,
             event_ingest_token=params.event_ingest_token,
             task_run_session_token=params.task_run_session_token,
             event_ingest_url=params.event_ingest_url,

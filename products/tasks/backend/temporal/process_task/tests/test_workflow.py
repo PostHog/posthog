@@ -463,6 +463,13 @@ class TestSandboxRotation:
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
         return wf
 
+    def test_staged_execution_never_spawns_refresh_after_sandbox_rotation(self, monkeypatch):
+        wf = self._workflow(monkeypatch)
+        wf.context.staged_execution = True
+
+        assert wf.context.has_github_credentials is False
+        assert wf._spawn_credential_refresh("sb-new") is None
+
     def _relay(self, name: str) -> "asyncio.Task[None]":
         return cast("asyncio.Task[None]", name)
 
@@ -1292,6 +1299,37 @@ async def test_sandbox_started_carries_run_attribution(origin_product, team_id, 
     assert sandbox_started["team_id"] == team_id
     assert sandbox_started["task_run_id"] == "run-id"
     assert sandbox_started["agent_launcher_to_process_ms"] == 7
+
+
+async def test_staged_analysis_saves_its_snapshot_before_completion(monkeypatch):
+    workflow = ProcessTaskWorkflow()
+    workflow._context = dataclasses.replace(
+        _build_context(github_integration_id=123), staged_execution=True, staged_phase="analysis"
+    )
+    workflow._completion_status = "completed"
+    workflow._completion_error = None
+    snapshot = AsyncMock(return_value=True)
+    monkeypatch.setattr(workflow, "_create_resume_snapshot", snapshot)
+
+    await workflow._save_required_staged_analysis_snapshot("sandbox-123")
+
+    snapshot.assert_awaited_once_with("sandbox-123", reason="staged_analysis_completion", allow_pruning=True)
+    assert workflow._completion_status == "completed"
+
+
+async def test_staged_analysis_snapshot_failure_prevents_completion(monkeypatch):
+    workflow = ProcessTaskWorkflow()
+    workflow._context = dataclasses.replace(
+        _build_context(github_integration_id=123), staged_execution=True, staged_phase="analysis"
+    )
+    workflow._completion_status = "completed"
+    workflow._completion_error = None
+    monkeypatch.setattr(workflow, "_create_resume_snapshot", AsyncMock(return_value=False))
+
+    await workflow._save_required_staged_analysis_snapshot("sandbox-123")
+
+    assert workflow._completion_status == "failed"
+    assert workflow._completion_error == "Staged analysis could not save its required workspace snapshot"
 
 
 @pytest.mark.django_db

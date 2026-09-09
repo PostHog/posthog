@@ -11,6 +11,7 @@ from asgiref.sync import async_to_sync
 
 from products.tasks.backend.constants import SNAPSHOT_KIND_DIRECTORY, SNAPSHOT_KIND_FILESYSTEM
 from products.tasks.backend.exceptions import RepositoryCloneError
+from products.tasks.backend.facade.staged_execution import InvalidStagedTaskBindingError
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult
 from products.tasks.backend.models import Task
@@ -25,6 +26,7 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
     _dev_stack_preview_resources,
     _prepare_posthog_desktop_cloud_task,
     _prewarmed_resume_needs_fresh_agent,
+    _resolve_sandbox_github_token,
     _sandbox_image_kind,
     clone_repository_in_sandbox,
     create_sandbox_for_repository,
@@ -47,6 +49,101 @@ def _context_for_desktop_bootstrap(
         custom_image_name=image_name,
         desktop_workspace_warm_enabled=warm_enabled,
     )
+
+
+def test_staged_execution_mints_a_clone_only_sandbox_github_token(mocker) -> None:
+    context = _context_for_desktop_bootstrap()
+    context.staged_execution = True
+    resolve_token = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token",
+        return_value="clone-token",
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_staged_execution_binding",
+        return_value=mocker.Mock(
+            repository="posthog/posthog", github_integration_id=123, github_installation_id="install-1"
+        ),
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.validate_staged_repository_grant"
+    )
+
+    result = _resolve_sandbox_github_token(
+        context,
+        task=mocker.Mock(),
+        actor_user=None,
+        repository="posthog/posthog",
+        has_repo=True,
+    )
+
+    assert result == "clone-token"
+    resolve_token.assert_called_once()
+
+
+def test_staged_execution_refuses_a_revoked_repository_grant_before_token_mint(mocker) -> None:
+    context = _context_for_desktop_bootstrap()
+    context.staged_execution = True
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_staged_execution_binding",
+        return_value=mocker.Mock(
+            repository="posthog/posthog", github_integration_id=123, github_installation_id="install-1"
+        ),
+    )
+    validate = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.validate_staged_repository_grant",
+        side_effect=InvalidStagedTaskBindingError("grant revoked"),
+    )
+    mint = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token"
+    )
+
+    with pytest.raises(InvalidStagedTaskBindingError, match="grant revoked"):
+        _resolve_sandbox_github_token(
+            context,
+            task=mocker.Mock(),
+            actor_user=None,
+            repository="posthog/posthog",
+            has_repo=True,
+        )
+
+    validate.assert_called_once()
+    mint.assert_not_called()
+
+
+def test_staged_clone_checks_out_the_bound_base_before_scrubbing_credentials(mocker, activity_environment) -> None:
+    context = _context_for_desktop_bootstrap()
+    context.staged_execution = True
+    sandbox = mocker.Mock()
+    sandbox.clone_repository.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+        return_value=mocker.Mock(get_by_id=mocker.Mock(return_value=sandbox)),
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_staged_execution_binding",
+        return_value=mocker.Mock(repository="posthog/posthog", base_sha="abc123"),
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.provision_sandbox.posthoganalytics.feature_enabled",
+        return_value=False,
+    )
+
+    async_to_sync(activity_environment.run)(
+        clone_repository_in_sandbox,
+        CloneRepositoryInSandboxInput(
+            context=context,
+            sandbox_id="sandbox-id",
+            repository="posthog/posthog",
+            github_token="clone-token",
+            shallow_clone=True,
+        ),
+    )
+
+    commands = [call.args[0] for call in sandbox.execute.call_args_list]
+    checkout = next(index for index, command in enumerate(commands) if "checkout --detach FETCH_HEAD" in command)
+    scrub = next(index for index, command in enumerate(commands) if "remote set-url origin" in command)
+    assert checkout < scrub
 
 
 @pytest.mark.parametrize(
