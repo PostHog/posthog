@@ -35,8 +35,10 @@ ALERTS_PRODUCT_LATENCY_HISTOGRAM_METRICS = (
 )
 
 # One bucket set for both histograms. The low end resolves the noop activities, which finish in
-# milliseconds. The high end reaches 30 minutes because queue wait under a backlog is not bounded
-# by the activity timeout.
+# milliseconds. The high end reaches 30 minutes as headroom for the real activities that replace
+# the noops. Until then the 30-second schedule-to-close timeout in `workflows.py` caps what queue
+# wait can record, because the server fails a task that waits longer than that deadline and no
+# worker receives it. A longer wait removes the sample instead of producing a large one.
 ALERTS_PRODUCT_LATENCY_HISTOGRAM_BUCKETS = [
     50.0,  # 50ms
     100.0,  # 100ms
