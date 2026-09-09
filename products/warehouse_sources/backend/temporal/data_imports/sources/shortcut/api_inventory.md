@@ -53,15 +53,18 @@ run, or the real cursor when the user picks `created_at` incremental.
 **`StorySlim` omits `description` unless asked.** The field is optional in the response schema, so every request
 sets `includes_description: true` to get the `description` column the canonical schema advertises.
 
-**The endpoint caps each response and offers no pagination.** The paginated search variant (`GET
-/search/stories`) documents that only the first 1000 matches are retrievable; the old POST endpoint behaves
-the same way. We page past the cap by advancing `created_at_start` to the newest `created_at` in a full
-response and refetching, relying on the endpoint returning stories in `created_at` order. Merge dedup on `id`
-drops the boundary stories re-read at the floor.
+**The endpoint documents no result cap, no result order, and no pagination.**
+The v3 OpenAPI spec gives `POST /stories/search` (`queryStories`) an empty parameter list and a bare `StorySlim` array response.
+The "first 1000 matches" limit and the ranking-decay ordering note belong to the separate `GET /search/stories` endpoint, so neither is assumed here.
+We read stories in closed `created_at_start` / `created_at_end` windows instead, which relies only on filters the spec documents:
+a response with `STORY_SEARCH_SPLIT_THRESHOLD` or more stories is treated as possibly truncated and its window is split in half and fetched again;
+once every window is fetched, the largest accepted windows are fetched again in halves, and when the halves hold more distinct stories than the parent response did, the endpoint truncated at that count and the threshold drops to it.
+Row order never matters. Neighbouring windows overlap by a second or two, so no story is lost whether either bound is inclusive or exclusive, and `_dedupe_pages_by_id` drops stories read twice.
+A window under three seconds wide cannot split; if it still hits the threshold, the sync logs a warning that stories in those seconds may be missing.
 
 **Revisit with a live token:** confirm that (a) `updated_at_start` filters server-side rather than being
-silently ignored, (b) the accepted date format (we send RFC 3339 `...Z`), and (c) the exact result cap and
-whether responses are ordered by `created_at`.
+silently ignored, (b) the accepted date format (we send RFC 3339 `...Z`), and (c) whether the `created_at_*`
+bounds are inclusive (the windows overlap either way, so this only affects request count).
 
 ## Webhooks (deferred)
 
