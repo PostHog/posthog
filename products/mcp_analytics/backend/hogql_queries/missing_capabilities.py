@@ -102,6 +102,10 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
         # The harness fragments are HogQL text from mcp_harness; parse them to AST and inject
         # as placeholders so nothing is string-interpolated. The token is computed once as a
         # column in the inner query and the label buckets that column, per mcp_harness's contract.
+        # The outer SELECT projects uuid so the ORDER BY tie-break resolves to a real column.
+        # Without it HogQL synthesizes the sort column, and the alias it picks changes when the
+        # person columns read from the event row, so ClickHouse rejects the sort. The response
+        # maps positions 0 to 6, so nothing reads this last column.
         return parse_select(
             """
             SELECT
@@ -111,7 +115,8 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
                 session_id,
                 distinct_id,
                 person_email,
-                person_name
+                person_name,
+                uuid
             FROM (
                 SELECT
                     timestamp,
