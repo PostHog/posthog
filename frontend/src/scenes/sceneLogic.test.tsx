@@ -99,6 +99,12 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectCreateFirst())
     })
 
+    it.each(['/project', '/project/'])('sends the id-less %s path to the homepage, not a 404', async (path) => {
+        router.actions.push(path)
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
+    })
+
     it('redirects /data-warehouse/new to the new-source wizard instead of a 404', async () => {
         router.actions.push('/data-warehouse/new')
         await expectLogic(logic).delay(1)
