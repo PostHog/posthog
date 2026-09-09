@@ -24,6 +24,8 @@ Every metric row carries `series_fingerprint`. The label maps (`attributes`, `re
 
 The decision uses a local in-memory cache and never waits on Redis. Redis holds the set of series any pod has labelled: new series are pushed from a background task, and the cache pulls from Redis at startup and every `METRICS_SERIES_REDIS_PULL_INTERVAL_SECS`. Pulls read the set in pages of 50,000 members and merge each page as it arrives; the startup seed stops at `METRICS_SERIES_REDIS_SEED_TIMEOUT_MS` and keeps what it has. A Redis failure only makes labels go out more often.
 
+Pull metrics, all with a `kind` label of `seed` or `periodic`: `capture_metrics_series_redis_pulls` (with `outcome` = `ok`, `timeout`, or `error`), `capture_metrics_series_redis_pull_duration_seconds` (same labels), `capture_metrics_series_redis_pull_pages`, `capture_metrics_series_redis_pull_members_read`, `capture_metrics_series_redis_pull_bytes` (member payload, without protocol framing), and `capture_metrics_series_redis_pulled` (members new to this pod).
+
 The cache is bounded. When the global or the per-token cap is full, a new series keeps its labels on every row and is not cached or pushed to Redis, until pruning frees a slot. `capture_metrics_series_cache_full` counts those rows.
 
 ## Running the service

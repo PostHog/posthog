@@ -23,7 +23,7 @@ use std::time::Duration;
 use chrono::Utc;
 use common_redis::{Client, CustomRedisError, PipelineCommand};
 use dashmap::DashMap;
-use metrics::{counter, gauge};
+use metrics::{counter, gauge, histogram};
 use siphasher::sip::SipHasher13;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
@@ -52,6 +52,35 @@ pub type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
 
 /// Gate key and the unix second its labels went out.
 type SeenSeries = (u64, i64);
+
+/// Which pull is running, for the metric label.
+#[derive(Debug, Clone, Copy)]
+pub enum PullKind {
+    /// The startup read of the whole window.
+    Seed,
+    /// The incremental read on the pull interval.
+    Periodic,
+}
+
+impl PullKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            PullKind::Seed => "seed",
+            PullKind::Periodic => "periodic",
+        }
+    }
+}
+
+/// What one pull read from Redis and did with it.
+#[derive(Default)]
+struct PullStats {
+    pages: u64,
+    members_read: u64,
+    /// Sum of member lengths: the payload bytes, without RESP framing.
+    bytes: u64,
+    merged: usize,
+    cache_full: u64,
+}
 
 /// Upper bounds on the local cache. Both count entries, not bytes; one entry
 /// is a few tens of bytes.
@@ -246,7 +275,7 @@ impl SeriesLabelGate {
     pub async fn seed_from_redis(&self, client: &dyn Client, budget: Duration) {
         let now = (self.clock)();
         match self
-            .pull_from_redis(client, now - self.window_secs, budget)
+            .pull_from_redis(client, PullKind::Seed, now - self.window_secs, budget)
             .await
         {
             Ok(merged) => info!("Seeded series label cache with {merged} series from Redis"),
@@ -267,31 +296,57 @@ impl SeriesLabelGate {
     pub async fn pull_from_redis(
         &self,
         client: &dyn Client,
+        kind: PullKind,
         since: i64,
         budget: Duration,
     ) -> Result<usize, PullError> {
-        self.pull_pages(client, since, PULL_PAGE_SIZE, budget).await
+        self.pull_pages(client, kind, since, PULL_PAGE_SIZE, budget)
+            .await
     }
 
     async fn pull_pages(
         &self,
         client: &dyn Client,
+        kind: PullKind,
         since: i64,
         page_size: usize,
         budget: Duration,
     ) -> Result<usize, PullError> {
+        let started = tokio::time::Instant::now();
+        let deadline = started + budget;
+        let mut stats = PullStats::default();
+        let result = self
+            .walk_pages(client, since, page_size, deadline, &mut stats)
+            .await;
+        let outcome = match &result {
+            Ok(()) => "ok",
+            Err(PullError::Timeout { .. }) => "timeout",
+            Err(PullError::Redis(_)) => "error",
+        };
+        record_pull(kind, outcome, &stats, started.elapsed());
+        result.map(|()| stats.merged)
+    }
+
+    /// Read every page of every bucket in the range into `stats`. Stops at
+    /// `deadline`; what was merged before that stays in the cache.
+    async fn walk_pages(
+        &self,
+        client: &dyn Client,
+        since: i64,
+        page_size: usize,
+        deadline: tokio::time::Instant,
+        stats: &mut PullStats,
+    ) -> Result<(), PullError> {
         let now = (self.clock)();
-        let deadline = tokio::time::Instant::now() + budget;
         let min = since.to_string();
-        let mut merged = 0usize;
-        let mut cache_full = 0u64;
 
         for key in bucket_keys(since.max(now - self.window_secs), now) {
             let mut offset = 0usize;
             loop {
                 if tokio::time::Instant::now() >= deadline {
-                    self.record_pull(merged, cache_full);
-                    return Err(PullError::Timeout { merged });
+                    return Err(PullError::Timeout {
+                        merged: stats.merged,
+                    });
                 }
                 let page = client.zrangebyscore_limit(
                     key.clone(),
@@ -303,28 +358,26 @@ impl SeriesLabelGate {
                 let page = match tokio::time::timeout_at(deadline, page).await {
                     Ok(page) => page?,
                     Err(_) => {
-                        self.record_pull(merged, cache_full);
-                        return Err(PullError::Timeout { merged });
+                        return Err(PullError::Timeout {
+                            merged: stats.merged,
+                        })
                     }
                 };
                 let page_len = page.len();
-                let (page_merged, page_full) = self.merge_members(page, now);
-                merged += page_merged;
-                cache_full += page_full;
+                stats.pages += 1;
+                stats.members_read += page_len as u64;
+                stats.bytes += page.iter().map(|m| m.len() as u64).sum::<u64>();
+                self.merge_members(page, now, stats);
                 if page_len < page_size {
                     break;
                 }
                 offset += page_len;
             }
         }
-
-        self.record_pull(merged, cache_full);
-        Ok(merged)
+        Ok(())
     }
 
-    fn merge_members(&self, members: Vec<String>, now: i64) -> (usize, u64) {
-        let mut merged = 0usize;
-        let mut cache_full = 0u64;
+    fn merge_members(&self, members: Vec<String>, now: i64, stats: &mut PullStats) {
         for member in members {
             let Ok(key) = member.parse::<u64>() else {
                 continue;
@@ -333,22 +386,14 @@ impl SeriesLabelGate {
                 continue;
             };
             if !self.reserve(None) {
-                cache_full += 1;
+                stats.cache_full += 1;
                 continue;
             }
             slot.insert(Entry {
                 last_seen: now - seed_jitter(key, self.window_secs),
                 token_hash: None,
             });
-            merged += 1;
-        }
-        (merged, cache_full)
-    }
-
-    fn record_pull(&self, merged: usize, cache_full: u64) {
-        counter!("capture_metrics_series_redis_pulled").increment(merged as u64);
-        if cache_full > 0 {
-            counter!("capture_metrics_series_cache_full", "source" => "pull").increment(cache_full);
+            stats.merged += 1;
         }
     }
 
@@ -368,14 +413,16 @@ impl SeriesLabelGate {
             loop {
                 ticker.tick().await;
                 let started = (gate.clock)();
-                match gate.pull_from_redis(client.as_ref(), since, timeout).await {
+                match gate
+                    .pull_from_redis(client.as_ref(), PullKind::Periodic, since, timeout)
+                    .await
+                {
                     Ok(merged) => {
                         debug!("Pulled {merged} new series from Redis");
                         since = started - PULL_OVERLAP_SECS;
                     }
                     Err(e) => {
                         // `since` stays put, so the next tick re-reads the gap.
-                        counter!("capture_metrics_series_redis_pull_failed").increment(1);
                         debug!("Series label pull from Redis failed: {e}");
                     }
                 }
@@ -457,6 +504,26 @@ pub fn spawn_redis_writer(
             }
         }
     });
+}
+
+/// One set of counters per pull, labelled by which pull ran and how it ended.
+/// `members_read` counts every member Redis returned; `pulled` counts the ones
+/// that were new to this pod.
+fn record_pull(kind: PullKind, outcome: &'static str, stats: &PullStats, elapsed: Duration) {
+    let kind = kind.as_str();
+    counter!("capture_metrics_series_redis_pulls", "kind" => kind, "outcome" => outcome)
+        .increment(1);
+    histogram!("capture_metrics_series_redis_pull_duration_seconds", "kind" => kind, "outcome" => outcome)
+        .record(elapsed.as_secs_f64());
+    counter!("capture_metrics_series_redis_pull_pages", "kind" => kind).increment(stats.pages);
+    counter!("capture_metrics_series_redis_pull_members_read", "kind" => kind)
+        .increment(stats.members_read);
+    counter!("capture_metrics_series_redis_pull_bytes", "kind" => kind).increment(stats.bytes);
+    counter!("capture_metrics_series_redis_pulled", "kind" => kind).increment(stats.merged as u64);
+    if stats.cache_full > 0 {
+        counter!("capture_metrics_series_cache_full", "source" => "pull")
+            .increment(stats.cache_full);
+    }
 }
 
 /// A pulled series gets a timestamp that is a little in the past, so that
@@ -727,7 +794,13 @@ mod tests {
         let client = client.zrangebyscore_ret(&bucket_key(START), members);
 
         let merged = gate
-            .pull_pages(&client, START - 60, 2, Duration::from_secs(1))
+            .pull_pages(
+                &client,
+                PullKind::Periodic,
+                START - 60,
+                2,
+                Duration::from_secs(1),
+            )
             .await
             .unwrap();
         assert_eq!(merged, 5);
@@ -755,14 +828,20 @@ mod tests {
         // A spent budget stops the walk before the next page is requested and
         // reports what was merged so far.
         let result = gate
-            .pull_pages(&client, START - 60, 1, Duration::ZERO)
+            .pull_pages(&client, PullKind::Periodic, START - 60, 1, Duration::ZERO)
             .await;
         assert!(matches!(result, Err(PullError::Timeout { merged: 0 })));
         assert_eq!(gate.cache_len(), 0);
         assert!(client.get_calls().is_empty());
 
         let merged = gate
-            .pull_pages(&client, START - 60, 1, Duration::from_secs(5))
+            .pull_pages(
+                &client,
+                PullKind::Periodic,
+                START - 60,
+                1,
+                Duration::from_secs(5),
+            )
             .await
             .unwrap();
         assert_eq!(merged, 2);
@@ -782,7 +861,12 @@ mod tests {
         let client = client.zrangebyscore_ret(&bucket_key(START), vec!["1".into(), "2".into()]);
 
         let merged = gate
-            .pull_from_redis(&client, START - 60, Duration::from_secs(1))
+            .pull_from_redis(
+                &client,
+                PullKind::Periodic,
+                START - 60,
+                Duration::from_secs(1),
+            )
             .await
             .unwrap();
         assert_eq!(merged, 1);
@@ -849,7 +933,7 @@ mod tests {
         );
 
         let merged = gate
-            .pull_from_redis(&client, START, Duration::from_secs(1))
+            .pull_from_redis(&client, PullKind::Periodic, START, Duration::from_secs(1))
             .await
             .unwrap();
         assert_eq!(merged, 1);
@@ -876,7 +960,12 @@ mod tests {
         let client = MockRedisClient::new();
 
         let result = gate
-            .pull_from_redis(&client, START - 60, Duration::from_secs(1))
+            .pull_from_redis(
+                &client,
+                PullKind::Periodic,
+                START - 60,
+                Duration::from_secs(1),
+            )
             .await;
         assert!(matches!(result, Err(PullError::Redis(_))));
         assert_eq!(gate.cache_len(), 0);
