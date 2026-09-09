@@ -179,6 +179,9 @@ from products.access_control.backend.facade.user_access_control import (
 from products.web_analytics.backend.hogql_queries.first_pageview_flag import resolve_first_pageview_filters_modifier
 
 logger = structlog.get_logger(__name__)
+# Named so posthog/settings/logs.py can opt it into INFO: the posthoganalytics SDK clamps the
+# "posthog" logger tree to WARNING, which would drop the budget line under __name__.
+budget_logger = structlog.get_logger("posthog.api_queries_budget")
 
 QUERY_EXECUTION_TOTAL = Counter(
     "posthog_query_execution_total",
@@ -2537,7 +2540,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         enforced = _api_queries_budget_enforcement_enabled(self.team)
         outcome = "enforced" if enforced else "observed"
         API_QUERIES_BUDGET_LIMITED_COUNTER.labels(outcome=outcome).inc()
-        logger.info(
+        budget_logger.info(
             "api_queries_budget_limited",
             organization_id=str(self.team.organization_id),
             team_id=self.team.pk,
