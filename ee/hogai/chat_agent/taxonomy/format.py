@@ -8,7 +8,7 @@ import yaml
 
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, is_hidden_from_assistant
 
-from ee.hogai.utils.helpers import sanitize_taxonomy_value
+from ee.hogai.utils.helpers import sanitize_taxonomy_name, sanitize_taxonomy_value
 
 
 def format_property_values(
@@ -17,9 +17,10 @@ def format_property_values(
     sample_count: Optional[int] = 0,
     format_as_string: bool = False,
 ) -> str:
+    safe_property_name = sanitize_taxonomy_name(property_name)
     if len(sample_values) == 0 or sample_count == 0:
         data = {
-            "property": property_name,
+            "property": safe_property_name,
             "values": [],
             "message": f"The property does not have any values in the taxonomy.",
         }
@@ -40,7 +41,7 @@ def format_property_values(
     elif sample_count > len(sample_values):
         remaining = sample_count - len(sample_values)
         formatted_sample_values.append(f"and {remaining} more distinct values")
-    data = {"property": property_name, "values": formatted_sample_values}
+    data = {"property": safe_property_name, "values": formatted_sample_values}
     return yaml.dump(data, default_flow_style=False, sort_keys=False)
 
 
@@ -75,7 +76,7 @@ def format_properties_yaml(children: list[tuple[str, str | None, str | None]]):
         if property_type not in properties_by_type:
             properties_by_type[property_type] = []
 
-        prop_dict = {"name": name}
+        prop_dict = {"name": sanitize_taxonomy_name(name)}
         if description:
             prop_dict["description"] = description
 
