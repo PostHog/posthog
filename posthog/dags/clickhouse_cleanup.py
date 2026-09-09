@@ -1377,25 +1377,40 @@ def clickhouse_deletion_sweep_job():
     drop_snapshot_assets(delete_persons(run))
 
 
-# What the sensor launches with. Pinned rather than left to the field defaults so a change to a
-# default cannot silently move production, and so the scheduled settings are reviewable in one
-# place. Provisional: the caps and timeouts come from measurements taken without the sweep ever
-# having run, and get revisited once the first EU and US live runs report real timings.
+# What the sensor launches with. Every field is pinned rather than left to the field defaults, so a
+# change to a default cannot silently move production and the scheduled settings are reviewable in
+# one place.
+#
+# One config serves both deployments. Every field here is a ceiling rather than a target, so the
+# larger region's value is safe in the smaller one: prod-EU under a prod-US memory cap simply never
+# reaches it.
+#
+# Memory and the mutation deadline come from prod-US live runs. The orphaned distinct id populate,
+# not the persons populate, is the memory ceiling: it peaked at 82.64 GiB on prod-US, where the
+# persons populate peaked at 42.38 GiB. A 64 GiB cap failed that op outright.
 SCHEDULED_RUN_CONFIG = {
     "ops": {
         "clear_removed_cohort_data": {
             "config": {
                 "dry_run": False,
+                "cleanup": True,
                 "cohort_sweep": True,
                 "max_cohorts": DEFAULT_MAX_COHORTS,
                 "team_batches": DEFAULT_TEAM_BATCHES,
-                "max_persons": 0,
+                # Never 0 here. Unbounded, one run takes every tombstone in the backlog, and a
+                # caller can grow that backlog faster than a run can drain it.
+                "max_persons": 20_000_000,
+                "shards": 16,
                 "max_execution_time": 1800,
-                "max_memory_usage": 64 * 1024**3,
+                "max_memory_usage": 128 * 1024**3,
                 "dictionary_load_timeout": 1800,
                 "mutation_stall_timeout": 1800,
                 "mutation_capacity_timeout": 3600,
-                "mutation_wait_deadline": 7200,
+                # The longest single mutation measured on prod-US ran 5,844 s, so 7200 left only
+                # 1.2x. Nothing here bounds a slow-but-healthy mutation except this.
+                "mutation_wait_deadline": 21600,
+                "min_team_id": 0,
+                "max_team_id": 0,
             }
         }
     }

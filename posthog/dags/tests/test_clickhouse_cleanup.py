@@ -1098,7 +1098,7 @@ def test_the_scheduled_config_pins_every_setting_the_sweep_reads():
     # the code default happens to be, which is exactly what pinning this config prevents.
     pinned = set(SCHEDULED_RUN_CONFIG["ops"]["clear_removed_cohort_data"]["config"])
     declared = set(clickhouse_cleanup.CleanupConfig.model_fields)
-    assert declared - pinned == {"cleanup", "shards", "min_team_id", "max_team_id"}
+    assert declared == pinned
 
 
 @pytest.mark.parametrize(
