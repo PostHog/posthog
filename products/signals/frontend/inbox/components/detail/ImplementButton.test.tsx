@@ -83,13 +83,27 @@ describe('ImplementButton', () => {
         expect(copyToClipboard).not.toHaveBeenCalled()
     })
 
-    it('starts a PostHog agent from the dropdown option', async () => {
+    it.each([
+        [
+            'the PostHog button',
+            (user: ReturnType<typeof userEvent.setup>) =>
+                user.click(screen.getByTestId('inbox-report-create-pr-submit')),
+        ],
+        ['Enter', (user: ReturnType<typeof userEvent.setup>) => user.keyboard('{Enter}')],
+    ])('passes steering instructions with %s', async (_method, submit) => {
         const user = await openMenu()
 
-        await user.click(screen.getByTestId('inbox-report-create-pr-option'))
+        await user.type(
+            screen.getByPlaceholderText('Add instructions for the PostHog agent (optional)'),
+            '  Keep the existing API  '
+        )
+        await submit(user)
 
-        expect(createPrFromReport).toHaveBeenCalledWith(expect.objectContaining({ id: 'report-1' }), undefined)
-        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({ has_feedback: false })
+        expect(createPrFromReport).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'report-1' }),
+            'Keep the existing API'
+        )
+        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({ has_feedback: true })
     })
 
     it('copies a prompt that claims the report and attaches the finished pull request', async () => {
