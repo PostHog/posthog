@@ -997,13 +997,34 @@ mod tests {
 
     /// An inverted toggle here moves a production read path with no other signal.
     #[rstest]
-    #[case::off_with_dedicated(false, true, FlagDefinitionsCluster::Disabled)]
-    #[case::on_with_dedicated(true, true, FlagDefinitionsCluster::Dedicated)]
-    #[case::on_without_dedicated(true, false, FlagDefinitionsCluster::NoDedicatedClient)]
+    #[case::off_with_dedicated(false, true, FlagDefinitionsCluster::Disabled, "disabled", "shared")]
+    #[case::off_without_dedicated(
+        false,
+        false,
+        FlagDefinitionsCluster::Disabled,
+        "disabled",
+        "shared"
+    )]
+    #[case::on_with_dedicated(
+        true,
+        true,
+        FlagDefinitionsCluster::Dedicated,
+        "dedicated",
+        "dedicated"
+    )]
+    #[case::on_without_dedicated(
+        true,
+        false,
+        FlagDefinitionsCluster::NoDedicatedClient,
+        "no_dedicated_client",
+        "shared"
+    )]
     fn test_resolve_flag_definitions_redis_client(
         #[case] dedicated_enabled: bool,
         #[case] dedicated_present: bool,
         #[case] expected_cluster: FlagDefinitionsCluster,
+        #[case] expected_reason: &str,
+        #[case] expected_redis: &str,
     ) {
         let shared: Arc<dyn Client + Send + Sync> = Arc::new(MockRedisClient::new());
         let dedicated: Arc<dyn Client + Send + Sync> = Arc::new(MockRedisClient::new());
@@ -1021,6 +1042,10 @@ mod tests {
         };
         assert!(Arc::ptr_eq(&resolved, expected));
         assert_eq!(cluster, expected_cluster);
+        // Runbook step 2 dispatches the on-call on these two strings, so a rename here
+        // sends them to the wrong Redis endpoint during the cutover.
+        assert_eq!(cluster.reason(), expected_reason);
+        assert_eq!(cluster.cluster(), expected_redis);
     }
 
     #[tokio::test]

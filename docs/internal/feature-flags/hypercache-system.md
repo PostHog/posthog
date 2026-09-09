@@ -309,7 +309,7 @@ Operational controls:
 
 Result labels: `hit_redis`, `hit_s3`, `hit_db`, `missing`, `batch_miss`
 
-ETag result labels: `hit` (client ETag matched, 304), `miss` (client sent a stale ETag), `none` (client sent none), `redis_missing` (the endpoint that answered held no ETag key), `redis_error` (the read itself failed)
+ETag result labels: `hit` (client ETag matched, 304), `miss` (client sent a stale ETag), `none` (client sent none), `redis_missing` (the endpoint that answered held no ETag key), `redis_error` (the read failed, or the stored value did not decode)
 
 `redis_missing` and `redis_error` are the pair that separates a cache-tier problem from an unreachable cluster. Keep them apart on dashboards and alerts. `redis_missing` reports the read, not the cause: reads go to the replica, so a key Django wrote to the primary counts here until it replicates. A sustained rise is a tier that holds nothing, and a short burst that clears on its own is lag.
 
@@ -344,7 +344,9 @@ cache tier both produce that symptom, so establish which one first.
 
 **1. Separate a cluster fault from an empty tier.** Split `flags_flag_definitions_etag_total`
 by `result`. A rise in `redis_error` points at the cluster; check managed-cache CPU,
-evictions, command latency, and memory before going further. A rise in `redis_missing`
+evictions, command latency, and memory before going further. `redis_error` also covers a
+stored ETag that did not decode, so a flat count of one or two teams is corrupt data rather
+than a cluster fault. A rise in `redis_missing`
 means Redis answered and the endpoint that served the read held no ETag key. That points at
 the tier rather than at the cluster, but the label does not prove the entry is gone: reads
 go to the replica, so replication lag reads as absence too. Confirm it in step 2 before you
@@ -397,6 +399,13 @@ every ETag-only check calls healthy. The handler reads the ETag key on every req
 304 before it fetches the payload, so a team whose SDKs poll with a matching `If-None-Match`
 keeps the ETag key recent while the payload ages toward eviction. Read repair is disabled for
 this namespace, so the S3 hit does not rewarm the payload. Rebuild it with `update_flag_caches`.
+
+An absent ETag beside a present payload serves a 200 with the full payload on every poll, so
+it writes no `source="s3"` record and raises no alert. `redis_missing` climbing with no matching
+rise in S3 reads is that state. It does not repair itself: `verify_team_flag_definitions`
+compares the payload only, so the hourly verifier reads the team as clean and the ETag stays
+missing until the team's next flag change or its TTL refresh. The counter carries no `team_id`,
+so set `TEAM_IDS_TO_TRACK` to name a suspected team, or rebuild with `update_flag_caches`.
 
 Absent on the replica of the cluster the reader served, and present on that cluster's primary,
 is replication lag rather than a lost entry.

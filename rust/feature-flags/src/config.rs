@@ -490,9 +490,9 @@ pub struct Config {
     // Cluster switch for the /flags/definitions reader. When enabled, the flags-with-cohorts
     // payload and its ETag both come from the dedicated flags Redis instead of the shared one.
     //
-    // Deliberately a new variable rather than FLAGS_REDIS_ENABLED, which prod already sets to
-    // "true" in both regions: wiring the reader to that one would move the read path on the next
-    // deploy. The definitions fleet has no canary lane, so a deploy is otherwise the cutover.
+    // Deliberately a new variable rather than FLAGS_REDIS_ENABLED, which deployed environments
+    // already set. Reusing it would tie the cutover to a deploy instead of a config change, and
+    // remove the ability to flip the read path back without a rollout.
     #[envconfig(from = "FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED", default = "false")]
     pub flag_definitions_dedicated_redis_enabled: FlexBool,
 

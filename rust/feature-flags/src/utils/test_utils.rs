@@ -1827,6 +1827,7 @@ impl TestContext {
     }
 
     /// Populate cache for a team and store an ETag alongside it, on the shared Redis.
+    /// See `populate_cache_for_team_with_etag_on`.
     pub async fn populate_cache_for_team_with_etag(
         &self,
         team_id: i32,
@@ -1840,8 +1841,6 @@ impl TestContext {
     /// Populate cache for a team and store an ETag alongside it, on the given Redis.
     /// The ETag is stored at `{cache_key}:etag` using pickle serialization,
     /// matching Django's HyperCache behavior.
-    ///
-    /// Takes the client so a test can seed the dedicated flags cluster.
     pub async fn populate_cache_for_team_with_etag_on(
         &self,
         redis_client: Arc<dyn RedisClientTrait + Send + Sync>,

@@ -378,16 +378,14 @@ pub const FLAG_DEFINITIONS_CACHE_MISS_COUNTER: &str = "flags_flag_definitions_ca
 
 // Flag definitions ETag metrics
 // Labels: result (hit = 304, miss = 200 with stale etag, none = 200 without etag,
-// redis_missing = Redis answered and held no etag key, redis_error = the etag read failed)
+// redis_missing = Redis answered and held no etag key,
+// redis_error = the etag read failed or the stored value did not decode)
 pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_total";
 
 // Per-pod resolved cluster for the /flags/definitions reader: 1 on the dedicated flags Redis,
 // 0 on the shared one. Every emission carries a `reason` label, so
 // `{reason="no_dedicated_client"}` separates a pod that wanted the dedicated cluster and could
 // not get one from a pod nobody has flipped yet.
-//
-// Emit only after the process installs its global metrics recorder; earlier `gauge!` calls are
-// silently dropped.
 pub const FLAG_DEFINITIONS_READS_DEDICATED_REDIS_GAUGE: &str =
     "flags_flag_definitions_reads_dedicated_redis";
 
