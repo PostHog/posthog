@@ -50,8 +50,9 @@ export function ComponentFrame({ placement }: { placement: GridPlacement }) {
     (method: string, payload: unknown) =>
       handleFreeformDataRequest(method, payload, queryClient, {
         dashboardId: componentId,
+        sourceVersionId: renderedBuild?.sourceVersionId,
       }),
-    [queryClient, componentId],
+    [queryClient, componentId, renderedBuild?.sourceVersionId],
   );
 
   const capabilities = renderedBuild?.manifest
