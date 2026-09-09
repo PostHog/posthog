@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEye } from '@posthog/icons'
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -37,13 +37,16 @@ const columns: LemonTableColumns<ReplayCommentRow> = [
                 return null
             }
             return (
-                <Link
+                <LemonButton
                     to={row.recordingUrl}
-                    buttonProps={{ size: 'sm', icon: <IconEye /> }}
+                    icon={<IconEye />}
+                    size="small"
+                    type="tertiary"
+                    tooltip="View in recording"
                     data-attr="replay-comments-view-recording"
                 >
                     {row.timeInRecording ?? 'Watch'}
-                </Link>
+                </LemonButton>
             )
         },
     },

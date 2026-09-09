@@ -1,6 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
 import { App } from 'scenes/App'
+import { recordings } from 'scenes/session-recordings/__mocks__/recordings'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -25,6 +26,16 @@ const comment = (id: string, secondsIntoRecording: number, content: string): Rec
     slack_thread: null,
 })
 
+// The scene replaces every tab with the session replay product empty state until its setup probe
+// finds a recording, so the recordings list has to answer before any of this tab is on screen.
+const sceneMocks = (comments: Record<string, any>[]): ReturnType<typeof mswDecorator> =>
+    mswDecorator({
+        get: {
+            '/api/environments/:team_id/session_recordings': { has_next: false, results: recordings },
+            '/api/projects/:team_id/comments/': { next: null, previous: null, results: comments },
+        },
+    })
+
 const meta: Meta = {
     component: App,
     title: 'Replay/Tabs/Comments',
@@ -41,27 +52,13 @@ type Story = StoryObj<{}>
 
 export const ReplayComments: Story = {
     decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/comments/': {
-                    next: null,
-                    previous: null,
-                    results: [
-                        comment('1', 72, 'The checkout button does nothing on the first click.'),
-                        comment('2', 605, 'This user could not find the export option.'),
-                    ],
-                },
-            },
-        }),
+        sceneMocks([
+            comment('1', 72, 'The checkout button does nothing on the first click.'),
+            comment('2', 605, 'This user could not find the export option.'),
+        ]),
     ],
 }
 
 export const ReplayCommentsEmpty: Story = {
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/comments/': { next: null, previous: null, results: [] },
-            },
-        }),
-    ],
+    decorators: [sceneMocks([])],
 }
