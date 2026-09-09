@@ -1,8 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -208,7 +206,16 @@ export const repoRoutingRulesLogic = kea<repoRoutingRulesLogicType>([
     })),
     reducers({
         draftRuleText: ['', { setDraftRuleText: (_, { ruleText }) => ruleText, addRuleSuccess: () => '' }],
-        draftRepository: ['', { setDraftRepository: (_, { repository }) => repository, addRuleSuccess: () => '' }],
+        draftRepository: [
+            '',
+            {
+                setDraftRepository: (_, { repository }) => repository,
+                addRuleSuccess: () => '',
+                // Another installation's repositories are a different set, so a kept selection
+                // would submit a repo the shown org does not have.
+                setDraftIntegrationId: () => '',
+            },
+        ],
         draftIntegrationId: [null as number | null, { setDraftIntegrationId: (_, { integrationId }) => integrationId }],
         editingRuleId: [
             null as string | null,
@@ -227,6 +234,7 @@ export const repoRoutingRulesLogic = kea<repoRoutingRulesLogicType>([
             {
                 startEditingRule: (_, { rule }) => rule.repository,
                 setEditRepository: (_, { repository }) => repository,
+                setEditIntegrationId: () => '',
             },
         ],
         editIntegrationId: [
@@ -278,14 +286,31 @@ export const repoRoutingRulesLogic = kea<repoRoutingRulesLogicType>([
                 scope: 'team',
             })
         },
+        // No toasts here: the global kea loaders failure handler already raises one with the
+        // server's error detail. These listeners only record the rejected change.
         addRuleFailure: () => {
-            lemonToast.error("Couldn't add the routing rule. Try again.")
+            captureInboxSettingsChanged({
+                setting: 'repo_routing_rule_added',
+                newValue: null,
+                success: false,
+                scope: 'team',
+            })
         },
         saveEditedRuleFailure: () => {
-            lemonToast.error("Couldn't save the routing rule. Try again.")
+            captureInboxSettingsChanged({
+                setting: 'repo_routing_rule_updated',
+                newValue: null,
+                success: false,
+                scope: 'team',
+            })
         },
         deleteRuleFailure: () => {
-            lemonToast.error("Couldn't remove the routing rule. Try again.")
+            captureInboxSettingsChanged({
+                setting: 'repo_routing_rule_removed',
+                newValue: null,
+                success: false,
+                scope: 'team',
+            })
         },
     })),
     afterMount(({ actions }) => {

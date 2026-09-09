@@ -69,6 +69,18 @@ describe('repoRoutingRulesLogic', () => {
         expect(logic.values.rules).toEqual([UPDATED])
     })
 
+    it('clears the picked repository when the GitHub org changes', () => {
+        logic = repoRoutingRulesLogic()
+        logic.mount()
+        logic.actions.setDraftRepository('posthog/posthog.com')
+        logic.actions.setDraftIntegrationId(2)
+        expect(logic.values.draftRepository).toEqual('')
+
+        logic.actions.startEditingRule(EXISTING, 1)
+        logic.actions.setEditIntegrationId(2)
+        expect(logic.values.editRepository).toEqual('')
+    })
+
     it('gates the add button once the team hits the rule cap', async () => {
         const fullSet = Array.from({ length: MAX_RULES_PER_TEAM }, (_, i) =>
             rule(`rule-${i}`, `rule ${i}`, 'posthog/posthog.com', i)

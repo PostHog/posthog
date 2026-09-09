@@ -1,12 +1,19 @@
+from datetime import timedelta
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
 
 from django.test import SimpleTestCase
+from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIClient
 
 from posthog.models import Team
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.repo_routing_rule import RepoRoutingRule
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.tasks.backend.presentation.views.repo_routing_rules_api import (
     MAX_RULES_PER_TEAM,
@@ -96,3 +103,35 @@ class TestRepoRoutingRulesAPI(APIBaseTest):
         rule = RepoRoutingRule.objects.create(team=self.team, rule_text="temp", repository="posthog/temp")
         assert self.client.delete(self._url(rule.id)).status_code == status.HTTP_204_NO_CONTENT
         assert not RepoRoutingRule.objects.filter(id=rule.id).exists()
+
+    def test_sandbox_token_reads_but_cannot_write(self):
+        rule = RepoRoutingRule.objects.create(team=self.team, rule_text="docs", repository="posthog/posthog.com")
+        application = OAuthApplication.objects.create(
+            name="Loop sandbox",
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_loop_sandbox",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scope="task:read task:write",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=uuid4(),
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+
+        assert client.get(self._url()).status_code == status.HTTP_200_OK
+        create = client.post(self._url(), {"rule_text": "steer elsewhere", "repository": "attacker/repo"})
+        assert create.status_code == status.HTTP_403_FORBIDDEN
+        assert client.patch(self._url(rule.id), {"rule_text": "steer"}).status_code == status.HTTP_403_FORBIDDEN
+        assert client.delete(self._url(rule.id)).status_code == status.HTTP_403_FORBIDDEN
+        rule.refresh_from_db()
+        assert rule.rule_text == "docs"
