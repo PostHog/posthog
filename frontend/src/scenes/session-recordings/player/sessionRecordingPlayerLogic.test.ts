@@ -1625,8 +1625,9 @@ describe('sessionRecordingPlayerLogic', () => {
         }
 
         // The Meta snapshot opens the recording on firstHref; a later page view moves it to
-        // secondHref, which is the address the heatmap hand-off then uses.
-        const seedRecording = (firstHref: string, secondHref: string): void => {
+        // secondHref, which is the address the heatmap hand-off then uses. An optional laterHref
+        // lands after the paused moment, so it must not supply the origin.
+        const seedRecording = (firstHref: string, secondHref: string, laterHref?: string): void => {
             const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
             dataLogic.actions.loadSnapshotSourcesSuccess([SOURCE] as any)
             const snapshots = [
@@ -1648,6 +1649,16 @@ describe('sessionRecordingPlayerLogic', () => {
                     windowId: 1,
                     data: { source: IncrementalSource.MouseMove },
                 })),
+                ...(laterHref
+                    ? [
+                          {
+                              timestamp: START + 3500,
+                              type: EventType.Custom,
+                              windowId: 1,
+                              data: { tag: '$pageview', payload: { href: laterHref } },
+                          },
+                      ]
+                    : []),
             ] as unknown as RecordingSnapshot[]
             markLoaded(dataLogic.cache.store, 0, snapshots)
             dataLogic.actions.storeUpdated()
@@ -1676,10 +1687,21 @@ describe('sessionRecordingPlayerLogic', () => {
         })
 
         it.each([
-            ['a path gets the origin of the recording', '/checkout', 'https://example.com/checkout'],
-            ['a full address is kept', 'https://other.example.com/checkout', 'https://other.example.com/checkout'],
-        ])('%s', (_description, secondHref, expected) => {
-            seedRecording('https://example.com/pricing', secondHref)
+            ['a path gets the origin of the recording', '/checkout', undefined, 'https://example.com/checkout'],
+            [
+                'a full address is kept',
+                'https://other.example.com/checkout',
+                undefined,
+                'https://other.example.com/checkout',
+            ],
+            [
+                'a navigation after the paused moment does not supply the origin',
+                '/checkout',
+                'https://later.example.com/',
+                'https://example.com/checkout',
+            ],
+        ] as const)('%s', (_description, secondHref, laterHref, expected) => {
+            seedRecording('https://example.com/pricing', secondHref, laterHref)
             attachPlayerIframe()
             logic.actions.setPause()
             logic.actions.seekToTimestamp(START + 2500)
