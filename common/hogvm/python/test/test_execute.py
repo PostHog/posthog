@@ -16,8 +16,14 @@ from common.hogvm.python.operation import (
     HOGQL_BYTECODE_VERSION as VERSION,
     Operation as op,
 )
-from common.hogvm.python.stl import STL, sleep
-from common.hogvm.python.utils import HogVMException, UncaughtHogVMException
+from common.hogvm.python.stl import _MAX_SEQUENCE_LENGTH, STL, _guard_sequence_length, sleep
+from common.hogvm.python.utils import (
+    COST_PER_UNIT,
+    MAX_MEMORY,
+    HogVMException,
+    HogVMMemoryExceededException,
+    UncaughtHogVMException,
+)
 
 
 class TestBytecodeExecute:
@@ -348,6 +354,22 @@ class TestBytecodeExecute:
             assert str(e) == "Memory limit of 67108864 bytes exceeded. Attempted to use 67155164 bytes"
         else:
             raise AssertionError("Expected Exception not raised")
+
+    def test_range_refuses_length_past_memory_ceiling(self):
+        # The asserted size proves the guard fired before allocation, not after building the list.
+        length = 10**12
+        bytecode = [_H, VERSION, op.INTEGER, length, op.CALL_GLOBAL, "range", 1, op.RETURN]
+        with pytest.raises(HogVMMemoryExceededException) as exc:
+            execute_bytecode(bytecode, {})
+        assert exc.value.attempted_memory == (length + 1) * COST_PER_UNIT
+
+    def test_range_ceiling_matches_stack_accounting(self):
+        # The ceiling is the largest length the stack accepts, so a list at the ceiling stays within
+        # the limit and one past it is refused. Locks the boundary without allocating either list.
+        assert (_MAX_SEQUENCE_LENGTH + 1) * COST_PER_UNIT <= MAX_MEMORY
+        _guard_sequence_length(_MAX_SEQUENCE_LENGTH)
+        with pytest.raises(HogVMMemoryExceededException):
+            _guard_sequence_length(_MAX_SEQUENCE_LENGTH + 1)
 
     def test_functions(self):
         def stringify(*args):

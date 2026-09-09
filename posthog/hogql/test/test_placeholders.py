@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -63,6 +64,18 @@ class TestParser(BaseTest):
             "Global variable not found: foo",
             str(context.exception),
         )
+
+    @patch("posthog.hogql.placeholders.MAX_PLACEHOLDER_EXPANSIONS", 3)
+    def test_replace_placeholders_caps_expansion_count(self):
+        # A low cap keeps the case away from the shared time budget: at the cap it resolves, one past
+        # it is rejected.
+        at_cap = ast.Array(exprs=[ast.Placeholder(expr=ast.Constant(value=1)) for _ in range(3)])
+        resolved = replace_placeholders(at_cap, {})
+        self.assertEqual(len(cast(ast.Array, resolved).exprs), 3)
+
+        over_cap = ast.Array(exprs=[ast.Placeholder(expr=ast.Constant(value=1)) for _ in range(4)])
+        with self.assertRaises(QueryError):
+            replace_placeholders(over_cap, {})
 
     def test_replace_placeholders_comparison(self):
         expr = clear_locations(parse_expr("timestamp < {timestamp}"))
