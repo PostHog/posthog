@@ -7924,6 +7924,26 @@ snapshots:
         hash: v1.k794b7964.748be85b9907181d7eb082c40e4d4f93429073c22a34fd3ad19f010006856b4d.m6AmUOQ3eZ_Le5wuOhR7RCAT_xVrzvZJSHptyYmtTpM
     scenes-app-inbox-signalsourcespanel--tools-on-no-recent-data--light:
         hash: v1.k794b7964.ace77adbc25963a6ba9f41c77744f726165855b31c0e4486bc5fbbeeec55250f.vWRUFUczQF3fmjvF_LizkGQaBK-ddzgEIjTB8sJEFro
+    scenes-app-inbox-slacknotificationssection--awaiting-target--dark:
+        hash: v1.k794b7964.8ea3584f9e8ba12a10845825520e5297ebf2c60282422cec693b0bd291ceee47.UdwureshdgpAitm-HeIekB6baljLm5XiV93vEw4z3-A
+    scenes-app-inbox-slacknotificationssection--awaiting-target--light:
+        hash: v1.k794b7964.afc4ca112ec8c6aa017b68a925c7973c973490024f141f661bccba7af2135ce4.WA08pPg_tRzIld7tJyEZQxkBBfeXyQdx77Jp7IeICIs
+    scenes-app-inbox-slacknotificationssection--direct-message-to-me--dark:
+        hash: v1.k794b7964.b47818f5f154dfd4d14fe525e714980ec9f06e8c29802231d4e1ebf6df7a0de2.ru2rUWCNxUOD8UACkmW8-dfV0Q4rNvf-D-E7ut9kdXI
+    scenes-app-inbox-slacknotificationssection--direct-message-to-me--light:
+        hash: v1.k794b7964.97016ccf994141237de98a7decd5fa540f8b8fecc6f9b67b6fe070e6fc86c6f6.YSImf6N-fF_YX2F4QDRwBpaQBi2b5C7UgU_s4h3xTDg
+    scenes-app-inbox-slacknotificationssection--not-connected--dark:
+        hash: v1.k794b7964.28ba7f9bff784013ccce1e2a2fc0130d6bb7ce265f501308f221cbdf902614ad.Ou8BqYO_9RvcgnW9eECuR7tiWOtkJbX8mFSUXEkXzWw
+    scenes-app-inbox-slacknotificationssection--not-connected--light:
+        hash: v1.k794b7964.3354167520829af3d1c6014d6eaf5b1f3a4651982251407c37850ae5cc1acecf.28_m7lUzxus-9IPwlhsbHZDN9i-Y0u55w_ciQt6ewAM
+    scenes-app-inbox-slacknotificationssection--nothing-configured--dark:
+        hash: v1.k794b7964.f18df82d8ee19d6c1d77c2a39707de1baa8ba95bb871771e855a08be8d6d72f5.kw_ozyO-TejXxIhuFd8rkW9aW3Y5e10IFOwl93QUhkk
+    scenes-app-inbox-slacknotificationssection--nothing-configured--light:
+        hash: v1.k794b7964.ebf2f4a8d1282b89b4d43396210ca77e3b79a1677f682604d81509864f5bbb92.02C3nsgbjhL-5KrD8GbSPcfBfqfSTZEmm6j5_ptYczg
+    scenes-app-inbox-slacknotificationssection--personal-channel--dark:
+        hash: v1.k794b7964.039af1bc59057ad3e741687368f75e7a1c60d084505a9dda203e2e1e5c147a4c.nY40DHVp_R6hcU7ZMcRXiy-SdXwJXfOvupwdWsEnV9o
+    scenes-app-inbox-slacknotificationssection--personal-channel--light:
+        hash: v1.k794b7964.146421752e601d082301cac6a9e6e876b230f0577ec852d002b46e7f20a96855.Jf8gfYZimmN2-9NcX-_7wLiTa5rgC1JiUyfDNqnGJ-8
     scenes-app-inbox-sourcesteeringmodal--legacy-posture--dark:
         hash: v1.k794b7964.d8a52379e95bb0cabff2ab1ad8a4620d0f3ac91394cc057577f9a5c69cafb4d2.H8ZYcq__eOG2AMAmV26hDVqVtTuDsPY5dzZN1CkuwQk
     scenes-app-inbox-sourcesteeringmodal--legacy-posture--light:
