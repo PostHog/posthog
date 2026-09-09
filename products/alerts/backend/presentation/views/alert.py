@@ -70,7 +70,6 @@ from products.alerts.backend.evaluation.validation import (
 from products.alerts.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
-    AlertScheduleRestriction,
     DestinationType,
 )
 from products.alerts.backend.facade.destinations import (
@@ -93,6 +92,7 @@ from products.alerts.backend.insight_alert_state_machine import (
     apply_unsnooze,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
+from products.alerts.backend.presentation.schema import AlertScheduleRestriction, as_drf_validation_error
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
 
@@ -1487,20 +1487,14 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             hog_function_ids = create_alert_destination_hog_functions(
-                [
-                    build_insight_alert_slack_config(
-                        team_id=alert.team_id, alert_id=str(alert.id), alert_name=alert.name, data=data
-                    )
-                ],
-                team=alert.team,
-                created_by=request.user,
+                [build_insight_alert_slack_config(alert_id=str(alert.id), alert_name=alert.name, data=data)],
+                team_id=alert.team_id,
+                created_by_id=request.user.id,
                 alert_id=str(alert.id),
                 allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
             )
         except AlertDestinationValidationError as error:
-            if error.field:
-                raise ValidationError({error.field: [error.message]})
-            raise ValidationError(error.message)
+            raise as_drf_validation_error(error)
 
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),
@@ -1535,9 +1529,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 hog_function_ids=hog_function_ids,
             )
         except AlertDestinationValidationError as error:
-            if error.field:
-                raise ValidationError({error.field: [error.message]})
-            raise ValidationError(error.message)
+            raise as_drf_validation_error(error)
 
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),

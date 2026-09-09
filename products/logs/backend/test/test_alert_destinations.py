@@ -8,34 +8,9 @@ from products.alerts.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
-    EventKindSpec,
 )
-from products.alerts.backend.facade.destinations import build_alert_destination_config, validate_destination_data
-from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EVENT_KINDS, LOGS_DESTINATION_TYPES, EventKind
-
-
-def _inputs_for(spec: EventKindSpec, data: AlertDestinationData) -> dict:
-    return build_alert_destination_config(
-        team_id=1,
-        spec=spec,
-        alert_id="alert-1",
-        alert_name="Alert",
-        data=data,
-        slack_context_elements=(),
-    ).payload["inputs"]
-
-
-def _slack_body(spec: EventKindSpec) -> str:
-    """The message body a Slack destination posts for one event kind."""
-    inputs = _inputs_for(spec, {"type": DestinationType.SLACK, "slack_workspace_id": 1, "slack_channel_id": "C-ENG"})
-    # The renderer emits header, body, context, divider, actions; the body is the section block.
-    return next(block["text"]["text"] for block in inputs["blocks"]["value"] if block["type"] == "section")
-
-
-def _teams_text(spec: EventKindSpec) -> str:
-    """The Adaptive Card text a Microsoft Teams destination posts for one event kind."""
-    inputs = _inputs_for(spec, {"type": DestinationType.TEAMS, "webhook_url": "https://teams.example.com/hook"})
-    return inputs["text"]["value"]
+from products.alerts.backend.facade.destinations import validate_destination_data
+from products.logs.backend.alert_destinations import LOGS_DESTINATION_TYPES
 
 
 class TestDestinationValidation(SimpleTestCase):
@@ -78,47 +53,3 @@ class TestDestinationValidation(SimpleTestCase):
         assert error.exception.message == (
             "Choose a supported destination type: Slack (slack), Webhook (webhook), Microsoft Teams (teams)."
         )
-
-
-class TestSlackBody(SimpleTestCase):
-    @parameterized.expand([(kind,) for kind in EVENT_KINDS])
-    def test_body_is_slack_mrkdwn(self, kind: EventKind) -> None:
-        spec = EVENT_KIND_CONFIG[kind]
-        body = _slack_body(spec)
-        lines = body.split("\n")
-        assert len(lines) == len(spec.details)
-        for line, (label, value) in zip(lines, spec.details):
-            # Slack mrkdwn bold label, then the plain-text value.
-            assert line == f"*{label}:* {value}"
-        # Detail values are plain text — bold markers come only from the renderer.
-        assert "**" not in body
-
-    def test_multi_detail_body_renders_one_line_per_detail(self) -> None:
-        body = _slack_body(EVENT_KIND_CONFIG["broken"])
-        assert body == (
-            "*Reason:* {event.properties.consecutive_failures} consecutive check failures.\n"
-            "*Last error:* {event.properties.last_error_message}"
-        )
-
-
-class TestTeamsText(SimpleTestCase):
-    @parameterized.expand([(kind,) for kind in EVENT_KINDS])
-    def test_text_is_adaptive_card_markdown(self, kind: EventKind) -> None:
-        spec = EVENT_KIND_CONFIG[kind]
-        text = _teams_text(spec)
-        # Bold header, every detail label bolded, the action rendered as an inline markdown link.
-        assert text.startswith(f"**{spec.header}**")
-        for label, value in spec.details:
-            assert f"**{label}:** {value}" in text
-        assert f"[{spec.primary_action_label}]({spec.primary_action_url})" in text
-        # Every asterisk must belong to a `**` pair — no Slack-style single-asterisk bold.
-        assert "*" not in text.replace("**", "")
-
-    def test_multi_detail_text_separates_paragraphs_with_blank_lines(self) -> None:
-        text = _teams_text(EVENT_KIND_CONFIG["broken"])
-        assert (
-            "**Reason:** {event.properties.consecutive_failures} consecutive check failures.\n\n"
-            "**Last error:** {event.properties.last_error_message}"
-        ) in text
-        # Adaptive Card paragraphs need exactly one blank line — never stacked blank lines.
-        assert "\n\n\n" not in text

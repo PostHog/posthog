@@ -226,7 +226,6 @@ def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: 
         _raise_if_billing_alert_already_has_this_destination_type(locked_alert, destination_data["type"])
         configs = [
             build_alert_destination_config(
-                team_id=locked_alert.execution_team_id,
                 spec=EVENT_KIND_CONFIG[kind],
                 alert_id=str(locked_alert.id),
                 alert_name=locked_alert.name,
@@ -238,8 +237,8 @@ def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: 
         try:
             hog_function_ids = create_alert_destination_hog_functions(
                 configs,
-                team=locked_alert.team,
-                created_by=request.user,
+                team_id=locked_alert.execution_team_id,
+                created_by_id=request.user.id,
                 alert_id=str(locked_alert.id),
                 allowed_event_ids=BILLING_ALERT_EVENT_IDS,
             )

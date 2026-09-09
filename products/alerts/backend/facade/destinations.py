@@ -14,8 +14,6 @@ from uuid import UUID
 
 from posthog.cdp.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 from posthog.kafka_client.client import ProduceResult
-from posthog.models.team import Team
-from posthog.models.user import User
 
 from ..logic import destination_configs, destinations, insight_alert_destinations
 from .contracts import (
@@ -29,10 +27,11 @@ from .contracts import (
     OwnedAlertDestination,
 )
 
-ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = destinations.ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS
+ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
 
 # The event an insight alert check emits, named legacy where it is defined because it predates the
-# managed-alert event boundary.
+# managed-alert event boundary. Do not take it from `posthog.tasks.alerts.utils` instead, because
+# that module imports this one.
 INSIGHT_ALERT_EVENT_IDS: Final[tuple[str, ...]] = (LEGACY_INSIGHT_ALERT_EVENT,)
 
 # Slack only, because `alert:write` is grantable to a sandboxed agent. A connected workspace is a
@@ -70,7 +69,6 @@ def validate_destination_data(
 
 def build_alert_destination_config(
     *,
-    team_id: int,
     spec: EventKindSpec,
     alert_id: str,
     alert_name: str,
@@ -78,7 +76,6 @@ def build_alert_destination_config(
     slack_context_elements: tuple[str, ...],
 ) -> AlertDestinationConfig:
     return destination_configs.build_alert_destination_config(
-        team_id=team_id,
         spec=spec,
         alert_id=alert_id,
         alert_name=alert_name,
@@ -88,24 +85,24 @@ def build_alert_destination_config(
 
 
 def build_insight_alert_slack_config(
-    *, team_id: int, alert_id: str, alert_name: str | None, data: AlertDestinationData
+    *, alert_id: str, alert_name: str | None, data: AlertDestinationData
 ) -> AlertDestinationConfig:
     return insight_alert_destinations.build_insight_alert_slack_config(
-        team_id=team_id, alert_id=alert_id, alert_name=alert_name, data=data
+        alert_id=alert_id, alert_name=alert_name, data=data
     )
 
 
 def create_alert_destination_hog_functions(
     configs: list[AlertDestinationConfig],
     *,
-    team: Team,
-    created_by: User,
+    team_id: int,
+    created_by_id: int,
     alert_id: str,
     allowed_event_ids: Collection[str],
 ) -> tuple[UUID, ...]:
     """Persist the configs as destinations for one alert and return the new ids."""
     return destinations.create_alert_destination_hog_functions(
-        configs, team=team, created_by=created_by, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+        configs, team_id=team_id, created_by_id=created_by_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )
 
 
@@ -158,6 +155,15 @@ def list_owned_alert_destinations(
         allowed_event_ids=allowed_event_ids,
         template_ids=template_ids,
         enabled=enabled,
+    )
+
+
+def configured_destination_template_ids(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> frozenset[str]:
+    """The distinct HogFunction templates one alert has a destination for."""
+    return destinations.configured_destination_template_ids(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )
 
 

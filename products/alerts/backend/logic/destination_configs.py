@@ -292,7 +292,6 @@ def validate_destination_data(
 
 def build_alert_destination_config(
     *,
-    team_id: int,
     spec: EventKindSpec,
     alert_id: str,
     alert_name: str,
@@ -304,7 +303,6 @@ def build_alert_destination_config(
     destination_name = destination_spec.build_name(data)
 
     return AlertDestinationConfig(
-        team_id=team_id,
         payload={
             "type": "internal_destination",
             "enabled": True,

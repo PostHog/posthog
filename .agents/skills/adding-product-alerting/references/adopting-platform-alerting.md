@@ -49,7 +49,7 @@ Create a thin product module like `products/logs/backend/alert_destinations.py`.
 - Keep event IDs and properties stable because HogFunctions filter and render from them.
 - Include every template property in the internal event payload.
 - Define the product's allowed `DestinationType` values explicitly. `DestinationType` and `EventKindSpec` come from `products.alerts.backend.facade.contracts`.
-- Validate, build, create, and delete destination HogFunctions through `products.alerts.backend.facade.destinations`. Create returns the new hog function ids, not rows.
+- Validate, build, create, and delete destination HogFunctions through `products.alerts.backend.facade.destinations`. Create returns the new HogFunction ids, not rows.
 - Catch `AlertDestinationValidationError` at the view and raise the product's own validation error with the same message.
 - Scope deletion with the team, alert ID, and allowed event IDs.
 

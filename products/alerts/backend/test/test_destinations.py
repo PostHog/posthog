@@ -5,6 +5,8 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.models.team.team import Team
@@ -25,6 +27,7 @@ from products.alerts.backend.logic.destinations import (
     _raise_if_alert_already_has_these_destination_configs,
     alert_destination_group_key,
     alert_internal_event_delivered,
+    flush_alert_internal_events,
     group_alert_destination_rows,
     list_active_alert_destinations,
     redact_urls_in_name,
@@ -125,7 +128,6 @@ class AlertDestinationTestCase(APIBaseTest):
 
 def _config_for(destination_type: DestinationType, event_id: str) -> AlertDestinationConfig:
     return build_alert_destination_config(
-        team_id=1,
         spec=EventKindSpec(
             event_id=event_id,
             display_kind=event_id,
@@ -223,7 +225,7 @@ class TestRaiseIfAlertAlreadyHasTheseDestinationConfigs(AlertDestinationTestCase
             alert_id=alert_id,
             allowed_event_ids=ALLOWED_EVENT_IDS,
             configs=[
-                AlertDestinationConfig(team_id=self.team.id, payload={"template_id": template_id, "inputs": inputs})
+                AlertDestinationConfig(payload={"template_id": template_id, "inputs": inputs})
                 for template_id, inputs in configs
             ],
         )
@@ -649,6 +651,20 @@ class TestAlertInternalEventDelivery(APIBaseTest):
         capture_exception.assert_not_called()
         delivery_failures.labels.assert_called_once_with(event_name="$logs_alert_firing")
         delivery_failures.labels.return_value.inc.assert_called_once_with()
+
+
+class TestFlushAlertInternalEvents(SimpleTestCase):
+    @patch("products.alerts.backend.logic.destinations.capture_exception")
+    @patch(
+        "products.alerts.backend.logic.destinations.flush_internal_events_producer",
+        side_effect=RuntimeError("broker down"),
+    )
+    def test_a_broker_failure_is_swallowed_so_a_batch_caller_still_saves(
+        self, _flush_internal_events_producer, capture_exception
+    ) -> None:
+        flush_alert_internal_events(1.0)
+
+        capture_exception.assert_called_once()
 
 
 class TestListActiveAlertDestinations(AlertDestinationTestCase):

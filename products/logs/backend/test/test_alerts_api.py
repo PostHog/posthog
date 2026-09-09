@@ -900,6 +900,8 @@ class TestLogsAlertAPI(APIBaseTest):
         hog_functions = HogFunction.objects.filter(id__in=ids)
         for hf in hog_functions:
             assert hf.template_id == "template-webhook"
+            # A destination with no creator is unattributable in the activity log.
+            assert hf.created_by_id == self.user.id
             inputs = hf.inputs or {}
             assert inputs["url"]["value"] == "https://example.com/hook"
             body = inputs["body"]["value"]
@@ -2136,7 +2138,7 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
         # A None return would read as "enqueue failed" and roll back every
         # notification, so the fake must return a (mock) ProduceResult.
         self._kafka_patcher = patch(
-            "products.alerts.backend.logic.destinations.produce_internal_event",
+            "products.logs.backend.temporal.activities.produce_alert_internal_event",
             return_value=MagicMock(),
         )
         self._kafka_patcher.start()

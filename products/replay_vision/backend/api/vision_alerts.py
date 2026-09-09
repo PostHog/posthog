@@ -24,7 +24,6 @@ from posthog.models.user import User
 from products.alerts.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
-    AlertScheduleRestriction,
     DestinationType,
 )
 from products.alerts.backend.facade.destinations import (
@@ -36,6 +35,7 @@ from products.alerts.backend.facade.destinations import (
     validate_destination_data,
 )
 from products.alerts.backend.facade.scheduling import validate_and_normalize_schedule_restriction
+from products.alerts.backend.presentation.schema import AlertScheduleRestriction, as_drf_validation_error
 from products.replay_vision.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
     MATCH_EVENT_KINDS,
@@ -591,7 +591,6 @@ class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
             configs = [
                 build_alert_destination_config(
-                    team_id=alert.team_id,
                     spec=EVENT_KIND_CONFIG[kind],
                     alert_id=str(alert.id),
                     alert_name=alert.name,
@@ -603,15 +602,13 @@ class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             try:
                 hog_function_ids = create_alert_destination_hog_functions(
                     configs,
-                    team=alert.team,
-                    created_by=cast(User, request.user),
+                    team_id=alert.team_id,
+                    created_by_id=cast(User, request.user).id,
                     alert_id=str(alert.id),
                     allowed_event_ids=VISION_ALERT_EVENT_IDS,
                 )
             except AlertDestinationValidationError as error:
-                if error.field:
-                    raise ValidationError({error.field: [error.message]})
-                raise ValidationError(error.message)
+                raise as_drf_validation_error(error)
 
         report_user_action(
             request.user,
@@ -643,9 +640,7 @@ class VisionAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     hog_function_ids=hog_function_ids,
                 )
             except AlertDestinationValidationError as error:
-                if error.field:
-                    raise ValidationError({error.field: [error.message]})
-                raise ValidationError(error.message)
+                raise as_drf_validation_error(error)
 
         report_user_action(
             request.user,

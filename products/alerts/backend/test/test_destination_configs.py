@@ -27,6 +27,16 @@ DEFAULT_SPEC = EventKindSpec(
     webhook_body={},
 )
 
+MULTI_DETAIL_SPEC = EventKindSpec(
+    event_id="$insight_alert_broken",
+    display_kind="broken",
+    header="Insight alert broken",
+    details=(("Reason", "5 consecutive check failures."), ("Last error", "Query is too expensive.")),
+    primary_action_url="https://example.com/insight",
+    primary_action_label="View insight",
+    webhook_body={},
+)
+
 PROSE_SPEC = EventKindSpec(
     event_id="$insight_alert_firing",
     display_kind="firing",
@@ -64,6 +74,23 @@ class TestSpecVocabularyRendering:
         assert "Pageviews is 42, breaching 30" in text
         assert "[View insight](https://example.com/insight) · [Manage alert](https://example.com/alert)" in text
 
+    def test_slack_renders_one_line_per_detail(self) -> None:
+        blocks = slack_blocks(MULTI_DETAIL_SPEC, context_elements=())
+
+        section = next(b for b in blocks if b["type"] == "section")
+        assert section["text"]["text"] == (
+            "*Reason:* 5 consecutive check failures.\n*Last error:* Query is too expensive."
+        )
+
+    def test_teams_separates_details_with_one_blank_line(self) -> None:
+        text = teams_text(MULTI_DETAIL_SPEC)
+
+        assert "**Reason:** 5 consecutive check failures.\n\n**Last error:** Query is too expensive." in text
+        # An Adaptive Card paragraph break is exactly one blank line; stacked ones render as gaps.
+        assert "\n\n\n" not in text
+        # Every asterisk belongs to a `**` pair. A Slack single-asterisk bold renders literally here.
+        assert "*" not in text.replace("**", "")
+
     def test_defaults_render_single_button_and_details_only(self) -> None:
         blocks = slack_blocks(DEFAULT_SPEC, context_elements=())
         actions = next(b for b in blocks if b["type"] == "actions")
@@ -100,7 +127,6 @@ class TestDestinationTemplateContract:
         template = _TEMPLATES_BY_ID[DESTINATION_SPECS[destination_type].template_id]
         data = _DESTINATION_DATA[destination_type]
         config = build_alert_destination_config(
-            team_id=1,
             spec=DEFAULT_SPEC,
             alert_id="alert-1",
             alert_name="Signups",
@@ -120,7 +146,6 @@ class TestDestinationTemplateContract:
             "slack_channel_name": "eng",
         }
         config = build_alert_destination_config(
-            team_id=1,
             spec=DEFAULT_SPEC,
             alert_id="alert-1",
             alert_name="Signups",

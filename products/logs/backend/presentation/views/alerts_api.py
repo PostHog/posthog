@@ -31,21 +31,21 @@ from posthog.utils import relative_date_parse
 from products.alerts.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
-    AlertScheduleRestriction,
     DestinationType,
 )
 from products.alerts.backend.facade.destinations import (
     build_alert_destination_config,
+    configured_destination_template_ids,
     create_alert_destination_hog_functions,
     destination_template_id,
     list_alert_destination_groups,
-    list_owned_alert_destinations,
     redact_destination_data,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
     validate_destination_data,
 )
 from products.alerts.backend.facade.scheduling import validate_and_normalize_schedule_restriction
+from products.alerts.backend.presentation.schema import AlertScheduleRestriction, as_drf_validation_error
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
@@ -402,17 +402,12 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=LOGS_DESTINATION_TYPES)))
     def get_destination_types(self, obj: LogsAlertConfiguration) -> list[str]:
-        # Only template_id is read. Reading the whole destination would pull its stored
-        # inputs, several KB per row, for every alert on the page.
         # N+1 is acceptable: max 20 alerts per team, each query a fast indexed lookup.
-        configured_template_ids = {
-            row.template_id
-            for row in list_owned_alert_destinations(
-                team_id=obj.team_id,
-                alert_ids=[str(obj.id)],
-                allowed_event_ids=LOGS_ALERT_EVENT_IDS,
-            )
-        }
+        configured_template_ids = configured_destination_template_ids(
+            team_id=obj.team_id,
+            alert_id=str(obj.id),
+            allowed_event_ids=LOGS_ALERT_EVENT_IDS,
+        )
         return sorted(
             destination_type.value
             for destination_type in LOGS_DESTINATION_TYPES
@@ -1016,7 +1011,6 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             alert = self._get_locked_alert()
             configs = [
                 build_alert_destination_config(
-                    team_id=alert.team_id,
                     spec=EVENT_KIND_CONFIG[kind],
                     alert_id=str(alert.id),
                     alert_name=alert.name,
@@ -1028,15 +1022,13 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             try:
                 hog_function_ids = create_alert_destination_hog_functions(
                     configs,
-                    team=alert.team,
-                    created_by=cast(User, request.user),
+                    team_id=alert.team_id,
+                    created_by_id=cast(User, request.user).id,
                     alert_id=str(alert.id),
                     allowed_event_ids=LOGS_ALERT_EVENT_IDS,
                 )
             except AlertDestinationValidationError as error:
-                if error.field:
-                    raise ValidationError({error.field: [error.message]})
-                raise ValidationError(error.message)
+                raise as_drf_validation_error(error)
 
         report_user_action(
             request.user,
@@ -1076,9 +1068,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     hog_function_ids=hog_function_ids,
                 )
             except AlertDestinationValidationError as error:
-                if error.field:
-                    raise ValidationError({error.field: [error.message]})
-                raise ValidationError(error.message)
+                raise as_drf_validation_error(error)
 
         report_user_action(
             request.user,

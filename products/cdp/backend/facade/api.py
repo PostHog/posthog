@@ -7,12 +7,11 @@ keep the DRF/serializer import chain off config-only import paths.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import UUID
 
-if TYPE_CHECKING:
-    from posthog.models.team import Team
-    from posthog.models.user import User
+from posthog.models.team import Team
+from posthog.models.user import User
 
 _B = "products.cdp.backend."
 
@@ -23,20 +22,23 @@ __all__ = [*sorted(_LAZY), "create_hog_function"]
 
 def create_hog_function(
     *,
-    team: Team,
+    team_id: int,
     payload: dict[str, Any],
-    created_by: User,
+    created_by_id: int,
     allow_managed_alert_destination: bool = False,
 ) -> UUID:
     """Create one hog function from an already-built payload and return its id.
 
-    Callers outside this product have no DRF request to take an acting user from, so
-    `created_by` comes in directly.
+    Callers outside this product have no DRF request to take an acting user from, so the
+    acting user comes in as an id. Both rows are resolved here so no model crosses the
+    boundary; the call already writes a row, so two more point lookups do not change its cost.
     """
     # Same reason as _LAZY below: the serializer drags DRF, so it stays off this module's
     # import path.
     from products.cdp.backend.api.hog_function import HogFunctionSerializer  # noqa: PLC0415
 
+    team = Team.objects.get(id=team_id)
+    created_by = User.objects.get(id=created_by_id)
     serializer = HogFunctionSerializer(
         data=payload,
         context={

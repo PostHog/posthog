@@ -102,11 +102,10 @@ def _slack_blocks() -> list[Any]:
 
 
 def build_insight_alert_slack_config(
-    *, team_id: int, alert_id: str, alert_name: str | None, data: AlertDestinationData
+    *, alert_id: str, alert_name: str | None, data: AlertDestinationData
 ) -> AlertDestinationConfig:
     channel_name = data.get("slack_channel_name") or "channel"
     return AlertDestinationConfig(
-        team_id=team_id,
         payload={
             "type": "internal_destination",
             "enabled": True,

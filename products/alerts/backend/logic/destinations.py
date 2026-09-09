@@ -20,8 +20,6 @@ from prometheus_client import Counter
 from posthog.cdp.internal_events import InternalEventEvent, flush_internal_events_producer, produce_internal_event
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
-from posthog.models.team import Team
-from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 
 from products.alerts.backend.facade.contracts import (
@@ -38,8 +36,6 @@ from products.cdp.backend.facade.api import create_hog_function
 from products.cdp.backend.facade.models import HogFunction
 
 logger = structlog.get_logger(__name__)
-
-ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS = 10.0
 
 ALERT_INTERNAL_EVENT_DELIVERY_FAILURES = Counter(
     "posthog_alert_internal_event_delivery_failures_total",
@@ -160,13 +156,27 @@ def list_owned_alert_destinations(
         OwnedAlertDestination(
             hog_function_id=hog_function_id,
             template_id=template_id,
-            enabled=row_enabled,
             filters=filters if isinstance(filters, dict) else None,
         )
-        for hog_function_id, template_id, row_enabled, filters in queryset.values_list(
-            "id", "template_id", "enabled", "filters"
-        )
+        for hog_function_id, template_id, filters in queryset.values_list("id", "template_id", "filters")
     )
+
+
+def configured_destination_template_ids(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> frozenset[str]:
+    """The distinct HogFunction templates one alert has a destination for.
+
+    One indexed column with DISTINCT, because a list serializer runs this once per alert and
+    reading whole rows would pull their stored inputs, several KB each.
+    """
+    template_ids = (
+        owned_alert_destinations_qs(team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids)
+        .values_list("template_id", flat=True)
+        .distinct()
+    )
+    # The queryset filters template_id__in, so no row it returns has a null template.
+    return frozenset(cast(Collection[str], template_ids))
 
 
 def _active_alert_destinations_qs(
@@ -207,21 +217,21 @@ def _raise_if_alert_already_has_these_destination_configs(
 def create_alert_destination_hog_functions(
     configs: list[AlertDestinationConfig],
     *,
-    team: Team,
-    created_by: User,
+    team_id: int,
+    created_by_id: int,
     alert_id: str,
     allowed_event_ids: Collection[str],
 ) -> tuple[UUID, ...]:
     """Persist one HogFunction per config and return their ids.
 
-    Every config belongs to `team`; the caller builds them for one alert at a time.
+    Every config belongs to `team_id`; the caller builds them for one alert at a time.
     """
     if not configs:
         return ()
     created_ids: list[UUID] = []
     with transaction.atomic():
         _raise_if_alert_already_has_these_destination_configs(
-            team_id=team.id,
+            team_id=team_id,
             alert_id=alert_id,
             allowed_event_ids=allowed_event_ids,
             configs=configs,
@@ -229,13 +239,13 @@ def create_alert_destination_hog_functions(
         for config in configs:
             created_ids.append(
                 create_hog_function(
-                    team=team,
+                    team_id=team_id,
                     payload=config.payload,
-                    created_by=created_by,
+                    created_by_id=created_by_id,
                     allow_managed_alert_destination=True,
                 )
             )
-        _reload_hog_functions_after_commit(team_id=team.id, hog_function_ids=created_ids)
+        _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=created_ids)
     return tuple(created_ids)
 
 
