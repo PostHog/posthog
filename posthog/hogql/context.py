@@ -14,6 +14,7 @@ from posthog.week_start_day import WeekStartDay
 if TYPE_CHECKING:
     from posthog.schema import DataWarehouseSyncWarning, HogQLNotice, HogQLQueryModifiers
 
+    from posthog.hogql import ast
     from posthog.hogql.database.database import Database
     from posthog.hogql.database.models import Table
     from posthog.hogql.observability import HogQLTypeObservability
@@ -116,6 +117,11 @@ class HogQLContext:
     # Data warehouse sync warnings collected while resolving warehouse tables referenced by the query.
     # Keyed by (table_id, schema_name) to dedupe when a table is referenced multiple times.
     data_warehouse_sync_warnings: dict[tuple[str, str], "DataWarehouseSyncWarning"] = field(default_factory=dict)
+
+    # Persons subqueries produced by select_from_persons_table while resolving this query. Recorded
+    # here because the query scan checks must find them in the prepared tree, and the tree gives no
+    # other way to tell that subquery apart from any other read of the raw persons table.
+    persons_selects: list["ast.SelectQuery"] = field(default_factory=list, compare=False, repr=False)
 
     # Resources with object-level access restrictions referenced by the query, collected while printing
     # system tables. A set dedupes when several system tables share an access scope (e.g. system.dashboards

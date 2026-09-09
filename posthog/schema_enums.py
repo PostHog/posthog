@@ -3861,6 +3861,25 @@ class LimitContext(Enum):
     NONE_TYPE_NONE = None
 
 
+class QueryScanFindingKind(StrEnum):
+    NO_EVENT_FILTER = "no_event_filter"
+    EVENT_FILTER_NOT_USED = "event_filter_not_used"
+    NO_START_DATE = "no_start_date"
+    PERSONS_JOIN = "persons_join"
+    ALL_EVENTS = "all_events"
+    ALL_TIME = "all_time"
+
+
+class QueryScanFindingReason(StrEnum):
+    IN_OR = "in_or"
+    WRAPPED = "wrapped"
+    NEGATED = "negated"
+    DYNAMIC = "dynamic"
+    NOT_PRUNED = "not_pruned"
+    COLUMN = "column"
+    FILTERS = "filters"
+
+
 class QueryScanMode(StrEnum):
     LOG_ONLY = "log_only"
     SHOW = "show"

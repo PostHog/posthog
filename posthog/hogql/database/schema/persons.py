@@ -150,6 +150,7 @@ def select_from_persons_table(
             select.where = ast.CompareOperation(
                 left=ast.Field(chain=["id"]), right=inner_select, op=ast.CompareOperationOp.In
             )
+            context.persons_selects.append(select)
             return select
 
     if version == PersonsArgMaxVersion.V2:
@@ -261,6 +262,7 @@ def select_from_persons_table(
         elif where:
             select.where = where
 
+    context.persons_selects.append(select)
     return select
 
 
