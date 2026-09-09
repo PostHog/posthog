@@ -614,7 +614,7 @@ export interface mcpDashboardOverviewLogicMeta {
         dailyActivity: (activityRows: ActivityRow[], bucketKeys: string[]) => DailyActivity
         toolDailySeries: (toolDailyRows: ToolDailyRow[], bucketKeys: string[]) => ToolDailySeries
         notableSessions: (sessionRows: SessionRow[]) => NotableSession[]
-        hasKnownModelData: (modelRows: any) => boolean
+        hasKnownModelData: (modelRows: ModelRow[]) => boolean
         intentClusterCount: (totalClusterCount: number) => KPIMetric
     }
 }
