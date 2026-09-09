@@ -31,6 +31,12 @@
                     <p style="color: #666; margin: 4px 0;">This recalculation is already terminal.</p>
                 {% endif %}
                 <button type="submit"
+                        formaction="{{ retry_recalculation_url }}"
+                        formmethod="post"
+                        formnovalidate
+                        class="button"
+                        style="padding: 8px 14px">Retry this recalculation</button>
+                <button type="submit"
                         formaction="{{ start_recalculation_url }}"
                         formmethod="post"
                         formnovalidate
