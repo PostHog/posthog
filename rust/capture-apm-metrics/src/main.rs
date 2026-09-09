@@ -10,7 +10,7 @@ use axum::{extract::DefaultBodyLimit, http::Method, routing::get, routing::post,
 use capture::metrics_middleware::track_metrics;
 use capture_apm_metrics::config::Config;
 use capture_apm_metrics::prometheus;
-use capture_apm_metrics::series_label_gate::{spawn_redis_writer, SeriesLabelGate};
+use capture_apm_metrics::series_label_gate::{spawn_redis_writer, CacheLimits, SeriesLabelGate};
 use capture_apm_metrics::service::{export_metrics_http, MetricsService};
 use capture_logs::authorizer::Authorizer;
 use capture_logs::kafka::KafkaSink;
@@ -77,6 +77,10 @@ pub async fn index() -> &'static str {
 async fn start_series_label_gate(config: &Config) -> Arc<SeriesLabelGate> {
     let window = Duration::from_secs(config.metrics_series_label_interval_secs);
     let enabled = config.metrics_series_label_gate_enabled;
+    let limits = CacheLimits {
+        max_entries: config.metrics_series_cache_max_entries,
+        max_entries_per_token: config.metrics_series_cache_max_entries_per_token,
+    };
     info!(
         "Series label gate {} (window {}s)",
         if enabled {
@@ -89,7 +93,7 @@ async fn start_series_label_gate(config: &Config) -> Arc<SeriesLabelGate> {
 
     let Some(redis_url) = config.redis_url.clone() else {
         info!("REDIS_URL unset, series label gate runs with the local cache only");
-        let gate = SeriesLabelGate::local_only(window, enabled);
+        let gate = SeriesLabelGate::local_only(window, enabled, limits);
         gate.spawn_pruner();
         return gate;
     };
@@ -111,13 +115,13 @@ async fn start_series_label_gate(config: &Config) -> Arc<SeriesLabelGate> {
             error!(
                 "Could not connect to Redis, series label gate runs with the local cache only: {e}"
             );
-            let gate = SeriesLabelGate::local_only(window, enabled);
+            let gate = SeriesLabelGate::local_only(window, enabled, limits);
             gate.spawn_pruner();
             return gate;
         }
     };
 
-    let (gate, rx) = SeriesLabelGate::new(window, enabled);
+    let (gate, rx) = SeriesLabelGate::new(window, enabled, limits);
     gate.seed_from_redis(client.as_ref(), seed_timeout).await;
     gate.spawn_redis_puller(Arc::clone(&client), pull_interval, seed_timeout);
     gate.spawn_pruner();

@@ -8,9 +8,15 @@
 //! new series are pushed from a background task, and the cache is pulled from
 //! Redis at startup and on an interval. Every Redis failure is ignored, which
 //! can only make labels go out more often, never less.
+//!
+//! Ingestion input drives the cache, so it is bounded. A global cap and a
+//! per-token cap limit how many series one pod remembers; a row that finds a
+//! cap full keeps its labels and is not cached. The same "more labels, never
+//! less" direction as a Redis failure.
 
 use std::collections::BTreeMap;
 use std::hash::Hasher;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -42,8 +48,30 @@ pub type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
 /// Gate key and the unix second its labels went out.
 type SeenSeries = (u64, i64);
 
+/// Upper bounds on the local cache. Both count entries, not bytes; one entry
+/// is a few tens of bytes.
+#[derive(Debug, Clone, Copy)]
+pub struct CacheLimits {
+    /// Entries across all tokens, including series pulled from Redis.
+    pub max_entries: usize,
+    /// Entries one token can hold. Series pulled from Redis carry no token and
+    /// count only toward `max_entries`.
+    pub max_entries_per_token: usize,
+}
+
+struct Entry {
+    last_seen: i64,
+    /// `None` for a series pulled from Redis, whose token is unknown here.
+    token_hash: Option<u64>,
+}
+
 pub struct SeriesLabelGate {
-    cache: DashMap<u64, i64>,
+    cache: DashMap<u64, Entry>,
+    /// Exact entry count. `DashMap::len` walks every shard, and the request
+    /// path checks the cap per row.
+    len: AtomicUsize,
+    per_token: DashMap<u64, usize>,
+    limits: CacheLimits,
     tx: Option<mpsc::Sender<SeenSeries>>,
     window_secs: i64,
     enabled: bool,
@@ -52,25 +80,39 @@ pub struct SeriesLabelGate {
 
 impl SeriesLabelGate {
     /// Gate backed by Redis. The receiver goes to [`spawn_redis_writer`].
-    pub fn new(window: Duration, enabled: bool) -> (Arc<Self>, mpsc::Receiver<SeenSeries>) {
+    pub fn new(
+        window: Duration,
+        enabled: bool,
+        limits: CacheLimits,
+    ) -> (Arc<Self>, mpsc::Receiver<SeenSeries>) {
         let (tx, rx) = mpsc::channel(WRITER_CHANNEL_CAPACITY);
-        let gate = Self::build(window, enabled, Some(tx), Arc::new(unix_now));
+        let gate = Self::build(window, enabled, limits, Some(tx), Arc::new(unix_now));
         (Arc::new(gate), rx)
     }
 
     /// Gate with the local cache only. Used when `REDIS_URL` is unset.
-    pub fn local_only(window: Duration, enabled: bool) -> Arc<Self> {
-        Arc::new(Self::build(window, enabled, None, Arc::new(unix_now)))
+    pub fn local_only(window: Duration, enabled: bool, limits: CacheLimits) -> Arc<Self> {
+        Arc::new(Self::build(
+            window,
+            enabled,
+            limits,
+            None,
+            Arc::new(unix_now),
+        ))
     }
 
     fn build(
         window: Duration,
         enabled: bool,
+        limits: CacheLimits,
         tx: Option<mpsc::Sender<SeenSeries>>,
         clock: Clock,
     ) -> Self {
         Self {
             cache: DashMap::new(),
+            len: AtomicUsize::new(0),
+            per_token: DashMap::new(),
+            limits,
             tx,
             window_secs: window.as_secs() as i64,
             enabled,
@@ -83,9 +125,11 @@ impl SeriesLabelGate {
     /// `has_labels = false`. Synchronous: never waits on Redis.
     pub fn apply(&self, token: &str, rows: &mut [KafkaMetricRow]) {
         let now = (self.clock)();
+        let token_hash = token_key(token);
         let mut sent = 0u64;
         let mut skipped = 0u64;
         let mut queue_full = 0u64;
+        let mut cache_full = 0u64;
 
         for row in rows.iter_mut() {
             let key = gate_key(token, row.series_fingerprint);
@@ -97,8 +141,14 @@ impl SeriesLabelGate {
                 continue;
             }
 
-            self.cache.insert(key, now);
+            // The row keeps its labels either way. Only a cached series is
+            // pushed to Redis, so other pods never learn about series this
+            // pod refused to remember.
             sent += 1;
+            if !self.remember(key, now, Some(token_hash)) {
+                cache_full += 1;
+                continue;
+            }
             if let Some(tx) = &self.tx {
                 if tx.try_send((key, now)).is_err() {
                     queue_full += 1;
@@ -111,12 +161,76 @@ impl SeriesLabelGate {
         if queue_full > 0 {
             counter!("capture_metrics_series_redis_queue_full").increment(queue_full);
         }
+        if cache_full > 0 {
+            counter!("capture_metrics_series_cache_full", "source" => "request")
+                .increment(cache_full);
+        }
     }
 
     fn seen_within_window(&self, key: u64, now: i64) -> bool {
         self.cache
             .get(&key)
-            .is_some_and(|last| now - *last < self.window_secs)
+            .is_some_and(|entry| now - entry.last_seen < self.window_secs)
+    }
+
+    /// Record that `key` was labelled at `seen_at`. An entry past its window
+    /// is refreshed in place and keeps its slot. A new entry needs a free slot
+    /// under both caps; returns `false` when there is none.
+    fn remember(&self, key: u64, seen_at: i64, token_hash: Option<u64>) -> bool {
+        match self.cache.entry(key) {
+            dashmap::Entry::Occupied(mut slot) => {
+                slot.get_mut().last_seen = seen_at;
+                true
+            }
+            dashmap::Entry::Vacant(slot) => {
+                if !self.reserve(token_hash) {
+                    return false;
+                }
+                slot.insert(Entry {
+                    last_seen: seen_at,
+                    token_hash,
+                });
+                true
+            }
+        }
+    }
+
+    /// Take one slot under the global cap and, when the token is known, its
+    /// per-token cap. Undoes the global take when the per-token cap is full.
+    fn reserve(&self, token_hash: Option<u64>) -> bool {
+        if self.len.fetch_add(1, Ordering::AcqRel) >= self.limits.max_entries {
+            self.len.fetch_sub(1, Ordering::AcqRel);
+            return false;
+        }
+        let Some(token_hash) = token_hash else {
+            return true;
+        };
+        let mut count = self.per_token.entry(token_hash).or_insert(0);
+        if *count >= self.limits.max_entries_per_token {
+            drop(count);
+            self.len.fetch_sub(1, Ordering::AcqRel);
+            return false;
+        }
+        *count += 1;
+        true
+    }
+
+    /// Drop entries older than the window and release their slots.
+    fn prune(&self, now: i64) {
+        self.cache.retain(|_, entry| {
+            if now - entry.last_seen < self.window_secs {
+                return true;
+            }
+            self.len.fetch_sub(1, Ordering::AcqRel);
+            if let Some(token_hash) = entry.token_hash {
+                if let Some(mut count) = self.per_token.get_mut(&token_hash) {
+                    *count = count.saturating_sub(1);
+                }
+            }
+            false
+        });
+        self.per_token.retain(|_, count| *count > 0);
+        gauge!("capture_metrics_series_cache_size").set(self.len.load(Ordering::Acquire) as f64);
     }
 
     /// Read every series labelled by any pod in the current window. Runs once
@@ -158,16 +272,28 @@ impl SeriesLabelGate {
             .map_err(|_| PullError::Timeout)??;
 
         let mut merged = 0usize;
+        let mut cache_full = 0u64;
         for member in members {
             let Ok(key) = member.parse::<u64>() else {
                 continue;
             };
-            if let dashmap::Entry::Vacant(slot) = self.cache.entry(key) {
-                slot.insert(now - seed_jitter(key, self.window_secs));
-                merged += 1;
+            let dashmap::Entry::Vacant(slot) = self.cache.entry(key) else {
+                continue;
+            };
+            if !self.reserve(None) {
+                cache_full += 1;
+                continue;
             }
+            slot.insert(Entry {
+                last_seen: now - seed_jitter(key, self.window_secs),
+                token_hash: None,
+            });
+            merged += 1;
         }
         counter!("capture_metrics_series_redis_pulled").increment(merged as u64);
+        if cache_full > 0 {
+            counter!("capture_metrics_series_cache_full", "source" => "pull").increment(cache_full);
+        }
         Ok(merged)
     }
 
@@ -210,9 +336,7 @@ impl SeriesLabelGate {
             ticker.tick().await;
             loop {
                 ticker.tick().await;
-                let now = (gate.clock)();
-                gate.cache.retain(|_, last| now - *last < gate.window_secs);
-                gauge!("capture_metrics_series_cache_size").set(gate.cache.len() as f64);
+                gate.prune((gate.clock)());
             }
         });
     }
@@ -224,7 +348,7 @@ impl SeriesLabelGate {
 
     #[cfg(test)]
     fn seen_at(&self, key: u64) -> Option<i64> {
-        self.cache.get(&key).map(|v| *v)
+        self.cache.get(&key).map(|entry| entry.last_seen)
     }
 }
 
@@ -330,6 +454,14 @@ fn gate_key(token: &str, series_fingerprint: i64) -> u64 {
     hasher.finish()
 }
 
+/// Per-token accounting key. Hashed so the token itself is not kept in memory
+/// beyond the request.
+fn token_key(token: &str) -> u64 {
+    let mut hasher = SipHasher13::new();
+    hasher.write(token.as_bytes());
+    hasher.finish()
+}
+
 fn strip_labels(row: &mut KafkaMetricRow) {
     row.has_labels = false;
     row.attributes.clear();
@@ -367,10 +499,26 @@ mod tests {
 
     const WINDOW: Duration = Duration::from_secs(1800);
     const START: i64 = 1_800_000_000;
+    const NO_LIMITS: CacheLimits = CacheLimits {
+        max_entries: usize::MAX,
+        max_entries_per_token: usize::MAX,
+    };
 
     fn gate(
         enabled: bool,
         with_redis: bool,
+    ) -> (
+        SeriesLabelGate,
+        Arc<AtomicI64>,
+        Option<mpsc::Receiver<SeenSeries>>,
+    ) {
+        gate_with_limits(enabled, with_redis, NO_LIMITS)
+    }
+
+    fn gate_with_limits(
+        enabled: bool,
+        with_redis: bool,
+        limits: CacheLimits,
     ) -> (
         SeriesLabelGate,
         Arc<AtomicI64>,
@@ -385,7 +533,11 @@ mod tests {
         } else {
             (None, None)
         };
-        (SeriesLabelGate::build(WINDOW, enabled, tx, clock), now, rx)
+        (
+            SeriesLabelGate::build(WINDOW, enabled, limits, tx, clock),
+            now,
+            rx,
+        )
     }
 
     fn row(series_fingerprint: i64) -> KafkaMetricRow {
@@ -445,6 +597,88 @@ mod tests {
         let mut rows = vec![row(7)];
         gate.apply("token-a", &mut rows);
         assert_labelled(&rows[0]);
+    }
+
+    #[test]
+    fn global_cap_leaves_extra_series_labelled_and_uncached() {
+        let limits = CacheLimits {
+            max_entries: 2,
+            ..NO_LIMITS
+        };
+        let (gate, now, rx) = gate_with_limits(true, true, limits);
+        let mut rx = rx.unwrap();
+
+        let mut rows = vec![row(1), row(2), row(3), row(3)];
+        gate.apply("token-a", &mut rows);
+        assert_labelled(&rows[2]);
+        // Series 3 was never cached, so its repeat is labelled too.
+        assert_labelled(&rows[3]);
+        assert_eq!(gate.cache_len(), 2);
+        // Only cached series reach Redis.
+        assert_eq!(rx.try_recv().unwrap().0, gate_key("token-a", 1));
+        assert_eq!(rx.try_recv().unwrap().0, gate_key("token-a", 2));
+        assert!(rx.try_recv().is_err());
+
+        // A refresh after the window keeps its slot and does not need a new one.
+        now.fetch_add(WINDOW.as_secs() as i64, Ordering::SeqCst);
+        let mut rows = vec![row(1), row(1)];
+        gate.apply("token-a", &mut rows);
+        assert_labelled(&rows[0]);
+        assert_stripped(&rows[1]);
+        assert_eq!(gate.cache_len(), 2);
+
+        // Pruning frees the slots.
+        gate.prune(now.load(Ordering::SeqCst));
+        assert_eq!(gate.cache_len(), 1);
+        let mut rows = vec![row(3), row(3)];
+        gate.apply("token-a", &mut rows);
+        assert_stripped(&rows[1]);
+        assert_eq!(gate.cache_len(), 2);
+    }
+
+    #[test]
+    fn per_token_cap_does_not_starve_other_tokens() {
+        let limits = CacheLimits {
+            max_entries_per_token: 1,
+            ..NO_LIMITS
+        };
+        let (gate, now, _) = gate_with_limits(true, false, limits);
+
+        let mut rows = vec![row(1), row(2), row(2)];
+        gate.apply("token-a", &mut rows);
+        assert_labelled(&rows[2]);
+
+        let mut rows = vec![row(1), row(1)];
+        gate.apply("token-b", &mut rows);
+        assert_stripped(&rows[1]);
+        assert_eq!(gate.cache_len(), 2);
+
+        now.fetch_add(WINDOW.as_secs() as i64, Ordering::SeqCst);
+        gate.prune(now.load(Ordering::SeqCst));
+        let mut rows = vec![row(2), row(2)];
+        gate.apply("token-a", &mut rows);
+        assert_stripped(&rows[1]);
+    }
+
+    #[tokio::test]
+    async fn pull_stops_at_the_global_cap() {
+        let limits = CacheLimits {
+            max_entries: 1,
+            ..NO_LIMITS
+        };
+        let (gate, _, _) = gate_with_limits(true, false, limits);
+        let mut client = MockRedisClient::new();
+        for key in bucket_keys(START - WINDOW.as_secs() as i64, START) {
+            client = client.zrangebyscore_ret(&key, vec![]);
+        }
+        let client = client.zrangebyscore_ret(&bucket_key(START), vec!["1".into(), "2".into()]);
+
+        let merged = gate
+            .pull_from_redis(&client, START - 60, Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert_eq!(merged, 1);
+        assert_eq!(gate.cache_len(), 1);
     }
 
     #[test]
