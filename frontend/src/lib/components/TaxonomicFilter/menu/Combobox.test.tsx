@@ -1060,6 +1060,8 @@ describe('MenuFilterCombobox', () => {
             expect(apiGet.mock.calls.some(([url]: [string]) => url.includes('exclude_stale=true'))).toBe(true)
         )
 
+        expect(await screen.findByText(/Events with no new data in the last 30 days are hidden/)).toBeInTheDocument()
+
         const callsBeforeOptIn = apiGet.mock.calls.length
         await user.click(await screen.findByText('Include stale events'))
 

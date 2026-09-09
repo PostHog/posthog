@@ -36,6 +36,7 @@ import {
 } from '@posthog/quill'
 
 import type { SeriesRename } from 'lib/components/EntityFilterInfo'
+import { STALE_EVENT_DAYS } from 'lib/constants'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
@@ -1076,14 +1077,20 @@ export function MenuFilterCombobox({
                                                     </div>
                                                 )}
                                                 {canOfferStaleToggle && !emptyState.body && (
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        data-attr="menu-filter-include-stale-events"
-                                                        onClick={handleIncludeStaleEvents}
-                                                    >
-                                                        Include stale events
-                                                    </Button>
+                                                    <>
+                                                        <div className="text-xs text-secondary leading-relaxed">
+                                                            Events with no new data in the last {STALE_EVENT_DAYS} days
+                                                            are hidden. Their history is still in your project.
+                                                        </div>
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            data-attr="menu-filter-include-stale-events"
+                                                            onClick={handleIncludeStaleEvents}
+                                                        >
+                                                            Include stale events
+                                                        </Button>
+                                                    </>
                                                 )}
                                                 {canOfferAllSwitch && !emptyState.body && (
                                                     <Button
