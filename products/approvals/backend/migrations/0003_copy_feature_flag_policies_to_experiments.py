@@ -43,16 +43,15 @@ def copy_policies(apps, schema_editor):
             copy.bypass_roles.set(policy.bypass_roles.all())
 
 
-def remove_copied_policies(apps, schema_editor):
-    ApprovalPolicy = apps.get_model("approvals", "ApprovalPolicy")
-    ApprovalPolicy.objects.filter(action_key__in=ACTION_MAP.values()).delete()
-
-
 class Migration(migrations.Migration):
     dependencies = [
         ("approvals", "0002_alter_changerequest_validation_status"),
     ]
 
     operations = [
-        migrations.RunPython(copy_policies, remove_copied_policies),
+        # The reverse keeps the copies rather than deleting by target key. `action_key` is
+        # writable through the policy API, so such a delete would also remove a policy that
+        # already held the target key and was skipped, and any policy a person writes later.
+        # The copies are inert while the experiment actions are unregistered.
+        migrations.RunPython(copy_policies, migrations.RunPython.noop),
     ]
