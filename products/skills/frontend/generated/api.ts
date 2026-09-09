@@ -26,6 +26,7 @@ import type {
     LLMSkillPublishToCommunityApi,
     LLMSkillRenameApi,
     LLMSkillResolveResponseApi,
+    LLMSkillSearchResponseApi,
     LlmSkillsBundleRetrieveParams,
     LlmSkillsListParams,
     LlmSkillsNameExportRetrieveParams,
@@ -33,6 +34,7 @@ import type {
     LlmSkillsNameFilesRetrieveParams,
     LlmSkillsNameRetrieveParams,
     LlmSkillsResolveNameRetrieveParams,
+    LlmSkillsSearchRetrieveParams,
     PaginatedCommunitySkillListListApi,
     PaginatedLLMSkillListListApi,
     PatchedLLMSkillPublishApi,
@@ -547,6 +549,33 @@ export const llmSkillsResolveNameRetrieve = async (
     options?: RequestInit
 ): Promise<LLMSkillResolveResponseApi> => {
     return apiMutator<LLMSkillResolveResponseApi>(getLlmSkillsResolveNameRetrieveUrl(projectId, skillName, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLlmSkillsSearchRetrieveUrl = (projectId: string, params: LlmSkillsSearchRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/llm_skills/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/llm_skills/search/`
+}
+
+export const llmSkillsSearchRetrieve = async (
+    projectId: string,
+    params: LlmSkillsSearchRetrieveParams,
+    options?: RequestInit
+): Promise<LLMSkillSearchResponseApi> => {
+    return apiMutator<LLMSkillSearchResponseApi>(getLlmSkillsSearchRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

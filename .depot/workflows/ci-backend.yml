@@ -93,19 +93,26 @@
 #   the pool, as canonical did before this cache existed) until then: bounded, documented, and
 #   harmless because the shadow never gates merges.
 # - GITHUB_TOKEN / OTEL_SERVICE_NAME neutralized (ambient on Depot, not on GHA)
-# - GitHub App IDs: canonical reads several from org variables (vars.GH_APP_*_APP_ID);
-#   the shadow strips those app-token steps, so there is nothing to mirror
+# - GitHub App tokens: the mint steps' vars.* / secrets.* resolve from Depot's store, not
+#   GitHub's. A name missing there makes the setup-action mints (continue-on-error) fall
+#   back to the ambient GITHUB_TOKEN, the Depot Code Access installation token that every
+#   Depot CI job across repos shares, and fails the paths-filter mint outright. Mints whose
+#   only consumer is a stripped side effect (migration-risk check run, OpenAPI auto-commit,
+#   snapshot commit, telemetry) are stripped with it.
+# - `depot ci run` fires with event_name `api`; the sample gate treats it like
+#   workflow_dispatch. Depot caps an inline workflow at 64 KiB, which this file exceeds, so
+#   trial a branch with `depot ci dispatch --workflow ci-backend.yml --ref <branch>` instead.
 # - Three data-modeling tests deselected (Depot-only MinIO 403 quarantine)
 # - COMPOSE_PROJECT_NAME pinned to posthog because bin/wait-for-docker filters by that
 #   project name and checkout directory names are not stable across CI providers
 # - Canonical baseline checkouts and comparisons use PostHog/posthog directly so fork
 #   dispatches compare against the authoritative upstream master branch
-# - Docker Hub login reads Depot's secret store (secrets.DOCKERHUB_*) rather than
-#   canonical's env.DOCKERHUB_USERNAME / vars.DOCKERHUB_USER because Depot never indirects
-#   through env:, so canonical's per-job env-scoping (workflow-level -> job-level,
-#   for the gha-workflow-env-secret Semgrep fix) is depot-exempt. Login is best-effort
-#   because these jobs only pull public images and can fall back to anonymous pulls,
-#   which canonical relies on too.
+# - Docker Hub login reads vars.DOCKERHUB_USER / secrets.DOCKERHUB_TOKEN directly in the
+#   step `if:` rather than through canonical's env.DOCKERHUB_USERNAME / env.DOCKERHUB_TOKEN,
+#   because Depot never indirects through env:, so canonical's per-job env-scoping
+#   (workflow-level -> job-level, for the gha-workflow-env-secret Semgrep fix) is
+#   depot-exempt. Login is best-effort because these jobs only pull public images and can
+#   fall back to anonymous pulls, which canonical relies on too.
 # - Path-filter persons-SQL is folded into migrations
 # - Snapshot mode matches canonical, but snapshot patch upload/commit is stripped;
 #   canonical's per-schema-leg patch scoping (legacy legs exclude *.new_events_schema.ambr,
@@ -133,7 +140,7 @@ name: '[optional, does not block merge] Backend CI'
 # master switch and the eligible pull_request sample rate: when >0, source PR runs are sampled
 # at that percent. Trunk merge-queue PRs and draft PRs labeled `no-ci` are excluded before a
 # runner is allocated. Master (push) runs only check-migrations to prime the schema cache (test
-# matrices are skipped there); workflow_dispatch always runs. The `sample` job rolls deterministic
+# matrices are skipped there); manual triggers always run. The `sample` job rolls deterministic
 # per-run dice; `changes` (root of the needs graph) only runs when sampled in, so the whole
 # workflow cascades off on a miss. This is a Depot variable, NOT a GitHub one —
 # Depot CI reads its own `vars` store. Set it with:
@@ -217,12 +224,13 @@ permissions:
     actions: read
     pull-requests: read
 jobs:
-    # Manual dispatch bypasses sampling so an explicit full run cannot silently no-op.
+    # A manual trigger bypasses sampling so an explicit full run cannot silently no-op.
     # Automatic runs still require a nonzero sampling percentage. Exclude automatic
     # runs that only duplicate work before allocating even this small runner.
     sample:
         if: >-
             github.event_name == 'workflow_dispatch'
+            || github.event_name == 'api'
             || (vars.CI_DEPOT_SHADOW_PERCENT != ''
                 && vars.CI_DEPOT_SHADOW_PERCENT != '0'
                 && (github.event_name != 'pull_request'
@@ -243,8 +251,8 @@ jobs:
                   EVENT: ${{ github.event_name }}
               run: |
                   set -euo pipefail
-                  # Only pull_request is sampled; push and workflow_dispatch always run
-                  # when enabled (sampling them would skip cache priming or no-op a dispatch).
+                  # Only pull_request is sampled; any other event that reaches this job always
+                  # runs (sampling it would skip cache priming or no-op a manual trigger).
                   if [ "$EVENT" != "pull_request" ]; then
                       echo "sampled=true" >> "$GITHUB_OUTPUT"
                       echo "::notice::Optional Backend CI: $EVENT always runs when enabled."
@@ -307,6 +315,12 @@ jobs:
                   # Use docker to clean up files created by containers
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.depot/actions/paths-filter
               id: filter
               # No `!= 'schedule'` arm, unlike canonical: this shadow has no `schedule`
@@ -316,6 +330,7 @@ jobs:
               # .agents/skills/authoring-ci-workflows/SKILL.md.
               if: github.event_name != 'push' # Run all tests on master push
               with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
                   filters: |
                       backend:
@@ -669,12 +684,25 @@ jobs:
                       MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
                       echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
-            # Depot shadow: canonical threads a setup-action app token into
-            # pnpm-install; mint stripped here (secret not available on Depot).
+            # Dedicated app: every "Mint setup-action GitHub token" step in this file
+            # draws on posthog-devex-general rather than the posthog-setup-actions app
+            # the other workflows share. Backend CI is the largest single consumer of
+            # setup-action calls in the repo, enough to threaten a shared 15k/hr bucket
+            # at merge peaks, so it gets one to itself.
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+                  skip-token-revoke: true
             - name: Install pnpm dependencies
               uses: ./.depot/actions/pnpm-install
               with:
                   install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             # turbo-discover.js runs .github/scripts/tach_map.py under `uv run
             # --no-project` for the dependent cascade; the script pins tach, so no
             # Python project sync is needed. A missing uv widens the cascade to
@@ -851,11 +879,11 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
             - name: Log in to Docker Hub
-              if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+              if: ${{ vars.DOCKERHUB_USER != '' && secrets.DOCKERHUB_TOKEN != '' }}
               continue-on-error: true
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
             - name: Start services
               env:
@@ -867,17 +895,27 @@ jobs:
                   bin/ci-wait-for-docker launch --background --down \
                     db redis7 clickhouse zookeeper kafka objectstorage \
                     temporal elasticsearch objectstorage-azure
-            # Depot shadow: canonical threads a setup-action app token into both
-            # pnpm-install and setup-python; mint stripped here (secret not
-            # available on Depot), so setup-python keeps the bot PAT.
+            # Dedicated app: this product matrix alone is ~half the offloadable
+            # setup-action volume, enough to threaten any shared 15k/hr bucket.
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
+                  skip-token-revoke: true
             - parallel:
                   - name: Set up pnpm and Node
                     uses: ./.depot/actions/setup-pnpm
+                    with:
+                        token: ${{ steps.setup-gh-token.outputs.token || github.token }}
                   - name: Set up Python
                     uses: ./.depot/actions/setup-python-cached
                     with:
                         python-version: 3.13.13
-                        token: ${{ secrets.POSTHOG_BOT_PAT }}
+                        token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             # Needs pnpm from the block above, so it cannot run inside it.
             - name: Install turbo
               uses: ./.github/actions/setup-turbo
@@ -1077,10 +1115,20 @@ jobs:
         runs-on: depot-ubuntu-24.04
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+                  skip-token-revoke: true
             - name: Set up Python
               uses: ./.depot/actions/setup-python-cached
               with:
                   python-version: 3.13.13
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
@@ -1223,20 +1271,30 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
             - name: Log in to Docker Hub
-              if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+              if: ${{ vars.DOCKERHUB_USER != '' && secrets.DOCKERHUB_TOKEN != '' }}
               continue-on-error: true
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
             - name: Stop/Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
               run: bin/ci-wait-for-docker launch --background --down db redis7 clickhouse
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+                  skip-token-revoke: true
             - name: Set up Python
               uses: ./.depot/actions/setup-python-cached
               with:
                   python-version: 3.13.13
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             - name: Install uv
               id: setup-uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -1476,20 +1534,30 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
             - name: Log in to Docker Hub
-              if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+              if: ${{ vars.DOCKERHUB_USER != '' && secrets.DOCKERHUB_TOKEN != '' }}
               continue-on-error: true
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
             - name: Stop/Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
               run: bin/ci-wait-for-docker launch --background --down db clickhouse
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+                  skip-token-revoke: true
             - name: Set up Python
               uses: ./.depot/actions/setup-python-cached
               with:
                   python-version: 3.13.13
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             - name: Install uv
               id: setup-uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -1510,6 +1578,7 @@ jobs:
               uses: ./.depot/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/root --filter=@posthog/frontend... --filter=@posthog/mcp... install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
@@ -1905,11 +1974,11 @@ jobs:
             # Pre-tests
             # Copies the fully versioned UDF xml file for use in CI testing
             - name: Log in to Docker Hub
-              if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+              if: ${{ vars.DOCKERHUB_USER != '' && secrets.DOCKERHUB_TOKEN != '' }}
               continue-on-error: true
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
             - name: Stop/Start stack with Docker Compose
               shell: bash
@@ -1925,6 +1994,15 @@ jobs:
             - name: Add service hostnames to /etc/hosts
               shell: bash
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+                  skip-token-revoke: true
             # Tool cache steps inlined rather than the setup-python-cached composite:
             # this job checks out the PR head ref, which cannot resolve a local
             # action that only exists on master until the branch rebases. The
@@ -1941,6 +2019,7 @@ jobs:
                     uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
                     with:
                         python-version: ${{ matrix.python-version }}
+                        token: ${{ steps.setup-gh-token.outputs.token || github.token }}
                   # setup-sqlx-cli resolves from the PR head ref here, so an unrebased branch
                   # gets a version that installs no Rust. Delete once open branches rebase.
                   - name: Install Rust
@@ -1999,6 +2078,7 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             - name: Install canvas builder dependencies
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               shell: bash

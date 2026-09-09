@@ -6,6 +6,9 @@ export function isAccessDeniedError(error: { status?: number; code?: string | nu
     return error.status === 403 && error.code === 'permission_denied'
 }
 
+/** DRF code for `ClickHouseQueryMemoryLimitExceeded` (posthog/exceptions.py). Keep in sync with the backend. */
+export const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
+
 /**
  * A 409 from the approvals gate: the change was policy-gated and a change request was created,
  * or one is already pending. Approval 409 bodies always carry `change_request_id`

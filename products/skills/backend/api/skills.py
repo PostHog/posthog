@@ -2,13 +2,14 @@ from collections.abc import Sequence
 from typing import Any, cast
 from uuid import UUID
 
-from django.db import IntegrityError, transaction
-from django.db.models import Q, QuerySet
+from django.db import IntegrityError, OperationalError, transaction
+from django.db.models import Case, Exists, IntegerField, OuterRef, Q, QuerySet, Value, When
 from django.http import HttpResponse
 
+import psycopg
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -18,6 +19,7 @@ from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
 from posthog.api.monitoring import monitor
@@ -30,6 +32,7 @@ from posthog.auth import (
 )
 from posthog.event_usage import report_user_action
 from posthog.models import User
+from posthog.models.utils import execute_with_timeout
 from posthog.permissions import AccessControlPermission, get_authenticator_scopes, posthog_feature_flag_value
 from posthog.rate_limit import BurstRateThrottle, PersonalApiKeyOrUserRateThrottle, SustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
@@ -87,6 +90,9 @@ from .skill_serializers import (
     LLMSkillRenameSerializer,
     LLMSkillResolveQuerySerializer,
     LLMSkillResolveResponseSerializer,
+    LLMSkillSearchErrorSerializer,
+    LLMSkillSearchQuerySerializer,
+    LLMSkillSearchResponseSerializer,
     LLMSkillSerializer,
     LLMSkillVersionSummarySerializer,
     validate_allowed_tool,
@@ -130,6 +136,37 @@ logger = structlog.get_logger(__name__)
 # Generous ceiling for an uploaded skill zip — per-skill content (body, 200 files × 1 MB) is
 # already bounded by create_skill, this just caps the upload before we read it into memory.
 MAX_IMPORT_ZIP_BYTES = 10_000_000
+SKILL_SEARCH_RESULT_LIMIT = 10
+SKILL_SEARCH_MATCH_LIMIT = 2
+SKILL_SEARCH_EXCERPT_LENGTH = 300
+SKILL_SEARCH_TIMEOUT_MS = 5_000
+
+
+def _content_search_match(content: str, query: str, *, matched_field: str, path: str) -> dict[str, Any] | None:
+    match_index = content.lower().find(query.lower())
+    if match_index == -1:
+        return None
+
+    line = content.count("\n", 0, match_index) + 1
+    line_start = content.rfind("\n", 0, match_index) + 1
+    line_end = content.find("\n", match_index)
+    if line_end == -1:
+        line_end = len(content)
+    line_content = content[line_start:line_end].strip()
+    excerpt_source = line_content or content
+    excerpt_match_index = excerpt_source.lower().find(query.lower())
+    excerpt_start = max(0, excerpt_match_index - SKILL_SEARCH_EXCERPT_LENGTH // 2)
+    excerpt = excerpt_source[excerpt_start : excerpt_start + SKILL_SEARCH_EXCERPT_LENGTH]
+    return {
+        "matched_field": matched_field,
+        "path": path,
+        "line": line,
+        "excerpt": excerpt[:SKILL_SEARCH_EXCERPT_LENGTH],
+    }
+
+
+def _is_markdown_file_query() -> Q:
+    return Q(path__iendswith=".md") | Q(content_type__icontains="markdown")
 
 
 def _file_extension(path: str) -> str:
@@ -274,15 +311,14 @@ class CommunityPublishSustainedThrottle(_CommunityPublishThrottle):
     rate = "20/day"
 
 
-class _SkillBundleThrottle(PersonalApiKeyOrUserRateThrottle):
-    """Throttle for the skill bundle, which a sandbox fetches over OAuth.
+class _SkillUserThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Per-credential throttling for skill endpoints, including OAuth and sessions.
 
     The general BurstRateThrottle/SustainedRateThrottle only count personal-API-key traffic, so an
-    OAuth or session caller would reach the zip build (candidate queries, a file query per skill,
-    DEFLATE of up to MAX_BUNDLE_BYTES) unthrottled. PersonalApiKeyOrUserRateThrottle counts
-    every auth method, but its inherited key idents session and OAuth callers by project, so one
-    user's burst would 429 every other sandbox in the project. Those callers get a per-user bucket
-    instead; a personal API key keeps its own.
+    OAuth or session caller would reach expensive skill operations unthrottled.
+    PersonalApiKeyOrUserRateThrottle counts every auth method, but its inherited key identifies
+    session and OAuth callers by project, so one user's burst would 429 every other user in the
+    project. Those callers get a per-user bucket instead; a personal API key keeps its own.
     """
 
     def get_cache_key(self, request: Request, view: APIView) -> str:
@@ -293,18 +329,28 @@ class _SkillBundleThrottle(PersonalApiKeyOrUserRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": f"user:{request.user.pk}"}
 
 
-class SkillBundleBurstThrottle(_SkillBundleThrottle):
+class SkillBundleBurstThrottle(_SkillUserThrottle):
     # A sandbox fetches the bundle once at session start, so 30/minute clears a burst of concurrent
     # starts for one user while still catching a scripted loop hammering the zip build.
     scope = "skills_bundle_burst"
     rate = "30/minute"
 
 
-class SkillBundleSustainedThrottle(_SkillBundleThrottle):
+class SkillBundleSustainedThrottle(_SkillUserThrottle):
     # A few hundred session starts an hour per user is well beyond normal use and short of what
     # sustained abuse of the 5 MB zip build could cost unthrottled.
     scope = "skills_bundle_sustained"
     rate = "300/hour"
+
+
+class SkillSearchBurstThrottle(_SkillUserThrottle):
+    scope = "skills_search_burst"
+    rate = BurstRateThrottle.rate
+
+
+class SkillSearchSustainedThrottle(_SkillUserThrottle):
+    scope = "skills_search_sustained"
+    rate = SustainedRateThrottle.rate
 
 
 class ZipRenderer(BaseRenderer):
@@ -361,11 +407,13 @@ class LLMSkillViewSet(
             return [*renderers, ZipRenderer()]
         return renderers
 
-    def get_throttles(self):
+    def get_throttles(self) -> list[BaseThrottle]:
         if self.action == "publish_to_community":
             return [CommunityPublishBurstThrottle(), CommunityPublishSustainedThrottle()]
         if self.action == "bundle":
             return [SkillBundleBurstThrottle(), SkillBundleSustainedThrottle()]
+        if self.action == "search":
+            return [SkillSearchBurstThrottle(), SkillSearchSustainedThrottle()]
         if self.action in ["update_by_name", "get_by_name", "resolve_by_name"]:
             return [BurstRateThrottle(), SustainedRateThrottle()]
         return super().get_throttles()
@@ -526,6 +574,135 @@ class LLMSkillViewSet(
         order_by = request.query_params.get("order_by", "-created_at")
         queryset = queryset.order_by(order_by if order_by in ALLOWED_LIST_ORDERINGS else "-created_at", "-id")
         return queryset
+
+    def _get_search_query(self, request: Request) -> str:
+        serializer = LLMSkillSearchQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        return cast(str, serializer.validated_data["query"])
+
+    def _get_search_queryset(self, query: str) -> QuerySet[LLMSkill]:
+        skill_files = LLMSkillFile.objects.filter(skill_id=OuterRef("pk"))
+        queryset = LLMSkill.objects.filter(
+            team=self.team,
+            deleted=False,
+            is_latest=True,
+            category="",
+        ).annotate(
+            search_file_path_match=Exists(skill_files.filter(path__icontains=query)),
+            search_file_content_match=Exists(skill_files.filter(_is_markdown_file_query(), content__icontains=query)),
+        )
+        queryset = self.user_access_control.filter_queryset_by_access_level(queryset, resource="llm_skill")
+        return (
+            queryset.filter(
+                Q(name__icontains=query)
+                | Q(description__icontains=query)
+                | Q(body__icontains=query)
+                | Q(search_file_path_match=True)
+                | Q(search_file_content_match=True)
+            )
+            .annotate(
+                search_rank=Case(
+                    When(name__iexact=query, then=Value(0)),
+                    When(name__icontains=query, then=Value(1)),
+                    When(description__icontains=query, then=Value(2)),
+                    When(body__icontains=query, then=Value(3)),
+                    When(search_file_path_match=True, then=Value(4)),
+                    When(search_file_content_match=True, then=Value(5)),
+                    default=Value(6),
+                    output_field=IntegerField(),
+                )
+            )
+            .order_by("search_rank", "name", "id")[:SKILL_SEARCH_RESULT_LIMIT]
+        )
+
+    def _get_search_matches(self, skill: LLMSkill, query: str) -> list[dict[str, Any]]:
+        matches: list[dict[str, Any]] = []
+        lowered_query = query.lower()
+
+        if lowered_query in skill.name.lower():
+            matches.append({"matched_field": "name", "excerpt": skill.name})
+        if lowered_query in skill.description.lower():
+            match_index = skill.description.lower().find(lowered_query)
+            excerpt_start = max(0, match_index - SKILL_SEARCH_EXCERPT_LENGTH // 2)
+            matches.append(
+                {
+                    "matched_field": "description",
+                    "excerpt": skill.description[excerpt_start : excerpt_start + SKILL_SEARCH_EXCERPT_LENGTH],
+                }
+            )
+        body_match = _content_search_match(skill.body, query, matched_field="body", path="SKILL.md")
+        if body_match is not None:
+            matches.append(body_match)
+
+        if len(matches) < SKILL_SEARCH_MATCH_LIMIT:
+            remaining_match_count = SKILL_SEARCH_MATCH_LIMIT - len(matches)
+            matching_paths = (
+                skill.files.filter(path__icontains=query)
+                .order_by("path")
+                .values_list("path", flat=True)[:remaining_match_count]
+            )
+            for path in matching_paths:
+                matches.append({"matched_field": "file_path", "path": path, "excerpt": path})
+
+        if len(matches) < SKILL_SEARCH_MATCH_LIMIT:
+            remaining_match_count = SKILL_SEARCH_MATCH_LIMIT - len(matches)
+            content_files = (
+                skill.files.filter(_is_markdown_file_query(), content__icontains=query)
+                .order_by("path")
+                .values_list("path", "content")
+            )[:remaining_match_count]
+            for path, content in content_files:
+                match = _content_search_match(
+                    content,
+                    query,
+                    matched_field="file_content",
+                    path=path,
+                )
+                if match is not None:
+                    matches.append(match)
+
+        return matches[:SKILL_SEARCH_MATCH_LIMIT]
+
+    @extend_schema(
+        parameters=[LLMSkillSearchQuerySerializer],
+        responses={
+            200: LLMSkillSearchResponseSerializer,
+            503: OpenApiResponse(
+                response=LLMSkillSearchErrorSerializer,
+                description="The bounded skill search exceeded its database timeout.",
+            ),
+        },
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="search",
+        required_scopes=["llm_skill:read"],
+        pagination_class=None,
+    )
+    @llma_track_latency("llma_skills_search")
+    @monitor(feature=None, endpoint="llma_skills_search", method="GET")
+    def search(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query = self._get_search_query(request)
+        try:
+            with execute_with_timeout(SKILL_SEARCH_TIMEOUT_MS):
+                results = [
+                    {
+                        "name": skill.name,
+                        "description": skill.description,
+                        "matches": self._get_search_matches(skill, query),
+                    }
+                    for skill in self._get_search_queryset(query)
+                ]
+        except OperationalError as err:
+            if not isinstance(err.__cause__, psycopg.errors.QueryCanceled):
+                raise
+            return Response(
+                {"detail": "Skill search timed out. Use a more specific query and try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response({"count": len(results), "results": results})
 
     def get_serializer_class(self):
         if self.action == "list":
