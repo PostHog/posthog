@@ -78,6 +78,7 @@ export const startSessionInput = z.object({
    * narration off, so headless runs never load the tool.
    */
   spokenNarration: z.boolean().optional(),
+  sketchpadId: z.string().optional(),
   /**
    * Matched variant of the `bedrock-llm-gateway` flag. `test` serves this
    * session from Bedrock via the gateway; `control` keeps Anthropic. Absent
@@ -237,6 +238,7 @@ export const reconnectSessionInput = z.object({
   rtkEnabled: z.boolean().optional(),
   /** See startSessionInput.spokenNarration. */
   spokenNarration: z.boolean().optional(),
+  sketchpadId: z.string().optional(),
   /** See startSessionInput.bedrockGatewayVariant. */
   bedrockGatewayVariant: z.enum(BEDROCK_GATEWAY_VARIANTS).optional(),
 });

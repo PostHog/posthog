@@ -518,6 +518,7 @@ export interface SessionServiceDeps {
     claudeCloudSubscriptionEnabled?: boolean;
   };
   usageLimit: { show: (...args: any[]) => any };
+  sketchpadIdForTask?: (taskId: string) => Promise<string | undefined>;
   readonly addDirectoryDialog: { open: boolean };
   taskViewedApi: { markActivity(taskId: string): void };
   queryClient: {
@@ -2323,6 +2324,7 @@ export class SessionService {
         codexModelAccess,
         claudeModelAccess: settingsClaudeModelAccess,
         spokenNarration: spokenNarrationEnabled === true,
+        sketchpadId: await this.d.sketchpadIdForTask?.(taskId),
         bedrockGatewayVariant,
         apiHost: auth.apiHost,
         projectId: auth.projectId,
@@ -2713,6 +2715,7 @@ export class SessionService {
         customInstructions: startCustomInstructions || undefined,
         rtkEnabled: rtkEnabledLocal,
         spokenNarration: spokenNarrationEnabled === true,
+        sketchpadId: await this.d.sketchpadIdForTask?.(taskId),
         bedrockGatewayVariant,
         effort: effortLevelSchema.safeParse(reasoningLevel).success
           ? (reasoningLevel as EffortLevel)

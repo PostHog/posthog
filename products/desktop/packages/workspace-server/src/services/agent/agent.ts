@@ -323,6 +323,7 @@ interface SessionConfig {
   rtkEnabled?: boolean;
   /** The user's spoken-narration setting at session start. */
   spokenNarration?: boolean;
+  sketchpadId?: string;
   /** Matched `bedrock-llm-gateway` variant at session start. */
   bedrockGatewayVariant?: BedrockGatewayVariant;
 }
@@ -1193,6 +1194,9 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
               ...(config.spokenNarration !== undefined && {
                 spokenNarration: config.spokenNarration,
               }),
+              ...(config.sketchpadId !== undefined && {
+                sketchpadId: config.sketchpadId,
+              }),
               ...(config.bedrockGatewayVariant !== undefined && {
                 bedrockGatewayVariant: config.bedrockGatewayVariant,
               }),
@@ -1282,6 +1286,9 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
             ...(config.spokenNarration !== undefined && {
               spokenNarration: config.spokenNarration,
             }),
+            ...(config.sketchpadId !== undefined && {
+              sketchpadId: config.sketchpadId,
+            }),
             ...(config.bedrockGatewayVariant !== undefined && {
               bedrockGatewayVariant: config.bedrockGatewayVariant,
             }),
@@ -1316,6 +1323,9 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
             ...(channelMode && { channelMode }),
             ...(config.spokenNarration !== undefined && {
               spokenNarration: config.spokenNarration,
+            }),
+            ...(config.sketchpadId !== undefined && {
+              sketchpadId: config.sketchpadId,
             }),
             ...(config.bedrockGatewayVariant !== undefined && {
               bedrockGatewayVariant: config.bedrockGatewayVariant,
@@ -2347,6 +2357,7 @@ For git operations while detached:
       rtkEnabled: "rtkEnabled" in params ? params.rtkEnabled : undefined,
       spokenNarration:
         "spokenNarration" in params ? params.spokenNarration : undefined,
+      sketchpadId: "sketchpadId" in params ? params.sketchpadId : undefined,
       bedrockGatewayVariant:
         "bedrockGatewayVariant" in params
           ? params.bedrockGatewayVariant
