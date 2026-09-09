@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
@@ -262,6 +262,9 @@ const ExperimentsTable = ({
     // any cached "all matching" IDs. Page is excluded: selections deliberately span pages.
     const { page: _page, ...filtersWithoutPage } = filters
     const filterIdentity = JSON.stringify(filtersWithoutPage)
+    // Ref mirror so an in-flight matching_ids response can detect it raced a filter change.
+    const filterIdentityRef = useRef(filterIdentity)
+    filterIdentityRef.current = filterIdentity
     useEffect(() => {
         setMatchingExperimentIds(null)
     }, [filterIdentity])
@@ -645,6 +648,7 @@ const ExperimentsTable = ({
                                             size="small"
                                             loading={matchingExperimentIdsLoading}
                                             onClick={async () => {
+                                                const requestedFilterIdentity = filterIdentityRef.current
                                                 setMatchingExperimentIdsLoading(true)
                                                 try {
                                                     const response = await experimentsMatchingIdsRetrieve(
@@ -665,6 +669,11 @@ const ExperimentsTable = ({
                                                                 : undefined,
                                                         }
                                                     )
+                                                    // Drop a response that raced a filter change; the reset effect
+                                                    // already cleared the selection it belonged to.
+                                                    if (filterIdentityRef.current !== requestedFilterIdentity) {
+                                                        return
+                                                    }
                                                     setMatchingExperimentIds(response.ids)
                                                     ctx.setSelectedKeys(response.ids)
                                                 } catch {
