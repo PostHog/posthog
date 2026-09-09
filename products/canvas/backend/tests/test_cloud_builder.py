@@ -1,4 +1,5 @@
 import os
+import re
 import hashlib
 import tempfile
 import subprocess
@@ -12,9 +13,9 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.canvas.backend.build_service import node_executable, run_cloud_builder, validate_builder_output
-from products.canvas.backend.contract import allowed_import_specifiers, platform_dependencies
+from products.canvas.backend.contract import allowed_import_specifiers, canvas_sdk_version, platform_dependencies
 from products.canvas.backend.presentation.serializers import CanvasSourceProjectSerializer
-from products.canvas.backend.source import synthetic_source_project, validate_source_project
+from products.canvas.backend.source import _PLATFORM_ELEMENT_TOKENS, synthetic_source_project, validate_source_project
 
 
 class TestCanvasCloudBuilder(SimpleTestCase):
@@ -55,6 +56,13 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn(".md\\:grid-cols-2", stylesheet["content"])
         self.assertIn(".quill-button", stylesheet["content"])
         self.assertIn("--background", stylesheet["content"])
+        # Source validation rejects author declarations of the tokens Quill sets
+        # on every element; that list must follow the pinned Quill version.
+        universal_rule = re.search(r"^\* \{\n(.*?)^\}", stylesheet["content"], re.MULTILINE | re.DOTALL)
+        assert universal_rule is not None
+        self.assertEqual(
+            set(re.findall(r"^\s*--([\w-]+):", universal_rule.group(1), re.MULTILINE)), _PLATFORM_ELEMENT_TOKENS
+        )
 
     def test_publication_validation_allows_relative_worker_and_asset_imports(self) -> None:
         payload = synthetic_source_project(
@@ -78,7 +86,7 @@ class TestCanvasCloudBuilder(SimpleTestCase):
             },
             "entryHtml": "index.html",
             "dependencies": {},
-            "canvasSdkVersion": "0.1.0",
+            "canvasSdkVersion": canvas_sdk_version(),
         }
 
     def _notebook_project(self, source: str, frame_names: list[str] | None = None) -> dict[str, Any]:
@@ -204,6 +212,40 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertEqual(result["status"], "ready", result["diagnostics"])
         validate_builder_output(result)
 
+    def test_bundles_the_canvas_sdk_import_inline(self) -> None:
+        payload = synthetic_source_project(
+            'import React from "react"; import { ph } from "@posthog/canvas-sdk"; '
+            "export default function Canvas() { return <div>{typeof ph}</div> }"
+        )
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        validate_builder_output(result)
+        javascript = "\n".join(file["content"] for file in result["files"] if file["path"].endswith(".js"))
+        self.assertIn("globalThis.ph", javascript)
+
+    @parameterized.expand(
+        [
+            ("persisted_before_the_bump", "0.1.0", "ready", []),
+            ("never_issued", "0.0.1", "failed", ["unsupported_sdk"]),
+        ]
+    )
+    def test_sdk_version_admission(
+        self, _name: str, version: str, expected_status: str, expected_codes: list[str]
+    ) -> None:
+        # Stored sources keep the canvasSdkVersion they were scaffolded with, so
+        # every version the platform ever issued must keep building.
+        payload = {
+            **synthetic_source_project('import React from "react"; export default () => <div/>'),
+            "canvasSdkVersion": version,
+        }
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], expected_status, result["diagnostics"])
+        self.assertEqual([entry["code"] for entry in result["diagnostics"]], expected_codes)
+
     def test_runtime_uses_the_document_bound_message_port(self) -> None:
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
 
@@ -259,6 +301,12 @@ class TestCanvasCloudBuilder(SimpleTestCase):
                 'if (!requests.some((m) => m.payload.hogql === "SELECT 1")) { console.error("pre-connect request was dropped"); process.exit(1); }',
                 'if (requests.some((m) => m.payload.hogql === "SELECT expired")) { console.error("expired request was still delivered"); process.exit(1); }',
                 'if (!received.some((m) => m.type === "ready")) { console.error("ready was not posted"); process.exit(1); }',
+                'Object.defineProperty(globalThis, "navigator", { value: { userActivation: { isActive: false } }, configurable: true });',
+                'try { window.ph.connectors.connect("github"); throw new Error("connector navigation did not require activation"); } catch (error) { if (!error.message.includes("user action")) throw error; }',
+                'if (received.some((message) => message.type === "navigate")) throw new Error("connector navigation escaped without activation");',
+                "navigator.userActivation.isActive = true;",
+                'window.ph.connectors.connect("github");',
+                'if (!received.some((message) => message.type === "navigate" && message.nav.provider === "github")) throw new Error("connector navigation was not delivered");',
                 "process.exit(0);",
             ]
         )

@@ -63,7 +63,9 @@ registerAsyncFunction('postHogCreateTask', {
         logs.push({
             level: 'info',
             timestamp: DateTime.now(),
-            message: `Async function 'postHogCreateTask' was mocked with arguments:`,
+            message:
+                `Async function 'postHogCreateTask' was mocked. No task was created, and the real ` +
+                `creation checks (environment configuration, owner eligibility, rate caps) did not run. Arguments:`,
         })
         logs.push({
             level: 'info',

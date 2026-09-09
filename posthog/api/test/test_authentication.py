@@ -34,6 +34,7 @@ from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
 
 from posthog.api.authentication import password_reset_token_generator, social_login_notification
+from posthog.api.email_verification import is_email_verification_disabled
 from posthog.auth import (
     InternalAPIUser,
     OAuthAccessTokenAuthentication,
@@ -528,27 +529,6 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.json()["code"], "verified_domain_required")
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
-    @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
-    def test_email_unverified_user_cant_log_in_if_email_available(
-        self, mock_send_email_verification, mock_is_email_available
-    ):
-        self.user.is_email_verified = False
-        self.user.save()
-        self.assertEqual(self.user.is_email_verified, False)
-        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-        # Test that we're not logged in
-        response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-        mock_is_email_available.assert_called_once()
-
-        # Assert the email was sent.
-        mock_send_email_verification.assert_called_once_with(self.user, None)
-
-    @pytest.mark.disable_mock_email_code_verification
-    @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.email_verification.send_email_verification_code")
     def test_email_unverified_login_returns_verify_email_pending_with_uuid(
         self, mock_send_code, mock_is_email_available
@@ -566,30 +546,13 @@ class TestLoginAPI(APIBaseTest):
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    @parameterized.expand(
-        [
-            # A relative `next` (e.g. an /oauth/authorize continuation) must be forwarded so the
-            # verification link can resume the flow.
-            ("safe_relative_next", "/oauth/authorize/?client_id=x", "/oauth/authorize/?client_id=x"),
-            # An off-origin `next` must be dropped.
-            ("unsafe_off_origin_next", "https://evil.example.com/steal", None),
-        ]
-    )
-    @patch("posthog.api.authentication.is_email_available", return_value=True)
-    @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
-    def test_email_verification_link_carries_safe_next(
-        self, _name, next_input, expected, mock_send_email_verification, mock_is_email_available
-    ):
-        self.user.is_email_verified = False
-        self.user.save()
-        self.client.post(
-            "/api/login",
-            {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD, "next": next_input},
-        )
-        mock_send_email_verification.assert_called_once_with(self.user, expected)
+    @patch("posthog.ph_client.posthoganalytics.get_feature_flag", side_effect=RuntimeError("flags down"))
+    @patch("posthog.ph_client.posthoganalytics.feature_enabled", side_effect=RuntimeError("flags down"))
+    def test_verification_flag_failure_reads_as_verification_required(self, _mock_enabled, _mock_get):
+        assert is_email_verification_disabled(self.user) is False
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
-    @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.authentication.email_verification_code_verifier.send_code")
     @patch("posthog.api.authentication.is_email_verification_disabled", return_value=True)
     def test_email_unverified_user_can_log_in_if_email_available_but_verification_disabled_flag_is_true(
         self, mock_is_verification_disabled, mock_send_email_verification, mock_is_email_available
@@ -611,7 +574,7 @@ class TestLoginAPI(APIBaseTest):
         mock_send_email_verification.assert_not_called()
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
-    @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthog.api.authentication.email_verification_code_verifier.send_code")
     def test_email_unverified_null_user_can_log_in_if_email_available(
         self, mock_send_email_verification, mock_is_email_available
     ):
@@ -626,7 +589,7 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_is_email_available.assert_called_once()
         # Assert the email was sent.
-        mock_send_email_verification.assert_called_once_with(self.user, None)
+        mock_send_email_verification.assert_called_once_with(self.user)
 
     @patch("posthoganalytics.capture")
     def test_user_cant_login_with_incorrect_password(self, mock_capture):
@@ -2304,6 +2267,16 @@ class TestTimeSensitivePermissions(APIBaseTest):
             res = self.client.post(
                 "/api/users/@me/scene_personalisation",
                 {"scene": "Person", "dashboard": dashboard.id},
+                format="json",
+            )
+            assert res.status_code == 200
+
+    def test_user_can_mark_a_product_intro_seen_without_recent_authentication(self):
+        now = datetime.now()
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+            res = self.client.patch(
+                "/api/users/@me/product_intro_seen",
+                {"product_key": "posthog_ai_onboarding"},
                 format="json",
             )
             assert res.status_code == 200

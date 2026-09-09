@@ -15,6 +15,7 @@ export type {
   AgentToolCallLocation,
   AgentToolCallStatus,
   AgentToolKind,
+  AgentTurnUsage,
 } from "./agent-conversation";
 export * from "./agent-runtime";
 export * from "./analytics-events";
@@ -51,6 +52,7 @@ export {
   tabsSnapshotSchema,
   tabViewStateSchema,
 } from "./browser-tabs-schemas";
+export { omitNullCallToolResultFields } from "./call-tool-result";
 export * from "./canvas-contracts";
 export * from "./canvas-platform";
 export type { CloudRunSource, PrAuthorshipMode } from "./cloud";
@@ -60,9 +62,12 @@ export {
   serializeCloudPrompt,
 } from "./cloud-prompt";
 export {
+  adapterForModelId,
   BLOCKED_GATEWAY_MODEL_IDS,
   buildCloudTaskConfigOptions,
+  buildProviderModelGroups,
   type CloudTaskConfigOption,
+  type CloudTaskConfigSelectGroup,
   type CloudTaskConfigSelectOption,
   compareModelsForPicker,
   DEFAULT_CODEX_MODEL,
@@ -73,7 +78,9 @@ export {
   getClaudeModelRecency,
   getCloudTaskGatewayUrl,
   getProviderName,
+  HARNESS_DISPLAY_NAMES,
   isAnthropicModel,
+  isAnthropicModelId,
   isBasetenModel,
   isBlockedModelId,
   isCloudflareModel,
@@ -89,6 +96,14 @@ export {
   pickAllowedModel,
 } from "./cloud-task-models";
 export {
+  type CustomCloud,
+  configureCustomCloud,
+  customCloudSchema,
+  getCustomCloud,
+  isCustomCloudHost,
+  normalizeCustomCloud,
+} from "./custom-cloud";
+export {
   buildLoopDeeplink,
   buildScoutDeeplink,
   decodePlanBase64,
@@ -102,6 +117,9 @@ export {
   DISMISSAL_REASON_OPTIONS,
   type DismissalReasonOptionValue,
   dismissalReasonLabel,
+  RESOLVE_REASON_OPTIONS,
+  type ReportStateReason,
+  type ResolveReasonOptionValue,
 } from "./dismissal-reasons";
 export {
   type ArtifactSource,
@@ -112,6 +130,7 @@ export {
   isSkillBundleArtifactMetadata,
   isTerminalStatus,
   type PendingFollowupMessage,
+  type StoreSkillStub,
   type Task,
   type TaskRun,
   type TaskRunArtifact,
@@ -134,6 +153,7 @@ export {
   isNotAuthenticatedError,
   isRateLimitError,
   isTransientUpstreamError,
+  isTurnEndedWithoutResponseError,
   NotAuthenticatedError,
   type PromptFailure,
   type PromptFailureKind,
@@ -200,15 +220,22 @@ export {
   splitMentionSegments,
 } from "./mentions";
 export {
+  customModelMeta,
   DEFAULT_OPTION_META_KEY,
   defaultEligibleModel,
+  isCustomModelOption,
   isDefaultSelectOption,
+  isHiddenPiModelId,
   isRestrictedModelOption,
+  modelHarnessMeta,
   OPTION_DOCS_URL_META_KEY,
   restrictedModelMeta,
   selectOptionDocsUrl,
+  selectOptionHarness,
 } from "./models";
 export {
+  DEV_CALLBACK_PORT,
+  DEV_REDIRECT_URI,
   getOauthClientIdFromRegion,
   OAUTH_SCOPE_VERSION,
   OAUTH_SCOPES,
@@ -262,8 +289,11 @@ export {
 } from "./reasoning-effort";
 export { REFUND_REASON_OPTIONS } from "./refund-reasons";
 export {
+  CLOUD_REGIONS,
   type CloudRegion,
+  describeRegion,
   REGION_LABELS,
+  type RegionLabel,
 } from "./regions";
 export { normalizeRepoKey } from "./repo";
 export { getTaskRepository, parseRepository } from "./repository";
@@ -333,6 +363,7 @@ export {
   getLocalDayKey,
   getRelativeDateGroup,
 } from "./time";
+export { singleLineTitle } from "./title-text";
 export {
   mcpToolKey,
   parseMcpToolName,

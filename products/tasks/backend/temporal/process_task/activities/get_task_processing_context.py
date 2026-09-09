@@ -2,6 +2,7 @@ import json
 import hashlib
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Any, Literal
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
@@ -18,6 +19,7 @@ from products.tasks.backend.constants import (
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
+    CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     DEV_STACK_IMAGE_NAME,
@@ -30,6 +32,7 @@ from products.tasks.backend.constants import (
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
     SANDBOX_ROTATION_FEATURE_FLAG,
+    STORE_SKILLS_STATE_KEY,
     get_vm_sandbox_flag_payload,
     is_same_run_resume_state,
     vm_sandbox_allowed_origin_products,
@@ -38,7 +41,12 @@ from products.tasks.backend.constants import (
     vm_sandbox_origin_in_rollout,
     vm_sandbox_origin_rollout_percentages,
 )
-from products.tasks.backend.exceptions import SandboxNetworkPolicyError, TaskInvalidStateError, TaskRunNotReadyError
+from products.tasks.backend.exceptions import (
+    ProcessTaskFatalError,
+    SandboxNetworkPolicyError,
+    TaskInvalidStateError,
+    TaskRunNotReadyError,
+)
 from products.tasks.backend.facade.api import ensure_task_run_session
 from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled
 from products.tasks.backend.logic.services.agentsh import (
@@ -56,6 +64,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_MEMORY_GB,
     MAX_SANDBOX_TTL_SECONDS,
 )
+from products.tasks.backend.logic.services.store_skills import resolve_store_skills
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
 from products.tasks.backend.temporal.oauth import is_interactive_signals_run
@@ -153,6 +162,7 @@ class TaskProcessingContext:
     # and out-of-band consumers route deterministically for the run's whole life.
     sandbox_backend: str = "modal"
     dev_stack_preview_enabled: bool = False
+    claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
 
     @property
     def mode(self) -> str:
@@ -161,6 +171,10 @@ class TaskProcessingContext:
     @property
     def interaction_origin(self) -> str | None:
         return (self.state or {}).get("interaction_origin")
+
+    @property
+    def slack_reply_context(self) -> bool:
+        return (self.state or {}).get("slack_reply_context") is True
 
     @property
     def auto_publish(self) -> bool:
@@ -440,6 +454,49 @@ def _is_rtk_enabled(
         return state_override
 
     return True
+
+
+def _resolve_claude_model_access(
+    *,
+    task_runtime: str,
+    distinct_id: str | None,
+    organization_id: str,
+    run_id: str,
+    state: dict | None = None,
+) -> Literal["posthog-gateway", "own-subscription"]:
+    if (state or {}).get("claude_model_access") != "own-subscription":
+        return "posthog-gateway"
+    if task_runtime != Task.Runtime.ACP or (state or {}).get("runtime_adapter") not in (None, "claude"):
+        raise ProcessTaskFatalError(
+            "Your Claude plan requires the Claude runtime. Select Claude and try again.",
+            {"run_id": run_id},
+            cause=ValueError("Subscription requested for a non-Claude runtime"),
+            capture=False,
+        )
+    try:
+        enabled = bool(
+            distinct_id
+            and posthoganalytics.feature_enabled(
+                CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("claude_own_subscription_flag_check_failed", run_id=run_id, error=str(e))
+        enabled = False
+    if not enabled:
+        raise ProcessTaskFatalError(
+            "Using your Claude plan for cloud tasks is unavailable. Try again later, "
+            'or open Claude subscription settings and turn off "Cloud tasks" to use PostHog credits.',
+            {"run_id": run_id},
+            cause=ValueError("Claude subscription rollout unavailable"),
+            capture=False,
+        )
+    return "own-subscription"
 
 
 def _is_benjamin_enabled(
@@ -858,18 +915,17 @@ def _resolve_sandbox_backend(
     run_id: str,
     state: dict | None,
     task_runtime: str,
-    custom_image_name: str | None,
+    has_user_custom_image: bool,
 ) -> str:
     """Pick the sandbox provider for this run.
 
-    Hogland only takes plain default-template ACP runs. A custom image (hogland has
-    only the default golden template) or the Pi runtime are hard incapabilities —
-    hogland cannot run them, so they force Modal even with the flag on. The Modal
-    VM-sandbox and network-allowlist flags are runtime *preferences*, not
-    incapabilities: a run the hogland flag (or override) selects wins hogland over
-    them. The caller then forces both off so the run provisions as a plain hogland
-    box; egress stays enforced in-box by agentsh via the run's allowed_domains.
-    Fails closed to Modal.
+    Hogland only takes plain golden-template ACP runs. A user/environment custom image
+    or the Pi runtime are hard incapabilities — hogland runs only its own golden, so
+    those force Modal even with the flag on. The Modal VM-sandbox / network-allowlist
+    flags and the org *default* image are runtime preferences, not incapabilities: a
+    run the hogland flag (or override) selects wins hogland over them, and the caller
+    forces them off so the run provisions on hogland's golden. Egress stays enforced
+    in-box by agentsh via the run's allowed_domains. Fails closed to Modal.
     """
     raw_override = (state or {}).get("sandbox_backend")
     override = raw_override if isinstance(raw_override, str) and raw_override in ("modal", "hogland") else None
@@ -881,19 +937,20 @@ def _resolve_sandbox_backend(
 
     # Hard gates: a "hogland" result (override OR flag) is only allowed when hogland is
     # available (US region + configured URL/token) and can actually run this run (no
-    # custom image, no Pi runtime). These sit ahead of the override so a stale or forged
-    # `hogland` carried across a cloud resume can't defeat the EU guard or route an
-    # incapable run to hogland.
+    # user custom image, no Pi runtime). These sit ahead of the override so a stale or
+    # forged `hogland` carried across a cloud resume can't defeat the EU guard or route
+    # an incapable run to hogland.
     if not settings.HOGLAND_API_URL or not (settings.HOGLAND_API_TOKEN_FILE or settings.HOGLAND_API_TOKEN):
         return "modal"
     # Hogland runs in the US only; EU runs stay on Modal regardless of flag/override state.
     if getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU":
         return "modal"
-    # Hard hogland incapabilities: a custom image or the Pi runtime cannot run on the
-    # default golden template, so keep those on Modal even when the flag is on. The
-    # Modal VM-sandbox / network-allowlist flags are deliberately NOT gated here — a
-    # flagged run wins hogland over them (the caller forces both off for hogland runs).
-    if custom_image_name is not None or task_runtime == Task.Runtime.PI:
+    # Hard hogland incapabilities: a user/environment custom image or the Pi runtime
+    # cannot run on hogland's golden, so keep those on Modal even when the flag is on.
+    # The org default image (default_custom_image) is NOT gated here — hogland serves
+    # its golden equivalent — nor are the Modal VM-sandbox / network-allowlist flags; a
+    # flagged run wins hogland over all of them (the caller forces them off).
+    if has_user_custom_image or task_runtime == Task.Runtime.PI:
         return "modal"
 
     # Past the gates, a "hogland" override pins the run (the canary lever), no flag eval.
@@ -1181,13 +1238,41 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         or False
     )  # Ensure we get a boolean value even if the flag is missing
     emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
+    state_updates: dict[str, Any] = {PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled}
+    # The sandbox agent renders these into its skill roots at session start. Resolved here so the
+    # sandbox needs no extra request on its boot path, and best-effort: a store failure must not
+    # stop the run, it only leaves the sandbox without store skills for this session.
     try:
-        TaskRun.update_state_atomic(task_run.id, updates={PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled})
+        store_skills = resolve_store_skills(team, actor_user or task.created_by, run_id=run_id)
     except Exception as e:
-        log_with_activity_context("pr_loop_enabled_stamp_failed", run_id=run_id, error=str(e))
+        log_with_activity_context("store_skills_resolve_failed", run_id=run_id, error=str(e))
+        store_skills = None
+    if store_skills is not None:
+        state_updates[STORE_SKILLS_STATE_KEY] = store_skills
+    try:
+        TaskRun.update_state_atomic(task_run.id, updates=state_updates)
+    except Exception as e:
+        log_with_activity_context("run_state_stamp_failed", run_id=run_id, error=str(e))
+    claude_distinct_id: str | None = distinct_id
+    if state.get("claude_model_access") == "own-subscription":
+        subscription_owner_id = state.get("claude_subscription_user_id")
+        claude_distinct_id = (
+            team.all_users_with_access().filter(id=subscription_owner_id).values_list("distinct_id", flat=True).first()
+            if isinstance(subscription_owner_id, int) and not isinstance(subscription_owner_id, bool)
+            else None
+        )
+    claude_model_access = _resolve_claude_model_access(
+        task_runtime=task.runtime,
+        distinct_id=claude_distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+    )
     pi_persistent_streaming = task.runtime == Task.Runtime.PI and not is_slack_interaction_state(state)
     sandbox_event_ingest_override = state.get("sandbox_event_ingest_enabled")
-    if pi_persistent_streaming and not isinstance(sandbox_event_ingest_override, bool):
+    if claude_model_access == "own-subscription" or (
+        pi_persistent_streaming and not isinstance(sandbox_event_ingest_override, bool)
+    ):
         sandbox_event_ingest_enabled = True
     else:
         sandbox_event_ingest_enabled = _is_sandbox_event_ingest_enabled(
@@ -1364,16 +1449,21 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         state=state,
         task_runtime=task.runtime,
-        custom_image_name=custom_image_name,
+        # Only a real user/environment image is a hogland incapability. The org default
+        # image (default_custom_image, applied when the user picked none) is not — hogland
+        # serves its golden equivalent — so it must not gate the run onto Modal.
+        has_user_custom_image=environment_custom_image_name is not None,
     )
     if sandbox_backend == "hogland":
-        # Hogland runs are plain default-template runs, so the Modal VM-runtime and
-        # network-allowlist preferences don't apply. Force both off so provisioning
-        # builds a DEFAULT_BASE hogland box (not a Modal VM_BASE config) and skips the
-        # Modal provider-layer allowlist. Egress stays enforced in-box by agentsh, which
-        # keys on the run's allowed_domains independently of use_modal_network_allowlist.
+        # Hogland runs are plain golden-template runs, so the Modal VM-runtime,
+        # network-allowlist, and org-default-image preferences don't apply. Force them off
+        # so provisioning builds a plain hogland box on the golden (not a Modal VM_BASE
+        # config with a default image) and skips the Modal provider-layer allowlist. Egress
+        # stays enforced in-box by agentsh, which keys on the run's allowed_domains
+        # independently of use_modal_network_allowlist.
         use_modal_vm_sandbox = False
         use_modal_network_allowlist = False
+        custom_image_name = None
     emit_agent_log(
         run_id,
         "debug",
@@ -1459,6 +1549,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         custom_image_name=custom_image_name,
         rtk_enabled=rtk_enabled,
         benjamin_enabled=benjamin_enabled,
+        claude_model_access=claude_model_access,
         continue_as_new_enabled=_is_continue_as_new_enabled(
             distinct_id=distinct_id,
             organization_id=organization_id,

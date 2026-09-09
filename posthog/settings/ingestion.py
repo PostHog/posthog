@@ -1,6 +1,8 @@
 import os
+from typing import Literal
+from uuid import UUID
 
-from posthog.settings.base_variables import CLOUD_DEPLOYMENT, TEST
+from posthog.settings.base_variables import DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, get_set
 from posthog.utils import str_to_bool
 
@@ -136,17 +138,16 @@ ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS = get_set(os.getenv("ELEMENT_CHAIN_AS_STR
 
 DROP_EVENTS_BY_TOKEN_DISTINCT_ID = get_from_env("DROP_EVENTS_BY_TOKEN_DISTINCT_ID", None, type_cast=str, optional=True)
 
-# Projects that see `posthog.billing_usage_records` in HogQL. The table carries usage for every
-# producer in the project and has no per-product access scope, so it stays off the catalog until a
-# project is named here.
+# Organizations that see `posthog.billing_usage_records` in HogQL. The table carries usage for
+# every producer in a project, so this organization-level rollout lets the real-time usage page
+# query all of an organization's projects without exposing the table elsewhere.
 #
-# The 1,2 default only applies on PostHog Cloud, where those ids are our own US and EU projects. On a
-# self-hosted deployment they are whichever projects the operator created first, so defaulting there
-# would hand a customer's own members a pre-release table nobody opted into. Empty under TEST too:
-# test teams get sequential ids, so a default would make the catalog depend on which team a test
-# happened to create — tests opt in with override_settings.
-_BILLING_USAGE_RECORDS_DEFAULT_TEAM_IDS = "1,2" if CLOUD_DEPLOYMENT and not TEST else ""
-BILLING_USAGE_RECORDS_HOGQL_TEAM_IDS: set[int] = {
-    int(team_id)
-    for team_id in get_set(os.getenv("BILLING_USAGE_RECORDS_HOGQL_TEAM_IDS", _BILLING_USAGE_RECORDS_DEFAULT_TEAM_IDS))
+# Local development enables the table for all organizations. Cloud and self-hosted deployments need explicit UUIDs.
+_BILLING_USAGE_RECORDS_DEFAULT_ORGANIZATION_IDS = "*" if DEBUG and not TEST else ""
+BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS: set[UUID | Literal["*"]] = {
+    "*" if organization_id == "*" else UUID(organization_id)
+    for organization_id in get_set(
+        os.getenv("BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS", _BILLING_USAGE_RECORDS_DEFAULT_ORGANIZATION_IDS)
+    )
+    if organization_id
 }

@@ -1,1 +1,1 @@
-1331_messagingrecord_campaign_key_idx
+1347_drop_activitylog_detail_jsonb_ops_gin

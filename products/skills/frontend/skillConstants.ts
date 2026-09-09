@@ -9,6 +9,11 @@ export const SKILL_FILE_MAX_COUNT = 200
 // Kept in sync with MAX_SKILL_OWNERS in the backend skill_serializers.
 export const SKILL_OWNER_MAX_COUNT = 25
 
+// Name prefixes that Signals and ReviewHog key their own per-skill settings on, so a skill cannot
+// be renamed into or out of one. Kept in sync with CATEGORY_BY_NAME_PREFIX in the backend
+// products/skills/backend/models/skills.py.
+export const PRODUCT_OWNED_SKILL_NAME_PREFIXES = ['signals-scout-', 'review-hog-']
+
 // Names that collide with reserved /skills routes: 'new' (the create form) and the tab slugs
 // registered under /skills/<slug> in manifest.tsx. A skill with one of these names would be
 // shadowed by its route. Kept in sync with RESERVED_SKILL_NAMES in the backend skill_serializers.

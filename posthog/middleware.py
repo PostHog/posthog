@@ -1157,6 +1157,11 @@ def csp_report_endpoint(**params: str) -> str:
     return f"{endpoint}{separator}{urlencode(params)}"
 
 
+# The full path, matched exactly. Django sends every unmatched path to the app catch-all, so a
+# prefix match would also hand the app document this policy and stop it from starting.
+REPLAY_PLAYER_FRAME_PATH = "/replay_player_frame/index.html"
+
+
 class CSPMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
@@ -1172,6 +1177,40 @@ class CSPMiddleware:
         # csp headers only matter on html documents, so for defense in depth, add strong csp to all other requests
         if "text/html" not in content_type:
             response.headers["Content-Security-Policy"] = "default-src 'none'"
+            return response
+
+        if request.path == REPLAY_PLAYER_FRAME_PATH:
+            # rrweb's own iframe is on about:blank, and a frame on a local scheme inherits its
+            # parent's policy wholesale. Mounting rrweb inside this document rather than the app's
+            # makes this policy the one a recorded page is judged against.
+            #
+            # Recorded pages load whatever they loaded when recorded, so the media directives are
+            # open on purpose. Scripts are the exception: rrweb sandboxes its frame without
+            # allow-scripts, so nothing recorded ever executes, and 'none' states that rather than
+            # leaving it to the sandbox attribute alone.
+            #
+            # No report-uri: violations here describe a customer's site, not ours.
+            #
+            # frame-ancestors stays open because shared and embedded recordings put the app itself
+            # in a customer's page, which makes this frame's ancestor chain cross-origin. The
+            # document holds no data and cannot be scripted into cross-origin, so framing it
+            # elsewhere yields a blank page.
+            response.headers["Content-Security-Policy"] = "; ".join(
+                [
+                    "default-src 'none'",
+                    "script-src 'none'",
+                    "style-src * 'unsafe-inline' data: blob:",
+                    "img-src * data: blob:",
+                    "font-src * data: blob:",
+                    "media-src * data: blob:",
+                    "connect-src *",
+                    "frame-src *",
+                    "child-src *",
+                    "form-action 'none'",
+                    "base-uri 'none'",
+                    "frame-ancestors *",
+                ]
+            )
             return response
 
         is_admin_view = request.path.startswith("/admin/")
@@ -1212,19 +1251,40 @@ class CSPMiddleware:
             csp_parts = [
                 "default-src 'self'",
                 f"style-src 'self' 'unsafe-inline' {resource_url} https://fonts.googleapis.com",
-                f"script-src 'self' 'nonce-{nonce}' {resource_url} https://*.i.posthog.com",
-                f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://d1sdjtjk6xzm7.cloudfront.net https://fonts.gstatic.com https://cdn.jsdelivr.net https://assets.faircado.com https://use.typekit.net",
+                # 'wasm-unsafe-eval' permits WebAssembly compilation and nothing else. It is not
+                # 'unsafe-eval': it does not permit eval() or the Function constructor. Compiling a
+                # module still requires calling WebAssembly.instantiate from JavaScript, so it grants
+                # nothing to an attacker who cannot already run script, and nothing further to one who
+                # can. Session replay decompresses snapshots with snappy-wasm and the HogQL editor
+                # parses with a WebAssembly build, so both break without it.
+                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval' {resource_url} https://*.i.posthog.com",
+                f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://fonts.gstatic.com https://cdn.jsdelivr.net",
                 "worker-src 'self'",
                 "child-src 'none'",
                 "object-src 'none'",
                 "media-src https://res.cloudinary.com",
-                f"img-src 'self' data: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
+                # `https:` is here for the OAuth authorize page, which renders an application's icon
+                # from a URL its registrant supplied. There is no allowlist that covers those, so
+                # until we serve them ourselves the directive has to accept any host.
+                #
+                # The named origins below are the set we actually load images from, and `https:`
+                # makes them redundant. They stay so that removing `https:` is a one-line change
+                # rather than an archaeology exercise.
+                #
+                # Do not promote this to an enforced header as-is. An open `img-src` is an
+                # exfiltration channel: an attacker who injects markup but cannot run script still
+                # gets a beacon out through an image URL.
+                f"img-src 'self' data: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 "frame-ancestors https://posthog.com https://preview.posthog.com https://vercel.com",
                 f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
-                # allow all sites for displaying heatmaps
-                "frame-src https:",
+                # https: lets heatmaps frame a customer's site. 'self' is for the replay player
+                # frame, whose document is same-origin: an http origin does not match https:.
+                "frame-src 'self' https:",
                 "manifest-src 'self'",
                 "base-uri 'self'",
+                # form-action has no default-src fallback, so leaving it unset lets an injected
+                # form post anywhere. Every form we serve targets a same-origin path.
+                "form-action 'self'",
             ]
 
             report_uri = csp_report_endpoint(sample_rate="0.1")
