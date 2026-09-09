@@ -989,6 +989,67 @@ describe('SnappySessionRecorder', () => {
         })
     })
 
+    describe('Snapshot mode tracking', () => {
+        it.each([
+            ['full screenshot', 2, { wireframes: [{ id: 1, type: 'screenshot' }] }, 'screenshot'],
+            ['full text', 2, { wireframes: [{ id: 1, type: 'text' }] }, 'wireframe'],
+            ['untyped container', 2, { wireframes: [{ id: 1 }] }, 'wireframe'],
+            ['null type', 2, { wireframes: [{ id: 1, type: null }] }, 'wireframe'],
+            ['image with base64', 2, { wireframes: [{ id: 1, type: 'image', base64: 'fake-image' }] }, 'wireframe'],
+            [
+                'incremental screenshot add',
+                3,
+                { source: 0, adds: [{ wireframe: { id: 1, type: 'screenshot' } }] },
+                'screenshot',
+            ],
+            [
+                'incremental screenshot update',
+                3,
+                { source: 0, updates: [{ wireframe: { id: 1, type: 'screenshot' } }] },
+                'screenshot',
+            ],
+            ['incremental wireframe update', 3, { source: 0, updates: [{ wireframe: { id: 1 } }] }, 'wireframe'],
+            ['meta', 4, { width: 100, height: 200 }, null],
+            ['touch', 3, { source: 2, type: 7, id: 1 }, null],
+            ['removal', 3, { source: 0, removes: [{ id: 1 }] }, null],
+            ['empty full snapshot', 2, { wireframes: [] }, null],
+            ['malformed wireframes', 2, { wireframes: [null, {}, 'invalid'] }, null],
+            ['web DOM mutation', 3, { source: 0, adds: [{ node: { id: 1, type: 2 } }] }, null],
+        ])('classifies %s', async (_name, type, data, expectedMode) => {
+            const message = createMessage('window1', [{ type, data, timestamp: 1000 }])
+            message.snapshot_source = 'mobile'
+            recorder.recordMessage(message)
+            expect((await recorder.end()).snapshotMode).toBe(expectedMode)
+        })
+
+        it.each(['web', null, 'Mobile'])('does not classify source %s', async (source) => {
+            const message = createMessage('window1', [
+                { type: 2, data: { wireframes: [{ id: 1, type: 'screenshot' }] }, timestamp: 1000 },
+            ])
+            message.snapshot_source = source
+            recorder.recordMessage(message)
+            expect((await recorder.end()).snapshotMode).toBeNull()
+        })
+
+        it('waits for a visual snapshot in a later message and keeps its classification', async () => {
+            const events = [
+                { type: 4, data: { width: 100, height: 200 }, timestamp: 1000 },
+                {
+                    type: 3,
+                    data: { source: 0, updates: [{ wireframe: { id: 1, type: 'screenshot' } }] },
+                    timestamp: 2000,
+                },
+                { type: 3, data: { source: 2, type: 7, id: 1 }, timestamp: 3000 },
+            ]
+            for (const event of events) {
+                const message = createMessage('window1', [event])
+                message.snapshot_source = 'mobile'
+                recorder.recordMessage(message)
+            }
+            expect((await recorder.end()).snapshotMode).toBe('screenshot')
+        })
+    })
+
     describe('Buffer size reporting', () => {
         it('should report the uncompressed buffer size', async () => {
             // Create a message with a known event

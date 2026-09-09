@@ -5,13 +5,19 @@
         "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {
+        "@pierre/diffs": "1.2.11",
         "kea": "catalog:",
+        "kea-loaders": "catalog:",
         "posthog-js": "catalog:"
     },
     "devDependencies": {
+        "@testing-library/react": "^14.3.1",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
+        "@posthog/icons": "catalog:",
+        "@posthog/lemon-ui": "*",
+        "@storybook/react": "catalog:",
         "@types/react": "*",
         "react": "*"
     }

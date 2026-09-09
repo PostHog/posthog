@@ -133,12 +133,21 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             key: 'session',
             width: 300,
             render: (_, obs) => (
-                <Link
-                    to={observationDetailUrl(obs.id, observationDetailLinkParams)}
-                    className="font-mono text-xs text-primary truncate block"
-                >
-                    {obs.session_id}
-                </Link>
+                <div className="flex items-center gap-2 min-w-0">
+                    <span className="flex w-2 shrink-0">
+                        {!obs.viewed && (
+                            <Tooltip title="You haven't opened this observation yet.">
+                                <span className="size-2 rounded-full bg-danger" />
+                            </Tooltip>
+                        )}
+                    </span>
+                    <Link
+                        to={observationDetailUrl(obs.id, observationDetailLinkParams)}
+                        className="font-mono text-xs text-primary truncate block"
+                    >
+                        {obs.session_id}
+                    </Link>
+                </div>
             ),
         },
         {

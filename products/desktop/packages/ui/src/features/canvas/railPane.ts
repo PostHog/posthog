@@ -10,6 +10,7 @@ import { getCurrentMatches } from "@posthog/ui/router/navigationBridge";
  */
 export type NavRailPane =
   | "home"
+  | "reports"
   | "spaces"
   | "activity"
   | "canvases"
@@ -28,6 +29,7 @@ export type NavRailPane =
  */
 export const RAIL_PANE_ROOT: Readonly<Record<NavRailPane, string>> = {
   home: "/",
+  reports: "/reports",
   spaces: "/spaces",
   activity: "/activity",
   canvases: "/canvases",
@@ -42,6 +44,7 @@ export const RAIL_PANE_ROOT: Readonly<Record<NavRailPane, string>> = {
 // would only shadow that fallback with the same answer.
 const CLAIMED: readonly NavRailPane[] = [
   "home",
+  "reports",
   "activity",
   "canvases",
   "inbox",
