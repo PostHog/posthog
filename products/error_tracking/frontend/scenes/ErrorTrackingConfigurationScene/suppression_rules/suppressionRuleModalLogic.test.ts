@@ -53,7 +53,9 @@ describe('suppressionRuleModalLogic', () => {
     })
 
     it('clears the error and closes the modal once the save succeeds', async () => {
-        jest.spyOn(api.errorTracking, 'updateRule').mockRejectedValueOnce(new ApiError('Server Error', 500))
+        jest.spyOn(api.errorTracking, 'updateRule').mockRejectedValueOnce(
+            new ApiError('Server Error', 500, undefined, { detail: 'A server error occurred.' })
+        )
         const logic = suppressionRuleModalLogic()
         logic.mount()
         logic.actions.openModal(persistedRule)
