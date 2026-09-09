@@ -5424,6 +5424,14 @@ snapshots:
         hash: v1.k794b7964.e0388f165831a8b73632873a43ccc0668057db62a62e84c8bd19ad28d14bb011.c66ZeT4g4B2NMURw6V91iBT-AUnw7Tf6EtiY5Vr_-cY
     products-dashboards-dashboard-widgets-widgetcard--locked--light:
         hash: v1.k794b7964.5b137c02f2365806484425bc25fe4c896fc99edbac07caff03503ed3222da251._dt53kAV0UsgvHveL2zwjSHjc2D-p2LO9mZunqv7f5c
+    products-dashboards-filter-bar--filter-bar--dark:
+        hash: v1.k794b7964.3e359ae2789f6fe48dc466b11edfe41b10518ae0d3f4312a29ffede40561fec2.R-hbmu9T9335KUf--XuCkZADUv8EQNFm9tVTN5pj3QI
+    products-dashboards-filter-bar--filter-bar--light:
+        hash: v1.k794b7964.a6a8399a1a401981b01e8e557a587bb82fc0989ce02aeae2cbb49a089d7513cf.HHOpDzXqVV3rFxGuB4-puIDQwV16GN6VY7u5pIVUe7k
+    products-dashboards-filter-bar--unsaved-changes-popover--dark:
+        hash: v1.k794b7964.4106fa5842ea42b9e7da0fff67a5e521a482211f16a704e27908ef9b7aaaa990.ALtMI0hIBMTlNfGdQR12at_eXuEDwYMwn7RIb6jZ0RU
+    products-dashboards-filter-bar--unsaved-changes-popover--light:
+        hash: v1.k794b7964.50eb814e6a44f0bb8956a12ad4cd68663b1723b4948389e04e918b8dbaddde23.fdkQTJhzuxWCziSIvvwa-nQc8220y9-AJw9K5g99ct0
     products-dashboards-saved-views-manage--default--dark:
         hash: v1.k794b7964.5a3fc6cafb3bfa5752b3707e93dd12027d95b7d5db139448c4431e84c64e5af6.uC3oT8cgBWIvwkXeqy_yiNtuoH3JxOhrSxR2bdhxzHw
     products-dashboards-saved-views-manage--default--light:
@@ -9628,6 +9636,10 @@ snapshots:
         hash: v1.k794b7964.083ab1c7b52303db3543c12ccc1dee1bcd362b7a2b25d19f52634e25bc4fcfb2.SryekUv5NMLDw0c8j5Odv7nQPa-aqNycfHN-e6wtKm4
     scenes-other-credential-review--only-a-connected-application--light:
         hash: v1.k794b7964.863a15297cedff0b0558c9a91e10190800012f40172a83d8ba0872cbcc8034de.CFQjit_QDWfWGwtrS4ORtDnk5SexHWF6h53-DLHNyGw
+    scenes-other-integration-landing-page--connect-rejected--dark:
+        hash: v1.k794b7964.744ffc04fe74e99127eee73f8a1c395fe7c56d89447b71465a1797a1ef05b832.2I1sdaQ3oUvbNcUNwdAbHmTjccZ9vnAAUiV5loBZnEo
+    scenes-other-integration-landing-page--connect-rejected--light:
+        hash: v1.k794b7964.4d764e5044145135c98d1fe67537c316b254eee9711589487f1fd1f7ca04e5de.ozA4BOi6p1T7ugqONQH3a-6WLh2Fel6abrgxZdod-8k
     scenes-other-integration-landing-page--connected--dark:
         hash: v1.k794b7964.1a2abf46a5f43ec0e9bcf1f02115c68f3fab54fc8e8aec6f903e2481689d9a8c.oi6z4uOWfKTWAHVA_UhnCwGg-Zjal3CQ1Se4fDLVOMQ
     scenes-other-integration-landing-page--connected--light:
