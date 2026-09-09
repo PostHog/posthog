@@ -1,9 +1,20 @@
 import { useActions, useValues } from 'kea'
+import type { ChangeEvent, KeyboardEvent } from 'react'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import {
+    AlertDialog,
+    AlertDialogClose,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+    Button,
+    Input,
+} from 'lib/ui/quill'
 
 import { supportSettingsLogic } from './supportSettingsLogic'
 
@@ -12,6 +23,8 @@ export function AuthorizedDomains(): JSX.Element {
         useValues(supportSettingsLogic)
     const { setDomainInputValue, saveDomain, removeDomain, startEditDomain, cancelDomainEdit } =
         useActions(supportSettingsLogic)
+
+    const saveDisabledReason = !domainInputValue.trim() ? 'Enter a domain' : undefined
 
     return (
         <div className="flex flex-col gap-2">
@@ -33,13 +46,13 @@ export function AuthorizedDomains(): JSX.Element {
             {(isAddingDomain || editingDomainIndex !== null) && (
                 <div className="border rounded p-2 bg-surface-primary">
                     <div className="gap-2">
-                        <LemonInput
+                        <Input
                             autoFocus
+                            className="w-full"
                             value={domainInputValue}
-                            onChange={setDomainInputValue}
+                            onChange={(e: ChangeEvent<HTMLInputElement>) => setDomainInputValue(e.target.value)}
                             placeholder="https://example.com or https://*.example.com"
-                            fullWidth
-                            onKeyDown={(e) => {
+                            onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
                                 if (e.key === 'Enter') {
                                     saveDomain(domainInputValue, editingDomainIndex)
                                 } else if (e.key === 'Escape') {
@@ -48,17 +61,18 @@ export function AuthorizedDomains(): JSX.Element {
                             }}
                         />
                         <div className="flex gap-2 mt-2">
-                            <LemonButton
-                                type="primary"
-                                size="small"
+                            <Button
+                                variant="primary"
+                                size="sm"
                                 onClick={() => saveDomain(domainInputValue, editingDomainIndex)}
-                                disabledReason={!domainInputValue.trim() ? 'Enter a domain' : undefined}
+                                disabled={!!saveDisabledReason}
+                                title={saveDisabledReason}
                             >
                                 Save
-                            </LemonButton>
-                            <LemonButton type="secondary" size="small" onClick={cancelDomainEdit}>
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={cancelDomainEdit}>
                                 Cancel
-                            </LemonButton>
+                            </Button>
                         </div>
                     </div>
                 </div>
@@ -71,31 +85,42 @@ export function AuthorizedDomains(): JSX.Element {
                             {domain}
                         </span>
                         <div className="flex gap-1 shrink-0">
-                            <LemonButton
-                                icon={<IconPencil />}
+                            <Button
+                                variant="default"
+                                size="icon-sm"
                                 onClick={() => startEditDomain(index)}
-                                tooltip="Edit"
-                                size="small"
-                            />
-                            <LemonButton
-                                icon={<IconTrash />}
-                                tooltip="Remove domain"
-                                size="small"
-                                onClick={() => {
-                                    LemonDialog.open({
-                                        title: <>Remove {domain}?</>,
-                                        description: 'Are you sure you want to remove this domain?',
-                                        primaryButton: {
-                                            status: 'danger',
-                                            children: 'Remove',
-                                            onClick: () => removeDomain(index),
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                        },
-                                    })
-                                }}
-                            />
+                                title="Edit"
+                                aria-label="Edit"
+                            >
+                                <IconPencil />
+                            </Button>
+                            <AlertDialog>
+                                <AlertDialogTrigger
+                                    render={<Button variant="default" size="icon-sm" title="Remove domain" />}
+                                >
+                                    <IconTrash />
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>Remove {domain}?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                            Are you sure you want to remove this domain?
+                                        </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogClose render={<Button variant="outline" />}>
+                                            Cancel
+                                        </AlertDialogClose>
+                                        <AlertDialogClose
+                                            render={
+                                                <Button variant="destructive" onClick={() => removeDomain(index)} />
+                                            }
+                                        >
+                                            Remove
+                                        </AlertDialogClose>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
                         </div>
                     </div>
                 )

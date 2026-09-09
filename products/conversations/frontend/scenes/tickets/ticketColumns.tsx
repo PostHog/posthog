@@ -1,10 +1,11 @@
 import clsx from 'clsx'
 
 import { IconClock } from '@posthog/icons'
-import { LemonBadge, LemonTableColumns, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
+import { Badge, Spinner, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 import { stripMarkdown } from 'lib/utils/markdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
@@ -14,6 +15,7 @@ import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'
 import { TicketPreviewPopover } from '../../components/TicketPreview/TicketPreviewPopover'
 import {
+    type AITriageResult,
     type Ticket,
     aiTriageProcessingLabel,
     aiTriageResultLabel,
@@ -112,9 +114,7 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
                     ) : (
                         <span className="text-muted-alt text-xs">—</span>
                     )}
-                    {ticket.unread_team_count > 0 && (
-                        <LemonBadge.Number count={ticket.unread_team_count} size="small" status="primary" />
-                    )}
+                    {ticket.unread_team_count > 0 && <Badge variant="info">{ticket.unread_team_count}</Badge>}
                 </div>
             ),
         },
@@ -126,13 +126,13 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
             key: 'status',
             render: (_, ticket) => (
                 <span className="flex items-center gap-1">
-                    <LemonTag
-                        type={
-                            ticket.status === 'resolved' ? 'success' : ticket.status === 'new' ? 'primary' : 'default'
+                    <Badge
+                        variant={
+                            ticket.status === 'resolved' ? 'success' : ticket.status === 'new' ? 'info' : 'default'
                         }
                     >
                         {ticket.status === 'on_hold' ? 'On hold' : ticket.status}
-                    </LemonTag>
+                    </Badge>
                     {ticket.snoozed_until && (
                         <TZLabel time={ticket.snoozed_until} title="Snoozed until" showSeconds>
                             <span className="flex items-center">
@@ -173,10 +173,15 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
                         .filter(Boolean)
                         .join(' · ')
                     return (
-                        <Tooltip title={tooltipContent || undefined}>
-                            <LemonTag type={aiTriageResultTagType(triage.result)}>
-                                {aiTriageResultLabel[triage.result]}
-                            </LemonTag>
+                        <Tooltip>
+                            <TooltipTrigger
+                                render={
+                                    <Badge variant={aiTriageBadgeVariant(triage.result)}>
+                                        {aiTriageResultLabel[triage.result]}
+                                    </Badge>
+                                }
+                            />
+                            {tooltipContent ? <TooltipContent>{tooltipContent}</TooltipContent> : null}
                         </Tooltip>
                     )
                 }
@@ -191,19 +196,17 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
             key: 'priority',
             render: (_, ticket) =>
                 ticket.priority ? (
-                    <LemonTag
-                        type={
+                    <Badge
+                        variant={
                             ticket.priority === 'critical'
-                                ? 'danger'
-                                : ticket.priority === 'high'
-                                  ? 'caution'
-                                  : ticket.priority === 'medium'
-                                    ? 'warning'
-                                    : 'default'
+                                ? 'destructive'
+                                : ticket.priority === 'high' || ticket.priority === 'medium'
+                                  ? 'warning'
+                                  : 'default'
                         }
                     >
                         {ticket.priority}
-                    </LemonTag>
+                    </Badge>
                 ) : (
                     <span className="text-muted-alt text-xs">—</span>
                 ),
@@ -343,6 +346,19 @@ export function offerableTicketColumns({ aiEnabled, embedded }: TicketColumnCont
         }
         return true
     })
+}
+
+function aiTriageBadgeVariant(result: AITriageResult): 'success' | 'warning' | 'destructive' | 'default' {
+    switch (aiTriageResultTagType(result)) {
+        case 'success':
+            return 'success'
+        case 'warning':
+            return 'warning'
+        case 'danger':
+            return 'destructive'
+        default:
+            return 'default'
+    }
 }
 
 export function buildTicketColumns(

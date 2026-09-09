@@ -1,10 +1,9 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonTabs, LemonTag } from '@posthog/lemon-ui'
-
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Badge, Tabs, TabsList, TabsTrigger } from 'lib/ui/quill'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -19,6 +18,10 @@ import { WidgetSection } from './WidgetSection'
 type ChannelTabKey = 'widget' | 'email' | 'slack' | 'teams' | 'github' | 'api'
 
 const DEFAULT_CHANNEL_TAB: ChannelTabKey = 'widget'
+
+function ChannelOnBadge({ connected }: { connected: boolean }): JSX.Element | null {
+    return connected ? <Badge variant="success">On</Badge> : null
+}
 
 export function ChannelsSection(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -35,79 +38,58 @@ export function ChannelsSection(): JSX.Element {
         router.actions.replace(urls.supportSettings(), searchParams, { ...hashParams, channel: tab })
     }
 
-    const channelTag = (connected: boolean): JSX.Element | null =>
-        connected ? (
-            <LemonTag type="success" size="small">
-                On
-            </LemonTag>
-        ) : null
-
     return (
-        <LemonTabs
-            activeKey={activeTab}
-            onChange={(key) => setTab(key)}
-            tabs={[
-                {
-                    key: 'widget',
-                    label: (
+        <div className="flex flex-col gap-3">
+            <Tabs value={activeTab} onValueChange={(key) => setTab(key as ChannelTabKey)}>
+                <TabsList variant="line">
+                    <TabsTrigger value="widget">
                         <span className="flex items-center gap-1.5">
                             Widget
-                            {channelTag(widgetEnabled)}
+                            <ChannelOnBadge connected={widgetEnabled} />
                         </span>
-                    ),
-                    content: <WidgetSection />,
-                },
-                {
-                    key: 'email',
-                    label: (
+                    </TabsTrigger>
+                    <TabsTrigger value="email">
                         <span className="flex items-center gap-1.5">
                             Email
-                            {channelTag(emailConnected)}
+                            <ChannelOnBadge connected={emailConnected} />
                         </span>
-                    ),
-                    content: <EmailSection />,
-                },
-                {
-                    key: 'slack',
-                    label: (
+                    </TabsTrigger>
+                    <TabsTrigger value="slack">
                         <span className="flex items-center gap-1.5">
                             Slack
-                            {channelTag(slackConnected)}
+                            <ChannelOnBadge connected={slackConnected} />
                         </span>
-                    ),
-                    content: <SlackSection />,
-                },
-                teamsEnabled && {
-                    key: 'teams' as const,
-                    label: (
-                        <span className="flex items-center gap-1.5">
-                            Microsoft Teams
-                            {channelTag(teamsConnected)}
-                        </span>
-                    ),
-                    content: <TeamsSection />,
-                },
-                githubEnabled && {
-                    key: 'github' as const,
-                    label: (
-                        <span className="flex items-center gap-1.5">
-                            GitHub
-                            {channelTag(githubConnected)}
-                        </span>
-                    ),
-                    content: <GithubSection />,
-                },
-                {
-                    key: 'api' as const,
-                    label: (
+                    </TabsTrigger>
+                    {teamsEnabled ? (
+                        <TabsTrigger value="teams">
+                            <span className="flex items-center gap-1.5">
+                                Microsoft Teams
+                                <ChannelOnBadge connected={teamsConnected} />
+                            </span>
+                        </TabsTrigger>
+                    ) : null}
+                    {githubEnabled ? (
+                        <TabsTrigger value="github">
+                            <span className="flex items-center gap-1.5">
+                                GitHub
+                                <ChannelOnBadge connected={githubConnected} />
+                            </span>
+                        </TabsTrigger>
+                    ) : null}
+                    <TabsTrigger value="api">
                         <span className="flex items-center gap-1.5">
                             Direct API
-                            {channelTag(true)}
+                            <ChannelOnBadge connected={true} />
                         </span>
-                    ),
-                    content: <ApiSection />,
-                },
-            ]}
-        />
+                    </TabsTrigger>
+                </TabsList>
+            </Tabs>
+            {activeTab === 'widget' ? <WidgetSection /> : null}
+            {activeTab === 'email' ? <EmailSection /> : null}
+            {activeTab === 'slack' ? <SlackSection /> : null}
+            {teamsEnabled && activeTab === 'teams' ? <TeamsSection /> : null}
+            {githubEnabled && activeTab === 'github' ? <GithubSection /> : null}
+            {activeTab === 'api' ? <ApiSection /> : null}
+        </div>
     )
 }

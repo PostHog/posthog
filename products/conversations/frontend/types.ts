@@ -250,7 +250,6 @@ export const statusOptionsWithoutAll: { value: TicketStatus; label: string }[] =
     { value: 'resolved', label: 'Resolved' },
 ]
 
-// Multiselect-compatible options for LemonInputSelect
 export const statusMultiselectOptions: { key: TicketStatus; label: string }[] = [
     { key: 'new', label: 'New' },
     { key: 'open', label: 'Open' },
@@ -266,7 +265,6 @@ export const priorityOptions: { value: TicketPriority; label: string }[] = [
     { value: 'critical', label: 'Critical' },
 ]
 
-// Multiselect-compatible options for LemonInputSelect
 export const priorityMultiselectOptions: { key: TicketPriority; label: string }[] = [
     { key: 'low', label: 'Low' },
     { key: 'medium', label: 'Medium' },

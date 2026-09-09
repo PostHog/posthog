@@ -3,12 +3,20 @@ import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconLetter } from '@posthog/icons'
-import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import {
+    Button,
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+    Text,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from 'lib/ui/quill'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -17,12 +25,44 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { composeTicketLogic } from './composeTicketLogic'
 
 interface ComposeTicketButtonProps {
-    size?: LemonButtonProps['size']
-    type?: LemonButtonProps['type']
+    size?: 'xsmall' | 'small' | 'medium'
+    type?: 'primary' | 'secondary' | 'tertiary'
     distinctId?: string
     email?: string
     iconOnly?: boolean
     onCompose?: () => void
+}
+
+function lemonSizeToQuill(
+    size: ComposeTicketButtonProps['size'],
+    iconOnly: boolean | undefined
+): 'xs' | 'sm' | 'default' | 'icon-xs' | 'icon-sm' | 'icon' {
+    if (iconOnly) {
+        if (size === 'xsmall') {
+            return 'icon-xs'
+        }
+        if (size === 'small') {
+            return 'icon-sm'
+        }
+        return 'icon'
+    }
+    if (size === 'xsmall') {
+        return 'xs'
+    }
+    if (size === 'small') {
+        return 'sm'
+    }
+    return 'default'
+}
+
+function lemonTypeToQuill(type: ComposeTicketButtonProps['type']): 'primary' | 'outline' | 'default' {
+    if (type === 'primary') {
+        return 'primary'
+    }
+    if (type === 'secondary') {
+        return 'outline'
+    }
+    return 'default'
 }
 
 export function ComposeTicketButton({
@@ -43,41 +83,18 @@ export function ComposeTicketButton({
         return null
     }
 
+    const buttonSize = lemonSizeToQuill(size, iconOnly)
+    const variant = lemonTypeToQuill(type)
+
     return (
-        <>
-            <Popover
-                visible={showDisabledPopover}
-                onClickOutside={() => setShowDisabledPopover(false)}
-                overlay={
-                    <div className="p-3 max-w-xs flex flex-col gap-2">
-                        <p className="m-0 text-sm">
-                            Support is not enabled for this project. Enable it in settings to start writing to
-                            customers.
-                        </p>
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            onClick={() => {
-                                setShowDisabledPopover(false)
-                                router.actions.push(urls.supportSettings())
-                            }}
-                            fullWidth
-                            center
-                        >
-                            Go to settings
-                        </LemonButton>
-                    </div>
-                }
-            >
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.Ticket}
-                    minAccessLevel={AccessControlLevel.Editor}
-                >
-                    <LemonButton
-                        type={type}
-                        size={size}
-                        icon={<IconLetter />}
-                        tooltip={iconOnly ? 'New ticket' : undefined}
+        <AccessControlAction resourceType={AccessControlResourceType.Ticket} minAccessLevel={AccessControlLevel.Editor}>
+            {({ disabled, disabledReason }) => {
+                const trigger = (
+                    <Button
+                        variant={variant}
+                        size={buttonSize}
+                        disabled={disabled}
+                        aria-label={iconOnly ? 'New ticket' : undefined}
                         onClick={() => {
                             if (conversationsEnabled) {
                                 openComposeModal({ distinctId, email })
@@ -88,10 +105,58 @@ export function ComposeTicketButton({
                         }}
                         data-attr="compose-ticket-button"
                     >
+                        <IconLetter />
                         {iconOnly ? null : 'New ticket'}
-                    </LemonButton>
-                </AccessControlAction>
-            </Popover>
-        </>
+                    </Button>
+                )
+
+                const button =
+                    disabled && disabledReason ? (
+                        <Tooltip>
+                            <TooltipTrigger render={trigger} />
+                            <TooltipContent>{disabledReason}</TooltipContent>
+                        </Tooltip>
+                    ) : iconOnly ? (
+                        <Tooltip>
+                            <TooltipTrigger render={trigger} />
+                            <TooltipContent>New ticket</TooltipContent>
+                        </Tooltip>
+                    ) : (
+                        trigger
+                    )
+
+                return (
+                    <Popover
+                        open={showDisabledPopover}
+                        onOpenChange={(nextOpen) => {
+                            if (!nextOpen) {
+                                setShowDisabledPopover(false)
+                            }
+                        }}
+                    >
+                        <PopoverTrigger render={button} />
+                        <PopoverContent align="end" className="w-xs">
+                            <div className="flex flex-col gap-2">
+                                <Text size="sm">
+                                    Support is not enabled for this project. Enable it in settings to start writing to
+                                    customers.
+                                </Text>
+                                <Button
+                                    variant="primary"
+                                    size="sm"
+                                    className="w-full"
+                                    onClick={() => {
+                                        setShowDisabledPopover(false)
+                                        router.actions.push(urls.supportSettings())
+                                    }}
+                                >
+                                    Go to settings
+                                </Button>
+                            </div>
+                        </PopoverContent>
+                    </Popover>
+                )
+            }}
+        </AccessControlAction>
     )
 }

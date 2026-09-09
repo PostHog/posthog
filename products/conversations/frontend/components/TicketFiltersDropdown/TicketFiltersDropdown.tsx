@@ -1,16 +1,26 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconFilter } from '@posthog/icons'
+
+import { TagsCombobox } from 'lib/components/Scenes/TagsCombobox'
 import {
-    LemonBadge,
-    LemonButton,
-    LemonCheckbox,
-    LemonDropdown,
-    LemonInputSelect,
-    LemonLabel,
-    LemonSegmentedButton,
-    LemonSelect,
-} from '@posthog/lemon-ui'
+    Badge,
+    Button,
+    ItemCheckbox,
+    ItemContent,
+    ItemTitle,
+    Label,
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+    ToggleGroup,
+    ToggleGroupItem,
+} from 'lib/ui/quill'
 
 import { tagsModel } from '~/models/tagsModel'
 
@@ -32,20 +42,16 @@ export function TicketFiltersDropdown(): JSX.Element {
     const appliedCount = useAppliedTicketFilters().length
 
     return (
-        <LemonDropdown closeOnClickInside={false} placement="bottom-start" overlay={<TicketFiltersDropdownOverlay />}>
-            <LemonButton
-                type="secondary"
-                size="small"
-                icon={<IconFilter />}
-                active={appliedCount > 0}
-                data-attr="ticket-filters-button"
-            >
-                <span className="flex items-center gap-1">
-                    Filters
-                    <LemonBadge.Number count={appliedCount} size="small" maxDigits={2} />
-                </span>
-            </LemonButton>
-        </LemonDropdown>
+        <Popover>
+            <PopoverTrigger render={<Button variant="outline" size="sm" data-attr="ticket-filters-button" />}>
+                <IconFilter />
+                Filters
+                {appliedCount > 0 ? <Badge>{appliedCount}</Badge> : null}
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-80 max-w-full p-2">
+                <TicketFiltersDropdownOverlay />
+            </PopoverContent>
+        </Popover>
     )
 }
 
@@ -75,13 +81,12 @@ function TicketFiltersDropdownOverlay(): JSX.Element {
         setTagsExcludeFilter,
     } = useActions(logic)
     const { tags: tagsAvailable } = useValues(tagsModel)
-    const tagOptions = tagsAvailable?.map((t: string) => ({ key: t, label: t })) || []
 
     return (
-        <div className="flex flex-col gap-3 p-2 w-80 max-w-full max-h-[70vh] overflow-y-auto">
+        <div className="flex flex-col gap-3 max-h-[70vh] overflow-y-auto">
             {/* max-h-[70vh]: keep every filter section reachable when the panel would overflow the window */}
             <div className="flex flex-col gap-1">
-                <LemonLabel>Status</LemonLabel>
+                <Label>Status</Label>
                 <FilterCheckboxList
                     options={statusMultiselectOptions}
                     value={statusFilter}
@@ -89,7 +94,7 @@ function TicketFiltersDropdownOverlay(): JSX.Element {
                 />
             </div>
             <div className="flex flex-col gap-1">
-                <LemonLabel>Priority</LemonLabel>
+                <Label>Priority</Label>
                 <FilterCheckboxList
                     options={priorityMultiselectOptions}
                     value={priorityFilter}
@@ -97,28 +102,52 @@ function TicketFiltersDropdownOverlay(): JSX.Element {
                 />
             </div>
             <div className="flex flex-col gap-1">
-                <LemonLabel>Channel</LemonLabel>
-                <LemonSelect<TicketChannel | 'all'>
-                    size="small"
-                    fullWidth
+                <Label>Channel</Label>
+                <Select
                     value={channelFilter}
-                    onChange={(value) => setChannelFilter(value ?? 'all')}
-                    options={channelOptions}
-                />
+                    onValueChange={(value: TicketChannel | 'all' | null) => {
+                        if (value) {
+                            setChannelFilter(value)
+                        }
+                    }}
+                >
+                    <SelectTrigger size="sm" className="w-full">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent align="start" alignItemWithTrigger={false}>
+                        {channelOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
             </div>
             <div className="flex flex-col gap-1">
-                <LemonLabel>SLA</LemonLabel>
-                <LemonSelect<TicketSlaState | 'all'>
-                    size="small"
-                    fullWidth
+                <Label>SLA</Label>
+                <Select
                     value={slaFilter}
-                    onChange={(value) => setSlaFilter(value ?? 'all')}
-                    options={slaOptions}
-                />
+                    onValueChange={(value: TicketSlaState | 'all' | null) => {
+                        if (value) {
+                            setSlaFilter(value)
+                        }
+                    }}
+                >
+                    <SelectTrigger size="sm" className="w-full">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent align="start" alignItemWithTrigger={false}>
+                        {slaOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
             </div>
             {aiEnabled && (
                 <div className="flex flex-col gap-1">
-                    <LemonLabel>AI result</LemonLabel>
+                    <Label>AI result</Label>
                     <FilterCheckboxList
                         options={aiTriageFilterOptions}
                         value={aiTriageResultFilter}
@@ -129,42 +158,42 @@ function TicketFiltersDropdownOverlay(): JSX.Element {
             <div className="flex flex-col gap-2">
                 <div className="flex flex-col gap-1">
                     <div className="flex items-center justify-between gap-2">
-                        <LemonLabel>Include tags</LemonLabel>
-                        <LemonSegmentedButton
-                            size="small"
-                            value={tagsMatch}
-                            onChange={(value) => setTagsMatch(value as TicketTagsMatch)}
-                            options={[
-                                { value: 'any', label: 'Match any' },
-                                { value: 'all', label: 'Match all' },
-                            ]}
-                        />
+                        <Label>Include tags</Label>
+                        <ToggleGroup
+                            variant="outline"
+                            size="sm"
+                            value={[tagsMatch]}
+                            onValueChange={([value]) => {
+                                if (value === 'any' || value === 'all') {
+                                    setTagsMatch(value as TicketTagsMatch)
+                                }
+                            }}
+                        >
+                            <ToggleGroupItem value="any">Match any</ToggleGroupItem>
+                            <ToggleGroupItem value="all">Match all</ToggleGroupItem>
+                        </ToggleGroup>
                     </div>
-                    <LemonInputSelect
-                        mode="multiple"
-                        allowCustomValues
+                    <TagsCombobox
                         value={tagsFilter}
-                        options={tagOptions}
                         onChange={setTagsFilter}
+                        options={tagsAvailable ?? []}
                         placeholder="Select or type tags..."
-                        data-attr="tags-filter-input"
+                        dataAttr="tags-filter-input"
                     />
                 </div>
                 <div className="flex flex-col gap-1">
-                    <LemonLabel>Exclude tags</LemonLabel>
-                    <LemonInputSelect
-                        mode="multiple"
-                        allowCustomValues
+                    <Label>Exclude tags</Label>
+                    <TagsCombobox
                         value={tagsExcludeFilter}
-                        options={tagOptions}
                         onChange={setTagsExcludeFilter}
+                        options={tagsAvailable ?? []}
                         placeholder="Exclude tags..."
-                        data-attr="tags-exclude-filter-input"
+                        dataAttr="tags-exclude-filter-input"
                     />
                 </div>
             </div>
             <div className="flex flex-col gap-1">
-                <LemonLabel>Assignee</LemonLabel>
+                <Label>Assignee</Label>
                 <AssigneeMultiSelect value={assigneeFilterEntries} onChange={setAssigneeFilter} />
             </div>
         </div>
@@ -185,18 +214,18 @@ function FilterCheckboxList<T extends string>({
             {options.map((option) => {
                 const checked = value.includes(option.key)
                 return (
-                    <LemonButton
+                    <ItemCheckbox
                         key={option.key}
-                        type="tertiary"
-                        size="small"
-                        fullWidth
-                        icon={<LemonCheckbox checked={checked} className="pointer-events-none" />}
+                        size="xs"
+                        aria-checked={checked}
                         onClick={() =>
                             onChange(checked ? value.filter((item) => item !== option.key) : [...value, option.key])
                         }
                     >
-                        {option.label}
-                    </LemonButton>
+                        <ItemContent variant="menuItem">
+                            <ItemTitle>{option.label}</ItemTitle>
+                        </ItemContent>
+                    </ItemCheckbox>
                 )
             })}
         </div>

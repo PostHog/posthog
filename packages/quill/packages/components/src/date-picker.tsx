@@ -1,8 +1,19 @@
 import { format, getHours, getMinutes, getMonth, getYear, startOfDay } from 'date-fns'
-import { SettingsIcon } from 'lucide-react'
+import { ChevronDownIcon, SettingsIcon } from 'lucide-react'
 import * as React from 'react'
 
-import { Badge, Button, Separator, Switch, cn } from '@posthog/quill-primitives'
+import {
+    Badge,
+    Button,
+    ButtonGroup,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+    Separator,
+    Switch,
+    cn,
+} from '@posthog/quill-primitives'
 
 import { Calendar } from './calendar-grid'
 import { SegmentedDateInput, type DateFormatOrder } from './segmented-date-input'
@@ -35,9 +46,10 @@ export interface DatePickerProps {
     showTimeToggle?: boolean
     /** Fired when the "Include time" toggle changes. */
     onIncludeTimeChange?: (includeTime: boolean) => void
+    /** Extra Apply variants in a menu next to Apply. Each onClick gets the staged date; it does not also fire onApply. */
+    extraActions?: { label: string; onClick: (date: Date) => void }[]
     className?: string
 }
-
 
 export function DatePicker({
     value,
@@ -51,6 +63,7 @@ export function DatePicker({
     showTime = false,
     showTimeToggle = showTime,
     onIncludeTimeChange,
+    extraActions,
     className,
 }: DatePickerProps): React.ReactElement {
     const maxDate = maxDateProp ?? new Date()
@@ -175,20 +188,65 @@ export function DatePicker({
             <div className="flex justify-end px-3 py-2 items-center gap-2 bg-muted/30">
                 <span className="text-[10px] text-muted-foreground tabular-nums mr-auto">{presentational}</span>
                 {onCancel ? (
-                    <Button variant="outline" size="sm" onClick={onCancel} aria-label="Cancel" data-attr="date-picker-cancel">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={onCancel}
+                        aria-label="Cancel"
+                        data-attr="date-picker-cancel"
+                    >
                         Cancel
                     </Button>
                 ) : null}
-                <Button
-                    variant="primary"
-                    size="sm"
-                    aria-label="Apply date"
-                    title="Apply date"
-                    onClick={handleApply}
-                    data-attr="date-picker-apply"
-                >
-                    Apply
-                </Button>
+                {extraActions?.length ? (
+                    <ButtonGroup>
+                        <Button
+                            variant="primary"
+                            size="sm"
+                            aria-label="Apply date"
+                            title="Apply date"
+                            onClick={handleApply}
+                            data-attr="date-picker-apply"
+                        >
+                            Apply
+                        </Button>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger
+                                render={
+                                    <Button
+                                        variant="primary"
+                                        size="sm"
+                                        aria-label="More apply options"
+                                        data-attr="date-picker-apply-more"
+                                    />
+                                }
+                            >
+                                <ChevronDownIcon className="size-3.5" />
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                {extraActions.map((action) => (
+                                    <DropdownMenuItem
+                                        key={action.label}
+                                        onClick={() => action.onClick(includeTime ? selected : startOfDay(selected))}
+                                    >
+                                        {action.label}
+                                    </DropdownMenuItem>
+                                ))}
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </ButtonGroup>
+                ) : (
+                    <Button
+                        variant="primary"
+                        size="sm"
+                        aria-label="Apply date"
+                        title="Apply date"
+                        onClick={handleApply}
+                        data-attr="date-picker-apply"
+                    >
+                        Apply
+                    </Button>
+                )}
             </div>
         </div>
     )

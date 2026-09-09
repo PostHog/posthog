@@ -1,11 +1,32 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
-
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
+import {
+    AlertDialog,
+    AlertDialogClose,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+    Badge,
+    Button,
+    Card,
+    CardContent,
+    Combobox,
+    ComboboxChip,
+    ComboboxChips,
+    ComboboxChipsInput,
+    ComboboxContent,
+    ComboboxEmpty,
+    ComboboxItem,
+    ComboboxList,
+    ComboboxValue,
+    useComboboxAnchor,
+} from 'lib/ui/quill'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
@@ -22,9 +43,11 @@ export function GithubSection(): JSX.Element {
                 </>
             }
         >
-            <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
-                <GithubConnectionSection />
-            </LemonCard>
+            <Card size="sm" className="max-w-[800px]">
+                <CardContent>
+                    <GithubConnectionSection />
+                </CardContent>
+            </Card>
         </SceneSection>
     )
 }
@@ -47,11 +70,16 @@ function GithubConnectionSection(): JSX.Element {
                         First, install the PostHog GitHub App from the integrations page, then come back here to select
                         which repositories to monitor.
                     </p>
-                    <Link to="/integrations/github" className="mt-1">
-                        <LemonButton type="primary" size="small" disabledReason={adminRestrictionReason}>
-                            Go to GitHub integration
-                        </LemonButton>
-                    </Link>
+                    <Button
+                        variant="primary"
+                        size="sm"
+                        className="mt-1 self-start"
+                        disabled={!!adminRestrictionReason}
+                        title={adminRestrictionReason ?? undefined}
+                        render={<LinkPrimitive to="/integrations/github" />}
+                    >
+                        Go to GitHub integration
+                    </Button>
                 </div>
             )
         }
@@ -65,51 +93,60 @@ function GithubConnectionSection(): JSX.Element {
                 </p>
                 <div className="flex flex-wrap gap-2 mt-1">
                     {githubIntegrations.map((integration) => (
-                        <LemonButton
+                        <Button
                             key={integration.id}
-                            type="primary"
-                            size="small"
-                            disabledReason={adminRestrictionReason}
+                            variant="primary"
+                            size="sm"
+                            disabled={!!adminRestrictionReason}
+                            title={adminRestrictionReason ?? undefined}
                             onClick={() => connectGithub(integration.id)}
                         >
                             Connect {integration.name || `Installation #${integration.id}`}
-                        </LemonButton>
+                        </Button>
                     ))}
                 </div>
             </div>
         )
     }
 
+    const repoOptions = githubRepos.map((r) => ({ id: r.full_name, label: r.full_name }))
+
     return (
         <div className="flex flex-col gap-y-4">
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                     <label className="font-medium mb-0">GitHub Issues</label>
-                    <LemonTag type="success" size="small">
-                        Connected
-                    </LemonTag>
+                    <Badge variant="success">Connected</Badge>
                 </div>
-                <LemonButton
-                    type="secondary"
-                    size="xsmall"
-                    status="danger"
-                    disabledReason={adminRestrictionReason}
-                    onClick={() => {
-                        LemonDialog.open({
-                            title: 'Disconnect GitHub?',
-                            description:
-                                'New issues will no longer create tickets. Existing tickets will remain but replies will not sync.',
-                            primaryButton: {
-                                children: 'Disconnect',
-                                status: 'danger',
-                                onClick: disconnectGithub,
-                            },
-                            secondaryButton: { children: 'Cancel' },
-                        })
-                    }}
-                >
-                    Disconnect
-                </LemonButton>
+                <AlertDialog>
+                    <AlertDialogTrigger
+                        render={
+                            <Button
+                                variant="outline"
+                                size="xs"
+                                disabled={!!adminRestrictionReason}
+                                title={adminRestrictionReason ?? undefined}
+                            />
+                        }
+                    >
+                        Disconnect
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Disconnect GitHub?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                New issues will no longer create tickets. Existing tickets will remain but replies will
+                                not sync.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+                            <AlertDialogClose render={<Button variant="destructive" onClick={disconnectGithub} />}>
+                                Disconnect
+                            </AlertDialogClose>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
             </div>
 
             <div>
@@ -117,17 +154,69 @@ function GithubConnectionSection(): JSX.Element {
                 <p className="text-xs text-muted-alt mb-2">
                     Select which repositories to watch for new issues. Only issues from these repos will create tickets.
                 </p>
-                <LemonInputSelect
-                    mode="multiple"
-                    value={githubSelectedRepos}
-                    onChange={(values) => setGithubRepos(values)}
-                    options={githubRepos.map((r) => ({ key: r.full_name, label: r.full_name }))}
-                    loading={githubReposLoading}
-                    onFocus={loadGithubRepos}
-                    placeholder="Select repositories..."
-                    disabled={!!adminRestrictionReason}
-                />
+                <div onFocus={loadGithubRepos}>
+                    <RepoCombobox
+                        options={repoOptions}
+                        value={githubSelectedRepos}
+                        onChange={setGithubRepos}
+                        placeholder="Select repositories..."
+                        disabled={!!adminRestrictionReason || githubReposLoading}
+                    />
+                </div>
             </div>
         </div>
+    )
+}
+
+function RepoCombobox({
+    options,
+    value,
+    onChange,
+    placeholder,
+    disabled,
+}: {
+    options: { id: string; label: string }[]
+    value: string[]
+    onChange: (next: string[]) => void
+    placeholder: string
+    disabled?: boolean
+}): JSX.Element {
+    const items = options.map((option) => option.id)
+    return (
+        <Combobox multiple items={items} value={value} onValueChange={onChange}>
+            <RepoComboboxBody placeholder={placeholder} disabled={disabled} />
+        </Combobox>
+    )
+}
+
+function RepoComboboxBody({ placeholder, disabled }: { placeholder: string; disabled?: boolean }): JSX.Element {
+    const anchor = useComboboxAnchor()
+    return (
+        <>
+            <ComboboxChips ref={anchor} className="w-full">
+                <ComboboxValue>
+                    {(values) => (
+                        <>
+                            {(values as string[]).map((id) => (
+                                <ComboboxChip key={id} title={id}>
+                                    {id}
+                                </ComboboxChip>
+                            ))}
+                            <ComboboxChipsInput placeholder={placeholder} disabled={disabled} />
+                        </>
+                    )}
+                </ComboboxValue>
+            </ComboboxChips>
+            <ComboboxContent anchor={anchor}>
+                <ComboboxEmpty>No matching repositories</ComboboxEmpty>
+                <ComboboxList>
+                    {(item: string) => (
+                        <ComboboxItem key={item} value={item}>
+                            {item}
+                        </ComboboxItem>
+                    )}
+                </ComboboxList>
+            </ComboboxContent>
+        </>
     )
 }

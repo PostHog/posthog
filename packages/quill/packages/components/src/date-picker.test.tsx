@@ -106,4 +106,25 @@ describe('DatePicker', () => {
         expect(onCancel).toHaveBeenCalledTimes(1)
         expect(onApply).not.toHaveBeenCalled()
     })
+
+    it('runs extraActions on the staged date without firing onApply', async () => {
+        const onApply = jest.fn()
+        const onExtra = jest.fn()
+        render(
+            <DatePicker
+                value={VALUE}
+                maxDate={MAX}
+                onApply={onApply}
+                extraActions={[{ label: 'Apply and set to on hold', onClick: onExtra }]}
+            />
+        )
+
+        await userEvent.click(screen.getByLabelText('More apply options'))
+        await userEvent.click(screen.getByText('Apply and set to on hold'))
+
+        expect(onExtra).toHaveBeenCalledTimes(1)
+        const extraDate: Date = onExtra.mock.calls[0][0]
+        expect([extraDate.getFullYear(), extraDate.getMonth(), extraDate.getDate()]).toEqual([2023, 0, 15])
+        expect(onApply).not.toHaveBeenCalled()
+    })
 })

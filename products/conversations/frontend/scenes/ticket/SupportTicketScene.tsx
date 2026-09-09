@@ -2,15 +2,22 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonModal, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonCard, LemonModal, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
-import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+import {
+    Badge,
+    Button,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectTriggerIcon,
+    SelectValue,
+} from 'lib/ui/quill'
 import { getAccessControlDisabledReason, accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -29,7 +36,7 @@ import { ChannelsTag, getChannelThreadUrl } from '../../components/Channels/Chan
 import { ChatView } from '../../components/Chat/ChatView'
 import { SupportMarkdown } from '../../components/Editor'
 import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
-import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'
+import { TicketSnoozeButton } from '../../components/TicketSnoozeButton/TicketSnoozeButton'
 import { TicketTags } from '../../components/TicketTags'
 import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
 import { AIPanel } from './AIPanel'
@@ -214,9 +221,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 <div className="flex items-center justify-center h-96">
                     <div className="text-center">
                         <h2 className="text-xl font-semibold mb-2">Ticket not found</h2>
-                        <LemonButton type="primary" to={urls.supportTickets()}>
+                        <Button variant="primary" onClick={() => router.actions.push(urls.supportTickets())}>
                             Back to tickets
-                        </LemonButton>
+                        </Button>
                     </div>
                 </div>
             </SceneContent>
@@ -311,16 +318,16 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             <>
                                 <div className="flex items-center justify-between mb-3">
                                     <h3 className="text-sm font-semibold">Customer</h3>
-                                    <LemonButton
-                                        size="small"
-                                        type="secondary"
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
                                         onClick={(e) => {
                                             e.stopPropagation()
                                             newInternalTab(urls.personByDistinctId(ticket.distinct_id))
                                         }}
                                     >
                                         View person
-                                    </LemonButton>
+                                    </Button>
                                 </div>
                                 <div className="flex items-center flex-wrap gap-2">
                                     <PersonDisplay
@@ -437,16 +444,16 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                             target="_blank"
                                             className="text-xs"
                                         >
-                                            <LemonTag type="highlight">
+                                            <Badge>
                                                 {ticket.github_repo}#{ticket.github_issue_number}
-                                            </LemonTag>
+                                            </Badge>
                                         </Link>
                                     </div>
                                 )}
                             {ticket?.zendesk_ticket_id && (
                                 <div className="flex justify-between items-center">
                                     <span className="text-muted-alt">Zendesk ID</span>
-                                    <LemonTag type="highlight">#{ticket.zendesk_ticket_id}</LemonTag>
+                                    <Badge>#{ticket.zendesk_ticket_id}</Badge>
                                 </div>
                             )}
                             {ticket?.session_context?.current_url && (
@@ -464,39 +471,64 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             )}
                             <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Status</span>
-                                <LemonSelect
-                                    size="small"
+                                <Select
                                     value={status}
-                                    options={statusOptionsWithoutAll}
-                                    onChange={(value: TicketStatus | null) => value && setStatus(value)}
-                                    dropdownMatchSelectWidth={false}
-                                    disabledReason={sendDisabledReason}
-                                />
+                                    disabled={!!sendDisabledReason}
+                                    onValueChange={(value: TicketStatus | null) => {
+                                        if (value) {
+                                            setStatus(value)
+                                        }
+                                    }}
+                                >
+                                    <SelectTrigger size="sm" title={sendDisabledReason ?? undefined}>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent align="end" alignItemWithTrigger={false}>
+                                        {statusOptionsWithoutAll.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>
+                                                {option.label}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                             </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Priority</span>
-                                <LemonSelect
-                                    size="small"
+                                <Select
                                     value={priority}
-                                    options={priorityOptions}
-                                    onChange={(value: TicketPriority | null) => value && setPriority(value)}
-                                    dropdownMatchSelectWidth={false}
-                                    disabledReason={sendDisabledReason}
-                                />
+                                    disabled={!!sendDisabledReason}
+                                    onValueChange={(value: TicketPriority | null) => {
+                                        if (value) {
+                                            setPriority(value)
+                                        }
+                                    }}
+                                >
+                                    <SelectTrigger size="sm" title={sendDisabledReason ?? undefined}>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent align="end" alignItemWithTrigger={false}>
+                                        {priorityOptions.map((option) => (
+                                            <SelectItem key={option.value} value={option.value}>
+                                                {option.label}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                             </div>
                             <div className="flex justify-between items-start">
                                 <span className="text-muted-alt">Assignee</span>
                                 <div className="flex flex-col items-end gap-1">
                                     {user?.id != null &&
                                         !(assignee?.type === 'user' && String(assignee.id) === String(user.id)) && (
-                                            <LemonButton
-                                                size="xxsmall"
-                                                type="tertiary"
+                                            <Button
+                                                variant="default"
+                                                size="xs"
+                                                disabled={!!sendDisabledReason}
+                                                title={sendDisabledReason ?? undefined}
                                                 onClick={() => setAssignee({ type: 'user', id: user.id })}
-                                                disabledReason={sendDisabledReason}
                                             >
                                                 <span className="text-accent">Assign to me</span>
-                                            </LemonButton>
+                                            </Button>
                                         )}
                                     <AssigneeSelect
                                         assignee={assignee}
@@ -504,18 +536,19 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                         disabledReason={sendDisabledReason}
                                     >
                                         {(resolvedAssignee, isOpen) => (
-                                            <LemonButton
-                                                size="small"
-                                                type="secondary"
-                                                active={isOpen}
-                                                sideIcon={<IconChevronDown />}
-                                                disabledReason={sendDisabledReason}
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                aria-pressed={isOpen}
+                                                disabled={!!sendDisabledReason}
+                                                title={sendDisabledReason ?? undefined}
                                             >
                                                 <span className="flex items-center gap-1">
                                                     <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
                                                     <AssigneeLabelDisplay assignee={resolvedAssignee} size="small" />
                                                 </span>
-                                            </LemonButton>
+                                                {sendDisabledReason ? null : <SelectTriggerIcon />}
+                                            </Button>
                                         )}
                                     </AssigneeSelect>
                                 </div>
@@ -528,29 +561,13 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             )}
                             <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Snooze</span>
-                                <LemonCalendarSelectInput
-                                    value={snoozedUntil ? dayjs(snoozedUntil) : null}
-                                    onChange={(date) =>
-                                        setSnoozedUntil(date ? date.startOf('minute').toISOString() : null)
-                                    }
-                                    granularity="minute"
-                                    selectionPeriod="upcoming"
-                                    clearable
-                                    placeholder="Not snoozed"
-                                    applyActions={[
-                                        {
-                                            label: 'Apply and set to on hold',
-                                            onClick: (date) => {
-                                                setSnoozedUntil(date.startOf('minute').toISOString())
-                                                setStatus('on_hold')
-                                            },
-                                        },
-                                    ]}
-                                    buttonProps={{
-                                        size: 'small',
-                                        type: 'secondary',
-                                        fullWidth: false,
-                                        disabledReason: sendDisabledReason,
+                                <TicketSnoozeButton
+                                    snoozedUntil={snoozedUntil}
+                                    disabledReason={sendDisabledReason}
+                                    onChange={setSnoozedUntil}
+                                    onApplyAndSetOnHold={(nextSnoozedUntil) => {
+                                        setSnoozedUntil(nextSnoozedUntil)
+                                        setStatus('on_hold')
                                     }}
                                 />
                             </div>
@@ -570,15 +587,20 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 minAccessLevel={AccessControlLevel.Editor}
                                 userAccessLevel={ticket?.user_access_level}
                             >
-                                <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    onClick={() => updateTicket()}
-                                    loading={ticketUpdating}
-                                    disabledReason={!hasUnsavedChanges ? 'No changes to save' : undefined}
-                                >
-                                    Save changes
-                                </LemonButton>
+                                {({ disabled, disabledReason }) => (
+                                    <Button
+                                        variant="primary"
+                                        size="sm"
+                                        onClick={() => updateTicket()}
+                                        loading={ticketUpdating}
+                                        disabled={disabled || !hasUnsavedChanges || ticketUpdating}
+                                        title={
+                                            disabledReason ?? (!hasUnsavedChanges ? 'No changes to save' : undefined)
+                                        }
+                                    >
+                                        Save changes
+                                    </Button>
+                                )}
                             </AccessControlAction>
                         </div>
                     </LemonCard>

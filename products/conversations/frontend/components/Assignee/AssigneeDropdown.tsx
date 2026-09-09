@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlusSmall, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { Button, InputGroup, InputGroupAddon, InputGroupInput, Item, ItemContent, ItemTitle, Text } from 'lib/ui/quill'
 import { urls } from 'scenes/urls'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './AssigneeDisplay'
@@ -20,37 +21,52 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
     const { setSearch } = useActions(assigneeSelectLogic)
 
     return (
-        <div className="max-w-100 deprecated-space-y-2">
-            <LemonInput type="search" placeholder="Search" autoFocus value={search} onChange={setSearch} fullWidth />
-            <ul className="deprecated-space-y-2">
-                {assignee && (
-                    <li>
-                        <LemonButton
-                            fullWidth
-                            role="menuitem"
-                            size="small"
-                            icon={<IconX />}
-                            onClick={() => onChange(null)}
-                        >
-                            Remove assignee
-                        </LemonButton>
-                    </li>
-                )}
+        <div className="flex w-72 flex-col gap-2">
+            <InputGroup>
+                <InputGroupAddon>
+                    <IconSearch />
+                </InputGroupAddon>
+                <InputGroupInput
+                    type="search"
+                    placeholder="Search"
+                    autoFocus
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                />
+            </InputGroup>
+            <div className="flex flex-col gap-px">
+                {assignee ? (
+                    <Item
+                        variant="menuItem"
+                        size="xs"
+                        render={<Button variant="default" left className="w-full font-normal" />}
+                        onClick={() => onChange(null)}
+                    >
+                        <ItemContent variant="menuItem">
+                            <ItemTitle className="flex items-center gap-1">
+                                <IconX />
+                                Remove assignee
+                            </ItemTitle>
+                        </ItemContent>
+                    </Item>
+                ) : null}
 
-                {currentUserMember && (
-                    <li>
-                        <AssigneeItem
-                            item={{
-                                id: currentUserMember.user.id,
-                                type: 'user',
-                                user: currentUserMember.user,
-                            }}
-                            onSelect={onChange}
-                            activeId={assignee?.id}
-                            labelSuffix={<span className="text-secondary">(you)</span>}
-                        />
-                    </li>
-                )}
+                {currentUserMember ? (
+                    <AssigneeItem
+                        item={{
+                            id: currentUserMember.user.id,
+                            type: 'user',
+                            user: currentUserMember.user,
+                        }}
+                        onSelect={onChange}
+                        activeId={assignee?.id}
+                        labelSuffix={
+                            <Text size="xs" variant="muted" render={<span />}>
+                                (you)
+                            </Text>
+                        }
+                    />
+                ) : null}
 
                 <Section
                     title="Roles"
@@ -64,18 +80,22 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
                     onSelect={onChange}
                     activeId={assignee?.id}
                     emptyState={
-                        <LemonButton
-                            fullWidth
-                            size="small"
-                            icon={<IconPlusSmall />}
-                            to={urls.settings('organization-roles')}
+                        <Button
+                            variant="default"
+                            size="sm"
+                            left
+                            className="w-full"
+                            render={<LinkPrimitive to={urls.settings('organization-roles')} />}
                         >
-                            <div className="text-secondary">Create role</div>
-                        </LemonButton>
+                            <IconPlusSmall />
+                            <Text size="sm" variant="muted" render={<span />}>
+                                Create role
+                            </Text>
+                        </Button>
                     }
                 />
 
-                {(!!search || membersLoading || otherFilteredMembers.length > 0) && (
+                {!!search || membersLoading || otherFilteredMembers.length > 0 ? (
                     <Section
                         title="Users"
                         loading={membersLoading}
@@ -88,8 +108,8 @@ export function AssigneeDropdown({ assignee, onChange }: AssigneeDropdownProps):
                         onSelect={onChange}
                         activeId={assignee?.id}
                     />
-                )}
-            </ul>
+                ) : null}
+            </div>
         </div>
     )
 }
@@ -105,20 +125,23 @@ const AssigneeItem = ({
     activeId?: string | number
     labelSuffix?: JSX.Element
 }): JSX.Element => {
+    const active = String(activeId) === String(item?.id)
     return (
-        <LemonButton
-            fullWidth
-            role="menuitem"
-            size="small"
-            icon={<AssigneeIconDisplay assignee={item} />}
+        <Item
+            variant="menuItem"
+            size="xs"
+            tone={active ? 'info' : 'default'}
+            render={<Button variant="default" left className="w-full font-normal" />}
             onClick={() => item?.id && onSelect(String(activeId) === String(item.id) ? null : toTicketAssignee(item))}
-            active={String(activeId) === String(item?.id)}
         >
-            <span className="flex items-center gap-1">
-                <AssigneeLabelDisplay assignee={item} />
-                {labelSuffix}
-            </span>
-        </LemonButton>
+            <ItemContent variant="menuItem">
+                <ItemTitle className="flex items-center gap-1">
+                    <AssigneeIconDisplay assignee={item} />
+                    <AssigneeLabelDisplay assignee={item} />
+                    {labelSuffix}
+                </ItemTitle>
+            </ItemContent>
+        </Item>
     )
 }
 
@@ -140,27 +163,26 @@ const Section = ({
     emptyState?: JSX.Element
 }): JSX.Element => {
     return (
-        <li>
-            <section className="deprecated-space-y-px">
-                <h5 className="mx-2 my-0.5">{title}</h5>
-                {items.map((item) => (
-                    <li key={item?.id || 'unassigned'}>
-                        <AssigneeItem item={item} onSelect={onSelect} activeId={activeId} />
-                    </li>
-                ))}
-
-                {loading ? (
-                    <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
-                ) : items.length === 0 ? (
-                    search ? (
-                        <div className="p-2 text-secondary italic truncate border-t">
-                            <span>No matches</span>
-                        </div>
-                    ) : (
-                        <div className="border-t pt-1">{emptyState}</div>
-                    )
-                ) : null}
-            </section>
-        </li>
+        <div className="flex flex-col gap-px">
+            <Text size="xs" variant="muted" className="px-2 py-0.5">
+                {title}
+            </Text>
+            {items.map((item) => (
+                <AssigneeItem key={item?.id || 'unassigned'} item={item} onSelect={onSelect} activeId={activeId} />
+            ))}
+            {loading ? (
+                <Text size="sm" variant="muted" className="italic px-2 py-2 border-t">
+                    Loading...
+                </Text>
+            ) : items.length === 0 ? (
+                search ? (
+                    <Text size="sm" variant="muted" className="italic px-2 py-2 border-t">
+                        No matches
+                    </Text>
+                ) : (
+                    <div className="border-t pt-1">{emptyState}</div>
+                )
+            ) : null}
+        </div>
     )
 }

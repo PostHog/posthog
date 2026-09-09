@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect } from '@posthog/lemon-ui'
-
-import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Spinner } from 'lib/ui/quill'
 
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
 import { type TicketStatus, statusOptionsWithoutAll } from '../../types'
+import { TicketBulkUpdateTagsButton } from '../TicketBulkUpdateTagsButton/TicketBulkUpdateTagsButton'
 
 export function TicketListBulkActions(): JSX.Element {
     const { selectedTicketIds, selectedTickets, editableSelectedTicketIds, bulkUpdating } =
@@ -32,26 +31,34 @@ export function TicketListBulkActions(): JSX.Element {
         hasRestrictedSelection && editableTicketIds.length > 0
             ? `${selectedTicketIds.length - editableTicketIds.length} selected ticket(s) will be skipped because you don't have edit access to them`
             : undefined
+    const disabled = bulkUpdating || !!noEditableSelectionReason
+    const triggerTitle = bulkUpdating ? 'Updating…' : (noEditableSelectionReason ?? restrictedSelectionTooltip)
 
     return (
         <div className="flex flex-wrap items-center gap-2">
-            <LemonSelect
-                onChange={(value) => {
+            <Select
+                value={null}
+                disabled={disabled}
+                onValueChange={(value: TicketStatus | null) => {
                     if (!value || value === currentStatus || editableTicketIds.length === 0) {
                         return
                     }
-                    bulkUpdateStatus(editableTicketIds, value as TicketStatus)
+                    bulkUpdateStatus(editableTicketIds, value)
                 }}
-                value={null}
-                placeholder="Mark as"
-                loading={bulkUpdating}
-                disabledReason={bulkUpdating ? 'Updating…' : noEditableSelectionReason}
-                tooltip={restrictedSelectionTooltip}
-                options={statusOptionsWithoutAll.map((o) => ({ value: o.value, label: o.label }))}
-                size="small"
-            />
-            <BulkUpdateTagsButton
-                resource="conversations/tickets"
+            >
+                <SelectTrigger size="sm" title={triggerTitle} aria-busy={bulkUpdating}>
+                    {bulkUpdating ? <Spinner /> : null}
+                    <SelectValue placeholder="Mark as" />
+                </SelectTrigger>
+                <SelectContent align="start" alignItemWithTrigger={false}>
+                    {statusOptionsWithoutAll.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <TicketBulkUpdateTagsButton
                 selectedIds={editableTicketIds}
                 disabledReason={noEditableSelectionReason}
                 tooltip={restrictedSelectionTooltip}

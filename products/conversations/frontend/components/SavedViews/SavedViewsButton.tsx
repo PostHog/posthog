@@ -1,8 +1,21 @@
 import { useActions, useValues } from 'kea'
 
 import { IconBookmark, IconX } from '@posthog/icons'
-import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
+import {
+    Button,
+    ButtonGroup,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from 'lib/ui/quill'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -21,56 +34,72 @@ function SavedViewsButtonInner({ id }: TicketViewsLogicProps): JSX.Element {
 
     return (
         <>
-            <LemonMenu
-                placement="bottom-start"
-                onVisibilityChange={(visible) => visible && loadViews()}
-                items={[
-                    {
-                        title: 'Favorites',
-                        items: favoriteViews.length
-                            ? favoriteViews.map((view) => ({
-                                  label: view.name,
-                                  onClick: () => loadView(view),
-                              }))
-                            : [
-                                  {
-                                      label: viewsLoading ? 'Loading…' : 'No favorite views yet',
-                                      disabledReason: 'Favorite a view to see it here',
-                                  },
-                              ],
-                    },
-                    {
-                        items: [
-                            {
-                                label: 'Save current view',
-                                onClick: openSaveModal,
-                                disabledReason: editDisabledReason,
-                                'data-attr': 'tickets-save-current-view',
-                            },
-                            { label: 'All saved views', onClick: openModal },
-                        ],
-                    },
-                ]}
-            >
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    icon={<IconBookmark />}
-                    active={!!activeView}
-                    tooltip={activeView ? `Viewing "${activeView.name}"` : undefined}
-                    sideAction={
-                        activeView
-                            ? {
-                                  icon: <IconX />,
-                                  onClick: resetFilters,
-                                  tooltip: 'Clear view and reset filters',
-                              }
-                            : undefined
-                    }
+            <ButtonGroup>
+                <DropdownMenu
+                    onOpenChange={(open) => {
+                        if (open) {
+                            loadViews()
+                        }
+                    }}
                 >
-                    {activeView ? <span className="max-w-50 truncate">{activeView.name}</span> : 'Saved views'}
-                </LemonButton>
-            </LemonMenu>
+                    <DropdownMenuTrigger
+                        render={
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                aria-pressed={!!activeView}
+                                title={activeView ? `Viewing "${activeView.name}"` : undefined}
+                            />
+                        }
+                    >
+                        <IconBookmark />
+                        {activeView ? <span className="max-w-50 truncate">{activeView.name}</span> : 'Saved views'}
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="min-w-48">
+                        <DropdownMenuGroup>
+                            <DropdownMenuLabel>Favorites</DropdownMenuLabel>
+                            {favoriteViews.length ? (
+                                favoriteViews.map((view) => (
+                                    <DropdownMenuItem key={view.short_id} onClick={() => loadView(view)}>
+                                        {view.name}
+                                    </DropdownMenuItem>
+                                ))
+                            ) : (
+                                <DropdownMenuItem disabled>
+                                    {viewsLoading ? 'Loading…' : 'No favorite views yet'}
+                                </DropdownMenuItem>
+                            )}
+                        </DropdownMenuGroup>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                            disabled={!!editDisabledReason}
+                            title={editDisabledReason}
+                            data-attr="tickets-save-current-view"
+                            onClick={openSaveModal}
+                        >
+                            Save current view
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={openModal}>All saved views</DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
+                {activeView ? (
+                    <Tooltip>
+                        <TooltipTrigger
+                            render={
+                                <Button
+                                    variant="outline"
+                                    size="icon-sm"
+                                    onClick={resetFilters}
+                                    aria-label="Clear view and reset filters"
+                                />
+                            }
+                        >
+                            <IconX />
+                        </TooltipTrigger>
+                        <TooltipContent>Clear view and reset filters</TooltipContent>
+                    </Tooltip>
+                ) : null}
+            </ButtonGroup>
             <SavedViewsModal id={id} />
         </>
     )

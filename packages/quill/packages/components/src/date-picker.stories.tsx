@@ -108,3 +108,17 @@ export const WeekStartsMonday: Story = {
         return <DatePicker value={value} onApply={setValue} weekStartsOn={Day.MONDAY} />
     },
 }
+
+export const ExtraActions: Story = {
+    args: baseArgs,
+    render: () => {
+        const [value, setValue] = React.useState<Date>(initialValue)
+        return (
+            <DatePicker
+                value={value}
+                onApply={setValue}
+                extraActions={[{ label: 'Apply and set to on hold', onClick: setValue }]}
+            />
+        )
+    },
+}
