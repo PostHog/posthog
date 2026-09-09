@@ -13,6 +13,10 @@ function parseMarkdownIntoBlocks(markdown: string): string[] {
 /**
  * The optimized markdown renderer for messages.
  * Splits the markdown into blocks, so they can individually be memoized.
+ *
+ * `disableImages`: the text comes from the model, which reads untrusted project data. An auto-loading
+ * <img> would turn any image URL the model writes into a silent GET to an arbitrary host, with
+ * conversation content in its path or query. Images off PostHog render as click-to-open links instead.
  */
 export const MarkdownMessage = memo(function MarkdownMessage({
     content,
@@ -27,7 +31,9 @@ export const MarkdownMessage = memo(function MarkdownMessage({
     return (
         <LemonMarkdown.Container className={className}>
             {blocks.map((block, index) => (
-                <LemonMarkdown.Renderer key={`${id}-block_${index}`}>{block}</LemonMarkdown.Renderer>
+                <LemonMarkdown.Renderer key={`${id}-block_${index}`} disableImages>
+                    {block}
+                </LemonMarkdown.Renderer>
             ))}
         </LemonMarkdown.Container>
     )
