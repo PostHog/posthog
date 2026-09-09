@@ -31,6 +31,7 @@ import {
     InboxReportCloseMethod,
     InboxReportOpenMethod,
 } from './inboxAnalytics'
+import { inboxBulkActionsLogic } from './logics/inboxBulkActionsLogic'
 import { inboxFiltersLogic } from './logics/inboxFiltersLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from './logics/reportListLogic'
 import type { ScoutCreateInitialValues } from './logics/scoutCreateModalLogic'
@@ -459,8 +460,11 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
 
     connect(() => ({
         // Mount inboxFiltersLogic with the scene so its URL sync (shareable filter params) applies on
-        // deep-link load, before the filter bar / list have rendered.
-        logic: [inboxFiltersLogic],
+        // deep-link load, before the filter bar / list have rendered. inboxBulkActionsLogic owns the
+        // `reportStateChanged` broadcast the report refresh below sends, and kea throws when an action
+        // is dispatched through an unmounted logic, so the scene keeps it alive instead of relying on
+        // a component (the list toolbar, the detail actions) having rendered first.
+        logic: [inboxFiltersLogic, inboxBulkActionsLogic],
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags', 'receivedFeatureFlags']],
         actions: [signalSourcesLogic, ['loadSourceConfigs'], featureFlagLogic, ['setFeatureFlags']],
     })),
@@ -823,8 +827,16 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         },
         // Fire `Inbox report opened` once the authoritative record lands (skip background refreshes
         // of the already-open report). Rank/list_size come from whichever loaded list holds it.
-        loadSelectedReportSuccess: ({ selectedReportResponse }) => {
+        loadSelectedReportSuccess: ({ selectedReportResponse }, _, __, previousState) => {
             const report = selectedReportResponse
+            // The report lists stay mounted behind the detail pane and reconcile only on this
+            // broadcast, so a status the server moved behind us (a webhook suppressing the report)
+            // would leave their row and count showing the old state. Compare against the record we
+            // held for the same report, so navigating between two reports never counts as a change.
+            const previous = selectors.selectedReport(previousState)
+            if (report && previous?.id === report.id && previous.status !== report.status) {
+                inboxBulkActionsLogic.actions.reportStateChanged()
+            }
             // Skip already-open refreshes, and stale loads for a report the user already navigated away
             // from before the fetch returned (else we'd log a phantom open + a later bogus dwell close).
             if (!report || values.selectedReportId !== report.id || cache.openTracking?.report.id === report.id) {

@@ -13,7 +13,8 @@ import { OriginProduct, Task, TaskRun, TaskRunStatus } from 'products/posthog_ai
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { inboxSceneLogic, mergeSignalRuns } from './inboxSceneLogic'
-import { SignalScoutRunSummary } from './types'
+import { inboxBulkActionsLogic } from './logics/inboxBulkActionsLogic'
+import { SignalReportStatus, SignalScoutRunSummary } from './types'
 
 function scoutRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRunSummary {
     return {
@@ -282,8 +283,18 @@ describe('inboxSceneLogic routing', () => {
             document.dispatchEvent(new Event('visibilitychange'))
         }
 
-        function mockReportGet(): jest.Mock {
-            const reportGet = jest.fn(() => [200, { id: 'report-1', title: 'Crash on login', status: 'ready' }])
+        // The first fetch always answers `ready`; later fetches answer `refreshedStatus`, so a test can
+        // move the report's state server-side between the initial load and the visibility refresh.
+        function mockReportGet(refreshedStatus: SignalReportStatus = SignalReportStatus.READY): jest.Mock {
+            let fetches = 0
+            const reportGet = jest.fn(() => [
+                200,
+                {
+                    id: 'report-1',
+                    title: 'Crash on login',
+                    status: fetches++ === 0 ? SignalReportStatus.READY : refreshedStatus,
+                },
+            ])
             // Pinned to the report's own path: a `:id` pattern would also swallow `available_reviewers/`.
             useMocks({
                 get: { '/api/projects/:team_id/signals/reports/report-1/': reportGet },
@@ -324,6 +335,36 @@ describe('inboxSceneLogic routing', () => {
 
             await expectLogic(logic).toNotHaveDispatchedActions(['loadSelectedReport'])
             expect(reportGet).toHaveBeenCalledTimes(1)
+        })
+
+        // The lists behind the detail pane reconcile only on `reportStateChanged`, so a refresh that
+        // lands a new status has to broadcast it. An unconditional broadcast is just as wrong: every
+        // tab return would refresh every mounted section and the refund summary.
+        test.each([
+            {
+                case: 'broadcasts when the refresh lands a new status',
+                refreshedStatus: SignalReportStatus.SUPPRESSED,
+                broadcasts: true,
+            },
+            {
+                case: 'stays quiet when the refresh lands the same status',
+                refreshedStatus: SignalReportStatus.READY,
+                broadcasts: false,
+            },
+        ])('$case', async ({ refreshedStatus, broadcasts }) => {
+            mockReportGet(refreshedStatus)
+            mountWithRedesign(true)
+            logic.actions.setSelectedReportId('report-1')
+            await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
+
+            setTabVisibility('visible')
+
+            await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
+            expect(logic.values.selectedReport?.status).toBe(refreshedStatus)
+            const broadcast = [inboxBulkActionsLogic.actionTypes.reportStateChanged]
+            await (broadcasts
+                ? expectLogic(logic).toDispatchActions(broadcast)
+                : expectLogic(logic).toNotHaveDispatchedActions(broadcast))
         })
     })
 })
