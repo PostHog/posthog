@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
@@ -19,8 +20,10 @@ class TestStripExternalLinks(BaseTest):
             ("space_before_paren", "[x](https://evil.example.com )"),
             # Not a CommonMark link, but the destination URL would otherwise survive bare after `](`.
             ("newline_mid_dest", "[x](https://evil.example.com\nmore)"),
+            ("unquoted_title", "[x](https://evil.example.com/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa invalid title)"),
         ]
     )
+    @pytest.mark.timeout(1, func_only=True)
     def test_non_posthog_urls_defanged(self, _label: str, markdown: str) -> None:
         out = strip_external_links_markdown(markdown)
         # The host must never survive as a live link — only inside an inert code span at most.
