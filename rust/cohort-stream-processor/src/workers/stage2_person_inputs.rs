@@ -8,9 +8,9 @@
 //! that a dozen times over, and each read is its own blocking-pool handoff.
 //!
 //! Here a [`PersonReadPlan`] resolves each person's needs from the frozen catalog first, then one
-//! [`PersonInputReader`] fetches them in a single store section: one person record, each distinct
-//! behavioral key once, and one `cf_stage2` key set covering both the pairs' own prior rows and
-//! every composed referent.
+//! [`PersonInputReader`] fetches them in as few store sections as their width needs: one person
+//! record, each distinct behavioral key once, and one `cf_stage2` key set covering both the pairs'
+//! own prior rows and every composed referent.
 //!
 //! Two boundaries the sharing must not cross:
 //!
@@ -19,7 +19,9 @@
 //!   cascade the referent has not acknowledged.
 //! - **One chunk at a time.** Behavioral values carry whole event histories, so the union is read in
 //!   bounded chunks and each chunk's raw buffers are decoded and dropped before the next is read.
-//!   The person's residue is their decoded membership bits, not their rows.
+//!   The person's residue is their decoded membership bits, not their rows. A section reads at most
+//!   one chunk per source, so a wide person releases the maintenance permit between chunks instead
+//!   of holding it across all of them.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -91,18 +93,19 @@ pub(crate) async fn recompute_stage2_by_person(
             continue;
         }
 
-        let (plan, inputs) = handle
-            .run_section(SECTION_OP, move |store| {
-                // Counted here, not after the await, so it lands on the same thread as the key
-                // counters below it. A started blocking task runs to completion even if the caller
-                // future is dropped, so counting outside would let a cancelled offload record keys
-                // for a person it never recorded — skewing keys-per-person by exactly the reads
-                // that went missing.
-                counter!(SEED_RECOMPUTE_PERSONS_TOTAL).increment(1);
-                let inputs = PersonInputReader::new(store, &plan).read()?;
-                Ok((plan, inputs))
-            })
-            .await??;
+        let mut reader = PersonInputReader::new(plan);
+        loop {
+            reader = handle
+                .run_section(SECTION_OP, move |store| {
+                    reader.read_section(store)?;
+                    Ok(reader)
+                })
+                .await??;
+            if reader.is_done() {
+                break;
+            }
+        }
+        let (plan, inputs) = reader.finish();
 
         let references = plan.reference_membership(&inputs);
         for &cohort_id in &plan.cohorts {
@@ -160,7 +163,7 @@ enum ReferenceSource {
 }
 
 /// Everything one person's affected cohorts read from the store, resolved from the frozen catalog
-/// before any I/O and owned, so the whole read runs as one blocking section.
+/// before any I/O and owned, so the read runs in blocking sections.
 #[derive(Debug)]
 struct PersonReadPlan {
     partition_id: u16,
@@ -316,7 +319,7 @@ impl PersonReadPlan {
 
 // ---- Reading them ----
 
-/// One person's decoded inputs. Compact enough to outlive the section that produced them: the raw
+/// One person's decoded inputs. Compact enough to outlive the sections that produced them: the raw
 /// values behind them were dropped chunk by chunk as they were decoded.
 #[derive(Debug, Default)]
 struct ResolvedPersonInputs {
@@ -336,65 +339,79 @@ impl ResolvedPersonInputs {
     }
 }
 
-/// Executes one [`PersonReadPlan`] against the store, accumulating the decoded result.
+/// Executes one [`PersonReadPlan`] against the store, accumulating the decoded result across as
+/// many sections as the plan's width needs.
 ///
 /// Sync by design: it runs on the blocking pool inside [`StoreHandle::run_section`], so its direct
-/// [`CohortStore`] I/O is already off the runtime threads and the whole person costs one permit and
-/// one handoff. That permit is the maintenance one, which is what `run_section` draws — the seed
-/// paths took [`ReadLane::Maintenance`](crate::store::ReadLane) read by read before, and backfill
-/// still cannot contend with live event reads.
+/// [`CohortStore`] I/O is already off the runtime threads. Each section draws the maintenance
+/// permit, as the seed paths did read by read before through
+/// [`ReadLane::Maintenance`](crate::store::ReadLane), so backfill still cannot contend with live
+/// event reads.
 ///
 /// A section cannot be cancelled once started, and shutdown joins started sections, so its length
-/// matters. It is one point read plus one batched read per [`READ_CHUNK_KEYS`] of the person's
-/// distinct keys — fewer reads than the cohort-ordered path issues for the same person, but held
-/// under one permit instead of released between each. Nothing here caps that count: it grows with
-/// how many composable cohorts one person is in. Watch
-/// `store_offload_exec_duration_seconds{op="stage2_person_inputs"}` for what it turns out to be, and
-/// split the plan across sections if a tail appears.
-///
-/// Note the label move: `run_section` reports under `lane="section"` while still drawing the
-/// *maintenance* semaphore, so this work left `store_offload_inflight{lane="maintenance"}` when it
-/// moved here. A maintenance-saturation panel filtered on that label no longer sees seed
-/// recomputation, though it still competes for those permits. Filter on the `op` instead.
-struct PersonInputReader<'a> {
-    store: &'a CohortStore,
-    plan: &'a PersonReadPlan,
+/// matters. [`Self::read_section`] bounds it to the person record plus one [`READ_CHUNK_KEYS`] chunk
+/// of each batched source. A person within one chunk per source costs one permit and one handoff.
+/// A wider person resumes in further sections and releases the permit between them instead of
+/// holding it for every chunk.
+struct PersonInputReader {
+    plan: PersonReadPlan,
     inputs: ResolvedPersonInputs,
+    started: bool,
+    /// How far into `plan.behavioral` and `plan.stage2_cohorts` the sections so far have read.
+    behavioral_read: usize,
+    stage2_read: usize,
 }
 
 #[allow(clippy::disallowed_methods)]
-impl<'a> PersonInputReader<'a> {
-    fn new(store: &'a CohortStore, plan: &'a PersonReadPlan) -> Self {
+impl PersonInputReader {
+    fn new(plan: PersonReadPlan) -> Self {
+        let inputs = ResolvedPersonInputs {
+            membership: HashMap::with_capacity(plan.behavioral.len() + plan.person_leaves.len()),
+            stage2: HashMap::with_capacity(plan.stage2_cohorts.len()),
+        };
         Self {
-            store,
             plan,
-            inputs: ResolvedPersonInputs {
-                membership: HashMap::with_capacity(
-                    plan.behavioral.len() + plan.person_leaves.len(),
-                ),
-                stage2: HashMap::with_capacity(plan.stage2_cohorts.len()),
-            },
+            inputs,
+            started: false,
+            behavioral_read: 0,
+            stage2_read: 0,
         }
     }
 
-    fn read(mut self) -> Result<ResolvedPersonInputs, StoreError> {
-        self.read_person_leaves()?;
-        self.read_behavioral_leaves()?;
-        self.read_stage2_rows()?;
-        Ok(self.inputs)
+    /// Read one bounded section: the person record on the first call, then the next chunk of each
+    /// batched source.
+    fn read_section(&mut self, store: &CohortStore) -> Result<(), StoreError> {
+        if !self.started {
+            self.started = true;
+            // Counted with the first section's keys, on the same blocking thread. A started blocking
+            // task runs to completion even if the caller future is dropped, so counting outside
+            // would let a cancelled offload record keys for a person it never recorded, skewing
+            // keys-per-person by exactly the reads that went missing.
+            counter!(SEED_RECOMPUTE_PERSONS_TOTAL).increment(1);
+            self.read_person_leaves(store)?;
+        }
+        self.read_behavioral_chunk(store)?;
+        self.read_stage2_chunk(store)
+    }
+
+    fn is_done(&self) -> bool {
+        self.behavioral_read == self.plan.behavioral.len()
+            && self.stage2_read == self.plan.stage2_cohorts.len()
+    }
+
+    fn finish(self) -> (PersonReadPlan, ResolvedPersonInputs) {
+        (self.plan, self.inputs)
     }
 
     /// Resolve every person-property leaf from the one durable record: a person leaf's state key
     /// *is* its condition hash, so its bit is `record.matched.contains(hash)`. An absent or corrupt
     /// record reads every person leaf as a non-member; a corrupt one counts once here rather than
     /// once per cohort that would have read it.
-    fn read_person_leaves(&mut self) -> Result<(), StoreError> {
+    fn read_person_leaves(&mut self, store: &CohortStore) -> Result<(), StoreError> {
         if self.plan.person_leaves.is_empty() {
             return Ok(());
         }
-        let bytes = self
-            .store
-            .get_person_record(&self.plan.person_record_key())?;
+        let bytes = store.get_person_record(&self.plan.person_record_key())?;
         ReadSource::PersonRecord.record(1, bytes.as_ref().map_or(0, Vec::len));
 
         let matched = match bytes {
@@ -416,42 +433,49 @@ impl<'a> PersonInputReader<'a> {
         Ok(())
     }
 
-    /// Read the distinct behavioral leaves in bounded chunks, decoding each chunk and releasing its
-    /// raw values before the next is read.
-    fn read_behavioral_leaves(&mut self) -> Result<(), StoreError> {
-        for chunk in self.plan.behavioral.chunks(READ_CHUNK_KEYS) {
-            let keys: Vec<BehavioralKey> = chunk
-                .iter()
-                .map(|&(lsk, _)| self.plan.behavioral_key(lsk))
-                .collect();
-            let raw = self.store.multi_get_behavioral(&keys)?;
-            ReadSource::Behavioral.record(keys.len(), raw_bytes(&raw));
-            for (&(lsk, ref meta), bytes) in chunk.iter().zip(raw) {
-                let state = decode_stage1_state(bytes);
-                self.inputs
-                    .membership
-                    .insert(lsk, leaf_membership(state.as_ref(), meta));
-            }
+    /// Read the next chunk of distinct behavioral leaves, decoding it and releasing its raw values
+    /// before the section ends.
+    fn read_behavioral_chunk(&mut self, store: &CohortStore) -> Result<(), StoreError> {
+        let rest = &self.plan.behavioral[self.behavioral_read..];
+        let Some(chunk) = rest.chunks(READ_CHUNK_KEYS).next() else {
+            return Ok(());
+        };
+        let keys: Vec<BehavioralKey> = chunk
+            .iter()
+            .map(|&(lsk, _)| self.plan.behavioral_key(lsk))
+            .collect();
+        let raw = store.multi_get_behavioral(&keys)?;
+        ReadSource::Behavioral.record(keys.len(), raw_bytes(&raw));
+        for (&(lsk, ref meta), bytes) in chunk.iter().zip(raw) {
+            let state = decode_stage1_state(bytes);
+            self.inputs
+                .membership
+                .insert(lsk, leaf_membership(state.as_ref(), meta));
         }
+        self.behavioral_read += chunk.len();
         Ok(())
     }
 
-    /// Read the pairs' own prior membership rows and every composed referent's row as one key set,
-    /// so a referent that also recomputes here is read once, and read as stored.
-    fn read_stage2_rows(&mut self) -> Result<(), StoreError> {
-        for chunk in self.plan.stage2_cohorts.chunks(READ_CHUNK_KEYS) {
-            let keys: Vec<Stage2Key> = chunk
-                .iter()
-                .map(|&cohort_id| self.plan.stage2_key(cohort_id))
-                .collect();
-            let raw = self.store.multi_get_stage2(&keys)?;
-            ReadSource::Stage2.record(keys.len(), raw_bytes(&raw));
-            for (&cohort_id, bytes) in chunk.iter().zip(raw) {
-                self.inputs
-                    .stage2
-                    .insert(cohort_id, read_prior_stage2(bytes));
-            }
+    /// Read the next chunk of the pairs' own prior membership rows and composed referents' rows.
+    /// They are one key set, so a referent that also recomputes here is read once, and read as
+    /// stored.
+    fn read_stage2_chunk(&mut self, store: &CohortStore) -> Result<(), StoreError> {
+        let rest = &self.plan.stage2_cohorts[self.stage2_read..];
+        let Some(chunk) = rest.chunks(READ_CHUNK_KEYS).next() else {
+            return Ok(());
+        };
+        let keys: Vec<Stage2Key> = chunk
+            .iter()
+            .map(|&cohort_id| self.plan.stage2_key(cohort_id))
+            .collect();
+        let raw = store.multi_get_stage2(&keys)?;
+        ReadSource::Stage2.record(keys.len(), raw_bytes(&raw));
+        for (&cohort_id, bytes) in chunk.iter().zip(raw) {
+            self.inputs
+                .stage2
+                .insert(cohort_id, read_prior_stage2(bytes));
         }
+        self.stage2_read += chunk.len();
         Ok(())
     }
 }

@@ -32,7 +32,7 @@ use crate::store::{
 /// `affected_leaves` is the touched `(leaf, person)` set; `lane` is the read lane every recompute
 /// read runs on. Every caller passes `Event`: the seed paths, which read on `Maintenance`, go
 /// through [`recompute_stage2_by_person`](super::stage2_person_inputs::recompute_stage2_by_person)
-/// instead, whose store section draws the maintenance permit.
+/// instead, whose store sections draw the maintenance permit.
 pub async fn compose_stage2(
     partition_id: u16,
     handle: &StoreHandle,
