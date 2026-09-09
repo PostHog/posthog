@@ -229,6 +229,32 @@ describe('taskDetailSceneLogic', () => {
             other.unmount()
         })
 
+        it('treats a queued successor as the latest run while the list still holds the failed predecessor', async () => {
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const previous = createMockRun('run-previous', TaskRunStatus.FAILED)
+            logic.actions.loadTaskRunsSuccess([previous])
+            expect(logic.values.latestRun).toEqual(previous)
+
+            const successor = {
+                ...createMockRun('run-successor', TaskRunStatus.QUEUED),
+                runtime_adapter: null,
+                reasoning_effort: null,
+                artifacts: [],
+            }
+            logic.actions.continueWithRun({ run: successor, streamKey: previous.id, draft: '' })
+            expect(logic.values.latestRun).toEqual(successor)
+
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadTaskRunsFailure('Could not load task runs', new ApiError('nope', 500))
+            expect(logic.values.latestRun).toEqual(successor)
+
+            logic.actions.loadTaskRunsSuccess([successor, previous])
+            expect(logic.values.latestRun).toEqual(successor)
+            logic.unmount()
+        })
+
         it('uses runs from the list without refetching selected run detail', async () => {
             const logic = taskDetailSceneLogic({ taskId: 'task-123' })
             logic.mount()

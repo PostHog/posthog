@@ -42,6 +42,7 @@ export interface taskDetailSceneLogicValues {
     isHeaderLoading: boolean
     isRunPending: boolean
     isTaskPending: boolean
+    latestRun: SelectedTaskRun | null
     runContinuation: RunContinuationHandoff | null
     runs: TaskRun[]
     runsError: string | null
@@ -137,6 +138,7 @@ export interface taskDetailSceneLogicMeta {
             selectedRunId: string | null,
             runContinuation: RunContinuationHandoff | null
         ) => SelectedTaskRun | null
+        latestRun: (runs: TaskRun[], runContinuation: RunContinuationHandoff | null) => SelectedTaskRun | null
         canEditRepository: (runs: TaskRun[]) => boolean
         isTaskPending: (taskLoading: boolean, task: Task | null) => boolean
         isRunPending: (
@@ -284,6 +286,18 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                     runs.find((run) => run.id === selectedRunId) ??
                     (continuation?.run.id === selectedRunId ? continuation.run : null)
                 )
+            },
+        ],
+        // The newest run, for the run actions in the header. A handoff successor is selected before the
+        // refreshed runs list holds it — and stays out of that list for good when the refresh fails — so
+        // prefer it over the terminal predecessor still sitting at the head of the stale list.
+        latestRun: [
+            (s) => [s.runs, s.runContinuation],
+            (runs: TaskRun[], continuation: RunContinuationHandoff | null): SelectedTaskRun | null => {
+                if (continuation && !runs.some((run) => run.id === continuation.run.id)) {
+                    return continuation.run
+                }
+                return runs[0] ?? null
             },
         ],
         canEditRepository: [

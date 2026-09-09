@@ -23,7 +23,7 @@ export interface TaskDetailPageProps {
 
 export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
-    const { task, taskNotFound, taskError, runs, selectedRun, isTaskPending, isHeaderLoading, runTaskInFlight } =
+    const { task, taskNotFound, taskError, latestRun, selectedRun, isTaskPending, isHeaderLoading, runTaskInFlight } =
         useValues(sceneLogic)
     const { runTask, deleteTask, loadTask } = useActions(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -39,10 +39,9 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
         return <NotFound object="task" />
     }
 
-    const latestRun = runs.length > 0 ? runs[0] : null
     const isLatestRunInProgress = latestRun?.status === 'in_progress' || latestRun?.status === 'queued'
     const isLatestRunCompleted = latestRun?.status === 'completed'
-    const runButtonText = runs.length === 0 ? 'Run task' : 'Retry task'
+    const runButtonText = latestRun ? 'Retry task' : 'Run task'
 
     const prUrl = selectedRun?.output?.pr_url as string | undefined
     const titleActions =
