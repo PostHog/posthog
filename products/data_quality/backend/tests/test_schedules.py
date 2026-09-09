@@ -269,6 +269,28 @@ class TestSchedules(BaseTest):
         assert flags == {self.team.id: False}
         assert flag.call_count == 1
 
+    def test_schedule_activity_names_the_metric_it_belongs_to(self) -> None:
+        other = upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="signups",
+            description="Signups",
+            definition={"kind": "HogQLQuery", "query": "SELECT 1"},
+        )
+        for metric_id in (self.metric.id, other.id):
+            self.schedules.get_or_create_schedule(self.team.id, "metric", metric_id, now=NOW)
+        activity_storage.set_user(self.user)
+        try:
+            set_schedule(self.team.id, "metric", self.metric.id, interval="1hour")
+            set_schedule(self.team.id, "metric", other.id, interval="1hour")
+        finally:
+            activity_storage.clear_user()
+        logs = ActivityLog.objects.filter(team_id=self.team.id, scope="DataQualityCheckSchedule", activity="updated")
+        assert {log.detail["name"] for log in logs} == {
+            "metric check schedule on revenue",
+            "metric check schedule on signups",
+        }
+
     def test_schedule_config_audits_actor_and_ignores_dispatch_bookkeeping(self) -> None:
         schedule = self.schedules.get_or_create_schedule(
             self.team.id, "metric", self.metric.id, now=NOW, created_by_id=self.user.id
