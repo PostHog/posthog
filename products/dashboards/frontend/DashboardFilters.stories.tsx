@@ -170,6 +170,7 @@ function DashboardFilterBarStory({
 
     const logic = dashboardLogic({ id: DASHBOARD_ID, dashboard: storyDashboard })
     logic.mount()
+    logic.actions.setDashboardSettingsDraft(null)
 
     if (hasSqlVariables) {
         variableDataLogic.mount()
@@ -182,10 +183,6 @@ function DashboardFilterBarStory({
                 default_value: SQL_VARIABLE_DEFAULT,
             },
         ])
-    }
-
-    if (state !== 'saved') {
-        logic.actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
     }
 
     if (state !== 'saved') {
