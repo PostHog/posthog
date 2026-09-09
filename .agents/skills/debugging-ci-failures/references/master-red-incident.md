@@ -12,25 +12,39 @@ Setting the workflow up is `master-red-workflow-setup.md` in this directory.
 
 Do not call `hogli ci:insights` in this task sandbox.
 If the alert shows the broad-failure signals from the parent's platform-outage gate, check GitHub and Depot status before reading run logs.
-Otherwise, first parse the workflow names from the alert and resolve each one to its newest run on `master`.
-Use the event filter in the query so a busy lane cannot crowd out the run you need:
+Otherwise, first parse the workflow names from the alert and fetch the newest `master` commit from GitHub's commit endpoint.
+Use its commit time to check whether each run-list page is current:
+
+```bash
+gh api repos/PostHog/posthog/commits/master --jq '{sha, createdAt: .commit.committer.date}'
+```
+
+Resolve independent workflows in parallel.
+Use the event filter so a busy lane cannot crowd out the run you need.
+Do not filter by status yet because the raw page head is the freshness signal.
 
 For a name ending in `(scheduled)`, remove the suffix and run:
 
 ```bash
-gh run list --branch master --workflow "<workflow>" --event schedule --status completed --limit 10 --json databaseId,conclusion,createdAt,headSha,url,workflowName
+gh run list --branch master --workflow "<workflow>" --event schedule --limit 40 --json databaseId,status,conclusion,createdAt,headSha,url,workflowName
 ```
 
 For all other names, run:
 
 ```bash
-gh run list --branch master --workflow "<workflow>" --event push --status completed --limit 10 --json databaseId,conclusion,createdAt,headSha,url,workflowName
+gh run list --branch master --workflow "<workflow>" --event push --limit 40 --json databaseId,status,conclusion,createdAt,headSha,url,workflowName
 ```
 
-Resolve independent workflows in parallel.
-Select the newest returned run, not the newest failure.
-If it passed, find the first preceding failure and report that the lane recovered rather than diagnosing it as still active.
-Do not continue until you have the relevant run ID and URL, or the bounded lookup returns no match.
+Before filtering the page, compare its first run's `createdAt` with the newest commit time.
+Treat a push page as stale when it trails the commit by more than three hours, and a scheduled page as stale after six hours.
+Retry a stale page twice, with 15 seconds between attempts.
+If it remains stale, do not diagnose from it; report the unresolved evidence and the same freshness check as the next probe.
+
+On a fresh page, discard runs that are not completed and runs whose conclusion is `cancelled` or `skipped`.
+Select the newest remaining run.
+Only `failure` and `timed_out` are failing conclusions for this alert.
+If the newest remaining run has another conclusion, find the first preceding run with either failing conclusion and report that the lane recovered.
+If no run remains, report the missing evidence instead of choosing a different lane.
 
 Next, use the available PostHog MCP tools for cross-run evidence.
 Search for the relevant tool, inspect its schema once, and call only the tools the runtime exposes.
@@ -66,7 +80,8 @@ It is the cron-triggered master run of the workflow before the suffix, which the
 
 ## The verdict
 
-Classify with the parent skill's table, then reduce it to one of four answers a reader can act on: **infrastructure** (no code change fixes it), **flaky test**, **real regression**, or **recovered before diagnosis**.
+When the evidence supports a classification, reduce it to one of four answers a reader can act on: **infrastructure** (no code change fixes it), **flaky test**, **real regression**, or **recovered before diagnosis**.
+When required evidence remains unavailable after the bounded fallback, say that you could not determine the cause instead of forcing a verdict.
 
 Confirm a flaky verdict against master history rather than asserting it, and pin a regression to the commit that introduced it.
 Then find the smallest thing a person can act on: the failing job name, the failing test or step, and the commit or PR behind it.
@@ -74,19 +89,16 @@ Then find the smallest thing a person can act on: the failing job name, the fail
 ## The reply
 
 Return only the final Slack reply, with no plan, tool narration, preamble, or restatement of the alert.
-For one workflow, use three required lines, in this order:
+For each workflow, choose the form the evidence supports:
 
-1. The verdict, in one sentence, with the failing job named.
-2. The evidence, in one line. Link the run.
-3. What a person should do next, or that nothing needs doing because no code change fixes it.
+- If you can classify it, write one verdict line with the failing job, then one evidence line with the run link.
+- If required evidence is unavailable, write one uncertainty line that starts with `I could not determine the cause for <workflow>.` Then name the unresolved gap and the specific probe that would settle it. Do not invent a job name or run link.
 
-For multiple workflows, repeat the verdict and evidence pair for each one, then give one shared action line.
-Do not omit a workflow from the alert.
+After covering every workflow in the alert, add one shared action line.
+Say what a person should do next, or that no action is safe until the named probe completes.
 
-Add a final line only when material uncertainty remains.
-Name both the unresolved gap and the specific probe that would settle it.
-For example: `Unconfirmed: whether the shard rebalance landed first; compare the first failing run with the preceding green master run.`
-Never invent uncertainty to fill this line.
+An uncertainty line can read: `I could not determine the cause for Backend CI. Unconfirmed: the run index remained stale; repeat the freshness check against the newest master commit.`
+Never invent uncertainty when the evidence supports a classification.
 
 Keep a single-workflow reply under about 80 words.
 Keep each line short when the alert names several workflows.
