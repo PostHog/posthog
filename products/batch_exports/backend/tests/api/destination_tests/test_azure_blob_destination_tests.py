@@ -79,6 +79,16 @@ async def test_azure_blob_check_container_emulator_connection_string():
     assert "Invalid connection string" in result.message
 
 
+async def test_azure_blob_check_container_trailing_semicolon_connection_string(container_name, azurite_container):
+    test_step = AzureBlobContainerTestStep(
+        connection_string=AZURITE_CONNECTION_STRING + ";",
+        container_name=container_name,
+    )
+    result = await test_step.run()
+
+    assert result.status == Status.PASSED
+
+
 @pytest.mark.parametrize("step", [AzureBlobContainerTestStep()])
 async def test_test_steps_fail_if_not_configured(step):
     result = await step.run()

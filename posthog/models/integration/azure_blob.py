@@ -99,8 +99,13 @@ def validate_azure_blob_connection_string(connection_string: str) -> None:
     account_name: str | None = None
 
     for part in connection_string.split(";"):
+        part = part.strip()
+        if not part:
+            # The SDK accepts a trailing semicolon.
+            continue
+
         try:
-            key, value = part.strip().split("=", maxsplit=1)
+            key, value = part.split("=", maxsplit=1)
             key, value = key.lower(), value.lower()
         except Exception:
             raise ValueError("Malformed connection string")
