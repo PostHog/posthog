@@ -71,6 +71,7 @@ class ConversationInboundEvent(TeamScopedRootMixin, UUIDModel):
         on_delete=models.CASCADE,
         db_constraint=False,
         db_index=False,
+        related_name="+",
     )
     source = models.CharField(max_length=32, choices=conversation_inbound_event_source_choices)
     source_id = models.CharField(max_length=512)

@@ -67,6 +67,7 @@ class Migration(migrations.Migration):
                         db_constraint=False,
                         db_index=False,
                         on_delete=django.db.models.deletion.CASCADE,
+                        related_name="+",
                         to="posthog.team",
                     ),
                 ),
