@@ -88,10 +88,27 @@ _HEAVY_MATCH_SQL = """
 SELECT DISTINCT {unit_key} AS unit_id
 FROM posthog.ai_events AS ai_events
 WHERE event = '$ai_generation'
-  AND trace_id IN {trace_ids}
+  AND {unit_scope}
   AND timestamp >= {scan_start}
   AND timestamp < {window_end}
   AND {condition_filter}
+"""
+
+# Counting a heavy filter means asking ai_events directly, because the traces to ask about are
+# exactly what is being counted. It stays one aggregate: listing the window's units in Python to
+# refine them afterwards would let one estimate request hold a whole window in memory.
+_AI_UNITS_SQL = """
+SELECT {unit_key} AS unit_id
+FROM posthog.ai_events AS ai_events
+WHERE event = '$ai_generation'
+  AND isNotNull({unit_key})
+  AND {unit_key} != ''
+  AND length({unit_key}) <= {max_id_bytes}
+  AND timestamp >= {window_start}
+  AND timestamp < {window_end}
+  AND {condition_filter}
+  AND {not_already_evaluated}
+GROUP BY unit_id
 """
 
 # Reads the shared events table rather than ai_events: the verdict rows must stay visible past the
@@ -304,45 +321,77 @@ def _run(query: ast.SelectQuery, *, team: Team, query_type: str) -> list[tuple[A
     return list(response.results or [])
 
 
-def _heavy_matches(
-    *,
-    team: Team,
-    target: str,
-    conditions: list[dict[str, Any]],
-    trace_ids: list[str],
-    scan_start: datetime,
-    window_end: datetime,
-) -> set[str]:
-    """Unit ids among these traces that match the condition sets in full, heavy filters included."""
-    if not trace_ids:
-        return set()
-    unit_key = _ai_events_unit_key(target)
-    condition_filter = build_condition_filter(conditions, team, unit_key)
-    query = parse_select(_HEAVY_MATCH_SQL)
-    assert isinstance(query, ast.SelectQuery)
-    placeholders: dict[str, ast.Expr] = {
-        "unit_key": unit_key,
-        "trace_ids": ast.Constant(value=trace_ids),
-        "scan_start": ast.Constant(value=scan_start),
-        "window_end": ast.Constant(value=window_end),
-        "condition_filter": condition_filter if condition_filter is not None else ast.Constant(value=True),
-    }
+def _run_on_ai_events(
+    query: ast.SelectQuery, placeholders: dict[str, ast.Expr], *, team: Team, query_type: str
+) -> list[tuple[Any, ...]]:
+    """Runs through the ai_events resolver, which rewrites a heavy property read onto its column.
+
+    Only what arrives in `placeholders` is rewritten, so a condition filter baked into the parsed
+    query would read a `properties.$ai_input` that ai_events does not carry, and match nothing.
+    """
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.BACKFILL, team_id=team.pk):
         try:
-            # Through the ai_events resolver, which is what rewrites a heavy property read onto the
-            # native column holding it.
             response = query_ai_events(
                 query=query,
                 placeholders=placeholders,
                 team=team,
-                query_type=HEAVY_MATCH_QUERY_TYPE,
+                query_type=query_type,
                 fall_back_to_events=False,
                 workload=Workload.OFFLINE,
                 settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME_SECONDS),
             )
         except (AIEventsNotFoundError, AIEventsExpiredError):
-            return set()
-    return {str(row[0]) for row in (response.results or [])}
+            return []
+    return list(response.results or [])
+
+
+def _heavy_matches(
+    *,
+    team: Team,
+    target: str,
+    conditions: list[dict[str, Any]],
+    candidates: list[BackfillCandidate],
+    scan_start: datetime,
+    window_end: datetime,
+) -> set[str]:
+    """Which of these candidates match the condition sets in full, heavy filters included."""
+    if not candidates:
+        return set()
+    unit_key = _ai_events_unit_key(target)
+    trace_ids = sorted({candidate.trace_id for candidate in candidates if candidate.trace_id})
+    scope: ast.Expr = ast.CompareOperation(
+        op=ast.CompareOperationOp.In,
+        left=ast.Field(chain=["trace_id"]),
+        right=ast.Constant(value=trace_ids),
+    )
+    # A generation can carry a heavy property and no trace id at all, and for a generation or
+    # session unit that is still a candidate. Reaching it by its own id keeps it judged rather
+    # than dropped, and the clause is only added when such a candidate is on the page, so the
+    # ordinary lookup keeps reading by the sort key alone.
+    untraced = sorted({candidate.unit_id for candidate in candidates if not candidate.trace_id})
+    if untraced:
+        scope = ast.Or(
+            exprs=[
+                scope,
+                ast.CompareOperation(op=ast.CompareOperationOp.In, left=unit_key, right=ast.Constant(value=untraced)),
+            ]
+        )
+    condition_filter = build_condition_filter(conditions, team, unit_key)
+    query = parse_select(_HEAVY_MATCH_SQL)
+    assert isinstance(query, ast.SelectQuery)
+    rows = _run_on_ai_events(
+        query,
+        {
+            "unit_key": unit_key,
+            "unit_scope": scope,
+            "scan_start": ast.Constant(value=scan_start),
+            "window_end": ast.Constant(value=window_end),
+            "condition_filter": condition_filter if condition_filter is not None else ast.Constant(value=True),
+        },
+        team=team,
+        query_type=HEAVY_MATCH_QUERY_TYPE,
+    )
+    return {str(row[0]) for row in rows}
 
 
 def count_backfill_candidates(
@@ -372,19 +421,36 @@ def count_backfill_candidates(
         rows = _run(query, team=team, query_type=COUNT_QUERY_TYPE)
         return int(rows[0][0]) if rows else 0
 
-    # A heavy filter cannot be counted from `events`, and settling it needs the traces to ask
-    # about, so the count walks the whole window's units through the same second query the pages
-    # use. Rare, and the alternative is a number that overstates what the run will grade.
-    rows = _run(units, team=team, query_type=COUNT_QUERY_TYPE)
-    matched = _heavy_matches(
+    # `events` cannot judge a heavy filter, and the traces to ask ai_events about are exactly what
+    # is being counted, so the count asks ai_events for all of it and comes back with one number.
+    # The scan is the wide one this module otherwise avoids, which is the price of counting a
+    # filter on a property only that table holds, and the execution cap bounds it.
+    ai_unit_key = _ai_events_unit_key(target)
+    ai_units = parse_select(_AI_UNITS_SQL)
+    assert isinstance(ai_units, ast.SelectQuery)
+    rows = _run_on_ai_events(
+        ast.SelectQuery(select=[ast.Call(name="count", args=[])], select_from=ast.JoinExpr(table=ai_units)),
+        {
+            "unit_key": ai_unit_key,
+            "max_id_bytes": ast.Constant(value=MAX_CANDIDATE_ID_BYTES),
+            "window_start": ast.Constant(value=window_start),
+            "window_end": ast.Constant(value=window_end),
+            "condition_filter": build_condition_filter(conditions, team, ai_unit_key) or ast.Constant(value=True),
+            "not_already_evaluated": ast.Constant(value=True)
+            if rerun_existing
+            else _not_already_evaluated(
+                unit_key=ai_unit_key,
+                evaluation_id=evaluation_id,
+                target=target,
+                window_start=window_start,
+                window_end=window_end,
+                settle_horizon=settle_horizon,
+            ),
+        },
         team=team,
-        target=target,
-        conditions=conditions,
-        trace_ids=[str(row[4]) for row in rows if row[4]],
-        scan_start=window_start,
-        window_end=window_end,
+        query_type=COUNT_QUERY_TYPE,
     )
-    return sum(1 for row in rows if str(row[0]) in matched)
+    return int(rows[0][0]) if rows else 0
 
 
 def fetch_backfill_candidates(
@@ -451,7 +517,7 @@ def fetch_backfill_candidates(
             team=team,
             target=target,
             conditions=conditions,
-            trace_ids=[candidate.trace_id for candidate in candidates if candidate.trace_id],
+            candidates=candidates,
             scan_start=scan_start,
             window_end=window_end,
         )

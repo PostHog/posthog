@@ -268,7 +268,7 @@ FROM (
 """
 
 
-@dataclass
+@frozen
 class FindQuietPointInputs:
     team_id: int
     target: str

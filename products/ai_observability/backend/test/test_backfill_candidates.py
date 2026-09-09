@@ -386,6 +386,33 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
             ("t1", BASE),
         ]
 
+    def test_a_unit_with_no_trace_id_is_still_judged_by_a_heavy_filter(self) -> None:
+        # The heavy lookup reaches ai_events by trace id, which a generation is not obliged to
+        # carry. Reaching that unit by its own id keeps it judged rather than silently dropped.
+        untraced = _generation_uuid(30)
+        _write_generations(
+            [
+                {
+                    "event": "$ai_generation",
+                    "distinct_id": "d-untraced",
+                    "team": self.team,
+                    "timestamp": BASE + timedelta(hours=5),
+                    "event_uuid": untraced,
+                    "properties": {"$ai_input": "hello there"},
+                }
+            ]
+        )
+        conditions = [
+            {
+                "properties": [{"key": "$ai_input", "value": "hello", "operator": "icontains", "type": "event"}],
+                "rollout_percentage": 100,
+            }
+        ]
+
+        page = self._fetch(target="generation", conditions=conditions, limit=10)
+
+        assert untraced in [candidate.unit_id for candidate in page.candidates]
+
     def test_the_walk_crosses_a_quiet_stretch_wider_than_its_lookback(self) -> None:
         # Each page reads only as far below its cursor as a unit's events can reach, so a gap
         # wider than that returns nothing. The walk has to step down to the slice floor and carry
