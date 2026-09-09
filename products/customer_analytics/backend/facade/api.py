@@ -139,6 +139,7 @@ from products.customer_analytics.backend.models import (
     AccountRelationship,
     AccountRelationshipDefinition,
     Announcement,
+    AnnouncementTemplate,
     CustomerJourney,
     CustomerProfileConfig,
     CustomerTask,
@@ -5084,3 +5085,87 @@ def list_announcement_channels(team_id: int) -> list[contracts.AnnouncementChann
     except SupportSlackChannelsUnavailable:
         logger.warning("announcement_channels_unavailable", team_id=team_id)
         return []
+
+
+# --- Announcement templates ---
+
+
+def _to_announcement_template_view(template) -> contracts.AnnouncementTemplateView:
+    return contracts.AnnouncementTemplateView(
+        id=template.id,
+        name=template.name,
+        message=template.message,
+        created_at=template.created_at,
+        updated_at=template.updated_at,
+        created_by=_to_user_basic_info(template.created_by),
+    )
+
+
+def _announcement_templates_queryset(team_id: int):
+    return (
+        AnnouncementTemplate.objects.for_team(team_id)
+        .filter(deleted=False)
+        .select_related("created_by")
+        .order_by("name")
+    )
+
+
+def _announcement_template_by_id(team_id: int, template_id: str) -> "AnnouncementTemplate | None":
+    # A malformed uuid in the URL means "no such template", not a server error.
+    try:
+        return _announcement_templates_queryset(team_id).filter(id=template_id).first()
+    except (ValidationError, ValueError):
+        return None
+
+
+def _assert_template_name_available(team_id: int, name: str, *, exclude_id: str | None = None) -> None:
+    clash = AnnouncementTemplate.objects.for_team(team_id).filter(deleted=False, name=name)
+    if exclude_id is not None:
+        clash = clash.exclude(id=exclude_id)
+    if clash.exists():
+        raise contracts.AnnouncementTemplateValidationError({"name": "A template with this name already exists."})
+
+
+def list_announcement_templates(
+    team_id: int, offset: int, limit: int
+) -> tuple[list[contracts.AnnouncementTemplateView], int]:
+    queryset = _announcement_templates_queryset(team_id)
+    total_count = queryset.count()
+    page = queryset[offset : offset + limit]
+    return [_to_announcement_template_view(t) for t in page], total_count
+
+
+def get_announcement_template(team_id: int, template_id: str) -> contracts.AnnouncementTemplateView | None:
+    template = _announcement_template_by_id(team_id, template_id)
+    return _to_announcement_template_view(template) if template is not None else None
+
+
+def create_announcement_template(
+    *, team_id: int, user: "User", name: str, message: str
+) -> contracts.AnnouncementTemplateView:
+    team = Team.objects.get(id=team_id)
+    _assert_template_name_available(team_id, name)
+    template = AnnouncementTemplate.objects.create(team=team, created_by=user, name=name, message=message)
+    return _to_announcement_template_view(template)
+
+
+def update_announcement_template(
+    *, team_id: int, template_id: str, name: str, message: str
+) -> contracts.AnnouncementTemplateView | None:
+    template = _announcement_template_by_id(team_id, template_id)
+    if template is None:
+        return None
+    _assert_template_name_available(team_id, name, exclude_id=str(template.id))
+    template.name = name
+    template.message = message
+    template.save(update_fields=["name", "message", "updated_at"])
+    return _to_announcement_template_view(template)
+
+
+def delete_announcement_template(team_id: int, template_id: str) -> bool:
+    template = _announcement_template_by_id(team_id, template_id)
+    if template is None:
+        return False
+    template.deleted = True
+    template.save(update_fields=["deleted", "updated_at"])
+    return True

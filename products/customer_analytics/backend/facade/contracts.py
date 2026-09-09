@@ -1194,6 +1194,24 @@ class AnnouncementView:
     channels: list[str] = field(default_factory=list)
 
 
+class AnnouncementTemplateValidationError(ValueError):
+    def __init__(self, detail: str | dict[str, str]) -> None:
+        super().__init__(str(detail))
+        self.detail = detail
+
+
+@stdlib_dataclass(frozen=True)
+class AnnouncementTemplateView:
+    # Defaults let the wrapping DataclassSerializer parse write requests, which carry only
+    # name + message.
+    id: UUID | None = None
+    name: str = ""
+    message: str = ""
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    created_by: UserBasicInfo | None = None
+
+
 class CustomerTaskAccountNotFound(Exception):
     pass
 

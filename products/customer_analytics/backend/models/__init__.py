@@ -3,6 +3,7 @@ from .account_channel_summary import AccountChannelSummary, SlackSummaryCadence
 from .account_track_rule_run import AccountTrackRuleRun, AccountTrackRuleRunStatus, AccountTrackRuleRunTrigger
 from .announcement import Announcement
 from .announcement_delivery import AnnouncementDelivery
+from .announcement_template import AnnouncementTemplate
 from .custom_property_definition import (
     CANONICAL_DISPLAY_TYPE_BY_NAME,
     CANONICAL_LAST_SLACK_MESSAGE_AT,
@@ -48,6 +49,7 @@ __all__ = [
     "AccountRelationshipDefinition",
     "Announcement",
     "AnnouncementDelivery",
+    "AnnouncementTemplate",
     "CustomPropertyDefinition",
     "CustomPropertySource",
     "CustomPropertySyncRun",
