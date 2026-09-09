@@ -1,18 +1,60 @@
-const REDACTED = "[REDACTED]";
-const CLAUDE_TOKEN_PREFIX = "sk-ant-oat01-";
-const CLAUDE_TOKEN = /sk-ant-oat01-[A-Za-z0-9_-]+/g;
-const CLAUDE_TOKEN_HEAD = /sk-ant-oat01-[A-Za-z0-9_-]*/g;
-const CLAUDE_TOKEN_TAIL = /^[A-Za-z0-9_-]+/;
+import { SECRET_HEADERS, TOKEN_RULES, type TokenRule } from "./secret-rules";
 
-function isAuthorization(name: unknown): boolean {
-  return typeof name === "string" && name.toLowerCase() === "authorization";
+const REDACTED = "[REDACTED]";
+
+interface CompiledRule {
+  head: RegExp;
+  tail: RegExp;
+}
+
+function escapeLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function tokenSource(rule: TokenRule, repeat: "+" | "*"): string {
+  return `${escapeLiteral(rule.prefix)}${rule.body.source}${repeat}`;
+}
+
+const RULES: CompiledRule[] = TOKEN_RULES.map((rule) => ({
+  head: new RegExp(tokenSource(rule, "*"), "g"),
+  tail: new RegExp(`^${rule.body.source}+`),
+}));
+
+const TOKEN = new RegExp(
+  TOKEN_RULES.map((rule) => tokenSource(rule, "+")).join("|"),
+  "g",
+);
+
+const PARTIAL_PREFIXES = [
+  ...new Set(
+    TOKEN_RULES.flatMap((rule) =>
+      Array.from({ length: rule.prefix.length - 1 }, (_, index) =>
+        rule.prefix.slice(0, index + 1),
+      ),
+    ),
+  ),
+].sort((left, right) => right.length - left.length);
+
+const SECRET_HEADER_NAMES = new Set(SECRET_HEADERS);
+
+function isSecretHeader(name: unknown): boolean {
+  return (
+    typeof name === "string" && SECRET_HEADER_NAMES.has(name.toLowerCase())
+  );
+}
+
+function partialPrefixLength(text: string): number {
+  for (const prefix of PARTIAL_PREFIXES) {
+    if (text.endsWith(prefix)) return prefix.length;
+  }
+  return 0;
 }
 
 export function redactSecrets(value: string): string;
 export function redactSecrets(value: string | undefined): string | undefined;
 export function redactSecrets(value: unknown): unknown;
 export function redactSecrets(value: unknown): unknown {
-  if (typeof value === "string") return value.replace(CLAUDE_TOKEN, REDACTED);
+  if (typeof value === "string") return value.replace(TOKEN, REDACTED);
   if (Array.isArray(value)) return value.map(redactSecrets);
   if (value instanceof Error)
     return {
@@ -24,14 +66,14 @@ export function redactSecrets(value: unknown): unknown {
   if (value === null || typeof value !== "object") return value;
 
   const record = value as Record<string, unknown>;
-  if (isAuthorization(record.name) && "value" in record) {
+  if (isSecretHeader(record.name) && "value" in record) {
     return { ...record, value: REDACTED };
   }
 
   return Object.fromEntries(
     Object.entries(record).map(([key, nested]) => [
       key,
-      isAuthorization(key) && typeof nested === "string"
+      isSecretHeader(key) && typeof nested === "string"
         ? REDACTED
         : redactSecrets(nested),
     ]),
@@ -82,7 +124,7 @@ function withText(event: TextEvent, text: string): TextEvent {
 
 export class SecretEventRedactor {
   private pending: TextEvent | null = null;
-  private redacting = false;
+  private active: CompiledRule | null = null;
   private chunkKind: string | null = null;
 
   redact(event: Record<string, unknown>): Record<string, unknown>[] {
@@ -92,7 +134,7 @@ export class SecretEventRedactor {
     if (!chunk || kind !== this.chunkKind) {
       if (this.pending) events.push(this.pending);
       this.pending = null;
-      this.redacting = false;
+      this.active = null;
     }
     this.chunkKind = kind;
     if (!chunk) {
@@ -104,30 +146,29 @@ export class SecretEventRedactor {
       (previous?.notification.params.update.content.text ?? "") +
       event.notification.params.update.content.text;
     this.pending = null;
-    if (this.redacting) {
-      text = text.replace(CLAUDE_TOKEN_TAIL, "");
-      if (text.length > 0) this.redacting = false;
+    if (this.active) {
+      text = text.replace(this.active.tail, "");
+      if (text.length > 0) this.active = null;
     }
-    text = text.replace(
-      CLAUDE_TOKEN_HEAD,
-      (match, offset: number, source: string) => {
-        this.redacting = offset + match.length === source.length;
-        return REDACTED;
-      },
-    );
+    for (const rule of RULES) {
+      text = text.replace(
+        rule.head,
+        (match, offset: number, source: string) => {
+          if (offset + match.length === source.length) this.active = rule;
+          return REDACTED;
+        },
+      );
+    }
     const redacted = redactSecrets(withText(event, text)) as TextEvent;
-    if (!this.redacting) {
-      for (let length = CLAUDE_TOKEN_PREFIX.length - 1; length > 0; length--) {
-        if (text.endsWith(CLAUDE_TOKEN_PREFIX.slice(0, length))) {
-          if (previous) {
-            events.push(withText(previous, text.slice(0, -length)));
-            this.pending = withText(redacted, text.slice(-length));
-          } else {
-            this.pending = redacted;
-          }
-          return events;
-        }
+    const held = this.active ? 0 : partialPrefixLength(text);
+    if (held > 0) {
+      if (previous) {
+        events.push(withText(previous, text.slice(0, -held)));
+        this.pending = withText(redacted, text.slice(-held));
+      } else {
+        this.pending = redacted;
       }
+      return events;
     }
     events.push(redacted);
     return events;
