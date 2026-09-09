@@ -198,7 +198,7 @@ We have a handful of mixins available for your source classes. Add these to your
 
 #### `SSHTunnelMixin`
 
-Provides a `with_ssh_tunnel()` context that opens a tunnel to a target and provides you with a host/port to connect to with your source.
+Provides a `with_ssh_tunnel()` context that opens a tunnel to a target and provides you with a host/port to connect to with your source. It checks the SSH host and the database host on every open, not only when the source is created, so a DNS record that changes after setup cannot point a later sync at a private address. The database host is yielded as the hostname, so a client that can dial one address while presenting another name (libpq `host`/`hostaddr`, a pre-opened socket for pymysql) should also pin the addresses it validated, the way the Postgres client does.
 
 We also expose a `make_ssh_tunnel_func()` that does the same as the above, but instead returns a function to be passed to open the tunnel at a later time. This is helpful if your source logic doesn't actually live in your source class directly.
 
@@ -208,7 +208,7 @@ Provides a simple `get_oauth_integration()` method to pull the `Integration` obj
 
 #### `ValidateDatabaseHostMixin`
 
-Provides `is_database_host_valid()` to validate that the source isn't trying to access local IP addresses in our internal VPC on AWS (unless if the user is using a SSH tunnel).
+Provides `is_database_host_valid()` to validate that the source isn't trying to access local IP addresses in our internal VPC on AWS (unless if the user is using a SSH tunnel). This runs when a source is created or updated; the connection-time check lives in `with_ssh_tunnel()` above.
 
 ## Non-Retryable Errors
 

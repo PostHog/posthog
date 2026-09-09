@@ -61,6 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     incremental_type_to_operator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_ERROR,
     check_resolved_addresses,
     open_ssh_tunnel,
 )
@@ -836,7 +837,7 @@ def _is_invalid_ssl_negotiation_response(error: BaseException) -> bool:
 _resolve_hostaddr_with_timeout = resolve_psycopg_hostaddr_with_timeout
 
 
-def _pinned_host_kwargs(host: str, port: int, connect_timeout: float, team_id: int | None) -> dict[str, str]:
+def pinned_host_kwargs(host: str, port: int, connect_timeout: float, team_id: int | None) -> dict[str, str]:
     """Resolve `host` once, validate the answer, and return the libpq `host`/`hostaddr` pair that
     dials exactly those addresses.
 
@@ -867,7 +868,7 @@ def _pinned_host_kwargs(host: str, port: int, connect_timeout: float, team_id: i
     addresses = _resolve_hostaddr_with_timeout(host, port, connect_timeout) or []
     resolution = check_resolved_addresses(host, addresses, team_id)
     if resolution.connect_host is None:
-        raise Exception(f"Database host not allowed: {resolution.error}")
+        raise Exception(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error}")
     if not resolution.addresses:
         # An exempt host whose lookup failed. The policy does not apply, and there is nothing to
         # pin, so libpq resolves the name itself as it did before.
@@ -891,14 +892,14 @@ def _is_hostname(host: str) -> bool:
 
 def _open_connection(*, team_id: int | None = None, **connect_kwargs: Any) -> psycopg.Connection:
     """The one `psycopg.connect` in this module. Every connection to a source database opens
-    here so that `_pinned_host_kwargs` decides what gets dialed.
+    here so that `pinned_host_kwargs` decides what gets dialed.
 
     Retries without the libpq `options` startup parameter when the server rejects it. See
     `_OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS` for why transaction-mode poolers reject
     `options` and why dropping it is safe.
     """
     connect_kwargs.update(
-        _pinned_host_kwargs(
+        pinned_host_kwargs(
             connect_kwargs["host"],
             connect_kwargs.get("port", 5432),
             connect_kwargs.get("connect_timeout", 15),
@@ -4409,9 +4410,10 @@ class PostgresImplementation(SQLSourceImplementation[PostgresSourceConfig, psyco
         config: PostgresSourceConfig,
         *,
         require_ssl: bool = False,
+        team_id: int | None = None,
     ) -> Iterator[psycopg.Connection]:
         """Open a single psycopg connection (through the SSH tunnel if configured)."""
-        with open_ssh_tunnel(config) as (host, port):
+        with open_ssh_tunnel(config, team_id) as (host, port):
             with pg_connection(
                 host=host,
                 port=port,
@@ -4419,6 +4421,7 @@ class PostgresImplementation(SQLSourceImplementation[PostgresSourceConfig, psyco
                 user=config.user,
                 password=config.password,
                 require_ssl=require_ssl,
+                team_id=team_id,
             ) as conn:
                 yield conn
 

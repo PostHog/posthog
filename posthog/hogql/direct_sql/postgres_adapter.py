@@ -179,7 +179,9 @@ class PostgresAdapter:
             with request.timings.measure("postgres_execute"):
                 with ExitStack() as tunnel_stack:
                     with request.timings.measure("postgres_tunnel_open", emit_span=True):
-                        host, port = tunnel_stack.enter_context(postgres_source.with_ssh_tunnel(source_config))
+                        host, port = tunnel_stack.enter_context(
+                            postgres_source.with_ssh_tunnel(source_config, request.team.pk)
+                        )
                     connection_kwargs: PostgresConnectionKwargs = {
                         "host": host,
                         "port": port,

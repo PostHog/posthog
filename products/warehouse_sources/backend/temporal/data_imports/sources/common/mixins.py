@@ -29,6 +29,15 @@ _INTERNAL_IP_ERROR = (
 )
 _DNS_FAILURE_ERROR = "Host could not be resolved"
 
+# The sync registry and each SQL source's `get_non_retryable_errors` match this prefix; the rest of
+# the message carries the volatile host details.
+DATABASE_HOST_NOT_ALLOWED_ERROR = "Database host not allowed"
+DATABASE_HOST_NOT_ALLOWED_GUIDANCE = (
+    "PostHog rejected this source's database host because it either couldn't be resolved, or "
+    "resolves to a private/internal address. Check the host is spelled correctly and reachable "
+    "from the public internet, then re-enable the sync."
+)
+
 
 def is_team_allowlisted_for_internal_hosts(team_id: int) -> bool:
     """Whether this team may point warehouse sources at PostHog-internal hosts.
@@ -345,7 +354,7 @@ def _check_direct_host(config, team_id: int | None) -> None:
     """
     resolution = resolve_safe_host(config.host, team_id)
     if resolution.connect_host is None:
-        raise Exception(f"Database host not allowed: {resolution.error}")
+        raise Exception(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error}")
 
 
 @contextmanager

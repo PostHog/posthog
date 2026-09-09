@@ -4140,6 +4140,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 tables=tables,
                 slot_name=slot_name,
                 publication_name=publication_name,
+                team_id=self.team_id,
             )
         except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
             # Probing a user-supplied database to validate it is expected to fail when the host,

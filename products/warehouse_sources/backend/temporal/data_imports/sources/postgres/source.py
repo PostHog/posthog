@@ -28,6 +28,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     FieldType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_ERROR,
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
 )
@@ -720,6 +722,8 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "SSH server (not the database port), that the bastion is running and reachable, and "
                 "that PostHog's IP addresses are allowed through its firewall, then re-enable the sync."
             ),
+            # Raised by `_check_direct_host`; only the customer can fix the host, so do not retry.
+            DATABASE_HOST_NOT_ALLOWED_ERROR: DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
             # Raised by `SSHTunnel.get_tunnel` when `is_auth_valid()` fails — the SSH tunnel private
             # key can't be parsed, or password auth is missing a username/password. The auth config
             # is fixed, so retrying just replays the same invalid credentials. The streaming path
@@ -1383,6 +1387,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         slot_name: str | None = None,
         publication_name: str | None = None,
         require_ssl: bool = True,
+        team_id: int | None = None,
     ) -> list[str]:
         """Validate Postgres CDC prerequisites against a live connection.
 
@@ -1396,7 +1401,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             _connect_to_postgres,
         )
 
-        with self.with_ssh_tunnel(config) as (host, port):
+        with self.with_ssh_tunnel(config, team_id) as (host, port):
             conn = _connect_to_postgres(
                 host=host,
                 port=port,
@@ -1404,6 +1409,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 user=config.user,
                 password=config.password,
                 require_ssl=require_ssl,
+                team_id=team_id,
             )
             try:
                 schema = config.schema.strip() if isinstance(config.schema, str) and config.schema.strip() else "public"
@@ -1456,7 +1462,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 row_filters=inputs.row_filters,
             )
             require_ssl = source_requires_ssl(schema.source, config)
-            with self.get_implementation.connect(config, require_ssl=require_ssl) as conn:
+            with self.get_implementation.connect(config, require_ssl=require_ssl, team_id=inputs.team_id) as conn:
                 # Autocommit so a rejected SET (engines without statement_timeout support) is its
                 # own statement and cannot poison the probe query's transaction.
                 conn.autocommit = True

@@ -19,6 +19,8 @@ from products.data_warehouse.backend.facade.api import reconcile_redshift_schema
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_ERROR,
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
 )
@@ -160,6 +162,8 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             **self.default_non_retryable_errors(),
+            # Raised by `_check_direct_host`; only the customer can fix the host, so do not retry.
+            DATABASE_HOST_NOT_ALLOWED_ERROR: DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
             "NoSuchTableError": None,
             "is not permitted to log in": None,
             "could not translate host name": None,

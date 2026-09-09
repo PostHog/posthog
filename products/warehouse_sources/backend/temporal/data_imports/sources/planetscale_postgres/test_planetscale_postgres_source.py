@@ -151,10 +151,11 @@ def test_a_port_that_is_not_a_number_is_not_treated_as_psbouncer(port):
 def test_cdc_on_the_direct_port_defers_to_postgres():
     with mock.patch.object(PostgresSource, "check_cdc_prerequisites", return_value=[]) as super_check:
         errors = PlanetScalePostgresSource().check_cdc_prerequisites(
-            _config(), management_mode="managed", tables=["users"]
+            _config(), management_mode="managed", tables=["users"], team_id=7
         )
 
     super_check.assert_called_once()
+    assert super_check.call_args.kwargs["team_id"] == 7
     assert errors == []
 
 

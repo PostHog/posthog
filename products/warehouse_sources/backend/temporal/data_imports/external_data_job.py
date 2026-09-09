@@ -69,6 +69,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     ResumableSource,
     error_message_matches,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_ERROR,
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -122,11 +126,7 @@ Any_Source_Errors: dict[str, str | None] = {
     # resolve, or resolves to a private/internal address. Mirrors the `SSH tunnel host not allowed`
     # entry: a config problem only the customer can fix, so retrying just re-hits the same
     # rejection. Match the stable prefix and exclude the volatile host details that follow it.
-    "Database host not allowed": (
-        "PostHog rejected this source's database host because it either couldn't be resolved, or "
-        "resolves to a private/internal address. Check the host is spelled correctly and reachable "
-        "from the public internet, then re-enable the sync."
-    ),
+    DATABASE_HOST_NOT_ALLOWED_ERROR: DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     # Raised by `SSHTunnel.get_tunnel` when `is_auth_valid()` fails — the SSH tunnel private key
     # can't be parsed, or password auth is missing a username/password. Shared by every
     # SSH-capable source (Postgres, Redshift, MySQL, MSSQL, ClickHouse). The auth config is fixed,

@@ -106,6 +106,7 @@ class NeonSource(PostgresSource):
         slot_name: str | None = None,
         publication_name: str | None = None,
         require_ssl: bool = True,
+        team_id: int | None = None,
     ) -> list[str]:
         # The pooled endpoint accepts normal connections, so the generic checks would pass —
         # but logical replication doesn't work through it. Fail fast without connecting.
@@ -118,4 +119,5 @@ class NeonSource(PostgresSource):
             slot_name=slot_name,
             publication_name=publication_name,
             require_ssl=require_ssl,
+            team_id=team_id,
         )

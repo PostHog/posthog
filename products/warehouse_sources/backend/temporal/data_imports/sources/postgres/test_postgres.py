@@ -44,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
     ForeignServerUnreachableError,
     XminUnsupportedError,
@@ -2557,11 +2558,11 @@ class TestConnectToPostgresMultiAddressFailover:
 # a record from answering public on the check and private on the connect.
 class TestConnectToPostgresDialsOnlyValidatedAddresses:
     @staticmethod
-    def _addrinfo(*addresses: str) -> list:
+    def _addrinfo(*addresses: str) -> list[tuple[int, int, int, str, tuple[str, int]]]:
         return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, 5432)) for address in addresses]
 
     @contextmanager
-    def _production_cloud(self, resolver_result):
+    def _production_cloud(self, resolver_result: Any) -> Iterator[tuple[MagicMock, MagicMock]]:
         resolver_kwargs = (
             {"side_effect": resolver_result}
             if isinstance(resolver_result, BaseException) or callable(resolver_result)
@@ -2584,7 +2585,7 @@ class TestConnectToPostgresDialsOnlyValidatedAddresses:
             yield getaddrinfo_mock, connect_mock
 
     @staticmethod
-    def _connect(host: str = "db.example.com", **kwargs) -> psycopg.Connection:
+    def _connect(host: str = "db.example.com", **kwargs: Any) -> psycopg.Connection:
         return _connect_to_postgres(
             host=host, port=5432, database="postgres", user="user", password="password", **kwargs
         )
@@ -2597,7 +2598,9 @@ class TestConnectToPostgresDialsOnlyValidatedAddresses:
             ("64:ff9b::169.254.169.254",),
         ],
     )
-    def test_an_internal_address_anywhere_in_the_resolved_set_refuses_the_connect(self, addresses):
+    def test_an_internal_address_anywhere_in_the_resolved_set_refuses_the_connect(
+        self, addresses: tuple[str, ...]
+    ) -> None:
         with self._production_cloud(self._addrinfo(*addresses)) as (_, connect_mock):
             with pytest.raises(Exception, match="Database host not allowed"):
                 self._connect(team_id=999)
@@ -2611,7 +2614,7 @@ class TestConnectToPostgresDialsOnlyValidatedAddresses:
             [],
         ],
     )
-    def test_a_failed_lookup_refuses_the_connect_rather_than_letting_libpq_resolve(self, resolver_result):
+    def test_a_failed_lookup_refuses_the_connect_rather_than_letting_libpq_resolve(self, resolver_result: Any) -> None:
         # Falling through to psycopg's own resolution would be a second, unvalidated lookup.
         with self._production_cloud(resolver_result) as (_, connect_mock):
             with pytest.raises(Exception, match="Database host not allowed"):
@@ -2619,14 +2622,14 @@ class TestConnectToPostgresDialsOnlyValidatedAddresses:
 
         connect_mock.assert_not_called()
 
-    def test_a_public_set_is_dialed_whole_with_the_hostname_kept_for_sni(self):
+    def test_a_public_set_is_dialed_whole_with_the_hostname_kept_for_sni(self) -> None:
         with self._production_cloud(self._addrinfo("2600:1f18::1", "52.1.2.3")) as (_, connect_mock):
             self._connect(team_id=999)
 
         assert connect_mock.call_args.kwargs["host"] == "db.example.com,db.example.com"
         assert connect_mock.call_args.kwargs["hostaddr"] == "2600:1f18::1,52.1.2.3"
 
-    def test_an_allowlisted_team_dials_its_internal_addresses_pinned(self):
+    def test_an_allowlisted_team_dials_its_internal_addresses_pinned(self) -> None:
         # The exemption travels with the addresses: the internal-analytics team is skipped by the
         # check but still dials the set it resolved, not a fresh libpq lookup.
         with self._production_cloud(self._addrinfo("10.0.0.5")) as (_, connect_mock):
@@ -2635,14 +2638,14 @@ class TestConnectToPostgresDialsOnlyValidatedAddresses:
         assert connect_mock.call_args.kwargs["host"] == "db.example.com"
         assert connect_mock.call_args.kwargs["hostaddr"] == "10.0.0.5"
 
-    def test_a_missing_team_fails_closed(self):
+    def test_a_missing_team_fails_closed(self) -> None:
         with self._production_cloud(self._addrinfo("10.0.0.5")) as (_, connect_mock):
             with pytest.raises(Exception, match="Database host not allowed"):
                 self._connect()
 
         connect_mock.assert_not_called()
 
-    def test_an_exempt_host_whose_lookup_failed_is_left_for_libpq_to_resolve(self):
+    def test_an_exempt_host_whose_lookup_failed_is_left_for_libpq_to_resolve(self) -> None:
         # The exemption skips the check, and a failed lookup leaves nothing to pin. The connect
         # must go out with the plain hostname, not an empty `host`/`hostaddr` pair.
         with self._production_cloud(socket.gaierror(-2, "Name or service not known")) as (_, connect_mock):
@@ -2651,7 +2654,7 @@ class TestConnectToPostgresDialsOnlyValidatedAddresses:
         assert connect_mock.call_args.kwargs["host"] == "db.example.com"
         assert "hostaddr" not in connect_mock.call_args.kwargs
 
-    def test_an_ip_literal_host_is_dialed_as_is_without_a_lookup(self):
+    def test_an_ip_literal_host_is_dialed_as_is_without_a_lookup(self) -> None:
         # The SSH tunnel yields its loopback bind address, which the policy would refuse. A literal
         # has no lookup to race, so it bypasses both the resolve and the check.
         with self._production_cloud(self._addrinfo("127.0.0.1")) as (getaddrinfo_mock, connect_mock):
@@ -2661,7 +2664,7 @@ class TestConnectToPostgresDialsOnlyValidatedAddresses:
         assert connect_mock.call_args.kwargs["host"] == "127.0.0.1"
         assert "hostaddr" not in connect_mock.call_args.kwargs
 
-    def test_a_stalled_lookup_stays_a_retryable_timeout(self):
+    def test_a_stalled_lookup_stays_a_retryable_timeout(self) -> None:
         # The bounded resolver's timeout must surface unchanged. Turning it into the non-retryable
         # rejection would stop a schedule over a resolver blip.
         release = threading.Event()
@@ -2675,7 +2678,7 @@ class TestConnectToPostgresDialsOnlyValidatedAddresses:
         assert "Database host not allowed" not in str(exc_info.value)
         connect_mock.assert_not_called()
 
-    def test_the_rejection_is_a_registered_non_retryable_error(self):
+    def test_the_rejection_is_a_registered_non_retryable_error(self) -> None:
         # Raised through the real path so the wording stays coupled to the registered pattern.
         with self._production_cloud(self._addrinfo("10.0.0.5")):
             with pytest.raises(Exception) as exc_info:
@@ -2689,11 +2692,11 @@ class TestConnectToPostgresDialsOnlyValidatedAddresses:
 class TestPostgresSourceDialsOnlyValidatedAddresses:
     @staticmethod
     @contextmanager
-    def _tunnel():
+    def _tunnel() -> Iterator[tuple[str, int]]:
         yield ("db.example.com", 5432)
 
     @contextmanager
-    def _production_cloud(self, *addresses: str):
+    def _production_cloud(self, *addresses: str) -> Iterator[None]:
         addrinfo = [
             (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, 5432)) for address in addresses
         ]
@@ -2711,7 +2714,7 @@ class TestPostgresSourceDialsOnlyValidatedAddresses:
             mock_settings.E2E_TESTING = False
             yield
 
-    def _call_postgres_source(self, team_id: int | None):
+    def _call_postgres_source(self, team_id: int | None) -> SourceResponse:
         return postgres_source(
             tunnel=self._tunnel,
             user="u",
@@ -2726,7 +2729,7 @@ class TestPostgresSourceDialsOnlyValidatedAddresses:
             team_id=team_id,
         )
 
-    def test_the_setup_connect_refuses_an_internal_address(self):
+    def test_the_setup_connect_refuses_an_internal_address(self) -> None:
         with self._production_cloud("52.1.2.3", "10.0.0.5"):
             with patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect"
@@ -2736,7 +2739,7 @@ class TestPostgresSourceDialsOnlyValidatedAddresses:
 
         connect_mock.assert_not_called()
 
-    def test_the_setup_connect_dials_the_validated_set(self):
+    def test_the_setup_connect_dials_the_validated_set(self) -> None:
         # The first probe raises a non-retryable error so the run stops right after the connect;
         # what matters is what the connect was handed.
         cursor = mock.MagicMock()

@@ -1,5 +1,6 @@
 import socket
 from dataclasses import dataclass
+from typing import Any
 
 import pytest
 from unittest import mock
@@ -15,6 +16,7 @@ from posthog.models.integration import Integration
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_ERROR,
     OAuthMixin,
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
@@ -24,6 +26,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     open_ssh_tunnel,
     resolve_safe_host,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source import MSSQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
 
 _MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
 
@@ -555,6 +562,11 @@ class TestDirectHostRejectionIsNonRetryable(SimpleTestCase):
 
         assert error_message_matches(str(exc.value), Any_Source_Errors.keys())
 
+    @parameterized.expand([(PostgresSource,), (MySQLSource,), (MSSQLSource,), (RedshiftSource,)])
+    def test_rejection_is_registered_by_every_direct_sql_source(self, source_class: type[SQLSource[Any]]) -> None:
+        # Schema refresh consults only the source's own registry, not `Any_Source_Errors`.
+        assert DATABASE_HOST_NOT_ALLOWED_ERROR in source_class().get_non_retryable_errors()
+
 
 class TestCheckResolvedAddresses(SimpleTestCase):
     # A client that resolves the host itself and dials that answer validates the dialed set here.
@@ -569,7 +581,7 @@ class TestCheckResolvedAddresses(SimpleTestCase):
         ]
     )
     @override_settings(CLOUD_DEPLOYMENT="US")
-    def test_any_internal_address_in_the_set_is_refused(self, _name: str, addresses: list[str]):
+    def test_any_internal_address_in_the_set_is_refused(self, _name: str, addresses: list[str]) -> None:
         with patch(f"{_MIXINS_MODULE}.logger"):
             resolution = check_resolved_addresses("db.example.com", addresses, team_id=999)
 
@@ -578,7 +590,7 @@ class TestCheckResolvedAddresses(SimpleTestCase):
         assert resolution.error is not None
 
     @override_settings(CLOUD_DEPLOYMENT="US")
-    def test_a_public_set_is_returned_whole_in_resolver_order(self):
+    def test_a_public_set_is_returned_whole_in_resolver_order(self) -> None:
         with (
             patch(f"{_MIXINS_MODULE}.logger"),
             patch("posthog.psycopg_helpers.has_ipv6_route", return_value=True),
@@ -590,7 +602,7 @@ class TestCheckResolvedAddresses(SimpleTestCase):
         assert resolution.addresses == ("2600:1f18::1", "52.1.2.3")
 
     @override_settings(CLOUD_DEPLOYMENT="US")
-    def test_an_empty_set_is_a_failed_lookup_and_is_refused(self):
+    def test_an_empty_set_is_a_failed_lookup_and_is_refused(self) -> None:
         with patch(f"{_MIXINS_MODULE}.logger"):
             resolution = check_resolved_addresses("db.example.com", [], team_id=999)
 
@@ -607,7 +619,7 @@ class TestCheckResolvedAddresses(SimpleTestCase):
     )
     def test_exemptions_skip_the_check_and_keep_the_set(
         self, _name: str, deployment: str | None, host: str, team_id: int
-    ):
+    ) -> None:
         # The exemptions `resolve_safe_host` grants apply here too, or a client that pins would
         # refuse the internal-analytics teams and PostHog-managed hosts that the unpinned path allows.
         with (
