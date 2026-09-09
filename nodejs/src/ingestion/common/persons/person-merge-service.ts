@@ -14,6 +14,7 @@ import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 
 import { PersonContext } from './person-context'
 import {
+    MergeCreationConflictError,
     PersonMergeCallFailedError,
     PersonMergeLimitExceededError,
     PersonMergeResponseMismatchError,
@@ -65,7 +66,11 @@ export const mergeClaimDroppedCounter = new Counter({
 
 /** Maps a thrown fold failure to the fallback counter's reason label. */
 function foldAbandonReason(error: unknown): MergeFoldAbortReason {
-    if (error instanceof PersonClaimedByLifecycleOpError || error instanceof PersonTombstoneBlockedError) {
+    if (
+        error instanceof PersonClaimedByLifecycleOpError ||
+        error instanceof PersonTombstoneBlockedError ||
+        error instanceof MergeCreationConflictError
+    ) {
         return 'conflict'
     }
     if ((error as { code?: string })?.code === '40P01') {

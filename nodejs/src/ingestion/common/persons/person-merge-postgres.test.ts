@@ -1,5 +1,6 @@
 import { buildIntegerMatcher } from '~/common/config/config'
 import { PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
+import { defaultRetryConfig } from '~/common/utils/retries'
 import { UUIDT } from '~/common/utils/utils'
 import { InternalPerson } from '~/types'
 
@@ -413,6 +414,69 @@ describe('PostgresPersonMerge merge events', () => {
             { sourceDistinctId: nulId, outcome: 'skipped_illegal' },
             { sourceDistinctId: oversizedId, outcome: 'skipped_illegal' },
         ])
+    })
+
+    // A bootstrap that never wins the person-creation race is contention the sequential
+    // path retries around, not an unexpected fault. The fallback counter's reason label
+    // is the only thing that tells the two apart.
+    it('a fold bootstrap that keeps losing the creation race aborts under the conflict label', async () => {
+        mockOutputs = { produce: jest.fn().mockResolvedValue(undefined) }
+        const previousInterval = defaultRetryConfig.RETRY_INTERVAL_DEFAULT
+        defaultRetryConfig.RETRY_INTERVAL_DEFAULT = 0
+        const uuidHolder = { id: 'p1', uuid: sourcePerson.uuid, team_id: 2 } as unknown as InternalPerson
+        const tx = {
+            createPerson: jest.fn().mockResolvedValue({
+                success: false,
+                error: 'CreationConflict',
+                distinctIds: ['d', 'anon-1'],
+                conflictingPerson: uuidHolder,
+            }),
+        }
+        const store = {
+            fetchForUpdate: jest.fn().mockResolvedValue(null),
+            removeDistinctIdFromCache: jest.fn(),
+            inTransaction: jest
+                .fn()
+                .mockImplementation((_description: string, body: (tx: unknown) => Promise<unknown>) => body(tx)),
+        }
+        const eventUuid = new UUIDT().toString()
+        const request: MergePersonsRequest = {
+            teamId: 2,
+            targetDistinctId: 'd',
+            sources: [
+                { distinctId: 'anon-1', eventUuid },
+                { distinctId: 'anon-2', eventUuid },
+            ],
+            eventOps: {
+                set: {},
+                setOnce: {},
+                unset: [],
+                denied: false,
+                shouldForceUpdate: true,
+                eventName: '$identify',
+            },
+            eventUuid,
+            allowIdentifiedSources: false,
+            mergeMode: createDefaultSyncMergeMode(),
+            createdAtMs: 3_600_000,
+        }
+        const merge = new PostgresPersonMerge(
+            store as never,
+            mockOutputs as never,
+            {
+                updateAllProperties: false,
+                isTombstoneTeam: () => false,
+                mergeEvents: { enabled: false, partitionCount: 64, isTeamEnabled: () => false },
+            },
+            request,
+            0
+        )
+
+        const result = await merge.execute()
+        defaultRetryConfig.RETRY_INTERVAL_DEFAULT = previousInterval
+
+        expect(result.foldAborted).toBe('conflict')
+        expect(result.survivor).toBeNull()
     })
 
     // The produce is detached from ingestion, so a broker failure must never surface to the caller

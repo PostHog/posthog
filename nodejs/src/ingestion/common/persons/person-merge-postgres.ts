@@ -104,6 +104,7 @@ function foldAbortReason(error: unknown): MergeFoldAbortReason {
     }
     if (
         error instanceof MergeFoldConflictError ||
+        error instanceof MergeCreationConflictError ||
         error instanceof PersonTombstoneBlockedError ||
         error instanceof PersonClaimedByLifecycleOpError
     ) {
