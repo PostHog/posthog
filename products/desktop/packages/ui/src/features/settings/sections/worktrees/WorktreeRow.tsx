@@ -14,7 +14,9 @@ export interface WorktreeEntry {
 }
 
 function getTaskTitle(task: Task): string {
-  return task.title || task.description?.slice(0, 50) || task.id;
+  // Fall back to the slug, not the description: the sidebar task list is fetched
+  // with basic=true, which omits the description body, so it is absent here.
+  return task.title || task.slug || task.id;
 }
 
 interface WorktreeRowProps {
