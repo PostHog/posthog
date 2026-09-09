@@ -42,7 +42,9 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertEqual(response.status_code, 404)
         data = response.json()
         self.assertFalse(data["success"])
-        self.assertIn("not found", data["content"])
+        self.assertEqual(data["error"]["category"], "unknown_tool")
+        self.assertEqual(data["error"]["retry"], "never")
+        self.assertIn("nonexistent_tool", data["content"])
 
     def test_invoke_execute_sql_with_invalid_args(self):
         response = self.client.post(
@@ -54,7 +56,9 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertEqual(response.status_code, 400)
         data = response.json()
         self.assertFalse(data["success"])
-        self.assertIn("validation error", data["content"].lower())
+        self.assertEqual(data["error"]["category"], "invalid_input")
+        self.assertEqual(data["error"]["retry"], "adjusted")
+        self.assertIn("did not match the tool schema", data["content"])
 
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
     def test_invoke_execute_sql_success(self, mock_execute):
@@ -112,7 +116,10 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertFalse(data["success"])
-        self.assertIn("Tool failed", data["content"])
+        self.assertEqual(data["error"]["category"], "invalid_input")
+        self.assertEqual(data["error"]["retry"], "adjusted")
+        self.assertIn("syntax error", data["content"])
+        self.assertIn("Retrying is safe once you adjust the input.", data["content"])
 
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
     def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute):
@@ -127,7 +134,28 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertFalse(data["success"])
-        self.assertIn("internal error", data["content"].lower())
+        self.assertEqual(data["error"]["category"], "internal")
+        self.assertEqual(data["error"]["tool"], "execute_sql")
+        # The defect's own message stays out of the reply; the ID is what ties it to the trace.
+        self.assertNotIn("unexpected", data["content"])
+        self.assertIn(data["error"]["correlation_id"], data["content"])
+
+    @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
+    def test_invoke_tool_transient_error_tells_the_caller_a_retry_is_safe(self, mock_execute):
+        from ee.hogai.tool_errors import MaxToolTransientError
+
+        mock_execute.side_effect = MaxToolTransientError("Queries are a little too busy right now")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_tools/execute_sql/",
+            {"args": {"query": "SELECT 1"}},
+            format="json",
+        )
+
+        data = response.json()
+        self.assertEqual(data["error"]["category"], "transient")
+        self.assertEqual(data["error"]["retry"], "once")
+        self.assertIn("Retrying once with the same input is safe.", data["content"])
 
 
 class TestDocsSearchAction(APIBaseTest):

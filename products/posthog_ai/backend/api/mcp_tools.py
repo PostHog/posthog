@@ -1,5 +1,6 @@
 import json
 from typing import cast
+from uuid import uuid4
 
 from django.conf import settings
 from django.views.generic import View
@@ -27,10 +28,62 @@ from posthog.models.user import User
 from posthog.renderers import SafeJSONRenderer
 
 from ee.hogai.mcp_tool import mcp_tool_registry
-from ee.hogai.tool_errors import MaxToolError
+from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolError, MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.tools.search import format_inkeep_docs_response
 
 logger = get_logger(__name__)
+
+# What a caller may do with the same input after this failure. Callers are agents, so the contract
+# has to be in the content string they read, not only in the fields beside it.
+_RETRY_GUIDANCE = {
+    "never": "Retrying with the same input will not help.",
+    "once": "Retrying once with the same input is safe.",
+    "adjusted": "Retrying is safe once you adjust the input.",
+}
+
+
+def _failure_response(
+    *,
+    category: str,
+    cause: str,
+    retry: str,
+    tool_name: str,
+    correlation_id: str,
+    http_status: int | None = None,
+) -> Response:
+    """Answer a failed tool call with a cause, a retry verdict, and an ID that finds the trace."""
+    body = {
+        "success": False,
+        "content": (
+            f"Tool `{tool_name}` failed ({category}): {cause} "
+            f"{_RETRY_GUIDANCE[retry]} Correlation ID: {correlation_id}."
+        ),
+        "error": {
+            "category": category,
+            "retry": retry,
+            "tool": tool_name,
+            "correlation_id": correlation_id,
+        },
+    }
+    return Response(body, status=http_status) if http_status else Response(body)
+
+
+def _max_tool_error_category(error: MaxToolError) -> str:
+    if isinstance(error, MaxToolAccessDeniedError):
+        return "permission"
+    if isinstance(error, MaxToolTransientError):
+        return "transient"
+    if isinstance(error, MaxToolRetryableError):
+        return "invalid_input"
+    return "fatal"
+
+
+def _max_tool_error_cause(error: MaxToolError, max_length: int = 500) -> str:
+    """The tool's own message, without the class name that `category` already carries."""
+    cause = str(error).strip()
+    if len(cause) > max_length:
+        cause = cause[:max_length] + "…"
+    return f"{cause}."
 
 
 class DocsSearchRequestSerializer(serializers.Serializer):
@@ -130,9 +183,13 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             tool_name, team=self.team, user=cast(User, request.user), event_source=get_event_source(request)
         )
         if tool is None:
-            return Response(
-                {"success": False, "content": f"Tool '{tool_name}' not found"},
-                status=status.HTTP_404_NOT_FOUND,
+            return _failure_response(
+                category="unknown_tool",
+                cause=f"No tool named `{tool_name}` is registered.",
+                retry="never",
+                tool_name=tool_name,
+                correlation_id=uuid4().hex,
+                http_status=status.HTTP_404_NOT_FOUND,
             )
 
         args_data = request.data.get("args", {})
@@ -140,12 +197,13 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         try:
             validated_args = tool.args_schema.model_validate(args_data)
         except pydantic.ValidationError as e:
-            return Response(
-                {
-                    "success": False,
-                    "content": f"There was a validation error calling the tool:\n{e.errors(include_url=False)}",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
+            return _failure_response(
+                category="invalid_input",
+                cause=f"The arguments did not match the tool schema:\n{e.errors(include_url=False)}",
+                retry="adjusted",
+                tool_name=tool_name,
+                correlation_id=uuid4().hex,
+                http_status=status.HTTP_400_BAD_REQUEST,
             )
 
         try:
@@ -156,20 +214,32 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
             content = async_to_sync(execute_tool)()
         except MaxToolError as e:
-            return Response(
-                {
-                    "success": False,
-                    "content": f"Tool failed: {e.to_summary()}.{e.retry_hint}",
-                }
+            return _failure_response(
+                category=_max_tool_error_category(e),
+                cause=_max_tool_error_cause(e),
+                retry=e.retry_strategy,
+                tool_name=tool_name,
+                correlation_id=uuid4().hex,
             )
         except Exception as e:
-            logger.exception("Error calling tool", extra={"tool_name": tool_name, "error": str(e)})
-            capture_exception(e, properties={"tag": "mcp", "args": args_data})
-            return Response(
-                {
-                    "success": False,
-                    "content": "The tool raised an internal error. Do not immediately retry the tool call.",
-                }
+            # An unclassified exception is a defect, so the caller gets an ID rather than the
+            # message: only the ID is guaranteed to be free of internals, and it ties their report
+            # to the captured trace.
+            correlation_id = uuid4().hex
+            logger.exception(
+                "Error calling tool",
+                extra={"tool_name": tool_name, "error": str(e), "correlation_id": correlation_id},
+            )
+            capture_exception(
+                e,
+                properties={"tag": "mcp", "args": args_data, "tool_name": tool_name, "correlation_id": correlation_id},
+            )
+            return _failure_response(
+                category="internal",
+                cause="The tool hit an unexpected error, which has been reported to PostHog.",
+                retry="never",
+                tool_name=tool_name,
+                correlation_id=correlation_id,
             )
 
         return Response({"success": True, "content": content})

@@ -1,12 +1,15 @@
 from typing import Literal, Union
 
 from pydantic import BaseModel, Field
+from structlog import get_logger
 
 from posthog.event_usage import EventSource
 from posthog.models import Team, User
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.utils.helpers import format_events_yaml, get_event_description
+
+logger = get_logger(__name__)
 
 
 class ReadEvents(BaseModel):
@@ -95,6 +98,40 @@ If the user's question involves feature flags, construct the property name using
 """.strip()
 
 
+def describe_taxonomy_query(query: ReadTaxonomyQuery) -> str:
+    """Name the subject of a taxonomy read, so a failure says which lookup failed."""
+    match query:
+        case ReadEvents():
+            return "the event list"
+        case ReadEventProperties():
+            return f"properties of event `{query.event_name}`"
+        case ReadEventSamplePropertyValues():
+            return f"values of property `{query.property_name}` on event `{query.event_name}`"
+        case ReadActionProperties():
+            return f"properties of action {query.action_id}"
+        case ReadActionSamplePropertyValues():
+            return f"values of property `{query.property_name}` on action {query.action_id}"
+        case ReadEntityProperties():
+            return f"properties of entity `{query.entity}`"
+        case ReadEntitySamplePropertyValues():
+            return f"values of property `{query.property_name}` on entity `{query.entity}`"
+        case _:
+            return "the taxonomy"
+
+
+def _optional_event_description(team: Team, event_name: str) -> str | None:
+    """Read the event description, or return None when that read fails.
+
+    The description only decorates the property list, so losing it must not cost the caller the
+    schema it asked for.
+    """
+    try:
+        return get_event_description(team, event_name)
+    except Exception:
+        logger.warning("read_taxonomy_event_description_failed", event_name=event_name, exc_info=True)
+        return None
+
+
 def execute_taxonomy_query(
     query: ReadTaxonomyQuery,
     toolkit: TaxonomyAgentToolkit,
@@ -112,7 +149,7 @@ def execute_taxonomy_query(
             return format_events_yaml([], team, user, limit=query.limit, offset=query.offset, event_source=event_source)
         case ReadEventProperties():
             result = toolkit.retrieve_event_or_action_properties(query.event_name)
-            description = get_event_description(team, query.event_name)
+            description = _optional_event_description(team, query.event_name)
             prefix = f"Description of `{query.event_name}`: {description}\n\n" if description else ""
             return f"{prefix}{result}\n\n{DYNAMIC_EVENT_PROPERTIES_HINT}"
         case ReadEventSamplePropertyValues():
