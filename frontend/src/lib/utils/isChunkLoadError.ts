@@ -6,6 +6,8 @@
  *   - Firefox: native `TypeError: NetworkError when attempting to fetch resource.`
  *   - Firefox: native `TypeError: error loading dynamically imported module: <url>` (deferred import of a now-deleted chunk after a deploy)
  *   - WebKit/Safari: `Importing a module script failed.` (module script fails to load, e.g. transient network failure)
+ *   - any browser: a chunk that arrives but does not parse, marked by `retryImport` (a `SyntaxError`
+ *     from mis-encoded or truncated bytes, or an HTML error page served in place of JavaScript)
  */
 const markedChunkLoadErrors = new WeakSet<object>()
 
