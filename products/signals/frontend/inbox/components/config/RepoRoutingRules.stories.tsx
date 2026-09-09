@@ -84,3 +84,19 @@ export const NoRules: Story = {
 export const NoGithubConnection: Story = {
     render: () => <Block rules={[]} withGithub={false} />,
 }
+
+// More than one page of rules: the pager appears under the rows, ten per page.
+export const ManyRules: Story = {
+    render: () => (
+        <Block
+            rules={Array.from({ length: 14 }, (_, i) => ({
+                id: `018f0000-0000-7000-8000-0000000000${String(i).padStart(2, '0')}`,
+                rule_text: `rule ${i + 1}`,
+                repository: i % 2 === 0 ? 'posthog/posthog.com' : 'posthog/posthog-android',
+                priority: i,
+                created_at: '2024-01-01T00:00:00Z',
+                updated_at: '2024-01-01T00:00:00Z',
+            }))}
+        />
+    ),
+}

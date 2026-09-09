@@ -5,10 +5,13 @@ import { LemonButton, LemonInput, LemonSelect, LemonSkeleton } from '@posthog/le
 
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 
 import type { RepoRoutingRuleApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { MAX_RULE_TEXT_LENGTH, repoRoutingRulesLogic } from '../../logics/repoRoutingRulesLogic'
+
+const RULES_PAGE_SIZE = 10
 
 interface RuleFieldsProps {
     ruleText: string
@@ -190,6 +193,8 @@ function AddRuleRow(): JSX.Element {
 export function RepoRoutingRules(): JSX.Element {
     const { rules, rulesLoading } = useValues(repoRoutingRulesLogic)
     const { githubIntegrations } = useValues(integrationsLogic)
+    // Local pagination only: the pager must not write a `page` param into the settings URL.
+    const pagination = usePagination(rules ?? [], { pageSize: RULES_PAGE_SIZE, useUrl: false })
 
     return (
         <div className="flex flex-col gap-2 border-t border-primary pt-3">
@@ -212,9 +217,10 @@ export function RepoRoutingRules(): JSX.Element {
                 <>
                     {rules.length > 0 && (
                         <div className="flex flex-col gap-1">
-                            {rules.map((rule) => (
+                            {pagination.dataSourcePage.map((rule) => (
                                 <RuleRow key={rule.id} rule={rule} />
                             ))}
+                            <PaginationControl {...pagination} nouns={['rule', 'rules']} />
                         </div>
                     )}
                     {githubIntegrations.length > 0 ? (

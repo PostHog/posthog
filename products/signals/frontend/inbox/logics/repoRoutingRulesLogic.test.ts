@@ -6,7 +6,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { RepoRoutingRuleApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { repoRoutingRulesLogic } from './repoRoutingRulesLogic'
+import { MAX_RULES_PER_TEAM, repoRoutingRulesLogic } from './repoRoutingRulesLogic'
 
 function rule(id: string, ruleText: string, repository: string, priority: number): RepoRoutingRuleApi {
     return {
@@ -66,6 +66,19 @@ describe('repoRoutingRulesLogic', () => {
         logic.actions.deleteRule(CREATED)
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.rules).toEqual([UPDATED])
+    })
+
+    it('gates the add button once the team hits the rule cap', async () => {
+        const fullSet = Array.from({ length: MAX_RULES_PER_TEAM }, (_, i) =>
+            rule(`rule-${i}`, `rule ${i}`, 'posthog/posthog.com', i)
+        )
+        useMocks({ get: { '/api/projects/:team_id/tasks/repo_routing_rules/': fullSet } })
+        logic = repoRoutingRulesLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setDraftRuleText('one too many')
+        logic.actions.setDraftRepository('posthog/posthog.com')
+        expect(logic.values.addRuleDisabledReason).toContain(`${MAX_RULES_PER_TEAM}`)
     })
 
     it.each([
