@@ -305,7 +305,7 @@ Before doing any work, look at:
 
 - `already_addressed` — if `true`, the fix may already be in flight or merged; confirm with the
   user before duplicating it.
-- `implementation_pr_url` — if a PR is already linked, surface it instead of opening a second one.
+- `pull_requests` — inspect existing PRs before opening another; a report can have a stack or PRs across repositories.
 - `work_state` and `assignee` — show whether someone else has already picked it up. A takeover is
   allowed, but make it deliberate rather than overlooking active work.
 - `status` — only `ready` reports carry a finished judgment. A `candidate` / `pending_input`
@@ -318,6 +318,8 @@ posthog:inbox-reports-claim
 { "report_id": "<report_uuid>" }
 ```
 
+Save the returned `assignee.claim_id` and pass it on subsequent work updates and artefact writes.
+Taking over another actor requires `takeover=true`; stale claim IDs are rejected.
 The claim is attributed to the current internal task or external MCP client. Claims do not expire, so
 release the report whenever you walk away without landing a fix — including when you dismiss it instead.
 Release clears ownership only; an attached pull request stays on the report, and release works from any
@@ -345,7 +347,7 @@ unclaimed view instead of reading as active work nobody is doing:
 
 ```json
 posthog:inbox-reports-claim
-{ "report_id": "<report_uuid>", "release": true }
+{ "report_id": "<report_uuid>", "claim_id": "<claim_uuid>", "release": true }
 ```
 
 ### Step 3 — Scope the fix to the right layer
@@ -366,17 +368,20 @@ Open the PR following the repo's PR conventions, then attach it to the report:
 posthog:inbox-reports-claim
 {
   "report_id": "<report_uuid>",
-  "pr_url": "https://github.com/example/repository/pull/123"
+  "claim_id": "<claim_uuid>",
+  "pull_requests": ["https://github.com/example/repository/pull/123"]
 }
 ```
 
-The same PR may be attached to multiple reports. Connected repositories receive immediate state
+PR links are additive and retries do not duplicate them. Send every known PR together so completion
+considers the entire stack. The same PR may be attached to multiple reports. Connected repositories receive immediate state
 validation and webhook updates. PRs from unconnected repositories are accepted with unknown state,
 so resolve those reports manually after the work lands. Also reference the report's `_posthogUrl`
 in the PR description so the loop is traceable from either side.
 
-**Don't resolve a report because you opened a PR.** When the fix ships as a connected PR, the merge
-resolves the report automatically. Resolving by hand at PR-open
+**Don't resolve a report because you opened a PR.** A report resolves when all linked PRs are closed
+or merged and at least one merged. If all closed without merging, it is suppressed. Any open, draft,
+or unknown PR prevents automatic completion. Resolving by hand at PR-open
 time asserts work that hasn't landed, and a reviewer looking at the inbox can't tell the difference.
 Manual resolve is for fixes a PR merge will never cover — a skill-body change, a config change, a
 `NO_REPO` report — see the workflow below.

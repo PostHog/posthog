@@ -1242,11 +1242,31 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.assertEqual(self.report.status, expected_status)
         close_task.delay.assert_not_called()
         if relationship == "implementation":
-            assignment = SignalReportAssignment.objects.for_team(self.team.id).get(report=self.report)
-            self.assertEqual(assignment.actor_kind, actor_kind or SignalActorKind.TASK)
+            assignment = SignalReportAssignment.objects.for_team(self.team.id).filter(report=self.report).first()
+            self.assertEqual(assignment.actor_kind if assignment else None, actor_kind)
             pr = fetch_implementation_pr_state_for_reports([str(self.report.id)])[str(self.report.id)]
             self.assertEqual(pr.state, "merged" if merged else "closed")
             self.assertIs(pr.merged, merged)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_secondary_task_pr_webhook_imports_the_whole_stack(self, _capture, get_secret):
+        from products.signals.backend.models import SignalPullRequest
+
+        get_secret.return_value = self.webhook_secret
+        self.assignment.delete()
+        first = "https://github.com/posthog/posthog/pull/42"
+        second = "https://github.com/PostHog/posthog/pull/43"
+        run = self._link_task_pr(self.report, first)
+        TaskRun.objects.filter(id=run.id).update(output={"pr_url": first, "pr_urls": [first, second]})
+        assert self._post_pr_webhook("closed", True, second).status_code == 200
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.READY
+        assert SignalPullRequest.objects.for_team(self.team.id).count() == 2
+        assert SignalPullRequest.objects.for_team(self.team.id).get(number=43).state == "merged"
+        assert self._post_pr_webhook("closed", False, first).status_code == 200
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.RESOLVED
 
     def _post_pr_webhook(self, action: str, merged: bool, pr_url: str = "https://github.com/posthog/posthog/pull/42"):
         payload = {

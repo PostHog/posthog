@@ -104,6 +104,13 @@ export interface ReportChartApi {
     size?: SizeEnumApi | null
 }
 
+/**
+ * * `unknown` - Unknown
+ * * `draft` - Draft
+ * * `open` - Open
+ * * `closed` - Closed
+ * * `merged` - Merged
+ */
 export type SignalReportAssignmentPrStateEnumApi =
     (typeof SignalReportAssignmentPrStateEnumApi)[keyof typeof SignalReportAssignmentPrStateEnumApi]
 
@@ -115,16 +122,12 @@ export const SignalReportAssignmentPrStateEnumApi = {
     Merged: 'merged',
 } as const
 
-export type SignalReportWorkStateEnumApi =
-    (typeof SignalReportWorkStateEnumApi)[keyof typeof SignalReportWorkStateEnumApi]
-
-export const SignalReportWorkStateEnumApi = {
-    Unclaimed: 'unclaimed',
-    Working: 'working',
-    InReview: 'in_review',
-    Done: 'done',
-} as const
-
+/**
+ * * `user` - User
+ * * `task` - Task
+ * * `agent` - Agent
+ * * `system` - System
+ */
 export type SignalActorKindEnumApi = (typeof SignalActorKindEnumApi)[keyof typeof SignalActorKindEnumApi]
 
 export const SignalActorKindEnumApi = {
@@ -142,7 +145,76 @@ export interface _UserApi {
     readonly email: string
 }
 
+export interface SignalPullRequestAttachedByApi {
+    /** Kind of actor who attached the PR. Null when legacy attribution is unknown.
+     *
+     * * `user` - User
+     * * `task` - Task
+     * * `agent` - Agent
+     * * `system` - System */
+    kind: SignalActorKindEnumApi | null
+    /** Authenticated principal who attached the PR, when recorded. */
+    user: _UserApi | null
+    /**
+     * External agent client name, when recorded.
+     * @nullable
+     */
+    agent: string | null
+    /**
+     * Internal task that attached the PR, when recorded.
+     * @nullable
+     */
+    task_id: string | null
+}
+
+export interface SignalPullRequestApi {
+    /**
+     * Shared PR record ID. Null for a legacy link awaiting migration.
+     * @nullable
+     */
+    id: string | null
+    /** GitHub pull request URL. */
+    url: string
+    /** Latest known GitHub state.
+     *
+     * * `unknown` - Unknown
+     * * `draft` - Draft
+     * * `open` - Open
+     * * `closed` - Closed
+     * * `merged` - Merged */
+    state: SignalReportAssignmentPrStateEnumApi
+    /** Whether this PR merged. */
+    merged: boolean
+    /** Who first attached this PR to the report, not necessarily its GitHub author. Null until a legacy link is migrated. */
+    readonly attached_by: SignalPullRequestAttachedByApi | null
+    /**
+     * Originating work claim. Null for legacy links without a recorded claim.
+     * @nullable
+     */
+    claim_id: string | null
+    /**
+     * When the first PR link was recorded. For backfilled links this is the import time; null for an unmigrated link.
+     * @nullable
+     */
+    attached_at: string | null
+}
+
+export type SignalReportWorkStateEnumApi =
+    (typeof SignalReportWorkStateEnumApi)[keyof typeof SignalReportWorkStateEnumApi]
+
+export const SignalReportWorkStateEnumApi = {
+    Unclaimed: 'unclaimed',
+    Working: 'working',
+    InReview: 'in_review',
+    Done: 'done',
+} as const
+
 export interface SignalReportAssigneeApi {
+    /**
+     * Identifier for the active work attempt.
+     * @nullable
+     */
+    claim_id: string | null
     kind: SignalActorKindEnumApi
     user: _UserApi | null
     /** @nullable */
@@ -299,6 +371,8 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly implementation_pr_url: string | null
+    /** All distinct PRs linked to this report across work attempts. */
+    readonly pull_requests: readonly SignalPullRequestApi[]
     /** Latest known pull request state: unknown, draft, open, closed, or merged. */
     readonly implementation_pr_state: SignalReportAssignmentPrStateEnumApi | null
     /** Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR. */
@@ -356,7 +430,17 @@ export interface PatchedSignalReportContentUpdateApi {
 }
 
 export interface SignalReportClaimApi {
-    /** Optional GitHub pull request to attach to the claim. The report may be claimed without one. */
+    /** Active claim ID returned by an earlier call. Stale claims are rejected. */
+    claim_id?: string
+    /**
+     * GitHub PR URLs to add to this report's work. Additive and deduplicated; may span repositories.
+     * @maxItems 50
+     * @items.maxLength 2048
+     */
+    pull_requests?: string[]
+    /** Explicitly end another actor's claim and take ownership. */
+    takeover?: boolean
+    /** Compatibility alias for adding one PR. Prefer pull_requests for new callers. */
     pr_url?: string
     /** Release ownership while preserving any attached pull request. */
     release?: boolean
@@ -1707,6 +1791,9 @@ export interface SignalReportStateRequestApi {
  * * `summary_change` - Summary Change
  * * `code_review` - Code Review
  * * `related_to` - Related To
+ * * `work_claim` - Work Claim
+ * * `work_release` - Work Release
+ * * `pull_request` - Pull Request
  */
 export type SignalReportArtefactArtefactTypeEnumApi =
     (typeof SignalReportArtefactArtefactTypeEnumApi)[keyof typeof SignalReportArtefactArtefactTypeEnumApi]
@@ -1729,11 +1816,24 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     SummaryChange: 'summary_change',
     CodeReview: 'code_review',
     RelatedTo: 'related_to',
+    WorkClaim: 'work_claim',
+    WorkRelease: 'work_release',
+    PullRequest: 'pull_request',
 } as const
 
 export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]
 
 export interface SignalReportArtefactApi {
+    /**
+     * Work claim that produced this artefact.
+     * @nullable
+     */
+    readonly claim_id: string | null
+    /**
+     * Shared PR record linked by this artefact.
+     * @nullable
+     */
+    readonly pull_request_id: string | null
     readonly id: string
     readonly type: SignalReportArtefactArtefactTypeEnumApi
     readonly content: SignalReportArtefactApiContent
@@ -1773,6 +1873,8 @@ export interface PaginatedSignalReportArtefactListApi {
  * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
  */
 export interface SignalReportArtefactLogCreateApi {
+    /** Active claim to attribute this work to. Must belong to the caller and report. */
+    claim_id?: string
     /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
     artefact_type: string
     /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
@@ -1785,6 +1887,11 @@ export interface SignalReportArtefactLogCreateApi {
 export interface SignalReportArtefactWriteResponseApi {
     /** The artefact's unique id. */
     readonly id: string
+    /**
+     * Claim that produced this artefact.
+     * @nullable
+     */
+    readonly claim_id: string | null
     /** The id of the report this artefact belongs to. */
     readonly report_id: string
     /** The artefact type. */
@@ -4601,6 +4708,48 @@ export type SignalsReportsListAssignee = (typeof SignalsReportsListAssignee)[key
 export const SignalsReportsListAssignee = {
     Me: 'me',
 } as const
+
+export type SignalsReportPrChecksParams = {
+    /**
+     * Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).
+     */
+    pull_request_id?: string
+}
+
+export type SignalsReportPrCommentsParams = {
+    /**
+     * Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).
+     */
+    pull_request_id?: string
+}
+
+export type SignalsReportPrReviewCommentsCreateParams = {
+    /**
+     * Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).
+     */
+    pull_request_id?: string
+}
+
+export type SignalsReportPrReviewCommentDestroyParams = {
+    /**
+     * Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).
+     */
+    pull_request_id?: string
+}
+
+export type SignalsReportPrReviewCommentReactionsCreateParams = {
+    /**
+     * Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).
+     */
+    pull_request_id?: string
+}
+
+export type SignalsReportPrReviewCommentReactionDestroyParams = {
+    /**
+     * Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).
+     */
+    pull_request_id?: string
+}
 
 export type SignalsReportArtefactsListParams = {
     /**

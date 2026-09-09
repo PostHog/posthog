@@ -1,9 +1,11 @@
 """Resolve implementation PR URLs linked to signal reports."""
 
 import re
-from typing import Literal, cast
+from datetime import datetime
+from typing import TYPE_CHECKING, Literal, cast
 
 from django.db.models import Q
+from django.utils import timezone
 
 import structlog
 
@@ -11,7 +13,13 @@ from posthog.dataclasses import frozen
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
 
-from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportAssignment
+from products.signals.backend.models import (
+    SignalActorKind,
+    SignalPullRequest,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportAssignment,
+)
 from products.signals.backend.task_run_artefacts import (
     NON_PR_BEARING_TASK_RUN_TYPES,
     SIGNALS_PRODUCT,
@@ -20,6 +28,9 @@ from products.signals.backend.task_run_artefacts import (
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 # A report in one of these statuses is finished with its pull request. Anything else still holds
 # it open — a status this list doesn't know about keeps the PR, which is the safe direction.
@@ -37,19 +48,26 @@ class ImplementationPr:
     state: str = SignalReportAssignment.PrState.UNKNOWN
     task_id: str | None = None
     actor_kind: str | None = None
+    id: str | None = None
+    claim_id: str | None = None
+    attached_at: datetime | None = None
+    attached_by_user: "User | None" = None
+    agent_name: str | None = None
 
 
-def fetch_implementation_pr_state_for_reports(report_ids: list[str]) -> dict[str, ImplementationPr]:
+def fetch_legacy_implementation_pr_state_for_reports(report_ids: list[str]) -> dict[str, ImplementationPr]:
     """Return assignment PRs first, falling back to existing task-backed PRs."""
     if not report_ids:
         return {}
-    assignments = list(SignalReportAssignment.all_teams.filter(report_id__in=report_ids))
+    assignments = list(SignalReportAssignment.all_teams.filter(report_id__in=report_ids).select_related("actor_user"))
     result = {
         str(assignment.report_id): ImplementationPr(
             url=assignment.pr_url,
             merged=assignment.pr_merged,
             state=assignment.pr_state or SignalReportAssignment.PrState.UNKNOWN,
             actor_kind=assignment.actor_kind,
+            attached_by_user=assignment.actor_user,
+            agent_name=assignment.actor_agent,
         )
         for assignment in assignments
         if assignment.pr_url
@@ -91,6 +109,85 @@ def fetch_implementation_pr_state_for_reports(report_ids: list[str]) -> dict[str
     return result
 
 
+def fetch_implementation_prs_for_reports(report_ids: list[str]) -> dict[str, list[ImplementationPr]]:
+    result: dict[str, list[ImplementationPr]] = {}
+    seen: set[tuple[str, str]] = set()
+    links = (
+        SignalReportArtefact.objects.filter(
+            report_id__in=report_ids,
+            pull_request__isnull=False,
+            type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
+        )
+        .select_related("pull_request", "created_by")
+        .order_by("created_at", "id")
+    )
+    for link in links:
+        pr = link.pull_request
+        if pr is None or pr.team_id != link.team_id:
+            continue
+        key = (str(link.report_id), str(pr.id))
+        if key in seen:
+            continue
+        seen.add(key)
+        result.setdefault(str(link.report_id), []).append(
+            ImplementationPr(
+                id=str(pr.id),
+                url=pr.url,
+                state=pr.state,
+                merged=pr.state == "merged",
+                task_id=str(link.task_id) if link.task_id else None,
+                actor_kind=link.actor_kind,
+                claim_id=str(link.claim_id) if link.claim_id else None,
+                attached_at=link.created_at,
+                attached_by_user=link.created_by,
+                agent_name=link.actor_agent,
+            )
+        )
+    missing = [str(report_id) for report_id in report_ids if str(report_id) not in result]
+    for report_id, legacy_pr in fetch_legacy_implementation_pr_state_for_reports(missing).items():
+        result[report_id] = [legacy_pr]
+    legacy_task_report_ids = [
+        report_id for report_id in missing if result.get(report_id) and result[report_id][0].task_id
+    ]
+    team_by_report = dict(SignalReport.objects.filter(id__in=legacy_task_report_ids).values_list("id", "team_id"))
+    for team_id in set(team_by_report.values()):
+        legacy_tasks = {
+            str(report_id): result[str(report_id)][0].task_id
+            for report_id, report_team_id in team_by_report.items()
+            if report_team_id == team_id and str(report_id) in result and result[str(report_id)][0].task_id
+        }
+        task_prs = tasks_facade.get_pull_requests_for_tasks(
+            team_id, [task_id for task_id in legacy_tasks.values() if task_id], pr_bearing_task_run_filter()
+        )
+        for report_id, task_id in legacy_tasks.items():
+            existing_urls = {pr.url for pr in result[report_id]}
+            for url, state in task_prs.get(task_id or "", []):
+                if url not in existing_urls:
+                    result[report_id].append(
+                        ImplementationPr(
+                            url=url,
+                            state=state,
+                            merged=state == "merged",
+                            task_id=task_id,
+                            actor_kind=SignalActorKind.TASK,
+                        )
+                    )
+                    existing_urls.add(url)
+    return result
+
+
+def primary_pull_request(prs: list[ImplementationPr]) -> ImplementationPr:
+    return min(prs, key=lambda pr: ({"merged": 1, "closed": 2}.get(pr.state, 0), pr.url.lower()))
+
+
+def fetch_implementation_pr_state_for_reports(report_ids: list[str]) -> dict[str, ImplementationPr]:
+    # Older clients show one PR. Prefer unfinished work so one merged stack layer cannot hide it.
+    return {
+        report_id: primary_pull_request(prs)
+        for report_id, prs in fetch_implementation_prs_for_reports(report_ids).items()
+    }
+
+
 def pr_bearing_task_run_filter() -> Q:
     return Q(state__ai_stage__isnull=True) | (
         ~Q(state__ai_stage__in=sorted(NON_PR_BEARING_TASK_RUN_TYPES)) & ~Q(state__ai_stage__startswith="scout:")
@@ -104,23 +201,35 @@ def fetch_implementation_pr_urls_for_reports(report_ids: list[str]) -> dict[str,
 def report_ids_for_implementation_pr(*, team_id: int, repository: str, pr_number: int) -> list[str]:
     # Narrow by task output before resolving reports so webhooks do not scan the whole inbox.
     owner, repo = repository.split("/", 1)
-    url_pattern = rf"^[^:]+://(www\.)?github\.com/+{re.escape(owner)}/+{re.escape(repo)}/+pull/+0*{pr_number}([/?#]|$)"
+    url_body = rf'[^:"]+://(www\.)?github\.com/+{re.escape(owner)}/+{re.escape(repo)}/+pull/+0*{pr_number}'
+    url_pattern = rf"^{url_body}([/?#]|$)"
+    array_url_pattern = rf'"{url_body}([/?#"]|$)'
     task_ids = tasks_facade.task_ids_with_pr_url_subquery(
-        team_id, pr_bearing_task_run_filter(), Q(output__pr_url__iregex=url_pattern)
+        team_id,
+        pr_bearing_task_run_filter(),
+        Q(output__pr_url__iregex=url_pattern) | Q(output__pr_urls__iregex=array_url_pattern),
     )
     candidates = SignalReport.objects.filter(team_id=team_id).filter(
-        Q(assignment__repository__iexact=repository, assignment__pr_number=pr_number)
+        Q(
+            artefacts__pull_request__repository__iexact=repository,
+            artefacts__pull_request__number=pr_number,
+            artefacts__pull_request__team_id=team_id,
+        )
+        | Q(assignment__repository__iexact=repository, assignment__pr_number=pr_number)
         | SignalReport.reports_for_task_ids_filter(task_ids, team_id=team_id)
     )
-    prs = fetch_implementation_pr_state_for_reports(
-        [str(report_id) for report_id in candidates.values_list("id", flat=True)]
+    prs = fetch_implementation_prs_for_reports(
+        [str(report_id) for report_id in candidates.values_list("id", flat=True).distinct()]
     )
     return [
         report_id
-        for report_id, pr in prs.items()
-        if (parsed := GitHubIntegrationBase.parse_pull_request_url(pr.url)) is not None
-        and parsed.repository.lower() == repository.lower()
-        and parsed.number == pr_number
+        for report_id, report_prs in prs.items()
+        if any(
+            (parsed := GitHubIntegrationBase.parse_pull_request_url(pr.url)) is not None
+            and parsed.repository.lower() == repository.lower()
+            and parsed.number == pr_number
+            for pr in report_prs
+        )
     ]
 
 
@@ -142,11 +251,12 @@ _PR_CLOSE_COMMENTS["resolved"] = (
 )
 
 
-def close_implementation_pr_for_report(
+def _close_implementation_pr(
     team_id: int,
     report_id: str,
     *,
     reason: PrCloseReason = "suppressed",
+    pr: ImplementationPr,
 ) -> bool:
     """Best-effort: comment on and close the GitHub PR attached to this report.
 
@@ -159,9 +269,6 @@ def close_implementation_pr_for_report(
     """
     try:
         if not SignalReport.objects.filter(id=report_id, team_id=team_id).exists():
-            return False
-        pr = fetch_implementation_pr_state_for_reports([str(report_id)]).get(str(report_id))
-        if pr is None:
             return False
         if pr.actor_kind not in {SignalActorKind.TASK, SignalActorKind.SYSTEM}:
             logger.info(
@@ -185,6 +292,9 @@ def close_implementation_pr_for_report(
             report__team_id=team_id,
             repository=parsed.repository.lower(),
             pr_number=parsed.number,
+        )
+        shared_pr = SignalPullRequest.objects.for_team(team_id).filter(
+            repository=parsed.repository.lower(), number=parsed.number
         )
 
         # One pull request can back several reports. Closing it for one dismissal would close the
@@ -231,11 +341,15 @@ def close_implementation_pr_for_report(
             )
             return False
         if pr_status.get("merged"):
+            shared_pr.update(state=SignalPullRequest.State.MERGED, checked_at=timezone.now(), updated_at=timezone.now())
             assignment_for_pr.update(
                 pr_state=SignalReportAssignment.PrState.MERGED,
                 pr_merged=True,
             )
         elif pr_status.get("state") == "closed":
+            shared_pr.exclude(state=SignalPullRequest.State.MERGED).update(
+                state=SignalPullRequest.State.CLOSED, checked_at=timezone.now(), updated_at=timezone.now()
+            )
             assignment_for_pr.update(
                 pr_state=SignalReportAssignment.PrState.CLOSED,
                 pr_merged=False,
@@ -278,7 +392,23 @@ def close_implementation_pr_for_report(
             pr_state=SignalReportAssignment.PrState.CLOSED,
             pr_merged=False,
         )
+        shared_pr.exclude(state=SignalPullRequest.State.MERGED).update(
+            state=SignalPullRequest.State.CLOSED, checked_at=timezone.now(), updated_at=timezone.now()
+        )
         return True
     except Exception:
         logger.exception("close_implementation_pr_unexpected_error", report_id=str(report_id))
+        return False
+
+
+def close_implementation_pr_for_report(team_id: int, report_id: str, *, reason: PrCloseReason = "suppressed") -> bool:
+    try:
+        if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
+            return False
+        closed = False
+        for pr in fetch_implementation_prs_for_reports([str(report_id)]).get(str(report_id), []):
+            closed = _close_implementation_pr(team_id, report_id, reason=reason, pr=pr) or closed
+        return closed
+    except Exception:
+        logger.exception("close_implementation_pr_lookup_failed", report_id=str(report_id))
         return False

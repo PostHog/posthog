@@ -2,6 +2,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -9,7 +10,33 @@ from rest_framework import status
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 
-from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportAssignment
+from products.signals.backend.implementation_pr import ImplementationPr, primary_pull_request
+from products.signals.backend.models import (
+    SignalActorKind,
+    SignalPullRequest,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportAssignment,
+)
+from products.signals.backend.report_assignments import update_assignments_for_pull_request
+
+
+class TestPrimaryPullRequest(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("open", ["closed", "merged", "open"], "open"),
+            ("draft", ["merged", "draft"], "draft"),
+            ("unknown", ["closed", "unknown"], "unknown"),
+            ("merged", ["closed", "merged"], "merged"),
+        ]
+    )
+    def test_primary_prefers_unfinished_then_merged(self, _name: str, states: list[str], expected: str) -> None:
+        prs = [
+            ImplementationPr(url=f"https://github.com/example/app/pull/{i}", state=state, merged=state == "merged")
+            for i, state in enumerate(states, 1)
+        ]
+        assert primary_pull_request(prs).state == expected
+        assert primary_pull_request(list(reversed(prs))) == primary_pull_request(prs)
 
 
 class TestSignalReportAssignmentAPI(APIBaseTest):
@@ -87,7 +114,7 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
             == 1
         )
 
-    def test_external_agent_silently_takes_over_claim(self):
+    def test_external_agent_explicitly_takes_over_claim(self):
         report = self._create_report()
         self.client.post(
             self._claim_url(report),
@@ -98,7 +125,7 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
 
         response = self.client.post(
             self._claim_url(report),
-            data={},
+            data={"takeover": True},
             format="json",
             headers=self._agent_headers("codex"),
         )
@@ -121,6 +148,153 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         change = takeover.detail["changes"][0]
         assert change["before"]["agent"] == "claude-code"
         assert change["after"]["agent"] == "codex"
+
+    @patch("products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository", return_value=None)
+    def test_additive_pr_updates_and_stale_claims(self, _integration):
+        report = self._create_report()
+        first = self.client.post(
+            self._claim_url(report), {"pull_requests": ["https://github.com/example/app/pull/1"]}, format="json"
+        )
+        assert first.status_code == 200
+        claim_id = first.json()["assignee"]["claim_id"]
+        attached = first.json()["pull_requests"][0]
+        assert attached["claim_id"] == claim_id
+        assert attached["attached_at"] is not None
+        assert attached["attached_by"]["kind"] == "user"
+        assert attached["attached_by"]["user"]["id"] == self.user.id
+        payload = {
+            "claim_id": claim_id,
+            "pull_requests": ["https://github.com/example/app/pull/1", "https://github.com/example/sdk/pull/2"],
+        }
+        for _ in range(2):
+            response = self.client.post(self._claim_url(report), payload, format="json")
+            assert response.status_code == 200
+            assert len(response.json()["pull_requests"]) == 2
+        assert SignalReportArtefact.objects.filter(report=report, type="pull_request").count() == 2
+        assert SignalReportArtefact.objects.filter(report=report, type="work_claim").count() == 1
+        note_url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/"
+        note = self.client.post(
+            note_url,
+            {"artefact_type": "note", "content": {"note": "Updated the parser"}, "claim_id": claim_id},
+            format="json",
+        )
+        assert note.status_code == 201
+        assert note.json()["claim_id"] == claim_id
+        denied = self.client.post(self._claim_url(report), {}, format="json", headers=self._agent_headers("other"))
+        assert denied.status_code == 409
+        takeover = self.client.post(
+            self._claim_url(report), {"takeover": True}, format="json", headers=self._agent_headers("other")
+        )
+        assert takeover.status_code == 200
+        assert takeover.json()["assignee"]["claim_id"] != claim_id
+        assert takeover.json()["pull_requests"][0]["attached_by"] == attached["attached_by"]
+        assert takeover.json()["pull_requests"][0]["claim_id"] == claim_id
+        stale = self.client.post(self._claim_url(report), payload, format="json")
+        assert stale.status_code == 409
+        assert (
+            self.client.post(
+                note_url,
+                {"artefact_type": "note", "content": {"note": "Stale work"}, "claim_id": claim_id},
+                format="json",
+            ).status_code
+            == 409
+        )
+        for artefact in SignalReportArtefact.objects.filter(
+            report=report, type__in=["work_claim", "work_release", "pull_request"]
+        ):
+            assert self.client.delete(f"{note_url}{artefact.id}/").status_code == 400
+        assert SignalReportArtefact.objects.filter(report=report, type="work_release", claim_id=claim_id).count() == 1
+        assert SignalReportArtefact.objects.filter(report=report, type="pull_request", claim_id=claim_id).count() == 2
+
+    @parameterized.expand(
+        [
+            ("all_closed", "closed", "closed", SignalReport.Status.SUPPRESSED),
+            ("one_merged", "merged", "closed", SignalReport.Status.RESOLVED),
+            ("all_merged", "merged", "merged", SignalReport.Status.RESOLVED),
+            ("unknown", "merged", "unknown", SignalReport.Status.READY),
+            ("draft", "merged", "draft", SignalReport.Status.READY),
+        ]
+    )
+    @patch("products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository", return_value=None)
+    def test_stack_completion_waits_for_all_prs(self, _name, first_state, last_state, expected, _integration):
+        report = self._create_report()
+        response = self.client.post(
+            self._claim_url(report),
+            {
+                "pull_requests": [
+                    "https://github.com/example/app/pull/1",
+                    "https://github.com/example/sdk/pull/2",
+                ]
+            },
+            format="json",
+        )
+        assert response.status_code == 200
+        update_assignments_for_pull_request(
+            team_ids=[self.team.id], repository="example/app", pr_number=1, pr_state=first_state
+        )
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+        for _ in range(2):
+            update_assignments_for_pull_request(
+                team_ids=[self.team.id], repository="example/sdk", pr_number=2, pr_state=last_state
+            )
+        report.refresh_from_db()
+        assert report.status == expected
+        if expected != SignalReport.Status.READY:
+            retry = self.client.post(
+                self._claim_url(report),
+                {
+                    "claim_id": response.json()["assignee"]["claim_id"],
+                    "pull_requests": ["https://github.com/example/app/pull/1", "https://github.com/example/sdk/pull/2"],
+                },
+                format="json",
+            )
+            assert retry.status_code == 200
+            assert SignalReportArtefact.objects.filter(report=report, type="pull_request").count() == 2
+
+    @patch("products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository")
+    def test_attaching_a_partly_merged_stack_does_not_finish_early(self, integration):
+        github = integration.return_value
+        github.get_pull_request.side_effect = [
+            {"success": True, "state": "closed", "merged": True},
+            {"success": True, "state": "open", "merged": False},
+        ]
+        report = self._create_report()
+        response = self.client.post(
+            self._claim_url(report),
+            {
+                "pull_requests": ["https://github.com/example/app/pull/1", "https://github.com/example/app/pull/2"],
+            },
+            format="json",
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == SignalReport.Status.READY
+        assert response.json()["implementation_pr_url"].endswith("/2")
+        assert response.json()["work_state"] == "in_review"
+
+    @patch("products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository", return_value=None)
+    def test_shared_pr_webhook_is_team_scoped_and_merge_is_terminal(self, _integration):
+        reports = [self._create_report(), self._create_report()]
+        for report in reports:
+            response = self.client.post(
+                self._claim_url(report), {"pull_requests": ["https://github.com/example/app/pull/1"]}, format="json"
+            )
+            assert response.status_code == 200
+        assert SignalPullRequest.objects.for_team(self.team.id).count() == 1
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_pr = SignalPullRequest.objects.for_team(other_team.id).create(
+            team_id=other_team.id, repository="example/app", number=1, url="https://github.com/example/app/pull/1"
+        )
+        for state in ["merged", "open", "closed"]:
+            update_assignments_for_pull_request(
+                team_ids=[self.team.id], repository="example/app", pr_number=1, pr_state=state
+            )
+        for report in reports:
+            report.refresh_from_db()
+            assert report.status == SignalReport.Status.RESOLVED
+        other_pr.refresh_from_db()
+        assert other_pr.state == "unknown"
+        assert SignalPullRequest.objects.for_team(self.team.id).get().state == "merged"
 
     def test_generic_mcp_client_name_is_used_when_registration_name_is_missing(self):
         report = self._create_report()

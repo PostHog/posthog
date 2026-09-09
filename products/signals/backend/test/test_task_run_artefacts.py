@@ -10,6 +10,7 @@ from products.signals.backend.custom_agent.persistence import create_custom_agen
 from products.signals.backend.custom_agent.schemas import CustomAgentFinalReport
 from products.signals.backend.models import (
     SignalActorKind,
+    SignalPullRequest,
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
@@ -186,14 +187,28 @@ class TestTaskRunArtefacts(BaseTest):
             team=self.team,
             task=task,
             status=TaskRun.Status.COMPLETED,
-            output={"pr_url": "https://github.com/PostHog/posthog/pull/42", "pr_state": "open"},
+            output={
+                "pr_url": "https://github.com/PostHog/posthog/pull/42",
+                "pr_state": "merged",
+                "pr_merged": True,
+                "pr_urls": ["https://github.com/PostHog/posthog/pull/42", "https://github.com/example/app/pull/43"],
+            },
         )
 
         assignment = SignalReportAssignment.all_teams.get(report=report)
         assert assignment.pr_url == "https://github.com/PostHog/posthog/pull/42"
         assert assignment.repository == "posthog/posthog"
         assert assignment.pr_number == 42
-        assert assignment.pr_state == SignalReportAssignment.PrState.OPEN
+        assert assignment.pr_state == SignalReportAssignment.PrState.MERGED
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+        assert SignalPullRequest.objects.for_team(self.team.id).count() == 2
+        assert (
+            SignalReportArtefact.objects.filter(
+                report=report, type="pull_request", claim_id=assignment.claim_id
+            ).count()
+            == 2
+        )
 
     def test_task_pr_sync_preserves_each_assignments_existing_state(self):
         merged_report = self._report()

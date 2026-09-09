@@ -1,38 +1,106 @@
-# Signals implementation PR lifecycle
+# Signals work claims and pull requests
 
-Report PR lookups use `fetch_implementation_pr_state_for_reports` in
-`products/signals/backend/implementation_pr.py`. A non-empty assignment PR takes
-precedence. Otherwise, lookup falls back to associated task-run artefacts and
-legacy `SignalReportTask` links, or the assignment's task when it has no PR.
-Implementation associations take precedence over other PR-bearing associations.
-Research, repository-selection, and scout runs do not supply implementation PRs.
+A report has one current owner, an append-only history of work attempts, and any
+number of linked GitHub pull requests. Internal tasks and external agents use the
+same claim and linking operations. External agents do not need a task record.
 
-List/detail responses, PR checks and review actions, dismissal, and webhook
-handling use this selection. Reverse lookup first narrows candidates by PR
-identity and task output, then runs the same resolver so a superseded task PR
-cannot override an explicit assignment PR.
+```mermaid
+erDiagram
+    SignalReport ||--o| SignalReportAssignment : "current owner"
+    SignalReport ||--o{ SignalReportArtefact : "work history"
+    SignalReportAssignment }o--o| SignalReportArtefact : "active claim"
+    SignalReportArtefact }o--o| SignalReportArtefact : "claim"
+    SignalReportArtefact }o--o| SignalPullRequest : "PR link"
+```
 
-GitHub webhooks remain scoped to teams connected to the installation. For a
-matching task-backed report without an assignment PR, they populate the PR
-metadata while preserving any existing claim. Merges resolve matching reports;
-unmerged closes suppress them, except reports already resolved. PR-driven
-transitions do not enqueue another GitHub close.
+`SignalReportAssignment` retains ownership fields and gains `claim_id`. This
+points to a `work_claim` artefact; its UUID identifies a work attempt. There is no
+separate session table. `work_release` records release or takeover, and notes,
+commits, task runs, and PR links can reference their claim. Claim and release
+history and PR links cannot be edited or deleted through the artefact API.
 
-Dismissal, snoozing, and manual resolution can close a task-backed fallback PR.
-An explicit assignment PR still requires a task or system actor for automatic
-closure. The shared-PR guard checks both assignment and task-backed links, and
-keeps the PR open while another unfinished report uses it. GitHub must confirm
-the PR is open and unmerged before PostHog comments or closes it.
+`SignalPullRequest` stores one PR per `(team, repository, number)`, with URL,
+state, and last verification time. Repository identity is case-insensitive.
+`pull_request` artefacts connect reports and claims to these records. Multiple
+reports can share a PR, and a report can link a stack spanning repositories.
+PR attribution belongs to the link, independently of the current owner.
 
-`reviewer_pr_assignment` queues an after-commit task that adds a report's suggested reviewers as GitHub assignees.
-It runs when a PR URL first reaches a report, and when a person adds a reviewer to a report that already has a reviewable PR.
-Only reviewers who set `github_assign_on_pull_request` on their `SignalUserAutonomyConfig` are assigned, and the default is off.
-The task reads the latest `suggested_reviewers` row, so a reviewer removed from the list is not assigned later.
-Assignment is additive, so nothing here removes an assignee and a reviewer somebody added by hand stays on the PR.
-Closed and merged PRs are skipped.
-Every GitHub failure is logged without blocking the sync, the claim, or the reviewer edit that queued it.
-One PR can back several reports, and each report queues its own task, so the PR ends up with the union of qualifying reviewers.
+## Caller contract
 
-Fallback reads do not require a data migration. This does not replay webhook
-events that were missed before the fix; those reports need a subsequent event
-or explicit reconciliation.
+`POST /api/projects/{team_id}/signals/reports/{report_id}/claim/` and the
+`inbox-reports-claim` MCP tool perform the whole interaction:
+
+| Request                                                                      | Effect                                                          |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `{}`                                                                         | Start or resume this actor's claim; return `assignee.claim_id`. |
+| `{"claim_id":"…","pull_requests":["https://github.com/example/app/pull/1"]}` | Validate ownership and add PR links atomically.                 |
+| `{"takeover":true}`                                                          | Release the current claim and begin a new one.                  |
+| `{"claim_id":"…","release":true}`                                            | Release ownership; retain all work and PR history.              |
+
+An initial request can include the whole PR list. Subsequent lists are additive,
+and retries do not duplicate links. Send the entire known stack together so an
+already-merged first PR cannot complete the report before its siblings are linked.
+Another actor receives a conflict unless takeover is explicit. A stale claim ID
+cannot attach work or release a newer claim. Claims have no timeout or heartbeat.
+The authenticated caller determines attribution; supplied actor identities are
+not accepted. A terminal report accepts an identical retry by its existing owner,
+but cannot acquire a new claim or new PR links.
+
+Internal implementation creation claims the report in the task-creation
+transaction. Task-run output imports every `pr_urls` entry, including the legacy
+`pr_url`, before evaluating completion. Failed implementations with no remaining
+live run or PR can release their claim when a replacement is started. Quota
+cancellation releases the task's ownership along with its existing gate records.
+Automatic implementation cannot take an existing owner's claim.
+
+## State and callers
+
+GitHub webhooks update the team-scoped shared PR and evaluate every linked report.
+Merges are terminal and cannot be downgraded by a late open or close event.
+A report completes only when it has at least one PR and every PR is closed or
+merged. At least one merge resolves it; an entirely unmerged closed set suppresses
+it. Open, draft, or unknown state prevents automatic completion. A resolved report
+is never suppressed by a later close event.
+
+List/detail responses expose `pull_requests`, including `attached_by` (actor kind,
+user, agent name, task ID), `claim_id`, and `attached_at`. These describe the first
+attachment to this report, not the GitHub author. Later attachments remain in the
+artefact log. A takeover never rewrites attribution. Imported timestamps identify
+the backfill time; unmigrated links have null attachment metadata.
+
+Existing `implementation_pr_*` fields retain a deterministic representative:
+unfinished PRs first, then merged, then closed, with URL ordering within each group. Existing
+web and desktop callers and the batch CI endpoint use that representative. PR
+checks and review endpoints accept `pull_request_id` to address any linked PR;
+the server verifies that it belongs to the requested report and team. Outcome
+metrics count distinct linked PRs. Billing and refunds retain report-level rules.
+
+Dismissal, snoozing, or manual resolution considers every linked PR. Only links
+attributed to an internal task or system process permit automatic closure.
+Changing ownership cannot grant that permission. A PR stays open while another
+unfinished report needs it, and GitHub must confirm it is open before closure.
+Reviewer assignment is queued after commit for newly linked PRs and reviewer edits.
+
+## Rollout and backfill
+
+1. Apply the additive migration: new PR table, nullable references, and concurrent
+   indexes. Deploy the new readers and writers and drain old workers before using
+   multiple PRs; old workers still implement single-PR completion.
+2. Run `uv run manage.py backfill_report_pull_requests --team-id <id>`. It imports
+   assignment PRs and associated implementation task PR arrays, preserving current
+   ownership and recording migration provenance. Research and scout PRs are excluded.
+   Repeat per team; `--batch-size` and the printed `--after` cursor bound/resume work.
+3. The backfill locks one report at a time and is safe to rerun. It does not call
+   GitHub, change report status, or enqueue reviewers. Imported snapshots have no
+   verification timestamp and cannot overwrite a subsequently verified PR state.
+   A released legacy assignment has unknown PR attribution and cannot authorize
+   automatic closure.
+4. Validate links and ownership before removing compatibility code. Assignment PR
+   columns and task-run output remain available during rollout. New PR writes fill
+   an empty legacy primary, and webhooks keep its state synchronized. Reads fall
+   back to the old resolver when no new links exist.
+5. Remove assignment PR fields and fallback reads in a later deployment after all
+   teams are backfilled and old callers are retired. Keep assignment ownership.
+
+Backfill does not recover missed webhook states. Unknown or stale PRs require a
+subsequent GitHub event or explicit state reconciliation before auto-completion.

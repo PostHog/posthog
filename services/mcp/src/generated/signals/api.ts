@@ -189,7 +189,7 @@ export const SignalsReportsPartialUpdateBody = () => zod
     )
 
 /**
- * Claim a report for the current user, internal task, or external MCP agent. A later claim silently takes over ownership. Supply pr_url to attach or replace the report's pull request, or release=true to clear only ownership while preserving the pull request.
+ * Start or update work for the current user, internal task, or external agent. Supply claim_id to resume, pull_requests to add PRs, takeover=true to explicitly take ownership, or release=true to end ownership while preserving work history and PR links.
  * @summary Claim or release a signal report
  */
 export const SignalsReportsClaimParams = () => zod.object({
@@ -201,13 +201,31 @@ export const SignalsReportsClaimParams = () => zod.object({
         ),
 })
 
+export const signalsReportsClaimBodyPullRequestsItemMax = 2048
+
+export const signalsReportsClaimBodyPullRequestsMax = 50
+
+export const signalsReportsClaimBodyTakeoverDefault = false
 export const signalsReportsClaimBodyReleaseDefault = false
 
 export const SignalsReportsClaimBody = () => zod.object({
+    claim_id: zod
+        .string()
+        .optional()
+        .describe('Active claim ID returned by an earlier call. Stale claims are rejected.'),
+    pull_requests: zod
+        .array(zod.url().max(signalsReportsClaimBodyPullRequestsItemMax))
+        .max(signalsReportsClaimBodyPullRequestsMax)
+        .optional()
+        .describe("GitHub PR URLs to add to this report's work. Additive and deduplicated; may span repositories."),
+    takeover: zod
+        .boolean()
+        .default(signalsReportsClaimBodyTakeoverDefault)
+        .describe("Explicitly end another actor's claim and take ownership."),
     pr_url: zod
         .url()
         .optional()
-        .describe('Optional GitHub pull request to attach to the claim. The report may be claimed without one.'),
+        .describe('Compatibility alias for adding one PR. Prefer pull_requests for new callers.'),
     release: zod
         .boolean()
         .default(signalsReportsClaimBodyReleaseDefault)
@@ -350,6 +368,10 @@ export const SignalsReportArtefactsCreateHeader = () => zod.object({
 
 export const SignalsReportArtefactsCreateBody = () => zod
     .object({
+        claim_id: zod
+            .string()
+            .optional()
+            .describe('Active claim to attribute this work to. Must belong to the caller and report.'),
         artefact_type: zod
             .string()
             .describe(

@@ -806,7 +806,8 @@ class TestSignalReportListAPI(APIBaseTest):
         unclaimed = self.client.get(self._list_url(unclaimed="true"))
         assert str(report.id) not in {item["id"] for item in unclaimed.json()["results"]}
 
-    def test_assignment_pr_wins_over_task_run_output(self):
+    @parameterized.expand([("legacy", True, 42), ("migrated", False, 7)])
+    def test_assignment_pr_is_only_a_legacy_fallback(self, _name, legacy, expected_number):
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
         report = self._create_report()
@@ -834,10 +835,12 @@ class TestSignalReportListAPI(APIBaseTest):
         assignment.pr_number = 42
         assignment.pr_state = SignalReportAssignment.PrState.UNKNOWN
         assignment.save()
+        if legacy:
+            SignalReportArtefact.objects.filter(report=report, type="pull_request").delete()
 
         row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
 
-        assert row["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
+        assert row["implementation_pr_url"] == f"https://github.com/org/repo/pull/{expected_number}"
 
     @parameterized.expand(
         [
@@ -909,7 +912,7 @@ class TestSignalReportListAPI(APIBaseTest):
 
         assert len(result) == 6
         assert len(for_many.captured_queries) == baseline
-        assert baseline == 1
+        assert baseline == 2
 
     # --- has_implementation_pr filter ---
 
@@ -2924,6 +2927,28 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
 
 
 class TestSignalReportPrEndpoints(APIBaseTest):
+    @patch("products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository", return_value=None)
+    def test_selecting_a_linked_pr_and_rejecting_another_reports_pr(self, _integration):
+        report = self._create_report(with_pr=False)
+        other_report = self._create_report(with_pr=False)
+        linked = self.client.post(
+            f"/api/projects/{self.team.id}/signals/reports/{report.id}/claim/",
+            {"pull_requests": ["https://github.com/example/app/pull/1", "https://github.com/example/sdk/pull/2"]},
+            format="json",
+        ).json()["pull_requests"]
+        selected = next(pr for pr in linked if pr["url"].endswith("/2"))
+        with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository") as integration:
+            integration.return_value.get_pull_request_checks.return_value = {"success": True, "checks": []}
+            response = self.client.get(f"{self._checks_url(str(report.id))}?pull_request_id={selected['id']}")
+            assert response.status_code == 200
+            integration.return_value.get_pull_request_checks.assert_called_once_with("example/sdk", 2)
+            assert (
+                self.client.get(
+                    f"{self._checks_url(str(other_report.id))}?pull_request_id={selected['id']}"
+                ).status_code
+                == 404
+            )
+
     def _create_report(self, report_status: str = SignalReport.Status.READY, *, with_pr: bool = True) -> SignalReport:
         report = SignalReport.objects.create(
             team=self.team,

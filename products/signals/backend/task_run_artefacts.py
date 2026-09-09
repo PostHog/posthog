@@ -30,8 +30,14 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
 )
 from products.signals.backend.billing import first_billable_pr_run_at, mark_report_billing_exempt
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
-from products.signals.backend.report_assignments import claim_report_for_task
+from products.signals.backend.models import (
+    ArtefactAttribution,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportAssignment,
+    SignalReportTask,
+)
+from products.signals.backend.report_assignments import ReportClaimConflict, claim_report_for_task, release_claim
 
 # The task-run vocabulary lives in `artefact_schemas` (a leaf module the model layer can import
 # without a cycle); re-exported here so existing `from task_run_artefacts import …` callers keep
@@ -239,6 +245,15 @@ def enforce_report_task_cap(*, team_id: int, report_id: str, relationship: str |
         claim = _implementation_slot_claim(team_id=team_id, report_id=report_id)
         if claim is not None:
             raise ReportTaskCapExceeded(kind=TASK_RUN_TYPE_IMPLEMENTATION, detail=claim.detail)
+        assignment = SignalReportAssignment.all_teams.filter(team_id=team_id, report_id=report_id).first()
+        if assignment and assignment.actor_kind:
+            if assignment.actor_kind != "task":
+                raise ReportTaskCapExceeded(
+                    kind=TASK_RUN_TYPE_IMPLEMENTATION,
+                    detail="This report already has an active claim. Release it before starting a task.",
+                )
+            release_claim(assignment, ArtefactAttribution.system())
+            assignment.save()
         return
     # Any non-implementation label is a discussion for cap purposes; server-only pipeline labels
     # can't reach here (the write serializer rejects them) and are excluded from the count.
@@ -295,9 +310,15 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
     report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
     if report is None:
         return
+    assignment = SignalReportAssignment.all_teams.filter(team_id=team_id, report_id=report_id).first()
+    if assignment and assignment.actor_kind and str(assignment.actor_task_id) != task_id:
+        raise ReportTaskCapExceeded(
+            kind=TASK_RUN_TYPE_IMPLEMENTATION, detail="This report is claimed by another actor."
+        )
     claim = _implementation_slot_claim(team_id=team_id, report_id=report_id, exclude_task_id=task_id)
     if claim is not None:
         raise ReportTaskCapExceeded(kind=TASK_RUN_TYPE_IMPLEMENTATION, detail=claim.detail)
+    claim_report_for_task(team_id=team_id, report_id=report_id, task_id=task_id)
 
 
 def record_implementation_task(
@@ -328,6 +349,10 @@ def record_implementation_task(
         task_id=task_id,
         defaults={"relationship": TASK_RUN_TYPE_IMPLEMENTATION},
     )
+    try:
+        claim_report_for_task(team_id=team_id, report_id=report_id, task_id=task_id)
+    except ReportClaimConflict as error:
+        raise ReportTaskCapExceeded(kind=TASK_RUN_TYPE_IMPLEMENTATION, detail=str(error)) from error
     artefact = append_task_run_artefact(
         team_id=team_id,
         report_id=report_id,
@@ -336,7 +361,6 @@ def record_implementation_task(
         task_id=task_id,
         run_id=run_id,
     )
-    claim_report_for_task(team_id=team_id, report_id=report_id, task_id=task_id)
     return artefact
 
 
@@ -396,6 +420,12 @@ def release_quota_cancelled_implementation(*, team_id: int, task_id: str) -> lis
                 # billing's evidence for that charge — deleting them would double-bill the next
                 # implementation — and the report needs no release: it *is* implemented.
                 continue
+            assignment = SignalReportAssignment.all_teams.filter(
+                team_id=team_id, report_id=report_id, actor_kind="task", actor_task_id=task_id
+            ).first()
+            if assignment is not None:
+                release_claim(assignment, ArtefactAttribution.system())
+                assignment.save()
             SignalReportTask.objects.filter(
                 team_id=team_id,
                 report_id=report_id,

@@ -24,6 +24,7 @@ class ArtefactAttribution:
     user_id: int | None = None
     task_id: str | None = None
     agent_name: str | None = None
+    claim_id: str | None = None
 
     def __post_init__(self) -> None:
         match self.kind:

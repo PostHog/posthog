@@ -28,6 +28,7 @@ from products.signals.backend.free_trial import capture_signal_report_free_trial
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
+    SignalReportAssignment,
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
@@ -412,6 +413,10 @@ def _create_implementation_task_if_absent(
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
+            return False
+        if SignalReportAssignment.all_teams.filter(
+            team_id=team_id, report_id=report_id, actor_kind__isnull=False
+        ).exists():
             return False
         # The gate reads the unified task↔report view (`associated_task_runs` merges the legacy
         # `SignalReportTask` rows with the `task_run` artefact log). Unifying only *adds* sources,

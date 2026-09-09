@@ -293,6 +293,7 @@ __all__ = [
     "task_exempt_from_code_access",
     "task_exists",
     "task_ids_with_pr_url_subquery",
+    "get_pull_requests_for_tasks",
     "task_run_has_slack_mapping",
     "task_run_is_terminal",
     "task_run_matches_current_ownership",
@@ -976,6 +977,36 @@ def get_tasks_by_ids(task_ids: Iterable[str | UUID], team_ids: Iterable[int]) ->
     if not ids or not teams:
         return []
     return [_task_to_dto(task) for task in Task.objects.filter(id__in=ids, team_id__in=teams)]
+
+
+def get_pull_requests_for_tasks(
+    team_id: int, task_ids: Iterable[str | UUID], *conditions: Q
+) -> dict[str, list[tuple[str, str]]]:
+    from products.tasks.backend.pr_urls import read_pr_urls
+
+    result: dict[str, list[tuple[str, str]]] = {}
+    seen: set[tuple[str, str]] = set()
+    for task_id, output in (
+        TaskRun.objects.filter(
+            *conditions,
+            team_id=team_id,
+            task_id__in=task_ids,
+        )
+        .order_by("-created_at", "-id")
+        .values_list("task_id", "output")
+    ):
+        if not isinstance(output, dict):
+            continue
+        for url in read_pr_urls(output):
+            key = (str(task_id), url)
+            if key in seen:
+                continue
+            seen.add(key)
+            state = "unknown"
+            if url == output.get("pr_url"):
+                state = "merged" if output.get("pr_merged") else output.get("pr_state", "unknown")
+            result.setdefault(str(task_id), []).append((url, state))
+    return result
 
 
 def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID], *conditions: Q) -> dict[str, str]:

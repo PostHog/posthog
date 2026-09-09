@@ -617,6 +617,19 @@ class CodeReview(BaseModel):
     )
 
 
+class WorkClaim(BaseModel):
+    migrated: bool = Field(default=False, description="Whether this records ownership imported during migration.")
+
+
+class WorkRelease(BaseModel):
+    reason: Literal["released", "taken_over"] = Field(description="Why ownership ended.")
+
+
+class PullRequestLink(BaseModel):
+    url: str = Field(description="Canonical GitHub pull request URL.")
+    migrated: bool = Field(default=False, description="Whether this link was imported from existing report data.")
+
+
 # ── Type mapping ─────────────────────────────────────────────────────────────────
 
 # Content models that describe the report's current state (latest row of each type wins) vs
@@ -631,7 +644,17 @@ StatusArtefactContent = (
     | ChannelAssignment
 )
 LogArtefactContent = (
-    CodeReference | Commit | TaskRunArtefact | NoteArtefact | TitleChange | SummaryChange | CodeReview | RelatedTo
+    CodeReference
+    | Commit
+    | TaskRunArtefact
+    | NoteArtefact
+    | TitleChange
+    | SummaryChange
+    | CodeReview
+    | RelatedTo
+    | WorkClaim
+    | WorkRelease
+    | PullRequestLink
 )
 ArtefactContent = StatusArtefactContent | LogArtefactContent | SignalFinding | Dismissal | VideoSegment
 
@@ -655,6 +678,9 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "summary_change": SummaryChange,
     "code_review": CodeReview,
     "related_to": RelatedTo,
+    "work_claim": WorkClaim,
+    "work_release": WorkRelease,
+    "pull_request": PullRequestLink,
 }
 
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
@@ -670,7 +696,7 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # `code_review` is likewise system-generated — the ReviewHog workflow is its only writer; accepting
 # it through the API would let a caller fabricate review receipts for reviews that never ran.
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
-    {"video_segment", "title_change", "summary_change", "code_review"}
+    {"video_segment", "title_change", "summary_change", "code_review", "work_claim", "work_release", "pull_request"}
 )
 
 

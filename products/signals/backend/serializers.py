@@ -1,7 +1,7 @@
 import json
 from collections.abc import Mapping
 from datetime import datetime
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from django.db.models import TextChoices
 
@@ -19,6 +19,9 @@ from products.signals.backend.contracts import DEFAULT_NOT_ACTIONABLE_KEY, STEER
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
+
+if TYPE_CHECKING:
+    from products.signals.backend.implementation_pr import ImplementationPr
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .daily_limit import reports_generated_today, team_day_start
@@ -368,10 +371,65 @@ class _UserSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class SignalPullRequestAttachedBySerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        source="actor_kind",
+        choices=SignalActorKind.choices,
+        allow_null=True,
+        help_text="Kind of actor who attached the PR. Null when legacy attribution is unknown.",
+    )
+    user = _UserSerializer(
+        source="attached_by_user",
+        allow_null=True,
+        help_text="Authenticated principal who attached the PR, when recorded.",
+    )
+    agent = serializers.CharField(
+        source="agent_name", allow_null=True, help_text="External agent client name, when recorded."
+    )
+    task_id = serializers.UUIDField(allow_null=True, help_text="Internal task that attached the PR, when recorded.")
+
+
+class SignalPullRequestSerializer(serializers.Serializer):
+    id = serializers.UUIDField(
+        allow_null=True, help_text="Shared PR record ID. Null for a legacy link awaiting migration."
+    )
+    url = serializers.URLField(help_text="GitHub pull request URL.")
+    state = serializers.ChoiceField(
+        choices=SignalReportAssignment.PrState.choices, help_text="Latest known GitHub state."
+    )
+    merged = serializers.BooleanField(help_text="Whether this PR merged.")
+    attached_by = serializers.SerializerMethodField(
+        help_text="Who first attached this PR to the report, not necessarily its GitHub author. Null until a legacy link is migrated."
+    )
+    claim_id = serializers.UUIDField(
+        allow_null=True, help_text="Originating work claim. Null for legacy links without a recorded claim."
+    )
+    attached_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the first PR link was recorded. For backfilled links this is the import time; null for an unmigrated link.",
+    )
+
+    @extend_schema_field(SignalPullRequestAttachedBySerializer(allow_null=True))
+    def get_attached_by(self, obj: "ImplementationPr") -> dict[str, object] | None:
+        return SignalPullRequestAttachedBySerializer(obj).data if obj.attached_at is not None else None
+
+
 class SignalReportClaimSerializer(serializers.Serializer):
+    claim_id = serializers.UUIDField(
+        required=False, help_text="Active claim ID returned by an earlier call. Stale claims are rejected."
+    )
+    pull_requests = serializers.ListField(
+        child=serializers.URLField(max_length=2048),
+        required=False,
+        max_length=50,
+        help_text="GitHub PR URLs to add to this report's work. Additive and deduplicated; may span repositories.",
+    )
+    takeover = serializers.BooleanField(
+        required=False, default=False, help_text="Explicitly end another actor's claim and take ownership."
+    )
     pr_url = serializers.URLField(
         required=False,
-        help_text=("Optional GitHub pull request to attach to the claim. The report may be claimed without one."),
+        help_text="Compatibility alias for adding one PR. Prefer pull_requests for new callers.",
     )
     release = serializers.BooleanField(
         required=False,
@@ -380,12 +438,15 @@ class SignalReportClaimSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict) -> dict:
-        if attrs.get("release") and "pr_url" in attrs:
-            raise serializers.ValidationError("release and pr_url cannot be supplied together.")
+        if attrs.get("release") and ("pr_url" in attrs or attrs.get("pull_requests") or attrs.get("takeover")):
+            raise serializers.ValidationError("Release cannot be combined with PR attachment or takeover.")
+        if attrs.get("claim_id") and attrs.get("takeover"):
+            raise serializers.ValidationError("A claim ID cannot be combined with takeover.")
         return attrs
 
 
 class SignalReportAssigneeSerializer(serializers.Serializer):
+    claim_id = serializers.UUIDField(allow_null=True, help_text="Identifier for the active work attempt.")
     kind = serializers.ChoiceField(choices=SignalActorKind.choices)
     user = _UserSerializer(allow_null=True)
     task_id = serializers.UUIDField(allow_null=True)
@@ -669,6 +730,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
     implementation_pr_url = serializers.SerializerMethodField(
         help_text="Pull request attached to this report's claim, if available.",
     )
+    pull_requests = serializers.SerializerMethodField(
+        help_text="All distinct PRs linked to this report across work attempts."
+    )
     implementation_pr_state = serializers.SerializerMethodField(
         help_text="Latest known pull request state: unknown, draft, open, closed, or merged.",
     )
@@ -722,6 +786,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "source_products",
             "scout_name",
             "implementation_pr_url",
+            "pull_requests",
             "implementation_pr_state",
             "implementation_pr_merged",
             "work_state",
@@ -862,6 +927,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
         return None
 
     def get_implementation_pr_url(self, obj: SignalReport) -> str | None:
+        if "implementation_pr_url_map" in self.context:
+            return self.context["implementation_pr_url_map"].get(str(obj.id))
         assignment = self._get_assignment(obj)
         if assignment is not None and assignment.pr_url:
             return assignment.pr_url
@@ -870,6 +937,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ChoiceField(choices=SignalReportAssignment.PrState.choices, allow_null=True))
     def get_implementation_pr_state(self, obj: SignalReport) -> str | None:
+        if "implementation_pr_state_map" in self.context:
+            return self.context["implementation_pr_state_map"].get(str(obj.id))
         assignment = self._get_assignment(obj)
         if assignment is not None and assignment.pr_url:
             return assignment.pr_state or SignalReportAssignment.PrState.UNKNOWN
@@ -877,17 +946,35 @@ class SignalReportSerializer(serializers.ModelSerializer):
         return implementation_pr_state_map.get(str(obj.id)) if implementation_pr_state_map is not None else None
 
     def get_implementation_pr_merged(self, obj: SignalReport) -> bool:
+        if "implementation_pr_merged_ids" in self.context:
+            return str(obj.id) in self.context["implementation_pr_merged_ids"]
         assignment = self._get_assignment(obj)
         if assignment is not None and assignment.pr_url:
             return assignment.pr_merged
         merged_report_ids: set[str] | None = self.context.get("implementation_pr_merged_ids")
         return str(obj.id) in merged_report_ids if merged_report_ids is not None else False
 
+    @extend_schema_field(SignalPullRequestSerializer(many=True))
+    def get_pull_requests(self, obj: SignalReport) -> list[dict[str, object]]:
+        from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
+
+        by_report = self.context.get("pull_requests_map")
+        if by_report is None:
+            by_report = fetch_implementation_prs_for_reports([str(obj.id)])
+        return cast(
+            list[dict[str, object]], SignalPullRequestSerializer(by_report.get(str(obj.id), []), many=True).data
+        )
+
     @extend_schema_field(serializers.ChoiceField(choices=SignalReportWorkState.choices))
     def get_work_state(self, obj: SignalReport) -> str:
         if obj.status == SignalReport.Status.RESOLVED:
             return "done"
         assignment = self._get_assignment(obj)
+        if "pull_requests_map" in self.context:
+            prs = self.context["pull_requests_map"].get(str(obj.id), [])
+            if any(pr.state in {"open", "draft", "unknown"} for pr in prs):
+                return "in_review"
+            return "working" if assignment is not None and assignment.actor_kind else "unclaimed"
         if (
             assignment is not None
             and assignment.pr_url
@@ -923,6 +1010,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
         if assignment is None or not assignment.actor_kind:
             return None
         return {
+            "claim_id": str(assignment.claim_id) if assignment.claim_id else None,
             "kind": assignment.actor_kind,
             "user": _UserSerializer(assignment.actor_user).data if assignment.actor_user else None,
             "task_id": str(assignment.actor_task_id) if assignment.actor_task_id else None,
@@ -1070,6 +1158,12 @@ class ReportSignalsResponseSerializer(serializers.Serializer):
 
 
 class SignalReportArtefactSerializer(serializers.ModelSerializer):
+    claim_id = serializers.UUIDField(
+        read_only=True, allow_null=True, help_text="Work claim that produced this artefact."
+    )
+    pull_request_id = serializers.UUIDField(
+        read_only=True, allow_null=True, help_text="Shared PR record linked by this artefact."
+    )
     content = serializers.SerializerMethodField()
     created_by = _UserSerializer(
         read_only=True,
@@ -1095,6 +1189,8 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
     class Meta:
         model = SignalReportArtefact
         fields = [
+            "claim_id",
+            "pull_request_id",
             "id",
             "type",
             "content",
@@ -1234,6 +1330,9 @@ class SignalReportArtefactLogCreateSerializer(serializers.Serializer):
     # Plain CharField (not ChoiceField) on purpose: the value is validated against
     # `ArtefactType.values` in the view, and avoiding a `choices=` enum keeps this off the
     # collision-prone enum-name path in the generated OpenAPI types.
+    claim_id = serializers.UUIDField(
+        required=False, help_text="Active claim to attribute this work to. Must belong to the caller and report."
+    )
     artefact_type = serializers.CharField(help_text=_ARTEFACT_TYPES_HELP)
     content = serializers.JSONField(
         help_text="The artefact payload as a JSON object or array; shape depends on artefact_type "
@@ -1264,6 +1363,7 @@ class SignalReportArtefactWriteResponseSerializer(serializers.Serializer):
     """Response shape for the log-artefact create/update endpoints — echoes the stored row."""
 
     id = serializers.UUIDField(read_only=True, help_text="The artefact's unique id.")
+    claim_id = serializers.UUIDField(read_only=True, allow_null=True, help_text="Claim that produced this artefact.")
     report_id = serializers.UUIDField(read_only=True, help_text="The id of the report this artefact belongs to.")
     # Plain CharField (no `choices=`) to keep the model's full ArtefactType enum out of the
     # generated OpenAPI schema; the value is simply echoed back.
