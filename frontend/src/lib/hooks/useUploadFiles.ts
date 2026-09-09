@@ -7,23 +7,35 @@ import { ApiError } from 'lib/api-error'
 
 import { MediaUploadResponse } from '~/types'
 
+export const IMAGE_DECODE_ERROR_MESSAGE = "This image can't be read, try a different file"
+
+/** The browser cannot resize images at all, which says nothing about the image itself. */
+class UnsupportedImageResizeEnvironment extends Error {}
+
 export const lazyImageBlobReducer = async (blob: Blob): Promise<Blob> => {
+    let reducerError: unknown
     try {
         const blobReducer = (await import('image-blob-reduce')).default()
         return await blobReducer.toBlob(blob, { max: 2000 })
-    } catch {
-        // Fallback to simple resize for privacy-focused browsers (e.g. Brave)
-        try {
-            return await simpleImageResize(blob)
-        } catch (error) {
-            posthog.captureException(
-                new Error('Image compression fallback failed', {
-                    cause: error,
-                })
-            )
-            // Final fallback to original blob
+    } catch (error) {
+        reducerError = error
+    }
+
+    try {
+        return await simpleImageResize(blob)
+    } catch (error) {
+        const unsupportedEnvironment = error instanceof UnsupportedImageResizeEnvironment
+        posthog.captureException(
+            new Error(unsupportedEnvironment ? 'Image compression unavailable' : 'Image compression failed', {
+                cause: error,
+            }),
+            { image_blob_reduce_error: String(reducerError) }
+        )
+        if (unsupportedEnvironment) {
+            // The image may still be valid, so send the original bytes and let the server judge them.
             return blob
         }
+        throw new Error(IMAGE_DECODE_ERROR_MESSAGE)
     }
 }
 
@@ -33,7 +45,7 @@ export const lazyImageBlobReducer = async (blob: Blob): Promise<Blob> => {
  */
 async function simpleImageResize(blob: Blob): Promise<Blob> {
     if (typeof createImageBitmap === 'undefined' || typeof OffscreenCanvas === 'undefined') {
-        throw new Error('OffscreenCanvas APIs not available')
+        throw new UnsupportedImageResizeEnvironment('OffscreenCanvas APIs not available')
     }
 
     const bitmap = await createImageBitmap(blob)
@@ -53,7 +65,7 @@ async function simpleImageResize(blob: Blob): Promise<Blob> {
     const canvas = new OffscreenCanvas(newWidth, newHeight)
     const ctx = canvas.getContext('2d')
     if (!ctx) {
-        throw new Error('Failed to get 2D context')
+        throw new UnsupportedImageResizeEnvironment('Failed to get 2D context')
     }
 
     ctx.drawImage(bitmap, 0, 0, newWidth, newHeight)

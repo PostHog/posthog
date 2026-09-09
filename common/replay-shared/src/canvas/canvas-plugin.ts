@@ -190,7 +190,7 @@ export const CanvasReplayerPlugin = (
     const processMutation = async (e: CanvasEventWithTime, replayer: Replayer): Promise<void> => {
         pruneBuffer(e)
         pruneQueue.push(e)
-        void preload(e)
+        void preload(e).catch(onError)
 
         const data = e.data as canvasMutationData
         const source = replayer.getMirror().getNode(data.id) as HTMLCanvasElement
@@ -354,7 +354,7 @@ export const CanvasReplayerPlugin = (
         }
     }
 
-    void preload()
+    void preload().catch(onError)
 
     return {
         onBuild: (node, { id }) => {

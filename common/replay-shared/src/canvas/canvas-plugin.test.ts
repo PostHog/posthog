@@ -538,4 +538,41 @@ describe('CanvasReplayerPlugin', () => {
             expect(call.target.height).toBe(400)
         })
     })
+
+    describe('preload failures', () => {
+        it('reports a preload decode failure through onError', async () => {
+            ;(globalThis.createImageBitmap as jest.Mock).mockRejectedValueOnce(
+                new Error('Cannot decode the data in the argument to createImageBitmap')
+            )
+
+            const event = {
+                type: EventType.IncrementalSnapshot as const,
+                data: {
+                    source: IncrementalSource.CanvasMutation as const,
+                    id: 7,
+                    type: 0,
+                    commands: [
+                        {
+                            property: 'drawImage',
+                            args: [
+                                {
+                                    rr_type: 'ImageBitmap',
+                                    args: [{ rr_type: 'Blob', data: [{ rr_type: 'ArrayBuffer', base64: '' }], type: '' }],
+                                },
+                                0,
+                                0,
+                            ],
+                        },
+                    ],
+                },
+                timestamp: 1000,
+            }
+            const onError = jest.fn()
+
+            CanvasReplayerPlugin([event] as eventWithTime[], onError)
+            await new Promise((resolve) => setTimeout(resolve, 10))
+
+            expect(onError).toHaveBeenCalledTimes(1)
+        })
+    })
 })

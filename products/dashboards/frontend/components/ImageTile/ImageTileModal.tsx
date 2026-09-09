@@ -10,7 +10,7 @@ import { IconImage } from '@posthog/icons'
 import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { textCardModalLogic } from 'lib/components/Cards/TextCard/textCardModalLogic'
 import type { TextCardModalProps } from 'lib/components/Cards/TextCard/textCardModalLogic'
-import { useUploadFiles } from 'lib/hooks/useUploadFiles'
+import { IMAGE_DECODE_ERROR_MESSAGE, useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -137,6 +137,8 @@ export function ImageTileModal({
                 lemonToast.error('Choose a PNG, JPG, GIF, WebP, or AVIF image.')
             } else if (detail === IMAGE_UPLOAD_ERROR_MESSAGES.TOO_LARGE) {
                 lemonToast.error('Image must be 4 MB or smaller.')
+            } else if (detail === IMAGE_DECODE_ERROR_MESSAGE) {
+                lemonToast.error('That image could not be read. Try a different file.')
             } else {
                 lemonToast.error('We could not upload that image. Try again.')
             }
