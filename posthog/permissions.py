@@ -630,6 +630,34 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     return None
 
 
+CLIENT_ID_POSTHOG = "posthog"
+
+
+def get_authenticator_client(authenticator) -> dict[str, str]:
+    """Who is calling, as targeting context for a feature flag.
+
+    `credential_type` is the kind of credential and `client_id` names the client where one
+    exists: the app's own session is `posthog`, matching the claim the billing access token
+    carries, and an OAuth caller is its registered application. Both are derived from the
+    authenticator rather than read from the request, so a caller cannot claim to be the app.
+
+    Both keys are always set. A flag condition on a property the evaluation context omits is
+    inconclusive locally and falls back to a remote call that cannot answer it either.
+    """
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        return {"credential_type": "personal_api_key", "client_id": "personal_api_key"}
+    if isinstance(authenticator, OAuthAccessTokenAuthentication):
+        application = getattr(authenticator.access_token, "application", None)
+        return {"credential_type": "oauth", "client_id": getattr(application, "client_id", None) or "oauth"}
+    if isinstance(authenticator, ProjectSecretAPIKeyAuthentication):
+        return {"credential_type": "project_secret_key", "client_id": "project_secret_key"}
+    if isinstance(authenticator, IDJagAccessTokenAuthentication):
+        return {"credential_type": "id_jag", "client_id": getattr(authenticator, "client_id", None) or "id_jag"}
+    if authenticator is None or isinstance(authenticator, SessionAuthentication):
+        return {"credential_type": "session", "client_id": CLIENT_ID_POSTHOG}
+    return {"credential_type": "other", "client_id": "other"}
+
+
 def get_authenticator_scoped_organization_ids(authenticator) -> list[str] | None:
     """The organizations a scoped token is confined to, or None when the credential carries no
     organization restriction (session auth, or a token scoped to every organization).
@@ -1066,6 +1094,7 @@ def posthog_feature_flag_value(
     organization_id: str | uuid.UUID,
     team_id: int | None = None,
     only_evaluate_locally: bool = False,
+    caller_properties: dict[str, str] | None = None,
 ) -> bool | None:
     """Server-side check of a PostHog-internal gating flag with org/project group context.
 
@@ -1073,22 +1102,28 @@ def posthog_feature_flag_value(
     groups miss per-environment rollouts (e.g. logs-settings-drop-rules for project 2 only).
     Use this wherever a flag gates access outside a DRF view (query runners, tasks) so evaluation
     can't drift from PostHogFeatureFlagPermission.
+
+    `caller_properties` is request context a flag can target, such as the client behind the call
+    (see `get_authenticator_client`). It goes in both channels because a flag reads only one of
+    them: a flag aggregated by a group matches that group's properties and never a person's.
     """
     if flag in _FORCE_ENABLED_FLAGS:
         return True
 
     org_id = str(organization_id)
+    caller = dict(caller_properties or {})
     groups: dict[str, str] = {"organization": org_id}
-    group_properties: dict[str, dict[str, str]] = {"organization": {"id": org_id}}
+    group_properties: dict[str, dict[str, str]] = {"organization": {**caller, "id": org_id}}
     if team_id is not None:
         project_id = str(team_id)
         groups["project"] = project_id
-        group_properties["project"] = {"id": project_id}
+        group_properties["project"] = {**caller, "id": project_id}
 
     return posthoganalytics.feature_enabled(
         flag,
         distinct_id,
         groups=groups,
+        person_properties=caller or None,
         group_properties=group_properties,
         only_evaluate_locally=only_evaluate_locally,
         send_feature_flag_events=False,
@@ -1102,6 +1137,7 @@ def posthog_feature_flag_enabled(
     organization_id: str | uuid.UUID,
     team_id: int | None = None,
     only_evaluate_locally: bool = False,
+    caller_properties: dict[str, str] | None = None,
 ) -> bool:
     return bool(
         posthog_feature_flag_value(
@@ -1110,6 +1146,7 @@ def posthog_feature_flag_enabled(
             organization_id=organization_id,
             team_id=team_id,
             only_evaluate_locally=only_evaluate_locally,
+            caller_properties=caller_properties,
         )
     )
 
@@ -1144,6 +1181,7 @@ class PostHogFeatureFlagPermission(BasePermission):
                     str(user.distinct_id),
                     organization_id=organization.id,
                     team_id=team_for_flag.id if team_for_flag is not None else None,
+                    caller_properties=get_authenticator_client(getattr(request, "successful_authenticator", None)),
                 )
 
                 if enabled:
