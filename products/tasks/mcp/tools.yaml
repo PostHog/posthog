@@ -408,6 +408,7 @@ tools:
             runs created without an explicit runtime selection. Requires project admin. `runtime_adapter` and `model`
             must be set together; send all three fields as null to clear the project default. Use tasks-models-retrieve
             to list valid model identifiers.
+        feature_flag: tasks
     tasks-config-list:
         operation: tasks_config_list
         enabled: true
@@ -421,6 +422,7 @@ tools:
         description: >
             Get the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task
             runs created without an explicit runtime selection. All fields are null when no project default is stored.
+        feature_flag: tasks
     tasks-create:
         operation: tasks_create
         enabled: true
@@ -517,6 +519,7 @@ tools:
             override the project default wholesale. `runtime_adapter` and `model` must be set together; send all three
             fields as null to clear and inherit the project default. Returns the stored preferences plus the resolved
             defaults a new run will use. Use tasks-models-retrieve to list valid model identifiers.
+        feature_flag: tasks
     tasks-me-config-list:
         operation: tasks_me_config_list
         enabled: true
@@ -531,6 +534,7 @@ tools:
             Get the caller's per-project default AI run preferences, plus the resolved defaults a new run will use when
             no explicit runtime selection is sent (the caller's preference wins over the project default; `source` says
             which level supplied it).
+        feature_flag: tasks
     tasks-models-retrieve:
         operation: tasks_models_retrieve
         enabled: true
@@ -545,6 +549,7 @@ tools:
             List the models a task run may use, each with its runtime adapter and the reasoning efforts it supports. Use
             the returned identifiers when setting task run default preferences or creating a run. An empty list means
             the model catalogue is temporarily unavailable, not that no models exist.
+        feature_flag: tasks
     tasks-partial-update:
         operation: tasks_partial_update
         enabled: false
