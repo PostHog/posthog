@@ -822,6 +822,13 @@ export interface PaginatedMeetingListApi {
     results: MeetingApi[]
 }
 
+export interface AccountPresenceViewerApi {
+    /** PostHog user ID of the teammate viewing this account. */
+    readonly user_id: number
+    /** Display name of the teammate viewing this account. */
+    readonly display_name: string
+}
+
 /**
  * Metadata for one message a channel summary covered — never the message text.
  */
