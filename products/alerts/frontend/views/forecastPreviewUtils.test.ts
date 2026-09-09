@@ -45,6 +45,17 @@ describe('bucketLabel', () => {
         // An hourly insight puts up to 24 buckets on one day, so the hour identifies the bucket.
         ['hourly bucket keeps the hour', '2026-09-13T23:00:00', 'hour', 'Sep 13, 2026 23:00'],
         ['hourly bucket from a space-separated timestamp', '2026-09-13 07:00:00', 'hour', 'Sep 13, 2026 07:00'],
+        // The engine returns hourly buckets already converted to the project timezone, with that
+        // offset attached. The label has to name that bucket, not its instant in the browser's zone.
+        ['hourly bucket keeps the project offset hour', '2026-03-08T03:00:00-04:00', 'hour', 'Mar 8, 2026 03:00'],
+        ['hourly bucket on a UTC project keeps the hour', '2026-03-08T23:00:00+00:00', 'hour', 'Mar 8, 2026 23:00'],
+        // A late-evening bucket is where a browser-zone shift also moves the calendar day.
+        [
+            'hourly bucket keeps the day of a late offset bucket',
+            '2026-03-08T23:00:00-04:00',
+            'hour',
+            'Mar 8, 2026 23:00',
+        ],
         ['daily bucket drops the time', '2026-09-13T00:00:00', 'day', 'Sep 13, 2026'],
         ['weekly bucket drops the time', '2026-09-13T00:00:00', 'week', 'Sep 13, 2026'],
         ['monthly bucket drops the time', '2026-09-01T00:00:00', 'month', 'Sep 1, 2026'],
