@@ -2266,9 +2266,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # is_interactive_signals_run reads it the same way, so forging it would move the run off
         # the interactive budget and out of its per-run spend ceiling.
         "ai_stage",
-        # Stamped once at run creation by the Signals scout harness and lifted onto the run's
-        # $ai_generation events. A PATCHable value would let a caller bill their run's spend to
-        # another scout, so the per-scout cost numbers built on it stay server-owned.
+        # Lifted onto the run's $ai_generation events, so a PATCHable value would bill a caller's
+        # spend to another scout.
         "scout_skill_name",
         # The server-generated head branch the run->PR link is keyed on (find_signal_implementation_run).
         # A PATCHable value would let a caller re-aim the approve-first carve-out at any App-authored
