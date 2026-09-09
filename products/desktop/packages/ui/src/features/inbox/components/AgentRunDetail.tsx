@@ -143,13 +143,16 @@ function RunOutputReadyCard({ report }: { report: SignalReport }) {
   const prRef = prUrl ? parsePrUrl(prUrl) : null;
   const sourceMeta = getSourceProductMeta(report.source_products?.[0]);
   const headline = deriveHeadline(report.summary);
-  const source = navigationSourceHref();
+  // This card renders only on /inbox/runs/$reportId, which a source href must
+  // not be (it would make the report's breadcrumb point at another report).
+  // The run's own tab is the list the reader came from.
+  const source = navigationSourceHref() ?? "/inbox/runs";
 
   return (
     <Link
       to="/reports/$reportId"
       state={reportNavigationState}
-      search={source ? { from: source } : {}}
+      search={{ from: source }}
       params={{ reportId: report.id }}
       className="group block rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-4 py-3.5 no-underline transition duration-150 hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm focus-visible:outline-none"
     >
