@@ -390,25 +390,31 @@ class SkillLoadedBeforeTool(Scorer):
 
         loads = _any_skill_loads(parser, skill_spec.skills, skill_spec.delivery, skill_spec.source)
         downstream_calls = [call for call in parser.get_tool_calls() if not call.is_error and call.name in tools]
-        for load in loads:
-            for downstream in downstream_calls:
-                if load.position < downstream.position:
-                    return Score(
-                        name=self._name(),
-                        score=1.0,
-                        metadata={
-                            "skill": load.skill,
-                            "delivery": skill_spec.delivery,
-                            "tool": downstream.name,
-                            "call_id": downstream.call_id,
-                            "matched_via": load.matched_via,
-                        },
-                    )
+        first_downstream = min(downstream_calls, key=lambda call: call.position, default=None)
+        if first_downstream is not None:
+            load = next((load for load in loads if load.position < first_downstream.position), None)
+            if load is not None:
+                return Score(
+                    name=self._name(),
+                    score=1.0,
+                    metadata={
+                        "skill": load.skill,
+                        "delivery": skill_spec.delivery,
+                        "tool": first_downstream.name,
+                        "call_id": first_downstream.call_id,
+                        "matched_via": load.matched_via,
+                    },
+                )
+        reason = (
+            "A downstream tool ran before the skill was loaded"
+            if loads and first_downstream is not None
+            else "No expected downstream tool ran after the skill was loaded"
+        )
         return Score(
             name=self._name(),
             score=0.0,
             metadata={
-                "reason": "No expected downstream tool ran after the skill was loaded",
+                "reason": reason,
                 "skill": skill,
                 "delivery": skill_spec.delivery,
                 "tools": tools,
