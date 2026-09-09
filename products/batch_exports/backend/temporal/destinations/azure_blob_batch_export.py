@@ -1,4 +1,5 @@
 import json
+import asyncio
 import datetime as dt
 import dataclasses
 
@@ -195,7 +196,7 @@ class AzureBlobConsumer(Consumer):
 
         try:
             connection_string = _strip_leading_whitespace(connection_string)
-            validate_azure_blob_connection_string(connection_string)
+            await asyncio.to_thread(validate_azure_blob_connection_string, connection_string)
             blob_service_client = BlobServiceClient.from_connection_string(
                 conn_str=connection_string,
                 max_single_put_size=64 * 1024 * 1024,  # 64 MiB
