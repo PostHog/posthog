@@ -244,64 +244,56 @@ def _product_routed_app_labels() -> list[str]:
     return sorted(label for label in labels if APP_LABEL_RE.fullmatch(label))
 
 
-@dataclass(frozen=True)
-class MigrationRecordPlan:
-    """What a restore does to the django_migrations rows the dump carries."""
+@dataclass(frozen=True, kw_only=True)
+class MigrationRecord:
+    """One row of django_migrations."""
 
-    forget: tuple[tuple[str, str], ...]
-    replay: tuple[tuple[str, str], ...]
-    refake: tuple[tuple[str, str], ...]
+    app: str
+    name: str
 
 
-def plan_migration_records(
-    recorded: Iterable[tuple[str, str]], product_app_labels: Iterable[str]
-) -> MigrationRecordPlan:
-    """Decide which of the dump's migration records to forget, replay for real, and re-record.
+def migrations_to_forget(
+    recorded: Iterable[MigrationRecord], product_app_labels: Iterable[str]
+) -> tuple[MigrationRecord, ...]:
+    """Pick the dump's migration records this database cannot honor.
 
     The dump is taken from a CI database that routes product apps elsewhere, so `migrate` skipped
     every operation in their migrations there while Django recorded them as applied anyway (it
     records whatever the router decides). Restored verbatim, that leaves a database asserting
     stamphog and visual_review are migrated without a single one of their tables — and an
     environment that configures no product database then applies their NEXT migration for real
-    and dies on the missing table. Forgetting the rows lets each consumer replay them under its
-    own routing: a no-op where the app is routed away, real tables where it isn't.
+    and dies on the missing table. Forgetting the rows lets each consumer apply them under its own
+    routing: a no-op where the app is routed away, real tables where it isn't.
 
     The squash schema-addons migrations go with them. Each one depends on the leaf squash of every
     squashed app, the product-routed apps included, so a database that keeps an addons row while
     its dependency row is gone fails Django's consistency check before `migrate` does anything.
-    Replaying one is cheap: its operations probe the schema and skip what is already there.
+    Re-applying one is cheap: its operations probe the schema and skip what is already there.
 
     Everything an app records after its addons migration depends on that addons migration, so it
-    fails the same check for the same reason and has to be forgotten too. Those migrations are
-    already in the restored schema though, so replaying one would add a column that exists. They
-    are re-recorded with `--fake` instead. The repo keeps one migration line per app, so a name
-    that sorts after the addons migration is a descendant of it, and faking up to the last one
-    re-records the whole run.
+    fails the same check for the same reason and has to be forgotten too. The repo keeps one
+    migration line per app, so a name that sorts after the addons migration is a descendant of it.
+
+    Nothing is re-recorded here. The caller's own `migrate` applies every forgotten migration
+    against the restored schema, which is the only pass that sees this database's routing.
     """
     routed = set(product_app_labels)
     by_app: dict[str, list[str]] = {}
-    for app, name in recorded:
-        by_app.setdefault(app, []).append(name)
+    for record in recorded:
+        by_app.setdefault(record.app, []).append(record.name)
 
-    forget: list[tuple[str, str]] = []
-    replay: list[tuple[str, str]] = []
-    refake: list[tuple[str, str]] = []
+    forget: list[MigrationRecord] = []
     for app, recorded_names in sorted(by_app.items()):
         names = sorted(recorded_names)
         if app in routed:
-            forget.extend((app, name) for name in names)
+            forget.extend(MigrationRecord(app=app, name=name) for name in names)
             continue
         addons = next((name for name in names if SQUASH_SCHEMA_ADDONS_NAME_RE.fullmatch(name)), None)
         if addons is None:
             continue
-        trailing = [name for name in names if name > addons]
-        forget.append((app, addons))
-        forget.extend((app, name) for name in trailing)
-        replay.append((app, addons))
-        if trailing:
-            refake.append((app, trailing[-1]))
+        forget.extend(MigrationRecord(app=app, name=name) for name in names if name >= addons)
 
-    return MigrationRecordPlan(forget=tuple(forget), replay=tuple(replay), refake=tuple(refake))
+    return tuple(forget)
 
 
 def _sql_string(value: str) -> str:
@@ -310,25 +302,23 @@ def _sql_string(value: str) -> str:
 
 
 def _forget_product_app_migrations(target_db: str) -> None:
-    """Re-record the dump's migrations the way this database can honor them.
+    """Drop the dump's migration records this database cannot honor.
 
-    See `plan_migration_records` for what moves and why.
+    See `migrations_to_forget` for what goes and why.
     """
     app_labels = _product_routed_app_labels()
     if not app_labels:
         return
-    recorded = [(row[0], row[1]) for row in _psql_rows(target_db, "SELECT app, name FROM django_migrations;")]
-    plan = plan_migration_records(recorded, app_labels)
-    if not plan.forget:
+    recorded = [
+        MigrationRecord(app=row[0], name=row[1])
+        for row in _psql_rows(target_db, "SELECT app, name FROM django_migrations;")
+    ]
+    forget = migrations_to_forget(recorded, app_labels)
+    if not forget:
         return
 
-    pairs = ", ".join(f"({_sql_string(app)}, {_sql_string(name)})" for app, name in plan.forget)
+    pairs = ", ".join(f"({_sql_string(r.app)}, {_sql_string(r.name)})" for r in forget)
     _psql_write(target_db, f"DELETE FROM django_migrations WHERE (app, name) IN ({pairs});")
-
-    for app, name in plan.replay:
-        _manage(target_db, "migrate", app, name, "--noinput")
-    for app, name in plan.refake:
-        _manage(target_db, "migrate", app, name, "--noinput", "--fake")
 
 
 def restore_schema_dump(

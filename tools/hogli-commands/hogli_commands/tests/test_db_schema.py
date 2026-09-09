@@ -305,46 +305,37 @@ def test_restore_schema_dump_recreate_drops_and_creates(tmp_path: Path, monkeypa
     assert defaults == ["test_posthog"]
 
 
+def _record(app: str, name: str) -> db_schema.MigrationRecord:
+    return db_schema.MigrationRecord(app=app, name=name)
+
+
 _RECORDED = [
-    ("stamphog", "0001_squash_2026_09_07_initial"),
-    ("stamphog", "0002_later"),
-    ("posthog", "0001_squash_2026_09_07_initial"),
-    ("posthog", "1345_squash_2026_09_07_schema_addons"),
-    ("posthog", "1346_untrack_organization_is_hipaa"),
-    ("posthog", "1347_add_a_column"),
-    ("cdp", "0005_no_addons_migration_here"),
+    _record("stamphog", "0001_squash_2026_09_07_initial"),
+    _record("stamphog", "0002_later"),
+    _record("posthog", "0001_squash_2026_09_07_initial"),
+    _record("posthog", "1345_squash_2026_09_07_schema_addons"),
+    _record("posthog", "1346_untrack_organization_is_hipaa"),
+    _record("posthog", "1347_add_a_column"),
+    _record("cdp", "0005_no_addons_migration_here"),
 ]
 
 
-@pytest.mark.parametrize(
-    "attribute,expected",
-    [
-        (
-            "forget",
-            (
-                # A product-routed app is replayed in full under the consumer's own routing.
-                ("posthog", "1345_squash_2026_09_07_schema_addons"),
-                ("posthog", "1346_untrack_organization_is_hipaa"),
-                ("posthog", "1347_add_a_column"),
-                ("stamphog", "0001_squash_2026_09_07_initial"),
-                ("stamphog", "0002_later"),
-            ),
-        ),
-        # The addons migration probes the schema, so replaying it for real is safe.
-        ("replay", (("posthog", "1345_squash_2026_09_07_schema_addons"),)),
-        # Its descendants are already in the restored schema, so they are re-recorded, not re-run.
-        ("refake", (("posthog", "1347_add_a_column"),)),
-    ],
-)
-def test_plan_migration_records(attribute: str, expected: tuple[tuple[str, str], ...]) -> None:
-    plan = db_schema.plan_migration_records(_RECORDED, ["stamphog"])
-
-    assert getattr(plan, attribute) == expected
+def test_migrations_to_forget() -> None:
+    # A product-routed app goes in full. Elsewhere the addons migration and everything recorded
+    # after it go, because each of those depends on a row that is about to disappear.
+    assert db_schema.migrations_to_forget(_RECORDED, ["stamphog"]) == (
+        _record("posthog", "1345_squash_2026_09_07_schema_addons"),
+        _record("posthog", "1346_untrack_organization_is_hipaa"),
+        _record("posthog", "1347_add_a_column"),
+        _record("stamphog", "0001_squash_2026_09_07_initial"),
+        _record("stamphog", "0002_later"),
+    )
 
 
 def test_restore_schema_dump_forgets_product_app_migrations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Every migration the plan forgets has to leave the table, or the restored database asserts a
-    # migration applied before its dependency and Django refuses to migrate at all.
+    # Two regressions live here. Leaving a forgotten migration's descendant behind makes Django
+    # refuse to migrate at all. Re-recording any of them here marks a product app migrated on a
+    # database that never got its tables, which breaks its next migration instead.
     schema_path = tmp_path / "schema.sql.gz"
     _write_schema(schema_path)
     commands: list[list[str]] = []
@@ -353,19 +344,15 @@ def test_restore_schema_dump_forgets_product_app_migrations(tmp_path: Path, monk
     monkeypatch.setattr(db_schema, "_run_psql_with_gzip_input", lambda gzip_path, target_db: None)
     monkeypatch.setattr(db_schema, "_ensure_migration_defaults", lambda target_db: None)
     monkeypatch.setattr(db_schema, "_product_routed_app_labels", lambda: ["stamphog"])
-    monkeypatch.setattr(db_schema, "_psql_rows", lambda target_db, sql: [list(row) for row in _RECORDED])
+    monkeypatch.setattr(db_schema, "_psql_rows", lambda target_db, sql: [[r.app, r.name] for r in _RECORDED])
 
     db_schema.restore_schema_dump(target_db="test_posthog", recreate=False, schema_path=schema_path)
 
     deletes = [command[-1] for command in commands if "DELETE FROM django_migrations" in command[-1]]
     assert len(deletes) == 1
-    for app, name in db_schema.plan_migration_records(_RECORDED, ["stamphog"]).forget:
-        assert f"('{app}', '{name}')" in deletes[0]
-    migrates = [command for command in commands if command[:3] == ["python", "manage.py", "migrate"]]
-    assert migrates == [
-        ["python", "manage.py", "migrate", "posthog", "1345_squash_2026_09_07_schema_addons", "--noinput"],
-        ["python", "manage.py", "migrate", "posthog", "1347_add_a_column", "--noinput", "--fake"],
-    ]
+    for record in db_schema.migrations_to_forget(_RECORDED, ["stamphog"]):
+        assert f"('{record.app}', '{record.name}')" in deletes[0]
+    assert not [command for command in commands if command[:3] == ["python", "manage.py", "migrate"]]
 
 
 def test_restore_schema_dump_recreate_cleans_up_after_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
