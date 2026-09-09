@@ -59,6 +59,19 @@ def test_forecast_config_field_canonicalizes_supported_iso_week_dates() -> None:
     assert value["target_date"] == target_date.isoformat()
 
 
+def test_forecast_config_field_stores_one_shape_per_meaning() -> None:
+    # update() decides whether the firing condition changed by comparing the stored config, so two
+    # bodies that describe the same alert have to store the same dict. The MCP client always sends
+    # `type` and `engine`; a REST caller can leave both out.
+    minimal = ForecastConfigField().to_internal_value({"condition": "future_breach"})
+    explicit = ForecastConfigField().to_internal_value(
+        {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach", "horizon": None}
+    )
+
+    assert minimal == explicit
+    assert minimal["engine"] == "prophet"
+
+
 def _trends_insight_data(
     *, display: str = "ActionsLineGraph", query_extra: dict[str, Any] | None = None
 ) -> dict[str, Any]:

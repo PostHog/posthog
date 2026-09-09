@@ -258,10 +258,15 @@ class ForecastConfigField(serializers.JSONField):
                 # canonical calendar form so API clients do not need to implement Python's wider
                 # parser. ForecastConfig types target_date as a plain string, so an impossible or
                 # malformed date reaches this parse and has to be reported as a field error.
-                value["target_date"] = date.fromisoformat(target_date).isoformat()
+                config = config.model_copy(update={"target_date": date.fromisoformat(target_date).isoformat()})
             except ValueError:
                 raise serializers.ValidationError(f"Target date isn't a valid date: {target_date}")
-        return value
+        # Store one shape per meaning, the way validate_detector_config does. A body that omits
+        # `type` and `engine` describes the same alert as one that sends them, and update() decides
+        # whether the firing condition changed by comparing the stored config. Keeping the caller's
+        # own shape makes that comparison read a shape difference as a condition change, which
+        # resets a firing alert and notifies its subscribers again.
+        return config.model_dump(mode="json")
 
 
 @extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
