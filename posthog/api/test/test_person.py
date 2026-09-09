@@ -305,7 +305,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("hogql", {"type": "hogql", "key": "properties.email like '%%@example.com'"}, 2),
+            ("hogql", {"type": "hogql", "key": "properties.email like '%@example.com'"}, 2),
             ("type_less_person", {"key": "email", "value": "someone@example.com"}, 1),
         ]
     )
@@ -319,6 +319,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team=self.team,
             distinct_ids=["distinct_id_2"],
             properties={"email": "another@example.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id_3"],
+            properties={"email": "nobody@other.test"},
         )
         flush_persons_and_events()
 

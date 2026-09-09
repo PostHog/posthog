@@ -35,6 +35,7 @@ from posthog.exceptions import (
     generate_exception_response,
 )
 from posthog.helpers.impersonation import is_impersonated
+from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_property
 from posthog.models import Entity, User
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.entity import MathType
@@ -327,31 +328,19 @@ def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
         return queryset.filter(pk=key)
 
 
-# ActorsQuery accepts five filter types. These two require an explicit operator, which
-# legacy callers omit. `cohort` supplies its own default, and `hogql` and `empty` forbid
-# the key, so an injected operator makes them fail validation.
-LEGACY_OPERATOR_DEFAULT_FILTER_TYPES = frozenset({"person", "person_metadata"})
-
-
-def _is_legacy_person_filter(prop: dict) -> bool:
-    if prop.get("type") in LEGACY_OPERATOR_DEFAULT_FILTER_TYPES:
-        return True
-    # A filter that omits `type` as well is a person filter too: with an operator it
-    # validates as `person`, and without one it validates as `hogql`, which reads the
-    # key as an expression instead of a property. A `{}` placeholder keeps no operator,
-    # so it stays an `empty` filter.
-    return "type" not in prop and "key" in prop
-
-
 def parse_actor_property_filters(raw_properties: Optional[str]) -> list[dict]:
-    """Read the `properties` query parameter of a person or cohort actors endpoint."""
+    """Read the `properties` query parameter of a person or cohort actors endpoint.
+
+    Filters that `ActorsQuery` requires an `operator` on get `exact` when the caller omits it.
+    """
     if not raw_properties:
         return []
     properties = json.loads(raw_properties)
-    for prop in properties:
-        if _is_legacy_person_filter(prop):
-            prop.setdefault("operator", "exact")
-    return properties
+    if not isinstance(properties, list):
+        return []
+    # An empty filter, bare `{}` or explicit `{"type": "empty"}`, must keep no operator;
+    # `clean_property` only excludes `hogql` from its default, not `empty`.
+    return [clean_property(prop) if prop and prop.get("type") != "empty" else prop for prop in properties]
 
 
 INSIGHT_KINDS = {
