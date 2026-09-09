@@ -903,9 +903,9 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                 }
                 try {
                     let savedConfig = config
-                    if (form.body !== values.skillPrompt?.body) {
-                        await llmSkillsNamePartialUpdate(String(projectId), config.skill_name, { body: form.body })
-                    }
+                    // The rename goes first because it is the write the server refuses: a taken
+                    // name, a canonical scout, a run in flight. Saving the instructions before it
+                    // would store them under a save the user is then told did not happen.
                     const renamedSkillName = scoutDisplayNameToSkillName(form.name)
                     if (renamedSkillName !== config.skill_name) {
                         savedConfig = await signalsScoutConfigRename(String(teamId), config.id, {
@@ -916,6 +916,11 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                         // missing under the new one until they are fetched again — leaving the card
                         // claiming nothing has run yet.
                         actions.loadScoutRuns()
+                    }
+                    if (form.body !== values.skillPrompt?.body) {
+                        await llmSkillsNamePartialUpdate(String(projectId), savedConfig.skill_name, {
+                            body: form.body,
+                        })
                     }
                     const configUpdates: Record<string, unknown> = {}
                     if (form.cron !== config.run_cron_schedule) {

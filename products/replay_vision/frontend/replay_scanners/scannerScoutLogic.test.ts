@@ -13,7 +13,7 @@ import {
 import type { SignalScoutConfigApi, SignalScoutRunSummaryApi } from 'products/signals/frontend/generated/api.schemas'
 import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
 import { prettifyScoutSkillName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
-import { llmSkillsNameRetrieve } from 'products/skills/frontend/generated/api'
+import { llmSkillsNamePartialUpdate, llmSkillsNameRetrieve } from 'products/skills/frontend/generated/api'
 
 import {
     visionScannersScoutReportsList,
@@ -42,6 +42,7 @@ const mockScoutsCreate = visionScannersScoutsCreate as jest.MockedFunction<typeo
 const mockHogFunctionsRetrieve = hogFunctionsRetrieve as jest.MockedFunction<typeof hogFunctionsRetrieve>
 const mockHogFunctionsPartialUpdate = hogFunctionsPartialUpdate as jest.MockedFunction<typeof hogFunctionsPartialUpdate>
 const mockSkillRetrieve = llmSkillsNameRetrieve as jest.MockedFunction<typeof llmSkillsNameRetrieve>
+const mockSkillUpdate = llmSkillsNamePartialUpdate as jest.MockedFunction<typeof llmSkillsNamePartialUpdate>
 
 const SCANNER_ID = '01a014ea-854f-72b5-8192-bb6ac9f212a5'
 const SKILL_NAME = 'signals-scout-daily-digest'
@@ -377,6 +378,34 @@ describe('scannerScoutLogic', () => {
             )
         }
     )
+
+    it('leaves the instructions alone when the rename is refused', async () => {
+        // The rename is the write the server turns down — a name already taken, a scout with a run
+        // going. Writing the instructions first stored an edit the user was then told had failed,
+        // and a name that stays taken makes that happen on every attempt.
+        await mountWithReports([])
+        const fleet = scoutFleetLogic.findMounted()!
+        const config = makeConfig({ output_destinations: {} })
+        fleet.actions.loadScoutConfigsSuccess([config])
+        mockSkillRetrieve.mockResolvedValue({ body: 'Watch this scanner.' } as any)
+        mockScoutConfigRename.mockRejectedValue(Object.assign(new Error('conflict'), { status: 400 }))
+
+        logic.actions.openScoutSettings(SKILL_NAME)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.saveScoutSettings({
+            name: 'Daily summary',
+            body: 'Watch the checkout page instead.',
+            cron: '0 9 * * *',
+            outputDestinations: {},
+            webhookUrl: '',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockScoutConfigRename).toHaveBeenCalledTimes(1)
+        expect(mockSkillUpdate).not.toHaveBeenCalled()
+        expect(logic.values.settingsSaveFailed).toBe(true)
+        expect(logic.values.scoutConfigsForScanner[0].skill_name).toBe(SKILL_NAME)
+    })
 
     it('refetches the runs window after a rename', async () => {
         // The window is keyed by skill name, so the renamed scout's runs stay filed under the old
