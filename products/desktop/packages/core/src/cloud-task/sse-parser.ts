@@ -6,6 +6,8 @@ export interface SseEvent {
 
 export class SseEventParser {
   private buffer = "";
+  private frameBytes = 0;
+  private readonly encoder = new TextEncoder();
   private currentEventName: string | null = null;
   private currentEventId: string | null = null;
   private currentData: string[] = [];
@@ -15,6 +17,7 @@ export class SseEventParser {
       message: string,
       data?: Record<string, unknown>,
     ) => void,
+    private readonly maxFrameBytes = Infinity,
   ) {}
 
   parse(chunk: string): SseEvent[] {
@@ -25,9 +28,12 @@ export class SseEventParser {
     const events: SseEvent[] = [];
 
     for (const rawLine of lines) {
+      this.frameBytes += this.encoder.encode(rawLine).byteLength + 1;
+      this.checkFrameSize(this.frameBytes);
       const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
 
       if (line === "") {
+        this.frameBytes = 0;
         const event = this.flushEvent();
         if (event) {
           events.push(event);
@@ -54,10 +60,20 @@ export class SseEventParser {
       }
     }
 
+    this.checkFrameSize(
+      this.frameBytes + this.encoder.encode(this.buffer).byteLength,
+    );
     return events;
   }
 
+  private checkFrameSize(bytes: number): void {
+    if (bytes <= this.maxFrameBytes) return;
+    this.reset();
+    throw new Error("SSE frame is too large");
+  }
+
   reset(): void {
+    this.frameBytes = 0;
     this.buffer = "";
     this.currentEventName = null;
     this.currentEventId = null;

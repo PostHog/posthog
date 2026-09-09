@@ -12,37 +12,45 @@ export function createFragmentCompiler<T>(
   >();
   let loading = false;
   const flush = async (): Promise<void> => {
-    while (pending.size) {
-      const batch = [];
-      for (const entry of pending) {
-        batch.push(entry);
-        if (batch.length === 256) break;
-      }
-      let completed = 0;
-      try {
-        const results = await load(batch.map(([ref]) => ref));
-        for (const [ref, request] of batch) {
-          if (results[ref] !== undefined) request.resolve(results[ref]);
-          else if (Date.now() >= request.deadline)
-            request.reject(
-              new Error(
-                "Fragment compilation timed out. Open the board again.",
-              ),
-            );
-          else continue;
-          pending.delete(ref);
-          completed++;
+    let idleAttempt = 0;
+    try {
+      while (pending.size) {
+        const batch = [];
+        for (const entry of pending) {
+          batch.push(entry);
+          if (batch.length === 256) break;
         }
-      } catch (error) {
-        for (const [ref, request] of batch) {
-          request.reject(error);
-          pending.delete(ref);
+        let completed = 0;
+        try {
+          const results = await load(batch.map(([ref]) => ref));
+          for (const [ref, request] of batch) {
+            if (results[ref] !== undefined) request.resolve(results[ref]);
+            else if (Date.now() >= request.deadline)
+              request.reject(
+                new Error(
+                  "Fragment compilation timed out. Open the board again.",
+                ),
+              );
+            else continue;
+            pending.delete(ref);
+            completed++;
+          }
+        } catch (error) {
+          for (const [ref, request] of batch) {
+            request.reject(error);
+            pending.delete(ref);
+          }
+          completed = batch.length;
         }
-        completed = batch.length;
+        if (completed) idleAttempt = 0;
+        else
+          await new Promise((resolve) =>
+            setTimeout(resolve, Math.min(250 * 2 ** idleAttempt++, 5000)),
+          );
       }
-      if (!completed) await new Promise((resolve) => setTimeout(resolve, 250));
+    } finally {
+      loading = false;
     }
-    loading = false;
   };
   return (ref) => {
     const existing = pending.get(ref);
@@ -61,7 +69,12 @@ export function createFragmentCompiler<T>(
     });
     if (!loading) {
       loading = true;
-      queueMicrotask(() => void flush());
+      queueMicrotask(() => {
+        void flush().catch((error) => {
+          for (const request of pending.values()) request.reject(error);
+          pending.clear();
+        });
+      });
     }
     return promise;
   };

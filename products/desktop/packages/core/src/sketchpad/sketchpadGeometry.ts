@@ -32,12 +32,7 @@ export interface SketchpadScreenRect {
   height: number;
 }
 
-export interface SketchpadPaneRect {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}
+export type SketchpadPaneRect = SketchpadScreenRect;
 
 export interface SketchpadSize {
   w: number;

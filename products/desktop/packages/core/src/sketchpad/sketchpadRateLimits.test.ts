@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TokenBucket } from "./frameBudget";
+import { TokenBucket } from "./sketchpadRateLimits";
 
 const limit = { burst: 3, perSecond: 1 };
 

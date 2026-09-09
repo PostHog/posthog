@@ -3,13 +3,10 @@ import {
   estimateJsonBytes,
   foldOps,
   getBackoffDelay,
-  SKETCHPAD_FIELD_MAX_OP_ENTRIES,
   SKETCHPAD_MAX_STATE_VALUE_BYTES,
   type SketchpadActor,
   type SketchpadAppendOpsInput,
   type SketchpadAppendOpsResult,
-  type SketchpadEditFieldOp,
-  type SketchpadFragment,
   type SketchpadLogEntry,
   type SketchpadOp,
   type SketchpadSnapshot,
@@ -18,6 +15,11 @@ import {
 import type { StateStorage } from "zustand/middleware";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { ISketchpadService } from "./identifiers";
+import {
+  appendPending,
+  leadingActorRun,
+  type PendingEntry,
+} from "./pendingOps";
 
 export type SketchpadApi = Pick<
   ISketchpadService,
@@ -30,8 +32,6 @@ export type SketchpadSyncStatus =
   | "saving"
   | "offline"
   | "error";
-
-export type PendingEntry = Omit<SketchpadLogEntry, "seq">;
 
 export interface SketchpadSyncState {
   sketchpadId: string;
@@ -62,7 +62,6 @@ const OPS_PAGE_LIMIT = 1000;
 const RETRY_INITIAL_MS = 1000;
 const RETRY_MAX_MS = 15_000;
 const CATCH_UP_PAGE_BUDGET = 500;
-const GEOMETRY_KEYS: readonly string[] = ["x", "y", "w", "h"];
 
 export class SketchpadSyncClient {
   private readonly api: SketchpadApi;
@@ -75,6 +74,7 @@ export class SketchpadSyncClient {
   private pendingLoaded = false;
   private savedPending: PendingEntry[] = [];
 
+  private channelId: string | null = null;
   private name = "";
   private baseSnapshot: SketchpadSnapshot = emptySketchpadSnapshot();
   private baseSeq = 0;
@@ -169,23 +169,16 @@ export class SketchpadSyncClient {
     }
   }
 
+  setName(name: string): void {
+    if (this.name === name) return;
+    this.name = name;
+    this.emit();
+  }
+
   async loadFullLog(): Promise<void> {
     if (this.logComplete) return;
     try {
-      let since = 0;
-      for (let page = 0; page < CATCH_UP_PAGE_BUDGET; page++) {
-        const result = await this.api.opsSince(
-          this.sketchpadId,
-          since,
-          OPS_PAGE_LIMIT,
-        );
-        this.headSeq = Math.max(this.headSeq, result.headSeq);
-        if (result.results.length === 0) break;
-        this.ingest(result.results);
-        const last = result.results[result.results.length - 1];
-        since = last.seq;
-        if (since >= this.headSeq) break;
-      }
+      await this.fetchPages(() => this.contiguousHead(0));
       this.refreshLogComplete();
       this.lastError = undefined;
     } catch (error) {
@@ -301,6 +294,7 @@ export class SketchpadSyncClient {
       this.emit();
     } finally {
       this.polling = false;
+      this.restartPollTimer();
     }
   }
 
@@ -415,43 +409,7 @@ export class SketchpadSyncClient {
   }
 
   private appendPending(entry: PendingEntry): void {
-    const last = this.pending[this.pending.length - 1];
-    const openLast =
-      last !== undefined && !this.submittedOpIds.has(last.opId)
-        ? last
-        : undefined;
-    const mergedEdits = openLast ? mergeFieldEdits(openLast, entry) : undefined;
-    if (mergedEdits) {
-      this.pending = [...this.pending.slice(0, -1), mergedEdits];
-      return;
-    }
-    const mergeable =
-      last !== undefined &&
-      !this.submittedOpIds.has(last.opId) &&
-      isGeometryUpdate(last.op) &&
-      isGeometryUpdate(entry.op) &&
-      last.op.type === "update_fragment" &&
-      entry.op.type === "update_fragment" &&
-      last.op.id === entry.op.id &&
-      actorIdentity(last.actor) === actorIdentity(entry.actor);
-
-    if (
-      mergeable &&
-      last.op.type === "update_fragment" &&
-      entry.op.type === "update_fragment"
-    ) {
-      const merged: PendingEntry = {
-        ...last,
-        op: {
-          type: "update_fragment",
-          id: last.op.id,
-          patch: { ...last.op.patch, ...entry.op.patch },
-        },
-      };
-      this.pending = [...this.pending.slice(0, -1), merged];
-      return;
-    }
-    this.pending = [...this.pending, entry];
+    this.pending = appendPending(this.pending, entry, this.submittedOpIds);
   }
 
   private promote(
@@ -517,9 +475,13 @@ export class SketchpadSyncClient {
     this.retryAttempt = 0;
   }
 
-  private async catchUp(): Promise<void> {
+  private catchUp(): Promise<void> {
+    return this.fetchPages(() => this.contiguousHead());
+  }
+
+  private async fetchPages(cursor: () => number): Promise<void> {
     for (let page = 0; page < CATCH_UP_PAGE_BUDGET; page++) {
-      const since = this.contiguousHead();
+      const since = cursor();
       if (page > 0 && since >= this.headSeq) return;
       const result = await this.api.opsSince(
         this.sketchpadId,
@@ -529,12 +491,11 @@ export class SketchpadSyncClient {
       this.headSeq = Math.max(this.headSeq, result.headSeq);
       if (result.results.length === 0) return;
       this.ingest(result.results);
-      if (this.contiguousHead() <= since) return;
+      if (cursor() <= since) return;
     }
   }
 
-  private contiguousHead(): number {
-    let cursor = this.baseSeq;
+  private contiguousHead(cursor = this.baseSeq): number {
     for (const entry of this.log) {
       if (entry.seq <= cursor) continue;
       if (entry.seq !== cursor + 1) break;
@@ -608,6 +569,8 @@ export class SketchpadSyncClient {
   }
 
   private recompute(): void {
+    this.persistPending();
+    this.restartPollTimer();
     if (this.foldedBase !== this.baseSnapshot) {
       this.foldedBase = this.baseSnapshot;
       this.foldedSnapshot = this.baseSnapshot;
@@ -640,14 +603,6 @@ export class SketchpadSyncClient {
     return "synced";
   }
 
-  private channelId: string | null = null;
-
-  setName(name: string): void {
-    if (this.name === name) return;
-    this.name = name;
-    this.emit();
-  }
-
   private buildState(): SketchpadSyncState {
     return {
       sketchpadId: this.sketchpadId,
@@ -665,7 +620,7 @@ export class SketchpadSyncClient {
     };
   }
 
-  private emit(): void {
+  private persistPending(): void {
     if (
       this.lifecycle !== "stopped" &&
       this.pendingLoaded &&
@@ -683,174 +638,11 @@ export class SketchpadSyncClient {
         this.store.setState(this.buildState(), true);
       });
     }
-    this.restartPollTimer();
+  }
+
+  private emit(): void {
     this.store.setState(this.buildState(), true);
   }
-}
-
-export interface HistoryGroup {
-  key: string;
-  actor: SketchpadActor;
-  minuteIso: string;
-  firstSeq: number;
-  lastSeq: number;
-  descriptions: string[];
-  fragmentIds: string[];
-}
-
-export function describeOp(
-  entry: SketchpadLogEntry,
-  before: SketchpadSnapshot,
-): string {
-  const op = entry.op;
-  switch (op.type) {
-    case "add_fragment":
-      return `added ${op.fragment.title ?? op.fragment.id}`;
-    case "update_fragment": {
-      const label = fragmentLabel(before, op.id);
-      const patch = op.patch;
-      if (patch.code !== undefined) return `edited the code of ${label}`;
-      if (patch.title !== undefined) return `renamed ${label}`;
-      if (patch.w !== undefined || patch.h !== undefined) {
-        return `resized ${label}`;
-      }
-      if (patch.x !== undefined || patch.y !== undefined) {
-        return `moved ${label}`;
-      }
-      if (patch.z !== undefined) return `brought ${label} to front`;
-      return `changed ${label}`;
-    }
-    case "remove_fragment":
-      return `removed ${fragmentLabel(before, op.id)}`;
-    case "bring_to_front":
-      return `brought ${fragmentLabel(before, op.id)} to front`;
-    case "set_state":
-      return op.value === null || op.value === undefined
-        ? `cleared ${op.key}`
-        : `changed ${op.key}`;
-    case "edit_field":
-      return `edited ${op.key}`;
-    case "restore":
-      return "restored the board";
-  }
-}
-
-export function groupLogEntries(
-  log: SketchpadLogEntry[],
-  base: SketchpadSnapshot,
-): HistoryGroup[] {
-  const groups: HistoryGroup[] = [];
-  let snapshot = base;
-  let current: HistoryGroup | undefined;
-
-  for (const entry of log) {
-    const identity = actorIdentity(entry.actor);
-    const minuteIso = toMinuteIso(entry.createdAt);
-    const sameGroup =
-      current !== undefined &&
-      current.minuteIso === minuteIso &&
-      actorIdentity(current.actor) === identity;
-
-    if (!sameGroup) {
-      current = {
-        key: `${identity}|${minuteIso}|${entry.seq}`,
-        actor: entry.actor,
-        minuteIso,
-        firstSeq: entry.seq,
-        lastSeq: entry.seq,
-        descriptions: [],
-        fragmentIds: [],
-      };
-      groups.push(current);
-    }
-
-    const group = current;
-    if (group) {
-      const description = describeOp(entry, snapshot);
-      if (!group.descriptions.includes(description)) {
-        group.descriptions.push(description);
-      }
-      const fragmentId = touchedFragmentId(entry.op);
-      if (fragmentId && !group.fragmentIds.includes(fragmentId)) {
-        group.fragmentIds.push(fragmentId);
-      }
-      group.lastSeq = entry.seq;
-    }
-    if (entry.op.type !== "set_state" && entry.op.type !== "edit_field") {
-      snapshot = foldOps(snapshot, [entry]);
-    }
-  }
-
-  return groups.reverse();
-}
-
-export function actorIdentity(actor: SketchpadActor): string {
-  if (actor.kind === "agent") return `agent:${actor.taskId ?? "unknown"}`;
-  return `user:${actor.userId ?? actor.userName ?? "me"}`;
-}
-
-function fragmentLabel(snapshot: SketchpadSnapshot, id: string): string {
-  const fragment: SketchpadFragment | undefined = snapshot.fragments.find(
-    (candidate) => candidate.id === id,
-  );
-  return fragment?.title ?? id;
-}
-
-function touchedFragmentId(op: SketchpadOp): string | undefined {
-  switch (op.type) {
-    case "add_fragment":
-      return op.fragment.id;
-    case "update_fragment":
-    case "remove_fragment":
-    case "bring_to_front":
-      return op.id;
-    default:
-      return undefined;
-  }
-}
-
-function toMinuteIso(createdAt: string): string {
-  const at = Date.parse(createdAt);
-  if (Number.isNaN(at)) return createdAt;
-  return `${new Date(at).toISOString().slice(0, 16)}:00.000Z`;
-}
-
-function mergeFieldEdits(
-  last: PendingEntry,
-  entry: PendingEntry,
-): PendingEntry | undefined {
-  if (last.op.type !== "edit_field" || entry.op.type !== "edit_field") {
-    return undefined;
-  }
-  if (last.op.key !== entry.op.key || last.op.kind !== entry.op.kind) {
-    return undefined;
-  }
-  if ("initialValue" in last.op || "initialValue" in entry.op) return undefined;
-  if (actorIdentity(last.actor) !== actorIdentity(entry.actor))
-    return undefined;
-
-  const insert = [...(last.op.insert ?? []), ...(entry.op.insert ?? [])];
-  const remove = [...(last.op.remove ?? []), ...(entry.op.remove ?? [])];
-  if (
-    insert.length > SKETCHPAD_FIELD_MAX_OP_ENTRIES ||
-    remove.length > SKETCHPAD_FIELD_MAX_OP_ENTRIES
-  ) {
-    return undefined;
-  }
-  const op: SketchpadEditFieldOp = {
-    type: "edit_field",
-    key: last.op.key,
-    kind: last.op.kind,
-  };
-  if (insert.length > 0) op.insert = insert;
-  if (remove.length > 0) op.remove = remove;
-  return { ...last, op };
-}
-
-function isGeometryUpdate(op: SketchpadOp): boolean {
-  if (op.type !== "update_fragment") return false;
-  const keys = Object.keys(op.patch);
-  return keys.length > 0 && keys.every((key) => GEOMETRY_KEYS.includes(key));
 }
 
 function isRefusedByServer(error: unknown): boolean {
@@ -858,31 +650,6 @@ function isRefusedByServer(error: unknown): boolean {
     error as { data?: { code?: unknown; httpStatus?: unknown } } | null
   )?.data;
   return data?.code === "BAD_REQUEST" || data?.httpStatus === 400;
-}
-
-function leadingActorRun(pending: readonly PendingEntry[]): PendingEntry[] {
-  const first = pending[0];
-  if (!first) return [];
-  const identity = actorIdentity(first.actor);
-  const run: PendingEntry[] = [];
-  for (const entry of pending) {
-    if (actorIdentity(entry.actor) !== identity) break;
-    if (
-      run.length > 0 &&
-      (first.op.type === "restore" || entry.op.type === "restore")
-    )
-      break;
-    if (entry.op.type === "edit_field" || first.op.type === "edit_field") {
-      if (
-        entry.op.type !== "edit_field" ||
-        first.op.type !== "edit_field" ||
-        entry.op.key !== first.op.key
-      )
-        break;
-    }
-    run.push(entry);
-  }
-  return run;
 }
 
 function sortLog(entries: SketchpadLogEntry[]): SketchpadLogEntry[] {

@@ -141,6 +141,8 @@ function addFragmentOp(
       z: maxZ(snapshot) + 1,
       code: input.code,
       codeVersion: 1,
+      surface: "card",
+      hidden: false,
     },
   };
 }

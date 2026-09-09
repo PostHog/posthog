@@ -47,6 +47,8 @@ export interface ParsedToolCall {
   locations?: ToolCallLocation[];
   content?: ToolCallContent[];
   rawOutput?: unknown;
+  meta?: unknown;
+  rawInput?: unknown;
 }
 
 /**
@@ -105,6 +107,8 @@ function mergeToolCall(
         ? patch.content
         : existing?.content,
     rawOutput: patch.rawOutput ?? existing?.rawOutput,
+    meta: patch.meta ?? existing?.meta,
+    rawInput: patch.rawInput ?? existing?.rawInput,
   };
 }
 
@@ -223,6 +227,8 @@ export function buildCloudEventSummary(
           ? (update.content as ToolCallContent[])
           : undefined,
         rawOutput: update.rawOutput,
+        meta: update._meta,
+        rawInput: update.rawInput,
       };
 
       const merged = mergeToolCall(toolCalls.get(toolCallId), patch);
