@@ -58,7 +58,19 @@ def _ensure_for_team(
     failures = 0
     for chunk_start, chunk_end in chunk_ranges(start, end, chunk_days):
         try:
-            ensure_marketing_sessions_precomputed(team, chunk_start, chunk_end)
+            result = ensure_marketing_sessions_precomputed(team, chunk_start, chunk_end)
+            # The executor reports a failed insert in the result rather than by raising, so a chunk
+            # that never materialized would otherwise be counted as done.
+            if not result.ready:
+                MARKETING_SESSIONS_PRECOMPUTE_TEAM_FAILED.labels(
+                    error_type="memory_exceeded" if result.memory_exceeded else "not_ready"
+                ).inc()
+                context.log.error(
+                    f"marketing_sessions_precompute_not_ready team={team.pk} "
+                    f"chunk=[{chunk_start}, {chunk_end}) errors={result.errors}"
+                )
+                failures += 1
+                continue
             MARKETING_SESSIONS_PRECOMPUTE_TEAM_DONE.inc()
         except Exception as exc:
             MARKETING_SESSIONS_PRECOMPUTE_TEAM_FAILED.labels(error_type=type(exc).__name__).inc()
