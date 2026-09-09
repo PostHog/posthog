@@ -4251,7 +4251,7 @@ export interface TaskRunLivingArtifactEditRequestApi {
 }
 
 /**
- * Insight query JSON to render ad hoc, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. Provide exactly one of query or insight_id.
+ * Query JSON to render ad hoc, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}, or a HogQL query wrapped for charting: {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT ..."}, "display": "ActionsLineGraph"}. Provide exactly one of query or insight_id.
  */
 export type TaskRunLivingArtifactChartRequestApiQuery = { [key: string]: unknown }
 
@@ -4261,7 +4261,7 @@ export interface TaskRunLivingArtifactChartRequestApi {
      * @maxLength 255
      */
     name: string
-    /** Insight query JSON to render ad hoc, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. Provide exactly one of query or insight_id. */
+    /** Query JSON to render ad hoc, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}, or a HogQL query wrapped for charting: {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT ..."}, "display": "ActionsLineGraph"}. Provide exactly one of query or insight_id. */
     query?: TaskRunLivingArtifactChartRequestApiQuery
     /** Numeric id of a saved insight to render. Provide exactly one of query or insight_id. */
     insight_id?: number

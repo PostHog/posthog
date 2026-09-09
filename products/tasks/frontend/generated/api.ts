@@ -2513,7 +2513,7 @@ export const getTasksRunsLivingArtifactsChartUrl = (projectId: string, taskId: s
 }
 
 /**
- * Renders a PostHog insight (ad-hoc query JSON or a saved insight) to a PNG server-side and registers it as a slack_file living artifact in one call. Blocks until the render finishes.
+ * Renders a PostHog chart (ad-hoc insight query JSON, a HogQL query wrapped in a DataVisualizationNode, or a saved insight) to a PNG server-side and registers it as a slack_file living artifact in one call. Blocks until the render finishes.
  * @summary Render an insight chart and attach it as a living artifact
  */
 export const tasksRunsLivingArtifactsChart = async (
