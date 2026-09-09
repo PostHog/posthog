@@ -4777,7 +4777,17 @@ class CohortPropertyFilter(BaseModel):
     value: int
 
 
-class CustomBotDefinition(BaseModel):
+class CustomBotCondition(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    key: CustomBotField = Field(..., description="The event property this condition reads.")
+    matcher: CustomBotMatcher
+    pattern: str = Field(..., description="Matched against the property named by `key`.")
+
+
+class CustomBotRule(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -4785,14 +4795,16 @@ class CustomBotDefinition(BaseModel):
         default=None,
         description="Reported by `$virt_traffic_category`. Defaults to `custom`.",
     )
+    combiner: FilterLogicalOperator = Field(
+        ...,
+        description="Whether every condition must match (AND) or any one of them (OR).",
+    )
     id: str
-    key: CustomBotField = Field(..., description="The event property this rule reads.")
-    matcher: CustomBotMatcher
+    items: list[CustomBotCondition]
     name: str = Field(
         ...,
         description=("Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches."),
     )
-    pattern: str = Field(..., description="Matched against the property named by `key`.")
 
 
 class CustomChannelCondition(BaseModel):
@@ -5575,7 +5587,7 @@ class HogQLQueryModifiers(BaseModel):
     bounceRateDurationSeconds: float | None = None
     bounceRatePageViewMode: BounceRatePageViewMode | None = None
     convertToProjectTimezone: bool | None = None
-    customBotDefinitions: list[CustomBotDefinition] | None = None
+    customBotDefinitions: list[CustomBotRule] | None = None
     customChannelTypeRules: list[CustomChannelRule] | None = None
     dataWarehouseEventsModifiers: list[DataWarehouseEventsModifier] | None = None
     debug: bool | None = None

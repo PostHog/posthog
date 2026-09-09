@@ -125,7 +125,8 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
     MAX_CUSTOM_BOT_DEFINITIONS,
     assert_patterns_compile as assert_custom_bot_patterns_compile,
     compiled_patterns as compiled_custom_bot_patterns,
-    validate_definition as validate_custom_bot_definition,
+    upcast_rules as upcast_custom_bot_rules,
+    validate_rule as validate_custom_bot_rule,
 )
 from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
 
@@ -1883,26 +1884,36 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                         {"bounceRateDurationSeconds": "Must be between 1 and 120 seconds."}
                     )
 
+        if "customBotDefinitions" in value and isinstance(value["customBotDefinitions"], list):
+            # A stale client can still send the pre-combiner flat shape; store the upcast rules so
+            # the saved modifiers always hold one shape. Strict, so a malformed rule is rejected
+            # rather than silently dropped from the save.
+            try:
+                upcast = upcast_custom_bot_rules(value["customBotDefinitions"], strict=True)
+            except ValueError as error:
+                raise exceptions.ValidationError({"customBotDefinitions": str(error)})
+            value = {**value, "customBotDefinitions": [rule.model_dump(exclude_none=True) for rule in upcast]}
+
         try:
             modifiers = HogQLQueryModifiers(**value)
         except Exception:
             raise exceptions.ValidationError(f"Invalid modifier key.")
 
         if "customBotDefinitions" in value:
-            definitions = modifiers.customBotDefinitions or []
-            if len(definitions) > MAX_CUSTOM_BOT_DEFINITIONS:
+            rules = modifiers.customBotDefinitions or []
+            if len(rules) > MAX_CUSTOM_BOT_DEFINITIONS:
                 raise exceptions.ValidationError(
                     {"customBotDefinitions": f"You can define at most {MAX_CUSTOM_BOT_DEFINITIONS} bots."}
                 )
-            for definition in definitions:
+            for rule in rules:
                 # An unusable pattern would break every query that reads $virt_is_bot for this
                 # project, so it is rejected here rather than dropped silently at query time.
                 try:
-                    validate_custom_bot_definition(definition)
+                    validate_custom_bot_rule(rule)
                 except ValueError as error:
-                    raise exceptions.ValidationError({"customBotDefinitions": f"{definition.name}: {error}"})
+                    raise exceptions.ValidationError({"customBotDefinitions": f"{rule.name}: {error}"})
             try:
-                assert_custom_bot_patterns_compile(compiled_custom_bot_patterns(definitions))
+                assert_custom_bot_patterns_compile(compiled_custom_bot_patterns(rules))
             except ValueError as error:
                 raise exceptions.ValidationError({"customBotDefinitions": str(error)})
 

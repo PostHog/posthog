@@ -244,7 +244,7 @@ const WebAnalyticsBotRulesCreateSchema = () => {
 
 const webAnalyticsBotRulesCreate = (): ToolBase<
     ReturnType<typeof WebAnalyticsBotRulesCreateSchema>,
-    Schemas.CustomBotRule
+    Schemas.WebAnalyticsBotRule
 > => ({
     name: 'web-analytics-bot-rules-create',
     schema: WebAnalyticsBotRulesCreateSchema(),
@@ -254,19 +254,16 @@ const webAnalyticsBotRulesCreate = (): ToolBase<
         if (params.name !== undefined) {
             body['name'] = params.name
         }
-        if (params.key !== undefined) {
-            body['key'] = params.key
-        }
-        if (params.matcher !== undefined) {
-            body['matcher'] = params.matcher
-        }
-        if (params.pattern !== undefined) {
-            body['pattern'] = params.pattern
-        }
         if (params.category !== undefined) {
             body['category'] = params.category
         }
-        const result = await context.api.request<Schemas.CustomBotRule>({
+        if (params.combiner !== undefined) {
+            body['combiner'] = params.combiner
+        }
+        if (params.items !== undefined) {
+            body['items'] = params.items
+        }
+        const result = await context.api.request<Schemas.WebAnalyticsBotRule>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_bot_rules/`,
             body,
@@ -297,13 +294,13 @@ const WebAnalyticsBotRulesListSchema = () => z.object({})
 
 const webAnalyticsBotRulesList = (): ToolBase<
     ReturnType<typeof WebAnalyticsBotRulesListSchema>,
-    WithPostHogUrl<Schemas.CustomBotRule[]>
+    WithPostHogUrl<Schemas.WebAnalyticsBotRule[]>
 > => ({
     name: 'web-analytics-bot-rules-list',
     schema: WebAnalyticsBotRulesListSchema(),
     handler: async (context: Context, _params: z.infer<ReturnType<typeof WebAnalyticsBotRulesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.CustomBotRule[]>({
+        const result = await context.api.request<Schemas.WebAnalyticsBotRule[]>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics_bot_rules/`,
         })

@@ -904,6 +904,7 @@ class CustomBotField(StrEnum):
 class CustomBotMatcher(StrEnum):
     CONTAINS = "contains"
     REGEX = "regex"
+    EXACT = "exact"
     CIDR = "cidr"
 
 

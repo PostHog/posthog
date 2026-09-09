@@ -521,7 +521,7 @@ export interface HogQLQueryModifiers {
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
-    customBotDefinitions?: CustomBotDefinition[]
+    customBotDefinitions?: CustomBotRule[]
     useWebAnalyticsPreAggregatedTables?: boolean
     /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
     webAnalyticsFirstPageviewFilters?: boolean
@@ -6825,22 +6825,32 @@ export enum CustomBotField {
 export enum CustomBotMatcher {
     Contains = 'contains',
     Regex = 'regex',
+    /** Case-sensitive equality against the whole property value. */
+    Exact = 'exact',
     /** Matches an IP against a network range, e.g. `192.0.2.0/24`. Only valid with `$ip`. */
     Cidr = 'cidr',
 }
 
-/** A bot a project defines itself, on top of PostHog's built-in bot list. */
-export interface CustomBotDefinition {
-    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
-    name: string
-    /** The event property this rule reads. */
+/** One condition of a project's bot rule. */
+export interface CustomBotCondition {
+    /** The event property this condition reads. */
     key: CustomBotField
     /** Matched against the property named by `key`. */
     pattern: string
     matcher: CustomBotMatcher
+    id: string // the ID is only needed for the settings editor, so only needs to be unique within one rule
+}
+
+/** A bot a project defines itself, on top of PostHog's built-in bot list. */
+export interface CustomBotRule {
+    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
+    name: string
     /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
     category?: string
-    id: string // the ID is only needed for the settings editor, so only needs to be unique within one set of definitions
+    /** Whether every condition must match (AND) or any one of them (OR). */
+    combiner: FilterLogicalOperator
+    items: CustomBotCondition[]
+    id: string // the ID is only needed for the settings editor, so only needs to be unique within one set of rules
 }
 
 export enum DefaultChannelTypes {

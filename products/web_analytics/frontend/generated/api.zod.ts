@@ -257,29 +257,16 @@ export const WebAnalyticsAchievementsRecordInteractionBody = /* @__PURE__ */ zod
 })
 
 /**
- * Add one bot rule to the project. The pattern is rejected if it cannot run, because a broken rule would break every query that classifies traffic for the project.
+ * Add one bot rule to the project. A rule combines one or more single-property conditions with AND or OR. A pattern is rejected if it cannot run, because a broken rule would break every query that classifies traffic for the project.
  * @summary Create a custom bot rule
  */
+export const webAnalyticsBotRulesCreateBodyCombinerDefault = `AND`
+
 export const WebAnalyticsBotRulesCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
         .describe(
             'Label reported by the `Bot name` property when the rule matches. Also the operator for a rule on a bot PostHog does not know.'
-        ),
-    key: zod
-        .string()
-        .describe(
-            'Event property the rule reads. One of: $raw_user_agent, $ip, $lib, $host, $pathname, $current_url, $browser, $os, $browser_language, $screen_width, $screen_height, $geoip_country_code, $referrer, $referring_domain.'
-        ),
-    matcher: zod
-        .string()
-        .describe(
-            "How `pattern` is compared: 'contains' (case-insensitive substring), 'regex' (RE2), or 'cidr' (an IP network range, only valid with the `$ip` property)."
-        ),
-    pattern: zod
-        .string()
-        .describe(
-            "Value matched against the property named by `key`. For 'cidr' this is a network range like 192.0.2.0\/24."
         ),
     category: zod
         .string()
@@ -287,6 +274,34 @@ export const WebAnalyticsBotRulesCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Reported by the `Traffic category` property. Defaults to 'custom'. A built-in category such as ai_crawler or search_crawler relabels the traffic type too."
         ),
+    combiner: zod
+        .string()
+        .default(webAnalyticsBotRulesCreateBodyCombinerDefault)
+        .describe(
+            "How the conditions combine: 'AND' flags an event only when every condition matches, 'OR' when any one of them does."
+        ),
+    items: zod
+        .array(
+            zod.object({
+                id: zod.string().optional().describe('Stable id for the condition. Generated when omitted.'),
+                key: zod
+                    .string()
+                    .describe(
+                        'Event property the condition reads. One of: $raw_user_agent, $ip, $lib, $host, $pathname, $current_url, $browser, $os, $browser_language, $screen_width, $screen_height, $geoip_country_code, $referrer, $referring_domain.'
+                    ),
+                matcher: zod
+                    .string()
+                    .describe(
+                        "How `pattern` is compared: 'contains' (case-insensitive substring), 'regex' (RE2), 'exact' (case-sensitive equality), or 'cidr' (an IP network range, only valid with the `$ip` property)."
+                    ),
+                pattern: zod
+                    .string()
+                    .describe(
+                        "Value matched against the property named by `key`. For 'cidr' this is a network range like 192.0.2.0\/24."
+                    ),
+            })
+        )
+        .describe('The conditions of this rule. Each one reads a single event property.'),
 })
 
 export const webAnalyticsContentAutopilotProfilesCreateBodyNameMax = 255

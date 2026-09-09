@@ -17142,34 +17142,26 @@
             ],
             "type": "string"
         },
-        "CustomBotDefinition": {
+        "CustomBotCondition": {
             "additionalProperties": false,
-            "description": "A bot a project defines itself, on top of PostHog's built-in bot list.",
+            "description": "One condition of a project's bot rule.",
             "properties": {
-                "category": {
-                    "description": "Reported by `$virt_traffic_category`. Defaults to `custom`.",
-                    "type": "string"
-                },
                 "id": {
                     "type": "string"
                 },
                 "key": {
                     "$ref": "#/definitions/CustomBotField",
-                    "description": "The event property this rule reads."
+                    "description": "The event property this condition reads."
                 },
                 "matcher": {
                     "$ref": "#/definitions/CustomBotMatcher"
-                },
-                "name": {
-                    "description": "Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.",
-                    "type": "string"
                 },
                 "pattern": {
                     "description": "Matched against the property named by `key`.",
                     "type": "string"
                 }
             },
-            "required": ["name", "key", "pattern", "matcher", "id"],
+            "required": ["key", "pattern", "matcher", "id"],
             "type": "object"
         },
         "CustomBotField": {
@@ -17193,8 +17185,37 @@
             "type": "string"
         },
         "CustomBotMatcher": {
-            "enum": ["contains", "regex", "cidr"],
+            "enum": ["contains", "regex", "exact", "cidr"],
             "type": "string"
+        },
+        "CustomBotRule": {
+            "additionalProperties": false,
+            "description": "A bot a project defines itself, on top of PostHog's built-in bot list.",
+            "properties": {
+                "category": {
+                    "description": "Reported by `$virt_traffic_category`. Defaults to `custom`.",
+                    "type": "string"
+                },
+                "combiner": {
+                    "$ref": "#/definitions/FilterLogicalOperator",
+                    "description": "Whether every condition must match (AND) or any one of them (OR)."
+                },
+                "id": {
+                    "type": "string"
+                },
+                "items": {
+                    "items": {
+                        "$ref": "#/definitions/CustomBotCondition"
+                    },
+                    "type": "array"
+                },
+                "name": {
+                    "description": "Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.",
+                    "type": "string"
+                }
+            },
+            "required": ["name", "combiner", "items", "id"],
+            "type": "object"
         },
         "CustomChannelCondition": {
             "additionalProperties": false,
@@ -29580,7 +29601,7 @@
                 },
                 "customBotDefinitions": {
                     "items": {
-                        "$ref": "#/definitions/CustomBotDefinition"
+                        "$ref": "#/definitions/CustomBotRule"
                     },
                     "type": "array"
                 },

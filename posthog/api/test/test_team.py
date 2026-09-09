@@ -1234,13 +1234,41 @@ def team_api_test_factory():
                     {"key": "$some_other_property", "pattern": "acme", "matcher": "contains"},
                     False,
                 ),
+                (
+                    "exact matcher",
+                    {"key": "$screen_width", "pattern": "800", "matcher": "exact"},
+                    True,
+                ),
+                (
+                    "multi-condition rule",
+                    {
+                        "combiner": "AND",
+                        "items": [
+                            {"id": "w", "key": "$screen_width", "pattern": "800", "matcher": "exact"},
+                            {"id": "h", "key": "$screen_height", "pattern": "600", "matcher": "exact"},
+                        ],
+                    },
+                    True,
+                ),
+                (
+                    "multi-condition rule with an unusable condition",
+                    {
+                        "combiner": "AND",
+                        "items": [
+                            {"id": "w", "key": "$screen_width", "pattern": "800", "matcher": "exact"},
+                            {"id": "h", "key": "$screen_height", "pattern": "Acme(", "matcher": "regex"},
+                        ],
+                    },
+                    False,
+                ),
             ]
         )
         def test_modifiers_customBotDefinitions_validation(
             self, _name: str, definition: dict, should_succeed: bool
         ) -> None:
             # A rule that cannot run would break every query that reads $virt_is_bot for this
-            # project, so it has to be rejected on save rather than dropped at query time.
+            # project, so it has to be rejected on save rather than dropped at query time. The flat
+            # single-condition shape still saves — a stale client sends it — and is stored upcast.
             response = self.client.patch(
                 f"/api/environments/{self.team.id}",
                 {
@@ -1252,7 +1280,9 @@ def team_api_test_factory():
 
             if should_succeed:
                 assert response.status_code == status.HTTP_200_OK, response.json()
-                assert response.json()["modifiers"]["customBotDefinitions"][0]["pattern"] == definition["pattern"]
+                stored = response.json()["modifiers"]["customBotDefinitions"][0]
+                expected_pattern = definition["items"][0]["pattern"] if "items" in definition else definition["pattern"]
+                assert stored["items"][0]["pattern"] == expected_pattern
             else:
                 assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
