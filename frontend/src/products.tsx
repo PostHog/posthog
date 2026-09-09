@@ -1003,7 +1003,13 @@ export const productConfiguration: Record<string, any> = {
     Heatmap: { name: 'Heatmap', projectBased: true, iconType: 'heatmap' },
     HeatmapNew: { name: 'New heatmap', projectBased: true, iconType: 'heatmap' },
     HeatmapRecording: { name: 'Heatmap recording', projectBased: true, iconType: 'heatmap' },
-    WizardRuns: { projectBased: true, name: 'Wizard runs', layout: 'app-container', iconType: 'llm_prompts' },
+    WizardRuns: {
+        projectBased: true,
+        name: 'Wizard runs',
+        description: 'Run the setup agent in the cloud, then review the changes it produces.',
+        layout: 'app-container',
+        iconType: 'llm_prompts',
+    },
     Workflows: {
         name: 'Workflows',
         iconType: 'workflows',

@@ -10,6 +10,7 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/WizardRunsScene'),
             projectBased: true,
             name: 'Wizard runs',
+            description: 'Run the setup agent in the cloud, then review the changes it produces.',
             layout: 'app-container',
             iconType: 'llm_prompts',
         },
