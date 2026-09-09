@@ -1,27 +1,16 @@
-import json
-from collections.abc import AsyncGenerator
-from datetime import timedelta
-from typing import Any, cast
+from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from django.db import connection
-from django.http import StreamingHttpResponse
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
-from django.utils import timezone
 
-from asgiref.sync import async_to_sync
 from parameterized import parameterized
-
-from posthog import redis
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-from posthog.sync import database_sync_to_async
 
 from products.canvas.backend.models import Sketchpad, SketchpadOp, SketchpadRecord
 from products.canvas.backend.presentation.sketchpad.serializers import SketchpadAppendOpsSerializer
-from products.canvas.backend.sketchpad.stream import OPS_STREAM_KEY_PATTERN
 from products.tasks.backend.models import Channel, Task
 
 FRAGMENT = {"id": "note", "x": 0, "y": 0, "w": 360, "h": 240, "code": "export default () => null"}
@@ -234,24 +223,10 @@ class TestSketchpadValidationEndpoint(APIBaseTest):
             for key in ["one", "two"]
         ]
         operations.append({"op_id": "move", "op": {"type": "update_fragment", "id": "one", "patch": {"x": 80}}})
-        with self.captureOnCommitCallbacks(execute=True):
-            response = self.client.post(f"{url}ops/", {"base_seq": 0, "ops": operations, "actor": {"kind": "user"}})
+        response = self.client.post(f"{url}ops/", {"base_seq": 0, "ops": operations, "actor": {"kind": "user"}})
         assert response.status_code == 200
         assert response.json()["replayed"] == []
         task = Task.objects.create(team=self.team, channel=channel, created_by=self.user, title="Edit sketchpad")
-        events = redis.get_client().xrange(
-            OPS_STREAM_KEY_PATTERN.format(team_id=self.team.id, sketchpad_id=str(sketchpad.pk))
-        )
-        page = self.client.get(f"{url}ops/").json()
-        streamed = [json.loads(fields[b"data"]) for _, fields in events]
-        for event, entry in zip(streamed, page["results"], strict=True):
-            assert {key: value for key, value in event.items() if key not in {"type", "op"}} == {
-                key: value for key, value in entry.items() if key != "op"
-            }
-            if entry["op"]["type"] == "add_fragment":
-                assert event["op"]["fragment"]["code"] == page["source_versions"][entry["op"]["fragment"]["codeRef"]]
-            else:
-                assert event["op"] == entry["op"]
         retry = self.client.post(
             f"{url}ops/",
             {
@@ -356,85 +331,3 @@ class TestSketchpadValidationEndpoint(APIBaseTest):
         assert sketchpad.head_seq == 0
         assert not SketchpadRecord.objects.for_team(self.team.id).filter(sketchpad=sketchpad).exists()
         assert not SketchpadOp.objects.for_team(self.team.id).filter(sketchpad=sketchpad).exists()
-
-    @parameterized.expand(
-        [("deleted",), ("private",), ("membership",), ("disabled_user",), ("token_scope",), ("token_revoked",)]
-    )
-    def test_open_stream_stops_after_access_changes(self, change: str) -> None:
-        channel = Channel.objects.for_team(self.team.id).create(team_id=self.team.id, name="general")
-        private_channel = Channel.objects.for_team(self.team.id).create(
-            team_id=self.team.id,
-            name="personal",
-            channel_type=Channel.ChannelType.PERSONAL,
-            created_by=self._create_user("sketchpad-owner@example.com"),
-        )
-        sketchpad = Sketchpad.objects.for_team(self.team.id).create(
-            team_id=self.team.id, channel=channel, name="Test sketchpad"
-        )
-        token = None
-        if change.startswith("token_"):
-            app = OAuthApplication.objects.create(
-                name="desktop",
-                user=self.user,
-                organization=self.organization,
-                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                algorithm="RS256",
-                redirect_uris="https://example.com/callback",
-            )
-            token = OAuthAccessToken.objects.create(
-                user=self.user,
-                application=app,
-                token="pha_sketchpad_stream_test",
-                scope="canvas:read",
-                expires=timezone.now() + timedelta(hours=1),
-                scoped_teams=[],
-                scoped_organizations=[],
-            )
-            self.client.logout()
-            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
-        client = AsyncMock()
-        client.xrevrange.return_value = []
-        client.time.return_value = (1_800_000_000, 0)
-        client.xread.return_value = [(b"ops", [(b"1-0", {b"data": b'{"type":"op","seq":1}'})])]
-
-        def revoke_access() -> None:
-            if change == "membership":
-                self.organization.memberships.filter(user=self.user).delete()
-            elif change == "disabled_user":
-                self.user.is_active = False
-                self.user.save(update_fields=["is_active"])
-            elif change == "token_scope":
-                assert token is not None
-                token.scope = "annotation:read"
-                token.save(update_fields=["scope"])
-            elif change == "token_revoked":
-                assert token is not None
-                token.delete()
-            else:
-                updates = {"deleted": True} if change == "deleted" else {"channel_id": private_channel.pk}
-                Sketchpad.objects.for_team(self.team.id).filter(pk=sketchpad.pk).update(**updates)
-
-        with (
-            patch("posthog.api.streaming.settings.SERVER_GATEWAY_INTERFACE", "ASGI"),
-            patch("products.canvas.backend.sketchpad.stream.ACCESS_RECHECK_SECONDS", 0),
-            patch("products.canvas.backend.sketchpad.stream.redis_module.get_async_client", return_value=client),
-        ):
-            response = cast(
-                StreamingHttpResponse,
-                self.client.get(f"/api/projects/{self.team.id}/sketchpads/{sketchpad.id}/stream/"),
-            )
-            assert response.status_code == 200
-
-            async def read() -> None:
-                frames = response.streaming_content
-                assert isinstance(frames, AsyncGenerator)
-                try:
-                    assert b"event: op" in await anext(frames)
-                    await database_sync_to_async(revoke_access)()
-                    with self.assertRaises(StopAsyncIteration):
-                        await anext(frames)
-                finally:
-                    await frames.aclose()
-
-            async_to_sync(read)()

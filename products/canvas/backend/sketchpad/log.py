@@ -37,7 +37,6 @@ class SketchpadAppendResult:
     results: list[SketchpadOp]
     replayed: list[SketchpadOp]
     head_seq: int
-    appended: list[SketchpadOp]
 
 
 def append_ops(
@@ -93,9 +92,7 @@ def append_ops(
             _compact_history(locked)
             locked.save(update_fields=["head_seq", "updated_at"])
     sketchpad.head_seq = locked.head_seq
-    return SketchpadAppendResult(
-        results=results, replayed=list(replayed.values()), head_seq=locked.head_seq, appended=appended
-    )
+    return SketchpadAppendResult(results=results, replayed=list(replayed.values()), head_seq=locked.head_seq)
 
 
 def _compact_history(sketchpad: Sketchpad) -> None:
