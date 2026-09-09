@@ -57,8 +57,9 @@ Archiving the flag belongs to a later continuation, after the user confirms the 
 When the user's request clearly authorizes cleanup and you can edit the repository, execute:
 pick the safest deterministic candidate and clean it up directly.
 Do not stop to generate a copy-paste prompt, and do not add confirmation steps for local, uncommitted code changes.
-Two actions still need approval in the user's own words: pushing a branch or opening a PR, and mutating the flag.
+One action still needs approval in the user's own words: pushing a branch or opening a PR.
 The availability of a git or GitHub tool is not that approval, and a push to a repository cannot be taken back.
+The flag itself is never changed in this workflow, with or without approval.
 
 ## Workflow
 
@@ -155,7 +156,7 @@ Classify each selected flag from the `rollout` object in the status response —
 `effectively_full_rollout` covers release conditions only.
 A flag whose `evaluation_runtime` is `server` or `client`, or whose `evaluation_contexts` is not empty,
 is left out of the flag payload everywhere else, so it has always resolved false outside that scope.
-Treat such a flag as ambiguous unless every call site step 4 finds sits inside the runtime and contexts it reaches.
+Note the scope now; step 4 checks the call sites against it.
 
 Re-read the flag immediately before editing code, so a rollout changed since assessment never picks the wrong branch.
 
@@ -170,13 +171,15 @@ Then trace outward:
 - inspect local flag helper abstractions and wrapper components (a `useFlag('...')` hook, a `Flags.SOME_KEY` registry)
 - check directories that deploy independently: server, browser, mobile, workers, infrastructure
 - distinguish runtime flag checks from analytics properties, analytics event payloads, or historical documentation
+- when step 3 noted a narrowed `evaluation_runtime` or non-empty `evaluation_contexts`,
+  make sure every call site sits inside that scope; one call site outside it makes the flag ambiguous — stop and explain
 - stop and ask when different call sites imply different intended outcomes
 
 Do not rely on a fixed list of SDK call names — exact-key search plus reference tracing adapts to the repository's abstractions.
 When you genuinely need SDK-specific evaluation semantics, load the `instrument-feature-flags` skill.
 
-If no runtime references exist, the cleanup is a no-op:
-report that the repository is already clean, and do not create an empty branch or PR.
+If the only runtime references are payload reads (step 5 leaves those in place), or there are none at all,
+the cleanup is a no-op: report what you found, and do not create an empty branch or PR.
 The flag still stays untouched — the user may need to check other repositories before archival.
 
 ### 5. Apply the retained path
@@ -185,7 +188,7 @@ The flag still stays untouched — the user may need to check other repositories
   If there is an else branch, remove it entirely.
 - **Fully rolled out multivariate**: remove the flag check, keep only the winning variant's branch or case.
 - **Effectively off**: remove the flag check and the gated feature path, keep the disabled/control behavior.
-- **Partial or ambiguous**: no edits — this was excluded in step 3.
+- **Partial or ambiguous**: no edits — excluded in step 3, or by step 4's runtime and context check.
 
 One call-site shape has no retained path: a read of the flag's payload rather than a branch, such as a
 `getFeatureFlagPayload` call. Deleting it removes a value the code uses, and payloads live in
@@ -200,7 +203,8 @@ Do not broaden the work into unrelated refactoring.
 - Review the complete diff against the base branch, not against your own branch tip.
 - Run focused tests for the retained behavior.
 - Run the repository's relevant type checks and linting.
-- Confirm no runtime references to the key remain anywhere in the repository.
+- Confirm no runtime references to the key remain anywhere in the repository,
+  apart from the payload reads step 5 left in place.
 - Keep useful historical documentation only when it cannot trigger evaluation or confuse a future cleanup.
 
 ### 7. Publish only when authorized
