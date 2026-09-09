@@ -1266,11 +1266,32 @@ def reserve_wizard_mint(request, view, limit: int | None = None) -> str | None:
         return None
     try:
         key = throttle.get_cache_key(request, view)
-        if key is None:
-            return None
-        window = int(time.time()) // throttle.duration
+    except Exception as e:
+        capture_exception(e)
+        return None
+    if key is None:
+        return None
+    charged = _charge_mint_slot(key, throttle.duration)
+    if charged is None:
+        return None
+    counter, count = charged
+    if count > (throttle.num_requests if limit is None else limit):
+        raise exceptions.Throttled(detail="This wizard program has used its weekly run limit. Try again next week.")
+    return counter
+
+
+def _charge_mint_slot(key: str, duration: int) -> tuple[str, int] | None:
+    """Atomically charge one slot in the current window; returns (counter, count).
+
+    Shared by the per-user and per-repository reservations so the ordering below
+    has one implementation. None on a cache error, which fails the caller open:
+    what this bounds is also bounded by the per-token cap and the wallet, and a
+    Redis blip must not turn a minted token into a 500.
+    """
+    try:
+        window = int(time.time()) // duration
         counter = f"{key}:{window}"
-        cache.add(counter, 0, timeout=throttle.duration)
+        cache.add(counter, 0, timeout=duration)
         try:
             count = cache.incr(counter)
         except ValueError:
@@ -1278,13 +1299,50 @@ def reserve_wizard_mint(request, view, limit: int | None = None) -> str | None:
             # Persist the charge as the window's first rather than leaving it
             # implicit: the counter this returns is refundable, and a handle for a
             # charge that was never stored would debit a concurrent request's slot.
-            cache.set(counter, 1, timeout=throttle.duration)
+            cache.set(counter, 1, timeout=duration)
             count = 1
     except Exception as e:
         capture_exception(e)
         return None
-    if count > (throttle.num_requests if limit is None else limit):
-        raise exceptions.Throttled(detail="This wizard program has used its weekly run limit. Try again next week.")
+    return counter, count
+
+
+WIZARD_CI_VERIFY_WINDOW_SECONDS = 60
+
+
+def reserve_wizard_ci_verify(ip: str | None, limit: int) -> None:
+    """Charge one signature verification for this source address, or raise.
+
+    Charged before the signing-key fetch, because that fetch is outbound work an
+    anonymous caller can force and no claim is trusted yet to key on. Nothing is
+    refunded: what this bounds is the attempt, not the mint.
+
+    `ip` is None when the proxy chain is untrusted, and those callers share one
+    bucket rather than each getting a fresh one.
+    """
+    charged = _charge_mint_slot(f"wizard_ci_verify:{ip or 'unknown'}", WIZARD_CI_VERIFY_WINDOW_SECONDS)
+    if charged is None:
+        return
+    _, count = charged
+    if count > limit:
+        raise exceptions.Throttled(detail="Too many wizard CI token verifications from this address.")
+
+
+WIZARD_CI_MINT_WINDOW_SECONDS = 3600
+
+
+def reserve_wizard_ci_mint(repository: str, limit: int) -> str | None:
+    """Atomically consume one of this repository's hourly CI mints, or raise.
+
+    Keyed on the verified repository claim, because a CI run has no user to key on.
+    Returns the same refundable handle as reserve_wizard_mint.
+    """
+    charged = _charge_mint_slot(f"wizard_ci_mint:{repository}", WIZARD_CI_MINT_WINDOW_SECONDS)
+    if charged is None:
+        return None
+    counter, count = charged
+    if count > limit:
+        raise exceptions.Throttled(detail="This repository has used its hourly wizard CI mint limit.")
     return counter
 
 

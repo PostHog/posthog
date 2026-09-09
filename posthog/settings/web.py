@@ -1269,6 +1269,24 @@ except ValueError:
     WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM = {}
     WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM_INVALID = True
 
+# Pins on the CI workflow's GitHub Actions OIDC token; any empty refuses the path.
+# The workflow path is what precedes the "@" in workflow_ref.
+WIZARD_CI_OIDC_AUDIENCE = get_from_env("WIZARD_CI_OIDC_AUDIENCE", "")
+WIZARD_CI_REPOSITORY = get_from_env("WIZARD_CI_REPOSITORY", "")
+WIZARD_CI_REPOSITORY_OWNER_ID = get_from_env("WIZARD_CI_REPOSITORY_OWNER_ID", "")
+WIZARD_CI_WORKFLOW_PATH = get_from_env("WIZARD_CI_WORKFLOW_PATH", "")
+WIZARD_CI_SUBJECT = get_from_env("WIZARD_CI_SUBJECT", "")
+# Charged before the key fetch an anonymous caller would otherwise force.
+WIZARD_CI_VERIFY_PER_MINUTE = get_from_env("WIZARD_CI_VERIFY_PER_MINUTE", 30, type_cast=int)
+# The team is the organization billed, so 0 refuses the path. Programs are a
+# subset of WIZARD_GATEWAY_PROGRAM_IDS; an id absent from either is refused.
+WIZARD_CI_TEAM_ID = get_from_env("WIZARD_CI_TEAM_ID", 0, type_cast=int)
+WIZARD_CI_PROGRAM_IDS = get_list(get_from_env("WIZARD_CI_PROGRAM_IDS", ""))
+WIZARD_CI_CAP_USD = get_from_env("WIZARD_CI_CAP_USD", "2")
+WIZARD_CI_TTL_SECONDS = get_from_env("WIZARD_CI_TTL_SECONDS", 3600, type_cast=int)
+# Bounds a retry loop, not normal use.
+WIZARD_CI_MINTS_PER_HOUR = get_from_env("WIZARD_CI_MINTS_PER_HOUR", 20, type_cast=int)
+
 # Exact MCP endpoints that operators explicitly allow the MCP Store to reach even
 # when normal SSRF validation rejects their private/internal address. This is an
 # internal dogfooding escape hatch, not a hostname or CIDR allowlist: callers must

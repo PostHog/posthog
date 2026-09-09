@@ -391,6 +391,7 @@ def mint_wizard_gateway_token(
     cap_usd: Decimal | None = None,
     program: object = None,
     posture: WizardPosture | None = None,
+    ttl_seconds: int | None = None,
 ) -> dict[str, Any]:
     """Mint one run's token; returns {token, expires_at, cap_usd}. Raises
     WizardGatewayMintError on any refusal or transport failure; the bearer never
@@ -402,7 +403,7 @@ def mint_wizard_gateway_token(
     base_url = wizard_gateway_base_url()
     body = {
         "cap_usd": _cap_usd(cap_usd, program=program, posture=posture),
-        "ttl_seconds": _ttl_seconds(posture),
+        "ttl_seconds": _ttl_seconds(posture, ttl_seconds),
         "product": product,
         "obo": obo,
         "user": user,
@@ -462,9 +463,15 @@ def mint_wizard_gateway_token(
     }
 
 
-def _ttl_seconds(posture: WizardPosture | None) -> int:
-    """The requested token lifetime, clamped to the gateway's mint bounds."""
-    ttl = wizard_tier_limits(posture).ttl_seconds if posture is not None else None
+def _ttl_seconds(posture: WizardPosture | None, override: int | None = None) -> int:
+    """The requested token lifetime, clamped to the gateway's mint bounds.
+
+    The override outranks both tier and setting, for callers whose run is bounded
+    by something other than a posture. It is clamped like every other source.
+    """
+    ttl = override
+    if ttl is None:
+        ttl = wizard_tier_limits(posture).ttl_seconds if posture is not None else None
     if ttl is None:
         ttl = int(settings.WIZARD_GATEWAY_TOKEN_TTL_SECONDS)
     return max(_MIN_TTL_SECONDS, min(ttl, _MAX_TTL_SECONDS))
@@ -520,4 +527,21 @@ def _parse_cap(raw: object) -> Decimal | None:
         return None
     if cap <= 0 or cap > _MAX_CAP_USD:
         return None
+    return cap
+
+
+# A smoke test is one short run, so this is well under every posture's cap.
+_CI_CAP_FLOOR = Decimal("2")
+
+
+def wizard_ci_cap_usd() -> Decimal:
+    """The per-run cap for a CI mint, falling back to the in-code floor.
+
+    A rejected setting degrades quietly toward the floor, so it is counted like
+    every other out-of-contract value rather than only logged.
+    """
+    cap = _parse_cap(settings.WIZARD_CI_CAP_USD)
+    if cap is None:
+        WIZARD_GATEWAY_CONFIG_REJECTS.labels(field="ci_cap_usd").inc()
+        return _CI_CAP_FLOOR
     return cap

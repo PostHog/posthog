@@ -29,6 +29,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.email_verification import email_verification_pending
+from posthog.api.wizard.ci_oidc import WizardCiOidcError, looks_like_jwt, verify_github_oidc, wizard_ci_oidc_configured
 from posthog.api.wizard.utils import json_schema_to_gemini_schema
 from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.cloud_utils import get_api_host
@@ -38,6 +39,7 @@ from posthog.llm.wizard_gateway_token import (
     WizardGatewayMintError,
     WizardPosture,
     mint_wizard_gateway_token,
+    wizard_ci_cap_usd,
     wizard_gateway_base_url,
     wizard_gateway_configured,
     wizard_limit_override,
@@ -55,6 +57,8 @@ from posthog.rate_limit import (
     SetupWizardGatewayTokenRateThrottle,
     SetupWizardQueryRateThrottle,
     refund_wizard_mint,
+    reserve_wizard_ci_mint,
+    reserve_wizard_ci_verify,
     reserve_wizard_mint,
 )
 from posthog.storage.gateway_credential_cache import (
@@ -62,6 +66,7 @@ from posthog.storage.gateway_credential_cache import (
     oauth_credential_authorized,
 )
 from posthog.user_permissions import UserPermissions
+from posthog.utils import get_trusted_client_ip
 
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -92,7 +97,9 @@ WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL = Counter(
     "posthog_wizard_gateway_token_requests_total",
     "Wizard gateway-token mint requests, by outcome (minted/unconfigured/invalid_token/"
     "not_wizard_app/scope_missing/team_ambiguous/team_missing/unauthorized/blocked/"
-    "program_unknown/not_rolled_out/throttled/mint_failed)",
+    "program_unknown/not_rolled_out/throttled/mint_failed). A GitHub Actions CI run "
+    "reports the same outcomes under a ci_ prefix, so it is separable without a "
+    "second label changing every existing query.",
     labelnames=["outcome"],
 )
 
@@ -148,6 +155,89 @@ def _refuse_mint(
     # The handler reads a ValidationError's codes as a list, every other class's as a string.
     exc.detail = [detail] if isinstance(exc, exceptions.ValidationError) else detail
     raise exc
+
+
+def _ci_bearer(request: Request) -> str | None:
+    """The presented bearer when it is JWT-shaped. Routing only; verify_github_oidc
+    decides whether it is a wizard CI identity."""
+    header = request.META.get("HTTP_AUTHORIZATION", "")
+    if not header.startswith("Bearer "):
+        return None
+    token = header.removeprefix("Bearer ").strip()
+    return token if looks_like_jwt(token) else None
+
+
+def _ci_mint(request: Request, bearer: str, *, program: object, product: str | None) -> Response:
+    """Mint one run's token for a verified GitHub Actions workflow.
+
+    A workflow run has no user, so the signed claims are the identity check the
+    user-bound path gets from the blocklist and email verification. Outcomes carry a
+    `ci_` prefix so the existing counter keeps its shape.
+    """
+
+    def refuse(outcome: str, exc: exceptions.APIException) -> NoReturn:
+        _refuse_mint(outcome, exc, program=program, product_node=product)
+
+    # Charged before verification, which reaches for a signing key over the network
+    # on an endpoint anonymous callers reach. The trusted-proxy-validated address,
+    # because a key the caller can write is a quota it hands itself.
+    try:
+        reserve_wizard_ci_verify(get_trusted_client_ip(request), settings.WIZARD_CI_VERIFY_PER_MINUTE)
+    except exceptions.Throttled as e:
+        refuse("ci_verify_throttled", e)
+
+    try:
+        claims = verify_github_oidc(bearer)
+    except WizardCiOidcError as e:
+        refuse("ci_invalid_token", AuthenticationFailed(str(e)))
+
+    # After the token verifies, so the instance cannot be probed for which half of
+    # its configuration is missing.
+    if not settings.WIZARD_CI_TEAM_ID:
+        refuse("ci_unconfigured", exceptions.PermissionDenied("Wizard CI minting is not configured."))
+
+    # The CI list authorizes and the product node is what a budget matches on, so a
+    # program missing from either has nowhere to bill.
+    if product is None or not isinstance(program, str) or program not in set(settings.WIZARD_CI_PROGRAM_IDS):
+        refuse("ci_program_unknown", exceptions.PermissionDenied("This wizard program cannot mint from CI."))
+
+    team = Team.objects.select_related("organization").filter(id=settings.WIZARD_CI_TEAM_ID).first()
+    if team is None:
+        refuse("ci_team_missing", exceptions.PermissionDenied("The configured wizard CI team does not exist."))
+
+    try:
+        reserved = reserve_wizard_ci_mint(claims.repository, settings.WIZARD_CI_MINTS_PER_HOUR)
+    except exceptions.Throttled as e:
+        refuse("ci_throttled", e)
+
+    try:
+        minted = mint_wizard_gateway_token(
+            obo=str(team.organization_id),
+            # No person owns this run, so the repository is what the spend reads as.
+            user=f"wizard-ci:{claims.repository}",
+            product=product,
+            cap_usd=wizard_ci_cap_usd(),
+            program=program,
+            ttl_seconds=settings.WIZARD_CI_TTL_SECONDS,
+        )
+    except WizardGatewayMintError as e:
+        if not e.token_may_exist:
+            refund_wizard_mint(reserved)
+        WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="ci_mint_failed").inc()
+        capture_exception(e, {"ai_product": "wizard", "team_id": team.id})
+        return Response({"error": "Gateway token mint failed."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="ci_minted").inc()
+    return Response(
+        {
+            "token": minted["token"],
+            "expires_at": minted["expires_at"],
+            "cap_usd": minted.get("cap_usd"),
+            "gateway_url": wizard_gateway_base_url(),
+            "team_id": team.id,
+        },
+        status=status.HTTP_201_CREATED,
+    )
 
 
 def _detail_text(exc: exceptions.APIException) -> str:
@@ -527,6 +617,13 @@ class SetupWizardViewSet(viewsets.ViewSet):
         posture: WizardPosture | None = None
         if not wizard_gateway_configured():
             refuse_absent_gateway("unconfigured", "The PostHog AI gateway is not configured on this instance.")
+
+        # A JWT bearer cannot authenticate below (OAuthAccessTokenAuthentication
+        # takes pha_ only), and the branch is off unless every CI pin is set.
+        if wizard_ci_oidc_configured():
+            ci_bearer = _ci_bearer(request)
+            if ci_bearer is not None:
+                return _ci_mint(request, ci_bearer, program=program, product=product)
 
         authenticator = OAuthAccessTokenAuthentication()
         # authenticate() raises its own AuthenticationFailed, so the count wraps the
