@@ -344,7 +344,12 @@ export function parseCustomBotRules(raw: unknown): CustomBotRule[] {
     // A shared or missing id collapses entries in the id-keyed drag-and-drop context.
     const seenIds = new Set<string>()
     const uniqueId = (candidate: string, fallback: string): string => {
-        const id = candidate && !seenIds.has(candidate) ? candidate : fallback
+        let id = candidate && !seenIds.has(candidate) ? candidate : fallback
+        // The fallback can itself collide with an explicit id that happens to share its shape.
+        let suffix = 0
+        while (seenIds.has(id)) {
+            id = `${fallback}-${suffix++}`
+        }
         seenIds.add(id)
         return id
     }

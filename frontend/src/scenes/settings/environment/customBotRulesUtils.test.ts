@@ -253,6 +253,14 @@ describe('customBotRulesUtils', () => {
             expect(parsed[0].id).not.toEqual(parsed[1].id)
         })
 
+        it('re-mints even when an explicit id collides with a fallback id', () => {
+            // A stored id can share the fallback shape; the minted replacement must still be unique.
+            const parsed = parseCustomBotRules([rule({ id: 'rule-1' }), rule({ id: '', name: 'Second' })])
+
+            const ids = parsed.map((r) => r.id)
+            expect(new Set(ids).size).toEqual(ids.length)
+        })
+
         it('keeps parseable rules and drops what does not parse', () => {
             const current = rule()
 
