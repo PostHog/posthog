@@ -31,6 +31,7 @@ The system provisions the sandbox, clones a GitHub repo, starts an agent server,
 
 The run thread shows startup state in a progress accordion, with completed steps available in its history.
 Before progress arrives, it shows "Setting up sandbox", including when resuming a finished run.
+The thread hides empty and whitespace-only assistant messages during streaming and history replay.
 
 ```text
 Your product code

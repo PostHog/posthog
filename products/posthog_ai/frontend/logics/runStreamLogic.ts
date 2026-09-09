@@ -1442,13 +1442,15 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
 }
 
 /**
- * Whether a folded item renders any content. Empty priming thoughts and step-less progress rows fold
- * into the thread but render nothing; drop them here so a virtualized consumer never reserves an empty,
- * gap-padded row. Tool items are always paired with an invocation (see `upsertInvocationItem`), and
- * `debug` rows are gated separately by `showDebugLogs`, so neither needs a content check here.
+ * Empty assistant messages, priming thoughts, and step-less progress rows stay in the log for folding.
+ * Hide them from the rendered thread so message wrappers and virtualized consumers cannot reserve
+ * empty bubbles or gap-padded rows. Tool items are always paired with an invocation (see
+ * `upsertInvocationItem`), and `debug` rows are gated separately by `showDebugLogs`, so neither needs
+ * a content check here.
  */
 function rendersThreadItemContent(item: ThreadItem): boolean {
     switch (item.type) {
+        case 'assistant_message':
         case 'assistant_thought':
             return !!item.text?.trim()
         case 'progress':
