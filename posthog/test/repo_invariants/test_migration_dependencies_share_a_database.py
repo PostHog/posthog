@@ -20,11 +20,13 @@ def test_migration_dependencies_share_a_database_with_their_dependants() -> None
     graph = MigrationLoader(connection=None, ignore_no_migrations=True).graph
     aliases = {app: _migration_aliases(app) for app in {app for app, _ in graph.nodes}}
 
+    # The resolved graph carries `run_before` edges as parents too; the declared
+    # `dependencies` list alone would miss them.
     crossings = sorted(
-        f"{app}.{name} -> {dep_app}.{dep_name}"
-        for (app, name), node in graph.nodes.items()
-        for dep_app, dep_name in node.dependencies
-        if dep_app != app and not (aliases[app] & aliases[dep_app])
+        f"{app}.{name} -> {parent.key[0]}.{parent.key[1]}"
+        for (app, name), node in graph.node_map.items()
+        for parent in node.parents
+        if parent.key[0] != app and not (aliases[app] & aliases[parent.key[0]])
     )
     assert not crossings, (
         "These migrations depend on a migration that never applies to any of their own databases. "
