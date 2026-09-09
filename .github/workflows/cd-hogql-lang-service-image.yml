@@ -36,22 +36,29 @@ jobs:
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  sparse-checkout: |
-                      services/hogql-language-service/
-                      .github/actions/docker-meta/
+                  sparse-checkout: services/hogql-language-service/
                   sparse-checkout-cone-mode: false
 
-            - name: Docker meta and registry login
-              id: docker-meta
-              uses: ./.github/actions/docker-meta
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
               with:
-                  image-name: hogql-lang-service
-                  aws-role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
-                  dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
-                  dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
-                  push-to-ghcr: 'false'
-                  push-to-dockerhub: 'false'
+                  role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  aws-region: us-east-1
+
+            - name: Login to Amazon ECR
+              id: aws-ecr
+              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+
+            - name: Image metadata and ordered release tag
+              id: docker-meta
+              uses: PostHog/shared-actions/container-image-metadata@2427cf9968667894226f164eab356d96ca930b22 # v1, shared-actions#51
+              with:
+                  images: ${{ steps.aws-ecr.outputs.registry }}/hogql-lang-service
+                  extra-tags: |
+                      type=ref,event=branch
+                      type=raw,value=${{ github.sha }}
+                      type=raw,value=latest,enable={{is_default_branch}}
+                  generate-ordered-release-tag: 'true'
 
             - name: Set up Depot CLI
               uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
@@ -70,6 +77,15 @@ jobs:
                   annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/arm64,linux/amd64
                   build-args: COMMIT_HASH=${{ github.sha }}
+
+            - name: Publish ordered release tag
+              if: vars.CD_DEPLOY_ENABLED == 'true'
+              uses: PostHog/shared-actions/container-image-metadata@2427cf9968667894226f164eab356d96ca930b22 # v1, shared-actions#51
+              with:
+                  images: ${{ steps.aws-ecr.outputs.registry }}/hogql-lang-service
+                  publish-ordered-release-tag: 'true'
+                  ordered-release-tag: ${{ steps.docker-meta.outputs.ordered-release-tag }}
+                  ordered-release-digest: ${{ steps.push.outputs.digest }}
 
     deploy:
         name: Trigger HogQL language service deployment
