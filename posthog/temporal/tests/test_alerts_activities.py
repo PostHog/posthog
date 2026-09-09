@@ -41,6 +41,7 @@ from posthog.temporal.alerts.activities import (
     notify_alert,
     prepare_alert,
     record_failed_evaluation,
+    retrieve_due_alerts,
 )
 from posthog.temporal.alerts.retry_policy import alert_timeouts
 from posthog.temporal.alerts.types import (
@@ -128,6 +129,17 @@ async def _create_alert(
         return alert
 
     return await _create()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_retrieve_due_alerts_limits_each_schedule_run_to_fifty(ateam) -> None:
+    for _ in range(51):
+        await _create_alert(ateam)
+
+    alerts = await ActivityEnvironment().run(retrieve_due_alerts)
+
+    assert len(alerts) == 50
 
 
 @pytest_asyncio.fixture
