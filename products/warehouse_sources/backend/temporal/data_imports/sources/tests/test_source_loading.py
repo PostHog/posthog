@@ -5,7 +5,10 @@ from typing import cast
 import pytest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from products.warehouse_sources.backend.temporal.data_imports.sources import (
+    _should_capture_import_failure,
     _source_module_paths,
     load_all_sources,
     source_module_path,
@@ -25,6 +28,7 @@ def test_broken_source_module_does_not_block_the_rest_of_the_catalog():
             return_value=[f"{_SOURCES}.gone.source", f"{_SOURCES}.pypi.source"],
         ),
         patch(f"{_SOURCES}.capture_exception") as capture_exception,
+        override_settings(CLOUD_DEPLOYMENT="US"),
     ):
         load_all_sources()
 
@@ -32,6 +36,25 @@ def test_broken_source_module_does_not_block_the_rest_of_the_catalog():
     # the real full load that `_ensure_loaded` would kick off.
     assert ExternalDataSourceType.PYPI in SourceRegistry._sources
     capture_exception.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "error,cloud_deployment,expected",
+    [
+        (ModuleNotFoundError("No module named 'vendor_sdk'"), None, False),
+        (ModuleNotFoundError("No module named 'vendor_sdk'"), "US", True),
+        (ValueError("module-level code raised"), None, True),
+        (ValueError("module-level code raised"), "US", True),
+    ],
+)
+def test_a_missing_module_is_reported_only_from_a_deploy(
+    error: Exception, cloud_deployment: str | None, expected: bool
+):
+    # An unprovisioned or mid-edit checkout cannot import every source, and each failure files
+    # its own error-tracking issue. Only a deploy, where the SDKs and generated configs are
+    # guaranteed present, can tell that apart from a source that really went missing.
+    with override_settings(CLOUD_DEPLOYMENT=cloud_deployment):
+        assert _should_capture_import_failure(error) is expected
 
 
 def test_per_source_fallback_covers_every_source_the_bulk_import_loads():
