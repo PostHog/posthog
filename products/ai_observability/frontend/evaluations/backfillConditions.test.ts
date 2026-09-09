@@ -1,8 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { backfillConditionFilters, backfillRangeDateFormat, backfillSamplingLabel } from './backfillConditions'
-
-const MODEL_FILTER = { key: '$ai_model', value: 'gpt-5', operator: 'exact', type: 'event' }
+import { backfillRangeDateFormat, backfillSamplingLabel } from './backfillConditions'
 
 describe('backfillConditions', () => {
     it.each([
@@ -16,14 +14,6 @@ describe('backfillConditions', () => {
         [99.999, '99.9% sampled'],
     ])('renders rollout %s as %s', (rolloutPercentage: number | undefined, expected: string) => {
         expect(backfillSamplingLabel({ rollout_percentage: rolloutPercentage })).toBe(expected)
-    })
-
-    it('treats a condition set without properties as unfiltered', () => {
-        expect(backfillConditionFilters({})).toEqual([])
-    })
-
-    it('carries a property filter through unchanged', () => {
-        expect(backfillConditionFilters({ properties: [MODEL_FILTER] })).toEqual([MODEL_FILTER])
     })
 
     it.each([

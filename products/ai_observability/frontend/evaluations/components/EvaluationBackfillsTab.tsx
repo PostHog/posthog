@@ -15,19 +15,20 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { pluralize } from 'lib/utils/strings'
 
-import { AccessControlLevel, AccessControlResourceType, DateMappingOption, UserBasicType } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    AnyPropertyFilter,
+    DateMappingOption,
+    UserBasicType,
+} from '~/types'
 
 import type {
     EvaluationBackfillApi,
     EvaluationBackfillConditionApi,
     EvaluationBackfillStatusEnumApi,
 } from '../../generated/api.schemas'
-import {
-    backfillConditionFilters,
-    backfillRangeDateFormat,
-    backfillSamplingLabel,
-    backfillSamplingPercent,
-} from '../backfillConditions'
+import { backfillRangeDateFormat, backfillSamplingLabel } from '../backfillConditions'
 import { evaluationBackfillsLogic } from '../evaluationBackfillsLogic'
 import { EvaluationTriggers } from './EvaluationTriggers'
 
@@ -58,7 +59,9 @@ function ConditionSetScope({
     condition: EvaluationBackfillConditionApi
     unitPlural: string
 }): JSX.Element {
-    const filters = backfillConditionFilters(condition)
+    // The generated type carries property filters as plain dicts, while the display components take
+    // the filter union. The two agree at runtime, mirroring the cast in `toRequestConditions`.
+    const filters = (condition.properties ?? []) as AnyPropertyFilter[]
     return filters.length > 0 ? (
         <PropertyFiltersDisplay filters={filters} compact />
     ) : (
@@ -168,7 +171,7 @@ export function EvaluationBackfillsTab({ evaluationId, userAccessLevel }: Evalua
                                         {rest.map((condition, index) => (
                                             <div key={index} className="flex items-center gap-1 flex-wrap">
                                                 <ConditionSetScope condition={condition} unitPlural={rowUnitPlural} />
-                                                {backfillSamplingPercent(condition) < 100 && (
+                                                {(condition.rollout_percentage ?? 100) < 100 && (
                                                     <span>{backfillSamplingLabel(condition)}</span>
                                                 )}
                                             </div>
@@ -186,7 +189,7 @@ export function EvaluationBackfillsTab({ evaluationId, userAccessLevel }: Evalua
                                 </LemonButton>
                             </Tooltip>
                         )}
-                        {backfillSamplingPercent(first) < 100 && (
+                        {(first.rollout_percentage ?? 100) < 100 && (
                             <LemonTag type="muted" size="small">
                                 {backfillSamplingLabel(first)}
                             </LemonTag>

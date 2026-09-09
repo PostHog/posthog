@@ -1,21 +1,9 @@
 import { dayjs } from 'lib/dayjs'
 
-import type { AnyPropertyFilter } from '~/types'
-
 import type { EvaluationBackfillConditionApi } from '../generated/api.schemas'
 
-/** The generated type carries property filters as plain dicts, while the display components take
- * the filter union. The two agree at runtime, mirroring the cast in `toRequestConditions`. */
-export function backfillConditionFilters(condition: EvaluationBackfillConditionApi): AnyPropertyFilter[] {
-    return (condition.properties ?? []) as AnyPropertyFilter[]
-}
-
-export function backfillSamplingPercent(condition: EvaluationBackfillConditionApi): number {
-    return condition.rollout_percentage ?? 100
-}
-
 export function backfillSamplingLabel(condition: EvaluationBackfillConditionApi): string {
-    const percent = backfillSamplingPercent(condition)
+    const percent = condition.rollout_percentage ?? 100
     // A rollout under 1% is still a real sample, so one decimal is not enough to tell 0.04 from 0.
     const decimals = percent < 1 ? 2 : percent < 100 ? 1 : 0
     const factor = 10 ** decimals
