@@ -7,6 +7,7 @@ import {
     IconEllipsis,
     IconExternal,
     IconSearch,
+    IconTrends,
     IconSidebarClose,
     IconSidebarOpen,
 } from '@posthog/icons'
@@ -48,6 +49,8 @@ import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
 import { useReportDetailActions } from './ReportDetailActions'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
+import { ReportImpactMetrics } from './ReportImpactMetrics'
+import { ReportPrimaryMetric } from './ReportPrimaryMetric'
 import { ReportSummaryBody } from './ReportSummaryBody'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
@@ -304,6 +307,12 @@ export function InboxDetailFrame({
 
     // The report body: title, summary, charts, and the rating. On a PR-bearing report it is the
     // "Summary" tab; otherwise it sits under the "Report summary" header.
+    // The key observation leads the evidence rail; the supporting tiles belong to the body's Impact section.
+    const primaryMetric = report.metrics?.find((metric) => metric.role === 'primary')
+    const supportingMetrics = report.metrics?.filter((metric) => metric.role !== 'primary') ?? []
+    const impactMetrics =
+        supportingMetrics.length > 0 ? <ReportImpactMetrics reportId={report.id} metrics={supportingMetrics} /> : null
+
     const summaryColumn = (
         <div className="flex flex-1 flex-col gap-6">
             {titleHeading}
@@ -315,11 +324,15 @@ export function InboxDetailFrame({
                         chartPlacements={chartPlacements}
                         implementButton={implementButton}
                         pullRequestNote={pullRequestNote}
+                        impactMetrics={impactMetrics}
                     />
                 ) : (
-                    <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
-                        No summary yet. An agent is still investigating.
-                    </p>
+                    <div className="flex flex-col gap-6">
+                        <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
+                            No summary yet. An agent is still investigating.
+                        </p>
+                        {impactMetrics}
+                    </div>
                 )}
                 {trailingCharts.length > 0 && (
                     <div className="flex flex-col gap-4 mt-5">
@@ -379,7 +392,12 @@ export function InboxDetailFrame({
                     <aside className={DETAIL_ASIDE_COLLAPSED_CLASS}>{showRailButton}</aside>
                 ) : (
                     <aside className={DETAIL_ASIDE_CLASS}>
-                        {/* Evidence leads: it is what the summary's claims rest on. */}
+                        {/* The observation leads, then the evidence its claims rest on. */}
+                        {primaryMetric && (
+                            <DetailSection icon={<IconTrends />} title="Observation">
+                                <ReportPrimaryMetric reportId={report.id} metric={primaryMetric} />
+                            </DetailSection>
+                        )}
                         {hasEvidence && (
                             <DetailSection
                                 icon={<IconSearch />}

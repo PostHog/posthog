@@ -43,7 +43,7 @@ function SkeletonRow({
     return (
         <div
             className={clsx(
-                'flex w-full items-stretch gap-3 px-4 py-3.5',
+                'flex w-full items-stretch gap-3 px-4 py-4',
                 rounded && 'rounded border border-primary bg-surface-primary',
                 rounded && dashed && 'border-dashed',
                 bordered && 'border-b border-primary last:border-b-0'
@@ -51,7 +51,9 @@ function SkeletonRow({
         >
             {/* Matches the report card's square priority badge (`size-6`). */}
             <LemonSkeleton className="size-6 shrink-0 rounded-sm" />
-            <div className="flex min-w-0 flex-1 flex-col gap-2 py-0.5">
+            {/* Freestanding cards stand in for report rows, whose impact column reserves this height,
+                so the list does not jump when the rows arrive. */}
+            <div className={clsx('flex min-w-0 flex-1 flex-col gap-2 py-0.5', rounded && 'min-h-23')}>
                 <LemonSkeleton className="h-3.5 w-3/5" />
                 <LemonSkeleton className="h-3 w-4/5" />
                 <div className="flex items-center gap-1.5 pt-0.5">
