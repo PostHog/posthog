@@ -1111,8 +1111,11 @@ def send_matview_failure_digest() -> None:
     logger.info("Found %d teams with matview failures", len(team_ids))
 
     for team_id in team_ids:
+        suspended_ids = suspended_ids_by_team.get(team_id, [])
         # Markers are written fleet-wide, but a view only stops running where enforcement is on.
-        suspended_ids = suspended_ids_by_team.get(team_id, []) if is_suspension_enforced(team_id) else []
+        # Asked only where a marker exists, so a team with failures alone pays no team lookup.
+        if suspended_ids and not is_suspension_enforced(team_id):
+            suspended_ids = []
         suspended = set(suspended_ids)
         # A suspended view failed too, so report it once, under the status that asks for action.
         failed_ids = [qid for qid in failed_ids_by_team.get(team_id, []) if qid not in suspended]
