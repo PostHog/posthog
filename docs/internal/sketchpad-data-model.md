@@ -1,5 +1,8 @@
 # Sketchpad data model
 
+WSGI streams pull each frame through a response-owned event loop. Closing the
+response finishes async generator cleanup before releasing its admission slot.
+
 Sketchpads store a materialized board and an ordered operation log. Each board,
 record, operation, and compile job belongs to a team. Use `objects.for_team(team_id)`
 for access outside request scoping.

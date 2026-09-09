@@ -333,6 +333,20 @@ def sse_frame(data: Mapping[str, Any], *, event: str, event_id: str | None = Non
     return f"{prefix}event: {event}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
 
 
+def _sync_stream(make_stream: Callable[[], AsyncGenerator[bytes | str]]) -> Generator[bytes | str]:
+    with asyncio.Runner() as runner:
+        stream = make_stream()
+        try:
+            while True:
+                try:
+                    chunk = runner.run(anext(stream))
+                except StopAsyncIteration:
+                    return
+                yield chunk
+        finally:
+            runner.run(stream.aclose())
+
+
 def sse_streaming_response(
     stream: StreamContent | Callable[[], AsyncGenerator[bytes | str]],
     *,
@@ -387,10 +401,8 @@ def sse_streaming_response(
         return _stream_cap_rejection(endpoint)
     try:
         if callable(stream):
-            from ee.hogai.utils.aio import async_to_sync
-
             make_stream = cast(Callable[[], AsyncGenerator[bytes | str]], stream)
-            stream = make_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(make_stream)
+            stream = make_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else _sync_stream(make_stream)
         return streaming_response(
             _instrument_stream(stream, endpoint, reservation),
             content_type="text/event-stream",
