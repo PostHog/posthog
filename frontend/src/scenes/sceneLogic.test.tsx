@@ -119,8 +119,7 @@ describe('sceneLogic', () => {
         expect(router.values.hashParams.panel).toEqual('max:inspect')
     })
 
-    // The change password form emails a reset link to someone who is already signed in, so
-    // bouncing them off the link's own page would put them right back at the dead end.
+    // The change password form emails this link to a user who is already signed in.
     it('keeps a signed-in user on the password reset link instead of redirecting them away', async () => {
         const resetLink = urls.passwordResetComplete(MOCK_USER_UUID, 'a-token')
         router.actions.push(resetLink)

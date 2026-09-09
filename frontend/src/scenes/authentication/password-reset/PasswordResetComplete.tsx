@@ -119,8 +119,7 @@ function ResetInvalid(): JSX.Element {
                     type="primary"
                     center
                     data-attr="back-to-login"
-                    // /reset is unauthenticated-only, so send someone who is still signed in back
-                    // to the settings row that offered them the link.
+                    // Scene.PasswordReset is onlyUnauthenticated, so /reset would bounce a signed-in user.
                     to={user ? urls.settings('user-profile', 'change-password') : urls.passwordReset()}
                 >
                     Request new link

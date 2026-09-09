@@ -163,8 +163,7 @@ export const changePasswordLogic = kea<changePasswordLogicType>([
         passwordResetEmailSent: [
             false,
             {
-                // The same endpoint the login page's "Forgot password?" link uses. We know the
-                // signed-in user's address, so there is nothing left to ask them for.
+                // The same endpoint the login page's "Forgot password?" link posts to.
                 requestPasswordResetEmail: async () => {
                     const email = values.user?.email
                     if (!email) {
