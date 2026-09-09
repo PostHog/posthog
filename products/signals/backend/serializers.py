@@ -410,6 +410,7 @@ class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
             "slack_notification_integration_id",
             "slack_notification_channel",
             "slack_notification_min_priority",
+            "github_assign_on_pull_request",
             "created_at",
             "updated_at",
         ]
@@ -425,6 +426,13 @@ class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
                 "help_text": (
                     "Minimum report priority that triggers a Slack notification. P0 is highest. "
                     "Null means notify on every priority. When set, reports without a priority judgment do not notify."
+                )
+            },
+            "github_assign_on_pull_request": {
+                "help_text": (
+                    "Whether to add this user as a GitHub assignee on implementation pull requests for "
+                    "reports that suggest them as reviewer. Off by default. Assignment is additive, so "
+                    "turning it off never removes an assignee from a pull request that already has one."
                 )
             },
         }
@@ -453,6 +461,14 @@ class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "P0 is highest. Null = notify for every priority. When set, reports without a priority judgment do not notify."
+        ),
+    )
+    github_assign_on_pull_request = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Add this user as a GitHub assignee on implementation pull requests for reports that "
+            "suggest them as reviewer. Off by default. Turning it off stops future assignment and "
+            "never removes an existing assignee."
         ),
     )
 

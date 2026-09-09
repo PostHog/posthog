@@ -2463,11 +2463,15 @@ class OAuthProtectedResourceMetadataView(_PublicMetadataView):
         return JsonResponse(metadata)
 
 
-# OIDC scopes have no entry in get_scope_descriptions(), which only covers obj:action scopes.
-_OIDC_SCOPE_DESCRIPTIONS = {
+# Identity and token-management scopes have no entry in get_scope_descriptions(),
+# which only covers obj:action scopes. Every bare scope in
+# `get_oauth_scopes_supported()` needs a line here, or the manifest prints the
+# scope name where its description belongs.
+_IDENTITY_SCOPE_DESCRIPTIONS = {
     "openid": "Sign in and read your user identifier",
     "profile": "Read your basic profile",
     "email": "Read your email address",
+    "introspection": "Check whether a token you hold is still valid",
 }
 
 
@@ -2485,7 +2489,7 @@ class OAuthClientManifestView(_PublicMetadataView):
 
         descriptions = get_scope_descriptions()
         scopes = [
-            (scope, descriptions[scope] if scope in descriptions else _OIDC_SCOPE_DESCRIPTIONS.get(scope, scope))
+            (scope, descriptions[scope] if scope in descriptions else _IDENTITY_SCOPE_DESCRIPTIONS.get(scope, scope))
             for scope in get_oauth_scopes_supported()
         ]
 

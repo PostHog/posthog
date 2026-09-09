@@ -21,6 +21,10 @@ import type {
   IContextMenuExternalApps,
 } from "@posthog/core/context-menu/identifiers";
 import type {
+  CUSTOM_CLOUD_STORE,
+  CustomCloudStore,
+} from "@posthog/core/custom-cloud/identifiers";
+import type {
   FOCUS_SESSION_STORE,
   FOCUS_WORKSPACE_CLIENT,
   FOCUS_WORKTREE_PATHS,
@@ -435,6 +439,7 @@ export interface MainBindings {
   // Notification / oauth
   [NOTIFICATION_SERVICE]: NotificationService;
   [OAUTH_HOST]: OAuthHost;
+  [CUSTOM_CLOUD_STORE]: CustomCloudStore;
 
   // Process tracking / posthog plugin
   [MAIN_PROCESS_TRACKING_SERVICE]: ProcessTrackingService;

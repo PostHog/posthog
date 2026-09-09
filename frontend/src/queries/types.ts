@@ -51,6 +51,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     showLoadNextButton?: boolean
     /** Allow customization of file name when exporting */
     fileNameForExport?: string
+    dataTableExportExcludedColumns?: string[]
     /** Cohort ID to enable cohort-specific features like View Replays button */
     cohortId?: number | null
     /** Custom column features to pass down to the DataTable */

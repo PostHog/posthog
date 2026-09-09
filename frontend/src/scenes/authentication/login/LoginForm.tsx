@@ -371,7 +371,9 @@ export function LoginForm(): JSX.Element {
                                 <span>No sign-in method is set up for this account. Use</span>{' '}
                                 <Link
                                     to={[urls.passwordReset(), { email: login.email }]}
-                                    data-attr="forgot-password"
+                                    // Autocapture reports the click. Each reset entry point has its
+                                    // own `data-attr`, so one funnel can tell them apart.
+                                    data-attr="login-no-method-reset-password"
                                     className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
                                 >
                                     Forgot password?

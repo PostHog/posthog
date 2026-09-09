@@ -128,6 +128,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 )
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
+from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
     PullRequestChecksResponseSerializer,
@@ -3897,6 +3898,17 @@ def append_suggested_reviewers(
                     actor_user_id=attribution.user_id,
                 )
 
+            # Only on an add: assignment is additive, so a removal leaves the pull request alone.
+            if added_logins:
+                assignment = SignalReportAssignment.all_teams.filter(team_id=team.id, report_id=report_id).first()
+                if assignment is not None:
+                    schedule_reviewer_pr_assignment(
+                        team_id=team.id,
+                        report_id=str(report_id),
+                        pr_url=assignment.pr_url,
+                        pr_state=assignment.pr_state,
+                    )
+
             # The same correction also steers the scouts that route on the logins it changed, which
             # is the only return path a scout has for routing memory it already cached — but only for
             # a genuine team edit. An impersonated operator edit is not team ownership evidence, so it
@@ -4539,6 +4551,8 @@ class SignalUserAutonomyConfigView(APIView):
             defaults["autostart_priority"] = validated.get("autostart_priority")
         if "slack_notification_min_priority" in serializer.initial_data:
             defaults["slack_notification_min_priority"] = validated.get("slack_notification_min_priority")
+        if "github_assign_on_pull_request" in serializer.initial_data:
+            defaults["github_assign_on_pull_request"] = validated.get("github_assign_on_pull_request", False)
         if "slack_notification_channel" in serializer.initial_data:
             defaults["slack_notification_channel"] = validated.get("slack_notification_channel") or None
         if "slack_notification_integration_id" in serializer.initial_data:

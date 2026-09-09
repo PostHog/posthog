@@ -23,6 +23,18 @@ const block = (over: Partial<SessionBlockMetadata> = {}): SessionBlockMetadata =
 })
 
 describe('ml-mirror block-metadata-row', () => {
+    it.each([
+        ['018bcfe5-6800-7000-8000-000000000001', 1_700_000_000_000],
+        ['018BCFE5-6800-7000-8000-000000000001', 1_700_000_000_000],
+        ['018bcfe5-6800-4000-8000-000000000001', undefined],
+        ['018bcfe5-6800-7000-0000-000000000001', undefined],
+        ['legacy-session', undefined],
+    ])('derives the session partition before pseudonymizing %s', (sessionId, expected) => {
+        const result = toBlockMetadataRow(block({ sessionId: String(sessionId) }), SECRET)!
+        expect(result.session_start_ts_ms).toBe(expected)
+        expect(result.session_id).not.toBe(sessionId)
+    })
+
     describe('parseBlockUrl', () => {
         it('splits the object key from the byte range', () => {
             expect(parseBlockUrl('s3://b/key?range=bytes=100-250')).toEqual({ key: 's3://b/key', start: 100, end: 250 })

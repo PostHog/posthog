@@ -561,13 +561,18 @@ def get_oauth_scopes_supported() -> list[str]:
     (the latter generated at build time via `bin/build-mcp-oauth-scopes.py` so
     the protected resource cannot drift out of subset of the AS).
 
-    Built from `UNPRIVILEGED_SCOPES`, so it excludes all three non-advertised
-    classes: `INTERNAL_API_SCOPE_OBJECTS` (server-mint-only, e.g.
-    `signal_scout_internal` — never user-grantable), `OAUTH_SCOPES_HIDDEN`
-    (alpha / PAT-only), and `PRIVILEGED_SCOPES` (`llm_gateway:*`, admin-granted
-    only). Discovery metadata shouldn't advertise scopes an OAuth client can't
-    obtain self-serve. PAT validation uses `get_scope_descriptions()` directly
-    and is unaffected.
+    Resource scopes are built from `UNPRIVILEGED_SCOPES`, so the list excludes
+    all three non-advertised classes: `INTERNAL_API_SCOPE_OBJECTS`
+    (server-mint-only, e.g. `signal_scout_internal` — never user-grantable),
+    `OAUTH_SCOPES_HIDDEN` (alpha / PAT-only), and `PRIVILEGED_SCOPES`
+    (`llm_gateway:*`, admin-granted only). Discovery metadata shouldn't advertise
+    scopes an OAuth client can't obtain self-serve. PAT validation uses
+    `get_scope_descriptions()` directly and is unaffected.
+
+    Every `ALWAYS_ALLOWED_SCOPES` member is advertised too, because those ride on
+    every token we issue whether the client asks for them or not. A client that
+    requests one and cannot find it here reads that as consent granted only in
+    part, and warns the user at the moment of install.
 
     The Signals scout harness sandbox token carries `signal_scout_internal:write`,
     but it is minted by directly inserting an `OAuthAccessToken` row (see
@@ -581,4 +586,8 @@ def get_oauth_scopes_supported() -> list[str]:
     ordered = [
         f"{obj}:{action}" for obj in API_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS if f"{obj}:{action}" in visible
     ]
-    return list(OIDC_SCOPES) + ordered
+    # `OIDC_SCOPES` keeps its declared order at the head of the list, so only the
+    # remaining always-allowed scopes are appended (sorted to keep the generated
+    # MCP artifact byte-stable).
+    other_always_allowed = sorted(ALWAYS_ALLOWED_SCOPES - set(OIDC_SCOPES))
+    return list(OIDC_SCOPES) + other_always_allowed + ordered

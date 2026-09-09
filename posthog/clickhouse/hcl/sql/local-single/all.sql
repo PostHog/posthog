@@ -575,7 +575,7 @@ CREATE TABLE posthog.kafka_logs_avro (
   retention_days Nullable(Int32),
   pattern Nullable(String),
   pattern_version Nullable(Int32)
-) ENGINE = Kafka(warpstream_logs) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_format = 'Avro', kafka_group_name = 'clickhouse-logs-avro-new', kafka_num_consumers = 8, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_logs';
+) ENGINE = Kafka(warpstream_logs) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_format = 'Avro', kafka_group_name = 'clickhouse-logs-avro-new', kafka_num_consumers = 1, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_logs';
 CREATE TABLE posthog.kafka_message_assets (
   team_id Int64,
   function_kind LowCardinality(String),
@@ -615,7 +615,7 @@ CREATE TABLE posthog.kafka_metrics_avro (
   instrumentation_scope Nullable(String),
   attributes Map(String, String),
   series_fingerprint Nullable(Int64)
-) ENGINE = Kafka(warpstream_metrics) SETTINGS kafka_format = 'Avro', kafka_group_name = 'clickhouse-metrics-avro-new', kafka_num_consumers = 8, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_metrics';
+) ENGINE = Kafka(warpstream_metrics) SETTINGS kafka_format = 'Avro', kafka_group_name = 'clickhouse-metrics-avro-new', kafka_num_consumers = 1, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_metrics';
 CREATE TABLE posthog.kafka_metrics_avro2 (
   uuid String,
   trace_id String,
@@ -639,7 +639,7 @@ CREATE TABLE posthog.kafka_metrics_avro2 (
   series_fingerprint Nullable(Int64),
   has_labels Nullable(UInt8),
   retention_days Nullable(Int32)
-) ENGINE = Kafka(warpstream_metrics) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_format = 'Avro', kafka_group_name = 'clickhouse-metrics-avro2', kafka_num_consumers = 8, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_metrics';
+) ENGINE = Kafka(warpstream_metrics) SETTINGS input_format_avro_allow_missing_fields = 1, kafka_format = 'Avro', kafka_group_name = 'clickhouse-metrics-avro2', kafka_num_consumers = 1, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_metrics';
 CREATE TABLE posthog.kafka_performance_events (
   uuid UUID,
   session_id String,
@@ -775,7 +775,7 @@ CREATE TABLE posthog.kafka_property_values (
   property_key String,
   property_value String,
   property_count UInt64
-) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_property_values', kafka_num_consumers = 8, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_property_values';
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_property_values', kafka_num_consumers = 1, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_property_values';
 CREATE TABLE posthog.kafka_session_replay_events (
   session_id String,
   team_id Int64,
@@ -797,6 +797,7 @@ CREATE TABLE posthog.kafka_session_replay_events (
   message_count Int64,
   snapshot_source LowCardinality(Nullable(String)),
   snapshot_library Nullable(String),
+  snapshot_mode LowCardinality(Nullable(String)),
   retention_period_days Nullable(Int64),
   is_deleted UInt8,
   ai_tags_fixed Array(String),
@@ -919,7 +920,7 @@ CREATE TABLE posthog.kafka_trace_spans_avro (
   links Array(String),
   dropped_links_count Int32,
   status_code Int32
-) ENGINE = Kafka(warpstream_traces) SETTINGS kafka_format = 'Avro', kafka_group_name = 'clickhouse-traces-avro', kafka_num_consumers = 8, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_traces';
+) ENGINE = Kafka(warpstream_traces) SETTINGS kafka_format = 'Avro', kafka_group_name = 'clickhouse-traces-avro', kafka_num_consumers = 1, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_traces';
 CREATE TABLE posthog.kafka_usage_report_events_preagg (
   uuid UUID,
   event String,
@@ -1385,7 +1386,6 @@ GROUP BY
   team_id, time_bucket, toStartOfMinute(timestamp), service_name, metric_name, metric_type, resource_fingerprint)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.metrics1', '{replica}') ORDER BY (team_id, time_bucket, service_name, metric_name, resource_fingerprint, timestamp) PARTITION BY toDate(timestamp) SETTINGS index_granularity = 8192, index_granularity_bytes = 104857600, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics2 (
-  uuid String,
   team_id Int32,
   metric_name LowCardinality(String),
   time_bucket DateTime MATERIALIZED toStartOfHour(timestamp),
@@ -1417,22 +1417,6 @@ CREATE TABLE posthog.metrics2 (
   INDEX idx_trace_id_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
-  PROJECTION projection_series_minute (SELECT
-  team_id,
-  metric_name,
-  service_name,
-  metric_type,
-  resource_fingerprint,
-  series_fingerprint,
-  toStartOfMinute(timestamp) AS minute,
-  count() AS sample_count,
-  sum(value) AS total_value,
-  min(value) AS min_value,
-  max(value) AS max_value,
-  argMin(value, timestamp) AS first_value,
-  argMax(value, timestamp) AS last_value
-GROUP BY
-  team_id, metric_name, service_name, metric_type, resource_fingerprint, series_fingerprint, minute),
   PROJECTION projection_series_activity (SELECT
   team_id,
   service_name,
@@ -1476,7 +1460,6 @@ CREATE TABLE posthog.metrics2_input (
   _offset UInt64
 ) ENGINE = Null();
 CREATE TABLE posthog.metrics_distributed (
-  uuid String,
   team_id Int32,
   metric_name LowCardinality(String),
   time_bucket DateTime MATERIALIZED toStartOfHour(timestamp),
@@ -2781,7 +2764,8 @@ CREATE TABLE posthog.sharded_session_replay_events (
   ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
-  retention_period_days SimpleAggregateFunction(max, Nullable(Int64))
+  retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
+  snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.session_replay_events', '{replica}') ORDER BY (toDate(min_first_timestamp), team_id, session_id) PARTITION BY toYYYYMM(min_first_timestamp) SETTINGS index_granularity = 512;
 CREATE TABLE posthog.sharded_session_replay_features (
   session_id String,
@@ -4125,6 +4109,7 @@ CREATE TABLE posthog.writable_session_replay_events (
   event_count SimpleAggregateFunction(sum, Int64),
   snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
   snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+  snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
   _timestamp SimpleAggregateFunction(max, DateTime),
   retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
   is_deleted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
@@ -5165,8 +5150,7 @@ CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metric_series TO posthog.metr
   original_expiry_timestamp
 FROM posthog.metrics2_input
 WHERE has_labels;
-CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metrics TO posthog.metrics2 (uuid String, team_id Int32, metric_name LowCardinality(String), series_fingerprint UInt64, resource_fingerprint UInt64, timestamp DateTime64(6), observed_timestamp DateTime64(6), original_expiry_timestamp DateTime64(6), service_name LowCardinality(String), metric_type LowCardinality(String), value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32, has_labels Bool, unit LowCardinality(String), aggregation_temporality LowCardinality(String), is_monotonic Bool, instrumentation_scope String, _partition UInt32, _topic String, _offset UInt64) AS SELECT
-  uuid,
+CREATE MATERIALIZED VIEW posthog.metrics2_input_to_metrics TO posthog.metrics2 (team_id Int32, metric_name LowCardinality(String), series_fingerprint UInt64, resource_fingerprint UInt64, timestamp DateTime64(6), observed_timestamp DateTime64(6), original_expiry_timestamp DateTime64(6), service_name LowCardinality(String), metric_type LowCardinality(String), value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32, has_labels Bool, unit LowCardinality(String), aggregation_temporality LowCardinality(String), is_monotonic Bool, instrumentation_scope String, _partition UInt32, _topic String, _offset UInt64) AS SELECT
   team_id,
   metric_name,
   series_fingerprint,
@@ -5478,7 +5462,7 @@ WHERE
   bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 15) = 7
 GROUP BY
   team_id, toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000))), cityHash64(session_id_v7), session_id_v7;
-CREATE MATERIALIZED VIEW posthog.session_replay_events_mv TO posthog.writable_session_replay_events (session_id String, team_id Int64, distinct_id String, min_first_timestamp DateTime64(6, 'UTC'), max_last_timestamp DateTime64(6, 'UTC'), block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_urls SimpleAggregateFunction(groupArrayArray, Array(String)), first_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)), click_count Int64, keypress_count Int64, mouse_activity_count Int64, active_milliseconds Int64, console_log_count Int64, console_warn_count Int64, console_error_count Int64, size Int64, message_count Int64, event_count Int64, snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')), snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), retention_period_days SimpleAggregateFunction(max, Nullable(Int64)), is_deleted SimpleAggregateFunction(max, UInt8), ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_highlighted SimpleAggregateFunction(max, UInt8), surfacing_score SimpleAggregateFunction(max, Nullable(Float32))) AS SELECT
+CREATE MATERIALIZED VIEW posthog.session_replay_events_mv TO posthog.writable_session_replay_events (session_id String, team_id Int64, distinct_id String, min_first_timestamp DateTime64(6, 'UTC'), max_last_timestamp DateTime64(6, 'UTC'), block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_urls SimpleAggregateFunction(groupArrayArray, Array(String)), first_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)), click_count Int64, keypress_count Int64, mouse_activity_count Int64, active_milliseconds Int64, console_log_count Int64, console_warn_count Int64, console_error_count Int64, size Int64, message_count Int64, event_count Int64, snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')), snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), retention_period_days SimpleAggregateFunction(max, Nullable(Int64)), is_deleted SimpleAggregateFunction(max, UInt8), ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_highlighted SimpleAggregateFunction(max, UInt8), surfacing_score SimpleAggregateFunction(max, Nullable(Float32))) AS SELECT
   session_id,
   team_id,
   any(distinct_id) AS distinct_id,
@@ -5507,7 +5491,8 @@ CREATE MATERIALIZED VIEW posthog.session_replay_events_mv TO posthog.writable_se
   groupUniqArrayArray(ai_tags_fixed) AS ai_tags_fixed,
   groupUniqArrayArray(ai_tags_freeform) AS ai_tags_freeform,
   max(ai_highlighted) AS ai_highlighted,
-  max(surfacing_score) AS surfacing_score
+  max(surfacing_score) AS surfacing_score,
+  argMinState(snapshot_mode, first_timestamp) AS snapshot_mode
 FROM posthog.kafka_session_replay_events
 GROUP BY
   session_id, team_id;
@@ -6985,7 +6970,8 @@ CREATE TABLE posthog.session_replay_events (
   ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0,
   surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
-  retention_period_days SimpleAggregateFunction(max, Nullable(Int64))
+  retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
+  snapshot_mode AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_session_replay_events', sipHash64(distinct_id));
 CREATE TABLE posthog.session_replay_features (
   session_id String,
