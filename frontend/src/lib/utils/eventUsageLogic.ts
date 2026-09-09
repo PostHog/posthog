@@ -1789,6 +1789,13 @@ export interface eventUsageLogicActions {
         selfDriving: boolean | undefined
         surface: IntegrationConnectSurface
     }
+    reportIntegrationConnectRejected: (
+        kind: string,
+        error: string
+    ) => {
+        error: string
+        kind: string
+    }
     reportInviteMembersButtonClicked: () => {
         value: true
     }
@@ -2374,6 +2381,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             surface,
             selfDriving,
         }),
+        reportIntegrationConnectRejected: (kind: string, error: string) => ({ kind, error }),
         reportPersonalIntegrationConnectClicked: (kind: string) => ({ kind }),
         reportGroupPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
@@ -3332,6 +3340,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 // self-driving runs and everyone else, so it resolves this; surfaces that are
                 // self-driving by construction leave it unset rather than assert a constant.
                 self_driving: selfDriving,
+            })
+        },
+        // Counts connect attempts the provider sent back without a code. `integration_connect_clicked`
+        // only says the user started, so without this the drop-off is invisible outside session
+        // recordings — and `access_denied` in particular hides a workspace waiting on an admin.
+        reportIntegrationConnectRejected: ({ kind, error }) => {
+            posthog.capture('integration_connect_rejected', {
+                integration_kind: kind,
+                error,
             })
         },
         // Personal integrations are a separate table with their own connect surface, so they get
