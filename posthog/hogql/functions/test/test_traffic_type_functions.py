@@ -929,38 +929,6 @@ class TestCustomBotDefinitions(ClickhouseTestMixin, BaseTest):
 
         assert (is_bot, name) == (expected, "Headless 800x600" if expected else "")
 
-    @parameterized.expand(
-        [
-            # A reachable OR condition matching means the full rule would match too, so the
-            # reachable subset must still be evaluated instead of skipping the whole rule.
-            ("OR keeps the reachable condition", FilterLogicalOperator.OR_, True),
-            # A partial AND could flag events the full rule would not, so it must skip entirely.
-            ("AND skips the whole rule", FilterLogicalOperator.AND_, False),
-        ]
-    )
-    def test_a_composite_with_an_unreachable_property_follows_its_combiner(
-        self, _name: str, combiner: FilterLogicalOperator, expected_branch: bool
-    ):
-        from posthog.hogql.functions.traffic_type import _composite_branch
-
-        from products.web_analytics.backend.hogql_queries.custom_bot_definitions import compile_definitions
-
-        groups = compile_definitions(
-            [
-                _custom_bot(
-                    combiner=combiner,
-                    items=[
-                        _custom_condition(id="ua", pattern="AcmeBot"),
-                        _custom_condition(id="host", key=CustomBotField.FIELD_HOST, pattern="scraper.example.com"),
-                    ],
-                )
-            ]
-        )
-        # A user agent not read from a properties object has no sibling to reach $host through.
-        branch = _composite_branch(groups[0], [ast.Field(chain=["foo", "ua"])], "name")  # type: ignore[arg-type]
-
-        assert (branch is not None) == expected_branch
-
     def test_an_exact_condition_does_not_match_a_longer_value(self):
         # Equality is the reason the matcher exists: a contains rule on "800" would also flag every
         # 1800-wide screen.

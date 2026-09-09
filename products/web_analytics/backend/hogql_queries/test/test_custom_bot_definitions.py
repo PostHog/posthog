@@ -5,6 +5,9 @@ from parameterized import parameterized
 
 from posthog.schema import CustomBotCondition, CustomBotField, CustomBotMatcher, CustomBotRule
 
+from posthog.hogql import ast
+from posthog.hogql.functions.traffic_type import _composite_branch
+
 from posthog.schema_enums import FilterLogicalOperator
 
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
@@ -413,6 +416,37 @@ class TestCompileDefinitions:
         )
 
         assert patterns == ["(?i)AcmeBot", "^800$"]
+
+
+class TestCompositeBranch:
+    @parameterized.expand(
+        [
+            # A reachable OR condition matching means the full rule would match too, so the
+            # reachable subset must still be evaluated instead of skipping the whole rule.
+            ("OR keeps the reachable condition", FilterLogicalOperator.OR_, True),
+            # A partial AND could flag events the full rule would not, so it must skip entirely.
+            ("AND skips the whole rule", FilterLogicalOperator.AND_, False),
+        ]
+    )
+    def test_a_composite_with_an_unreachable_property_follows_its_combiner(
+        self, _name: str, combiner: FilterLogicalOperator, expected_branch: bool
+    ):
+        groups = compile_definitions(
+            [
+                rule(
+                    combiner=combiner,
+                    items=[
+                        condition(id="ua", pattern="AcmeBot"),
+                        condition(id="host", key=CustomBotField.FIELD_HOST, pattern="scraper.example.com"),
+                    ],
+                )
+            ]
+        )
+        assert isinstance(groups[0], CompositeGroup)
+        # A user agent not read from a properties object has no sibling to reach $host through.
+        branch = _composite_branch(groups[0], [ast.Field(chain=["foo", "ua"])], "name")
+
+        assert (branch is not None) == expected_branch
 
 
 class TestPatternsCompile(ClickhouseTestMixin, BaseTest):
