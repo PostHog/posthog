@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures import appfigures
@@ -204,7 +204,7 @@ class TestIterPaged:
 
 
 class TestIterReport:
-    @freeze_time("2024-02-15")
+    @time_machine.travel("2024-02-15", tick=False)
     def test_windows_date_range_into_chunks(self):
         body_by_window: dict[str, dict] = {
             "2024-01-01": {"2024-01-01": {"downloads": 1}},
@@ -233,7 +233,7 @@ class TestIterReport:
         # State saved after the first window, pointing at the next window's start.
         manager.save_state.assert_called_once_with(AppfiguresResumeConfig(window_start="2024-01-31"))
 
-    @freeze_time("2024-02-15")
+    @time_machine.travel("2024-02-15", tick=False)
     def test_report_request_sets_group_by_and_granularity(self):
         with mock.patch(f"{_MODULE}._fetch", return_value={}) as fetch:
             list(
@@ -250,7 +250,7 @@ class TestIterReport:
         assert params["group_by"] == "dates"
         assert params["granularity"] == "daily"
 
-    @freeze_time("2024-02-15")
+    @time_machine.travel("2024-02-15", tick=False)
     def test_resume_starts_from_saved_window(self):
         with mock.patch(f"{_MODULE}._fetch", return_value={}) as fetch:
             list(

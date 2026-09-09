@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
 
@@ -948,7 +948,7 @@ class TestGitHubIntegrationModel(BaseTest):
     def test_github_integration_refresh_token(self, mock_client_request):
         mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
 
-        with freeze_time("2024-01-01T12:00:00Z"):
+        with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
             integration = GitHubIntegration.integration_from_installation_id(
                 "INSTALLATION_ID",
                 self.team.id,
@@ -957,7 +957,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
             assert GitHubIntegration(integration).access_token_expired() is False
 
-        with freeze_time("2024-01-01T14:00:00Z"):
+        with time_machine.travel("2024-01-01T14:00:00Z", tick=False):
             assert GitHubIntegration(integration).access_token_expired() is True
 
             GitHubIntegration(integration).refresh_access_token()
@@ -1074,12 +1074,12 @@ class TestGitHubIntegrationModel(BaseTest):
             {"access_token": "ACCESS_TOKEN"},
         )
 
-        with freeze_time("2024-01-01T12:00:00Z"):
+        with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
             assert GitHubIntegration(integration).ensure_account_name() is False
             assert GitHubIntegration(integration).ensure_account_name() is False
         assert mock_client_request.call_count == 1
 
-        with freeze_time("2024-01-01T12:06:00Z"):
+        with time_machine.travel("2024-01-01T12:06:00Z", tick=False):
             GitHubIntegration(integration).ensure_account_name()
         assert mock_client_request.call_count == 2
         integration.refresh_from_db()
@@ -1146,7 +1146,7 @@ class TestGitHubIntegrationModel(BaseTest):
         integration = self.create_integration({"expires_at": 3600}, {"token": "REFRESH"})
         mock_client_request.side_effect = self.mock_github_client_request(status_code=400, error_text="error")
 
-        with freeze_time("2024-01-01T12:00:00Z"):
+        with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
             integration.errors = ""
             integration.save()
 
@@ -1163,7 +1163,7 @@ class TestGitHubIntegrationModel(BaseTest):
         """Test that errors field is reset to empty string after successful refresh_access_token"""
         mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
 
-        with freeze_time("2024-01-01T12:00:00Z"):
+        with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
             integration = GitHubIntegration.integration_from_installation_id(
                 "INSTALLATION_ID",
                 self.team.id,
@@ -1899,7 +1899,7 @@ class TestGitHubIntegrationModel(BaseTest):
         else:
             raise_if_github_rate_limited(response)  # must not raise
 
-    @freeze_time("2024-01-01 12:00:00")
+    @time_machine.travel("2024-01-01 12:00:00", tick=False)
     def test_raise_if_github_rate_limited_populates_fields(self):
         reset_timestamp = int(time.time()) + 60
         response = MagicMock()
@@ -1916,7 +1916,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert exc_info.value.reset_at == reset_timestamp
         assert exc_info.value.retry_after == 30
 
-    @freeze_time("2024-01-01 12:00:00")
+    @time_machine.travel("2024-01-01 12:00:00", tick=False)
     def test_raise_if_github_rate_limited_derives_retry_after_from_reset_at(self):
         reset_timestamp = int(time.time()) + 45
         response = MagicMock()

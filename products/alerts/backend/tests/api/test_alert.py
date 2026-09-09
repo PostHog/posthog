@@ -2,7 +2,7 @@ from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 
@@ -1233,7 +1233,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "name": "snap next",
             "calculation_interval": "hourly",
         }
-        with freeze_time("2026-04-06T14:00:00Z"):
+        with time_machine.travel("2026-04-06T14:00:00Z", tick=False):
             alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request, format="json").json()
             AlertConfiguration.objects.filter(pk=alert["id"]).update(
                 next_check_at=datetime(2026, 4, 6, 15, 30, tzinfo=UTC),

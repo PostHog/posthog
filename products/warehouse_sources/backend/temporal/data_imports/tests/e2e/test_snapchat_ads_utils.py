@@ -2,7 +2,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import Mock
 
 from parameterized import parameterized
@@ -45,7 +45,7 @@ class TestSnapchatErrorHandler:
         assert SnapchatErrorHandler.is_retryable(error) == expected
 
 
-@freeze_time(FROZEN_TIME)
+@time_machine.travel(FROZEN_TIME, tick=False)
 class TestSnapchatDateRangeManager:
     @parameterized.expand(
         [

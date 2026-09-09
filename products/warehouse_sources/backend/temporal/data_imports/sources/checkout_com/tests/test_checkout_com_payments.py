@@ -1,7 +1,7 @@
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import pyarrow as pa
@@ -155,7 +155,7 @@ def _source(
     )
 
 
-@freeze_time(NOW)
+@time_machine.travel(NOW, tick=False)
 class TestPaymentsWindowWalking:
     @mock.patch(PAGE_LIMIT_PATCH, 2)
     @mock.patch(SESSION_PATCH)
@@ -306,7 +306,7 @@ class TestPaymentsWindowWalking:
         assert "query_required" in logger.error.call_args[0][0]
 
 
-@freeze_time(NOW)
+@time_machine.travel(NOW, tick=False)
 class TestPaymentActionsFanout:
     @pytest.mark.parametrize(
         "actions_payload",
@@ -384,7 +384,7 @@ class TestPaymentActionsFanout:
         assert SYNC_BUDGET_EXCEEDED_MARKER in str(excinfo.value)
 
 
-@freeze_time(NOW)
+@time_machine.travel(NOW, tick=False)
 class TestCustomersFanout:
     @mock.patch(SESSION_PATCH)
     def test_email_only_references_resolve_once_per_customer(self, mock_make_session):
@@ -483,7 +483,7 @@ class TestCustomersFanout:
         assert "jo@example.com" not in logger.error.call_args[0][0]
 
 
-@freeze_time(NOW)
+@time_machine.travel(NOW, tick=False)
 class TestInstrumentsFanout:
     @mock.patch(SESSION_PATCH)
     def test_resolves_instrument_ids_via_payment_detail(self, mock_make_session):
@@ -599,7 +599,7 @@ class TestInstrumentsFanout:
         assert manager.saved_states == []
 
 
-@freeze_time(NOW)
+@time_machine.travel(NOW, tick=False)
 class TestPaymentsCustomerIdColumn:
     @mock.patch(SESSION_PATCH)
     def test_rows_carry_customer_id_resolved_once_per_email(self, mock_make_session):
@@ -680,7 +680,7 @@ class TestPaymentsCustomerIdColumn:
         assert len(session.lookups) == 1
 
 
-@freeze_time(NOW)
+@time_machine.travel(NOW, tick=False)
 class TestUnresolvableReferences:
     @pytest.mark.parametrize(
         "schema_name, payment",

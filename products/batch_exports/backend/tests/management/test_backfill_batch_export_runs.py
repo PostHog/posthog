@@ -5,7 +5,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 
 from django.conf import settings
 from django.core.management import call_command
@@ -116,7 +116,7 @@ class TestGetBatchExports:
         assert get_batch_exports(batch_export_id=str(uuid4())) == []
 
 
-@freeze_time("2026-03-15 12:00:00")
+@time_machine.travel("2026-03-15 12:00:00", tick=False)
 class TestFindMissingIntervals:
     def test_no_exports_returns_empty(self, team):
         assert find_missing_intervals([], *lookback(24)) == []

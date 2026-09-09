@@ -1,7 +1,7 @@
 import datetime as dt
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import ClickhouseTestMixin, _create_event
 
 from posthog.schema import EventPropertyFilter, FilterLogicalOperator, PropertyOperator, RecordingsQuery
@@ -49,7 +49,7 @@ def _event(team, session_id: str, at: dt.datetime, **props) -> None:
     )
 
 
-@freeze_time(_FROZEN_TIME)
+@time_machine.travel(_FROZEN_TIME, tick=False)
 class TestExcludedSessions(ClickhouseTestMixin):
     @pytest.mark.django_db
     def test_excludes_only_the_sessions_carrying_a_disqualifying_event(self, team) -> None:

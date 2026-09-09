@@ -5,7 +5,7 @@ import typing as t
 from datetime import date, timedelta
 from typing import Any, cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
@@ -5762,9 +5762,9 @@ class TestExternalDataSource(APIBaseTest):
             ("2024-07-01T18:00:00.000Z", ExternalDataJob.Status.COMPLETED),
             ("2024-07-02T06:00:00.000Z", ExternalDataJob.Status.FAILED),
         ]:
-            with freeze_time(created_at):
+            with time_machine.travel(created_at, tick=False):
                 ExternalDataJob.objects.create(team=self.team, pipeline=source, schema=schema, status=job_status)
-        with freeze_time("2024-07-02T06:00:00.000Z"):
+        with time_machine.travel("2024-07-02T06:00:00.000Z", tick=False):
             ExternalDataJob.objects.create(
                 team=self.team, pipeline=never_completed, status=ExternalDataJob.Status.RUNNING
             )
@@ -5833,7 +5833,7 @@ class TestExternalDataSource(APIBaseTest):
     def test_source_jobs_pagination(self):
         source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
-        with freeze_time("2024-07-01T12:00:00.000Z"):
+        with time_machine.travel("2024-07-01T12:00:00.000Z", tick=False):
             job1 = ExternalDataJob.objects.create(
                 team=self.team,
                 pipeline=source,
@@ -5855,7 +5855,7 @@ class TestExternalDataSource(APIBaseTest):
             assert data[0]["id"] == str(job1.pk)
 
         # Query newer jobs
-        with freeze_time("2024-07-01T18:00:00.000Z"):
+        with time_machine.travel("2024-07-01T18:00:00.000Z", tick=False):
             job2 = ExternalDataJob.objects.create(
                 team=self.team,
                 pipeline=source,
@@ -5877,7 +5877,7 @@ class TestExternalDataSource(APIBaseTest):
             assert data[0]["id"] == str(job2.pk)
 
         # Query older jobs
-        with freeze_time("2024-07-01T09:00:00.000Z"):
+        with time_machine.travel("2024-07-01T09:00:00.000Z", tick=False):
             job3 = ExternalDataJob.objects.create(
                 team=self.team,
                 pipeline=source,

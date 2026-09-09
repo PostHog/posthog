@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -114,7 +114,7 @@ class TestBuildInitialParams:
         assert "+00:00" not in params["filter"]
         assert params["filter"].endswith("Z)")
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_cursor_is_clamped_to_now(self) -> None:
         # A future-dated cursor would otherwise build greater-than(datetime,<future>),
         # which Klaviyo rejects with a 400 and wedges every subsequent sync.
@@ -127,7 +127,7 @@ class TestBuildInitialParams:
         )
         assert params["filter"] == "greater-than(datetime,2026-06-15T12:00:00.000Z)"
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_past_cursor_is_not_modified(self) -> None:
         config = KLAVIYO_ENDPOINTS["events"]
         params = _build_initial_params(
@@ -162,7 +162,7 @@ class TestBuildInitialParams:
         )
         assert "filter" not in params
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_lookback_applies_after_future_clamp(self) -> None:
         # Clamping after the lookback would erase the overlap window for a future-dated cursor.
         config = KLAVIYO_ENDPOINTS["list_profiles"]
@@ -176,28 +176,28 @@ class TestBuildInitialParams:
 
 
 class TestClampFutureValueToNow:
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_datetime_is_clamped(self) -> None:
         assert _clamp_future_value_to_now(datetime(2027, 2, 5, 21, 46, 42, tzinfo=UTC)) == datetime(
             2026, 6, 15, 12, 0, 0, tzinfo=UTC
         )
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_naive_future_datetime_is_clamped(self) -> None:
         assert _clamp_future_value_to_now(datetime(2027, 2, 5, 21, 46, 42)) == datetime(
             2026, 6, 15, 12, 0, 0, tzinfo=UTC
         )
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_past_datetime_is_unchanged(self) -> None:
         value = datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)
         assert _clamp_future_value_to_now(value) == value
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_future_date_is_clamped(self) -> None:
         assert _clamp_future_value_to_now(date(2027, 2, 5)) == date(2026, 6, 15)
 
-    @freeze_time("2026-06-15T12:00:00Z")
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_past_date_is_unchanged(self) -> None:
         assert _clamp_future_value_to_now(date(2026, 3, 4)) == date(2026, 3, 4)
 

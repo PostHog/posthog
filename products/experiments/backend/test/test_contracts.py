@@ -12,7 +12,7 @@ the experiment's feature_flag object, not here.
 from datetime import UTC, datetime
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 
 from products.experiments.backend.facade.contracts import CreateExperimentInput, Experiment, FeatureFlag
 
@@ -36,7 +36,7 @@ class TestContractImmutability:
         with pytest.raises(AttributeError):
             setattr(instance, field_name, new_value)
 
-    @freeze_time("2026-03-21T12:00:00Z")
+    @time_machine.travel("2026-03-21T12:00:00Z", tick=False)
     @pytest.mark.parametrize(
         ("instance", "field_name", "new_value"),
         [
@@ -75,7 +75,7 @@ class TestContractImmutability:
 class TestContractHashability:
     """Test that contracts are hashable (required for Turbo caching)."""
 
-    @freeze_time("2026-03-21T12:00:00Z")
+    @time_machine.travel("2026-03-21T12:00:00Z", tick=False)
     @pytest.mark.parametrize(
         "instance",
         [
@@ -146,7 +146,7 @@ class TestCreateExperimentInput:
         assert "variant_notes" in input_dto.parameters
 
 
-@freeze_time("2026-03-21T12:00:00Z")
+@time_machine.travel("2026-03-21T12:00:00Z", tick=False)
 class TestFeatureFlag:
     def test_feature_flag_output(self):
         """Test feature flag output DTO."""
@@ -164,7 +164,7 @@ class TestFeatureFlag:
         assert flag.active is True
 
 
-@freeze_time("2026-03-21T12:00:00Z")
+@time_machine.travel("2026-03-21T12:00:00Z", tick=False)
 class TestExperiment:
     def test_experiment_output_minimal(self):
         """Test experiment output DTO with minimal fields."""

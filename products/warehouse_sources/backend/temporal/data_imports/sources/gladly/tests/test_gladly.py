@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import urllib3
@@ -371,7 +371,7 @@ class TestNormalizeReportColumn:
 
 
 class TestGetReportRows:
-    @freeze_time("2024-03-15T10:00:00Z")
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
     @mock.patch(f"{_MODULE}.REPORT_REQUEST_INTERVAL_SECONDS", 0)
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_incremental_windows_start_one_window_behind_watermark_and_rows_are_normalized(self, mock_session):
@@ -449,7 +449,7 @@ class TestGetReportRows:
             "2024-03-15",
         ]
 
-    @freeze_time("2024-03-15T10:00:00Z")
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
     @mock.patch(f"{_MODULE}.REPORT_REQUEST_INTERVAL_SECONDS", 0)
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_conversations_report_uses_weekly_windows_and_keeps_the_natural_key(self, mock_session):
@@ -527,7 +527,7 @@ class TestGetReportRows:
             "2024-03-15",
         ]
 
-    @freeze_time("2024-03-15T10:00:00Z")
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_first_sync_starts_at_the_backfill_horizon(self, mock_session):
         mock_session.return_value.post.side_effect = [
@@ -546,7 +546,7 @@ class TestGetReportRows:
         assert payload["startAt"] == horizon.isoformat()
         assert payload["endAt"] == (horizon + timedelta(days=config.report_window_days - 1)).isoformat()
 
-    @freeze_time("2024-03-15T10:00:00Z")
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
     @mock.patch(f"{_MODULE}.REPORT_REQUEST_INTERVAL_SECONDS", 0)
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_resume_state_restarts_at_the_saved_window_and_supersedes_the_watermark(self, mock_session):
@@ -582,7 +582,7 @@ class TestGetReportRows:
             "2024-03-15",
         ]
 
-    @freeze_time("2024-03-15T10:00:00Z")
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_empty_report_body_yields_no_rows_and_advances(self, mock_session):
         # A window with no data returns an empty body; urllib3 closes the stream on
@@ -595,7 +595,7 @@ class TestGetReportRows:
         assert batches == []
         assert manager.save_state.call_args.args[0].last_report_window_end == "2024-03-15"
 
-    @freeze_time("2024-03-15T10:00:00Z")
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_row_ids_are_deterministic_across_syncs(self, mock_session):
         csv_text = "Timestamp,Conversation ID\n2024-03-15T01:00:00.000Z,conv-1\n"
@@ -612,7 +612,7 @@ class TestGetReportRows:
         # Re-read windows must merge onto the previous sync's rows.
         assert row_ids[0] == row_ids[1]
 
-    @freeze_time("2024-03-15T10:00:00Z")
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
     @mock.patch(f"{_MODULE}.MAX_RETRY_ATTEMPTS", 1)
     @mock.patch(f"{_MODULE}.make_tracked_session")
     @pytest.mark.parametrize(
@@ -633,7 +633,7 @@ class TestGetReportRows:
         # A failed window is not recorded as processed.
         manager.save_state.assert_not_called()
 
-    @freeze_time("2024-03-15T10:00:00Z")
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_large_report_windows_are_chunked(self, mock_session):
         csv_text = (
@@ -648,7 +648,7 @@ class TestGetReportRows:
 
         assert [len(batch) for batch in batches] == [CHUNK_SIZE, 1]
 
-    @freeze_time("2024-03-15T10:00:00Z")
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
     @mock.patch(f"{_MODULE}.REPORT_ROW_WARNING_THRESHOLD", 2)
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_windows_near_the_report_row_cap_log_a_truncation_warning(self, mock_session):
@@ -664,7 +664,7 @@ class TestGetReportRows:
 
         logger.warning.assert_called_once()
 
-    @freeze_time("2024-03-15T10:00:00Z")
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_blank_lines_before_the_header_do_not_erase_the_columns(self, mock_session):
         mock_session.return_value.post.side_effect = [
@@ -677,7 +677,7 @@ class TestGetReportRows:
         flat = [row for batch in batches for row in batch]
         assert [(row["timestamp"], row["contact_id"]) for row in flat] == [("2024-03-15T09:00:00.000Z", "ct-1")]
 
-    @freeze_time("2024-03-15T10:00:00Z")
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
     @pytest.mark.parametrize(
         "endpoint,body",
         [
@@ -696,7 +696,7 @@ class TestGetReportRows:
         with pytest.raises(GladlyReportHeaderError, match="missing required columns"):
             list(get_rows("myorg", "agent@x.com", "token", endpoint, mock.MagicMock(), manager))
 
-    @freeze_time("2024-03-15T10:00:00Z")
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_a_whitespace_only_body_is_treated_as_an_empty_window(self, mock_session):
         mock_session.return_value.post.side_effect = [_csv_response("\r\n")]

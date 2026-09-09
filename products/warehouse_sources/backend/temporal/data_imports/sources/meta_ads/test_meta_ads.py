@@ -3,7 +3,7 @@ import datetime as dt
 from typing import Any, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from django.db import OperationalError
@@ -1476,7 +1476,7 @@ class TestRetryableErrors:
         assert not any(pattern in str(exc_info.value) for pattern in patterns)
 
 
-@freeze_time("2026-06-16")
+@time_machine.travel("2026-06-16", tick=False)
 class TestTimeRangeClamping:
     """Meta rejects insights time ranges starting beyond ~37 months (error 3018).
 

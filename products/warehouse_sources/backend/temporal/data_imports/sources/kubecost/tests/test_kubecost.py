@@ -1,7 +1,7 @@
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.kubecost.kubecost import (
@@ -159,7 +159,7 @@ class TestValidateCredentials:
         assert error is None
 
 
-@freeze_time("2026-07-15T10:00:00Z")
+@time_machine.travel("2026-07-15T10:00:00Z", tick=False)
 class TestGetRows:
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_flattens_result_sets_and_injects_key_and_window(self, mock_session):

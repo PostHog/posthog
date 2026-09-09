@@ -2,7 +2,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -190,7 +190,7 @@ class TestPowerBiAdminClient:
         assert session.get.call_count == 2
 
 
-@freeze_time("2026-07-26T12:00:00Z")
+@time_machine.travel("2026-07-26T12:00:00Z", tick=False)
 class TestActivityEvents:
     def test_full_refresh_walks_the_whole_retention_window_one_day_per_request(self) -> None:
         session = _session([_response(200, {"activityEventEntities": []}) for _ in range(28)])

@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
@@ -20,7 +20,7 @@ from products.marketing_analytics.backend.services.data_source_health import (
 )
 
 
-@freeze_time("2025-06-15")
+@time_machine.travel("2025-06-15", tick=False)
 class TestResolveSyncStatus:
     @parameterized.expand(
         [
@@ -145,7 +145,7 @@ class _FakeSource:
         self.source_type = source_type
 
 
-@freeze_time("2025-06-15")
+@time_machine.travel("2025-06-15", tick=False)
 class TestGetDataSourceHealthOrchestration(APIBaseTest):
     def setUp(self):
         super().setUp()

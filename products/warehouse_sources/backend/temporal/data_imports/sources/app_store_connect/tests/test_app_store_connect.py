@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import jwt
@@ -254,7 +254,7 @@ class TestNormalizePrivateKey:
 
 class TestTokenProvider:
     def test_mints_es256_token_with_key_id_and_apple_claims(self) -> None:
-        with freeze_time("2026-03-04 10:00:00"):
+        with time_machine.travel("2026-03-04 10:00:00", tick=False):
             token = AppStoreConnectTokenProvider("issuer-1", "KEY123", PRIVATE_KEY_PEM).token()
 
         header = jwt.get_unverified_header(token)
@@ -269,19 +269,19 @@ class TestTokenProvider:
 
     def test_token_is_cached_until_it_nears_expiry(self) -> None:
         provider = AppStoreConnectTokenProvider("issuer-1", "KEY123", PRIVATE_KEY_PEM)
-        with freeze_time("2026-03-04 10:00:00") as frozen:
+        with time_machine.travel("2026-03-04 10:00:00", tick=False) as frozen:
             first = provider.token()
-            frozen.tick(60)
+            frozen.shift(60)
             assert provider.token() == first
             # Past the refresh margin the provider mints a fresh token.
-            frozen.tick(JWT_LIFETIME_SECONDS)
+            frozen.shift(JWT_LIFETIME_SECONDS)
             assert provider.token() != first
 
     def test_force_refresh_mints_a_new_token(self) -> None:
         provider = AppStoreConnectTokenProvider("issuer-1", "KEY123", PRIVATE_KEY_PEM)
-        with freeze_time("2026-03-04 10:00:00") as frozen:
+        with time_machine.travel("2026-03-04 10:00:00", tick=False) as frozen:
             first = provider.token()
-            frozen.tick(1)
+            frozen.shift(1)
             assert provider.token(force_refresh=True) != first
 
     def test_unusable_key_raises_auth_error(self) -> None:
@@ -1204,7 +1204,7 @@ class TestSalesReports:
         with pytest.raises(ValueError, match="vendor number"):
             _collect("sales_reports", _FakeApi({}), _FakeManager(), vendor_number=None)
 
-    @freeze_time("2026-03-05 09:00:00")
+    @time_machine.travel("2026-03-05 09:00:00", tick=False)
     def test_walks_dates_forward_from_the_watermark_and_skips_empty_days(self) -> None:
         api = self._api({"2026-03-02": "SKU\tUnits\nacme\t1\n", "2026-03-04": "SKU\tUnits\nacme\t2\n"})
 
@@ -1224,7 +1224,7 @@ class TestSalesReports:
         ]
         assert [params["filter[reportDate]"] for _, params in api.calls] == ["2026-03-02", "2026-03-03", "2026-03-04"]
 
-    @freeze_time("2026-03-05 09:00:00")
+    @time_machine.travel("2026-03-05 09:00:00", tick=False)
     def test_subscription_report_tolerates_apples_misleading_400(self) -> None:
         # Apple 400s (instead of 404) a subscription-family report request for a date with no report
         # available yet — a documented Apple API quirk, not a real credentials failure. It must not
@@ -1243,7 +1243,7 @@ class TestSalesReports:
         assert [(row["report_date"], row["units"]) for row in rows] == [(date(2026, 3, 4), 1)]
         assert api.report_dates("SUBSCRIPTION") == ["2026-03-02", "2026-03-03", "2026-03-04"]
 
-    @freeze_time("2026-03-05 09:00:00")
+    @time_machine.travel("2026-03-05 09:00:00", tick=False)
     def test_unknown_vendor_number_fails_instead_of_completing_empty(self) -> None:
         # Apple words a vendor number it doesn't know exactly like an empty subscription day, so a
         # typo used to be tolerated across the whole lookback and complete with zero rows. The sales
@@ -1260,7 +1260,7 @@ class TestSalesReports:
                 db_incremental_field_last_value=date(2026, 3, 2),
             )
 
-    @freeze_time("2026-03-05 09:00:00")
+    @time_machine.travel("2026-03-05 09:00:00", tick=False)
     def test_vendor_number_is_checked_once_per_run(self) -> None:
         # The check costs an extra request. Repeating it per tolerated day would add one for every
         # day of the lookback window.
@@ -1278,7 +1278,7 @@ class TestSalesReports:
         assert api.report_dates("SUBSCRIPTION") == ["2026-03-02", "2026-03-03", "2026-03-04"]
         assert api.report_dates("SALES") == ["2026-03-02"]
 
-    @freeze_time("2026-03-05 09:00:00")
+    @time_machine.travel("2026-03-05 09:00:00", tick=False)
     def test_unreadable_sales_report_leaves_the_day_tolerated(self) -> None:
         # A key with a Finance role but no Sales role can read the subscription report and not the
         # sales one. The check can't run, so it must not fail a sync it cannot judge.
@@ -1296,7 +1296,7 @@ class TestSalesReports:
         assert rows == []
         assert api.report_dates("SUBSCRIPTION") == ["2026-03-02", "2026-03-03", "2026-03-04"]
 
-    @freeze_time("2026-03-05 09:00:00")
+    @time_machine.travel("2026-03-05 09:00:00", tick=False)
     def test_sales_report_400_is_not_tolerated(self) -> None:
         # SALES reports don't carry the subscription-family quirk, so a 400 there is a real error and
         # must still surface rather than being silently treated as an empty day.
@@ -1319,7 +1319,7 @@ class TestSalesReports:
                     )
                 )
 
-    @freeze_time("2026-03-05 09:00:00")
+    @time_machine.travel("2026-03-05 09:00:00", tick=False)
     def test_subscription_report_unrecognized_400_fails_loudly(self) -> None:
         # A 400 whose body is not Apple's "no data" quirk is a genuinely malformed request (a wrong
         # version or sub type). It must fail rather than read as an empty day across the whole
@@ -1340,7 +1340,7 @@ class TestSalesReports:
                 db_incremental_field_last_value=date(2026, 3, 4),
             )
 
-    @freeze_time("2026-03-05 09:00:00")
+    @time_machine.travel("2026-03-05 09:00:00", tick=False)
     def test_all_empty_run_logs_a_warning(self) -> None:
         # Every day tolerated as empty and no rows anywhere: log once at the end so an operator can
         # tell an account with no subscription data from a request Apple keeps rejecting.
@@ -1364,7 +1364,7 @@ class TestSalesReports:
         assert "days_tolerated_as_empty=3" in run_summary[0]
         assert "Invalid vendor number specified" in run_summary[0]
 
-    @freeze_time("2026-03-05 09:00:00")
+    @time_machine.travel("2026-03-05 09:00:00", tick=False)
     def test_run_with_rows_does_not_log_the_empty_warning(self) -> None:
         api = _FakeReportApi({"2026-03-04": "SKU\tUnits\nacme\t1\n"}, missing_status_code=400)
         logger = MagicMock()
@@ -1381,7 +1381,7 @@ class TestSalesReports:
 
         assert not any("produced no rows" in call.args[0] for call in logger.warning.call_args_list)
 
-    @freeze_time("2026-03-05 09:00:00")
+    @time_machine.travel("2026-03-05 09:00:00", tick=False)
     def test_unparseable_values_are_nulled_with_counted_warnings(self) -> None:
         # Three bad units and one bad date must produce one first-occurrence warning per column
         # plus one end-of-run summary, never one log line per value.
@@ -1406,7 +1406,7 @@ class TestSalesReports:
         assert "'units': 3" in warning_messages[-1]
         assert "'begin_date': 1" in warning_messages[-1]
 
-    @freeze_time("2026-03-05 09:00:00")
+    @time_machine.travel("2026-03-05 09:00:00", tick=False)
     def test_sends_the_report_type_filters_from_settings(self) -> None:
         api = self._api({"2026-03-04": "SKU\tUnits\nacme\t1\n"})
 
@@ -1426,7 +1426,7 @@ class TestSalesReports:
         assert params["filter[version]"] == "1_4"
         assert params["filter[vendorNumber]"] == "85234567"
 
-    @freeze_time("2026-03-05 09:00:00")
+    @time_machine.travel("2026-03-05 09:00:00", tick=False)
     def test_first_sync_starts_one_retention_window_back(self) -> None:
         api = self._api({})
 
@@ -1435,7 +1435,7 @@ class TestSalesReports:
         first_requested = api.calls[0][1]["filter[reportDate]"]
         assert first_requested == (date(2026, 3, 5) - timedelta(days=SALES_REPORT_LOOKBACK_DAYS)).isoformat()
 
-    @freeze_time("2026-03-05 09:00:00")
+    @time_machine.travel("2026-03-05 09:00:00", tick=False)
     def test_future_watermark_is_clamped_to_the_newest_published_date(self) -> None:
         api = self._api({})
 
@@ -1450,7 +1450,7 @@ class TestSalesReports:
 
         assert [params["filter[reportDate]"] for _, params in api.calls] == ["2026-03-04"]
 
-    @freeze_time("2026-03-05 09:00:00")
+    @time_machine.travel("2026-03-05 09:00:00", tick=False)
     def test_bookmark_advances_to_the_next_unfetched_date(self) -> None:
         api = self._api({"2026-03-02": "SKU\tUnits\nacme\t1\n"})
         manager = _FakeManager()
@@ -1466,7 +1466,7 @@ class TestSalesReports:
 
         assert [state.report_date for state in manager.saved] == ["2026-03-03", "2026-03-04"]
 
-    @freeze_time("2026-03-05 09:00:00")
+    @time_machine.travel("2026-03-05 09:00:00", tick=False)
     def test_resumes_from_the_saved_report_date(self) -> None:
         api = self._api({})
         manager = _FakeManager(AppStoreConnectResumeConfig(report_date="2026-03-04"))
@@ -1482,7 +1482,7 @@ class TestSalesReports:
 
         assert [params["filter[reportDate]"] for _, params in api.calls] == ["2026-03-04"]
 
-    @freeze_time("2026-03-05 09:00:00")
+    @time_machine.travel("2026-03-05 09:00:00", tick=False)
     def test_per_run_day_cap_stops_the_walk(self) -> None:
         api = self._api({})
 

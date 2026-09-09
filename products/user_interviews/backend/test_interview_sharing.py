@@ -7,7 +7,7 @@ import datetime
 from typing import Any
 
 import unittest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
@@ -642,7 +642,7 @@ class TestInterviewStartCall(APIBaseTest):
         response = self.client.post(f"/api/user_interviews/share/{share.access_token}/start_call/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @freeze_time("2026-05-14 12:00:00")
+    @time_machine.travel("2026-05-14 12:00:00", tick=False)
     @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
     def test_rejects_expired_rotated_token(self):
         # Simulate the post-grace-period state of a rotated SharingConfiguration:

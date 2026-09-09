@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -509,7 +509,7 @@ class TestRunAggregateEvaluationWorkflow:
         assert elapsed < timedelta(hours=1)
 
 
-@freeze_time("2026-07-23T12:00:00Z")
+@time_machine.travel("2026-07-23T12:00:00Z", tick=False)
 class TestCheckTraceSettledActivity:
     @pytest.mark.django_db(transaction=True)
     def test_settled_when_quiet_beyond_margin(self, setup_data):
@@ -584,7 +584,7 @@ class TestCheckTraceSettledActivity:
         assert "trace active" in err.value.message
 
 
-@freeze_time("2026-07-23T12:00:00Z")
+@time_machine.travel("2026-07-23T12:00:00Z", tick=False)
 class TestCheckSessionSettledActivity:
     @pytest.mark.django_db(transaction=True)
     def test_settled_when_quiet_beyond_margin(self, setup_data):

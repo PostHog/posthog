@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import orjson
@@ -205,11 +205,11 @@ class TestParseRetryAfter:
     def test_delta_seconds(self, _name: str, value: Optional[str], expected: Optional[float]) -> None:
         assert _parse_retry_after(value) == expected
 
-    @freeze_time("2024-06-04T00:00:00Z")
+    @time_machine.travel("2024-06-04T00:00:00Z", tick=False)
     def test_http_date_in_the_future(self) -> None:
         assert _parse_retry_after("Tue, 04 Jun 2024 00:00:30 GMT") == 30.0
 
-    @freeze_time("2024-06-04T00:00:00Z")
+    @time_machine.travel("2024-06-04T00:00:00Z", tick=False)
     def test_http_date_in_the_past_is_ignored(self) -> None:
         assert _parse_retry_after("Tue, 04 Jun 2024 00:00:00 GMT") is None
 
@@ -558,7 +558,7 @@ class TestSingleRequestEndpoints:
             assert list(mp._fetch_annotations("us", "u", "s", "123", LOGGER)) == []
 
 
-@freeze_time("2024-06-04")
+@time_machine.travel("2024-06-04", tick=False)
 class TestGetRowsExportWindow:
     def _captured_window(self, **kwargs) -> tuple[date, date]:
         with patch.object(mp, "_iter_export", return_value=iter([])) as mock_iter:

@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import Mock, patch
 
 from asgiref.sync import async_to_sync
@@ -142,7 +142,7 @@ class TestFormatSessionForJudge:
         assert "t-beta" in rendered
 
 
-@freeze_time(FROZEN_NOW)
+@time_machine.travel(FROZEN_NOW, tick=False)
 class TestCountSessionEvents:
     def test_the_count_stays_an_ungrouped_aggregate(self):
         """An ungrouped aggregate always returns exactly one row, so `query_ai_events`'s
@@ -341,7 +341,7 @@ class TestFetchSessionForEvaluation:
         assert outcome.skip_reason == "session_truncated"
 
 
-@freeze_time(FROZEN_NOW)
+@time_machine.travel(FROZEN_NOW, tick=False)
 class TestExecuteSessionActivities:
     @pytest.mark.parametrize(
         "skip_reason",

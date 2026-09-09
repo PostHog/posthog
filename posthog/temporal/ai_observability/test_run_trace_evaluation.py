@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from asgiref.sync import async_to_sync
@@ -342,7 +342,7 @@ class TestRunHogEvalOverRecentTraces:
         rewritten_condition = where_clause.exprs[-1]
         assert rewritten_condition.left.chain == ["input"]
 
-    @freeze_time(FROZEN_NOW)
+    @time_machine.travel(FROZEN_NOW, tick=False)
     def test_uses_the_sampled_trigger_and_configured_aggregation_window(self):
         team = MagicMock(spec=Team)
         trigger_timestamp = FROZEN_NOW - timedelta(hours=2)
@@ -632,7 +632,7 @@ class TestEmitTraceEvaluationEventActivity:
                     await emit_trace_evaluation_event_activity(inputs)
 
 
-@freeze_time(FROZEN_NOW)
+@time_machine.travel(FROZEN_NOW, tick=False)
 class TestEmitSessionEvaluationEvent:
     @pytest.mark.parametrize(
         "target,ai_session_id,expected_target_type,expected_target_id",

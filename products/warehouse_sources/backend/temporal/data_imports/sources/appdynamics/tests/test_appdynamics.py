@@ -6,7 +6,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -283,7 +283,7 @@ class TestAppdynamicsClient:
         with _patch_session(session):
             client = AppdynamicsClient(BASE_URL, OAUTH_AUTH, mock.MagicMock())
 
-        with freeze_time("2024-01-31T00:00:00Z") as frozen:
+        with time_machine.travel("2024-01-31T00:00:00Z", tick=False) as frozen:
             client.get_json("/controller/rest/applications", {})
             client.get_json("/controller/rest/applications", {})
             assert len(session.post_calls) == 1
@@ -303,7 +303,7 @@ class TestAppdynamicsClient:
         with _patch_session(session):
             client = AppdynamicsClient(BASE_URL, OAUTH_AUTH, mock.MagicMock())
 
-        with freeze_time("2024-01-31T00:00:00Z") as frozen:
+        with time_machine.travel("2024-01-31T00:00:00Z", tick=False) as frozen:
             client.get_json("/controller/rest/applications", {})
             assert len(session.post_calls) == 1
             frozen.move_to("2024-01-31T00:00:06Z")  # past the 5s cache window (10 - min(60, 5))
@@ -468,7 +468,7 @@ class TestGetRows:
         batches, _ = _run_get_rows(responder, "tiers", manager)
         assert [row["application_id"] for batch in batches for row in batch] == [1]
 
-    @freeze_time("2024-01-31T00:00:00Z")
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
     def test_windowed_full_refresh_uses_lookback_and_chunks(self) -> None:
         def responder(path: str, params: dict[str, Any]) -> FakeResponse:
             if path == "/controller/rest/applications":
@@ -490,7 +490,7 @@ class TestGetRows:
         # each window's state is saved after its rows are yielded
         assert [s.window_start for s in manager.saved] == [end for _, end in window_calls]
 
-    @freeze_time("2024-01-31T00:00:00Z")
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
     def test_windowed_incremental_starts_one_ms_after_watermark(self) -> None:
         watermark = FROZEN_NOW_MS - MILLIS_PER_DAY
 
@@ -513,7 +513,7 @@ class TestGetRows:
         assert params["end-time"] == FROZEN_NOW_MS
         assert len(session.get_calls) == 2
 
-    @freeze_time("2024-01-31T00:00:00Z")
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
     def test_windowed_resume_uses_saved_window_for_bookmarked_app_only(self) -> None:
         resume_start = FROZEN_NOW_MS - MILLIS_PER_DAY
 
@@ -539,7 +539,7 @@ class TestGetRows:
         assert "/applications/2/" in app_2_call[0]
         assert app_2_call[1]["start-time"] == FROZEN_NOW_MS - 2 * MILLIS_PER_DAY + 1
 
-    @freeze_time("2024-01-31T00:00:00Z")
+    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
     def test_metric_data_flattens_metric_values_per_path(self) -> None:
         metric = {
             "metricId": 42,

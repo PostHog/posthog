@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
 import pytest
-from freezegun.api import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -1011,7 +1011,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             response.json()["detail"], "groups[0].properties[0].group_type_index: A valid integer is required."
         )
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_feature_flag(self, mock_report_user_action):
         response = self.client.post(
@@ -1734,7 +1734,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag(self, mock_report_user_action):
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 {"name": "original name", "key": "a-feature-flag-that-is-updated"},
@@ -1743,7 +1743,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -1874,7 +1874,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_updating_feature_flag_partial(self, mock_report_user_action):
         # Test that we can update a feature flag with only some of the fields
         # And the unchanged fields are not updated
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 {
@@ -1904,7 +1904,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -1921,7 +1921,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_with_different_user(self, mock_report_user_action):
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             # Create flag with original user
             original_user = self.user
             response = self.client.post(
@@ -1932,7 +1932,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             # Create and login as different user
             different_user = User.objects.create_and_join(self.organization, "different_user@posthog.com", None)
@@ -1954,7 +1954,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_fails_concurrency_check_when_version_outdated(self, mock_report_user_action):
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             # Create flag with original user: version 0
             original_user = self.user
             response = self.client.post(
@@ -1970,7 +1970,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(feature_flag.version, 1)
             self.assertEqual(feature_flag.last_modified_by, original_user)
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             # Create and login as different user
             different_user = User.objects.create_and_join(self.organization, "different_user@posthog.com", None)
@@ -2040,7 +2040,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     ):
         # If another users saves changes, but my changes don't conflict with those changes,
         # then we should not fail the concurrency check
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             # Create flag with original user: version 0
             original_user = self.user
             response = self.client.post(
@@ -2073,7 +2073,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             flag_id = response.json()["id"]
             original_version = response.json()["version"]
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             # Create and login as different user
             different_user = User.objects.create_and_join(self.organization, "different_user@posthog.com", None)
@@ -2153,7 +2153,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_does_not_fail_when_version_not_in_request(self, mock_report_user_action):
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 data={"name": "original name", "key": "a-feature-flag-that-is-updated"},
@@ -2162,7 +2162,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -2474,7 +2474,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         client.delete(f"posthog:remote_config_requests:{self.team.pk}")
         client.delete(f"posthog:decide_requests:{self.team.pk}")
 
-        with freeze_time("2022-05-07 12:23:07"):
+        with time_machine.travel("2022-05-07 12:23:07", tick=False):
             for _ in range(3):
                 response = self.client.get(
                     f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
@@ -2972,7 +2972,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_treats_null_version_as_zero(self, mock_report_user_action):
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 data={"name": "original name", "key": "a-feature-flag-that-is-updated"},
@@ -2983,7 +2983,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             feature_flag = FeatureFlag.objects.get(id=flag_id)
             feature_flag.version = None
             feature_flag.save()
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -2998,7 +2998,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_key(self, mock_report_user_action):
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 {"name": "original name", "key": "a-feature-flag-that-is-updated"},
@@ -3008,7 +3008,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             flag_id = response.json()["id"]
             self._generate_usage_dashboard(flag_id)
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             # Assert that the insights were created properly.
             feature_flag = FeatureFlag.objects.get(id=flag_id)
@@ -3183,7 +3183,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_key_does_not_update_insight_with_changed_description(self, mock_report_user_action):
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 {"name": "original name", "key": "a-feature-flag-that-is-updated"},
@@ -3193,7 +3193,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             flag_id = response.json()["id"]
             self._generate_usage_dashboard(flag_id)
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             # Assert that the insights were created properly.
             feature_flag = FeatureFlag.objects.get(id=flag_id)
@@ -3273,7 +3273,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_key_does_not_update_insight_with_changed_filter(self, mock_report_user_action):
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 {"name": "original name", "key": "a-feature-flag-that-is-updated"},
@@ -3283,7 +3283,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             flag_id = response.json()["id"]
             self._generate_usage_dashboard(flag_id)
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             # Assert that the insights were created properly.
             feature_flag = FeatureFlag.objects.get(id=flag_id)
@@ -3363,7 +3363,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_key_does_not_update_insight_with_removed_filter(self, mock_report_user_action):
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 {"name": "original name", "key": "a-feature-flag-that-is-updated"},
@@ -3373,7 +3373,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             flag_id = response.json()["id"]
             self._generate_usage_dashboard(flag_id)
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             # Assert that the insights were created properly.
             feature_flag = FeatureFlag.objects.get(id=flag_id)
@@ -3472,7 +3472,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.client.force_login(new_user)
 
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             create_response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 {"name": "feature flag with activity", "key": "feature_with_activity"},
@@ -3481,7 +3481,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
             flag_id = create_response.json()["id"]
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             update_response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -3567,7 +3567,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.client.force_login(new_user)
 
-        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+        with time_machine.travel("2021-08-25T22:09:14.252Z", tick=False) as frozen_datetime:
             create_response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
                 {"name": "feature flag with activity", "key": "feature_with_activity"},
@@ -3576,7 +3576,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
             flag_id = create_response.json()["id"]
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             update_response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -3588,7 +3588,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
             self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
-            frozen_datetime.tick(delta=timedelta(minutes=10))
+            frozen_datetime.shift(timedelta(minutes=10))
 
             second_create_response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
@@ -5066,7 +5066,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             "Shows the number of unique group calls made on feature flag per variant with key: renamed-group-feature",
         )
 
-    @freeze_time("2021-08-25T22:09:14.252Z")
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_dashboard_enrichment_fails_if_already_enriched(self, mock_report_user_action):
         response = self.client.post(
@@ -5365,7 +5365,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.client.logout()
         # `local_evaluation` is called by logged out clients!
 
-        with freeze_time("2022-05-07 12:23:07"):
+        with time_machine.travel("2022-05-07 12:23:07", tick=False):
             # missing API key
             response = self.client.get(f"/api/feature_flag?token={self.team.api_token}")
             self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -7178,7 +7178,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_get_flags_with_stale_filter(self):
         # Create a stale flag (100% rollout with no properties and 30+ days old)
         # No last_called_at so it falls back to config-based staleness detection
-        with freeze_time("2024-01-01"):
+        with time_machine.travel("2024-01-01", tick=False):
             FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7198,7 +7198,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Create another non-stale flag (old but not 100% rollout)
-        with freeze_time("2024-01-01"):
+        with time_machine.travel("2024-01-01", tick=False):
             partial_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7210,7 +7210,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         partial_flag.save()
 
         # Create a non-stale flag (100% rollout but has properties)
-        with freeze_time("2024-01-01"):
+        with time_machine.travel("2024-01-01", tick=False):
             filtered_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7236,7 +7236,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         filtered_flag.save()
 
         # Create a non-stale flag (100% rollout but has multiple groups, with only 1 group that has 100% rollout)
-        with freeze_time("2024-01-01"):
+        with time_machine.travel("2024-01-01", tick=False):
             multi_group_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7282,7 +7282,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_get_flags_with_stale_filter_multivariate(self):
         # Create a stale multivariate flag (no last_called_at so it falls back to config-based detection)
-        with freeze_time("2023-01-01"):
+        with time_machine.travel("2023-01-01", tick=False):
             FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7300,7 +7300,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
         # Create a non-stale multivariate flag (no variant at 100%)
-        with freeze_time("2024-01-01"):
+        with time_machine.travel("2024-01-01", tick=False):
             active_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7329,7 +7329,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_get_flags_with_stale_filter_multivariate_condition_variant_override(self):
         # Create a stale multivariate flag (no last_called_at so it falls back to config-based detection)
-        with freeze_time("2023-01-01"):
+        with time_machine.travel("2023-01-01", tick=False):
             FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7348,7 +7348,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
         # Create a multivariate flag with rollout <100% should not be stale
-        with freeze_time("2023-01-01"):
+        with time_machine.travel("2023-01-01", tick=False):
             low_rollout_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7369,7 +7369,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         low_rollout_flag.save()
 
         # Create a multivariate flag with rollout 100% but has properties filter, should not be stale
-        with freeze_time("2023-01-01"):
+        with time_machine.travel("2023-01-01", tick=False):
             with_props_flag = FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7414,7 +7414,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Regression test: flags created via frontend have explicit multivariate: null
         # The SQL filter should handle both missing key AND explicit null value
         # No last_called_at so it falls back to config-based detection
-        with freeze_time("2024-01-01"):
+        with time_machine.travel("2024-01-01", tick=False):
             FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7474,7 +7474,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         ]
     )
     def test_get_flags_with_stale_filter_jsonb_edge_cases(self, flag_key, flag_filters, expect_stale):
-        with freeze_time("2023-01-01"):
+        with time_machine.travel("2023-01-01", tick=False):
             FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
@@ -7599,7 +7599,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(len(response_json["analytics_dashboards"]), 1)
 
-    @freeze_time("2021-01-01")
+    @time_machine.travel("2021-01-01", tick=False)
     @snapshot_clickhouse_queries
     @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
     def test_creating_static_cohort(self, mock_batch_evaluate):
@@ -9864,7 +9864,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(set(affected), {"org:0", "org:1", "org:2", "org:3"})
 
-    @freeze_time("2024-01-11")
+    @time_machine.travel("2024-01-11", tick=False)
     def test_user_blast_radius_with_relative_date_filters(self):
         for i in range(8):
             _create_person(
