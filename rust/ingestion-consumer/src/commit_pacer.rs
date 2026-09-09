@@ -2,27 +2,60 @@
 //! partition's frontier as it takes it from the ledger, then asks the pacer
 //! what is due and commits that in one call. The pacer holds no I/O.
 //!
-//! This pacer is immediate: every frontier handed over is due on the next
-//! take, so the consumer commits once per poll. Coalescing frontiers on an
-//! interval is a later pacer; see the driver-model plan, cycle 8.
+//! With no interval, every frontier handed over is due on the next take, so a
+//! consumer that asks right after settling a poll commits once per poll. With
+//! an interval, the pacer keeps the latest frontier per partition and hands
+//! them out at most once per interval, so frontiers that arrive per group
+//! completion coalesce into one commit.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{Offset, TakenFrontier, TopicPartition};
 
-/// Hands out every frontier handed to it on the next take. The commit
-/// sentinel wraps it to check what passes through.
-#[derive(Default)]
-pub struct ImmediateCommitPacer {
-    /// The next-to-read offset each partition is ready to commit. Frontiers
-    /// only move forward, so the latest one covers every earlier one.
-    pending: Mutex<HashMap<TopicPartition, Offset>>,
+use crate::config::CompletionGranularity;
+
+/// Holds the latest frontier per partition and says when they go out. The
+/// commit sentinel wraps it to check what passes through.
+pub struct CommitPacer {
+    /// The least time between two takes that hand something out. Zero makes
+    /// every take hand out what is pending.
+    interval: Duration,
+    pending: Mutex<Pending>,
 }
 
-impl ImmediateCommitPacer {
-    pub fn new() -> Self {
-        Self::default()
+#[derive(Default)]
+struct Pending {
+    /// The next-to-read offset each partition is ready to commit. Frontiers
+    /// only move forward, so the latest one covers every earlier one.
+    frontiers: HashMap<TopicPartition, Offset>,
+    /// When the last take handed something out; `None` before the first.
+    last_take: Option<Instant>,
+}
+
+impl CommitPacer {
+    /// Every frontier is due on the next take.
+    pub fn immediate() -> Self {
+        Self::every(Duration::ZERO)
+    }
+
+    /// Frontiers are due at most once per `interval`.
+    pub fn every(interval: Duration) -> Self {
+        Self {
+            interval,
+            pending: Mutex::new(Pending::default()),
+        }
+    }
+
+    /// The pacer a completion granularity commits through. A poll commits as
+    /// it completes; groups complete one send at a time, so their frontiers
+    /// coalesce on `interval`.
+    pub fn for_granularity(granularity: CompletionGranularity, interval: Duration) -> Self {
+        match granularity {
+            CompletionGranularity::Poll => Self::immediate(),
+            CompletionGranularity::Group => Self::every(interval),
+        }
     }
 
     /// Replace the partition's pending offset; frontiers only move forward.
@@ -30,6 +63,7 @@ impl ImmediateCommitPacer {
         self.pending
             .lock()
             .unwrap()
+            .frontiers
             .insert(topic_partition.clone(), taken.offset);
     }
 
@@ -40,18 +74,37 @@ impl ImmediateCommitPacer {
     pub fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
         let mut pending = self.pending.lock().unwrap();
         for topic_partition in topic_partitions {
-            pending.remove(topic_partition);
+            pending.frontiers.remove(topic_partition);
         }
     }
 
-    /// The offsets due for commit: everything pending, or `None` with
-    /// nothing pending.
-    pub fn take_due(&self) -> Option<HashMap<TopicPartition, Offset>> {
+    /// The offsets due for commit at `now`: everything pending once the
+    /// interval since the last take has passed, else `None`. A take with
+    /// nothing pending leaves the interval where it was, so the first
+    /// frontier after a quiet spell goes out at once.
+    pub fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
         let mut pending = self.pending.lock().unwrap();
-        if pending.is_empty() {
+        if pending.frontiers.is_empty() {
             return None;
         }
-        Some(std::mem::take(&mut pending))
+        if pending
+            .last_take
+            .is_some_and(|last| now.duration_since(last) < self.interval)
+        {
+            return None;
+        }
+        pending.last_take = Some(now);
+        Some(std::mem::take(&mut pending.frontiers))
+    }
+
+    /// Everything pending, whatever the interval. For the way out: accepted
+    /// work still held here would replay after a restart.
+    pub fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>> {
+        let mut pending = self.pending.lock().unwrap();
+        if pending.frontiers.is_empty() {
+            return None;
+        }
+        Some(std::mem::take(&mut pending.frontiers))
     }
 }
 
@@ -83,22 +136,25 @@ mod tests {
 
     #[test]
     fn a_pending_frontier_is_due_on_the_next_take() {
-        let pacer = ImmediateCommitPacer::new();
+        let pacer = CommitPacer::immediate();
         pacer.advance_frontier(&tp(0), taken(0, 10));
 
-        let offsets = pacer.take_due().expect("due");
+        let offsets = pacer.take_due(Instant::now()).expect("due");
         assert_eq!(offsets, HashMap::from([(tp(0), Offset(10))]));
-        assert!(pacer.take_due().is_none(), "a take leaves nothing behind");
+        assert!(
+            pacer.take_due(Instant::now()).is_none(),
+            "a take leaves nothing behind"
+        );
     }
 
     #[test]
     fn the_latest_frontier_per_partition_is_what_goes_out() {
-        let pacer = ImmediateCommitPacer::new();
+        let pacer = CommitPacer::immediate();
         pacer.advance_frontier(&tp(0), taken(0, 10));
         pacer.advance_frontier(&tp(1), taken(0, 20));
         pacer.advance_frontier(&tp(0), taken(10, 12));
 
-        let offsets = pacer.take_due().expect("due");
+        let offsets = pacer.take_due(Instant::now()).expect("due");
         assert_eq!(
             offsets,
             HashMap::from([(tp(0), Offset(12)), (tp(1), Offset(20))])
@@ -107,15 +163,56 @@ mod tests {
 
     #[test]
     fn a_forgotten_partition_is_not_committed() {
-        let pacer = ImmediateCommitPacer::new();
+        let pacer = CommitPacer::immediate();
         pacer.advance_frontier(&tp(0), taken(0, 10));
         pacer.advance_frontier(&tp(1), taken(0, 20));
 
         pacer.forget_partitions(&[tp(0)]);
 
         assert_eq!(
-            pacer.take_due().expect("due"),
+            pacer.take_due(Instant::now()).expect("due"),
             HashMap::from([(tp(1), Offset(20))])
+        );
+    }
+
+    #[test]
+    fn frontiers_handed_over_within_the_interval_wait_for_it() {
+        let pacer = CommitPacer::every(Duration::from_millis(500));
+        let start = Instant::now();
+
+        pacer.advance_frontier(&tp(0), taken(0, 10));
+        assert!(
+            pacer.take_due(start).is_some(),
+            "the first frontier goes out at once"
+        );
+
+        pacer.advance_frontier(&tp(0), taken(10, 12));
+        pacer.advance_frontier(&tp(1), taken(0, 20));
+        assert!(
+            pacer.take_due(start + Duration::from_millis(100)).is_none(),
+            "inside the interval nothing goes out"
+        );
+        assert_eq!(
+            pacer
+                .take_due(start + Duration::from_millis(500))
+                .expect("due"),
+            HashMap::from([(tp(0), Offset(12)), (tp(1), Offset(20))]),
+            "one take carries everything that arrived during the interval"
+        );
+    }
+
+    #[test]
+    fn take_all_ignores_the_interval() {
+        let pacer = CommitPacer::every(Duration::from_secs(3600));
+        let start = Instant::now();
+        pacer.advance_frontier(&tp(0), taken(0, 10));
+        pacer.take_due(start).expect("due");
+
+        pacer.advance_frontier(&tp(0), taken(10, 12));
+        assert!(pacer.take_due(start + Duration::from_secs(1)).is_none());
+        assert_eq!(
+            pacer.take_all().expect("pending"),
+            HashMap::from([(tp(0), Offset(12))])
         );
     }
 }

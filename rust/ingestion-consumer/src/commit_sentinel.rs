@@ -21,21 +21,23 @@
 //! partitions and the invariant must re-baseline instead of firing false
 //! positives.
 //!
-//! The sentinel wraps the [`ImmediateCommitPacer`] the consumer hands its
-//! frontiers to: every frontier passes through it on the way in, and every
-//! take passes through it on the way out. It is a pure observer: it never
-//! changes what is committed.
+//! The sentinel wraps the [`CommitPacer`] the consumer hands its frontiers
+//! to: every frontier passes through it on the way in, where its span is
+//! checked, and every take passes through it on the way out, where what goes
+//! out is recorded as attempted. A frontier the pacer still holds is not an
+//! attempted commit, so the confirmation lag measures commits the client was
+//! asked to make. It is a pure observer: it never changes what is committed.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use common_kafka_consumer::{Offset, TakenFrontier, TopicPartition};
 use metrics::{counter, gauge};
 use tracing::warn;
 
-use crate::commit_pacer::ImmediateCommitPacer;
+use crate::commit_pacer::CommitPacer;
 use crate::order_sentinel::OffsetSpan;
 
 /// How a commit violated the contiguous-monotonic invariant.
@@ -72,12 +74,16 @@ pub struct CommitViolation {
     pub span: OffsetSpan,
 }
 
-/// Per-partition commit tracking: what this process asked Kafka to commit
-/// (attempted) and what the broker has confirmed as the group's committed
-/// offset (observed by the commit monitor via OffsetFetch).
+/// Per-partition commit tracking: where the next frontier must start, what
+/// this process asked Kafka to commit (attempted), and what the broker has
+/// confirmed as the group's committed offset (observed by the commit monitor
+/// via OffsetFetch).
 #[derive(Default, Clone, Copy)]
 struct PartitionCommits {
-    /// The offset value last submitted for commit (Kafka "next to read").
+    /// One past the last span handed over (Kafka "next to read"). The next
+    /// span must start here.
+    next_expected: Option<i64>,
+    /// The offset value last handed out for commit (Kafka "next to read").
     attempted: Option<i64>,
     /// The broker-confirmed committed offset from the last monitor poll.
     confirmed: Option<i64>,
@@ -97,11 +103,11 @@ pub struct CommitSentinel {
     /// no-op and no state accumulates.
     enabled: AtomicBool,
     /// The pacer being observed.
-    inner: ImmediateCommitPacer,
+    inner: CommitPacer,
 }
 
 impl CommitSentinel {
-    pub fn new(inner: ImmediateCommitPacer) -> Self {
+    pub fn new(inner: CommitPacer) -> Self {
         Self {
             partitions: Mutex::new(HashMap::new()),
             enabled: AtomicBool::new(true),
@@ -128,6 +134,18 @@ impl CommitSentinel {
         violations
     }
 
+    /// Pass a frontier on without a span check. At `group` granularity a
+    /// take no longer maps to one poll's slice, so there is no delivered span
+    /// to hold against the previous commit; the ledger's gap counter covers
+    /// a skip in what Kafka delivered.
+    pub fn advance_frontier_unchecked(
+        &self,
+        topic_partition: &TopicPartition,
+        taken: TakenFrontier,
+    ) {
+        self.inner.advance_frontier(topic_partition, taken);
+    }
+
     /// Partitions leaving the assignment: drop their baselines, and whatever
     /// the pacer holds for them.
     pub fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
@@ -135,12 +153,43 @@ impl CommitSentinel {
         self.inner.forget_partitions(topic_partitions);
     }
 
-    pub fn take_due(&self) -> Option<HashMap<TopicPartition, Offset>> {
-        self.inner.take_due()
+    /// What the pacer hands out at `now`, recorded as attempted.
+    pub fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
+        let offsets = self.inner.take_due(now)?;
+        self.record_attempted(&offsets);
+        Some(offsets)
     }
 
-    /// Check a batch's offset spans against the previous commit per partition,
-    /// then advance the tracked committed offset to `span.last + 1`. Emits
+    /// Everything the pacer holds, recorded as attempted.
+    pub fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>> {
+        let offsets = self.inner.take_all()?;
+        self.record_attempted(&offsets);
+        Some(offsets)
+    }
+
+    fn record_attempted(&self, offsets: &HashMap<TopicPartition, Offset>) {
+        if !self.enabled.load(Ordering::Relaxed) {
+            return;
+        }
+        let mut partitions = self.partitions.lock().unwrap();
+        for (topic_partition, offset) in offsets {
+            let topic = &topic_partition.topic;
+            let partition = topic_partition.partition;
+            partitions
+                .entry((topic.clone(), partition))
+                .or_default()
+                .attempted = Some(offset.0);
+            gauge!(
+                "ingestion_consumer_committed_offset",
+                "topic" => topic.clone(),
+                "partition" => partition.to_string(),
+            )
+            .set(offset.0 as f64);
+        }
+    }
+
+    /// Check a batch's offset spans against the previous span per partition,
+    /// then advance where the next span must start to `span.last + 1`. Emits
     /// metrics and logs; returns the violations for tests.
     pub fn check_commit<'a>(
         &self,
@@ -158,7 +207,7 @@ impl CommitSentinel {
             let topic = &topic_partition.topic;
             let partition = &topic_partition.partition;
             let state = partitions.entry((topic.clone(), *partition)).or_default();
-            if let Some(prev) = state.attempted {
+            if let Some(prev) = state.next_expected {
                 let kind = if span.first == prev {
                     None
                 } else if span.first > prev {
@@ -194,13 +243,7 @@ impl CommitSentinel {
                 }
             }
 
-            state.attempted = Some(span.last + 1);
-            gauge!(
-                "ingestion_consumer_committed_offset",
-                "topic" => topic.clone(),
-                "partition" => partition.to_string(),
-            )
-            .set((span.last + 1) as f64);
+            state.next_expected = Some(span.last + 1);
         }
 
         violations
@@ -301,12 +344,29 @@ impl CommitSentinel {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use crate::commit_pacer::test_support::{taken, tp};
 
     use super::*;
 
     fn sentinel() -> CommitSentinel {
-        CommitSentinel::new(ImmediateCommitPacer::new())
+        CommitSentinel::new(CommitPacer::immediate())
+    }
+
+    /// Hand a frontier over with the span it covers and take it at once, as
+    /// the poll path does.
+    fn attempt(sentinel: &CommitSentinel, topic: &str, partition: i32, first: i64, offset: i64) {
+        let delivered = OffsetSpan {
+            first,
+            last: offset - 1,
+        };
+        sentinel.advance_frontier(
+            &TopicPartition::new(topic, partition),
+            delivered,
+            taken(first, offset),
+        );
+        sentinel.take_due(Instant::now()).expect("due");
     }
 
     #[test]
@@ -405,9 +465,9 @@ mod tests {
     #[test]
     fn broker_observation_baselines_then_tracks_progress() {
         let sentinel = sentinel();
-        sentinel.check_commit(&spans(&[("t", 0, 0, 99)])); // attempted next = 100
-                                                           // First poll baselines: a stale broker offset (previous incarnation)
-                                                           // is not evidence that OUR commits landed.
+        attempt(&sentinel, "t", 0, 0, 100);
+        // First poll baselines: a stale broker offset (previous incarnation)
+        // is not evidence that OUR commits landed.
         assert!(!sentinel.observe_broker_committed([("t".to_string(), 0, 40)]));
         // Broker offset advancing across polls = commits are landing.
         assert!(sentinel.observe_broker_committed([("t".to_string(), 0, 80)]));
@@ -423,12 +483,32 @@ mod tests {
     #[test]
     fn broker_observation_requires_every_attempted_partition_confirmed() {
         let sentinel = sentinel();
-        sentinel.check_commit(&spans(&[("t", 0, 0, 99), ("t", 1, 0, 9)]));
+        attempt(&sentinel, "t", 0, 0, 100);
+        attempt(&sentinel, "t", 1, 0, 10);
         sentinel.observe_broker_committed([("t".to_string(), 0, 100), ("t".to_string(), 1, 5)]);
         // Partition 0 fully confirmed but partition 1 stuck below attempted and
         // not advancing: not progress.
         assert!(!sentinel
             .observe_broker_committed([("t".to_string(), 0, 100), ("t".to_string(), 1, 5)]));
+    }
+
+    #[test]
+    fn a_frontier_the_pacer_still_holds_is_not_an_attempted_commit() {
+        let sentinel = CommitSentinel::new(CommitPacer::every(Duration::from_secs(3600)));
+        attempt(&sentinel, "events", 0, 0, 10);
+        // Handed over inside the interval: the pacer holds it.
+        sentinel.advance_frontier(
+            &tp(0),
+            OffsetSpan {
+                first: 10,
+                last: 19,
+            },
+            taken(10, 20),
+        );
+
+        // Everything attempted is confirmed at 10. Counting the held frontier
+        // as attempted would report it as a commit that never landed.
+        assert!(sentinel.observe_broker_committed([("events".to_string(), 0, 10)]));
     }
 
     #[test]
