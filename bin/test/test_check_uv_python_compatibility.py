@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import io
+import json
 import subprocess
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -11,7 +12,13 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from bin.check_uv_python_compatibility import check_uv_python_compatibility, check_workflow_pins, label_workflow_pins
+from bin.check_uv_python_compatibility import (
+    FloxUv,
+    check_flox_alignment,
+    check_uv_python_compatibility,
+    check_workflow_pins,
+    label_workflow_pins,
+)
 
 
 class TestCheckUvPythonCompatibility(unittest.TestCase):
@@ -109,6 +116,67 @@ class TestLabelWorkflowPins(unittest.TestCase):
         )
         self.assertEqual(missing, ["ci-b.yml"])
         self.assertEqual(set(locations), {"0.11.28", "0.10.2"})
+
+
+PINNED = FloxUv(install_id="uv", version="0.12.5")
+HELD_BACK = FloxUv(install_id="uv-x86_64-darwin", version="0.11.25")
+
+
+class TestCheckFloxAlignment(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("every_system_on_the_pin", {"aarch64-linux": PINNED, "x86_64-linux": PINNED}, True, "✓"),
+            ("one_system_held_back", {"aarch64-linux": PINNED, "x86_64-darwin": HELD_BACK}, True, "⚠"),
+            ("a_system_resolves_no_uv", {"aarch64-linux": PINNED, "x86_64-darwin": None}, False, "✗"),
+            ("no_system_on_the_pin", {"aarch64-linux": HELD_BACK, "x86_64-darwin": HELD_BACK}, False, "✗"),
+            ("linux_drifts", {"aarch64-linux": PINNED, "x86_64-linux": HELD_BACK}, False, "✗"),
+            (
+                "unapproved_intel_mac_version",
+                {"aarch64-linux": PINNED, "x86_64-darwin": FloxUv(install_id="uv-x86_64-darwin", version="0.10.2")},
+                False,
+                "✗",
+            ),
+            (
+                "patch_drift_is_allowed",
+                {"aarch64-linux": PINNED, "x86_64-linux": FloxUv(install_id="uv", version="0.12.4")},
+                True,
+                "✓",
+            ),
+        ]
+    )
+    def test_alignment(
+        self, _name: str, coverage: dict[str, FloxUv | None], expected_ok: bool, expected_marker: str
+    ) -> None:
+        buffer = io.StringIO()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            lock_path = root / ".flox" / "env" / "manifest.lock"
+            lock_path.parent.mkdir(parents=True)
+            lock_path.write_text(
+                json.dumps(
+                    {
+                        "manifest": {"options": {"systems": list(coverage)}},
+                        "packages": [
+                            {
+                                "attr_path": "uv",
+                                "system": system,
+                                "install_id": entry.install_id,
+                                "version": entry.version,
+                            }
+                            for system, entry in coverage.items()
+                            if entry is not None
+                        ],
+                    }
+                )
+            )
+            with (
+                patch("bin.check_uv_python_compatibility.__file__", str(root / "bin" / "check.py")),
+                redirect_stdout(buffer),
+            ):
+                ok = check_flox_alignment("0.12.5")
+
+        self.assertEqual(ok, expected_ok)
+        self.assertIn(expected_marker, buffer.getvalue())
 
 
 if __name__ == "__main__":
