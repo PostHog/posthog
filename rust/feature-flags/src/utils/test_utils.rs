@@ -1,4 +1,5 @@
 use crate::{
+    api::flag_definitions::FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET,
     cohorts::cohort_models::{Cohort, CohortId, CohortType},
     config::{Config, DEFAULT_TEST_CONFIG},
     flags::{
@@ -211,12 +212,23 @@ pub async fn read_flag_definitions_rebuild_requests(redis_url: &str) -> Vec<Stri
     let redis = setup_redis_client(Some(redis_url.to_string())).await;
     redis
         .zrangebyscore(
-            "flag_definitions:rebuild_requests".to_string(),
+            FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string(),
             "-inf".to_string(),
             "+inf".to_string(),
         )
         .await
         .unwrap_or_default()
+}
+
+/// Clear the flag-definitions self-heal rebuild-requests sorted set. Nothing flushes the
+/// test redis between runs, and team ids restart when the test database is recreated, so a
+/// stale member with a reused id would satisfy a poll on its first read.
+pub async fn clear_flag_definitions_rebuild_requests(redis_url: &str) {
+    let redis = setup_redis_client(Some(redis_url.to_string())).await;
+    redis
+        .del(FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string())
+        .await
+        .unwrap();
 }
 
 /// An S3 client that reports every key as NotFound. Lets integration tests force a
@@ -541,9 +553,9 @@ async fn insert_organization_if_not_exists(
 
     sqlx::query(
         r#"INSERT INTO posthog_organization
-        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, is_hipaa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys, allow_publicly_shared_resources, default_anonymize_ips)
+        (id, name, slug, created_at, updated_at, plugins_access_level, for_internal_metrics, is_member_join_email_enabled, enforce_2fa, customer_id, available_product_features, personalization, setup_section_2_completed, domain_whitelist, members_can_use_personal_api_keys, allow_publicly_shared_resources, default_anonymize_ips)
         VALUES
-        ($1::uuid, 'Test Organization', $2, '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, false, NULL, '{}', '{}', true, '{}', true, true, false)
+        ($1::uuid, 'Test Organization', $2, '2024-06-17 14:40:49.298579+00:00', '2024-06-17 14:40:49.298593+00:00', 9, false, true, NULL, NULL, '{}', '{}', true, '{}', true, true, false)
         ON CONFLICT DO NOTHING"#,
     )
     .bind(org_id)
@@ -1625,7 +1637,7 @@ impl TestContext {
         team_id: i32,
         label: &str,
         scopes: Option<Vec<&str>>,
-    ) -> Result<String, Error> {
+    ) -> Result<(String, String), Error> {
         let key_id = format!("test_psk_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let raw_key = format!("phs_{}", &uuid::Uuid::new_v4().to_string()[..12]);
 
@@ -1651,7 +1663,7 @@ impl TestContext {
         .execute(&mut *conn)
         .await?;
 
-        Ok(raw_key)
+        Ok((key_id, raw_key))
     }
 
     /// Creates a team with both public token and secret API token
@@ -1814,15 +1826,27 @@ impl TestContext {
             .await
     }
 
-    /// Populate cache for a team and store an ETag alongside it.
-    /// The ETag is stored at `{cache_key}:etag` using pickle serialization,
-    /// matching Django's HyperCache behavior.
+    /// Populate cache for a team and store an ETag alongside it, on the shared Redis.
+    /// See `populate_cache_for_team_with_etag_on`.
     pub async fn populate_cache_for_team_with_etag(
         &self,
         team_id: i32,
         etag: &str,
     ) -> Result<(), Error> {
         let redis_client = setup_redis_client(Some(self.config.redis_url.clone())).await;
+        self.populate_cache_for_team_with_etag_on(redis_client, team_id, etag)
+            .await
+    }
+
+    /// Populate cache for a team and store an ETag alongside it, on the given Redis.
+    /// The ETag is stored at `{cache_key}:etag` using pickle serialization,
+    /// matching Django's HyperCache behavior.
+    pub async fn populate_cache_for_team_with_etag_on(
+        &self,
+        redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+        team_id: i32,
+        etag: &str,
+    ) -> Result<(), Error> {
         self.populate_flag_definitions_cache(redis_client.clone(), team_id)
             .await?;
 

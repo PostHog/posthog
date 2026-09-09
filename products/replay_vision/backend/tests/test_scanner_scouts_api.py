@@ -148,7 +148,7 @@ class TestScannerScoutCreate(_VisionAPITestCase):
     @parameterized.expand(
         [
             ("oversized_body", {"body": "x" * 1_000_001}),
-            ("name_without_the_scout_prefix", {"name": "not-a-scout"}),
+            ("name_the_inbox_reserves", {"name": "scratchpad"}),
         ]
     )
     def test_the_scanner_route_applies_the_same_definition_bars_as_the_generic_endpoint(

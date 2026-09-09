@@ -10,7 +10,7 @@ import re
 import json
 import asyncio
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
@@ -22,7 +22,13 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models import Team, User
-from posthog.tasks.alerts.utils import INSIGHT_ALERT_FIRING_EVENT, dispatch_alert_notification, record_alert_delivery
+from posthog.tasks.alerts.utils import (
+    _inconclusive_is_suppressed,
+    _should_suppress_notification,
+    dispatch_alert_notification,
+    prepare_alert_insight_chart_url,
+    record_alert_delivery,
+)
 from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
 from posthog.temporal.ai.anomaly_investigation.event_provenance import alerted_series_event, describe_event_provenance
 from posthog.temporal.ai.anomaly_investigation.metric_definition import describe_metric_definition
@@ -35,10 +41,8 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.utils import absolute_uri
 
-from products.alerts.backend.destinations import list_active_alert_destinations
 from products.alerts.backend.investigation_episode import EpisodeInvestigations, episode_investigations
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
-from products.exports.backend.facade import api as exports
 from products.notebooks.backend.facade import api as notebooks
 from products.signals.backend.facade import api as signals
 
@@ -83,15 +87,6 @@ _MAX_DESCRIPTION_CHARS = 3000
 # Matches a sentence-ending punctuation mark followed by whitespace or end-of-string,
 # used to clip the summary teaser on a sentence boundary instead of mid-word.
 _SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
-
-# TTL for the tokenized chart URL embedded in Slack. Slack fetches the image at delivery,
-# but the URL must stay resolvable while people scroll back to the message; 30 days matches
-# the delivery-URL TTL used for task chart artifacts (products/tasks living_artifacts).
-_INSIGHT_CHART_URL_TTL = timedelta(days=30)
-
-# The stored PNG outlives its delivery URL by one day so the URL can never point at a
-# deleted asset; without an explicit TTL the format default keeps the PNG for six months.
-_INSIGHT_CHART_ASSET_TTL = timedelta(days=31)
 
 
 @dataclass
@@ -222,7 +217,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     # short grace applies (INVESTIGATION_NOTIFY_GRACE_MINUTES), and a slow render sitting
     # between the DONE update and the dispatch would let the sweep force-send its fallback
     # notification mid-render. While the status is RUNNING the sweep waits much longer.
-    insight_chart_url = await sync_to_async(_prepare_insight_chart_url, thread_sensitive=False)(
+    insight_chart_url = await sync_to_async(prepare_alert_insight_chart_url, thread_sensitive=False)(
         alert=alert,
         alert_check=alert_check,
         user=user,
@@ -446,70 +441,6 @@ def _build_signal_description(
     return description
 
 
-def _inconclusive_is_suppressed(verdict: str | None, inconclusive_action: str | None) -> bool:
-    """Whether an inconclusive verdict is held back by the alert's configured policy."""
-    return verdict == "inconclusive" and (inconclusive_action or "notify") == "suppress"
-
-
-def _should_suppress_notification(verdict: str | None, inconclusive_action: str | None) -> bool:
-    """Whether the verdict holds the notification back: false positives always suppress,
-    inconclusive follows the alert's configured policy."""
-    return verdict == "false_positive" or _inconclusive_is_suppressed(verdict, inconclusive_action)
-
-
-def _prepare_insight_chart_url(
-    *,
-    alert: AlertConfiguration,
-    alert_check: AlertCheck,
-    user: User,
-    verdict: str | None,
-) -> str | None:
-    """Render the alerted insight to a PNG and mint a URL Slack can embed as an image block.
-
-    Skipped when nothing would show it: a suppressed verdict, an already-delivered check
-    (the common case for non-gated alerts, whose notification the main task sent
-    synchronously), or no active Slack destination (only the Slack template renders the
-    chart). Best-effort: on any failure (render error, no viewer access for the
-    investigation user, export infrastructure down) return None so the notification still
-    goes out, just without the chart.
-    """
-    if _should_suppress_notification(verdict, alert.investigation_inconclusive_action):
-        return None
-    pending = AlertCheck.objects.filter(
-        id=alert_check.id, notification_sent_at__isnull=True, notification_suppressed_by_agent=False
-    ).exists()
-    if not pending:
-        return None
-    try:
-        destinations = list_active_alert_destinations(
-            team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids=(INSIGHT_ALERT_FIRING_EVENT,)
-        )
-        if not any(destination.destination_type == "slack" for destination in destinations):
-            return None
-        asset, content = exports.render_png_export(
-            team=alert.team,
-            created_by=user,
-            insight_id=alert.insight_id,
-            # System render: keep it out of the user's export listings and quota.
-            is_system=True,
-            expires_after=datetime.now(UTC) + _INSIGHT_CHART_ASSET_TTL,
-        )
-        if content is None:
-            logger.info(
-                "anomaly_investigation.insight_chart_render_failed",
-                alert_id=str(alert.id),
-                asset_id=asset.id,
-                exception=asset.exception,
-            )
-            return None
-        return exports.get_delivery_image_url(
-            team_id=alert.team_id, asset_id=asset.id, expiry_delta=_INSIGHT_CHART_URL_TTL
-        )
-    except Exception:
-        logger.exception("anomaly_investigation.insight_chart_render_failed", alert_id=str(alert.id))
-        return None
-
-
 def _deliver_investigation_outcome(
     *,
     alert,
@@ -582,7 +513,11 @@ def _deliver_investigation_outcome(
         if insight_chart_url:
             extra_properties["insight_chart_url"] = insight_chart_url
         try:
-            deliveries = dispatch_alert_notification(alert, check, breaches, extra_properties=extra_properties or None)
+            # render_chart=False: the chart was already rendered above, before this
+            # transaction took its row lock.
+            deliveries = dispatch_alert_notification(
+                alert, check, breaches, extra_properties=extra_properties or None, render_chart=False
+            )
             record_alert_delivery(alert, check, deliveries, stamp_on_empty=True)
         except Exception:
             logger.exception(
@@ -650,6 +585,9 @@ def _dispatch_verdict_change_followup(
                 breaches,
                 extra_properties=extra_properties,
                 idempotency_key=f"{check.id}:investigation-verdict-change",
+                # The caller holds a row lock, and this check was already notified, so
+                # prepare_alert_insight_chart_url would return None anyway.
+                render_chart=False,
             )
     except Exception:
         # Best-effort, like the signal emit: the verdict is persisted and the user already

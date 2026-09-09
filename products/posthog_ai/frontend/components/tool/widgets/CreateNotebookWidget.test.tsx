@@ -52,6 +52,14 @@ describe('CreateNotebookWidget', () => {
                     version: 1,
                 },
             ],
+            ['short_id with empty content', { short_id: 'aBcDe123', content: [] }],
+            [
+                'short_id with node list content',
+                {
+                    short_id: 'aBcDe123',
+                    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Sample notebook' }] }],
+                },
+            ],
             ['notebook_id', { notebook_id: 'aBcDe123' }],
         ])('reads the short id from %s, with the title and the _posthogUrl enrichment', (_field, payload) => {
             const notebook = extractNotebook(

@@ -26,7 +26,7 @@ from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.query_cache.freshness_index import clean_up_stale_insights, get_stale_insights
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
-from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
@@ -225,6 +225,10 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         logger.info(f"Warming insight cache failed 404 insight not found: {insight_id}")
         return
 
+    if insight.query is None:
+        logger.info(f"Warming insight cache skipped, insight has no query: {insight_id}")
+        return
+
     dashboard = None
 
     tag_queries(
@@ -237,7 +241,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         tag_queries(dashboard_id=dashboard_id)
         dashboard = insight.dashboards.filter(pk=dashboard_id).first()
 
-    with upgrade_query(insight):
+    with upgrade_insight(insight):
         logger.info(f"Warming insight cache: {insight.pk} for team {insight.team_id} and dashboard {dashboard_id}")
 
         try:

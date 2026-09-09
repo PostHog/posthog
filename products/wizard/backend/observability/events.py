@@ -1,11 +1,11 @@
 from uuid import NAMESPACE_URL, uuid5
 
-from celery import current_app as celery_app
+from posthog.models import User
+from posthog.ph_client import ph_background_capture
 
 from products.wizard.backend.facade.contracts import WizardRunDTO
-from products.wizard.backend.facade.enums import WizardRunStage
+from products.wizard.backend.facade.enums import WizardRunEnvironment, WizardRunStage
 from products.wizard.backend.observability.config import (
-    WIZARD_ANALYTICS_TASK,
     WIZARD_PULL_REQUEST_CREATED_EVENT,
     WIZARD_RUN_CREATED_EVENT,
     WIZARD_RUN_DISPATCH_FINISHED_EVENT,
@@ -81,16 +81,31 @@ def _enqueue_run_event(
 ) -> None:
     event_uuid = uuid5(NAMESPACE_URL, f"wizard:{run.id}:{event_key}")
     event_properties: WizardEventProperties = {
+        "event_source": "wizard_run_service",
+        "project_id": str(run.team_id),
         "environment": run.environment.value,
+        "run_surface": run.environment.value,
         "workspace_type": run.workspace.type,
         "program_id": run.program.id,
         "wizard_version": run.program.wizard_version,
+        "version": run.program.wizard_version,
+        "command": run.program.command[0] if run.program.command else "default",
     }
+
+    if run.environment == WizardRunEnvironment.CLOUD:
+        event_properties["task_run_id"] = str(run.id)
 
     if properties is not None:
         event_properties.update(properties)
 
-    celery_app.signature(
-        WIZARD_ANALYTICS_TASK,
-        args=[run.team_id, run.created_by_id, str(run.id), event, str(event_uuid), event_properties],
-    ).apply_async()
+    distinct_id = str(run.id)
+    if run.created_by_id is not None:
+        user_distinct_id = User.objects.filter(id=run.created_by_id).values_list("distinct_id", flat=True).first()
+        if user_distinct_id is not None:
+            distinct_id = user_distinct_id
+    ph_background_capture()(
+        distinct_id=distinct_id,
+        event=event,
+        properties={**event_properties, "team_id": run.team_id, "wizard_run_id": str(run.id)},
+        uuid=str(event_uuid),
+    )
