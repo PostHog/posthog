@@ -62,7 +62,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX, IMPROVE_KEY_PREFIX
-from products.signals.backend.scout_harness.runner import _create_run_row
+from products.signals.backend.scout_harness.runner import ScoutRenamedDuringDispatch, _create_run_row
 from products.signals.backend.scout_harness.serializers import (
     SignalScoutConfigUpdateSerializer,
     SignalScoutSlackDestinationSerializer,
@@ -2279,7 +2279,7 @@ class TestScoutRenameConcurrency(NonAtomicAPIBaseTest):
                     format="json",
                 )
             assert response.status_code == status.HTTP_200_OK, response.json()
-            with self.assertRaisesRegex(ValueError, "renamed before this run started"):
+            with self.assertRaisesRegex(ScoutRenamedDuringDispatch, "renamed before this run started"):
                 pending_run.result(timeout=20)
 
         assert not SignalScoutRun.all_teams.filter(pk=run_id).exists()
