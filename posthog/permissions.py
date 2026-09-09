@@ -371,13 +371,17 @@ class ActiveOrganizationPermission(BasePermission):
     def _target_organization(self, request: Request, view) -> Optional[Organization]:
         """The organization this request acts on, or None when it has no single target.
 
-        On a root viewset the mixin falls back to the current organization. Reads pass, because
-        listing organizations is how a member switches away from a deactivated one. Creating an
-        organization passes, because the new row lands outside the current organization.
+        On a root viewset the mixin falls back to the current organization, which is a UI
+        preference rather than the request's target. Reads pass, because listing organizations is
+        how a member switches away from a deactivated one. Detail routes pass to
+        `has_object_permission`, which judges the organization the URL names; gating them here
+        would refuse an active organization whenever a deactivated one happened to be current.
+        Creating an organization passes, because the new row lands outside the current one.
+        Every other root write does land in the current organization, so it is gated here.
         """
         if view_targets_one_organization(view):
             return url_target_organization(view)
-        if request.method in SAFE_METHODS:
+        if request.method in SAFE_METHODS or getattr(view, "detail", False):
             return None
         if getattr(view, "basename", None) == "organizations" and getattr(view, "action", None) == "create":
             return None

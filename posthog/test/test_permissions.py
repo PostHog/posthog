@@ -1400,6 +1400,8 @@ class TestActiveOrganizationPermission(SimpleTestCase):
         view.scope_object = scope_object
         view.basename = basename
         view.action = action
+        # A bare Mock would hand back a truthy attribute and skip the check everywhere.
+        view.detail = False
         return view
 
     def _root_view(self, basename="projects", action="create"):
@@ -1555,4 +1557,17 @@ class TestActiveOrganizationPermission(SimpleTestCase):
         request = self._request(self._personal_api_key_auth(), method="POST")
 
         view = self._root_view(basename="organizations", action="create")
+        self.assertTrue(self.permission.has_permission(request, view))
+
+    @parameterized.expand([("patch", "PATCH", "partial_update"), ("delete", "DELETE", "destroy")])
+    def test_a_root_detail_route_is_left_to_the_object_check(self, _name, method, action):
+        # The URL names the target, but the mixin resolves no organization from it and falls back
+        # to the current one. Gating here would refuse an active organization whenever a
+        # deactivated one happened to be current.
+        self._deactivate()
+        request = self._request(self._personal_api_key_auth(), method=method)
+
+        view = self._root_view(basename="projects", action=action)
+        view.detail = True
+
         self.assertTrue(self.permission.has_permission(request, view))

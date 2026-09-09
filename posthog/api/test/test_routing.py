@@ -265,6 +265,10 @@ class TestDeactivatedOrganizationBlocksTokens(APIBaseTest):
     def test_a_key_still_reaches_an_active_organization_of_the_same_user(self):
         self._deactivate()
         _, _, other_team = Organization.objects.bootstrap(user=self.user)
+        # bootstrap makes the new organization current, which would let a check that reads
+        # current_organization pass for the wrong reason. Put the deactivated one back.
+        self.user.current_organization = self.organization
+        self.user.save()
 
         response = self.client.get(
             f"/api/scoped_environments/{other_team.id}/scoped_foos/",
@@ -284,7 +288,6 @@ class TestDeactivatedOrganizationBlocksTokens(APIBaseTest):
 
     def test_a_root_read_still_works_so_a_member_can_switch_organization(self):
         self._deactivate()
-        Organization.objects.bootstrap(user=self.user)
 
         response = self.client.get("/api/scoped_projects/", HTTP_AUTHORIZATION=f"Bearer {self.key_value}")
 
