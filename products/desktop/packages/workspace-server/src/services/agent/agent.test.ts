@@ -208,6 +208,7 @@ function createMockDependencies() {
     agentAuthAdapter: {
       getCurrentCredentials: vi.fn().mockResolvedValue(null),
       gatewayAuthToken: vi.fn().mockResolvedValue("gateway-token"),
+      gatewayPublishToken: vi.fn().mockResolvedValue("gateway-token"),
       gatewayProjectId: vi.fn().mockReturnValue(1),
       ensureGatewayProxy: vi.fn().mockResolvedValue("http://127.0.0.1:9999"),
       configureProcessEnv: vi.fn().mockResolvedValue(undefined),
@@ -377,7 +378,6 @@ describe("AgentService", () => {
       ).mountContextWiki(credentials);
 
     const ENV_KEYS = [
-      "POSTHOG_API_KEY",
       "POSTHOG_PERSONAL_API_KEY",
       "POSTHOG_CONTEXT_LAYER_PATH",
       "POSTHOG_CONTEXT_LAYER_COMMITS_PATH",
@@ -395,35 +395,30 @@ describe("AgentService", () => {
       }
     });
 
-    // POSTHOG_API_KEY is what the auth sync just wrote, and it is deliberately
-    // absent while impersonating — so an impersonation credential must never
-    // reach the agent subprocess as a publish token.
+    // The publish token is whatever the auth adapter hands out; it stays null
+    // for impersonated sessions so that credential never reaches a subprocess.
     it.each([
-      ["the auth sync wrote one", "synced-key", "synced-key"],
-      ["the session is impersonated", undefined, undefined],
-    ])(
-      "exposes a publish token only when %s",
-      async (_label, apiKey, expected) => {
-        if (apiKey) {
-          process.env.POSTHOG_API_KEY = apiKey;
-        }
-        mockPrepareContextWiki.mockResolvedValueOnce(mount);
+      ["a session the adapter covers", "gateway-token", "gateway-token"],
+      ["an impersonated session", null, undefined],
+    ])("exposes the publish token for %s", async (_label, token, expected) => {
+      vi.mocked(
+        deps.agentAuthAdapter.gatewayPublishToken,
+      ).mockResolvedValueOnce(token);
+      mockPrepareContextWiki.mockResolvedValueOnce(mount);
 
-        const wiki = await mountContextWiki();
+      const wiki = await mountContextWiki();
 
-        expect(wiki).toEqual({
-          path: mount.path,
-          commitsPath: mount.commitsPath,
-          personalApiKey: expected,
-        });
-      },
-    );
+      expect(wiki).toEqual({
+        path: mount.path,
+        commitsPath: mount.commitsPath,
+        personalApiKey: expected,
+      });
+    });
 
     // The mount travels per-session precisely because the harness adapters
     // snapshot process.env at spawn time — a global write here would let
     // concurrent session starts leak one session's token into another.
     it("never writes the wiki vars to shared process.env", async () => {
-      process.env.POSTHOG_API_KEY = "synced-key";
       mockPrepareContextWiki.mockResolvedValueOnce(mount);
 
       await mountContextWiki();
@@ -434,7 +429,6 @@ describe("AgentService", () => {
     });
 
     it("threads the mount into agent.run as a per-session value", async () => {
-      process.env.POSTHOG_API_KEY = "synced-key";
       mockPrepareContextWiki.mockResolvedValue(mount);
 
       await service.startSession(baseSessionParams);
@@ -446,7 +440,7 @@ describe("AgentService", () => {
           contextWiki: {
             path: mount.path,
             commitsPath: mount.commitsPath,
-            personalApiKey: "synced-key",
+            personalApiKey: "gateway-token",
           },
         }),
       );

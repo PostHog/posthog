@@ -228,6 +228,18 @@ export class AgentAuthAdapter {
     }
   }
 
+  /**
+   * Token that may reach agent subprocesses (e.g. the context wiki publish
+   * token). Null for impersonated sessions: an impersonation credential must
+   * never reach a subprocess.
+   */
+  async gatewayPublishToken(): Promise<string | null> {
+    if (this.authService.getState().sessionType === "impersonated") {
+      return null;
+    }
+    return this.gatewayAuthToken();
+  }
+
   authenticatedFetch(input: string, init?: RequestInit): Promise<Response> {
     return this.authService.authenticatedFetch(fetch, input, init);
   }
@@ -258,25 +270,13 @@ export class AgentAuthAdapter {
     }
   }
 
-  private syncTokenEnvironment(token: string): void {
-    if (this.authService.getState().sessionType === "impersonated") {
-      delete process.env.POSTHOG_API_KEY;
-      delete process.env.POSTHOG_AUTH_HEADER;
-      return;
-    }
-    process.env.POSTHOG_API_KEY = token;
-    process.env.POSTHOG_AUTH_HEADER = `Bearer ${token}`;
-  }
-
   private async getValidToken(): Promise<string> {
     const { accessToken } = await this.authService.getValidAccessToken();
-    this.syncTokenEnvironment(accessToken);
     return accessToken;
   }
 
   private async refreshToken(): Promise<string> {
     const { accessToken } = await this.authService.refreshAccessToken();
-    this.syncTokenEnvironment(accessToken);
     return accessToken;
   }
 

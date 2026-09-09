@@ -89,8 +89,6 @@ describe("AgentAuthAdapter", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    delete process.env.POSTHOG_API_KEY;
-    delete process.env.POSTHOG_AUTH_HEADER;
   });
 
   describe("getCurrentCredentials", () => {
@@ -366,8 +364,6 @@ describe("AgentAuthAdapter", () => {
       claudeCliPath: "/mock/claude-cli.js",
     });
 
-    expect(process.env.POSTHOG_API_KEY).toBe("test-access-token");
-    expect(process.env.POSTHOG_AUTH_HEADER).toBe("Bearer test-access-token");
     expect(process.env.LLM_GATEWAY_URL).toBe("http://127.0.0.1:9999");
     expect(process.env.CLAUDE_CODE_EXECUTABLE).toBe("/mock/claude-cli.js");
     expect(process.env.POSTHOG_PROJECT_ID).toBe("1");
@@ -375,23 +371,20 @@ describe("AgentAuthAdapter", () => {
     expect(process.env.PATH).toBe(pathBefore);
   });
 
-  it("does not export impersonated credentials to the process environment", async () => {
-    process.env.POSTHOG_API_KEY = "stale-token";
-    process.env.POSTHOG_AUTH_HEADER = "Bearer stale-token";
-    deps.authService.getState.mockReturnValue({
-      currentProjectId: 1,
-      sessionType: "impersonated",
-    });
+  it.each([
+    { sessionType: "impersonated" as const, expected: null },
+    { sessionType: "persistent" as const, expected: "test-access-token" },
+  ])(
+    "returns $expected as the publish token for $sessionType sessions",
+    async ({ sessionType, expected }) => {
+      deps.authService.getState.mockReturnValue({
+        currentProjectId: 1,
+        sessionType,
+      });
 
-    await adapter.configureProcessEnv({
-      credentials: baseCredentials,
-      proxyUrl: "http://127.0.0.1:9999",
-      claudeCliPath: "/mock/claude-cli.js",
-    });
-
-    expect(process.env.POSTHOG_API_KEY).toBeUndefined();
-    expect(process.env.POSTHOG_AUTH_HEADER).toBeUndefined();
-  });
+      await expect(adapter.gatewayPublishToken()).resolves.toBe(expected);
+    },
+  );
 
   it.each([
     { rtkEnabled: false, expected: "0" },
