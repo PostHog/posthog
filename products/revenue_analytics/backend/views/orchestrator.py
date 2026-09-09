@@ -13,6 +13,7 @@ from posthog.models.team.team import Team
 from products.revenue_analytics.backend.views import KIND_TO_CLASS, RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle
 from products.revenue_analytics.backend.views.schemas import SCHEMAS
+from products.revenue_analytics.backend.views.sources.helpers import events_expr_for_team
 from products.revenue_analytics.backend.views.sources.registry import BUILDERS
 from products.warehouse_sources.backend.facade.api import list_revenue_sources
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -22,8 +23,12 @@ SUPPORTED_SOURCES: list[ExternalDataSourceType] = [ExternalDataSourceType.STRIPE
 
 def _iter_source_handles(team: Team, timings: HogQLTimings) -> Iterable[SourceHandle]:
     with timings.measure("for_events", emit_span=True):
-        for event in team.revenue_analytics_config.events:
-            yield SourceHandle(type="events", team=team, event=event)
+        events = team.revenue_analytics_config.events
+        # Prepared here, once per team: resolving filter property types queries Postgres, and
+        # handles must carry everything the builders need so deferred building does no I/O.
+        events_filter_expr = events_expr_for_team(team) if events else None
+        for event in events:
+            yield SourceHandle(type="events", team=team, event=event, events_filter_expr=events_filter_expr)
 
     with timings.measure("for_schema_sources", emit_span=True):
         for source in list_revenue_sources(team.pk, source_types=SUPPORTED_SOURCES):

@@ -80,6 +80,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.constants import AvailableFeature
+from posthog.models import PropertyDefinition
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization, OrganizationMembership
@@ -1225,6 +1226,67 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert eager_tables.keys() == deferred_tables.keys()
         view_name = "revenue_analytics.events.purchase.charge_events_revenue_view"
         assert deferred_tables[view_name] == eager_tables[view_name]
+
+    def test_event_modifier_on_revenue_view_gets_id_mappings(self):
+        self._configure_revenue_events()
+        view_name = "revenue_analytics.events.purchase.charge_events_revenue_view"
+        modifiers = create_default_modifiers_for_team(
+            self.team,
+            modifiers=HogQLQueryModifiers(
+                dataWarehouseEventsModifiers=[
+                    DataWarehouseEventsModifier(
+                        table_name=view_name,
+                        id_field="id",
+                        timestamp_field="timestamp",
+                        distinct_id_field="customer_id",
+                    )
+                ]
+            ),
+        )
+
+        deferred_default = Database.create_for(team=self.team, modifiers=modifiers)
+        with override_instance_config("HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED", False):
+            eager = Database.create_for(team=self.team, modifiers=modifiers)
+
+        deferred_fields = deferred_default.get_table(view_name).fields
+        eager_fields = eager.get_table(view_name).fields
+        assert "distinct_id" in deferred_fields
+        assert "person_id" in deferred_fields
+        assert deferred_fields.keys() == eager_fields.keys()
+
+    def test_deferred_revenue_view_build_runs_no_queries(self):
+        self._configure_revenue_events()
+        # A boolean test-account filter makes filter preparation resolve property types from
+        # Postgres; that lookup must happen when handles are fetched, not at resolution time.
+        PropertyDefinition.objects.create(
+            team=self.team, name="is_internal", type=PropertyDefinition.Type.EVENT, property_type="Boolean"
+        )
+        self.team.test_account_filters = [
+            {"key": "is_internal", "type": "event", "value": ["true"], "operator": "exact"}
+        ]
+        self.team.save()
+        config = self.team.revenue_analytics_config
+        config.filter_test_accounts = True
+        config.save()
+
+        database = Database.create_for(team=self.team)
+        with CaptureQueriesContext(connection) as context:
+            table = database.get_table("revenue_analytics.events.purchase.charge_events_revenue_view")
+
+        assert isinstance(table, RevenueAnalyticsChargeView)
+        assert len(context.captured_queries) == 0
+
+    def test_warm_cached_serialize_reuses_prebuilt_revenue_views(self):
+        self._configure_revenue_events()
+        Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+
+        with patch(
+            "products.revenue_analytics.backend.views.orchestrator.build_revenue_views_for_handles",
+            wraps=build_revenue_views_for_handles,
+        ) as builder:
+            warm = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+            warm.serialize(HogQLContext(team_id=self.team.pk, database=warm))
+        assert builder.call_count == 0
 
     def test_join_on_deferred_revenue_view_is_wired(self):
         self._configure_revenue_events()

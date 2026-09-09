@@ -317,6 +317,11 @@ def is_reserved_system_name(name: str) -> bool:
     return name == "system" or name.startswith("system.")
 
 
+def _revenue_trigger_prefixes(handles: list[SourceHandle]) -> set[str]:
+    """Lowercased first segments of the dotted names the handles' views will get."""
+    return {"revenue_analytics" if handle.type == "events" else handle.type.lower() for handle in handles}
+
+
 # READ BEFORE EDITING:
 # --------------------
 # Do NOT add any new table to this, add them to the `posthog` table node.
@@ -1530,20 +1535,6 @@ class Database(BaseModel):
 
         HOGQL_DATABASE_BUILD_TOTAL.labels(trigger=trigger).inc()
 
-        def fetch_fresh() -> HogQLDatabaseSources:
-            with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="fetch_sources").time():
-                return Database._fetch_sources(
-                    team_id,
-                    team=team,
-                    user=user,
-                    user_access_control=user_access_control,
-                    modifiers=modifiers,
-                    timings=timings,
-                    connection_id=connection_id,
-                    bypass_warehouse_access_control=bypass_warehouse_access_control,
-                    allowed_system_tables=allowed_system_tables,
-                )
-
         cache_key = None
         if use_cached_sources:
             cache_key = Database._sources_cache_key(
@@ -1557,6 +1548,24 @@ class Database(BaseModel):
             )
             if cache_key is None:
                 SOURCES_CACHE_EVENTS.labels(result="bypass").inc()
+
+        def fetch_fresh() -> HogQLDatabaseSources:
+            with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="fetch_sources").time():
+                return Database._fetch_sources(
+                    team_id,
+                    team=team,
+                    user=user,
+                    user_access_control=user_access_control,
+                    modifiers=modifiers,
+                    timings=timings,
+                    connection_id=connection_id,
+                    bypass_warehouse_access_control=bypass_warehouse_access_control,
+                    allowed_system_tables=allowed_system_tables,
+                    # Cached sources store built views: the cache serves editor assist, which
+                    # enumerates every table on each request, so deferral would rebuild the views
+                    # per request instead of amortizing them across the TTL.
+                    defer_revenue_views=cache_key is None,
+                )
 
         if cache_key is None:
             sources = fetch_fresh()
@@ -1663,6 +1672,7 @@ class Database(BaseModel):
         connection_id: str | None = None,
         bypass_warehouse_access_control: bool = False,
         allowed_system_tables: Collection[str] | None = None,
+        defer_revenue_views: bool = True,
     ) -> HogQLDatabaseSources:
         """Run every Postgres query / feature-flag check / external request needed to build the
         database, returning a bundle that Database._build_from_sources turns into tables with no I/O."""
@@ -1854,7 +1864,7 @@ class Database(BaseModel):
                             list_revenue_source_handles,
                         )
 
-                        if get_instance_setting("HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED"):
+                        if defer_revenue_views and get_instance_setting("HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED"):
                             revenue_source_handles = list_revenue_source_handles(team, timings)
                         else:
                             revenue_views = list(build_all_revenue_analytics_views(team, timings))
@@ -2211,13 +2221,30 @@ class Database(BaseModel):
                     capture_exception(e)
 
         with timings.measure("revenue_analytics_views", emit_span=True):
+            revenue_views_to_add = list(sources.revenue_views)
+            deferred_revenue_handles = list(sources.revenue_source_handles) if not database._is_direct_query() else []
+            if deferred_revenue_handles and modifiers.dataWarehouseEventsModifiers:
+                trigger_prefixes = _revenue_trigger_prefixes(deferred_revenue_handles)
+                if any(
+                    wm.table_name.split(".")[0].lower() in trigger_prefixes
+                    for wm in modifiers.dataWarehouseEventsModifiers
+                ):
+                    # A modifier names a revenue view, so this query uses it: deferral saves
+                    # nothing, and the define_mappings pass below must see the view or the
+                    # configured id/timestamp/distinct_id mappings are silently dropped.
+                    from products.revenue_analytics.backend.views.orchestrator import (  # noqa: PLC0415
+                        build_revenue_views_for_handles,
+                    )
+
+                    revenue_views_to_add = build_revenue_views_for_handles(deferred_revenue_handles, timings)
+                    deferred_revenue_handles = []
             if not database._is_direct_query():
                 # Each view will have a name similar to `stripe.<prefix>.<table_name>`
                 # We want to create a nested table group where `stripe` is the parent,
                 # `<prefix>` is the child of `stripe`, and `<table_name>` is the child of `<prefix>`
                 # allowing you to access the table as `stripe[prefix][table_name]` in a dict fashion
                 # but still allowing the bare `stripe.prefix.table_name` string access
-                for view in sources.revenue_views:
+                for view in revenue_views_to_add:
                     try:
                         views.add_child(TableNode.create_nested_for_chain(view.name.split("."), view))
                     except Exception as e:
@@ -2514,14 +2541,11 @@ class Database(BaseModel):
         database._add_warehouse_self_managed_tables(self_managed_warehouse_tables)
         database._add_views(views)
 
-        if not database._is_direct_query() and sources.revenue_source_handles:
+        if deferred_revenue_handles:
             # Armed before the joins and saved-expressions passes below: a join or expression that
             # names a revenue view reaches it through has_table / get_table, which build on demand.
-            database._deferred_revenue_handles = list(sources.revenue_source_handles)
-            database._revenue_view_trigger_names = {
-                "revenue_analytics" if handle.type == "events" else handle.type.lower()
-                for handle in sources.revenue_source_handles
-            }
+            database._deferred_revenue_handles = deferred_revenue_handles
+            database._revenue_view_trigger_names = _revenue_trigger_prefixes(deferred_revenue_handles)
             database._revenue_views_built = False
 
         if build_postgres_foreign_keys:
