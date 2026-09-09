@@ -213,7 +213,10 @@ export default {
         // pass leaves the next story to mount under a dark scheme, which a component that reads the
         // media query once at mount would keep for its light snapshot. This runs before the story
         // renders, so it cannot affect the snapshot the story goes on to produce.
-        await page.emulateMedia({ colorScheme: null })
+        // Reset to light rather than to `null`: a Playwright context reports light when nothing
+        // emulates a scheme, but `null` means "stop emulating", which in WebKit reaches the host
+        // appearance and reports dark on a dark host.
+        await page.emulateMedia({ colorScheme: 'light' })
         await page.route(/\/(embedded|shared)\//, (route) =>
             route.fulfill({ status: 200, contentType: 'text/html', body: EMBED_STUB_HTML })
         )
