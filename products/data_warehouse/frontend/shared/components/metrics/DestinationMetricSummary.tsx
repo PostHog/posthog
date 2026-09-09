@@ -4,7 +4,7 @@ import { getColorVar } from 'lib/colors'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 
-import { destinationTarget } from 'products/data_warehouse/frontend/shared/components/DestinationList'
+import { destinationTarget } from 'products/data_warehouse/frontend/shared/components/destinationTarget'
 import { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { DATA_WAREHOUSE_APP_SOURCE } from './DataWarehouseMetrics'

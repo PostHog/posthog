@@ -67,6 +67,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     DataWarehouseSourceConnect: () =>
         import('../../products/data_warehouse/frontend/scenes/SourceConnectScene/SourceConnectScene'),
     DataWarehouseSourceSchema: () => import('../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'),
+    WarehouseDestinations: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehouseDestinationsScene/WarehouseDestinationsScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
