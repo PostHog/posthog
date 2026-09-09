@@ -720,6 +720,8 @@ export function TaskInput({
     contextWindowOption,
     fastModeOption,
     isLoading: isPreviewLoading,
+    isModelListUnresolved,
+    retry: retryPreviewConfig,
     setConfigOption,
     resetToDefault,
     isDefaultSelection,
@@ -1588,6 +1590,7 @@ export function TaskInput({
                     !isOnline ||
                     (runtime === "pi" ? isPiConfigLoading : isPreviewLoading) ||
                     (runtime === "pi" && !currentPiModel) ||
+                    (runtime !== "pi" && isModelListUnresolved) ||
                     spendStop !== null
                   }
                   submitTooltipOverride={
@@ -1595,7 +1598,18 @@ export function TaskInput({
                   }
                   tourTarget="task-input"
                   submitAdornment={
-                    channelContextUnavailable || channelContextFailed ? (
+                    runtime !== "pi" && isModelListUnresolved ? (
+                      <span className="flex items-center gap-1.5 text-[12px] text-gray-10">
+                        Couldn't load models
+                        <button
+                          type="button"
+                          className="underline"
+                          onClick={retryPreviewConfig}
+                        >
+                          Try again
+                        </button>
+                      </span>
+                    ) : channelContextUnavailable || channelContextFailed ? (
                       // The chip slot is where context status is read, so it is
                       // also where its absence has to be said.
                       <span className="flex items-center gap-1.5 text-[12px] text-gray-10">

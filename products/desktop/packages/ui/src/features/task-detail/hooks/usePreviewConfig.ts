@@ -52,6 +52,12 @@ interface PreviewConfigResult {
   contextWindowOption: SessionConfigOption | undefined;
   fastModeOption: SessionConfigOption | undefined;
   isLoading: boolean;
+  /**
+   * The model list arrived empty, so no selection can be trusted: submit is
+   * blocked and a retry refetches until the gateway answers with models.
+   */
+  isModelListUnresolved: boolean;
+  retry: () => void;
   setConfigOption: (configId: string, value: string) => void;
   /**
    * Drops the explicit local picks and re-derives the selection, landing on the
@@ -126,7 +132,10 @@ export function usePreviewConfig(
   // The harness the configured default (user's, else the team's) runs on.
   const defaultAdapter = preferredRunAdapter(runDefaults);
 
-  useEffect(() => {
+  // Re-runnable by retry: the gateway failure that empties the model list
+  // resolves inside the workspace server, so the query itself never rejects
+  // and a refetch has to be explicit.
+  const refetch = useCallback(() => {
     if (!apiHost) return;
 
     const abort = new AbortController();
@@ -155,6 +164,8 @@ export function usePreviewConfig(
       abort.abort();
     };
   }, [adapter, allHarnessModels, apiHost, hostClient]);
+
+  useEffect(() => refetch(), [refetch]);
 
   /**
    * Pure local derivation from the fetched options, the saved picks, and the
@@ -438,6 +449,19 @@ export function usePreviewConfig(
       ? isDefaultSelection
       : !hasModelPick && !hasEffortPick;
 
+  // The gateway failure this reports resolves inside the workspace server, so
+  // an empty model list is the only visible symptom. Loading stays its own
+  // state: while loading the picker has nothing to show yet, while unresolved
+  // the answer arrived and named no models.
+  const isModelListUnresolved =
+    !isLoading &&
+    modelOption?.type === "select" &&
+    modelOption.options.length === 0;
+
+  const retry = useCallback(() => {
+    refetch();
+  }, [refetch]);
+
   return {
     configOptions,
     modeOption,
@@ -446,6 +470,8 @@ export function usePreviewConfig(
     contextWindowOption,
     fastModeOption,
     isLoading,
+    isModelListUnresolved,
+    retry,
     setConfigOption,
     resetToDefault,
     isDefaultSelection,
