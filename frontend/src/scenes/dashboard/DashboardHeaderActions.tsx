@@ -96,7 +96,6 @@ export function DashboardAddTileButton(): JSX.Element | null {
     const {
         loadDashboard,
         setAddWidgetModalOpen,
-        setPendingInsertion,
         openAddInsightModal,
         openTextTileModal,
         openImageTileModal,
@@ -143,8 +142,6 @@ export function DashboardAddTileButton(): JSX.Element | null {
                         onAddButton: openButtonTileModal,
                         push,
                         setAddWidgetModalOpen,
-                        // Adding from the header appends at the bottom; drop any stale inline-insertion target.
-                        onBeforeSelect: () => setPendingInsertion(null),
                     })}
                     onVisibilityChange={(visible) => {
                         if (visible) {
