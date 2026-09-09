@@ -465,7 +465,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        enrich_url: 'scouts/{skill_name}'
+        enrich_url: scouts/{skill_name}
         title: Rename a scout
         description: >
             Rename a custom scout by its config `id`. Pass the complete new skill name in `new_name`. The skill
