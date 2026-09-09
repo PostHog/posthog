@@ -71,11 +71,7 @@ from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
 from products.signals.backend.scout_harness.config_registry import enabled_scout_count, ensure_scout_category
 from products.signals.backend.scout_harness.fleet_sync import materialize_scout_fleet
-from products.signals.backend.scout_harness.lazy_seed import (
-    SCOUT_SKILL_CATEGORY,
-    scout_skill_origin,
-    scout_skill_row_origin,
-)
+from products.signals.backend.scout_harness.lazy_seed import SCOUT_SKILL_CATEGORY, scout_skill_origin
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM, MAX_SCOUT_RENAME_HISTORY_ROWS
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX, IMPROVE_KEY_PREFIX
 from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
@@ -2525,12 +2521,15 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     .exists()
                 ):
                     raise exceptions.ValidationError({"new_name": "A scout with this name already exists."})
-                # No file prefetch: the origin check reads file contents only for a seeded row,
-                # which is rejected below, so loading the bundle only holds the config lock longer.
+                # Name and metadata only: the gate asks who owns this *name*, and fleet sync owns a
+                # canonical one however far the team has edited the body. The content-hash variant
+                # (`scout_skill_row_origin`) answers a different question — whether the row is the
+                # team's to take suggestions on — and reading it here would free the name, letting
+                # the next sync seed a second scout under it.
                 skill = LLMSkill.objects.filter(team_id=team.id, name=old_name, is_latest=True, deleted=False).first()
                 if skill is None:
                     raise exceptions.NotFound("The scout skill no longer exists.")
-                if scout_skill_row_origin(skill) == "canonical":
+                if scout_skill_origin(skill.name, skill.metadata) == "canonical":
                     raise exceptions.ValidationError(
                         {"new_name": "Canonical scouts keep the names managed by fleet sync."}
                     )

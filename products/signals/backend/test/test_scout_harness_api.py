@@ -2656,16 +2656,24 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert second_config.skill_name == "signals-scout-second"
         cache.clear()
 
-    def test_rename_rejects_a_canonical_scout(self) -> None:
+    @parameterized.expand(["no_stored_hash", "pristine", "edited_in_place"])
+    def test_rename_rejects_a_canonical_scout(self, shape: str) -> None:
+        # Fleet sync owns a name it ships, so every row holding one is refused — including a row
+        # the team has edited. Freeing the name lets the next sync seed a fresh canonical scout
+        # under it and auto-register a config, leaving the team running two overlapping scouts.
         name = "signals-scout-general"
         config = SignalScoutConfig.objects.create(team=self.team, skill_name=name)
-        LLMSkill.objects.create(
+        skill = LLMSkill.objects.create(
             team=self.team,
             name=name,
             description="Canonical scout.",
             body="...",
             metadata={"seeded_by": HARNESS_SEEDED_BY},
         )
+        if shape != "no_stored_hash":
+            stored_hash = _compute_row_hash(skill, []) if shape == "pristine" else "a-hash-the-row-no-longer-matches"
+            skill.metadata["canonical_hash"] = stored_hash
+            skill.save(update_fields=["metadata"])
 
         response = self.client.post(
             f"{self._detail_url(str(config.id))}rename/",
@@ -2676,31 +2684,33 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "fleet sync" in str(response.json())
         assert LLMSkill.objects.filter(team=self.team, name=name, deleted=False).exists()
+        config.refresh_from_db()
+        assert config.skill_name == name
 
-    def test_rename_moves_a_seeded_scout_the_team_has_edited(self) -> None:
-        # A seeded row the team edited is diverged, which makes it theirs to rename. Telling it
-        # apart from a pristine one means hashing the row's bundled files, so this is also the one
-        # rename path that reads them.
-        name = "signals-scout-general"
-        config = SignalScoutConfig.objects.create(team=self.team, skill_name=name)
+    def test_rename_moves_a_fork_of_a_bundled_scout(self) -> None:
+        # A fork copies the source row's metadata, seed tag included, but it cannot hold a name the
+        # fleet ships — so the name is the team's and the rename must go through. Guards the
+        # canonical gate against refusing every row that merely carries the tag.
+        old_name = "signals-scout-my-fork"
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name=old_name)
         skill = LLMSkill.objects.create(
             team=self.team,
-            name=name,
-            description="Edited canonical scout.",
+            name=old_name,
+            description="Forked scout.",
             body="Our own instructions.",
-            metadata={"seeded_by": HARNESS_SEEDED_BY, "canonical_hash": "a-hash-the-edited-row-no-longer-matches"},
+            metadata={"seeded_by": HARNESS_SEEDED_BY},
         )
         LLMSkillFile.objects.create(skill=skill, path="refs/playbook.md", content="x", content_type="text/plain")
 
         response = self.client.post(
             f"{self._detail_url(str(config.id))}rename/",
-            data={"new_name": "signals-scout-our-general"},
+            data={"new_name": "signals-scout-my-second-fork"},
             format="json",
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         config.refresh_from_db()
-        assert config.skill_name == "signals-scout-our-general"
+        assert config.skill_name == "signals-scout-my-second-fork"
 
     def test_rename_rejects_a_live_run(self) -> None:
         old_name = "signals-scout-checkout"
