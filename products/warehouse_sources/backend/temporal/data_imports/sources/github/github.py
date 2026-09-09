@@ -12,6 +12,7 @@ import pyarrow as pa
 import requests
 from asgiref.sync import async_to_sync
 from dateutil import parser as dateutil_parser
+from prometheus_client import Counter
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
@@ -46,6 +47,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.github.set
 )
 
 GITHUB_BASE_URL = "https://api.github.com"
+
+# A capped fan-out drops the oldest admitted parents, and the cursor still advances past them.
+FAN_OUT_PARENT_CAP_HITS = Counter(
+    "warehouse_github_fan_out_parent_cap_hits_total",
+    "Fan-out walks that hit max_fan_out_parents and skipped older parents in the window.",
+    labelnames=["endpoint"],
+)
+
+# The reconcile cursor is a PostHog job timestamp compared against GitHub's updated_at, so allow
+# for clock skew between the two before trusting it to skip a parent.
+_RECONCILE_SKEW_ALLOWANCE = timedelta(minutes=5)
 
 # GitHub's date-based REST API versions are sent in the X-GitHub-Api-Version header. The header is
 # the only version-dependent part for the endpoints we sync — response shapes are compatible across
@@ -1232,6 +1244,7 @@ def _fan_out_get_rows(
             ):
                 continue
             if max_parents is not None and fanned_out_parents >= max_parents:
+                FAN_OUT_PARENT_CAP_HITS.labels(endpoint=endpoint).inc()
                 logger.warning(
                     "Github: fan-out parent cap reached; older parents in the window skipped",
                     endpoint=endpoint,
@@ -1578,7 +1591,8 @@ def github_source(
                     logger=logger,
                     resumable_source_manager=resumable_source_manager,
                     should_use_incremental_field=True,
-                    db_incremental_field_last_value=db_incremental_field_last_value or reconcile_since,
+                    db_incremental_field_last_value=db_incremental_field_last_value
+                    or (reconcile_since - _RECONCILE_SKEW_ALLOWANCE if reconcile_since else None),
                     incremental_field=incremental_field,
                     egress_identity=egress_identity,
                     api_version=api_version,
