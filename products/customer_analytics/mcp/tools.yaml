@@ -535,6 +535,9 @@ tools:
             when it failed, and `slack_message_ts` plus `sent_at` when it succeeded. Use this to check delivery progress
             after `announcements-create-execute`.
         feature_flag: customer-analytics-csp
+    calendar-sync-backfill-create:
+        operation: calendar_sync_backfill_create
+        enabled: false
     calendar-sync-list:
         operation: calendar_sync_list
         enabled: false
