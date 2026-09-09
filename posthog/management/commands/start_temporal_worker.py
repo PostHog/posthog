@@ -151,6 +151,12 @@ from posthog.temporal.weekly_digest import (
     WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS,
 )
 
+from products.alerts.backend.facade.temporal import (
+    DELIVERY_ACTIVITIES as ALERTS_PRODUCT_DELIVERY_ACTIVITIES,
+    DELIVERY_WORKFLOWS as ALERTS_PRODUCT_DELIVERY_WORKFLOWS,
+    EVALUATION_ACTIVITIES as ALERTS_PRODUCT_EVALUATION_ACTIVITIES,
+    EVALUATION_WORKFLOWS as ALERTS_PRODUCT_EVALUATION_WORKFLOWS,
+)
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
@@ -283,6 +289,16 @@ from products.wizard.backend.facade.temporal import (
 # When adding modules to a queue, also update the corresponding CI trigger
 # in .github/workflows/container-images-cd.yml (check_changes_*_temporal_worker)
 _task_queue_specs = [
+    (
+        settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
+        ALERTS_PRODUCT_EVALUATION_WORKFLOWS,
+        ALERTS_PRODUCT_EVALUATION_ACTIVITIES,
+    ),
+    (
+        settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE,
+        ALERTS_PRODUCT_DELIVERY_WORKFLOWS,
+        ALERTS_PRODUCT_DELIVERY_ACTIVITIES,
+    ),
     (
         settings.SYNC_BATCH_EXPORTS_TASK_QUEUE,
         BATCH_EXPORTS_WORKFLOWS,
