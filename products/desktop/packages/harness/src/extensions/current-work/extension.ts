@@ -9,6 +9,9 @@ import { Type } from "typebox";
 
 const CURRENT_WORK_STATUS_KEY = "current-work";
 const CURRENT_WORK_TOOL_NAME = "set_current_work";
+const CURRENT_WORK_TOOL_DESCRIPTION =
+  "Set the visible current-work status before starting a task phase.";
+const CURRENT_WORK_REMINDER = CURRENT_WORK_TOOL_DESCRIPTION;
 const MIN_STATUS_LENGTH = 3;
 const MAX_STATUS_LENGTH = 72;
 
@@ -108,12 +111,13 @@ export function createCurrentWorkExtension(): ExtensionFactory {
     pi.registerTool({
       name: CURRENT_WORK_TOOL_NAME,
       label: "Set current work",
-      description:
-        "Set the visible current-work status before starting a meaningful task phase.",
-      promptSnippet:
-        "Set the visible current-work status before starting a task phase",
+      description: CURRENT_WORK_TOOL_DESCRIPTION,
+      promptSnippet: CURRENT_WORK_TOOL_DESCRIPTION,
       promptGuidelines: [
-        "Use set_current_work before a new task phase. Use a concise present-participle phrase that names the current phase, such as 'Inspecting the test setup' or 'Writing regression tests'. Keep the phrase at the task phase level, not per individual tool call.",
+        "Use set_current_work before a new task phase. " +
+          "Use a concise present-participle phrase that names the current phase, such as 'Inspecting the test setup' or 'Writing regression tests'. " +
+          "Keep the phrase at the task phase level, not per individual tool call. " +
+          "Reading and investigations also deserve a named piece of work.",
       ],
       renderShell: "self",
       renderCall: () => new Container(),
@@ -146,6 +150,14 @@ export function createCurrentWorkExtension(): ExtensionFactory {
         };
       },
     });
+
+    pi.on("before_agent_start", () => ({
+      message: {
+        customType: "current-work-reminder",
+        content: CURRENT_WORK_REMINDER,
+        display: false,
+      },
+    }));
 
     pi.on("tool_call", (event, context) => {
       const status = currentWorkFromEvent(event);

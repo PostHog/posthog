@@ -60,12 +60,16 @@ function setup(mode: "rpc" | "tui" = "rpc") {
   } as unknown as ExtensionAPI);
 
   const currentWorkHandler = handlers.get("tool_call") as ToolCallHandler;
+  const beforeAgentStartHandler = handlers.get(
+    "before_agent_start",
+  ) as LifecycleHandler;
   const agentEndHandler = handlers.get("agent_end") as LifecycleHandler;
   const agentStartHandler = handlers.get("agent_start") as LifecycleHandler;
   const settledHandler = handlers.get("agent_settled") as LifecycleHandler;
   if (
     !currentWorkTool ||
     !currentWorkHandler ||
+    !beforeAgentStartHandler ||
     !agentStartHandler ||
     !agentEndHandler ||
     !settledHandler
@@ -76,6 +80,7 @@ function setup(mode: "rpc" | "tui" = "rpc") {
   return {
     agentEndHandler,
     agentStartHandler,
+    beforeAgentStartHandler,
     context,
     currentWorkHandler,
     currentWorkTool,
@@ -86,6 +91,23 @@ function setup(mode: "rpc" | "tui" = "rpc") {
 }
 
 describe("current-work extension", () => {
+  it("injects a set_current_work reminder after the user message at agent start", () => {
+    const extension = setup();
+
+    const result = extension.beforeAgentStartHandler(
+      {} as never,
+      extension.context,
+    ) as {
+      message?: { customType: string; content: string; display: boolean };
+    };
+
+    expect(result.message?.customType).toBe("current-work-reminder");
+    expect(result.message?.content).toBe(
+      "Set the visible current-work status before starting a task phase.",
+    );
+    expect(result.message?.display).toBe(false);
+  });
+
   it("hides current-work calls, lets other tools run, and clears after the agent settles", async () => {
     const extension = setup();
 
