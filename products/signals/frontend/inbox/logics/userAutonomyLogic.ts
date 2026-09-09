@@ -125,18 +125,8 @@ export interface userAutonomyLogicActions {
     slackNotificationsSettled: () => {
         value: true
     }
-    updateSlackNotifications: (updates: {
-        channel?: string | null
-        directMessage?: true
-        integrationId?: number | null
-        minPriority?: SignalReportPriority | null
-    }) => {
-        updates: {
-            channel?: string | null | undefined
-            directMessage?: true | undefined
-            integrationId?: number | null | undefined
-            minPriority?: SignalReportPriority | null | undefined
-        }
+    updateSlackNotifications: (updates: SlackNotificationUpdates) => {
+        updates: SlackNotificationUpdates
     }
 }
 
