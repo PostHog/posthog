@@ -245,6 +245,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 # questions; otherwise hand off to the discovery agent.
                 needs_repo = await _execute_posthog_code_activity(
                     classify_posthog_code_task_needs_repo_activity,
+                    inputs,
                     event.get("text", ""),
                     thread_messages,
                 )

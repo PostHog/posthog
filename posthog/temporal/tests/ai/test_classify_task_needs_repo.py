@@ -1,8 +1,15 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.temporal.ai.slack_app.activities.classifiers import classify_task_needs_repo
+from posthog.models.integration import Integration
+from posthog.models.repo_routing_rule import RepoRoutingRule
+from posthog.temporal.ai.slack_app.activities.classifiers import (
+    classify_posthog_code_task_needs_repo_activity,
+    classify_task_needs_repo,
+)
+from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
 
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 
@@ -110,8 +117,24 @@ class TestClassifyTaskNeedsRepo:
         result = self._run_with_llm_content(text, content)
         assert result is expected
 
+    def test_routing_rules_bypass_heuristic_and_reach_the_prompt(self):
+        text = "the internal metrics dashboard shows a blank page, can you fix it"
+        rule = "- The internal metrics dashboard → acme/internal-tools"
+
+        # 'dashboard' short-circuits to no-repo when the team has no rules, so the fix
+        # under test is that a configured rule carries the ask through to the LLM.
+        assert self._run_with_llm_content(text, '{"needs_repo": true}') is False
+
+        result = self._run_with_llm_content(text, '{"needs_repo": true}', routing_rules=[rule])
+        assert result is True
+        assert rule in self._last_llm_prompt
+
     def _run_with_llm_content(
-        self, text: str, content: str, thread_messages: list[SlackThreadMessage] | None = None
+        self,
+        text: str,
+        content: str,
+        thread_messages: list[SlackThreadMessage] | None = None,
+        routing_rules: list[str] | None = None,
     ) -> bool:
         fake_response = MagicMock()
         fake_response.choices = [MagicMock(message=MagicMock(content=content))]
@@ -121,7 +144,14 @@ class TestClassifyTaskNeedsRepo:
             "posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client",
             return_value=fake_client,
         ):
-            return classify_task_needs_repo(text, thread_messages or [SlackThreadMessage(user="Alessandro", text=text)])
+            result = classify_task_needs_repo(
+                text,
+                thread_messages or [SlackThreadMessage(user="Alessandro", text=text)],
+                routing_rules=routing_rules,
+            )
+        create_call = fake_client.chat.completions.create.call_args
+        self._last_llm_prompt = create_call.kwargs["messages"][0]["content"] if create_call else ""
+        return result
 
     def test_llm_failure_defaults_to_false(self):
         """A flaky LLM call must not wall users behind the Connect-GitHub gate."""
@@ -132,3 +162,34 @@ class TestClassifyTaskNeedsRepo:
         ):
             result = classify_task_needs_repo(text, [SlackThreadMessage(user="Alessandro", text=text)])
         assert result is False
+
+
+@pytest.mark.django_db
+def test_needs_repo_activity_feeds_team_rules_to_the_classifier(team):
+    integration = Integration.objects.create(
+        team=team, kind="slack", integration_id="T123", sensitive_config={"access_token": "xoxb-test"}
+    )
+    RepoRoutingRule.objects.create(
+        team=team, rule_text="The internal metrics dashboard", repository="acme/internal-tools", priority=0
+    )
+    text = "the internal metrics dashboard shows a blank page, can you fix it"
+    inputs = PostHogCodeSlackMentionWorkflowInputs(
+        event={"text": text}, integration_id=integration.id, slack_team_id="T123", user_id=1
+    )
+
+    fake_response = MagicMock()
+    fake_response.choices = [MagicMock(message=MagicMock(content='{"needs_repo": true}'))]
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.return_value = fake_response
+    with patch(
+        "posthog.temporal.ai.slack_app.activities.classifiers.get_llm_client",
+        return_value=fake_client,
+    ):
+        result = classify_posthog_code_task_needs_repo_activity(
+            inputs, text, [SlackThreadMessage(user="Alessandro", text=text)]
+        )
+
+    # Without the team's rules the product-term heuristic answers no-repo before the LLM.
+    assert result is True
+    prompt = fake_client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+    assert "The internal metrics dashboard → acme/internal-tools" in prompt

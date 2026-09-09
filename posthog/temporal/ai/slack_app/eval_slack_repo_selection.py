@@ -54,8 +54,9 @@ To force the failure modes the picker fallback handles:
 
 Cases with `routing_rules` create temporary `RepoRoutingRule` rows for the team before
 running and delete them afterwards. Rules the team already has stay in place and reach
-the agent prompt on every agent case, so a heavily rule-configured team can shift the
-expected outcomes of unrelated cases.
+both the needs-repo gate and the agent prompt on every case, so a heavily
+rule-configured team can shift the expected outcomes of unrelated cases — including
+haiku-stage cases, because any configured rule disables the product-term heuristic.
 """
 
 # ruff: noqa: T201, E402
@@ -89,7 +90,7 @@ from django.conf import settings
 from posthog.models import Team
 from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.temporal.ai.slack_app import POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE
-from posthog.temporal.ai.slack_app.activities.classifiers import classify_task_needs_repo
+from posthog.temporal.ai.slack_app.activities.classifiers import classify_task_needs_repo, team_routing_rule_lines
 
 from products.slack_app.backend.api import _extract_explicit_repo, _extract_explicit_repo_from_thread
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
@@ -334,7 +335,8 @@ CASES: list[Case] = [
         text_template="@PostHog the internal support desk search endpoint is throwing 500s, can you fix it",
         thread_messages=[
             SlackThreadMessage(
-                user="tester", text="@PostHog the internal support desk search endpoint is throwing 500s, can you fix it"
+                user="tester",
+                text="@PostHog the internal support desk search endpoint is throwing 500s, can you fix it",
             )
         ],
         expected_stage="agent",
@@ -343,6 +345,22 @@ CASES: list[Case] = [
         expected_repo_template="{second_repo}",
         note="The rule is the only signal linking 'support desk' to that repo — nothing in the "
         "repo caches mentions it — so a pass means the rule reached and steered the agent.",
+    ),
+    Case(
+        name="routing_rule_overrides_no_repo_gate",
+        description="A routing rule keeps a product-term ask ('dashboard') from stopping at the no-repo gate.",
+        text_template="@PostHog the internal metrics dashboard shows a blank page, can you fix it",
+        thread_messages=[
+            SlackThreadMessage(
+                user="tester", text="@PostHog the internal metrics dashboard shows a blank page, can you fix it"
+            )
+        ],
+        expected_stage="agent",
+        expected_outcome="found",
+        routing_rules=(("The internal metrics dashboard", "{second_repo}"),),
+        expected_repo_template="{second_repo}",
+        note="'dashboard' trips the classifier's product-term heuristic when the team has no rules, "
+        "so a pass means configured rules reached the needs-repo gate and carried the ask through.",
     ),
     Case(
         name="routing_rule_loses_to_explicit_mention",
@@ -517,9 +535,7 @@ class Command:
     def _run_case(self, case: Case, *, ctx: TeamContext, flags: RunFlags) -> CaseResult:
         substitutions = ctx.repo_substitutions
         text = case.text_template.format(**substitutions)
-        thread_messages = [
-            replace(msg, text=msg.text.format(**substitutions)) for msg in case.thread_messages
-        ]
+        thread_messages = [replace(msg, text=msg.text.format(**substitutions)) for msg in case.thread_messages]
 
         self.stdout.write(self.style.MIGRATE_HEADING(f"── {case.name} ──"))
         self.stdout.write(f"  text:     {text}")
@@ -563,8 +579,8 @@ class Command:
             self.stdout.write(self.style.WARNING("  skipped (--skip-llm)"))
             return CaseResult(case=case, actual_stage="skipped", actual_outcome="skipped")
 
-        # Stage 2: Haiku gate (heuristic + LLM)
-        needs_repo = classify_task_needs_repo(text, thread_messages)
+        # Stage 2: Haiku gate (heuristic + LLM), with the team's routing rules like the activity.
+        needs_repo = classify_task_needs_repo(text, thread_messages, routing_rules=team_routing_rule_lines(ctx.team_id))
         if not needs_repo:
             self.stdout.write(self.style.SUCCESS("  haiku → no_repo (task doesn't need code)"))
             return CaseResult(case=case, actual_stage="haiku", actual_outcome="no_repo")
