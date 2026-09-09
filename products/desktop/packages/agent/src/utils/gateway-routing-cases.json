@@ -8,6 +8,30 @@
       "expected": "signals_scout"
     },
     {
+      "origin_product": "scout_suggestions",
+      "ai_stage": "scout_suggestions",
+      "internal": true,
+      "expected": "signals_scout_suggestions"
+    },
+    {
+      "origin_product": "signal_report",
+      "ai_stage": "inbox",
+      "internal": false,
+      "expected": "signals_inbox"
+    },
+    {
+      "origin_product": "signals_chat",
+      "ai_stage": "chat",
+      "internal": false,
+      "expected": "signals_chat"
+    },
+    {
+      "origin_product": "signals_chat",
+      "ai_stage": null,
+      "internal": false,
+      "expected": "signals"
+    },
+    {
       "origin_product": "signals_scout",
       "ai_stage": "scout:web-analytics",
       "internal": false,
@@ -68,6 +92,12 @@
       "expected": "slack_app"
     },
     {
+      "origin_product": "workflow",
+      "ai_stage": null,
+      "internal": false,
+      "expected": "workflows"
+    },
+    {
       "origin_product": "support_reply",
       "ai_stage": null,
       "internal": true,
@@ -94,6 +124,30 @@
     {
       "origin_product": "user_created",
       "ai_stage": null,
+      "internal": false,
+      "expected": "posthog_code"
+    },
+    {
+      "origin_product": "review_hog",
+      "ai_stage": "validation-c1",
+      "internal": true,
+      "expected": "review_hog"
+    },
+    {
+      "origin_product": "review_hog",
+      "ai_stage": "resolution",
+      "internal": true,
+      "expected": "review_hog"
+    },
+    {
+      "origin_product": "review_hog",
+      "ai_stage": null,
+      "internal": true,
+      "expected": "review_hog"
+    },
+    {
+      "origin_product": "review_hog",
+      "ai_stage": "validation-c1",
       "internal": false,
       "expected": "posthog_code"
     }
@@ -149,10 +203,59 @@
       "expected": false
     },
     {
+      "origin_product": "workflow",
+      "ai_stage": null,
+      "internal": false,
+      "allowlist": "workflows",
+      "expected": true
+    },
+    {
       "origin_product": "signal_report",
       "ai_stage": null,
       "internal": true,
       "allowlist": "signals",
+      "expected": true
+    },
+    {
+      "origin_product": "review_hog",
+      "ai_stage": "validation-c1",
+      "internal": true,
+      "allowlist": "review_hog,signals_scout",
+      "expected": true
+    },
+    {
+      "origin_product": "review_hog",
+      "ai_stage": "resolution",
+      "internal": true,
+      "allowlist": "signals_scout",
+      "expected": false
+    },
+    {
+      "origin_product": "signal_report",
+      "ai_stage": "inbox",
+      "internal": false,
+      "allowlist": "signals_inbox",
+      "expected": true
+    },
+    {
+      "origin_product": "signal_report",
+      "ai_stage": "inbox",
+      "internal": false,
+      "allowlist": "signals_scout,signals_implementation",
+      "expected": false
+    },
+    {
+      "origin_product": "signals_chat",
+      "ai_stage": "chat",
+      "internal": false,
+      "allowlist": "signals_chat",
+      "expected": true
+    },
+    {
+      "origin_product": "scout_suggestions",
+      "ai_stage": "scout_suggestions",
+      "internal": true,
+      "allowlist": "signals_scout_suggestions",
       "expected": true
     }
   ]

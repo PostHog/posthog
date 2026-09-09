@@ -1,4 +1,4 @@
-import { Pause, Spinner, Warning } from "@phosphor-icons/react";
+import { Pause, Warning } from "@phosphor-icons/react";
 import type { FileAttachment } from "@posthog/core/message-editor/content";
 import { hasSessionPromptEvent } from "@posthog/core/sessions/sessionEvents";
 import {
@@ -12,13 +12,14 @@ import {
 } from "@posthog/core/task-detail/previewConfig";
 import { useService } from "@posthog/di/react";
 import { type AcpMessage, FAST_MODE_FLAG } from "@posthog/shared";
-import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
+import type { Task } from "@posthog/shared/domain-types";
 import {
   spendStopMessage,
   useSpendStop,
 } from "@posthog/ui/features/billing/useSpendStop";
 import { showOfflineToast } from "@posthog/ui/features/connectivity/connectivityToast";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { getCodeCommandInputError } from "@posthog/ui/features/message-editor/commands";
 import type { AttachmentUploadStatus } from "@posthog/ui/features/message-editor/components/AttachmentsBar";
 import {
   PromptInput,
@@ -48,6 +49,7 @@ import { QueuedMessagesDock } from "@posthog/ui/features/sessions/components/Que
 import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
 import { RawLogsView } from "@posthog/ui/features/sessions/components/raw-logs/RawLogsView";
 import { SessionInitializingView } from "@posthog/ui/features/sessions/components/SessionInitializingView";
+import { SessionSummaryPanel } from "@posthog/ui/features/sessions/components/SessionSummaryPanel";
 import { SideQuestionCard } from "@posthog/ui/features/sessions/components/SideQuestionCard";
 import { SteerQueueToggle } from "@posthog/ui/features/sessions/components/SteerQueueToggle";
 import {
@@ -70,6 +72,7 @@ import {
   useModelConfigOptionForTask,
   usePendingPermissionsForTask,
   useSessionSelector,
+  useSessionStore,
   useThoughtLevelConfigOptionForTask,
 } from "@posthog/ui/features/sessions/sessionStore";
 import {
@@ -80,6 +83,7 @@ import type { Plan } from "@posthog/ui/features/sessions/types";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useIsWorkspaceCloudRun } from "@posthog/ui/features/workspace/useWorkspace";
 import { useConnectivity } from "@posthog/ui/hooks/useConnectivity";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import {
   pendingTaskPromptStoreApi,
@@ -126,7 +130,6 @@ interface SessionViewProps {
   onNewSession?: () => void;
   isInitializing?: boolean;
   isCloud?: boolean;
-  cloudStatus?: TaskRunStatus | null;
   slackThreadUrl?: string;
   compact?: boolean;
   isActiveSession?: boolean;
@@ -163,7 +166,6 @@ export function SessionView({
   onNewSession,
   isInitializing = false,
   isCloud = false,
-  cloudStatus = null,
   slackThreadUrl,
   compact = false,
   isActiveSession = true,
@@ -198,6 +200,9 @@ export function SessionView({
   const showInlineBanner = hasError && errorRetryable && events.length > 0;
   const olderHistoryCursor = useSessionSelector(taskId, (session) =>
     isCloud ? (session?.transcriptWindowStart ?? 0) : 0,
+  );
+  const startupPhase = useSessionStore((state) =>
+    taskId ? state.startingTaskIds[taskId]?.phase : undefined,
   );
   const isLoadingOlderHistory = useSessionSelector(
     taskId,
@@ -246,10 +251,17 @@ export function SessionView({
     [taskId, thoughtOption, sessionService],
   );
 
+  const contextUsage = useContextUsage(events);
+  const activeTaskRunId = useSessionSelector(taskId, (s) => s?.taskRunId);
+
   const applyConfigOption = useCallback(
-    (configId: string, value: string) => {
-      if (!taskId) return;
-      sessionService.setSessionConfigOption(taskId, configId, value);
+    async (configId: string, value: string): Promise<boolean> => {
+      if (!taskId) return false;
+      return await sessionService.setSessionConfigOption(
+        taskId,
+        configId,
+        value,
+      );
     },
     [taskId, sessionService],
   );
@@ -263,6 +275,7 @@ export function SessionView({
     taskId,
     sessionModelOption,
     hasConversationStarted: hasSessionPromptEvent(events),
+    contextTokens: contextUsage?.used,
     onApply: applyConfigOption,
   });
 
@@ -270,7 +283,7 @@ export function SessionView({
     (configId: string, value: string) => {
       if (!taskId) return;
       if (interceptModelSwitch(configId, value)) return;
-      applyConfigOption(configId, value);
+      void applyConfigOption(configId, value);
     },
     [taskId, interceptModelSwitch, applyConfigOption],
   );
@@ -299,7 +312,6 @@ export function SessionView({
 
   const isCloudRun = useIsWorkspaceCloudRun(taskId);
   const editorRef = useRef<PromptInputHandle>(null);
-  const contextUsage = useContextUsage(events);
   const isCompacting = useSessionSelector(
     taskId,
     (session) => session?.isCompacting ?? false,
@@ -448,6 +460,11 @@ export function SessionView({
         showOfflineToast();
         return false;
       }
+      const commandInputError = getCodeCommandInputError(text);
+      if (commandInputError) {
+        toast.error(commandInputError);
+        return false;
+      }
       return onBeforeSubmit ? onBeforeSubmit(text, clearEditor) : true;
     },
     [isOnline, onBeforeSubmit],
@@ -458,7 +475,6 @@ export function SessionView({
     (s) => !!s?.editingQueuedId,
   );
   const cancelQueuedEdit = useCancelQueuedMessageEdit(taskId);
-  const activeTaskRunId = useSessionSelector(taskId, (s) => s?.taskRunId);
 
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const promptRecallRef = useRef<PromptRecallHandler | null>(null);
@@ -653,7 +669,7 @@ export function SessionView({
                         >
                           {isRestoring ? (
                             <>
-                              <Spinner size={14} className="animate-spin" />
+                              <Spinner size="md" />
                               Restoring...
                             </>
                           ) : (
@@ -666,24 +682,20 @@ export function SessionView({
                 </Box>
               </>
             ) : isInitializing ? (
-              isCloud ? (
-                <SessionInitializingView
-                  executionTarget="cloud"
-                  cloudStatus={cloudStatus}
-                />
-              ) : pendingTaskPrompt?.promptText ? (
+              pendingTaskPrompt?.promptText ? (
                 <PendingChatView
-                  promptText={pendingTaskPrompt.promptText}
+                  executionTarget={isCloud ? "cloud" : "local"}
+                  phase={startupPhase}
+                  content={
+                    pendingTaskPrompt.contentXml ?? pendingTaskPrompt.promptText
+                  }
                   attachments={pendingTaskPrompt.attachments}
                 />
               ) : (
-                <Flex
-                  align="center"
-                  justify="center"
-                  className="absolute inset-0 bg-background"
-                >
-                  <Spinner size={32} className="animate-spin text-gray-9" />
-                </Flex>
+                <SessionInitializingView
+                  phase={startupPhase}
+                  executionTarget={isCloud ? "cloud" : "local"}
+                />
               )
             ) : (
               <>
@@ -783,7 +795,7 @@ export function SessionView({
                           : "opacity-100"
                       }`}
                     >
-                      <ConnectingToAgent />
+                      <ConnectingToAgent spinning={!isRunning} />
                     </Box>
                     <Box
                       className={`transition-all duration-300 ease-out ${
@@ -793,6 +805,12 @@ export function SessionView({
                       }`}
                     >
                       <ComposerWidth compact={compact}>
+                        {taskId && (
+                          <SessionSummaryPanel
+                            taskId={taskId}
+                            taskRunId={activeTaskRunId}
+                          />
+                        )}
                         {taskId && (
                           <SideQuestionCard
                             taskId={taskId}
@@ -857,6 +875,7 @@ export function SessionView({
                             <ContextUsageIndicator
                               usage={contextUsage}
                               taskId={taskId}
+                              originProduct={task?.origin_product}
                               focused={isActiveSession !== false}
                             />
                           }
@@ -882,10 +901,10 @@ export function SessionView({
       </ContextMenu.Trigger>
       <ModelSwitchCacheDialog
         open={pendingModelSwitch !== null}
-        fromModelId={pendingModelSwitch?.fromValue ?? ""}
         fromModelLabel={pendingModelSwitch?.fromLabel ?? ""}
         toModelId={pendingModelSwitch?.value ?? ""}
         toModelLabel={pendingModelSwitch?.label ?? ""}
+        contextTokens={contextUsage?.used}
         onConfirm={confirmModelSwitch}
         onCancel={cancelModelSwitch}
       />

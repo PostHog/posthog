@@ -1,1 +1,1 @@
-0308_drop_warpstream_calculated_events_kafka_engines
+0315_add_snapshot_mode_to_session_replay_events

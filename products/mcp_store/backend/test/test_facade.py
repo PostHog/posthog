@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from posthog.models import User
@@ -12,15 +14,19 @@ from products.mcp_store.backend.agents import (
     resolve_gateway_agent_token,
 )
 from products.mcp_store.backend.facade.api import (
+    call_member_server_tool,
     get_active_installations,
     get_installations_for_sandbox,
     get_sandbox_mcp_server_names,
+    member_server_tools,
+    resolve_agent_gateway_server_ids,
 )
 from products.mcp_store.backend.facade.contracts import ActiveInstallation
 from products.mcp_store.backend.models import (
     MCPGatewayServer,
     MCPMemberServerRevocation,
     MCPServerInstallation,
+    MCPServerInstallationTool,
     MCPServerTemplate,
     MCPServiceAccount,
     MCPServiceAccountServerAccess,
@@ -314,6 +320,21 @@ class TestGetInstallationsForSandbox(BaseTest):
         assert {result.id for result in results} == {str(shared.id), str(personal.id)}
         assert all(result.proxy_token is None for result in results)
 
+    def test_empty_allowlist_mounts_nothing_before_the_gateway_flag_rollout(self) -> None:
+        # The rollout gate sends a mapped origin down the legacy path. An autonomous run that asked
+        # for no MCP Store servers must not pick up every shared installation on the way.
+        self.enforcement_enabled_mock.return_value = False
+        self._create_installation(scope="shared", display_name="Shared")
+
+        results = get_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            task_origin="scout_suggestions",
+            allowed_gateway_server_ids=[],
+        )
+
+        assert results == []
+
     def test_built_in_agent_only_gets_its_explicitly_delegated_credential(self) -> None:
         account = self._support_agent()
         granted_server = self._create_gateway_server(
@@ -565,6 +586,68 @@ class TestGetInstallationsForSandbox(BaseTest):
         # with no servers selected runs without MCP servers.
         assert resolve([]) == set()
         assert resolve(None) == {str(picked.id), str(dropped.id)}
+
+    def test_installation_allowlist_narrows_the_member_path_only(self) -> None:
+        kept = self._create_installation(scope="shared", display_name="Kept", url="https://kept.example.com/mcp")
+        self._create_installation(scope="shared", display_name="Dropped", url="https://dropped.example.com/mcp")
+        account = self._support_agent()
+        server = self._create_gateway_server(name="Team", url="https://team.example.com/mcp")
+        team_shared = self._create_installation(gateway_server=server, url=server.url)
+        self._grant(account, server, user=self.user, installation=team_shared, scope="team")
+
+        member = get_installations_for_sandbox(self.team.id, allowed_installation_ids=[str(kept.id)])
+        member_empty = get_installations_for_sandbox(self.team.id, allowed_installation_ids=[])
+        # A workflow run's snapshot carries no installation ids, so the agent path must not be
+        # emptied by the closed member allowlist that comes with it.
+        agent = get_installations_for_sandbox(
+            self.team.id, task_origin="support_reply", task_agent_key="support", allowed_installation_ids=[]
+        )
+
+        assert [result.id for result in member] == [str(kept.id)]
+        assert member_empty == []
+        assert [result.id for result in agent] == [str(team_shared.id)]
+
+    def test_resolves_saved_connectors_to_the_servers_an_agent_run_reaches(self) -> None:
+        account = get_built_in_agent(self.team.id, "workflow")
+        assert account is not None
+        teammate = User.objects.create_and_join(self.organization, "teammate@posthog.com", "password")
+        team_server = self._create_gateway_server(name="Team", url="https://team.example.com/mcp")
+        personal_server = self._create_gateway_server(name="Personal", url="https://personal.example.com/mcp")
+        disabled_server = self._create_gateway_server(
+            name="Disabled", url="https://disabled.example.com/mcp", is_team_enabled=False
+        )
+        unshared_server = self._create_gateway_server(name="Unshared", url="https://unshared.example.com/mcp")
+        team_shared = self._create_installation(user=teammate, gateway_server=team_server, url=team_server.url)
+        personal = self._create_installation(gateway_server=personal_server, url=personal_server.url)
+        disabled = self._create_installation(user=teammate, gateway_server=disabled_server, url=disabled_server.url)
+        self._grant(account, team_server, user=teammate, installation=team_shared, scope="team")
+        self._grant(account, personal_server, user=self.user, installation=personal)
+        self._grant(account, disabled_server, user=teammate, installation=disabled, scope="team")
+        connector_ids = [
+            str(team_server.id),
+            # A selection saved before connectors were keyed by gateway server names the
+            # installation; it still resolves to the server that installation sits on.
+            str(team_shared.id),
+            str(personal_server.id),
+            str(disabled_server.id),
+            str(unshared_server.id),
+            "not-a-uuid",
+        ]
+
+        resolve = lambda owner_id: resolve_agent_gateway_server_ids(
+            self.team.id, agent_key="workflow", credential_owner_id=owner_id, connector_ids=connector_ids
+        )
+
+        assert resolve(None) == {
+            str(team_server.id): str(team_server.id),
+            str(team_shared.id): str(team_server.id),
+            str(personal_server.id): None,
+            str(disabled_server.id): None,
+            str(unshared_server.id): None,
+            "not-a-uuid": None,
+        }
+        # A run with a credential owner also reaches that owner's personal grants.
+        assert resolve(self.user.id)[str(personal_server.id)] == str(personal_server.id)
 
     def test_sandbox_server_names_match_what_the_sandbox_mounts(self) -> None:
         # The names projection backs prompt steering (a scout's run prompt names its mounted
@@ -826,3 +909,109 @@ class TestGetInstallationsForSandbox(BaseTest):
         results = get_installations_for_sandbox(self.team.id, user_id=self.user.id, include_personal=include_personal)
 
         assert (len(results) == 1) == expected_included
+
+
+class TestCallMemberServerTool(BaseTest):
+    HOST = "mcp.example.com"
+
+    def _installation(self, **kwargs) -> MCPServerInstallation:
+        defaults: dict = {
+            "team": self.team,
+            "user": self.user,
+            "url": f"https://{self.HOST}/mcp",
+            "auth_type": "api_key",
+            "sensitive_configuration": {"api_key": "sk-test"},
+        }
+        defaults.update(kwargs)
+        return MCPServerInstallation.objects.create(**defaults)
+
+    def _tool(self, installation: MCPServerInstallation, name: str = "list_events", **kwargs) -> None:
+        kwargs.setdefault("annotations", {"readOnlyHint": True})
+        MCPServerInstallationTool.objects.create(
+            installation=installation,
+            tool_name=name,
+            approval_state="approved",
+            last_seen_at=timezone.now(),
+            **kwargs,
+        )
+
+    def _call(self, name: str = "list_events", **kwargs):
+        return call_member_server_tool(self.team.id, self.user.id, self.HOST, name, {"limit": 5}, **kwargs)
+
+    @patch(
+        "products.mcp_store.backend.facade.api.call_upstream_tool",
+        return_value={"content": [{"type": "text", "text": "3 events"}], "isError": False},
+    )
+    def test_prefers_the_members_own_connection_over_a_shared_one(self, mock_call) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        shared = self._installation(user=other_user, scope="shared")
+        own = self._installation()
+        self._tool(shared)
+        self._tool(own)
+
+        outcome = self._call()
+
+        assert outcome.status == "ok"
+        assert outcome.content == ({"type": "text", "text": "3 events"},)
+        assert mock_call.call_args.args[0].id == own.id
+
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool", return_value={"content": []})
+    def test_falls_back_to_the_teams_shared_connection(self, mock_call) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        shared = self._installation(user=other_user, scope="shared")
+        self._installation(user=other_user, url="https://mcp.example.com.evil.test/mcp")
+        self._tool(shared)
+
+        assert self._call().status == "ok"
+        assert mock_call.call_args.args[0].id == shared.id
+
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool")
+    def test_never_borrows_a_teammates_personal_connection(self, mock_call) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        self._tool(self._installation(user=other_user))
+
+        assert self._call().status == "not_connected"
+        mock_call.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("destructive_name", "delete_event", {}, False, "write_blocked"),
+            ("read_only_hint_cannot_clear_name", "delete_event", {"readOnlyHint": True}, False, "write_blocked"),
+            (
+                "destructive_hint",
+                "list_events",
+                {"readOnlyHint": True, "destructiveHint": True},
+                False,
+                "write_blocked",
+            ),
+            ("create", "create_issue", {"readOnlyHint": True}, False, "write_blocked"),
+            ("update", "update_event", {"readOnlyHint": True}, False, "write_blocked"),
+            ("send", "send_message", {"readOnlyHint": True}, False, "write_blocked"),
+            ("unknown", "process_event", {"readOnlyHint": True}, False, "write_blocked"),
+            ("mixed", "getOrCreateEvent", {"readOnlyHint": True}, False, "write_blocked"),
+            ("missing_hint", "list_events", {}, False, "write_blocked"),
+            ("read_name_marked_write", "list_events", {"readOnlyHint": False}, False, "write_blocked"),
+            ("writes_allowed", "delete_event", {}, True, "ok"),
+        ]
+    )
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool", return_value={"content": []})
+    def test_allow_writes_gates_tools_that_may_write(
+        self, _name, tool_name, annotations, allow_writes, expected_status, mock_call
+    ) -> None:
+        self._tool(self._installation(), name=tool_name, annotations=annotations)
+
+        assert self._call(tool_name, allow_writes=allow_writes).status == expected_status
+        assert mock_call.called is (expected_status == "ok")
+        tools = member_server_tools(self.team.id, self.user.id, self.HOST)
+        assert tools is not None
+        assert tools[0].read_only is False
+
+    @patch("products.mcp_store.backend.facade.api.call_upstream_tool")
+    def test_disabled_gateway_server_blocks_without_calling_upstream(self, mock_call) -> None:
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team, name="Example", url=f"https://{self.HOST}/mcp", is_team_enabled=False
+        )
+        self._tool(self._installation(gateway_server=server))
+
+        assert self._call().status == "blocked"
+        mock_call.assert_not_called()

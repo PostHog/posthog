@@ -11,7 +11,6 @@ import {
   type ExecutionMode,
   getReasoningEffortOptions,
   isSupportedReasoningEffort,
-  KIMI_MODEL_FLAG,
   type SupportedReasoningEffort,
   serializeCloudPrompt,
   supports1MContext,
@@ -27,8 +26,7 @@ import {
   PaperclipIcon,
   StopIcon,
 } from "phosphor-react-native";
-import { useFeatureFlag } from "posthog-react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -59,7 +57,6 @@ import { DotBackground } from "@/features/tasks/composer/DotBackground";
 import {
   type ContextWindow,
   DEFAULT_CONTEXT_WINDOW,
-  filterKimiModelConfigOptions,
   getMobileExecutionModes,
   getModelConfigOption,
 } from "@/features/tasks/composer/options";
@@ -111,16 +108,9 @@ export default function NewTaskScreen() {
   const keyboard = useReanimatedKeyboardAnimation();
   const restingBottom = bottom("compact");
   const [adapter, setAdapter] = useState<Adapter>("claude");
-  const {
-    configOptions: liveConfigOptions,
-    hasLiveConfig,
-    isConfigReady,
-  } = useCloudTaskConfigOptions(adapter);
-  const kimiEnabled = !!useFeatureFlag(KIMI_MODEL_FLAG);
-  const configOptions = useMemo(
-    () => filterKimiModelConfigOptions(liveConfigOptions, kimiEnabled),
-    [liveConfigOptions, kimiEnabled],
-  );
+  const [model, setModel] = useState<string>(DEFAULT_GATEWAY_MODEL);
+  const { configOptions, modelGroups, hasLiveConfig, isConfigReady } =
+    useCloudTaskConfigOptions(adapter, model);
   const modelConfigOption = getModelConfigOption(configOptions);
   const {
     error,
@@ -192,7 +182,6 @@ export default function NewTaskScreen() {
     }
     return DEFAULT_CLAUDE_EXECUTION_MODE;
   });
-  const [model, setModel] = useState<string>(DEFAULT_GATEWAY_MODEL);
   const [reasoning, setReasoning] = useState<SupportedReasoningEffort>(() => {
     const prefs = usePreferencesStore.getState();
     const desired =
@@ -308,9 +297,9 @@ export default function NewTaskScreen() {
       setAt: Date.now(),
     });
 
-    // Durably record the prompt so it survives the app being killed before
-    // creation completes; cleared once the task exists (or on failure, when
-    // the text is still live in the composer).
+    // Durably record the prompt so it survives the app being killed. Cleared
+    // once the task exists; kept on failure so the next launch can restore
+    // the draft into the composer.
     if (trimmedPrompt) {
       pendingPromptRecoveryStoreApi.set(pendingKey, trimmedPrompt);
     }
@@ -396,7 +385,6 @@ export default function NewTaskScreen() {
     } catch (creationError) {
       log.error("Failed to create task", creationError);
       pendingTaskPromptStoreApi.clear(currentPendingKey);
-      pendingPromptRecoveryStoreApi.clear(pendingKey);
     } finally {
       setCreating(false);
     }
@@ -622,6 +610,7 @@ export default function NewTaskScreen() {
                         contextWindow={contextWindow}
                         fastMode={fastMode}
                         configOptions={configOptions}
+                        modelGroups={modelGroups}
                         onAdapterChange={(next) => {
                           setAdapter(next.adapter);
                           setMode(next.mode);

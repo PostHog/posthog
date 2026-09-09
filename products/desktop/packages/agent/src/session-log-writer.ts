@@ -6,6 +6,7 @@ import type { PostHogAPIClient } from "./posthog-api";
 import type { StoredNotification } from "./types";
 import { isEmptyContentBlock } from "./utils/acp-content";
 import { Logger } from "./utils/logger";
+import { redactSecrets } from "./utils/redact-secrets";
 
 /**
  * Session context for a registered session.
@@ -45,6 +46,8 @@ export interface SessionLogWriterOptions {
 interface ChunkBuffer {
   text: string;
   firstTimestamp: string;
+  firstEventId?: string;
+  lastEventId?: string;
 }
 
 /**
@@ -71,31 +74,6 @@ interface SessionState {
   currentTurnMessages: string[];
   toolUpdateCache: Map<string, BufferedToolUpdate>;
   pendingRawInputSnapshots: Map<string, StoredNotification>;
-}
-
-function redactAuthorizationHeaders(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(redactAuthorizationHeaders);
-  }
-  if (value === null || typeof value !== "object") {
-    return value;
-  }
-
-  const record = value as Record<string, unknown>;
-  if (
-    typeof record.name === "string" &&
-    record.name.toLowerCase() === "authorization" &&
-    "value" in record
-  ) {
-    return { ...record, value: "[REDACTED]" };
-  }
-
-  return Object.fromEntries(
-    Object.entries(record).map(([key, nestedValue]) => [
-      key,
-      redactAuthorizationHeaders(nestedValue),
-    ]),
-  );
 }
 
 export class SessionLogWriter {
@@ -186,7 +164,7 @@ export class SessionLogWriter {
     return this.sessions.has(sessionId);
   }
 
-  appendRawLine(sessionId: string, line: string): void {
+  appendRawLine(sessionId: string, line: string, eventId?: string): void {
     const session = this.sessions.get(sessionId);
     if (!session) {
       this.logger.warn("appendRawLine called for unregistered session", {
@@ -195,8 +173,34 @@ export class SessionLogWriter {
       return;
     }
 
+    let message: Record<string, unknown>;
     try {
-      const message = JSON.parse(line);
+      message = JSON.parse(line);
+    } catch {
+      this.logger.warn("Failed to parse raw line for persistence", {
+        taskId: session.context.taskId,
+        runId: session.context.runId,
+        lineLength: line.length,
+      });
+      return;
+    }
+    this.appendNotification(sessionId, message, eventId);
+  }
+
+  appendNotification(
+    sessionId: string,
+    message: Record<string, unknown>,
+    eventId?: string,
+  ): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      this.logger.warn("appendNotification called for unregistered session", {
+        sessionId,
+      });
+      return;
+    }
+
+    try {
       const timestamp = new Date().toISOString();
 
       // Persisted empty thought chunks poison session resume: they rebuild
@@ -210,10 +214,20 @@ export class SessionLogWriter {
         const text = this.extractChunkText(message);
         if (text) {
           if (!session.chunkBuffer) {
-            session.chunkBuffer = { text, firstTimestamp: timestamp };
+            session.chunkBuffer = {
+              text,
+              firstTimestamp: timestamp,
+              firstEventId: eventId,
+              lastEventId: eventId,
+            };
           } else {
             session.chunkBuffer.text += text;
+            if (eventId) {
+              session.chunkBuffer.lastEventId = eventId;
+            }
           }
+        } else if (session.chunkBuffer && eventId) {
+          session.chunkBuffer.lastEventId = eventId;
         }
         // Don't emit chunk events
         return;
@@ -222,24 +236,30 @@ export class SessionLogWriter {
       // Non-chunk event: flush any buffered chunks first.
       // If this is a direct agent_message AND there are buffered chunks,
       // the direct message supersedes the partial chunks
+      let supersededChunks: ChunkBuffer | undefined;
       if (this.isDirectAgentMessage(message) && session.chunkBuffer) {
+        supersededChunks = session.chunkBuffer;
         session.chunkBuffer = undefined;
       } else {
         this.emitCoalescedMessage(sessionId, session);
       }
 
+      message = redactSecrets(message) as Record<string, unknown>;
       const nonChunkAgentText = this.extractAgentMessageText(message);
       if (nonChunkAgentText) {
         session.lastAgentMessage = nonChunkAgentText;
         session.currentTurnMessages.push(nonChunkAgentText);
       }
 
+      const entryEventId = eventId ?? supersededChunks?.lastEventId;
       const entry: StoredNotification = {
         type: "notification",
         timestamp,
-        notification: redactAuthorizationHeaders(
-          message,
-        ) as StoredNotification["notification"],
+        ...(entryEventId ? { event_id: entryEventId } : {}),
+        ...(supersededChunks?.firstEventId
+          ? { first_event_id: supersededChunks.firstEventId }
+          : {}),
+        notification: message as StoredNotification["notification"],
       };
 
       this.emitToSinks(sessionId, entry);
@@ -301,11 +321,11 @@ export class SessionLogWriter {
       if (this.posthogAPI) {
         this.queueForApiLog(sessionId, session, entry, tcu);
       }
-    } catch {
-      this.logger.warn("Failed to parse raw line for persistence", {
+    } catch (error) {
+      this.logger.warn("Failed to persist notification", {
         taskId: session.context.taskId,
         runId: session.context.runId,
-        lineLength: line.length,
+        error: serializeError(error),
       });
     }
   }
@@ -547,14 +567,18 @@ export class SessionLogWriter {
   private emitCoalescedMessage(sessionId: string, session: SessionState): void {
     if (!session.chunkBuffer) return;
 
-    const { text, firstTimestamp } = session.chunkBuffer;
+    const { firstTimestamp, firstEventId, lastEventId } = session.chunkBuffer;
+    const text = redactSecrets(session.chunkBuffer.text);
     session.chunkBuffer = undefined;
     session.lastAgentMessage = text;
     session.currentTurnMessages.push(text);
 
+    // The id range covers the chunk events this entry replaces.
     const entry: StoredNotification = {
       type: "notification",
       timestamp: firstTimestamp,
+      ...(lastEventId ? { event_id: lastEventId } : {}),
+      ...(firstEventId ? { first_event_id: firstEventId } : {}),
       notification: {
         jsonrpc: "2.0",
         method: "session/update",

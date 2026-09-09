@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
+import requests
 import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
@@ -173,6 +174,23 @@ def _named_warehouse_tables(entries: Any) -> list[Any]:
         for entry in entries
         if isinstance(entry, dict) and entry.get("table_name") and entry.get("name") != "Select a table"
     ]
+
+
+def _worker_error_messages(response: requests.Response) -> list[str]:
+    """The CDP worker's own description of a failed test invocation, as a list of messages."""
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    if isinstance(body, dict):
+        for key in ("errors", "error", "detail"):
+            value = body.get(key)
+            if isinstance(value, list):
+                return [str(item) for item in value]
+            if value:
+                return [str(value)]
+    text = (response.text or "").strip()
+    return [text] if text else [f"The worker returned {response.status_code}."]
 
 
 def _without(value: Any, keys: tuple[str, ...]) -> Any:
@@ -444,6 +462,15 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             raise serializers.ValidationError(
                 {
                     "template_id": f"Template '{template.template_id}' is internal and cannot be used to create a function."
+                }
+            )
+        # Deprecated templates are only hidden from the template listing, so a direct API call with the
+        # template id could still create one. Block that too; existing functions keep running, and the
+        # legacy plugin migration (posthog/cdp/migrations.py) is the one internal caller allowed through.
+        if template.status == "deprecated" and not self.context.get("allow_deprecated_template"):
+            raise serializers.ValidationError(
+                {
+                    "template_id": f"Template '{template.template_id}' is deprecated and cannot be used to create a new function."
                 }
             )
 
@@ -1185,7 +1212,9 @@ class HogFunctionViewSet(
         )
 
         if res.status_code != 200:
-            return Response({"status": "error"}, status=res.status_code)
+            # The worker's own message is the only description of the failure. Dropping it leaves the
+            # caller with a bare status code and nothing to act on.
+            return Response({"status": "error", "errors": _worker_error_messages(res)}, status=res.status_code)
 
         return Response(res.json())
 

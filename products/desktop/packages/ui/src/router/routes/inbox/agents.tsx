@@ -1,9 +1,7 @@
-import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/inbox/agents")({
-  component: InboxAgentsRedirect,
+  beforeLoad: () => {
+    throw redirect({ to: "/agents", replace: true });
+  },
 });
-
-function InboxAgentsRedirect() {
-  return <Navigate to="/agents" replace />;
-}

@@ -12,14 +12,16 @@ from django.utils import timezone
 from parameterized import parameterized
 from PIL import Image
 from prometheus_client import REGISTRY
+from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.auth import mint_export_renderer_token
 from posthog.models import Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import HeatmapPreflightBurstRateThrottle
 
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.web_analytics.backend.api.heatmaps_api import SavedHeatmapCaptureRequestSerializer
 from products.web_analytics.backend.heatmap_preflight import PreflightResult
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
@@ -345,10 +347,23 @@ class TestHeatmapsAPI(APIBaseTest):
         )
         HeatmapSnapshot.objects.create(heatmap=saved, width=1024, content=b"jpegdata1024")
 
-        token = encode_jwt(
-            {"id": self.user.id},
-            timedelta(minutes=5),
-            PosthogJwtAudience.EXPORT_RENDERER,
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={
+                "heatmap_url": (
+                    f"http://testserver/api/environments/{self.team.id}/heatmap_screenshots/{saved.id}/content/"
+                    "?width=1024"
+                ),
+                "heatmap_type": "screenshot",
+            },
+        )
+        token = mint_export_renderer_token(
+            user_id=self.user.id,
+            team_id=self.team.id,
+            exported_asset_id=exported_asset.id,
+            scope="heatmap:read",
         )
         unauthenticated = APIClient()
         r = unauthenticated.get(
@@ -358,6 +373,18 @@ class TestHeatmapsAPI(APIBaseTest):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r["Content-Type"], "image/jpeg")
         self.assertEqual(r.content, b"jpegdata1024")
+
+        other = SavedHeatmap.objects.create(
+            team=self.team,
+            url="https://other.example.com",
+            created_by=self.user,
+            status=SavedHeatmap.Status.COMPLETED,
+        )
+        other_response = unauthenticated.get(
+            f"/api/environments/{self.team.id}/heatmap_screenshots/{other.id}/content/?width=1024",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(other_response.status_code, status.HTTP_403_FORBIDDEN)
 
     @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot")
     def test_retrieve_auto_recovers_stale_processing_heatmap(self, mock_task):

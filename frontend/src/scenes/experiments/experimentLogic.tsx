@@ -87,6 +87,13 @@ import {
     PropertyMathType,
 } from '~/types'
 
+import {
+    EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
+    EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
+    NEW_EXPERIMENT,
+    NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES,
+    MetricInsightId,
+} from 'products/experiments/frontend/constants'
 import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
 import {
     legacyExpectedRunningTime,
@@ -113,13 +120,6 @@ import type {
 } from '../../types'
 import type { TrendResult } from '../../types'
 import type { ExperimentsConfig } from '../settings/environment/experimentsConfigLogic'
-import {
-    EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
-    EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
-    NEW_EXPERIMENT,
-    NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES,
-    MetricInsightId,
-} from './constants'
 import { experimentMetricsLogic } from './experimentMetricsLogic'
 import { experimentSceneLogic } from './experimentSceneLogic'
 import { featureFlagVariantProperty, resolvedExposureEvent } from './exposureContract'
@@ -187,7 +187,7 @@ export type ExperimentTriggeredBy =
     | 'experiment_config_change'
     | 'metric_config_change'
 
-// Triggers that kick off a metrics recalculation. Each is also a valid API TriggerEnumApi value, so a
+// Triggers that kick off a metrics recalculation. Each is also a valid API ExperimentMetricsRecalculationTriggerEnumApi value, so a
 // narrowed triggeredBy passes straight to triggerRecalculation. page_load and manual are handled elsewhere.
 const RECALCULATION_TRIGGERS = ['experiment_config_change', 'metric_config_change', 'auto_refresh'] as const
 
@@ -524,6 +524,7 @@ export interface experimentLogicValues {
     defaultMinimumDetectableEffect: number // experimentsConfigLogic
     experimentsConfig: ExperimentsConfig | null // experimentsConfigLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    receivedFeatureFlags: boolean // featureFlagLogic
     conversionMetrics: FunnelTimeConversionMetrics // funnelDataLogic
     funnelResults: FunnelResultType // funnelDataLogic
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
@@ -783,6 +784,13 @@ export interface experimentLogicActions {
     } // eventUsageLogic
     addToExperiments: (experiment: Experiment) => Experiment // experimentsLogic
     updateExperiments: (experiment: Experiment) => Experiment // experimentsLogic
+    setFeatureFlags: (
+        flags: string[],
+        variants: Record<string, boolean | string>
+    ) => {
+        flags: string[]
+        variants: Record<string, boolean | string>
+    } // featureFlagLogic
     updateFlagFromPartial: (
         flag: Partial<FeatureFlagType> & {
             id: number
@@ -1344,7 +1352,11 @@ export interface experimentLogicActions {
         uuid: string,
         attributionType: BreakdownAttributionType,
         attributionValue?: number
-    ) => { attributionType: BreakdownAttributionType; attributionValue: number | undefined; uuid: string }
+    ) => {
+        attributionType: BreakdownAttributionType
+        attributionValue: number | undefined
+        uuid: string
+    }
     updateMetricBreakdownLimit: (
         uuid: string,
         breakdownLimit: number
@@ -1481,7 +1493,7 @@ export const experimentLogic = kea<experimentLogicType>([
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'showGroupsOptions'],
             featureFlagLogic,
-            ['featureFlags'],
+            ['featureFlags', 'receivedFeatureFlags'],
             holdoutsLogic,
             ['holdouts'],
             billingLogic,
@@ -1526,6 +1538,8 @@ export const experimentLogic = kea<experimentLogicType>([
             ],
             teamLogic,
             ['addProductIntent'],
+            featureFlagLogic,
+            ['setFeatureFlags'],
             featureFlagsLogic,
             ['updateFlagFromPartial'],
             modalsLogic,
@@ -2442,7 +2456,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions, asyncActions, cache }) => ({
+    listeners(({ values, actions, asyncActions, cache, props }) => ({
         beforeUnmount: () => {
             actions.stopAutoRefreshInterval()
             clearTimeout(cache.notificationOfferTimer)
@@ -2768,6 +2782,18 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         refreshExperimentResults: async ({ forceRefresh, triggeredBy, refreshIfStale }) => {
+            // The refresh branches on the recalculation flag. Choosing a branch before the flag has
+            // resolved reads it as off and runs the legacy loaders, which fail for a recalculation
+            // experiment. Defer the refresh until flags arrive; setFeatureFlags replays it once.
+            if (!values.receivedFeatureFlags) {
+                cache.deferredRefresh = { forceRefresh, triggeredBy, refreshIfStale }
+                return
+            }
+
+            // The setFeatureFlags listener re-runs this refresh if a later flag update contradicts this value.
+            cache.branchFlagValue = !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
+            cache.lastRefreshArgs = { forceRefresh, triggeredBy, refreshIfStale }
+
             const refreshId = generateRefreshId()
             const refreshStart = performance.now()
             const summaries: MetricLoadingSummary[] = []
@@ -2815,101 +2841,128 @@ export const experimentLogic = kea<experimentLogicType>([
                     delete cache.refreshSummariesById[refreshId]
                 }
 
-                const primaryCount =
-                    (values.experiment?.metrics?.length || 0) +
-                    (values.experiment?.saved_metrics?.filter(
-                        (m: { metadata: { type: string } }) => m.metadata.type === 'primary'
-                    ).length || 0)
-                const secondaryCount =
-                    (values.experiment?.metrics_secondary?.length || 0) +
-                    (values.experiment?.saved_metrics?.filter(
-                        (m: { metadata: { type: string } }) => m.metadata.type === 'secondary'
-                    ).length || 0)
-                const successfulCount = refreshSummaries.reduce((sum, s) => sum + s.successfulCount, 0)
-                const erroredCount = refreshSummaries.reduce((sum, s) => sum + s.erroredCount, 0)
-                const cachedCount = refreshSummaries.reduce((sum, s) => sum + s.cachedCount, 0)
-
-                eventUsageLogic.actions.reportExperimentResultsRefreshCompleted(
-                    values.experimentId,
-                    values.currentTeamId,
-                    {
-                        total_duration_ms: totalDurationMs,
-                        primary_metrics_count: primaryCount,
-                        secondary_metrics_count: secondaryCount,
-                        successful_count: successfulCount,
-                        errored_count: erroredCount,
-                        cached_count: cachedCount,
-                        triggered_by: triggeredBy ?? 'manual',
-                        force_refresh: !!forceRefresh,
-                        refresh_id: refreshId,
-                        experiment_duration_hours: values.experiment?.start_date
-                            ? Math.round(
-                                  (Date.now() - new Date(values.experiment.start_date).getTime()) / (1000 * 60 * 60)
-                              )
-                            : null,
-                        experiment_status: values.experiment?.status ?? null,
-                        total_metrics_count: primaryCount + secondaryCount,
-                        execution_mode: getExperimentExecutionMode(values.featureFlags),
-                    }
-                )
-
-                const finalState: FinishedRefreshState = caughtError
-                    ? 'errored'
-                    : erroredCount > 0
-                      ? 'partial'
-                      : 'completed'
-                actions.markRefreshFinished(refreshId, finalState)
-
-                // Clear notification offer timer
+                // Clear notification offer timer (even when unmounted below, so it can't fire later)
                 clearTimeout(cache.notificationOfferTimer)
 
-                // Fire browser notification if user subscribed
-                if (
-                    values.notifyWhenResultsReady &&
-                    'Notification' in window &&
-                    Notification.permission === 'granted'
-                ) {
-                    const notification = new Notification('Experiment results ready', {
-                        body: `Results for "${values.experiment.name}" are now available.`,
-                        icon: '/static/posthog-icon.svg',
-                        tag: `experiment-results-${values.experimentId}`,
-                    })
-                    notification.onclick = () => {
-                        window.focus()
-                        notification.close()
+                // The metric loads above can outlive the page: navigating to another experiment
+                // unmounts this logic and detaches its reducers, so any `values` read below would
+                // throw "[KEA] Can not find path ... in the store". The remaining bookkeeping only
+                // concerns a page that's still showing, so skip it when unmounted.
+                if (experimentLogic.findMounted(props)) {
+                    const primaryCount =
+                        (values.experiment?.metrics?.length || 0) +
+                        (values.experiment?.saved_metrics?.filter(
+                            (m: { metadata: { type: string } }) => m.metadata.type === 'primary'
+                        ).length || 0)
+                    const secondaryCount =
+                        (values.experiment?.metrics_secondary?.length || 0) +
+                        (values.experiment?.saved_metrics?.filter(
+                            (m: { metadata: { type: string } }) => m.metadata.type === 'secondary'
+                        ).length || 0)
+                    const successfulCount = refreshSummaries.reduce((sum, s) => sum + s.successfulCount, 0)
+                    const erroredCount = refreshSummaries.reduce((sum, s) => sum + s.erroredCount, 0)
+                    const cachedCount = refreshSummaries.reduce((sum, s) => sum + s.cachedCount, 0)
+
+                    eventUsageLogic.actions.reportExperimentResultsRefreshCompleted(
+                        values.experimentId,
+                        values.currentTeamId,
+                        {
+                            total_duration_ms: totalDurationMs,
+                            primary_metrics_count: primaryCount,
+                            secondary_metrics_count: secondaryCount,
+                            successful_count: successfulCount,
+                            errored_count: erroredCount,
+                            cached_count: cachedCount,
+                            triggered_by: triggeredBy ?? 'manual',
+                            force_refresh: !!forceRefresh,
+                            refresh_id: refreshId,
+                            experiment_duration_hours: values.experiment?.start_date
+                                ? Math.round(
+                                      (Date.now() - new Date(values.experiment.start_date).getTime()) / (1000 * 60 * 60)
+                                  )
+                                : null,
+                            experiment_status: values.experiment?.status ?? null,
+                            total_metrics_count: primaryCount + secondaryCount,
+                            execution_mode: getExperimentExecutionMode(values.featureFlags),
+                        }
+                    )
+
+                    const finalState: FinishedRefreshState = caughtError
+                        ? 'errored'
+                        : erroredCount > 0
+                          ? 'partial'
+                          : 'completed'
+                    actions.markRefreshFinished(refreshId, finalState)
+
+                    // Fire browser notification if user subscribed
+                    if (
+                        values.notifyWhenResultsReady &&
+                        'Notification' in window &&
+                        Notification.permission === 'granted'
+                    ) {
+                        const notification = new Notification('Experiment results ready', {
+                            body: `Results for "${values.experiment.name}" are now available.`,
+                            icon: '/static/posthog-icon.svg',
+                            tag: `experiment-results-${values.experimentId}`,
+                        })
+                        notification.onclick = () => {
+                            window.focus()
+                            notification.close()
+                        }
+                    }
+
+                    // Reset notification state
+                    actions.setShowNotificationOffer(false)
+                    actions.setNotifyWhenResultsReady(false)
+
+                    // Only set up auto-refresh if enabled AND page is visible
+                    // This prevents the interval from restarting when async operations complete after the page becomes invisible
+                    if (
+                        values.experiment &&
+                        values.autoRefresh.enabled &&
+                        isLaunched(values.experiment) &&
+                        values.isPageVisible
+                    ) {
+                        actions.resetAutoRefreshInterval()
+                    }
+
+                    // A warming-up experiment can show a stale "no results yet" snapshot on load, so fetch
+                    // fresh once. When it has results we leave it to the in-tab auto-refresh, since recomputes
+                    // might be expensive. Gated on `!forceRefresh` so the refresh we trigger here can't loop.
+                    if (
+                        refreshIfStale &&
+                        !forceRefresh &&
+                        !caughtError &&
+                        !values.hasMinimumExposureForResults &&
+                        experimentResultsAreStale(
+                            [...values.primaryMetricsResults, ...values.secondaryMetricsResults],
+                            NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES
+                        )
+                    ) {
+                        actions.refreshExperimentResults(true, 'page_load')
                     }
                 }
-
-                // Reset notification state
-                actions.setShowNotificationOffer(false)
-                actions.setNotifyWhenResultsReady(false)
-
-                // Only set up auto-refresh if enabled AND page is visible
-                // This prevents the interval from restarting when async operations complete after the page becomes invisible
-                if (
-                    values.experiment &&
-                    values.autoRefresh.enabled &&
-                    isLaunched(values.experiment) &&
-                    values.isPageVisible
-                ) {
-                    actions.resetAutoRefreshInterval()
-                }
-
-                // A warming-up experiment can show a stale "no results yet" snapshot on load, so fetch
-                // fresh once. When it has results we leave it to the in-tab auto-refresh, since recomputes
-                // might be expensive. Gated on `!forceRefresh` so the refresh we trigger here can't loop.
-                if (
-                    refreshIfStale &&
-                    !forceRefresh &&
-                    !caughtError &&
-                    !values.hasMinimumExposureForResults &&
-                    experimentResultsAreStale(
-                        [...values.primaryMetricsResults, ...values.secondaryMetricsResults],
-                        NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES
-                    )
-                ) {
-                    actions.refreshExperimentResults(true, 'page_load')
-                }
+            }
+        },
+        setFeatureFlags: () => {
+            // Flags have now resolved. Replay a refresh that arrived before them so the branch decision
+            // uses the real flag value. One-shot: clear the deferred request before re-firing.
+            const deferred = cache.deferredRefresh
+            if (deferred) {
+                cache.deferredRefresh = undefined
+                actions.refreshExperimentResults(deferred.forceRefresh, deferred.triggeredBy, deferred.refreshIfStale)
+                return
+            }
+            /**
+             * A refresh that branched on a wrong early flag value ran the wrong loaders, and nothing
+             * re-runs it when the real flag response lands (see the setFeatureFlags listener in
+             * experimentMetricsLogic for why the first flag set of a page load can be wrong). Re-run the
+             * last refresh when the current value contradicts the recorded one; equal values no-op.
+             */
+            const flagValue = !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
+            const lastArgs = cache.lastRefreshArgs
+            if (lastArgs && cache.branchFlagValue !== undefined && flagValue !== cache.branchFlagValue) {
+                actions.refreshExperimentResults(lastArgs.forceRefresh, lastArgs.triggeredBy, lastArgs.refreshIfStale)
             }
         },
         updateExperimentMetrics: async () => {
@@ -2973,6 +3026,10 @@ export const experimentLogic = kea<experimentLogicType>([
             // Settings like stats config, CUPED, and conversion-window handling change
             // how metrics and exposures are computed, so persist then re-query.
             await asyncActions.updateExperiment({ ...update, update_feature_flag_params: false })
+            // Unlaunched experiments have no results to recalculate, so don't promise a recalculation.
+            lemonToast.success(
+                values.isExperimentLaunched ? 'Settings saved. Recalculating results…' : 'Settings saved'
+            )
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         resetRunningExperiment: async () => {
@@ -3412,8 +3469,9 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.setPrimaryMetricsResultsLoading(false)
 
-            // Mark the review results task as complete when results are loaded for a launched experiment
-            if (values.experiment && isLaunched(values.experiment)) {
+            // Mark the review results task as complete when results are loaded for a launched experiment.
+            // Mounted check first: the load can outlive the page, and `values` reads throw once unmounted.
+            if (experimentLogic.findMounted(props) && values.experiment && isLaunched(values.experiment)) {
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewExperimentResults)
             }
         },

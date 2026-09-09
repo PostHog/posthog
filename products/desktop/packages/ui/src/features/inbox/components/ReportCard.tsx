@@ -4,6 +4,7 @@ import {
   LightningIcon,
 } from "@phosphor-icons/react";
 import { extractRepoSelectionRepository } from "@posthog/core/inbox/artefacts";
+import { isRestorableReport } from "@posthog/core/inbox/reportMembership";
 import {
   deriveHeadline,
   displayConventionalCommitTitle,
@@ -35,6 +36,10 @@ import { hasKnownSourceProduct } from "@posthog/ui/features/inbox/components/uti
 import { useInboxReportDetailPrefetch } from "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch";
 import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { Button as UiButton } from "@posthog/ui/primitives/Button";
+import {
+  navigationSourceHref,
+  reportNavigationState,
+} from "@posthog/ui/router/reportNavigation";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { HTMLAttributes, MouseEvent, ReactNode } from "react";
 
@@ -123,7 +128,6 @@ export function ReportCardView(props: ReportCardViewProps) {
                 <ConventionalCommitScopeTag
                   type={conventionalTitle.type}
                   scope={conventionalTitle.scope}
-                  compact
                 />
               )
             }
@@ -174,14 +178,15 @@ export function ReportCardView(props: ReportCardViewProps) {
                 ) : (
                   reasonLabel && (
                     <span
-                      className="max-w-full truncate rounded-(--radius-1) bg-(--gray-3) px-1.5 py-0.5 text-[11px] text-gray-11"
+                      className="flex min-w-0 max-w-full items-center gap-1.5 text-[11px] text-gray-11"
                       title={
                         dismissalNote
                           ? `${reasonLabel}: ${dismissalNote}`
                           : reasonLabel
                       }
                     >
-                      {reasonLabel}
+                      <span className="size-1.5 shrink-0 rounded-full bg-(--red-9)" />
+                      <span className="truncate">{reasonLabel}</span>
                     </span>
                   )
                 )}
@@ -224,7 +229,7 @@ export function ReportCardView(props: ReportCardViewProps) {
   // A refunded/resolved archived report carries no actions; skip the rail (and
   // its divider) entirely rather than render an empty bordered column.
   const actions = isArchived ? (
-    isResolved ? null : (
+    isRestorableReport(report) ? (
       <UiButton
         type="button"
         variant="soft"
@@ -242,7 +247,7 @@ export function ReportCardView(props: ReportCardViewProps) {
         <ArrowCounterClockwiseIcon size={14} />
         Restore
       </UiButton>
-    )
+    ) : null
   ) : (
     <>
       <SuggestedReviewerAvatarStack
@@ -323,15 +328,12 @@ export function ReportCard(props: ReportCardProps) {
   const { report, isSelected = false, onRowClick } = props;
   const isArchived = props.variant === "archived";
 
-  const detailRoute = isArchived
-    ? {
-        to: "/inbox/dismissed/$reportId" as const,
-        params: { reportId: report.id },
-      }
-    : {
-        to: "/inbox/reports/$reportId" as const,
-        params: { reportId: report.id },
-      };
+  const source = navigationSourceHref();
+  const detailRoute = {
+    to: "/reports/$reportId" as const,
+    params: { reportId: report.id },
+    search: source ? { from: source } : {},
+  };
   const { prefetch, pointerHandlers } =
     useInboxReportDetailPrefetch(detailRoute);
   const navigate = useNavigate();
@@ -349,6 +351,7 @@ export function ReportCard(props: ReportCardProps) {
   const renderBody = (body: ReactNode, className: string) => (
     <Link
       {...detailRoute}
+      state={reportNavigationState}
       preload="intent"
       onClick={(event) => {
         onRowClick?.(event);

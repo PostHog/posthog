@@ -5,6 +5,7 @@ from posthog.dags import (
     backfill_materialized_column,
     backups,
     ch_examples,
+    clickhouse_cleanup,
     create_materialized_column,
     data_deletion_requests,
     deletes,
@@ -33,6 +34,7 @@ defs = dagster.Definitions(
     ],
     jobs=[
         add_index_to_materialized_column.add_index_to_materialized_column,
+        clickhouse_cleanup.clickhouse_deletion_sweep_job,
         create_materialized_column.create_materialized_column,
         drop_materialized_column.drop_materialized_column,
         deletes.deletes_job,

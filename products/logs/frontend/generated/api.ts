@@ -62,6 +62,8 @@ import type {
     _LogsFacetValuesResponseApi,
     _LogsGroupByRequestApi,
     _LogsGroupByResponseApi,
+    _LogsImpactRequestApi,
+    _LogsImpactResponseApi,
     _LogsPatternsDiffRequestApi,
     _LogsPatternsDiffResponseApi,
     _LogsPatternsRequestApi,
@@ -335,7 +337,7 @@ export const getLogsAnomaliesSeriesBandsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Returns the last 7 days of log volume for every (namespace, environment, severity) series of one service, with a time-of-week expected band derived from the prior weeks of the volume rollup. Synchronous and read only.
+ * Returns log volume over the requested window for every (namespace, environment, severity) series of one service, with a time-of-week expected band derived from the prior weeks of the volume rollup. The window defaults to the last 7 days and may span at most 7 days. Synchronous and read only.
  * @summary Per-series log volume with expected bands
  */
 export const logsAnomaliesSeriesBandsCreate = async (
@@ -490,6 +492,23 @@ export const logsHasLogsRetrieve = async (
     return apiMutator<LogsHasLogsRetrieve200>(getLogsHasLogsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLogsImpactCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/impact/`
+}
+
+export const logsImpactCreate = async (
+    projectId: string,
+    _logsImpactRequestApi: _LogsImpactRequestApi,
+    options?: RequestInit
+): Promise<_LogsImpactResponseApi> => {
+    return apiMutator<_LogsImpactResponseApi>(getLogsImpactCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsImpactRequestApi),
     })
 }
 

@@ -74,6 +74,7 @@ from products.customer_analytics.backend.facade.contracts import (
     MeetingParticipantView,
     MeetingView,
 )
+from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 
 
 class AccountTrackRuleFieldSerializer(serializers.Serializer):
@@ -1005,10 +1006,15 @@ class AccountOrganizationMemberSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Basic profile of the member's user (uuid, distinct_id, first_name, last_name, email).",
     )
+    last_login = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the member last signed in, or null if they have never signed in.",
+    )
 
     class Meta:
         model = OrganizationMembership
-        fields = ["id", "user", "level"]
+        fields = ["id", "user", "level", "last_login"]
         read_only_fields = ["id", "user", "level"]
         extra_kwargs = {
             "id": {"help_text": "Organization membership ID."},
@@ -1829,7 +1835,11 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
     references = CustomPropertyReferenceSerializer(
         many=True,
         read_only=True,
-        help_text="Workflows that use this property, resolved by definition id.",
+        help_text="Workflows that use this property, resolved by definition id when the caller can view workflows.",
+    )
+    has_workflow_reference = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether a workflow updates this property. Always returned, even when workflow details are hidden.",
     )
 
     def validate(self, attrs):
@@ -1864,6 +1874,7 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
             "created_by",
             "updated_at",
             "references",
+            "has_workflow_reference",
         ]
 
 
@@ -1904,11 +1915,12 @@ class CustomPropertyValueWriteSerializer(serializers.Serializer):
         help_text="UUID of the custom property definition whose value to set for this account."
     )
     value = CustomPropertyValueField(
+        allow_null=True,
         help_text=(
             "Value to store, matching the definition's type: a number for number/currency/percent, a "
             "boolean for boolean, an ISO-8601 string for date/datetime, an HTTP or HTTPS URL for link properties, "
-            "or text for text properties."
-        )
+            "or text for text properties. Null clears the current value while preserving its history."
+        ),
     )
 
 
@@ -1943,6 +1955,36 @@ class CustomPropertyValueSuggestionsResponseSerializer(serializers.Serializer):
     )
     refreshing = serializers.BooleanField(
         read_only=True, help_text="Always false — present for compatibility with the property-values consumer."
+    )
+
+
+class PinnedAccountPropertySerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=[
+            (AccountPropertyPinKind.CUSTOM_PROPERTY.value, "Custom property"),
+            (AccountPropertyPinKind.RELATIONSHIP.value, "Relationship"),
+        ],
+        help_text="Definition type for this pinned account property.",
+    )
+    id = serializers.UUIDField(
+        help_text="Team-scoped custom property or relationship definition UUID.",
+    )
+
+
+class UserCustomerAnalyticsConfigSerializer(serializers.Serializer):
+    pinned_properties = PinnedAccountPropertySerializer(
+        many=True,
+        read_only=True,
+        help_text="Account properties pinned in sidebar display order.",
+    )
+
+
+class UserCustomerAnalyticsConfigUpdateSerializer(serializers.Serializer):
+    pinned_properties = PinnedAccountPropertySerializer(
+        many=True,
+        allow_empty=True,
+        required=False,
+        help_text="Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them.",
     )
 
 

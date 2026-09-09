@@ -587,6 +587,20 @@ def _single_row_table() -> GoogleAdsTable:
     )
 
 
+def _stats_table() -> GoogleAdsTable:
+    # A report table (requires_filter=True) whose only incremental field is ever segments.date.
+    return GoogleAdsTable(
+        name="campaign_stats",
+        alias="campaign_stats",
+        columns=[_string_column("campaign.id"), _string_column("segments.date")],
+        parents=None,
+        requires_filter=True,
+        primary_key=["campaign.id", "segments.date"],
+        should_sync_default=True,
+        description=None,
+    )
+
+
 def _single_page() -> SimpleNamespace:
     return SimpleNamespace(
         field_mask=SimpleNamespace(paths=["campaign.name"]),
@@ -1845,6 +1859,37 @@ class TestVersionDeclaration:
         # A present pin is honored verbatim so an existing v23/v24 source is never silently moved; an
         # empty/missing pin falls back to the new v25 default that new sources are stamped with.
         assert GoogleAdsSource().resolve_api_version(pin) == expected
+
+
+class TestReportTableMissingIncrementalField:
+    def test_incremental_report_table_without_incremental_field_defaults_to_segments_date(self):
+        # A report table's schema can arrive flagged incremental but with no incremental field
+        # (a config inconsistency). Its only valid field is always segments.date, so the sync must
+        # default to it and run rather than crashing with "incremental_field ... can't be None".
+        table = _stats_table()
+        assert table.alias is not None
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        with (
+            mock.patch(f"{_GOOGLE_ADS_MODULE}.get_schemas", return_value={table.alias: table}),
+            mock.patch(f"{_GOOGLE_ADS_MODULE}.google_ads_client", return_value=mock.Mock()),
+            mock.patch(f"{_GOOGLE_ADS_MODULE}._search_as_arrow_tables", return_value=iter([])) as search,
+        ):
+            response = google_ads_source(
+                config,
+                table.alias,
+                team_id=1,
+                resumable_source_manager=mock.Mock(),
+                api_version="v25",
+                should_use_incremental_field=True,
+                incremental_field=None,
+                incremental_field_type=None,
+                db_incremental_field_last_value=dt.date.today(),
+            )
+            list(typing.cast(collections.abc.Iterable, response.items()))
+
+        # The windowed drain ran (no crash) and queried on the defaulted segments.date field.
+        assert search.call_count >= 1
+        assert "segments.date" in search.call_args_list[0].args[2]
 
 
 class TestApiVersionDispatch:

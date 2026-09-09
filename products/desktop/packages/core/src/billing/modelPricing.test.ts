@@ -1,9 +1,11 @@
+import { customModelMeta } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
+  estimateUncachedInputCost,
   formatModelRates,
   modelCostInfo,
   modelListPrice,
-  relativeCostLabel,
+  toModelPickerOption,
 } from "./modelPricing";
 
 describe("modelPricing", () => {
@@ -13,6 +15,8 @@ describe("modelPricing", () => {
     ["claude-sonnet-5", "1×"],
     ["claude-opus-5", "2.5×"],
     ["gpt-5.5", "≈2.8×"],
+    ["gpt-5.4", "≈1.4×"],
+    ["gpt-6-astra", "5×"],
     ["deepseek-v4", "≈0.05×"],
     ["zai-org/glm-5.3-flash", "≈0.06×"],
   ] as const)("%s -> %s", (modelId, expected) => {
@@ -24,7 +28,28 @@ describe("modelPricing", () => {
     expect(modelListPrice("totally-unknown-model")).toBeNull();
   });
 
+  it("keeps an unpriced gateway model in the picker instead of throwing", () => {
+    expect(
+      toModelPickerOption({
+        value: "future-gateway-model",
+        name: "Future gateway model",
+      }),
+    ).toMatchObject({ kind: "unpriced", name: "Future gateway model" });
+
+    expect(
+      toModelPickerOption({
+        value: "local-model",
+        name: "Local model",
+        _meta: customModelMeta(),
+      }),
+    ).toMatchObject({ kind: "custom" });
+  });
+
   it("matches specific families before the broader ones they contain", () => {
+    expect(modelListPrice("gpt-6-astra")).toEqual({
+      inputPerMtok: 10,
+      outputPerMtok: 50,
+    });
     expect(modelListPrice("gpt-5.6-luna")?.inputPerMtok).toBe(1);
     expect(modelListPrice("gpt-5.5")?.inputPerMtok).toBe(5);
     expect(modelListPrice("zai-org/glm-5.3-flash")?.inputPerMtok).toBe(0.15);
@@ -41,12 +66,17 @@ describe("modelPricing", () => {
     );
   });
 
-  it("compares two models for the switch dialog", () => {
-    expect(relativeCostLabel("claude-opus-5", "claude-haiku-4-5")).toBe("0.2×");
-    expect(relativeCostLabel("claude-haiku-4-5", "claude-fable-5")).toBe("10×");
-    expect(relativeCostLabel("claude-opus-5", "claude-opus-4-8")).toBeNull();
-    expect(relativeCostLabel("claude-opus-5", "unknown-model")).toBeNull();
-  });
+  it.each([
+    ["gpt-5.6-terra", 100_000, 0.25],
+    ["claude-haiku-4-5", 50_000, 0.05],
+    ["unknown-model", 100_000, null],
+    ["claude-opus-5", 0, null],
+  ] as const)(
+    "estimates uncached input cost for %s with %s tokens",
+    (modelId, tokens, expected) => {
+      expect(estimateUncachedInputCost(modelId, tokens)).toBe(expected);
+    },
+  );
 });
 
 // The gateway pins the contract rates these three families bill at, and this
@@ -89,6 +119,7 @@ describe("contract rates match the gateway's pinned table", () => {
     ["gpt-5.6-sol", "gpt-5.6-sol"],
     ["gpt-5.6-terra", "gpt-5.6-terra"],
     ["gpt-5.6-luna", "gpt-5.6-luna"],
+    ["gpt-6-astra", "gpt-6-astra"],
   ] as const)("%s", async (family, block) => {
     // A dynamic import keeps the pure-layer lint honest: only this test
     // touches the filesystem, and only to read the gateway's table.

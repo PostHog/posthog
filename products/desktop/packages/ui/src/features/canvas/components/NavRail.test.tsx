@@ -22,8 +22,19 @@ vi.mock("@tanstack/react-router", () => ({
   useRouterState: ({
     select,
   }: {
-    select: (s: { matches: { fullPath: string }[] }) => unknown;
-  }) => select({ matches: [{ fullPath: mocks.fullPath }] }),
+    select: (s: {
+      matches: { fullPath: string }[];
+      location: { pathname: string; href: string; search: object };
+    }) => unknown;
+  }) =>
+    select({
+      matches: [{ fullPath: mocks.fullPath }],
+      location: {
+        pathname: mocks.fullPath,
+        href: mocks.fullPath,
+        search: {},
+      },
+    }),
 }));
 vi.mock("@posthog/ui/router/routerRef", () => ({
   getRouterOrNull: () => ({
@@ -72,9 +83,13 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToChannel: (...a: unknown[]) => mocks.navigateToChannel(...a),
   navigateToHome: (...a: unknown[]) => mocks.navigateToHome(...a),
   navigateToInbox: (...a: unknown[]) => mocks.navigateToInbox(...a),
+  navigateToFeeds: vi.fn(),
   navigateToLoops: vi.fn(),
   navigateToCommandCenter: vi.fn(),
   navigateToSpacesContext: vi.fn(),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useProjectTaskFeeds", () => ({
+  useProjectTaskFeeds: () => [],
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@posthog/ui/features/canvas/components/ActivityHoverCard", () => ({
@@ -225,6 +240,17 @@ describe("NavRail", () => {
       expect(mocks.openBrowserTab).not.toHaveBeenCalled();
     });
 
+    it("navigates a Spaces click away from a page that is no destination", async () => {
+      const user = userEvent.setup();
+      mocks.fullPath = "/folders/$folderId";
+      mocks.href = "/folders/folder-1";
+      render(<NavRail />);
+
+      await user.click(screen.getByLabelText("Spaces"));
+
+      expect(mocks.navigateToSpaces).toHaveBeenCalledOnce();
+    });
+
     it("routes to Activity from a screen that has no column for it", async () => {
       const user = userEvent.setup();
       mocks.fullPath = "/inbox";
@@ -314,6 +340,20 @@ describe("NavRail", () => {
       await user.click(screen.getByLabelText("Spaces"));
 
       expect(useChannelPaneStore.getState().pane).toBe("list");
+    });
+
+    it("ignores a remembered visit that is not a Spaces page", async () => {
+      const user = userEvent.setup();
+      mocks.fullPath = "/activity";
+      rememberVisits({
+        spaces: { href: "/settings/general", listOpen: false },
+      });
+      render(<NavRail />);
+
+      await user.click(screen.getByLabelText("Spaces"));
+
+      expect(mocks.navigate).not.toHaveBeenCalled();
+      expect(mocks.navigateToSpaces).toHaveBeenCalledOnce();
     });
 
     it("returns to the space pane when the list was not open", async () => {

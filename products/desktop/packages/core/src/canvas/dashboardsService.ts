@@ -8,6 +8,8 @@ import {
 import type {
   CanvasActionDefinition,
   CanvasActionResult,
+  CanvasConnectorCallResult,
+  CanvasCreator,
   CanvasDraft,
   CanvasSource,
   CanvasSourceProject,
@@ -42,17 +44,11 @@ interface ApiCanvas {
   component_meta?: unknown;
   channel: string;
   template_id: string;
-  context: string;
   generation_task_id: string | null;
   pinned_at: string | null;
   current_version_id: string | null;
   published_build_id: string | null;
-  created_by?: {
-    uuid: string;
-    first_name?: string | null;
-    last_name?: string | null;
-    email?: string | null;
-  } | null;
+  created_by?: CanvasCreator | null;
   created_at: string;
   updated_at: string;
 }
@@ -102,10 +98,10 @@ function toRecord(api: ApiCanvas): DashboardRecord {
     description: api.description ?? "",
     componentMeta: meta.success ? meta.data : null,
     templateId: api.template_id || FREEFORM_TEMPLATE_ID,
-    context: api.context ?? "",
     generationTaskId: api.generation_task_id,
     createdBy: creatorLabel(api.created_by),
     createdByUuid: api.created_by?.uuid,
+    createdByUser: api.created_by ?? undefined,
     createdAt: toEpoch(api.created_at) ?? 0,
     updatedAt: toEpoch(api.updated_at) ?? 0,
     pinnedAt: toEpoch(api.pinned_at),
@@ -310,18 +306,6 @@ export class DashboardsService {
     return toRecord(api);
   }
 
-  // Persist the author-written context (markdown) passed to generation tasks.
-  saveContext(input: {
-    id: string;
-    context: string;
-  }): Promise<DashboardRecord> {
-    return this.patch(
-      input.id,
-      { context: input.context },
-      "save canvas context",
-    );
-  }
-
   // Record (or clear, when taskId is null) the task currently generating this
   // canvas.
   setGenerationTask(input: {
@@ -470,6 +454,43 @@ export class DashboardsService {
     return { verb: body.verb ?? input.verb, result: body.result ?? {} };
   }
 
+  // Call one declared connector tool as the viewer.
+  async callConnector(input: {
+    id: string;
+    provider: string;
+    tool: string;
+    arguments: Record<string, unknown>;
+  }): Promise<CanvasConnectorCallResult> {
+    const res = await this.api.fetch(
+      `canvases/${encodeURIComponent(input.id)}/connectors/call/`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: input.provider,
+          tool: input.tool,
+          arguments: input.arguments,
+        }),
+      },
+    );
+    const body = (await res.json().catch(() => ({}))) as {
+      detail?: string;
+    } & Partial<CanvasConnectorCallResult>;
+    if (!res.ok) {
+      throw new ProjectApiError(
+        body.detail ?? `Failed to call canvas connector (${res.status})`,
+        res.status,
+      );
+    }
+    return {
+      status: body.status ?? "upstream_error",
+      result: body.result ?? null,
+      detail: body.detail ?? "",
+      truncated: body.truncated ?? false,
+      connect_path: body.connect_path ?? null,
+    };
+  }
+
   rename(input: { id: string; name: string }): Promise<DashboardRecord> {
     return this.patch(input.id, { name: input.name }, "rename canvas");
   }
@@ -505,6 +526,7 @@ export class DashboardsService {
       prompt: row.prompt,
       taskId: row.task_id,
       createdBy: creatorLabel(row.created_by),
+      createdByUuid: row.created_by?.uuid,
       createdAt: toEpoch(row.created_at) ?? 0,
     }));
   }

@@ -1,0 +1,6 @@
+{
+    "id": "VB22",
+    "real": true,
+    "source": "fresh",
+    "reasoning": "Confirmed. Engine returns WAIT when a reviewer bot's eyes outlast the server's poll budget (review_local.py:338-351; workflow.py:82-96), and internal errors become ESCALATE (review_local.py:362-384). post_verdict stores both as COMPLETED and gate blocks as GATED (activities.py:721-722,757-762) — all in TERMINAL_STATUSES (facade/enums.py:31-33). process_inbox_pr_review dedupe excludes only SUPERSEDED/FAILED, so receiver refires at that head no-op as 'already_reviewed' (tasks.py:1202-1221). Restart paths: webhook accepts only pull_request events (webhooks.py:52-53) — no check_run/review events; the carve-out fires only on synchronize/reopened/base retarget (tasks.py:49,167); a labeled delivery on a bot-authored draft is pre-filter skipped (tasks.py:869-881). A transient WAIT is stranded until a new commit."
+}
