@@ -151,10 +151,10 @@ export type logsSessionErrorsLogicType = MakeLogicType<
 // errors" without the user opening the row's Related errors tab first. The count answers the
 // session, not the log line: an exception in the same session is co-occurring evidence, not a cause.
 //
-// The count comes from `$exception` events that error tracking linked to an issue. Events without
-// an issue id failed ingestion parsing and can never appear in the tab this badge opens, so the
-// badge skips them. The tab groups the counted events into issues, so the badge matches the tab's
-// occurrence total, not its issue count.
+// Only exceptions error tracking linked to an issue count: an event with no issue id failed
+// ingestion parsing, so the tab this badge opens can never list it. The two still disagree at the
+// edges, because the tab anchors its window to one row rather than the whole page, caps at 100
+// issues, and resolves issues through fingerprint state this query cannot see.
 export const logsSessionErrorsLogic = kea<logsSessionErrorsLogicType>([
     props({} as LogsSessionErrorsLogicProps),
     key((props) => props.id),
