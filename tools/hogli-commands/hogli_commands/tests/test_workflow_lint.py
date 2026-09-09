@@ -701,9 +701,12 @@ class TestSemgrepServicesCoverageCheck:
                 runs-on: ubuntu-latest
                 timeout-minutes: 5
                 steps:
-                  - run: |
-                      semgrep scan services/api/
-                      semgrep scan services/worker/
+                  - run: semgrep scan services/api/
+              semgrep-go:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - run: semgrep scan services/worker/
               semgrep-js:
                 runs-on: ubuntu-latest
                 timeout-minutes: 5

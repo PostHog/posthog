@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { IconCheck } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
 
-import { featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
+import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import {
@@ -16,6 +17,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { FeaturePreviewGateConfig } from '~/types'
 
 import { SceneContent } from './SceneContent'
@@ -51,6 +53,31 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
     const sceneIdForHeader = config.sceneId ?? activeSceneId
     const sceneConfig = sceneIdForHeader ? sceneConfigurations[sceneIdForHeader] : undefined
     const flagsHonored = areClientFeatureFlagsHonored(preflight)
+
+    // Concept ("Coming Soon") features never enable their flag, so the enrollment toggle is a
+    // dead end there. When the feature carries a waitlist survey, collect an email instead.
+    if (feature?.stage === 'concept' && feature.payload?.survey_id) {
+        return (
+            <SceneContent>
+                {sceneConfig?.name && (
+                    <SceneTitleSection
+                        name={sceneConfig.name}
+                        description={sceneConfig.description}
+                        resourceType={{ type: sceneConfig.iconType || 'default' }}
+                    />
+                )}
+                <ProductIntroduction
+                    productName={config.title}
+                    thingName="feature"
+                    titleOverride={config.title}
+                    description={config.description}
+                    isEmpty
+                    actionElementOverride={<ConceptWaitlistForm feature={feature} config={config} />}
+                    docsURL={config.docsURL}
+                />
+            </SceneContent>
+        )
+    }
 
     return (
         <SceneContent>
@@ -115,5 +142,83 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
                 docsURL={config.docsURL}
             />
         </SceneContent>
+    )
+}
+
+function ConceptWaitlistForm({
+    feature,
+    config,
+}: {
+    feature: EnrichedEarlyAccessFeature
+    config: FeaturePreviewGateConfig
+}): JSX.Element {
+    const { waitlistSurveysEnabled, conceptSurveySubmissions } = useValues(featurePreviewsLogic)
+    const { submitConceptSurvey, updateEarlyAccessFeatureEnrollment, addProductIntentForCrossSell } =
+        useActions(featurePreviewsLogic)
+    const [email, setEmail] = useState('')
+
+    const surveySubmitted = !!conceptSurveySubmissions[feature.flagKey] || feature.enabled
+
+    // Mirrors the previews page's ConceptPreview: email collection only when the waitlist
+    // surveys gate is on, otherwise the plain one-click registration.
+    const hasWaitlistSurvey = waitlistSurveysEnabled
+
+    const recordIntent = (): void => {
+        // submitConceptSurvey refuses impersonated sessions; skip the intent too so a
+        // rejected signup never records a false adoption signal.
+        if (config.productIntent && !window.IMPERSONATED_SESSION) {
+            void addProductIntentForCrossSell({
+                from: ProductKey.EARLY_ACCESS_FEATURES,
+                to: config.productIntent,
+                intent_context: ProductIntentContext.FEATURE_PREVIEW_ENABLED,
+            })
+        }
+    }
+
+    if (surveySubmitted) {
+        return (
+            <span role="status" className="flex items-center gap-1 text-success font-medium">
+                <IconCheck /> Thanks — we'll email you when it's ready.
+            </span>
+        )
+    }
+
+    if (hasWaitlistSurvey) {
+        return (
+            <form
+                className="flex items-center gap-2"
+                onSubmit={(e) => {
+                    e.preventDefault()
+                    if (email) {
+                        submitConceptSurvey(feature.flagKey, email)
+                        recordIntent()
+                    }
+                }}
+            >
+                <LemonInput
+                    type="email"
+                    value={email}
+                    onChange={setEmail}
+                    placeholder="email@yourcompany.com"
+                    aria-label="Email address"
+                    autoComplete="email"
+                />
+                <LemonButton type="primary" htmlType="submit" disabledReason={!email ? 'Enter your email' : undefined}>
+                    Get notified
+                </LemonButton>
+            </form>
+        )
+    }
+
+    return (
+        <LemonButton
+            type="primary"
+            onClick={() => {
+                updateEarlyAccessFeatureEnrollment(feature.flagKey, true, feature.stage)
+                recordIntent()
+            }}
+        >
+            Get notified
+        </LemonButton>
     )
 }

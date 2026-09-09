@@ -451,6 +451,17 @@ describe('webAnalyticsLogic URL restoration', () => {
         expect(router.values.location.pathname.endsWith('/web')).toBe(true)
     })
 
+    it('redirects off content autopilot when either alpha flag is disabled', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
+        })
+
+        router.actions.push('/web/content-autopilot')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname.endsWith('/web')).toBe(true)
+    })
+
     it('defaults the bots tab to the last day when the URL carries no date', async () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS], {
             [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]: true,
@@ -477,6 +488,28 @@ describe('webAnalyticsLogic URL restoration', () => {
         expect(router.values.searchParams[key]).toBe(expected)
     })
 
+    it('opens content autopilot without carrying dashboard filters', async () => {
+        featureFlagLogic.actions.setFeatureFlags(
+            [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE, FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT],
+            {
+                [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
+                [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]: true,
+            }
+        )
+        logic.actions.setWebAnalyticsFilters([
+            {
+                type: PropertyFilterType.Session,
+                key: '$entry_utm_source',
+                operator: PropertyOperator.Exact,
+                value: ['google'],
+            },
+        ])
+        logic.actions.setProductTab(ProductTab.CONTENT_AUTOPILOT)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname.endsWith('/web/content-autopilot')).toBe(true)
+        expect(router.values.searchParams).toEqual({})
+    })
     const FILTER_A = {
         type: PropertyFilterType.Session as const,
         key: '$entry_utm_source',
