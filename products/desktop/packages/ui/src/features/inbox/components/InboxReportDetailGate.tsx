@@ -41,6 +41,12 @@ interface InboxReportDetailGateProps {
    */
   backLinkTo?: string;
   backLinkLabel?: string;
+  /**
+   * Which inbox tab's list the open/close engagement events measure against.
+   * Defaults to the tab derived from `backTo`; `null` skips tracking (the
+   * Archive tab: its rank would be measured against the wrong list).
+   */
+  trackTab?: InboxDetailTab | null;
   missingCopy: string;
   children: (report: SignalReport) => ReactNode;
 }
@@ -78,6 +84,7 @@ export function InboxReportDetailGate({
   requireFreshStatus = false,
   backLinkTo,
   backLinkLabel,
+  trackTab = tabFromBackTo(backTo),
   missingCopy,
   children,
 }: InboxReportDetailGateProps) {
@@ -178,7 +185,6 @@ export function InboxReportDetailGate({
     );
   }
 
-  const trackTab = tabFromBackTo(backTo);
   return (
     <>
       {trackTab && <ReportOpenTracker report={resolvedReport} tab={trackTab} />}
