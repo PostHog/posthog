@@ -54,6 +54,25 @@ const MAX_RANKED_SEARCH_RESULTS = 25
 
 const DATA_DOMAIN_TOOL_PREFIXES = ['billing-', 'web-analytics-', 'usage-metrics-', 'query-', 'marketing-']
 
+const METRIC_RUN_TOOL_NAME = 'data-catalog-metric-run'
+const APPROVED_METRIC_STATUS = 'approved'
+
+export function markNoncanonicalMetricRun(toolName: string, result: unknown): unknown {
+    if (toolName !== METRIC_RUN_TOOL_NAME || result === null || typeof result !== 'object') {
+        return result
+    }
+    const envelope = result as Record<string, unknown>
+    const status = envelope.status
+    const isDrifted = envelope.is_drifted === true
+    if (status === APPROVED_METRIC_STATUS && !isDrifted) {
+        return result
+    }
+    return {
+        NONCANONICAL: `status=${String(status)} is_drifted=${String(isDrifted)}. Do not present this as the answer; derive from an approved metric and label the result noncanonical.`,
+        ...envelope,
+    }
+}
+
 function catalogDiscoveryHint(allTools: Tool<ZodObjectAny>[], matches: string[]): string | undefined {
     const availableToolNames = new Set(allTools.map((tool) => tool.name))
     const hasMetricCatalog =
@@ -1416,7 +1435,7 @@ export function createExecTool(
                     const startedAt = Date.now()
                     let result: unknown
                     try {
-                        result = await tool.handler(context, input)
+                        result = markNoncanonicalMetricRun(tool.name, await tool.handler(context, input))
                     } catch (err) {
                         // PostHogValidationError is the API's 400 validation_error body.
                         const apiError = findRecoverableApiError(err)

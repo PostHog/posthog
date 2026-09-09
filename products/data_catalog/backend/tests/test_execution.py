@@ -9,6 +9,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import Throttled, ValidationError
 
+from posthog.hogql.constants import DEFAULT_DATA_CATALOG_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.services.query import process_query_dict
@@ -75,6 +76,30 @@ class TestMetricRunExecution(ClickhouseTestMixin, APIBaseTest):
         assert body["results"] == direct_json["results"]
         assert body["results"] == [[3]]
         assert body["columns"] == ["c"]
+
+    @parameterized.expand(
+        [
+            ("under_the_limit", 400, 400, False),
+            ("over_the_limit", 1500, DEFAULT_DATA_CATALOG_RETURNED_ROWS, True),
+        ]
+    )
+    def test_long_series_is_not_truncated_at_the_api_default(
+        self, _name: str, row_count: int, expected_rows: int, expected_has_more: bool
+    ) -> None:
+        metric = upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="long_series",
+            description="d",
+            definition={"kind": "HogQLQuery", "query": f"select number from numbers({row_count})"},
+        )
+
+        envelope = run_metric(team=self.team, metric=metric, user=self.user)
+
+        assert envelope["results"] is not None
+        assert len(envelope["results"]) == expected_rows
+        assert envelope["has_more"] is expected_has_more
+        assert envelope["row_limit"] == DEFAULT_DATA_CATALOG_RETURNED_ROWS
 
     def test_run_events_node_executes_as_trends(self) -> None:
         # A bare EventsNode has no query runner; the run must still return the number by executing

@@ -821,6 +821,35 @@ describe('exec tool', () => {
         })
     })
 
+    describe('governed metric run canonicality', () => {
+        function metricRunExec(envelope: Record<string, unknown>): Tool<any> {
+            return createExec([makeMockTool({ name: 'data-catalog-metric-run', handler: async () => envelope })])
+        }
+
+        it.each([
+            ['proposed', { status: 'proposed', is_drifted: false }],
+            ['drifted approved', { status: 'approved', is_drifted: true }],
+            ['deprecated', { status: 'deprecated', is_drifted: false }],
+        ])('marks a %s metric result noncanonical', async (_label, envelope) => {
+            const exec = metricRunExec({ ...envelope, results: [[42]] })
+            const result = await exec.handler(mockContext, { command: 'call data-catalog-metric-run' })
+            expect(result).toContain('NONCANONICAL')
+            expect(result).toContain('Do not present this as the answer')
+        })
+
+        it('leaves an approved, non-drifted result unmarked', async () => {
+            const exec = metricRunExec({ status: 'approved', is_drifted: false, results: [[42]] })
+            const result = await exec.handler(mockContext, { command: 'call data-catalog-metric-run' })
+            expect(result).not.toContain('NONCANONICAL')
+        })
+
+        it('leaves other tools alone', async () => {
+            const exec = createExec([makeMockTool({ handler: async () => ({ status: 'proposed' }) })])
+            const result = await exec.handler(mockContext, { command: 'call mock-tool' })
+            expect(result).not.toContain('NONCANONICAL')
+        })
+    })
+
     describe('output_format suppression', () => {
         // Mirrors the generated query wrappers / insight-query: `output_format`
         // toggles whether the handler surfaces the server-side formatted table.
