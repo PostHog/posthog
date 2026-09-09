@@ -1560,8 +1560,9 @@ export interface CanvasConnectorApi {
 export interface CanvasConnectorsResponseApi {
     /** Native providers first, then the requested MCP hosts. */
     connectors: CanvasConnectorApi[]
- */
+}
 
+/**
  * * `user` - User
  * * `agent` - Agent
  */
