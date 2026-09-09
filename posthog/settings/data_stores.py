@@ -580,6 +580,10 @@ WORKFLOWS_CANCEL_JWT_SECRETS = get_list(
     get_from_env("WORKFLOWS_CANCEL_JWT_SECRET", "local-dev-workflows-cancel-jwt" if DEBUG or TEST else "")
 )
 
+CUSTOMER_TASKS_CREATE_JWT_SECRETS = get_list(
+    get_from_env("CUSTOMER_TASKS_CREATE_JWT_SECRET", "local-dev-customer-tasks-create-jwt" if DEBUG or TEST else "")
+)
+
 # Signs the tokens a workflow's "Create AI task" action calls back with. The dev/test value
 # must match the plugin server's minting default so local workflows work with no setup.
 TASKS_CREATE_JWT_SECRETS = get_list(

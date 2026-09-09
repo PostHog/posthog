@@ -394,6 +394,12 @@ export class TemplateTester {
         return this.getExecutor().execute(invocation)
     }
 
+    async resumeInvocation(
+        invocation: CyclotronJobInvocationHogFunction
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        return this.hogExecutor.execute(invocation)
+    }
+
     async invokeFetchResponse(
         invocation: CyclotronJobInvocationHogFunction,
         response: { status: number; body: unknown }

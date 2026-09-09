@@ -332,6 +332,7 @@ def create_customer_task(
     input: contracts.CreateCustomerTaskInput,
     actor: User | None,
     user_access_control: UserAccessControl,
+    task_id: UUID | None = None,
 ) -> CustomerTask:
     account = _account_for_write(team.id, input.account_id, user_access_control)
     assignee = _validate_assignee(team=team, account=account, assignee_id=input.assigned_to_id)
@@ -339,6 +340,7 @@ def create_customer_task(
     completed_by = actor if completed_at is not None and actor is not None else assignee if completed_at else None
     with transaction.atomic():
         task = CustomerTask.objects.for_team(team.id).create(
+            **({"id": task_id} if task_id is not None else {}),
             team_id=team.id,
             account=account,
             name=input.name,

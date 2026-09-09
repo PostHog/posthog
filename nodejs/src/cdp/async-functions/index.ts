@@ -1,4 +1,5 @@
 import './conversations'
+import './create-customer-task'
 import './create-task'
 import './customer_analytics'
 import './fetch-handler'
