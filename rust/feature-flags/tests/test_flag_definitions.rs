@@ -1653,9 +1653,30 @@ async fn test_flag_definitions_rate_limit_metrics_incremented() {
         "Metrics should include rate limited counter"
     );
 
+    // Runbook step 2 picks which cluster to query from this gauge, so assert the series and
+    // its value and not just the metric name. This config leaves the toggle off.
+    let gauge_value = metrics_text
+        .lines()
+        .find(|line| {
+            line.starts_with("flags_flag_definitions_reads_dedicated_redis{")
+                && line.contains(r#"reason="disabled""#)
+        })
+        .and_then(|line| line.rsplit(' ').next())
+        .and_then(|value| value.parse::<f64>().ok());
+    assert_eq!(
+        gauge_value,
+        Some(0.0),
+        "A reader left on shared Redis should report the gauge at 0 with reason=\"disabled\". Metrics: {metrics_text}"
+    );
+
+    // An absent ETag writes no log record, so this counter is the only trace that it
+    // happened. populate_flag_definitions_cache writes no `:etag` key, so the first
+    // request above took that path.
     assert!(
-        metrics_text.contains("flags_flag_definitions_reads_dedicated_redis"),
-        "Metrics should include the resolved-cluster gauge. Metrics: {metrics_text}"
+        metrics_text.lines().any(|line| line
+            .starts_with("flags_flag_definitions_etag_total{")
+            && line.contains(r#"result="redis_missing""#)),
+        "An absent ETag should count as redis_missing rather than redis_error. Metrics: {metrics_text}"
     );
 
     // Verify key label is present in metrics (key is the generic label for team_id)
