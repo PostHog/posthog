@@ -26,7 +26,7 @@ import { ChartDisplayType } from '~/types'
 
 import { dataVisualizationLogic } from '../dataVisualizationLogic'
 import { displayLogic } from '../displayLogic'
-import { SQL_METRIC_SUMMARY_DEFAULT } from './Charts/SqlMetricCard'
+import { SQL_METRIC_SUMMARY_DEFAULT } from './Charts/useSqlMetricModel'
 
 const PIE_SLICE_CONTENT_OPTIONS: { value: 'labels' | 'values' | 'none'; label: string }[] = [
     { value: 'labels', label: 'Labels' },
