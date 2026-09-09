@@ -1601,6 +1601,22 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertEqual(len(mail.outbox), 1)
         self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
 
+    def test_password_reset_reaches_the_account_login_would_authenticate(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        abandoned = User.objects.create_and_join(self.organization, "casey@posthog.com", None)
+        in_use = User.objects.create_and_join(self.organization, "casey-alt@posthog.com", self.CONFIG_PASSWORD)
+        # `create_user` normalizes the address to lowercase, so write the variation in directly — the
+        # accounts this guards against predate that normalization.
+        User.objects.filter(pk=in_use.pk).update(email="Casey@posthog.com", last_login=timezone.now())
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post("/api/reset/", {"email": "casey@posthog.com"})
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {"Casey@posthog.com"})
+        abandoned.refresh_from_db()
+        self.assertIsNone(abandoned.requested_password_reset_at)
+
     def test_reset_with_sso_available(self):
         """
         If the user has logged in / signed up with SSO, we let them know so they don't have to reset their password.
