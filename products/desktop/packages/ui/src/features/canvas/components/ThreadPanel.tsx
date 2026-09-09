@@ -412,10 +412,6 @@ function ThreadTimeline({
   onSendToAgent: (messageId: string) => void;
   onDelete: (messageId: string) => void;
 }) {
-  // Draw once the thread's durable content has arrived, even while the live
-  // session is still initializing — replacing drawn rows with a loader reads
-  // as the content disappearing. The agent status line below reports the
-  // session startup instead.
   if (!hasLoadedThread) return <ThreadLoadingState />;
   if (timeline.length === 0) {
     return (

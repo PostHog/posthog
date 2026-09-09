@@ -743,19 +743,11 @@ export default function TaskDetailScreen() {
 
   const prUrl = readPrUrls(task?.latest_run?.output)[0];
 
-  // While the SSE watcher loads the historical snapshot for an existing run,
-  // `session.status` stays "connecting" with no events yet. The transcript
-  // list stays up and the pinned connecting indicator reports the wait — the
-  // full-screen overlay is only for the window before the task metadata
-  // lands, when there is nothing to render at all.
   const isHistoryLoading =
     !!task?.latest_run &&
     !!session &&
     session.status === "connecting" &&
     session.events.length === 0;
-  // While history loads the session is not running a prompt, so the phase
-  // helper would report idle — present it as connecting instead, which keeps
-  // the pinned indicator visible until the snapshot lands.
   const activityPhase = getSessionActivityPhase({
     retrying: retrying || isHistoryLoading,
     session,
@@ -858,9 +850,6 @@ export default function TaskDetailScreen() {
           }}
         />
 
-        {/* Loading overlay — covers the list only while the task metadata
-            itself is fetched; the history snapshot reports through the
-            pinned connecting indicator instead. */}
         {showLoading && (
           <View className="absolute inset-0 items-center justify-center bg-background">
             <ActivityIndicator size="large" color={themeColors.accent[9]} />

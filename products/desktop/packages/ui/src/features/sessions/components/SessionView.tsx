@@ -199,8 +199,6 @@ export function SessionView({
   const startupPhase = useSessionStore((state) =>
     taskId ? state.startingTaskIds[taskId]?.phase : undefined,
   );
-  // Cloud sessions report `isRunning` for the whole sandbox boot, so the
-  // startup row has to key off the boot state itself, not off `!isRunning`.
   const showStartupStatus = isProvisioning || isInitializing || !isRunning;
   const isLoadingOlderHistory = useSessionSelector(
     taskId,

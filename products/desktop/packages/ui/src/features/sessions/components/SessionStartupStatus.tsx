@@ -20,10 +20,8 @@ function statusLabel(
 }
 
 export interface SessionStartupStatusProps {
-  /** Omitted when the target isn't known yet; a `label` is required then. */
   executionTarget?: SessionStartupTarget;
   phase?: SessionStartupPhase;
-  /** Overrides the target's default label, e.g. "Connecting to agent...". */
   label?: string;
   detail?: string;
   className?: string;
