@@ -128,8 +128,14 @@ export function createCurrentWorkExtension(): ExtensionFactory {
       }),
       execute: async (_toolCallId, params, _signal, _onUpdate, context) => {
         const status = normalizeStatus(params.status);
-        if (!status || /[\r\n]/.test(status)) {
-          throw new Error("Status must be a single-line phrase.");
+        if (
+          status.length < MIN_STATUS_LENGTH ||
+          status.length > MAX_STATUS_LENGTH ||
+          /[\r\n]/.test(status)
+        ) {
+          throw new Error(
+            `Status must be a single-line phrase of ${MIN_STATUS_LENGTH}-${MAX_STATUS_LENGTH} characters.`,
+          );
         }
 
         setCurrentWork(context, status);
