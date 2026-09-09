@@ -36,9 +36,9 @@ Set `USAGE_INGESTION_REDIS_URL` to a dedicated Valkey Cluster endpoint to
 enable the lossy hourly and daily counter projection. It is disabled when the
 URL is empty, so Kafka and ClickHouse remain the only required dependencies.
 When Valkey is unavailable, the flusher retries every
-`USAGE_INGESTION_REDIS_FLUSH_INTERVAL_SECONDS` (default `15`) and retains
-pending deltas until it reconnects. The accumulator keeps at most 250,000
-entries by default; tune that with `USAGE_INGESTION_REDIS_MAX_PENDING_ENTRIES`.
+`USAGE_INGESTION_REDIS_FLUSH_INTERVAL_SECONDS` (default `15`) and retains up to
+250,000 pending entries until it reconnects. Failed writes retry unless Redis
+returned a response that indicates the transaction may already be applied.
 Counter timestamps are limited to seven days behind and 24 hours ahead of the
 current time. Flush concurrency defaults to 16 and can be tuned with
 `USAGE_INGESTION_REDIS_FLUSH_CONCURRENCY`.
