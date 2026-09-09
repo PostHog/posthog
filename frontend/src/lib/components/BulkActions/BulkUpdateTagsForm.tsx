@@ -17,11 +17,16 @@ export interface BulkUpdateTagsResult {
     skipped: Array<{ id: number | string; reason: string }>
 }
 
-export type BulkTaggableResource = 'feature_flags' | 'dashboards' | 'insights' | 'event_definitions'
+export type BulkTaggableResource =
+    | 'feature_flags'
+    | 'dashboards'
+    | 'insights'
+    | 'event_definitions'
+    | 'conversations/tickets'
 
 export interface BulkUpdateTagsFormProps {
     resource: BulkTaggableResource
-    // Integer PKs for most resources; event definitions are keyed by UUID strings.
+    // Integer PKs for most resources; event definitions and tickets are keyed by UUID strings.
     selectedIds: ReadonlyArray<number | string>
     onSuccess?: (result: BulkUpdateTagsResult) => void
     /** Closes the host (popover or modal). Called on Cancel and after a successful submit. */
@@ -70,8 +75,10 @@ export function BulkUpdateTagsForm({
             onClose()
             loadTags()
             onSuccess?.(response)
-        } catch {
-            lemonToast.error('Failed to update tags')
+        } catch (error: any) {
+            // The server explains rule failures such as a project that requires tags, so show its
+            // message rather than a generic one the user cannot act on.
+            lemonToast.error(error?.detail || 'Failed to update tags')
         } finally {
             setLoading(false)
         }

@@ -50,7 +50,6 @@ import {
     MetricsQuery,
     Node,
     NodeKind,
-    NonIntegratedConversionsTableQuery,
     PathsQuery,
     PathsV2Query,
     PersonsNode,
@@ -162,6 +161,12 @@ export function isDataTableNodeWithHogQLQuery(node?: Record<string, any> | null)
 
 export function isDataVisualizationNode(node?: Record<string, any> | null): node is DataVisualizationNode {
     return node?.kind === NodeKind.DataVisualizationNode
+}
+
+export function isDataVisualizationNodeWithHogQLQuery(
+    node?: Record<string, any> | null
+): node is DataVisualizationNode & { source: HogQLQuery } {
+    return isDataVisualizationNode(node) && isHogQLQuery(node.source)
 }
 
 export function convertDataTableNodeToDataVisualizationNode(node: Node | null): Node | null {
@@ -284,12 +289,6 @@ export function isMarketingAnalyticsAggregatedQuery(
     node?: Record<string, any> | null
 ): node is MarketingAnalyticsAggregatedQuery {
     return node?.kind === NodeKind.MarketingAnalyticsAggregatedQuery
-}
-
-export function isNonIntegratedConversionsTableQuery(
-    node?: Record<string, any> | null
-): node is NonIntegratedConversionsTableQuery {
-    return node?.kind === NodeKind.NonIntegratedConversionsTableQuery
 }
 
 export function isTracesQuery(node?: Record<string, any> | null): node is TracesQuery {

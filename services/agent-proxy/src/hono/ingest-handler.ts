@@ -105,7 +105,10 @@ export async function handleIngest(
 
     // NDJSON body parsing + Redis writes.
     const streamKey = getStreamKey(claims.runId)
-    const redisStream = new TaskRunRedisStream(streamKey, redis, { presenceGated: claims.presenceGated })
+    const redisStream = new TaskRunRedisStream(streamKey, redis, {
+        presenceGated: claims.presenceGated,
+        thinTail: claims.thinTail,
+    })
 
     const bodyTiming: IngestBodyTiming = {
         startedAt: Date.now(),

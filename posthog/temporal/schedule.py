@@ -104,7 +104,10 @@ from products.experiments.backend.temporal.schedule import (
     create_experiment_precompute_enrollment_census_schedule,
 )
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
-from products.growth.backend.temporal.signup_enrichment.schedule import create_icp_reenrichment_sweep_schedule
+from products.growth.backend.temporal.signup_enrichment.schedule import (
+    create_harmonic_status_poll_schedule,
+    create_icp_reenrichment_sweep_schedule,
+)
 from products.logs.backend.facade.temporal import create_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
@@ -113,6 +116,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
 )
 from products.replay_vision.backend.temporal.read_meter import create_replay_vision_read_meter_schedule
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
+from products.replay_vision.backend.temporal.search_suggestions import create_replay_vision_search_suggestions_schedule
 from products.replay_vision.backend.temporal.vision_alerts.schedule import create_vision_alert_check_schedule
 from products.review_hog.backend.temporal.outcomes_schedule import create_review_hog_finding_outcomes_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
@@ -933,6 +937,7 @@ schedules = [
     create_calendar_sync_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
+    create_replay_vision_search_suggestions_schedule,
     create_vision_alert_check_schedule,
     create_replay_vision_read_meter_schedule,
     create_github_job_logs_coordinator_schedule,
@@ -962,6 +967,7 @@ if settings.CLOUD_DEPLOYMENT:
     # The sweep re-fetches each region's own orgs from Harmonic, and only US and EU carry the key.
     if settings.CLOUD_DEPLOYMENT in ("US", "EU"):
         schedules.append(create_icp_reenrichment_sweep_schedule)
+        schedules.append(create_harmonic_status_poll_schedule)
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)

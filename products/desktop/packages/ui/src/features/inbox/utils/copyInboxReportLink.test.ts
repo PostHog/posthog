@@ -23,12 +23,27 @@ describe("copyInboxReportLink", () => {
     });
   });
 
-  it("copies the browser-accessible report URL", async () => {
-    await copyInboxReportLink({ id: "report-1" });
-
-    expect(writeText).toHaveBeenCalledWith(
+  it.each([
+    [
+      "web",
       "https://us.posthog.com/project/2/inbox/report-1",
-    );
-    expect(toast.success).toHaveBeenCalledWith("Link copied");
-  });
+      "Web link copied",
+    ],
+    [
+      "desktop",
+      "posthog-code-dev://inbox/report-1/Example-report",
+      "Desktop link copied",
+    ],
+  ] as const)(
+    "copies the %s report link",
+    async (target, expectedUrl, successCopy) => {
+      await copyInboxReportLink(
+        { id: "report-1", title: "Example report" },
+        target,
+      );
+
+      expect(writeText).toHaveBeenCalledWith(expectedUrl);
+      expect(toast.success).toHaveBeenCalledWith(successCopy);
+    },
+  );
 });

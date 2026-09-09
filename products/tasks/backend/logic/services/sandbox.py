@@ -38,6 +38,7 @@ from products.tasks.backend.constants import (
     SNAPSHOT_KIND_FILESYSTEM,
     SnapshotKind,
 )
+from products.tasks.backend.logic.services.local_skills import BUNDLED_SKILLS_PATHS, ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.sandbox_config import (
     BURSTABLE_REQUEST_CPU_CORES,
     BURSTABLE_REQUEST_MEMORY_MB,
@@ -231,17 +232,27 @@ PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.
 """Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration"""
 # TODO: Remove `posthog/.github` when we switch repo discovery to repo-less agent (now it works as a lightweight dummy)
 
-SENSITIVE_AGENT_RUNTIME_ENV_NAMES: frozenset[str] = frozenset(
-    {"POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN", "POSTHOG_TASK_RUN_SESSION_TOKEN"}
+# this helps redact sensitive environment variables for logging
+SENSITIVE_SANDBOX_ENV_NAMES: frozenset[str] = frozenset(
+    {
+        "GITHUB_TOKEN",
+        "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN",
+        "POSTHOG_TASK_RUN_SESSION_TOKEN",
+        "POSTHOG_WIZARD_API_KEY",
+    }
 )
 SHELL_ARGUMENT_VALUE_PATTERN = r"'(?:[^']|'\"'\"')*'|\"(?:\\.|[^\"])*\"|\S+"
-SENSITIVE_AGENT_RUNTIME_ENV_PATTERN = re.compile(
-    r"(?P<name>" + "|".join(re.escape(name) for name in SENSITIVE_AGENT_RUNTIME_ENV_NAMES) + r")="
+SENSITIVE_SANDBOX_ENV_PATTERN = re.compile(
+    r"(?P<name>" + "|".join(re.escape(name) for name in SENSITIVE_SANDBOX_ENV_NAMES) + r")="
     rf"(?P<value>{SHELL_ARGUMENT_VALUE_PATTERN})"
 )
 SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN = re.compile(
     rf"(?P<name>--mcpServers)\s+(?P<value>{SHELL_ARGUMENT_VALUE_PATTERN})"
 )
+SENSITIVE_FILE_HEREDOC_PATTERN = re.compile(
+    r"(?P<prefix><<'POSTHOG_FILE_EOF'\n).*?(?P<suffix>\nPOSTHOG_FILE_EOF)", re.DOTALL
+)
+GITHUB_CLONE_TOKEN_PATTERN = re.compile(r"(?P<prefix>https://x-access-token:)[^@\s]+(?P<suffix>@github\.com/)")
 
 
 def is_public_sandbox_repo(repository: str | None) -> bool:
@@ -255,8 +266,15 @@ def sandbox_repo_path(repository: str) -> str:
 
 
 def redact_sandbox_command(command: str) -> str:
-    redacted = SENSITIVE_AGENT_RUNTIME_ENV_PATTERN.sub(r"\g<name>=<redacted>", command)
-    return SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN.sub(r"\g<name> <redacted>", redacted)
+    redacted = command
+    for pattern, substitution in (
+        (SENSITIVE_SANDBOX_ENV_PATTERN, r"\g<name>=<redacted>"),
+        (SENSITIVE_AGENT_RUNTIME_ARGUMENT_PATTERN, r"\g<name> <redacted>"),
+        (SENSITIVE_FILE_HEREDOC_PATTERN, r"\g<prefix><redacted>\g<suffix>"),
+        (GITHUB_CLONE_TOKEN_PATTERN, r"\g<prefix><redacted>\g<suffix>"),
+    ):
+        redacted = pattern.sub(substitution, redacted)
+    return redacted
 
 
 def build_agent_runtime_env_prefix(
@@ -278,6 +296,7 @@ def build_agent_runtime_env_prefix(
     rtk_enabled: bool = True,
     benjamin_enabled: bool = False,
     peer_messaging: bool = False,
+    unset_bedrock: bool = False,
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
@@ -294,7 +313,9 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN": event_ingest_token,
         "POSTHOG_TASK_RUN_SESSION_TOKEN": task_run_session_token,
         "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
-        "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN": "true" if event_ingest_keep_stream_open else None,
+        "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN": (
+            "true" if event_ingest_keep_stream_open else "false" if settings.DEBUG and not event_ingest_url else None
+        ),
         # Set explicitly in both states: "0" opts the run out, "1" pins auto-detection on
         # even if a stale env value survives in a resumed sandbox.
         "POSTHOG_RTK": "1" if rtk_enabled else "0",
@@ -307,7 +328,15 @@ def build_agent_runtime_env_prefix(
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
     )
-    return f"env {assignments} " if assignments else ""
+    # Route the agent through the PostHog LLM gateway instead of direct Bedrock:
+    # unset the box profile's Bedrock vars so the Claude CLI falls back to the
+    # gateway (ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN). Direct Bedrock from the
+    # box needs AWS Marketplace model access plus SigV4-signing the
+    # x-posthog-property-* headers (which AWS strips), so the gateway path avoids
+    # both and matches the Modal backend.
+    unset_flags = "-u CLAUDE_CODE_USE_BEDROCK -u AWS_CONTAINER_CREDENTIALS_FULL_URI" if unset_bedrock else ""
+    body = f"{unset_flags} {assignments}".strip()
+    return f"env {body} " if body else ""
 
 
 class SandboxBase(ABC):
@@ -315,6 +344,11 @@ class SandboxBase(ABC):
     config: SandboxConfig
     supports_creation_cancellation = False
     creation_timeout_seconds = 300
+    # When True, the agent runtime is launched with the box's Bedrock env unset,
+    # so the Claude CLI routes through the PostHog LLM gateway instead of direct
+    # Bedrock. hogland opts in (see HoglandSandbox); Modal/Docker already use the
+    # gateway.
+    disable_direct_bedrock = False
 
     @staticmethod
     def creation_cancellation_scope(cancel_event: threading.Event) -> AbstractContextManager[None]:
@@ -432,6 +466,18 @@ class SandboxBase(ABC):
             )
         return False
 
+    def clear_bundled_skills_if_disabled(self) -> None:
+        """Delete the bundled skill folders when the sandbox environment asks for it.
+
+        The check runs inside the sandbox: a sandbox rehydrated by id carries no config env
+        vars, but the container environment still holds the value the launcher set.
+        """
+        paths = " ".join(shlex.quote(path) for path in BUNDLED_SKILLS_PATHS)
+        command = f'if [ "${ENV_DISABLE_BUNDLED_SKILLS}" = "1" ]; then rm -rf {paths} && mkdir -p {paths}; fi'
+        result = self.execute(command, timeout_seconds=30)
+        if result.exit_code != 0:
+            raise RuntimeError(f"Failed to clear bundled skills in sandbox {self.id}: {result.stderr}")
+
     def agent_server_supports_auto_publish(self) -> bool:
         """Sandboxes restored from old snapshots can carry an agent-server that rejects unknown
         CLI options, so probe the installed binary before passing --autoPublish; unsupported
@@ -440,9 +486,6 @@ class SandboxBase(ABC):
         return result.exit_code == 0
 
     def agent_server_supports_exec_permission_regex(self) -> bool:
-        """Same probe as --autoPublish: check the installed binary before passing
-        --posthogExecPermissionRegex; unsupported binaries degrade to server-side auto-approval of
-        exec sub-tools instead of crashing at launch."""
         result = self.execute(
             "grep -q posthogExecPermissionRegex /scripts/node_modules/.bin/agent-server", timeout_seconds=10
         )
@@ -556,6 +599,7 @@ class SandboxBase(ABC):
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
+        claude_model_access: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -568,7 +612,9 @@ class SandboxBase(ABC):
         return False
 
     @abstractmethod
-    def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None: ...
+    def wait_for_agent_server_ready(
+        self, allowed_domains: list[str] | None = None, *, claude_model_access: str | None = None
+    ) -> None: ...
 
     @abstractmethod
     def mark_repo_ready(self, repo_ready_file: str) -> None: ...
@@ -729,26 +775,45 @@ def wait_for_health_check(
     port: int,
     max_attempts: int = 60,
     poll_interval: float = 0.5,
+    pid_file: str | None = None,
 ) -> bool:
     """Poll health endpoint until server is ready (single remote call).
 
     Runs a bash polling loop inside the sandbox so only one round-trip is
     needed regardless of how many attempts are required.
     """
-    health_script = build_health_check_command(port, max_attempts, poll_interval)
+    health_script = build_health_check_command(port, max_attempts, poll_interval, pid_file)
     result = execute(health_script, timeout_seconds=health_check_timeout_seconds(max_attempts, poll_interval))
+    if "claude_credential_unavailable" in result.stdout:
+        from products.tasks.backend.exceptions import ProcessTaskFatalError
+
+        raise ProcessTaskFatalError(
+            "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.",
+            {"sandbox_id": sandbox_id},
+            RuntimeError("Claude token unavailable"),
+            capture=False,
+        )
     if result.exit_code == 0:
         _logger.info(f"Agent-server health check passed in sandbox {sandbox_id} ({result.stdout.strip()})")
         return True
     return False
 
 
-def build_health_check_command(port: int, max_attempts: int = 60, poll_interval: float = 0.5) -> str:
+def build_health_check_command(
+    port: int, max_attempts: int = 60, poll_interval: float = 0.5, pid_file: str | None = None
+) -> str:
+    process_check = (
+        f'if [ -f {shlex.quote(pid_file)} ]; then kill -0 "$(cat {shlex.quote(pid_file)})" 2>/dev/null || exit 1; fi; '
+        if pid_file is not None
+        else ""
+    )
     return (
         f"for i in $(seq 1 {max_attempts}); do "
-        f"  body=$(curl -s http://localhost:{port}/health); "
+        f"{process_check}"
+        f"  body=$(curl -s --max-time 2 http://localhost:{port}/health); "
         "  status=$?; "
         '  if [ "$status" = "0" ]; then '
+        '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; esac; '
         "    python3 -c '"
         "import json, sys; "
         "payload = json.loads(sys.argv[1]); "

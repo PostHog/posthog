@@ -24,6 +24,7 @@ from .message_formatter import (
     format_input_messages,
     format_output_messages,
     reduce_by_uniform_sampling,
+    sanitize_surrogates,
     truncate_content,
 )
 
@@ -277,9 +278,9 @@ def _get_event_summary(event: dict[str, Any]) -> str:
         if applicable is False or applicable == "false":
             parts.append("N/A")
         elif result is True or result == "true":
-            parts.append("PASS")
+            parts.append("true")
         elif result is False or result == "false":
-            parts.append("FAIL")
+            parts.append("false")
 
         summary = eval_name
         if parts:
@@ -548,4 +549,4 @@ def format_trace_text_repr(
     if max_length and len(formatted_text) > max_length:
         formatted_text, was_sampled = reduce_by_uniform_sampling(formatted_text, max_length)
 
-    return formatted_text, was_sampled
+    return sanitize_surrogates(formatted_text), was_sampled
