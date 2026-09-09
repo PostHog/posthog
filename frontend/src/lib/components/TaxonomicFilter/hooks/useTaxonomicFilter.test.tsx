@@ -428,6 +428,7 @@ describe('useTaxonomicFilter', () => {
             itemAtIndex: () => fakeItem as any,
             isLoading: false,
             isFetching: false,
+            error: undefined,
             needsMoreSearchCharacters: false,
             hasRemoteDataSource: false,
             showEmptyState: false,

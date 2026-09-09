@@ -103,6 +103,9 @@ export interface UseGroupListResult {
 
     isLoading: boolean
     isFetching: boolean
+    /** Set when the remote fetch for the current query failed. The empty list it leaves behind
+     *  is not evidence about the project's data, so callers must not explain it as one. */
+    error: unknown
     needsMoreSearchCharacters: boolean
     hasRemoteDataSource: boolean
     showEmptyState: boolean
@@ -463,6 +466,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     // (not "no results") shows while it's in flight on a >1-page dataset.
     const isLoading = remote.isLoading || (serverSearchEnabled && serverSearch.isLoading)
     const isFetching = remote.isFetching || (serverSearchEnabled && serverSearch.isFetching)
+    const error = remoteEnabled ? (remote.error ?? (serverSearchEnabled ? serverSearch.error : undefined)) : undefined
 
     const showNonCapturedEventOption = useMemo(() => {
         if (!allowNonCapturedEvents) {
@@ -529,6 +533,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         itemAtIndex,
         isLoading,
         isFetching,
+        error,
         needsMoreSearchCharacters,
         hasRemoteDataSource,
         showEmptyState,

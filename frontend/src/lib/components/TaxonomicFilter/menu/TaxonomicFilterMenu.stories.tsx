@@ -6,6 +6,7 @@ import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { FEATURE_FLAGS } from 'lib/constants'
 
+import { mswDecorator } from '~/mocks/browser'
 import { actionsModel } from '~/models/actionsModel'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
@@ -479,6 +480,40 @@ export const RecentsBareKeyExpansion: Story = {
         docs: {
             description: {
                 story: "The menu combobox's Recent drill after a complete recent (`Browser = Chrome`) was used. The bare key (`Browser`) leads so a user can jump to the key and pick a fresh value, and the full recent (`Browser = Chrome`) follows.",
+            },
+        },
+    },
+}
+
+function EmptyStaleEventsContainer(): JSX.Element {
+    useMountedLogic(actionsModel)
+    return (
+        <TaxonomicFilterHeadless.Root
+            bindRootProps={false}
+            taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+            searchQuery="my_ancient_event"
+        >
+            <div className="border rounded overflow-hidden flex flex-col w-[720px] h-[420px] bg-surface-primary">
+                <MenuFilterCombobox drillTo={TaxonomicFilterGroupType.Events} onCommit={() => {}} onBack={() => {}} />
+            </div>
+        </TaxonomicFilterHeadless.Root>
+    )
+}
+
+export const EmptyEventsWithStaleToggle: Story = {
+    render: () => <EmptyStaleEventsContainer />,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/event_definitions': [],
+            },
+        }),
+    ],
+    parameters: {
+        testOptions: { waitForSelector: '[data-attr="menu-filter-include-stale-events"]' },
+        docs: {
+            description: {
+                story: 'A search on the Events tab that matches nothing. The empty state explains that events with no new data in the last 30 days are hidden, so a missing event does not read as deleted data, and offers the opt-in.',
             },
         },
     },

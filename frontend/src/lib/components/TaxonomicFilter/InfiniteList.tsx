@@ -31,6 +31,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterGroupValueMap,
 } from 'lib/components/TaxonomicFilter/types'
+import { STALE_EVENT_DAYS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -776,14 +777,20 @@ function InfiniteListEmptyState(): JSX.Element {
                         )}
                     </span>
                     {canOfferStaleToggle && (
-                        <LemonButton
-                            type="secondary"
-                            size="xsmall"
-                            data-attr="taxonomic-include-stale-events"
-                            onClick={() => setIncludeStaleEvents(true)}
-                        >
-                            Include stale events
-                        </LemonButton>
+                        <>
+                            <span className="text-center text-secondary text-xs">
+                                Events with no new data in the last {STALE_EVENT_DAYS} days are hidden from this list.
+                                Hiding them doesn't delete anything.
+                            </span>
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                data-attr="taxonomic-include-stale-events"
+                                onClick={() => setIncludeStaleEvents(true)}
+                            >
+                                Include stale events
+                            </LemonButton>
+                        </>
                     )}
                     {canOfferAllSwitch && (
                         <LemonButton

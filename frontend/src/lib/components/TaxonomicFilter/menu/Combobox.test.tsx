@@ -1060,6 +1060,8 @@ describe('MenuFilterCombobox', () => {
             expect(apiGet.mock.calls.some(([url]: [string]) => url.includes('exclude_stale=true'))).toBe(true)
         )
 
+        expect(await screen.findByText(/Events with no new data in the last 30 days are hidden/)).toBeInTheDocument()
+
         const callsBeforeOptIn = apiGet.mock.calls.length
         await user.click(await screen.findByText('Include stale events'))
 
@@ -1075,6 +1077,30 @@ describe('MenuFilterCombobox', () => {
             expect(newUrls.length).toBeGreaterThan(0)
             expect(newUrls.every((url: string) => !url.includes('exclude_stale=true'))).toBe(true)
         })
+    })
+
+    it('does not blame the stale filter when the events request failed', async () => {
+        apiGet.mockRejectedValue(new Error('boom'))
+
+        render(
+            <Provider>
+                <TaxonomicFilterHeadless.Root
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                    onChange={jest.fn()}
+                    searchQuery="zzz_no_match"
+                >
+                    <MenuFilterCombobox
+                        drillTo={TaxonomicFilterGroupType.Events}
+                        onCommit={jest.fn()}
+                        onBack={jest.fn()}
+                    />
+                </TaxonomicFilterHeadless.Root>
+            </Provider>
+        )
+
+        // The opt-in stays — it refetches, so it's the only way out of a failed load.
+        expect(await screen.findByText('Include stale events')).toBeInTheDocument()
+        expect(screen.queryByText(/Events with no new data in the last 30 days are hidden/)).not.toBeInTheDocument()
     })
 
     it('offers a jump to All when a single category comes up empty, and clicking it switches scope', async () => {
