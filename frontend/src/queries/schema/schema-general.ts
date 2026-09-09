@@ -1921,6 +1921,8 @@ export interface CompareFilter {
 export interface IntegrationFilter {
     /** Selected integration source IDs to filter by (e.g., table IDs or source map IDs) */
     integrationSourceIds?: string[]
+    /** Keep rows that no integration reports cost for, such as organic, email or an unmapped source. Defaults to true. */
+    includeNonIntegrated?: boolean
 }
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params */
