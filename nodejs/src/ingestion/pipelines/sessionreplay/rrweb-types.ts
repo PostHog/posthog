@@ -29,6 +29,46 @@ export enum RRWebEventSource {
     AdoptedStyleSheet = 15,
 }
 
+export type SnapshotMode = 'screenshot' | 'wireframe'
+
+export function snapshotModeFrom(event: SnapshotEvent): SnapshotMode | null {
+    const data = event.data as { source?: number; wireframes?: unknown; adds?: unknown; updates?: unknown } | undefined
+    if (event.type === RRWebEventType.FullSnapshot && Array.isArray(data?.wireframes)) {
+        for (const wireframe of data.wireframes) {
+            const mode = modeFromWireframe(wireframe)
+            if (mode) {
+                return mode
+            }
+        }
+    }
+
+    if (event.type === RRWebEventType.IncrementalSnapshot && data?.source === RRWebEventSource.Mutation) {
+        for (const mutations of [data.adds, data.updates]) {
+            if (!Array.isArray(mutations)) {
+                continue
+            }
+            for (const mutation of mutations) {
+                const mode = modeFromWireframe(mutation?.wireframe)
+                if (mode) {
+                    return mode
+                }
+            }
+        }
+    }
+    return null
+}
+
+function modeFromWireframe(value: unknown): SnapshotMode | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null
+    }
+    const wireframe = value as { id?: unknown; type?: unknown }
+    if (typeof wireframe.id !== 'number' || !Number.isFinite(wireframe.id)) {
+        return null
+    }
+    return wireframe.type === 'screenshot' ? 'screenshot' : 'wireframe'
+}
+
 export enum MouseInteractions {
     MouseUp = 0,
     MouseDown = 1,
