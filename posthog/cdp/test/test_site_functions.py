@@ -159,6 +159,17 @@ class TestSiteFunctions(TestCase):
         assert "function getInputsKey" not in result
 
     @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
+    def test_get_transpiled_function_with_templating_disabled_on_a_list(self, mock_transpile_fn):
+        self.hog_function.hog = "export function onLoad() { console.log(inputs.notices); }"
+        self.hog_function.inputs_schema = [{"key": "notices", "type": "json", "templating": False}]
+        self.hog_function.inputs = {"notices": {"value": [{"id": "{event.properties.id}"}]}}
+
+        result = self.compile_and_run()
+
+        # Only strings opt out of templating, so a structured value still compiles
+        assert "function getInputsKey" in result
+
+    @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_list_inputs(self, mock_transpile_fn):
         self.hog_function.hog = "export function onLoad() { console.log(inputs.messages); }"
         self.hog_function.inputs = {"messages": {"value": ["Hello", "World", "{person.properties.name}"]}}
