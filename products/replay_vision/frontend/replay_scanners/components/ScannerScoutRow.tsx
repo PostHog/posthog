@@ -87,9 +87,7 @@ export function ScannerScoutRow({
                         <IconChevronRight
                             className={cn('shrink-0 text-base transition-transform', expanded && 'rotate-90')}
                         />
-                        <span className="truncate text-sm font-medium">
-                            {scoutDisplayName(config)}
-                        </span>
+                        <span className="truncate text-sm font-medium">{scoutDisplayName(config)}</span>
                     </button>
                     <span className="pl-6 text-[11px] text-muted">
                         {cadenceText}
