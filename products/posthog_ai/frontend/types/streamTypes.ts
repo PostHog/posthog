@@ -176,14 +176,6 @@ export interface ThreadItem {
     debugLevel?: string
 }
 
-/** One PostHog product the agent grounded an answer in, accumulated across the whole session. */
-export interface ResourceProduct {
-    /** Wire product id, e.g. 'product_analytics'. The local taxonomy maps it to an icon + label. */
-    id: string
-    /** Wire-supplied label; falls back to the local taxonomy label when absent. */
-    label?: string
-}
-
 /**
  * Latest-wins context-usage snapshot for the footer ring. `used`/`size` (numeric token counts)
  * drive the percentage and arrive on the `session/update` aggregate; `tokens`/`cost`/`breakdown`
@@ -244,6 +236,7 @@ export interface RunArtifacts {
  */
 export interface PermissionRequestRecord {
     requestId: string
+    sourceRunId?: string
     toolCallId: string
     /** Canonical ACP tool name (`mcp__posthog__exec`, or a built-in like `Bash`) — drives the default permission policy. */
     toolName: string

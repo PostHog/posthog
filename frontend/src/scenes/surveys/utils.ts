@@ -14,11 +14,13 @@ import {
 } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
+import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import {
     BasicSurveyQuestion,
     CyclotronJobInvocationGlobals,
     CyclotronJobFiltersType,
     EventPropertyFilter,
+    EventType,
     FeatureFlagFilters,
     LinkSurveyQuestion,
     MultipleSurveyQuestion,
@@ -665,31 +667,11 @@ export function buildSurveyOptionalBooleanPropertyFilter(
     return `coalesce(JSONExtractString(properties, '${propertyName}'), '') != '${excludedValue}'`
 }
 
-export function buildPartialResponsesFilter(survey: Survey, dateRange?: SurveyDateRange | null): string {
-    if (!survey.enable_partial_responses) {
-        return `AND ${buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_COMPLETED, 'false')}`
-    }
-
-    const { fromDate, toDate } = getResolvedSurveyDateRange(survey, dateRange)
-
-    return `AND uuid in (
-        SELECT
-            argMax(uuid, timestamp)
-        FROM events
-        WHERE and(
-            equals(event, '${SurveyEventName.SENT}'),
-            equals(properties.\`${SurveyEventProperties.SURVEY_ID}\`, '${survey.id}'),
-            greaterOrEquals(timestamp, '${fromDate}'),
-            lessOrEquals(timestamp, '${toDate}')
-        )
-        GROUP BY
-            if(
-                isNotNull(properties.\`${SurveyEventProperties.SURVEY_SUBMISSION_ID}\`)
-                    AND properties.\`${SurveyEventProperties.SURVEY_SUBMISSION_ID}\` != '',
-                properties.\`${SurveyEventProperties.SURVEY_SUBMISSION_ID}\`,
-                toString(uuid)
-            )
-    ) --- Filter to ensure we only get one response per ${SurveyEventProperties.SURVEY_SUBMISSION_ID}`
+export function buildSurveyResponseEventFilter(): string {
+    return `(event = '${SurveyEventName.SENT}' OR (
+        event IN ('${SurveyEventName.DISMISSED}', '${SurveyEventName.ABANDONED}')
+        AND coalesce(JSONExtractString(properties, '${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), '') = 'true'
+    ))`
 }
 
 export interface SurveyQueryFilters {
@@ -699,7 +681,7 @@ export interface SurveyQueryFilters {
 }
 
 /**
- * HogQL expression collapsing a submission's `survey sent` events into one group. An event with
+ * HogQL expression collapsing a submission's response events into one group. An event with
  * no `$survey_submission_id` is keyed by its own uuid, so it stays a distinct response the way it
  * did before submission IDs existed.
  *
@@ -765,32 +747,45 @@ function buildMergedSubmissionsSubquery(
     questions: QuestionWithIndex[],
     { includeRespondentMetadata = false }: { includeRespondentMetadata?: boolean } = {}
 ): string {
-    // With partial responses off, only completed submissions may surface. That check has to run
-    // against the whole submission rather than a single event, because the answers still need
-    // merging from the partial events that led up to the completed one.
-    const requiresCompletedEvent = !survey.enable_partial_responses
-    const completedEventExpr = buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_COMPLETED, 'false')
+    const completedEventExpr = `event = '${SurveyEventName.SENT}' AND ${buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_COMPLETED, 'false')}`
 
     const innerColumns = [
-        'uuid',
+        'uuid AS event_uuid',
         'timestamp',
-        ...(includeRespondentMetadata ? ['distinct_id', 'properties.`$session_id` AS session_id'] : []),
-        ...(requiresCompletedEvent ? [`${completedEventExpr} AS is_completed_event`] : []),
+        'person_id',
+        ...(includeRespondentMetadata
+            ? [
+                  'distinct_id',
+                  'properties.`$session_id` AS session_id',
+                  'properties AS event_properties',
+                  'person.properties AS person_properties',
+              ]
+            : []),
+        `${completedEventExpr} AS is_completed_event`,
+        'event',
         ...questions.map(({ question, index }) => `${getSurveyResponse(question, index)} AS ${rawAnswerAlias(index)}`),
         `${SUBMISSION_GROUPING_KEY} AS submission_key`,
     ]
 
     const outerColumns = [
-        'argMax(uuid, timestamp) AS uuid',
+        'argMax(event_uuid, tuple(timestamp, event_uuid)) AS uuid',
+        'argMax(person_id, tuple(timestamp, event_uuid)) AS person_id',
+        `if(countIf(is_completed_event) > 0, 'completed', if(argMax(event, tuple(timestamp, event_uuid)) = '${SurveyEventName.DISMISSED}', 'dismissed', 'abandoned')) AS outcome`,
         // Aliased away from `timestamp` because every other aggregate here orders by that column,
         // and an alias of the same name would resolve to this aggregate instead, nesting them.
         'max(timestamp) AS submitted_at',
         ...(includeRespondentMetadata
-            ? ['argMax(distinct_id, timestamp) AS distinct_id', 'argMax(session_id, timestamp) AS session_id']
+            ? [
+                  'argMax(distinct_id, tuple(timestamp, event_uuid)) AS distinct_id',
+                  'argMax(session_id, tuple(timestamp, event_uuid)) AS session_id',
+                  'argMax(event_properties, tuple(timestamp, event_uuid)) AS event_properties',
+                  'argMax(person_properties, tuple(timestamp, event_uuid)) AS person_properties',
+                  'argMax(event, tuple(timestamp, event_uuid)) AS latest_event',
+              ]
             : []),
         ...questions.map(({ question, index }) => {
             const raw = rawAnswerAlias(index)
-            return `argMaxIf(${raw}, timestamp, ${buildAnswerPresenceExpr(raw, question)}) AS ${mergedAnswerAlias(index)}`
+            return `argMaxIf(${raw}, tuple(timestamp, event_uuid), ${buildAnswerPresenceExpr(raw, question)}) AS ${mergedAnswerAlias(index)}`
         }),
     ]
 
@@ -798,9 +793,6 @@ function buildMergedSubmissionsSubquery(
     // filter names `uuid`, which resolves to the representative uuid aliased above — the same one
     // the responses table archives.
     const havingConditions: string[] = []
-    if (requiresCompletedEvent) {
-        havingConditions.push('countIf(is_completed_event) > 0')
-    }
     const mergedAnswerFilter = createAnswerFilterHogQLExpression(filters.answerFilters, survey, (_, index) =>
         mergedAnswerAlias(index)
     )
@@ -815,12 +807,156 @@ function buildMergedSubmissionsSubquery(
         FROM (
             SELECT ${innerColumns.join(',\n                ')}
             FROM events
-            WHERE event = '${SurveyEventName.SENT}'
+            WHERE ${buildSurveyResponseEventFilter()}
                 AND properties.\`${SurveyEventProperties.SURVEY_ID}\` = '${survey.id}'
                 ${filters.timestampFilter}
                 AND {filters}
         )
         GROUP BY submission_key${havingConditions.length > 0 ? `\n        HAVING ${havingConditions.join(' AND ')}` : ''}`
+}
+
+export function getSurveyResponseStatus(
+    eventName: string | undefined,
+    properties: Record<string, unknown>
+): string | null {
+    const completed = properties[SurveyEventProperties.SURVEY_COMPLETED]
+    if (completed === true || completed === 'true') {
+        return null
+    }
+    const partial = properties[SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED]
+    if (completed !== false && completed !== 'false' && partial !== true && partial !== 'true') {
+        return null
+    }
+    if (eventName === SurveyEventName.DISMISSED) {
+        return 'Dismissed'
+    }
+    return 'Abandoned'
+}
+
+export function isSurveyResponseEvent(eventName: string, properties: Record<string, unknown>): boolean {
+    return (
+        !!properties[SurveyEventProperties.SURVEY_ID] &&
+        (eventName === SurveyEventName.SENT ||
+            (([SurveyEventName.DISMISSED, SurveyEventName.ABANDONED] as string[]).includes(eventName) &&
+                [true, 'true'].includes(
+                    properties[SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED] as boolean | string
+                )))
+    )
+}
+
+export function transformSurveyResponseRows(rows: DataTableRow[], survey: Pick<Survey, 'questions'>): DataTableRow[] {
+    return rows.map((row) => {
+        if (!Array.isArray(row.result) || !Array.isArray(row.result[0])) {
+            return row
+        }
+        const [
+            uuid,
+            distinctId,
+            timestamp,
+            personId,
+            personProperties,
+            eventProperties,
+            outcome,
+            answers,
+            latestEvent,
+        ] = row.result[0]
+        const properties = { ...JSON.parse(eventProperties || '{}') }
+        survey.questions.forEach((question, index) => {
+            const answer = answers[index]
+            if (answer !== null && answer !== undefined) {
+                properties[getSurveyResponseKey(index)] = answer
+                if (question.id) {
+                    properties[`$survey_response_${question.id}`] = answer
+                }
+            }
+        })
+        properties[SurveyEventProperties.SURVEY_COMPLETED] = outcome === 'completed'
+        properties[SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED] = outcome !== 'completed'
+        const event: EventType = {
+            id: uuid,
+            uuid,
+            distinct_id: distinctId,
+            timestamp,
+            event: outcome === 'completed' ? SurveyEventName.SENT : latestEvent,
+            properties,
+            person_id: personId,
+            person: {
+                is_identified: false,
+                distinct_ids: [distinctId],
+                properties: JSON.parse(personProperties || '{}'),
+            },
+            elements: [],
+        }
+        return { ...row, result: [event, ...row.result.slice(1)] }
+    })
+}
+
+export function buildSurveyResponsesQuery(survey: Survey, filters: SurveyQueryFilters): string {
+    const questions = getAnswerableQuestions(survey)
+    const merged = buildMergedSubmissionsSubquery(survey, filters, questions, { includeRespondentMetadata: true })
+    const answers = survey.questions.map((question, index) =>
+        question.type !== SurveyQuestionType.Link ? mergedAnswerAlias(index) : 'NULL'
+    )
+    const columns = [
+        `tuple(uuid, distinct_id, submitted_at, person_id, person_properties, event_properties, outcome, tuple(${answers.length ? answers.join(', ') : 'NULL'}), latest_event) AS response`,
+        ...survey.questions.map(
+            (question, index) =>
+                `${question.type === SurveyQuestionType.MultipleChoice ? `arrayStringConcat(${answers[index]}, ', ')` : answers[index]} AS answer_${index}`
+        ),
+        'outcome AS status',
+        'submitted_at AS timestamp',
+        'distinct_id AS respondent',
+        'uuid AS actions',
+    ]
+    return `SELECT ${columns.join(',\n')} FROM (${merged}) ORDER BY submitted_at DESC`
+}
+
+export function buildSurveyResponseSQLQuery(
+    survey: Survey,
+    filters: SurveyQueryFilters,
+    questionIndex?: number
+): string {
+    const merged = buildMergedSubmissionsSubquery(survey, filters, getAnswerableQuestions(survey), {
+        includeRespondentMetadata: true,
+    }).replaceAll('{filters}', '1 = 1')
+    const columns = survey.questions.flatMap((question, index) => {
+        if (question.type === SurveyQuestionType.Link || (questionIndex !== undefined && index !== questionIndex)) {
+            return []
+        }
+        const title = (question.question || `Question ${index + 1}`).replace(/\s*[\r\n]+\s*/g, ' ').replace(/"/g, '""')
+        return [`${mergedAnswerAlias(index)} AS "${title}"`]
+    })
+    return `SELECT distinct_id, ${columns.length ? columns.join(', ') + ', ' : ''}outcome, submitted_at
+        FROM (${merged}) ORDER BY submitted_at DESC LIMIT 100`
+}
+
+export function buildSurveyResponseStatsQuery(survey: Survey, filters: SurveyQueryFilters): string {
+    const merged = buildMergedSubmissionsSubquery(survey, filters, getAnswerableQuestions(survey))
+    return `SELECT '${SurveyEventName.SENT}' AS event_name, count() AS total_count,
+        count(DISTINCT person_id) AS unique_persons,
+        if(count() > 0, min(submitted_at), null) AS first_seen,
+        if(count() > 0, max(submitted_at), null) AS last_seen,
+        tuple(countIf(outcome = 'completed'), countIf(outcome = 'dismissed'), countIf(outcome = 'abandoned')) AS outcome_counts
+        FROM (${merged})`
+}
+
+export interface SurveyResponseOutcome {
+    label: string
+    count: number
+    percentage: number
+}
+
+export function getSurveyResponseOutcomeBreakdown(counts: [number, number, number]): SurveyResponseOutcome[] {
+    const total = counts.reduce((sum, count) => sum + count, 0)
+    return ['Completed', 'Dismissed', 'Abandoned'].map((label, index) => ({
+        label,
+        count: counts[index],
+        percentage: total > 0 ? counts[index] / total : 0,
+    }))
+}
+
+export function buildSurveyRespondentQuery(survey: Survey, filters: SurveyQueryFilters): string {
+    return `SELECT person_id FROM (${buildMergedSubmissionsSubquery(survey, filters, getAnswerableQuestions(survey))})`
 }
 
 function stripLeadingAnd(expression: string): string {
@@ -831,7 +967,7 @@ function stripLeadingAnd(expression: string): string {
 function getAnswerableQuestions(survey: Survey): QuestionWithIndex[] {
     return survey.questions
         .map((question, index) => ({ question, index }))
-        .filter(({ question }) => !!question.id && question.type !== SurveyQuestionType.Link)
+        .filter(({ question }) => question.type !== SurveyQuestionType.Link)
 }
 
 export interface OpenEndedColumnMap {
@@ -1394,9 +1530,8 @@ export function surveyEmitsPartialSentEvents(survey: Pick<Survey, 'type' | 'enab
 /**
  * Without intermediate partial events, posthog-js has no partial submission to distinguish a
  * complete one from, so it never sets `$survey_completed` and requiring `= true` matches nothing.
- * Accept the property being absent as completed too, the same way the response summary counts them
- * (`enable_partial_responses` branch in `ee/surveys/summaries/headline_summary.py`). An explicit
- * `false` stays excluded: a survey switched from partial to non-partial keeps its old partials.
+ * Accept the property being absent as completed too, the same way the response summary counts
+ * legacy events. An explicit `false` stays excluded from sent-event notifications.
  */
 export function getSurveyNotificationFilters(
     surveyId: string,

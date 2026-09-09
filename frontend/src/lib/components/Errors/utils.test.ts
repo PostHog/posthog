@@ -1,4 +1,9 @@
-import { ErrorEventProperties, ErrorTrackingStackFrame, ExceptionAttributes } from './types'
+import {
+    ErrorEventProperties,
+    ErrorTrackingStackFrame,
+    ErrorTrackingStackFrameRecord,
+    ExceptionAttributes,
+} from './types'
 import {
     getExceptionAttributes,
     getExceptionList,
@@ -6,6 +11,7 @@ import {
     getInstructionAddress,
     getRuntimeFromLib,
     getSessionId,
+    isReleaseIdMissingFromSDK,
 } from './utils'
 
 describe('Error Display', () => {
@@ -314,5 +320,35 @@ describe('Error Display', () => {
 
         expect(result[0].stacktrace?.frames[0].raw_id).toEqual('abc/0')
         expect(frame.raw_id).toEqual('abc')
+    })
+
+    const RELEASE = { id: 'release-id', version: '1.2.3', created_at: '2026-08-04T10:00:00Z' }
+    const UPLOADED_SET = { symbol_set_ref: 'chunk-id', release: null }
+    const UPLOADED_SET_WITH_RELEASE = { symbol_set_ref: 'chunk-id', release: RELEASE }
+    const FETCHED_SET = { symbol_set_ref: 'https://example.com/main.js.map', release: null }
+    const UNRESOLVED_FRAME = { symbol_set_ref: null, release: null }
+
+    it.each([
+        ['a frame that used no symbol set', {}, [UNRESOLVED_FRAME], false],
+        ['a symbol set PostHog fetched from the web', {}, [FETCHED_SET], false],
+        ['a symbol set uploaded with a release', {}, [UPLOADED_SET_WITH_RELEASE], false],
+        ['a release id reported by the SDK', { $release_id: 'release-id' }, [UPLOADED_SET], false],
+        [
+            'a release resolved for the event',
+            { $exception_release: { id: 'release-id', version: '1.2.3', timestamp: '2026-08-04T10:00:00Z' } },
+            [UPLOADED_SET],
+            false,
+        ],
+        ['one of two symbol sets with a release', {}, [UPLOADED_SET, UPLOADED_SET_WITH_RELEASE], false],
+        ['two symbol sets uploaded without a release', {}, [UPLOADED_SET, UPLOADED_SET], true],
+        ['a frame whose record did not load', {}, [UPLOADED_SET, undefined], false],
+    ])('reports a release the SDK never sent for %s', (_name, properties, records, expected) => {
+        const frames = records.map((_, index) => ({ raw_id: `frame-${index}` }) as ErrorTrackingStackFrame)
+        const keyedRecords = Object.fromEntries(
+            records.flatMap((record, index) =>
+                record ? [[`frame-${index}`, record as ErrorTrackingStackFrameRecord]] : []
+            )
+        )
+        expect(isReleaseIdMissingFromSDK(properties as ErrorEventProperties, frames, keyedRecords)).toBe(expected)
     })
 })

@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconWarning } from '@posthog/icons'
-import { Button, Spinner } from '@posthog/quill-primitives'
+import { Button } from '@posthog/quill-primitives'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { cn } from 'lib/utils/css-classes'
@@ -24,6 +24,7 @@ import { lookupToolRenderer } from './tool/toolRegistry'
 interface PermissionInputProps {
     streamKey: string
     request: PermissionRequestRecord
+    disabled?: boolean
 }
 
 /** Collapsed height of the payload preview, in lines — enough to scan, never enough to bury the choices. */
@@ -325,10 +326,11 @@ function PermissionOptionRows({ options, responding, onRespond }: PermissionOpti
  * `respondingToPermission` drives the loading/double-submit guard and re-enables the controls when the
  * POST fails (the pending request only clears on success).
  */
-export function PermissionInput({ streamKey, request }: PermissionInputProps): JSX.Element {
+export function PermissionInput({ streamKey, request, disabled = false }: PermissionInputProps): JSX.Element {
     const boundLogic = runStreamLogic({ streamKey })
     const { respondToPermission, cancelRun } = useActions(boundLogic)
-    const { respondingToPermission } = useValues(boundLogic)
+    const { respondingToPermission: delivering } = useValues(boundLogic)
+    const respondingToPermission = delivering || disabled
 
     // A plan approval keeps the product's Auto and Full auto wire options. If neither is offered,
     // fall through to the generic card so the request stays actionable.
@@ -392,20 +394,13 @@ export function PermissionInput({ streamKey, request }: PermissionInputProps): J
                     payload={display.payload}
                 />
             )}
-            {respondingToPermission ? (
-                <div className="flex items-center gap-2 text-muted pt-1">
-                    <Spinner className="size-4" />
-                    <span>Sending response…</span>
-                </div>
-            ) : (
-                <PermissionOptionRows
-                    options={mappedOptions}
-                    responding={respondingToPermission}
-                    onRespond={(optionId, customInput) =>
-                        respondToPermission({ requestId: request.requestId, optionId, customInput })
-                    }
-                />
-            )}
+            <PermissionOptionRows
+                options={mappedOptions}
+                responding={respondingToPermission}
+                onRespond={(optionId, customInput) =>
+                    respondToPermission({ requestId: request.requestId, optionId, customInput })
+                }
+            />
         </div>
     )
 }

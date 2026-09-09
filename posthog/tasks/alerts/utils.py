@@ -1,6 +1,6 @@
 from collections.abc import Collection
 from contextlib import ExitStack
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone
@@ -11,6 +11,7 @@ import structlog
 from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayType, NodeKind, TrendsQuery
 
 from posthog.dataclasses import frozen
+from posthog.models.user import User
 from posthog.ph_client import ph_background_capture
 from posthog.slo.context import get_current_slo
 from posthog.slo.types import SloOperation
@@ -42,10 +43,20 @@ from products.alerts.backend.scheduling import (
     next_calendar_check_time,
     to_calendar_interval,
 )
+from products.exports.backend.facade import api as exports
 
 logger = structlog.get_logger(__name__)
 
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
+
+# TTL for the tokenized chart URL embedded in Slack. Slack fetches the image at delivery,
+# but the URL must stay resolvable while people scroll back to the message; 30 days matches
+# the delivery-URL TTL used for task chart artifacts (products/tasks living_artifacts).
+_INSIGHT_CHART_URL_TTL = timedelta(days=30)
+
+# The stored PNG outlives its delivery URL by one day so the URL can never point at a
+# deleted asset; without an explicit TTL the format default keeps the PNG for six months.
+_INSIGHT_CHART_ASSET_TTL = timedelta(days=31)
 
 
 @frozen
@@ -332,12 +343,95 @@ def get_alert_error_notification_recipients(alert: AlertConfiguration) -> list[t
     ]
 
 
+def _inconclusive_is_suppressed(verdict: str | None, inconclusive_action: str | None) -> bool:
+    """Whether an inconclusive verdict is held back by the alert's configured policy."""
+    return verdict == "inconclusive" and (inconclusive_action or "notify") == "suppress"
+
+
+def _should_suppress_notification(verdict: str | None, inconclusive_action: str | None) -> bool:
+    """Whether the verdict holds the notification back: false positives always suppress,
+    inconclusive follows the alert's configured policy."""
+    return verdict == "false_positive" or _inconclusive_is_suppressed(verdict, inconclusive_action)
+
+
+def _resolve_alert_render_user(alert: AlertConfiguration) -> User | None:
+    """Pick the user the chart render is attributed to: the alert creator, then any
+    subscribed user, then None. The render checks this user's view access to the insight,
+    so it mirrors who the alert was set up for."""
+    if alert.created_by_id:
+        try:
+            return User.objects.get(id=alert.created_by_id)
+        except User.DoesNotExist:
+            pass
+    return alert.subscribed_users.first()
+
+
+def prepare_alert_insight_chart_url(
+    *,
+    alert: AlertConfiguration,
+    alert_check: AlertCheck,
+    user: User | None = None,
+    verdict: str | None = None,
+) -> str | None:
+    """Render the alerted insight to a PNG and mint a URL Slack can embed as an image block.
+
+    Skipped when nothing would show it: a suppressed verdict, an already-delivered check
+    (a chart added after delivery would never reach the sent message), or no active Slack
+    destination (only the Slack template renders the chart). Best-effort: on any failure
+    (render error, no viewer access for the render user, export infrastructure down) return
+    None so the notification still goes out, just without the chart.
+
+    `user` attributes the render and is checked for view access; when omitted it falls back
+    to the alert creator or a subscribed user. Pass it explicitly from a path that already
+    resolved the acting user.
+    """
+    if _should_suppress_notification(verdict, alert.investigation_inconclusive_action):
+        return None
+    render_user = user or _resolve_alert_render_user(alert)
+    if render_user is None:
+        return None
+    pending = AlertCheck.objects.filter(
+        id=alert_check.id, notification_sent_at__isnull=True, notification_suppressed_by_agent=False
+    ).exists()
+    if not pending:
+        return None
+    try:
+        destinations = list_active_alert_destinations(
+            team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids=(INSIGHT_ALERT_FIRING_EVENT,)
+        )
+        if not any(destination.destination_type == "slack" for destination in destinations):
+            return None
+        asset, content = exports.render_png_export(
+            team=alert.team,
+            created_by=render_user,
+            insight_id=alert.insight_id,
+            # System render: keep it out of the user's export listings and quota.
+            is_system=True,
+            expires_after=datetime.now(UTC) + _INSIGHT_CHART_ASSET_TTL,
+        )
+        if content is None:
+            logger.info(
+                "alerts.insight_chart_render_failed",
+                alert_id=str(alert.id),
+                asset_id=asset.id,
+                exception=asset.exception,
+            )
+            return None
+        return exports.get_delivery_image_url(
+            team_id=alert.team_id, asset_id=asset.id, expiry_delta=_INSIGHT_CHART_URL_TTL
+        )
+    except Exception:
+        logger.exception("alerts.insight_chart_render_failed", alert_id=str(alert.id))
+        return None
+
+
 def dispatch_alert_notification(
     alert: AlertConfiguration,
     alert_check: AlertCheck,
     breaches: list[str] | None,
     extra_properties: dict[str, str] | None = None,
     idempotency_key: str | None = None,
+    render_chart: bool = True,
 ) -> list[AlertDelivery] | None:
     """Route an AlertCheck to the correct notification sender.
 
@@ -349,6 +443,13 @@ def dispatch_alert_notification(
     `idempotency_key` defaults to the check id, which gives at-most-once email delivery per
     check. A caller that deliberately sends a second message about the same check must pass
     its own key, or MessagingRecord drops that email as a duplicate of the first.
+
+    `render_chart` controls the Slack chart render for a FIRING check. Pass False from a
+    caller that holds an open transaction or a row lock: the render blocks for up to
+    exports.RENDER_TIMEOUT, and waiting that long under a lock stalls every other
+    dispatcher of the same check. Such a caller renders with
+    prepare_alert_insight_chart_url before it opens the transaction, then passes the URL
+    through `extra_properties`.
 
     Raises:
         ValueError: state is FIRING but breaches is None/empty.
@@ -393,11 +494,27 @@ def dispatch_alert_notification(
                         "caller must pass the breaches list from AlertEvaluationResult"
                     )
                 logger.info("Sending alert firing notifications", alert_id=alert.id)
-                # Only forward extra_properties when there's something to add (anomaly investigations),
-                # keeping the common threshold-alert call unchanged.
-                if extra_properties:
+                properties = dict(extra_properties) if extra_properties else {}
+                # Attach the chart for any firing alert whose caller did not already supply
+                # one, so ordinary threshold and anomaly alerts get the chart too, not just
+                # the anomaly investigation path (which renders it early and passes it in).
+                # Real-time alerts never render here: the render is capped at
+                # exports.RENDER_TIMEOUT (90s), which outlasts the 60s notify_start_to_close
+                # of _REAL_TIME_TIMEOUTS, so a slow render would time out the whole notify
+                # activity and lose the notification it was supposed to carry.
+                if (
+                    render_chart
+                    and "insight_chart_url" not in properties
+                    and alert.calculation_interval != AlertCalculationInterval.REAL_TIME
+                ):
+                    chart_url = prepare_alert_insight_chart_url(alert=alert, alert_check=alert_check)
+                    if chart_url:
+                        properties["insight_chart_url"] = chart_url
+                # Only forward extra_properties when there's something to add, keeping the
+                # common threshold-alert call unchanged when nothing was attached.
+                if properties:
                     return send_notifications_for_breaches(
-                        alert, breaches, idempotency_key=key, extra_properties=extra_properties
+                        alert, breaches, idempotency_key=key, extra_properties=properties
                     )
                 return send_notifications_for_breaches(alert, breaches, idempotency_key=key)
             case _:
