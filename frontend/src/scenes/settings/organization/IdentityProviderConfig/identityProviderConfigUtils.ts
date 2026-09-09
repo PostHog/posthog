@@ -17,7 +17,7 @@ const INCOMPLETE_STATUS_DESCRIPTIONS: Record<
     Record<Exclude<IdentityProviderConfigStatus, 'configured'>, string>
 > = {
     [ConfigScopeEnumApi.Oidc]: {
-        not_configured: 'Add your identity provider details to enable OpenID Connect single sign-on.',
+        not_configured: 'Add your identity provider details to enable OIDC single sign-on.',
         partially_configured: 'Add the missing OIDC details to finish the configuration.',
     },
     [ConfigScopeEnumApi.Saml]: {

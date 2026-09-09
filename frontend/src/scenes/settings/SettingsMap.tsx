@@ -1930,7 +1930,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'oidc-configuration',
-                title: 'OpenID Connect single sign-on',
+                title: 'OIDC single sign-on',
                 description: 'Authenticate members through your identity provider with OpenID Connect (OIDC).',
                 component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Oidc} />,
                 flag: 'SSO_SETTINGS_REDESIGN',
