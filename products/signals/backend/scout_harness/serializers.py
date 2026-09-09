@@ -2961,11 +2961,20 @@ class SignalScoutConfigRenameSerializer(serializers.Serializer):
 
     new_name = serializers.CharField(
         max_length=64,
-        help_text="New scout skill name. Keep the current prefix class and use a unique kebab-case name.",
+        help_text=(
+            "New scout skill name. Keep the current prefix class and use a unique kebab-case name. "
+            "Names the inbox reserves for its own pages are refused."
+        ),
     )
 
     def validate_new_name(self, value: str) -> str:
-        return validate_skill_name_value(value)
+        # The same pair the two minting serializers apply, so a rename cannot reach a name that
+        # creating the scout would have refused. The prefix guard in `rename_skill` only covers a
+        # prefixed scout, so a bare-named one needs this to stay off the reserved inbox pages.
+        value = validate_skill_name_value(value)
+        if error := reserved_scout_name_error(value):
+            raise serializers.ValidationError(error)
+        return value
 
 
 class SignalScoutConfigOptionsSerializer(serializers.Serializer):

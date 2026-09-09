@@ -2696,6 +2696,27 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         if conflict in {"memory", "long_memory"}:
             assert SignalScratchpad.objects.filter(team=self.team, key=old_key).exists()
 
+    @parameterized.expand([("scratchpad",), ("findings",), ("runs",)])
+    def test_rename_rejects_inbox_reserved_names(self, new_name: str) -> None:
+        # A bare-named scout is the reachable case: the prefix guard already refuses these names
+        # for a `signals-scout-*` scout, so only an unprefixed one can land on the static
+        # `/inbox/scouts/` sub-pages and become unopenable from the roster.
+        old_name = "my-ordinary-skill"
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name=old_name)
+        self._make_skill(old_name)
+
+        response = self.client.post(
+            f"{self._detail_url(str(config.id))}rename/",
+            data={"new_name": new_name},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "new_name"
+        config.refresh_from_db()
+        assert config.skill_name == old_name
+        assert LLMSkill.objects.filter(team=self.team, name=old_name, deleted=False).exists()
+
     @parameterized.expand(
         [
             # (label, skill_name, metadata, expected). `signals-scout-general` is a real on-disk

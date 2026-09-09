@@ -79678,7 +79678,7 @@ export namespace Schemas {
      */
     export interface SignalScoutConfigRename {
       /**
-         * New scout skill name. Keep the current prefix class and use a unique kebab-case name.
+         * New scout skill name. Keep the current prefix class and use a unique kebab-case name. Names the inbox reserves for its own pages are refused.
          * @maxLength 64
          */
       new_name: string;

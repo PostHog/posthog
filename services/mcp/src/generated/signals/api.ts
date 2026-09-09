@@ -1148,7 +1148,9 @@ export const SignalsScoutConfigRenameBody = () => zod
         new_name: zod
             .string()
             .max(signalsScoutConfigRenameBodyNewNameMax)
-            .describe('New scout skill name. Keep the current prefix class and use a unique kebab-case name.'),
+            .describe(
+                'New scout skill name. Keep the current prefix class and use a unique kebab-case name. Names the inbox reserves for its own pages are refused.'
+            ),
     })
     .describe('The new logical identity for an existing custom scout.')
 
