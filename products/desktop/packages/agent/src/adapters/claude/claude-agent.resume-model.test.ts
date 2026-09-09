@@ -539,7 +539,7 @@ describe("ClaudeAcpAgent session creation", () => {
       );
       expect(onLog).toHaveBeenCalledWith(
         "error",
-        "agent:ClaudeAcpAgent",
+        "agent:AcpConnection:ClaudeInitialization",
         "Session initialization failed",
         expect.objectContaining({
           initializationPhase: "sdk_initialization",

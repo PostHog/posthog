@@ -776,6 +776,24 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     options.effort = toSdkEffort(params.effort);
   }
 
+  if (
+    !options.debugFile &&
+    ["1", "true", "yes", "on"].includes(
+      process.env.DEBUG_CLAUDE_AGENT_SDK?.trim().toLowerCase() ?? "",
+    )
+  ) {
+    const debugDirectory = fs.mkdtempSync(
+      path.join(os.tmpdir(), "posthog-claude-debug-"),
+    );
+    options.debugFile = path.join(debugDirectory, "cli.log");
+  }
+  if (options.debugFile) {
+    params.logger.info("Claude CLI debug log", {
+      sessionId: params.sessionId,
+      path: options.debugFile,
+    });
+  }
+
   clearStatsigCache();
   return options;
 }

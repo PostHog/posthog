@@ -5,7 +5,8 @@
 `Session initialization timed out after 30000ms` means that Claude did not finish SDK initialization before the startup deadline.
 The message does not identify the blocked operation. Repository startup hooks and MCP connections can run during initialization.
 
-Check the `agent:ClaudeAcpAgent` scope in the desktop logs for CLI stderr and the structured `Session initialization failed` entry.
+Check the `agent:ClaudeAcpAgent` scope in the desktop logs for CLI stderr.
+The `agent:AcpConnection:ClaudeInitialization` scope records startup phases and the structured `Session initialization failed` entry.
 Desktop logs are stored in `~/.posthog-code/logs/main.log` (`logs-dev/main.log` for development builds).
 Match the task and run IDs before using those diagnostics to change authentication, MCP connections, or startup hooks.
 The adapter uses the existing desktop logger. It does not enable verbose SDK logging or change the startup timeout.
@@ -22,11 +23,16 @@ If the debug directory is empty or the application log has no Claude diagnostics
    ```
 
 3. Reproduce the timeout once, then quit PostHog.
-4. Check `posthog-startup.log` on the Desktop. If it contains an `SDK debug logs:` line, collect the file at that path too.
+4. Check `posthog-startup.log` on the Desktop. Collect the file identified by `Claude CLI debug log` and its `path` field.
+   Also collect the file identified by `SDK debug logs:` if present.
 
-Use the printed path instead of assuming `~/.claude/debug`: Desktop can use its own Claude configuration directory.
+The CLI file contains internal startup diagnostics. The SDK file can contain only process launch and protocol messages:
+the SDK does not select a CLI debug file automatically when Desktop uses its custom process launcher.
+With SDK debugging enabled, Desktop supplies an explicit CLI debug file in a private temporary directory and logs its path.
+An explicit `debugFile` SDK option takes precedence. Normal launches do not enable this file capture.
+Use the printed paths instead of assuming a debug directory or session filename.
 These logs can contain prompts and tool output. Share them only through a private support channel, not in a public issue or pull request.
-Launch PostHog normally afterward to stop this temporary debug capture.
+Launch PostHog normally afterward to stop this temporary debug capture. Delete the captured files when they are no longer needed.
 
 ## Black screen during development
 
