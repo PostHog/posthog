@@ -779,8 +779,8 @@ function InfiniteListEmptyState(): JSX.Element {
                     {canOfferStaleToggle && (
                         <>
                             <span className="text-center text-secondary text-xs">
-                                Events with no new data in the last {STALE_EVENT_DAYS} days are hidden. Their history is
-                                still in your project.
+                                Events with no new data in the last {STALE_EVENT_DAYS} days are hidden from this list.
+                                Hiding them doesn't delete anything.
                             </span>
                             <LemonButton
                                 type="secondary"

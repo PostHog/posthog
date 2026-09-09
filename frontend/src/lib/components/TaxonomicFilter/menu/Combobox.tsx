@@ -1093,7 +1093,8 @@ export function MenuFilterCombobox({
                                                         {!anyGroupFailed && (
                                                             <div className="text-xs text-secondary leading-relaxed">
                                                                 Events with no new data in the last {STALE_EVENT_DAYS}{' '}
-                                                                days are hidden. Their history is still in your project.
+                                                                days are hidden from this list. Hiding them doesn't
+                                                                delete anything.
                                                             </div>
                                                         )}
                                                         <Button
