@@ -17,7 +17,6 @@ import { AI_OBSERVABILITY_DATA_COLLECTION_NODE_ID, aiObservabilitySharedLogic } 
 import { EVALUATION_METRICS_COLLECTION_ID } from './evaluations/components/EvaluationMetrics'
 import { evaluationMetricsLogic } from './evaluations/evaluationMetricsLogic'
 import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
-import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentLazyLoaderLogic'
 import { aiObservabilityDashboardLogic } from './tabs/aiObservabilityDashboardLogic'
 import { aiObservabilitySessionsViewLogic } from './tabs/aiObservabilitySessionsViewLogic'
 
@@ -60,7 +59,6 @@ export function AIObservabilityReloadAction(): JSX.Element {
     const { loadEvaluations } = useActions(llmEvaluationsLogic)
     const { sessionsLoading } = useValues(aiObservabilitySessionsViewLogic)
     const { loadSessions } = useActions(aiObservabilitySessionsViewLogic)
-    const { resetGenerationSentiments } = useActions(llmGenerationSentimentLazyLoaderLogic)
 
     const isLoading = shouldUseDashboardLogic ? dashboardLoading : activeTab === 'sessions' ? sessionsLoading : false
     const lastRefresh = shouldUseDashboardLogic ? effectiveLastRefresh : null
@@ -78,9 +76,6 @@ export function AIObservabilityReloadAction(): JSX.Element {
             // Force a recompute so the button surfaces newly-ingested sessions instead of a cached result.
             loadSessions({ refresh: 'force_blocking' })
         } else {
-            // The lazy columns hold their own cache, which reloadAll() does not touch. Clearing it
-            // makes the cells fetch again, and gets a stuck one out of its skeleton.
-            resetGenerationSentiments()
             reloadAll()
         }
     }

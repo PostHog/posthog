@@ -1,34 +1,14 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
     FilterIdentifier,
     PersonData,
-    aiObservabilityColumnRenderers,
     createPersonFilter,
     getEventData,
     getFilterIdentifier,
     getTracesUrlWithPersonFilter,
 } from './aiObservabilityColumnRenderers'
-import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentLazyLoaderLogic'
-import { fetchHasSentimentEvaluations, fetchStoredGenerationSentiments } from './sentimentQueries'
-import { GENERATION_SENTIMENT_SELECT } from './sentimentResults'
-
-jest.mock('./sentimentQueries', () => ({
-    ...jest.requireActual('./sentimentQueries'),
-    fetchHasSentimentEvaluations: jest.fn(),
-    fetchStoredGenerationSentiments: jest.fn(),
-}))
-
-const mockFetchHasSentimentEvaluations = fetchHasSentimentEvaluations as jest.MockedFunction<
-    typeof fetchHasSentimentEvaluations
->
-const mockFetchStoredGenerationSentiments = fetchStoredGenerationSentiments as jest.MockedFunction<
-    typeof fetchStoredGenerationSentiments
->
 
 describe('aiObservabilityColumnRenderers', () => {
     describe('getEventData', () => {
@@ -216,81 +196,5 @@ describe('aiObservabilityColumnRenderers', () => {
             expect(url).toContain('date_from=2024-01-01')
             expect(url).not.toContain('date_to')
         })
-    })
-})
-
-// The Sentiment cell used to sit on a skeleton for the whole visit when its query stalled instead
-// of erroring, which sent people into traces one by one.
-describe('Sentiment column cell', () => {
-    const query: DataTableNode = {
-        kind: NodeKind.DataTableNode,
-        source: {
-            kind: NodeKind.EventsQuery,
-            select: ['uuid', 'properties.$ai_trace_id', GENERATION_SENTIMENT_SELECT, 'timestamp'],
-        },
-    }
-    const record = ['event-1', 'trace-1', '', '2026-04-30T10:00:00Z']
-
-    function renderSentimentCell(): void {
-        const SentimentCell = aiObservabilityColumnRenderers[GENERATION_SENTIMENT_SELECT].render!
-        render(
-            <SentimentCell
-                columnName={GENERATION_SENTIMENT_SELECT}
-                query={query}
-                record={record}
-                recordIndex={0}
-                rowCount={1}
-                value=""
-            />
-        )
-    }
-
-    beforeEach(() => {
-        cleanup()
-        jest.useFakeTimers()
-        initKeaTests()
-        llmGenerationSentimentLazyLoaderLogic().mount()
-        mockFetchHasSentimentEvaluations.mockResolvedValue(true)
-        mockFetchStoredGenerationSentiments.mockReset()
-    })
-
-    afterEach(() => {
-        jest.useRealTimers()
-    })
-
-    it('offers a retry once a stalled lookup passes its deadline', async () => {
-        mockFetchStoredGenerationSentiments.mockReturnValue(new Promise(() => {}))
-
-        renderSentimentCell()
-        await jest.advanceTimersByTimeAsync(1)
-        expect(screen.queryByText('Retry')).toBeNull()
-
-        await jest.advanceTimersByTimeAsync(30000)
-
-        expect(screen.getByText('Retry')).toBeTruthy()
-        expect(mockFetchStoredGenerationSentiments).toHaveBeenCalledTimes(1)
-    })
-
-    it('looks the sentiment up again when the retry is clicked', async () => {
-        mockFetchStoredGenerationSentiments.mockReturnValue(new Promise(() => {}))
-
-        renderSentimentCell()
-        await jest.advanceTimersByTimeAsync(30001)
-
-        mockFetchStoredGenerationSentiments.mockResolvedValue({})
-        fireEvent.click(screen.getByText('Retry'))
-        await jest.advanceTimersByTimeAsync(1)
-
-        expect(mockFetchStoredGenerationSentiments).toHaveBeenCalledTimes(2)
-        expect(screen.queryByText('Retry')).toBeNull()
-    })
-
-    it('skips the lookup when the project has no sentiment evaluation', async () => {
-        mockFetchHasSentimentEvaluations.mockResolvedValue(false)
-
-        renderSentimentCell()
-        await jest.advanceTimersByTimeAsync(1)
-
-        expect(mockFetchStoredGenerationSentiments).not.toHaveBeenCalled()
     })
 })

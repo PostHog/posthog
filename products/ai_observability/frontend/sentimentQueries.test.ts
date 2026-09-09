@@ -1,32 +1,15 @@
 import api from 'lib/api'
 
-import { evaluationsList } from './generated/api'
 import {
-    fetchHasSentimentEvaluations,
     fetchSentimentGenerationsPage,
-    fetchStoredGenerationSentiments,
     type SentimentCategory,
     type SentimentGenerationsQueryValues,
 } from './sentimentQueries'
 
 jest.mock('lib/api')
-jest.mock('./generated/api', () => ({ evaluationsList: jest.fn() }))
 
 const mockApi = api as jest.Mocked<typeof api>
-const mockEvaluationsList = evaluationsList as jest.MockedFunction<typeof evaluationsList>
 
-const GENERATION_TIMESTAMP = '2026-06-23T10:00:00Z'
-
-const storedSentimentColumns = [
-    'trace_id',
-    'generation_id',
-    'label',
-    'score',
-    'scores',
-    'messages',
-    'message_count',
-    'evaluation_timestamp',
-]
 const candidateColumns = ['evaluation_id', 'trace_id', 'generation_id']
 const generationColumns = [
     'uuid',
@@ -83,193 +66,6 @@ function generationRow(index: number): unknown[] {
 describe('sentimentQueries', () => {
     beforeEach(() => {
         jest.resetAllMocks()
-    })
-
-    it('reads stored generation sentiment from ai_events first', async () => {
-        mockApi.queryHogQL.mockResolvedValueOnce({
-            columns: storedSentimentColumns,
-            results: [
-                [
-                    'trace-1',
-                    'generation-uuid',
-                    'positive',
-                    '0.91',
-                    { positive: 0.91, neutral: 0.08, negative: 0.01 },
-                    {
-                        '0': {
-                            label: 'positive',
-                            score: 0.91,
-                            scores: { positive: 0.91, neutral: 0.08, negative: 0.01 },
-                        },
-                    },
-                    1,
-                    '2026-06-23T10:00:00Z',
-                ],
-            ],
-        })
-
-        const results = await fetchStoredGenerationSentiments([
-            {
-                key: 'generation-uuid',
-                traceId: 'trace-1',
-                generationIds: ['generation-uuid'],
-                timestamp: GENERATION_TIMESTAMP,
-            },
-        ])
-
-        expect(results['generation-uuid']).toMatchObject({
-            label: 'positive',
-            score: 0.91,
-            message_count: 1,
-        })
-        expect(mockApi.queryHogQL).toHaveBeenCalledTimes(1)
-        const sentimentQuery = mockApi.queryHogQL.mock.calls[0][0]
-        expect(sentimentQuery).toContain('FROM posthog.ai_events AS ai_events')
-        // Sorted by trace, so the trace filter is the bound here. An evaluation event is stamped
-        // with the time its run started, which a manual re-run can put days after the generation.
-        expect(sentimentQuery).not.toContain('toDateTime(')
-        expect(sentimentQuery).toContain("properties.$ai_evaluation_runtime = 'sentiment'")
-        expect(sentimentQuery).toContain('properties.$ai_target_event_id')
-        expect(sentimentQuery).not.toContain('properties.$ai_target_id')
-        expect(sentimentQuery).not.toContain('properties.$ai_evaluation_result_type')
-    })
-
-    it('falls back to events when stored generation sentiment is missing from ai_events', async () => {
-        mockApi.queryHogQL
-            .mockResolvedValueOnce({ columns: storedSentimentColumns, results: [] })
-            .mockResolvedValueOnce({
-                columns: storedSentimentColumns,
-                results: [
-                    [
-                        'trace-1',
-                        'generation-uuid',
-                        'positive',
-                        '0.91',
-                        { positive: 0.91, neutral: 0.08, negative: 0.01 },
-                        {
-                            '0': {
-                                label: 'positive',
-                                score: 0.91,
-                                scores: { positive: 0.91, neutral: 0.08, negative: 0.01 },
-                            },
-                        },
-                        1,
-                        '2026-06-23T10:00:00Z',
-                    ],
-                ],
-            })
-
-        const results = await fetchStoredGenerationSentiments([
-            {
-                key: 'generation-uuid',
-                traceId: 'trace-1',
-                generationIds: ['generation-uuid'],
-                timestamp: GENERATION_TIMESTAMP,
-            },
-        ])
-
-        expect(results['generation-uuid']).toMatchObject({
-            label: 'positive',
-            score: 0.91,
-            message_count: 1,
-        })
-        expect(mockApi.queryHogQL).toHaveBeenCalledTimes(2)
-        expect(mockApi.queryHogQL.mock.calls[0][0]).toContain('FROM posthog.ai_events AS ai_events')
-        const fallbackQuery = mockApi.queryHogQL.mock.calls[1][0]
-        expect(fallbackQuery).toContain('FROM events')
-        // `events` is sorted by date, so this scan keeps the window that stops it walking the
-        // team's whole history
-        expect(fallbackQuery).toContain("timestamp >= toDateTime('2026-06-23T09:50:00.000Z')")
-        expect(fallbackQuery).toContain("timestamp <= toDateTime('2026-06-24T10:00:00.000Z')")
-    })
-
-    it.each<[string, string]>([
-        ['no timestamp', ''],
-        ['an unparseable timestamp', 'not-a-timestamp'],
-    ])('resolves a lookup with %s without querying', async (_, timestamp) => {
-        const results = await fetchStoredGenerationSentiments([
-            {
-                key: 'generation-uuid',
-                traceId: 'trace-1',
-                generationIds: ['generation-uuid'],
-                timestamp,
-            },
-        ])
-
-        expect(results).toEqual({})
-        expect(mockApi.queryHogQL).not.toHaveBeenCalled()
-    })
-
-    // Dropping the request leaves ClickHouse scanning, so a lookup that hits its deadline has to
-    // be stopped by name or it keeps holding a query slot.
-    it('cancels the query it named when the lookup is aborted', async () => {
-        const controller = new AbortController()
-        mockApi.queryHogQL.mockReturnValue(new Promise(() => {}))
-        mockApi.cancelQuery.mockResolvedValue(undefined)
-
-        void fetchStoredGenerationSentiments(
-            [
-                {
-                    key: 'generation-uuid',
-                    traceId: 'trace-1',
-                    generationIds: ['generation-uuid'],
-                    timestamp: GENERATION_TIMESTAMP,
-                },
-            ],
-            controller.signal
-        )
-        await Promise.resolve()
-
-        const clientQueryId = mockApi.queryHogQL.mock.calls[0][2]?.clientQueryId
-        expect(clientQueryId).toBeTruthy()
-        expect(mockApi.cancelQuery).not.toHaveBeenCalled()
-
-        controller.abort()
-
-        expect(mockApi.cancelQuery).toHaveBeenCalledWith(clientQueryId)
-    })
-
-    it.each<[string, boolean, string | undefined]>([
-        ['reuses the cache by default', false, undefined],
-        ['recalculates after a refresh, so a freshly scored generation cannot read as none', true, 'force_blocking'],
-    ])('%s', async (_, forceRefresh, expectedRefresh) => {
-        mockApi.queryHogQL
-            .mockResolvedValueOnce({ columns: storedSentimentColumns, results: [] })
-            .mockResolvedValueOnce({ columns: storedSentimentColumns, results: [] })
-
-        await fetchStoredGenerationSentiments(
-            [
-                {
-                    key: 'generation-uuid',
-                    traceId: 'trace-1',
-                    generationIds: ['generation-uuid'],
-                    timestamp: GENERATION_TIMESTAMP,
-                },
-            ],
-            undefined,
-            forceRefresh
-        )
-
-        expect(mockApi.queryHogQL).toHaveBeenCalledTimes(2)
-        expect(mockApi.queryHogQL.mock.calls[0][2]?.refresh).toBe(expectedRefresh)
-        expect(mockApi.queryHogQL.mock.calls[1][2]?.refresh).toBe(expectedRefresh)
-    })
-
-    it.each<[string, number, boolean]>([
-        ['a sentiment evaluation exists', 1, true],
-        ['the project has none', 0, false],
-    ])('reports whether %s', async (_, resultCount, expected) => {
-        mockEvaluationsList.mockResolvedValueOnce({
-            count: resultCount,
-            results: Array.from({ length: resultCount }, () => ({}) as never),
-        } as never)
-
-        await expect(fetchHasSentimentEvaluations(42)).resolves.toBe(expected)
-        expect(mockEvaluationsList).toHaveBeenCalledWith(
-            '42',
-            { evaluation_type: 'sentiment', limit: 1 },
-            { signal: undefined }
-        )
     })
 
     it.each<[string, boolean]>([

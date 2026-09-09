@@ -20,11 +20,8 @@ import { AIDataLoading } from './components/AIDataLoading'
 import { SentimentBar } from './components/SentimentTag'
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { EventData, useAIData } from './hooks/useAIData'
-import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentLazyLoaderLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { normalizeMessages } from './messageNormalization'
-import type { GenerationSentimentLookup } from './sentimentQueries'
-import { GENERATION_SENTIMENT_SELECT } from './sentimentResults'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
 import { TraceReviewValue } from './traceReviews/TraceReviewValue'
 import { CompatMessage } from './types'
@@ -213,108 +210,6 @@ export function LazyPersonAvatar({ distinctId }: { distinctId: string }): JSX.El
             <PersonIcon person={personData} size="md" />
         </PersonDisplay>
     )
-}
-
-function getStringColumnValue(record: unknown[], columns: string[], column: string): string | null {
-    const index = columns.findIndex((col) => col === column)
-    if (index < 0) {
-        return null
-    }
-
-    const value = record[index]
-    return typeof value === 'string' && value ? value : null
-}
-
-function getGenerationSentimentLookup(record: unknown, query: DataTableNode): GenerationSentimentLookup | null {
-    if (!Array.isArray(record) || !isEventsQuery(query.source)) {
-        return null
-    }
-
-    const columns = query.source.select ?? []
-    const eventId = getStringColumnValue(record, columns, 'uuid')
-    const traceId = getStringColumnValue(record, columns, 'properties.$ai_trace_id')
-
-    if (!eventId || !traceId) {
-        return null
-    }
-
-    // The scan window is anchored on the generation timestamp, so a row without one is not
-    // something we can look up.
-    const timestamp = getStringColumnValue(record, columns, 'timestamp')
-
-    if (!timestamp) {
-        return null
-    }
-
-    const generationId = getStringColumnValue(record, columns, 'properties.$ai_generation_id')
-    const generationIds = generationId && generationId !== eventId ? [eventId, generationId] : [eventId]
-
-    return {
-        key: eventId,
-        traceId,
-        generationIds,
-        timestamp,
-    }
-}
-
-function LazyGenerationSentimentCell({ lookup }: { lookup: GenerationSentimentLookup }): JSX.Element {
-    const { getGenerationSentiment, isGenerationLoading, didGenerationSentimentLoadFail } = useValues(
-        llmGenerationSentimentLazyLoaderLogic
-    )
-    const { ensureGenerationSentimentLoaded } = useActions(llmGenerationSentimentLazyLoaderLogic)
-
-    const lookupKey = lookup.key
-    const lookupTraceId = lookup.traceId
-    const lookupTimestamp = lookup.timestamp
-    const lookupGenerationIdsKey = lookup.generationIds.join('\0')
-    const cached = getGenerationSentiment(lookupKey)
-    const loading = isGenerationLoading(lookupKey)
-    const failed = didGenerationSentimentLoadFail(lookupKey)
-
-    const loadSentiment = (): void => {
-        ensureGenerationSentimentLoaded({
-            key: lookupKey,
-            traceId: lookupTraceId,
-            generationIds: lookupGenerationIdsKey ? lookupGenerationIdsKey.split('\0') : [],
-            timestamp: lookupTimestamp,
-        })
-    }
-
-    useEffect(() => {
-        if (cached === undefined && !loading && !failed) {
-            loadSentiment()
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [
-        cached,
-        ensureGenerationSentimentLoaded,
-        failed,
-        loading,
-        lookupGenerationIdsKey,
-        lookupKey,
-        lookupTimestamp,
-        lookupTraceId,
-    ])
-
-    if (loading || cached === undefined) {
-        if (failed) {
-            return (
-                <Tooltip title="Failed to load sentiment.">
-                    <LemonButton type="tertiary" size="xsmall" onClick={loadSentiment}>
-                        Retry
-                    </LemonButton>
-                </Tooltip>
-            )
-        }
-
-        return <AIDataLoading variant="inline" />
-    }
-
-    if (cached === null) {
-        return <>–</>
-    }
-
-    return <SentimentBar label={cached.label} score={cached.score} size="full" messages={cached.messages} />
 }
 
 function LazyTraceReviewColumnCell({ traceId }: { traceId: string }): JSX.Element {
@@ -585,17 +480,6 @@ export const aiObservabilityColumnRenderers: Record<string, QueryContextColumn> 
                     messages={traceRecord.sentiment.messages}
                 />
             )
-        },
-    },
-    [GENERATION_SENTIMENT_SELECT]: {
-        title: 'Sentiment',
-        render: ({ record, query }) => {
-            if (!isDataTableNode(query)) {
-                return <>–</>
-            }
-
-            const lookup = getGenerationSentimentLookup(record, query)
-            return lookup ? <LazyGenerationSentimentCell lookup={lookup} /> : <>–</>
         },
     },
     'properties.$ai_tools_called': {
