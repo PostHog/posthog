@@ -129,25 +129,14 @@ export function LoginForm(): JSX.Element {
         restrictToProviders,
         autoRedirectingToProvider,
         availableLoginMethods,
+        precheckTrusted,
+        showsSocialLoginButtons,
+        linkedSocialProviders,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
     const isPasswordHidden = !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable
     const isCodeSent = codeVerificationRequired
-    // Trust the precheck only when it resolved for the email now in the form: a failed precheck
-    // reports permissive defaults, and a stale one still holds the previous email's account.
-    const precheckTrusted =
-        precheckResponse.status === 'completed' &&
-        !precheckResponse.precheckFailed &&
-        precheckResponse.email === login.email
-    // Normally SAML replaces this row, but when the account has no password we need to show whatever
-    // it does have. A linked provider hint points at this row, so the hint must not outlive it.
-    const showsSocialLoginButtons =
-        !isCodeSent &&
-        !precheckResponse.sso_enforcement &&
-        (!precheckResponse.saml_available || isPasswordLoginUnavailable)
-    const linkedSocialProviders =
-        precheckTrusted && showsSocialLoginButtons ? (precheckResponse.social_providers ?? []) : []
     const lastLoginMethod = getCookie(LAST_LOGIN_METHOD_COOKIE) as LoginMethod
     const prevEmail = usePrevious(login.email)
 
