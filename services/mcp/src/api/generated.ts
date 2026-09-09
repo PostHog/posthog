@@ -30244,7 +30244,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly assignee: EarlyAccessFeatureSerializerCreateOnlyAssignee;
-      /** Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not be group-based, and must not be multivariate. */
+      /** Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not belong to another product such as a survey or experiment, must not be group-based, and must not be multivariate. */
       feature_flag_id?: number;
       readonly feature_flag: MinimalFeatureFlag;
       _create_in_folder?: string;
@@ -53953,6 +53953,8 @@ export namespace Schemas {
       readonly next_observation_id: string | null;
       /** The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled. */
       readonly label: ReplayObservationLabel | null;
+      /** Whether the calling user has opened this observation. */
+      readonly viewed: boolean;
       /** @nullable */
       started_at?: string | null;
       /** @nullable */
