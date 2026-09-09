@@ -635,3 +635,101 @@ describe("tool_use blocks for an already-emitted tool call", () => {
     ).toHaveLength(1);
   });
 });
+
+describe("failed tool results", () => {
+  function toolResultMessage(
+    toolUseId: string,
+    content: unknown,
+    toolUseResult: unknown,
+  ): SDKUserMessage {
+    return {
+      type: "user",
+      parent_tool_use_id: null,
+      uuid: "00000000-0000-0000-0000-000000000004",
+      session_id: "test-session",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: toolUseId,
+            is_error: true,
+            content,
+          },
+        ],
+      },
+      tool_use_result: toolUseResult,
+    } as unknown as SDKUserMessage;
+  }
+
+  async function failedToolUpdate(
+    content: unknown,
+    toolUseResult: unknown,
+  ): Promise<{ error?: { message?: string }; rawOutput?: unknown }> {
+    const { context, updates } = createHandlerContext();
+    await handleUserAssistantMessage(
+      assistantMessage("msg_1", [
+        { type: "tool_use", id: "tool_1", name: "AskUserQuestion", input: {} },
+      ]),
+      context,
+    );
+    await handleUserAssistantMessage(
+      toolResultMessage("tool_1", content, toolUseResult),
+      context,
+    );
+    const update = updates
+      .map((u) => u.update)
+      .find(
+        (u) =>
+          u.sessionUpdate === "tool_call_update" &&
+          (u as { status?: string }).status === "failed",
+      );
+    return update as { error?: { message?: string }; rawOutput?: unknown };
+  }
+
+  it.each([
+    {
+      name: "a string result",
+      content: "InputValidationError: questions must have 2 options",
+      toolUseResult: "InputValidationError: questions must have 2 options",
+    },
+    {
+      name: "text blocks",
+      content: [
+        {
+          type: "text",
+          text: "InputValidationError: questions must have 2 options",
+        },
+      ],
+      toolUseResult: undefined,
+    },
+  ])("reports the reason for $name", async ({ content, toolUseResult }) => {
+    const update = await failedToolUpdate(content, toolUseResult);
+    expect(update.error?.message).toBe(
+      "InputValidationError: questions must have 2 options",
+    );
+  });
+
+  it("keeps a string result out of rawOutput instead of spreading it per character", async () => {
+    const update = await failedToolUpdate("boom", "boom");
+    expect(update.rawOutput).toEqual({
+      content: [{ type: "text", text: "boom" }],
+      isError: true,
+    });
+  });
+
+  it("still forwards a structured MCP result and reads its error text", async () => {
+    const update = await failedToolUpdate(
+      [{ type: "text", text: "server refused" }],
+      {
+        content: [{ type: "text", text: "server refused" }],
+        structuredContent: { code: 7 },
+      },
+    );
+    expect(update.rawOutput).toMatchObject({
+      structuredContent: { code: 7 },
+      isError: true,
+    });
+    expect(update.error?.message).toBe("server refused");
+  });
+});

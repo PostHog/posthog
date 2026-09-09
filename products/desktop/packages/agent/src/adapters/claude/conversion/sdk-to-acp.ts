@@ -81,8 +81,12 @@ type ChunkHandlerContext = {
   registerHooks?: boolean;
   supportsTerminalOutput?: boolean;
   cwd?: string;
-  /** Raw MCP tool result from SDKUserMessage.tool_use_result (contains content, structuredContent, _meta) */
-  mcpToolUseResult?: Record<string, unknown>;
+  /**
+   * Raw tool result from SDKUserMessage.tool_use_result. An MCP tool returns an
+   * object (content, structuredContent, _meta), but other runtimes return a
+   * plain string, so this stays unknown until it is narrowed.
+   */
+  toolUseResult?: unknown;
   /** Per-session task list (populated by createTaskHook + tool_result handler) */
   taskState?: TaskState;
 };
@@ -321,6 +325,25 @@ function extractTextFromContent(content: unknown): string | null {
   return null;
 }
 
+/** Narrows to an object safe to spread. A string or an array spreads into index keys. */
+function asPlainObject(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+/** The reason a failed tool result carries, so the reader shows more than "Failed". */
+function toolResultErrorMessage(
+  content: unknown,
+  toolUseResult: unknown,
+): string | undefined {
+  const structured = asPlainObject(toolUseResult);
+  const text =
+    extractTextFromContent(content) ??
+    extractTextFromContent(structured ? structured.content : toolUseResult);
+  return text?.trim() || undefined;
+}
+
 export function stripCatLineNumbers(text: string): string {
   return text.replace(/^ *\d+[\t→]/gm, "");
 }
@@ -454,13 +477,18 @@ function handleToolResultChunk(
       : {}),
   };
 
+  const structuredResult = asPlainObject(ctx.toolUseResult);
+  const errorMessage = chunk.is_error
+    ? toolResultErrorMessage(chunk.content, ctx.toolUseResult)
+    : undefined;
+
   updates.push({
     _meta: meta,
     toolCallId: chunk.tool_use_id,
     sessionUpdate: "tool_call_update",
     status: chunk.is_error ? "failed" : "completed",
-    rawOutput: ctx.mcpToolUseResult
-      ? { ...ctx.mcpToolUseResult, isError: chunk.is_error ?? false }
+    rawOutput: structuredResult
+      ? { ...structuredResult, isError: chunk.is_error ?? false }
       : {
           content: Array.isArray(chunk.content)
             ? chunk.content
@@ -470,6 +498,7 @@ function handleToolResultChunk(
           isError: chunk.is_error ?? false,
         },
     ...toolUpdate,
+    ...(errorMessage ? { error: { message: errorMessage } } : {}),
   });
 
   return updates;
@@ -558,7 +587,7 @@ function toAcpNotifications(
   registerHooks?: boolean,
   supportsTerminalOutput?: boolean,
   cwd?: string,
-  mcpToolUseResult?: Record<string, unknown>,
+  toolUseResult?: unknown,
   enrichedReadCache?: EnrichedReadCache,
   taskState?: TaskState,
   emittedToolCalls?: Set<string>,
@@ -590,7 +619,7 @@ function toAcpNotifications(
     registerHooks,
     supportsTerminalOutput,
     cwd,
-    mcpToolUseResult,
+    toolUseResult,
     taskState,
   };
   const output: SessionNotification[] = [];
@@ -1371,11 +1400,11 @@ export async function handleUserAssistantMessage(
       ? (message.parent_tool_use_id ?? undefined)
       : undefined;
 
-  // Pass the raw MCP tool result (contains content, structuredContent, _meta)
-  // so it can be forwarded as-is to the renderer for MCP Apps
-  const mcpToolUseResult =
-    message.type === "user" && message.tool_use_result != null
-      ? (message.tool_use_result as Record<string, unknown>)
+  // Pass the raw tool result so an MCP result (content, structuredContent, _meta)
+  // reaches the renderer as-is for MCP Apps.
+  const toolUseResult =
+    message.type === "user"
+      ? (message.tool_use_result ?? undefined)
       : undefined;
 
   for (const notification of toAcpNotifications(
@@ -1390,7 +1419,7 @@ export async function handleUserAssistantMessage(
     context.registerHooks,
     context.supportsTerminalOutput,
     session.cwd,
-    mcpToolUseResult,
+    toolUseResult,
     context.enrichedReadCache,
     session.taskState,
     context.emittedToolCalls,
