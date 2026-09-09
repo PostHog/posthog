@@ -109,11 +109,11 @@ export function createCurrentWorkExtension(): ExtensionFactory {
       name: CURRENT_WORK_TOOL_NAME,
       label: "Set current work",
       description:
-        "Set the visible current-work status before starting a meaningful tool-use phase.",
+        "Set the visible current-work status before starting a meaningful task phase.",
       promptSnippet:
-        "Set the visible current-work status before starting a meaningful tool-use phase",
+        "Set the visible current-work status before starting a task phase",
       promptGuidelines: [
-        "Use set_current_work before a meaningful new task phase when practical. Use a concise present-participle phrase that names the current phase, such as 'Inspecting the test setup' or 'Writing regression tests'. Keep the phrase at the task-phase level, not per individual tool call.",
+        "Use set_current_work before a new task phase. Use a concise present-participle phrase that names the current phase, such as 'Inspecting the test setup' or 'Writing regression tests'. Keep the phrase at the task phase level, not per individual tool call.",
       ],
       renderShell: "self",
       renderCall: () => new Container(),
