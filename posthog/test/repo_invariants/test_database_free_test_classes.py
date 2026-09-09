@@ -10,6 +10,11 @@ reports a class only when the class body mentions none of DATABASE_TOKENS. A cla
 that does reach the database almost always names one of them, so a genuine database
 test is not reported. Classes the scan misses stay missed, which is the safe error.
 
+Two kinds of class are left out because the fix would be wrong for them: a class the
+repo inherits from somewhere, whose own body names nothing while every subclass
+reaches the database, and a class with no test method of its own, which is
+infrastructure rather than a test.
+
 A reported class is a candidate, not a verdict. Confirm one before you change it:
 swap its base for `django.test.SimpleTestCase` and run it. `SimpleTestCase` refuses
 database access, so a passing run is proof the class never needed the database, and
@@ -21,6 +26,7 @@ entries (or after a rename or move):
     python posthog/test/repo_invariants/test_database_free_test_classes.py
 """
 
+import re
 import ast
 from pathlib import Path
 
@@ -29,6 +35,9 @@ BASELINE_PATH = Path(__file__).parent / "database_free_test_classes_baseline.txt
 SCANNED_ROOTS = ("posthog", "ee", "products", "common")
 SKIPPED_DIRS = {"node_modules", ".venv", "venv", "__pycache__", ".git", ".mypy_cache"}
 REGENERATE = "python posthog/test/repo_invariants/test_database_free_test_classes.py"
+
+# Cheap enough to run over every file in the repo, unlike a full parse.
+CLASS_BASES = re.compile(r"^class\s+\w+\s*\(([^)]*)\)", re.MULTILINE)
 
 # Bases that bring Django `TestCase` with them. A class that inherits one of these
 # through a project-specific subclass is out of scope, which keeps the scan cheap.
@@ -93,13 +102,30 @@ def _takes_a_database(node: ast.ClassDef, django_names: set[str]) -> bool:
     return False
 
 
+def _runs_tests(node: ast.ClassDef) -> bool:
+    """A class with no test method of its own is infrastructure, not a test."""
+    return any(
+        isinstance(statement, ast.FunctionDef | ast.AsyncFunctionDef) and statement.name.startswith("test")
+        for statement in node.body
+    )
+
+
 def collect_candidates() -> list[str]:
-    candidates: list[str] = []
+    # A class other tests inherit names nothing itself, while every subclass reaches
+    # the database, so reporting it would ask for `BaseTest` to move to
+    # `SimpleTestCase`. Collect what the repo inherits from with a regex, which is
+    # cheap enough for every file, and parse only the files that could hold a
+    # candidate. Over-collecting a base name only hides a candidate.
+    inherited: set[str] = set()
+    found: list[tuple[str, str]] = []
     for root in SCANNED_ROOTS:
         for path in (REPO_ROOT / root).rglob("*.py"):
             if SKIPPED_DIRS.intersection(path.parts):
                 continue
             source = path.read_text(encoding="utf-8", errors="ignore")
+            for match in CLASS_BASES.finditer(source):
+                for base in match.group(1).split(","):
+                    inherited.add(base.strip().split("[")[0].split(".")[-1])
             if not any(base in source for base in DATABASE_BASES):
                 continue
             try:
@@ -109,15 +135,17 @@ def collect_candidates() -> list[str]:
             django_names = _django_test_names(tree)
             lines = source.splitlines()
             for node in ast.walk(tree):
-                if not isinstance(node, ast.ClassDef) or not _takes_a_database(node, django_names):
+                if not isinstance(node, ast.ClassDef):
+                    continue
+                if not _takes_a_database(node, django_names) or not _runs_tests(node):
                     continue
                 # Raw source rather than unparsed nodes, so comments count too and the
                 # semgrep rule of the same name reads exactly the same text.
                 body = "\n".join(lines[node.lineno - 1 : node.end_lineno])
                 if any(token in body for token in DATABASE_TOKENS):
                     continue
-                candidates.append(f"{path.relative_to(REPO_ROOT).as_posix()}::{node.name}")
-    return sorted(candidates)
+                found.append((path.relative_to(REPO_ROOT).as_posix(), node.name))
+    return sorted(f"{path}::{name}" for path, name in found if name not in inherited)
 
 
 def read_baseline() -> list[str]:

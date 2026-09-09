@@ -45,3 +45,17 @@ class TestBuildsAFixture(BaseTest):
 class TestAlreadyDatabaseFree(SimpleTestCase):
     def test_adds(self) -> None:
         assert 1 + 1 == 2
+
+
+# A shared base other tests inherit: its own body names nothing, but every
+# subclass reaches the database. Reporting it would ask for the wrong fix.
+# ok: test-class-takes-an-unused-database
+class _FeatureFlagEnabledMixin(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+
+
+# ok: test-class-takes-an-unused-database
+class BaseHogFunctionTemplateTest(BaseTest):
+    def assert_template(self, template) -> None:
+        assert template.id

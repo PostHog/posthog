@@ -95,12 +95,10 @@ posthog/api/test/test_toolbar_oauth_endpoint_auth.py::TestToolbarOAuthScopesConf
 posthog/api/test/test_toolbar_oauth_primitives.py::TestTokenEndpointStatusRemapping
 posthog/api/test/test_toolbar_oauth_primitives.py::TestToolbarOAuthStateCache
 posthog/api/test/test_user_integration.py::TestGithubUserFromCode
-posthog/async_migrations/test/util.py::AsyncMigrationBaseTest
 posthog/caching/test/test_redis_cluster_keys.py::TestRedisClusterKeySlots
 posthog/caching/test/test_zstd_compressor.py::TestZstdCompressor
 posthog/cdp/templates/avo/test_template_avo.py::TestTemplateMigration
 posthog/cdp/templates/customerio/test_template_customerio.py::TestTemplateMigration
-posthog/cdp/templates/helpers.py::BaseHogFunctionTemplateTest
 posthog/cdp/templates/hubspot/test_template_hubspot.py::TestTemplateMigration
 posthog/cdp/templates/posthog/test_template_posthog.py::TestTemplateMigration
 posthog/cdp/templates/rudderstack/test_template_rudderstack.py::TestTemplateMigration
@@ -225,10 +223,6 @@ posthog/temporal/tests/salesforce_enrichment/test_usage_workflow.py::TestWorkflo
 posthog/test/activity_logging/test_activity_logging.py::TestActivityTriggerContext
 posthog/test/activity_logging/test_feature_flag_activity_logging.py::TestChangesBetweenFeatureFlags
 posthog/test/activity_logging/test_user_activity_logging.py::TestUserActivityLoggingConfiguration
-posthog/test/base.py::BaseTest
-posthog/test/base.py::ClickhouseDestroyTablesMixin
-posthog/test/base.py::NonAtomicTestMigrations
-posthog/test/base.py::TestMigrations
 posthog/test/test_api_queries_budget.py::TestTokenBucket
 posthog/test/test_cache_utils.py::TestCacheUtils
 posthog/test/test_check_product_migrations.py::TestCheckProductMigrations
@@ -345,8 +339,6 @@ products/feature_flags/backend/test/test_local_evaluation.py::TestExtractCohortI
 products/growth/backend/temporal/signup_enrichment/tests/test_harmonic_status_poll.py::TestReportStatusPollRunActivity
 products/legal_documents/backend/tests/test_admin.py::TestLegalDocumentInlineRegistration
 products/logs/backend/test/test_logs_url_params.py::TestBuildLogsUrlParams
-products/marketing_analytics/backend/services/test_conversion_goals_inspector.py::_InspectorMixin
-products/marketing_analytics/backend/services/test_setup_plan.py::SetupPlanTestCase
 products/marketing_analytics/backend/services/test_utm_matching.py::TestSharedMatchHelpers
 products/marketing_analytics/backend/test_api_serializer_parity.py::TestSerializerFieldParity
 products/marketing_analytics/backend/test_max_tools.py::TestFormatAuditUtmForLlm
@@ -409,12 +401,7 @@ products/tasks/backend/tests/test_repository_readiness.py::TestClassifyRepositor
 products/tasks/backend/tests/test_repository_readiness.py::TestSelectCandidatePaths
 products/tasks/backend/tests/test_repository_readiness.py::TestShouldScanPath
 products/tasks/backend/tests/test_webhooks.py::TestAccountType
-products/user_interviews/backend/test_dogfood_interview_link.py::_FeatureFlagEnabledMixin
 products/user_interviews/backend/test_facade.py::TestParseIntervieweeIdentifier
-products/user_interviews/backend/test_interview_sharing.py::_FeatureFlagEnabledMixin
-products/user_interviews/backend/test_interviewee_context_bulk_create.py::_FeatureFlagEnabledMixin
-products/user_interviews/backend/test_search.py::_FeatureFlagEnabledMixin
-products/user_interviews/backend/test_shared_interview_link.py::_FeatureFlagEnabledMixin
 products/warehouse_sources/backend/tests/api/test_external_data_source.py::TestGetOAuthIntegrationKinds
 products/warehouse_sources/backend/tests/api/test_external_data_source.py::TestSensitiveFieldClassification
 products/web_analytics/backend/hogql_queries/test/test_custom_bot_definitions.py::TestPatternsCompile
