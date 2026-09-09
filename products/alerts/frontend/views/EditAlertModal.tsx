@@ -362,6 +362,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             alertForm={alertForm}
             alertMode={alertMode}
             thresholdBoundsFormError={thresholdBoundsFormError}
+            forecastValidationError={forecastValidationError}
             isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
             trends={{ alertSeries, formulaNodes, isBreakdownValid }}
             funnel={{

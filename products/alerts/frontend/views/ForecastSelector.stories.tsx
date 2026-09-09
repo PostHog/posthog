@@ -12,7 +12,7 @@ import { ForecastSelector } from './ForecastSelector'
 
 function SelectorStory({ initialValue }: { initialValue: ForecastConfig }): JSX.Element {
     const [value, setValue] = useState(initialValue)
-    return <ForecastSelector value={value} onChange={setValue} insightInterval="day" />
+    return <ForecastSelector value={value} onChange={setValue} insightInterval="day" targetDateError={null} />
 }
 
 const meta: Meta<typeof ForecastSelector> = {
