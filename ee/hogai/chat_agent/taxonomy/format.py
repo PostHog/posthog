@@ -8,6 +8,8 @@ import yaml
 
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, is_hidden_from_assistant
 
+from ee.hogai.utils.helpers import sanitize_taxonomy_value
+
 
 def format_property_values(
     property_name: str,
@@ -27,11 +29,11 @@ def format_property_values(
     formatted_sample_values: list[str] = []
     for value in sample_values:
         if format_as_string:
-            formatted_sample_values.append(f'"{value}"')
+            formatted_sample_values.append(f'"{sanitize_taxonomy_value(str(value))}"')
         elif isinstance(value, float) and value.is_integer():
             formatted_sample_values.append(str(int(value)))
         else:
-            formatted_sample_values.append(str(value))
+            formatted_sample_values.append(sanitize_taxonomy_value(str(value)))
 
     if sample_count is None:
         formatted_sample_values.append("and many more distinct values")

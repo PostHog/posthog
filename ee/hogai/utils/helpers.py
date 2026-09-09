@@ -77,6 +77,43 @@ _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 # blow up every team member's prompt. The taxonomy already bounds the number of events per prompt.
 MAX_EVENT_DESCRIPTION_LENGTH = 500
 
+# Event and property names come from ingestion, so they are unbounded too. Real names are short,
+# so a cap this generous only truncates names that are already unusable in a query.
+MAX_TAXONOMY_NAME_LENGTH = 200
+
+# Sample values are arbitrary ingested strings. URLs and search terms are legitimately long, so
+# give them more room than a name.
+MAX_TAXONOMY_VALUE_LENGTH = 500
+
+
+def _neutralize_untrusted_text(text: str, max_length: int) -> str:
+    """Flatten untrusted text to a single capped line and neutralize system_reminder framing."""
+    collapsed = re.sub(r"\s+", " ", _CONTROL_CHARS_RE.sub(" ", text)).strip()
+    if len(collapsed) > max_length:
+        collapsed = collapsed[:max_length].rstrip() + "…"
+    return sanitize_for_system_reminder(collapsed)
+
+
+def sanitize_taxonomy_name(name: str) -> str:
+    """Neutralize an event or property name before it goes into the model's context.
+
+    Anyone who can reach the project's capture endpoint chooses these names, so they are untrusted
+    even though they read as schema. A name that keeps its line breaks can close the surrounding
+    block and open a forged one, which turns ingested text into instructions for another user's
+    agent session.
+    """
+    return _neutralize_untrusted_text(name, MAX_TAXONOMY_NAME_LENGTH)
+
+
+def sanitize_taxonomy_value(value: str) -> str:
+    """Neutralize a sample property value before it goes into the model's context.
+
+    Same untrusted ingestion path as the names, and the widest one: a value is free text that the
+    sender fully controls.
+    """
+    return _neutralize_untrusted_text(value, MAX_TAXONOMY_VALUE_LENGTH)
+
+
 NOT_SEEN_RECENTLY_MARKER = "(not seen in the last 30 days)"
 NOT_SEEN_RECENTLY_LEGEND = (
     f"Events marked {NOT_SEEN_RECENTLY_MARKER} are listed for reference only. This project has sent none of them "
@@ -92,10 +129,7 @@ def sanitize_event_description(text: str) -> str:
     reach another user's agent session verbatim. Collapse control characters and whitespace so the
     text can't break out of its line, cap the length, and neutralize system_reminder framing.
     """
-    collapsed = re.sub(r"\s+", " ", _CONTROL_CHARS_RE.sub(" ", text)).strip()
-    if len(collapsed) > MAX_EVENT_DESCRIPTION_LENGTH:
-        collapsed = collapsed[:MAX_EVENT_DESCRIPTION_LENGTH].rstrip() + "…"
-    return sanitize_for_system_reminder(collapsed)
+    return _neutralize_untrusted_text(text, MAX_EVENT_DESCRIPTION_LENGTH)
 
 
 def filter_and_merge_messages(
@@ -361,7 +395,7 @@ def format_events_yaml(
     formatted_events = ["events:"]
     any_not_seen_recently = False
     for event_data in processed_events:
-        name = event_data["name"]
+        name = sanitize_taxonomy_name(event_data["name"])
         description = event_data.get("description", "")
         line = f"- `{name}` - {description}" if description else f"- `{name}`"
         if event_data.get("not_seen_recently"):
