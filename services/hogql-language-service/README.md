@@ -4,13 +4,10 @@ This prototype keeps multiple immutable, permission-filtered catalogs in memory 
 It uses `github.com/orian/clickhouse-sql-parser` to recover table and alias context from the query. Django remains the
 authority for deciding which schema and properties belong in each catalog.
 
-For local development, start the service on its loopback listener:
+For local development, start the service on its loopback listener with Hogli:
 
 ```bash
-HOGQL_LANGUAGE_SERVICE_ALLOW_INSECURE=1 \
-MAX_CATALOGS=2 \
-CATALOG_CACHE_MAX_BYTES=268435456 \
-go -C services/hogql-language-service run ./cmd/server
+hogli start:hogql-lang-service
 ```
 
 Publish a permission-filtered catalog through the multitenant endpoint below before making language requests. The Go
