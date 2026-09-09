@@ -281,6 +281,11 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly dismissal_note: string | null
+    /**
+     * `organization/repository` the report's work targets, from the latest repo-selection artefact (when present). Lets list cards show repository context without a per-card fetch.
+     * @nullable
+     */
+    readonly repo_slug: string | null
     readonly is_suggested_reviewer: boolean
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
