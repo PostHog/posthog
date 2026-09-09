@@ -1420,6 +1420,7 @@ describe("CodexAppServerAgent", () => {
         optionId: "network_1",
         kind,
         name: `${label} example.com for future requests`,
+        _meta: { preservePermissionMode: true },
       });
       expect((decision as { decision: unknown }).decision).toBe(amendment);
     },

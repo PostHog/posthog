@@ -296,7 +296,10 @@ describe("handleServerRequest", () => {
         kind: "allow_always",
         name: "Allow these permissions for this session",
         optionId: "allow_session",
-        _meta: { description: JSON.stringify(params.permissions, null, 2) },
+        _meta: {
+          description: JSON.stringify(params.permissions, null, 2),
+          preservePermissionMode: true,
+        },
       });
       expect(calls[0].toolCall.rawInput).toEqual(params.permissions);
     },
