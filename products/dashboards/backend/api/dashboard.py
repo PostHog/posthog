@@ -2028,6 +2028,23 @@ class DashboardSerializer(DashboardMetadataSerializer):
             )
 
     @staticmethod
+    def _related_object_belongs_to_posted_tile(instance: Dashboard, tile_data: dict, **related_id: int) -> bool:
+        """Check that the posted related object (text/button_tile/widget) lives on the posted tile.
+
+        ``_upsert_tile`` keys the update on ``(tile id, dashboard)`` and pushes the related object
+        in through ``defaults``. If the related object already sits on a different tile of this
+        dashboard, that update sets a duplicate FK and trips the partial unique index (e.g.
+        ``unique_dashboard_text``), which surfaces as a 500 that loses the user's edit. So the
+        related object is only writable when the tile that holds it is the tile being posted.
+        """
+        holding_tile_id = (
+            DashboardTile.objects_including_soft_deleted.filter(dashboard=instance, **related_id)
+            .values_list("id", flat=True)
+            .first()
+        )
+        return holding_tile_id is not None and holding_tile_id == tile_data.get("id")
+
+    @staticmethod
     def _upsert_tile(instance: Dashboard, tile_data: dict, **extra_defaults: Any) -> tuple[DashboardTile, bool]:
         tile_defaults = DashboardSerializer._extract_display_defaults(tile_data)
         # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
@@ -2134,13 +2151,17 @@ class DashboardSerializer(DashboardMetadataSerializer):
             if existing_text_id:
                 try:
                     text = Text.objects.get(id=existing_text_id, team_id=instance.team_id)
-                    if not DashboardTile.objects.filter(dashboard=instance, text_id=existing_text_id).exists():
-                        raise serializers.ValidationError({"text": "Text tile not found."})
-                    for attr, val in validated_data.items():
-                        setattr(text, attr, val)
-                    text.save()
                 except Text.DoesNotExist:
                     raise serializers.ValidationError({"text": "Text tile not found in this team."})
+                # The text must belong to the posted tile. If it belongs to another tile on this
+                # dashboard, writing it onto the posted tile trips the unique_dashboard_text index.
+                if not DashboardSerializer._related_object_belongs_to_posted_tile(
+                    instance, tile_data, text_id=existing_text_id
+                ):
+                    raise serializers.ValidationError({"text": "Text tile not found."})
+                for attr, val in validated_data.items():
+                    setattr(text, attr, val)
+                text.save()
             else:
                 text = Text.objects.create(**validated_data)
             tile, created = DashboardSerializer._upsert_tile(instance, tile_data, text=text)
@@ -2175,13 +2196,16 @@ class DashboardSerializer(DashboardMetadataSerializer):
             if existing_button_id:
                 try:
                     button_tile = ButtonTile.objects.get(id=existing_button_id, team_id=instance.team_id)
-                    if not DashboardTile.objects.filter(dashboard=instance, button_tile_id=existing_button_id).exists():
-                        raise serializers.ValidationError({"button_tile": "Button tile not found."})
-                    for attr, val in validated_data.items():
-                        setattr(button_tile, attr, val)
-                    button_tile.save()
                 except ButtonTile.DoesNotExist:
                     raise serializers.ValidationError({"button_tile": "Button tile not found in this team."})
+                # The button must belong to the posted tile, else the write trips unique_dashboard_button_tile.
+                if not DashboardSerializer._related_object_belongs_to_posted_tile(
+                    instance, tile_data, button_tile_id=existing_button_id
+                ):
+                    raise serializers.ValidationError({"button_tile": "Button tile not found."})
+                for attr, val in validated_data.items():
+                    setattr(button_tile, attr, val)
+                button_tile.save()
             else:
                 button_tile = ButtonTile.objects.create(**validated_data)
             tile, created = DashboardSerializer._upsert_tile(instance, tile_data, button_tile=button_tile)
@@ -2199,7 +2223,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
             if existing_widget_id:
                 try:
                     widget = DashboardWidget.objects.get(id=existing_widget_id, team_id=instance.team_id)
-                    if not DashboardTile.objects.filter(dashboard=instance, widget_id=existing_widget_id).exists():
+                    # The widget must belong to the posted tile, else the write trips unique_dashboard_widget.
+                    if not DashboardSerializer._related_object_belongs_to_posted_tile(
+                        instance, tile_data, widget_id=existing_widget_id
+                    ):
                         raise serializers.ValidationError({"widget": "Widget tile not found."})
                     DashboardSerializer._apply_patch_widget_update(
                         widget=widget,

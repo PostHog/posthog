@@ -192,6 +192,32 @@ class TestDashboardWidgets(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "widget"
 
+    def test_widget_patch_rejects_widget_owned_by_another_tile(self) -> None:
+        """
+        Regression: ``_upsert_tile`` keyed the update on ``(tile id, dashboard)`` and pushed the
+        widget in through ``defaults``. The guard only checked that *some* tile held the widget,
+        never that it was the posted tile. So a PATCH carrying tile A's id and tile B's widget id
+        set a duplicate FK on tile A and tripped ``unique_dashboard_widget``, returning a generic
+        500 that lost the user's edit. It must be a 400, and neither tile may change.
+        """
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "target"})
+        self.dashboard_api.create_widget_tile(dashboard_id)
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id)
+
+        tile_a, tile_b = sorted(dashboard_json["tiles"], key=lambda t: t["id"])
+        widget_b_id = tile_b["widget"]["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            # tile A's id, but tile B's widget — the cross-tile contamination
+            {"tiles": [{"id": tile_a["id"], "widget": tile_b["widget"]}]},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content[:500]
+
+        tiles_after = {t["id"]: t for t in self.dashboard_api.get_dashboard(dashboard_id)["tiles"]}
+        assert tiles_after[tile_b["id"]]["widget"]["id"] == widget_b_id, "tile B keeps its widget"
+        assert tiles_after[tile_a["id"]]["widget"]["id"] != widget_b_id, "tile A did not steal tile B's widget"
+
     @override_settings(IN_UNIT_TESTING=True)
     def test_patch_widget_denies_without_product_access(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
