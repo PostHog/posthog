@@ -5,7 +5,6 @@ import {
   GearSix,
   Info,
   Plus,
-  Trash,
   WarningCircle,
 } from "@phosphor-icons/react";
 import {
@@ -34,6 +33,10 @@ import { useService } from "@posthog/di/react";
 import {
   Badge,
   Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   Item,
   ItemActions,
   ItemContent,
@@ -355,7 +358,7 @@ export function GitHubConnectPanel() {
                   variant="outline"
                   size="sm"
                   tone={isStale ? "warning" : "success"}
-                  className="w-full"
+                  className="w-full pr-2"
                 >
                   <ItemMedia variant="icon">
                     {isStale ? (
@@ -389,7 +392,7 @@ export function GitHubConnectPanel() {
                       </ItemDescription>
                     )}
                   </ItemContent>
-                  <ItemActions className="flex shrink-0 items-center gap-1">
+                  <ItemActions className="flex shrink-0 items-center gap-2">
                     {!isStale && (
                       <Text size="xs" variant="muted">
                         {isLoadingInstallRepos
@@ -429,48 +432,57 @@ export function GitHubConnectPanel() {
                         <ArrowSquareOut size={12} />
                       </Button>
                     )}
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            size="icon-sm"
-                            variant="default"
-                            aria-label={`Manage ${accountName} on GitHub`}
-                            onClick={() =>
-                              openExternalUrl(
-                                buildInstallationSettingsUrl(
-                                  integration.account,
-                                  installationId,
-                                ),
-                              )
-                            }
-                          >
-                            <GearSix size={14} />
-                          </Button>
-                        }
-                      />
-                      <TooltipContent>Manage on GitHub</TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            size="icon-sm"
-                            variant="default"
-                            aria-label={`Disconnect ${accountName}`}
-                            onClick={() =>
-                              setDisconnectTarget({
+                    <DropdownMenu>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <DropdownMenuTrigger
+                              render={
+                                <Button
+                                  size="icon-sm"
+                                  variant="default"
+                                  aria-label={`Manage ${accountName}`}
+                                >
+                                  <GearSix size={14} />
+                                </Button>
+                              }
+                            />
+                          }
+                        />
+                        <TooltipContent>Manage</TooltipContent>
+                      </Tooltip>
+                      <DropdownMenuContent
+                        align="end"
+                        side="bottom"
+                        sideOffset={6}
+                        className="min-w-fit"
+                      >
+                        <DropdownMenuItem
+                          onClick={() =>
+                            openExternalUrl(
+                              buildInstallationSettingsUrl(
+                                integration.account,
                                 installationId,
-                                accountName,
-                              })
-                            }
-                          >
-                            <Trash size={14} />
-                          </Button>
-                        }
-                      />
-                      <TooltipContent>Disconnect</TooltipContent>
-                    </Tooltip>
+                              ),
+                            )
+                          }
+                        >
+                          Open settings on GitHub
+                          <ArrowSquareOut size={12} className="ml-auto" />
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onClick={() =>
+                            setDisconnectTarget({
+                              installationId,
+                              accountName,
+                            })
+                          }
+                        >
+                          Disconnect...
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </ItemActions>
                 </Item>
               );
@@ -497,7 +509,7 @@ export function GitHubConnectPanel() {
                   onClick={initiateAdditionalConnect}
                 >
                   <Plus size={12} />
-                  Add another GitHub org
+                  Add org
                 </Button>
               )}
             </div>
@@ -563,7 +575,7 @@ export function GitHubConnectPanel() {
               size="lg"
               variant="primary"
               onClick={() => initiateConnect(teamConnectFlow)}
-              className="w-full"
+              className="w-fit self-center"
             >
               Sign in with GitHub
               <ArrowSquareOut size={12} />
@@ -583,7 +595,7 @@ export function GitHubConnectPanel() {
                   initiateConnect("user_new", isRetry);
                 }}
                 loading={isConnecting}
-                className="w-full"
+                className="w-fit self-center"
               >
                 {
                   deriveConnectButtonState({

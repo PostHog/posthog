@@ -1,6 +1,6 @@
 import { useId } from "react";
 
-const GRID_STROKE = "var(--blue-a4)";
+const GRID_STROKE = "var(--border)";
 
 export function MathGridBackground() {
   const patternId = useId();

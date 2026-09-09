@@ -49,7 +49,7 @@ export function ConnectGitHubStep({ onNext, onBack }: ConnectGitHubStepProps) {
             <OptionalBadge />
           </div>
           <Text size="sm" variant="muted">
-            Code access helps us understand your product and helps you build.
+            Unlocks cloud environments and self-driving tasks.
           </Text>
         </motion.div>
 
@@ -63,11 +63,11 @@ export function ConnectGitHubStep({ onNext, onBack }: ConnectGitHubStepProps) {
             <GithubConnectionEmpty
               connected={isConnected}
               showLearnMore={false}
-              title={isConnected ? "GitHub connected" : "Connect GitHub"}
+              className="border-solid"
               description={
                 isConnected
-                  ? "Manage the GitHub organizations that PostHog Desktop can use."
-                  : "Connect GitHub to give PostHog Desktop access to your code."
+                  ? "GitHub connected"
+                  : "Gives PostHog Desktop read access to your repos"
               }
             >
               <GitHubConnectPanel />

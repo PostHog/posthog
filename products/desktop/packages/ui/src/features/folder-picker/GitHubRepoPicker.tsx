@@ -3,6 +3,7 @@ import {
   CaretDown,
   GithubLogo,
   MagnifyingGlass,
+  X,
 } from "@phosphor-icons/react";
 import {
   Button,
@@ -127,6 +128,7 @@ export function GitHubRepoPicker({
     );
   }, [repositories, trimmedSearchQuery]);
   const hasMore = controlledHasMore ?? filteredRepositoryCount > visibleLimit;
+  const showClear = variant === "field" && value !== null && !disabled;
   const showLoadingMore = useDelayedVisibility(
     effectiveIsLoadingMore,
     LOAD_MORE_INDICATOR_DELAY_MS,
@@ -236,31 +238,55 @@ export function GitHubRepoPicker({
       }}
       disabled={disabled}
     >
-      <ComboboxTrigger
-        render={
-          variant === "field" ? (
+      {variant === "field" ? (
+        <div className="relative w-full">
+          <ComboboxTrigger
+            render={
+              <Button
+                ref={triggerRef}
+                type="button"
+                variant="outline"
+                size="lg"
+                left
+                disabled={disabled}
+                aria-label="Repository"
+                className={triggerClass}
+              >
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <GithubLogo size={16} className="shrink-0 text-foreground" />
+                  <span
+                    className="min-w-0 max-w-full truncate text-left font-medium text-foreground"
+                    title={value ?? undefined}
+                  >
+                    {value ?? placeholder}
+                  </span>
+                </div>
+                <CaretDown
+                  size={14}
+                  className="shrink-0 text-muted-foreground"
+                />
+              </Button>
+            }
+          />
+          {showClear ? (
             <Button
-              ref={triggerRef}
               type="button"
-              variant="outline"
-              size="lg"
-              left
-              disabled={disabled}
-              aria-label="Repository"
-              className={triggerClass}
+              size="icon-xs"
+              variant="default"
+              aria-label="Clear repository"
+              className="-translate-y-1/2 absolute top-1/2 right-8"
+              onClick={(event) => {
+                event.stopPropagation();
+                onChange(null);
+              }}
             >
-              <div className="flex min-w-0 flex-1 items-center gap-2">
-                <GithubLogo size={16} className="shrink-0 text-(--gray-12)" />
-                <span
-                  className="min-w-0 max-w-full truncate text-left font-medium text-(--gray-12)"
-                  title={value ?? undefined}
-                >
-                  {value ?? placeholder}
-                </span>
-              </div>
-              <CaretDown size={14} className="shrink-0 text-muted-foreground" />
+              <X size={12} />
             </Button>
-          ) : (
+          ) : null}
+        </div>
+      ) : (
+        <ComboboxTrigger
+          render={
             <Button
               ref={triggerRef}
               variant="outline"
@@ -272,14 +298,14 @@ export function GitHubRepoPicker({
               <GithubLogo size={14} weight="regular" className="shrink-0" />
               <span className="min-w-0 truncate">{value ?? placeholder}</span>
             </Button>
-          )
-        }
-      />
+          }
+        />
+      )}
       <ComboboxContent
         anchor={anchor ?? triggerRef}
         side="bottom"
         sideOffset={6}
-        className="flex h-80 w-80 flex-col"
+        className="flex h-80 min-w-(--anchor-width) flex-col"
       >
         {showSearchInput ? (
           <ComboboxInput

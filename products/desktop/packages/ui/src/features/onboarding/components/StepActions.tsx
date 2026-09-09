@@ -22,7 +22,7 @@ export function StepActions({
       style={{ zIndex: 1 }}
       className="relative shrink-0"
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-center justify-end gap-2">
         {children}
         {primaryAction}
       </div>

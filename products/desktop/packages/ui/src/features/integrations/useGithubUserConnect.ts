@@ -199,26 +199,32 @@ function machineToResult(
   };
 }
 
-export function useGithubUserConnect({ projectId }: Options): Result {
-  const connectService = useService<GithubConnectService>(
-    GITHUB_CONNECT_SERVICE,
-  );
-  const machine = useConnectStateMachine(projectId);
-
-  const connect = useCallback(async () => {
-    if (machine.stateRef.current === "connecting") return;
-    if (projectId === null) return;
+function useConnectGithubUser(
+  connectService: GithubConnectService,
+  projectId: number | null,
+  machine: StateMachine,
+): () => Promise<void> {
+  return useCallback(async () => {
+    if (machine.stateRef.current === "connecting" || projectId === null) return;
     machine.beginConnecting();
     try {
       await connectService.connectUser(projectId);
       machine.scheduleDevPolling();
       machine.scheduleUserFlowTimeout();
-    } catch (e) {
+    } catch (error) {
       machine.finishWithError(
-        toConnectError(e, "Failed to start GitHub connection"),
+        toConnectError(error, "Failed to start GitHub connection"),
       );
     }
-  }, [connectService, projectId, machine]);
+  }, [connectService, machine, projectId]);
+}
+
+export function useGithubUserConnect({ projectId }: Options): Result {
+  const connectService = useService<GithubConnectService>(
+    GITHUB_CONNECT_SERVICE,
+  );
+  const machine = useConnectStateMachine(projectId);
+  const connect = useConnectGithubUser(connectService, projectId, machine);
 
   return machineToResult(machine, connect);
 }
@@ -251,6 +257,7 @@ export function useGithubConnect({
   const cloudRegion = useAuthStateValue((s) => s.cloudRegion);
   const { isAdmin } = useIsOrgAdmin();
   const machine = useConnectStateMachine(projectId, onConnected);
+  const connectUser = useConnectGithubUser(connectService, projectId, machine);
 
   const connect = useCallback(async () => {
     if (machine.stateRef.current === "connecting") return;
@@ -280,21 +287,6 @@ export function useGithubConnect({
     cloudRegion,
     machine,
   ]);
-
-  const connectUser = useCallback(async () => {
-    if (machine.stateRef.current === "connecting") return;
-    if (projectId === null) return;
-    machine.beginConnecting();
-    try {
-      await connectService.connectUser(projectId);
-      machine.scheduleDevPolling();
-      machine.scheduleUserFlowTimeout();
-    } catch (error) {
-      machine.finishWithError(
-        toConnectError(error, "Failed to start GitHub connection"),
-      );
-    }
-  }, [connectService, machine, projectId]);
 
   return { ...machineToResult(machine, connect), connectUser };
 }

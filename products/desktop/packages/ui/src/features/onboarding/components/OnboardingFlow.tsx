@@ -6,21 +6,12 @@ import {
   SignOut,
 } from "@phosphor-icons/react";
 import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
-import { integrationKeys } from "@posthog/core/integrations/repositoryKeys";
-import {
-  classifyIntegrations,
-  type Integration,
-} from "@posthog/core/integrations/selectors";
 import {
   buildAbandonedProps,
   buildCompletedProps,
   buildStepCompletedProps,
   type StepCompletedContext,
 } from "@posthog/core/onboarding/analytics";
-import {
-  planSpaceRepoAssignments,
-  resolveRepoIntegrationId,
-} from "@posthog/core/onboarding/spaceRepoAssignment";
 import {
   Button,
   ButtonGroup,
@@ -32,21 +23,17 @@ import {
   Text,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import type { TaskChannel } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useLogoutMutation } from "@posthog/ui/features/auth/useAuthMutations";
-import {
-  AUTH_SCOPED_QUERY_META,
-  useCurrentUser,
-} from "@posthog/ui/features/auth/useCurrentUser";
-import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { ConsentStep } from "@posthog/ui/features/consent/ConsentStep";
 import { useUserGithubIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { ConnectGitHubStep } from "@posthog/ui/features/onboarding/components/ConnectGitHubStep";
 import { InstallCliStep } from "@posthog/ui/features/onboarding/components/InstallCliStep";
 import { useOnboardingFlow } from "@posthog/ui/features/onboarding/hooks/useOnboardingFlow";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
+import { saveOnboardingRepository } from "@posthog/ui/features/onboarding/saveOnboardingRepository";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { shipIt } from "@posthog/ui/primitives/confetti";
 import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
@@ -99,7 +86,11 @@ function OnboardingAccount({
         className="w-full border border-border py-1"
       >
         <ItemMedia variant="icon">
-          <CheckCircle size={14} weight="fill" className="text-(--green-11)" />
+          <CheckCircle
+            size={14}
+            weight="fill"
+            className="text-success-foreground"
+          />
         </ItemMedia>
         <ItemContent>
           <ItemTitle className="max-w-full truncate font-normal text-xs">
@@ -266,8 +257,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
   const { localWorkspaces } = useHostCapabilities();
   const startupIdentity = useAuthStateValue(getAuthIdentity);
 
-  // Best-effort. The response also seeds the channel cache that the first-run
-  // landing reads moments later.
+  // Best-effort. This also seeds the cache that the first screen reads.
   const assignRepoToSpaces = async (): Promise<void> => {
     if (!apiClient || !startupIdentity) return;
     // Cloud-only hosts store the GitHub repository in selectedDirectory.
@@ -278,46 +268,12 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
     if (!cloudRepo) return;
     const provisioned = await firstRun(startupIdentity, apiClient).provisioned;
     if (!provisioned) return;
-    // Set before the entry exists: setQueryData builds the query from the defaults in
-    // place at that moment, and an unmarked entry survives clearAuthScopedQueries and
-    // hands the next account these channels. Every mounted read of this key is already
-    // auth-scoped via useAuthenticatedQuery; this covers the one write that precedes them.
-    queryClient.setQueryDefaults(TASK_CHANNELS_QUERY_KEY, {
-      meta: AUTH_SCOPED_QUERY_META,
+    await saveOnboardingRepository({
+      client: apiClient,
+      provisioned,
+      queryClient,
+      repository: cloudRepo,
     });
-    queryClient.setQueryData(TASK_CHANNELS_QUERY_KEY, provisioned.channels);
-    // Fetched directly: the integrations store only fills once the main app's
-    // hooks mount, which has not happened during onboarding.
-    const integrations = await queryClient.fetchQuery({
-      queryKey: integrationKeys.list(),
-      queryFn: () => apiClient.getIntegrations() as Promise<Integration[]>,
-      staleTime: 60_000,
-      meta: AUTH_SCOPED_QUERY_META,
-    });
-    const integrationId = resolveRepoIntegrationId(
-      cloudRepo,
-      classifyIntegrations(integrations).githubIntegrations,
-    );
-    // Channels only accept a team integration alongside repositories, so a
-    // user-level-only GitHub connection cannot set a space default.
-    if (integrationId == null) return;
-    for (const channelId of planSpaceRepoAssignments(provisioned.channels)) {
-      const updated = await apiClient.updateTaskChannelRepositories(
-        channelId,
-        integrationId,
-        [cloudRepo],
-      );
-      // The direct API call bypasses the standard mutation's cache sync, so
-      // patch the seeded channel cache with the assigned repository. Otherwise
-      // consumers stay on the repository-less provision response until the poll.
-      queryClient.setQueryData<TaskChannel[]>(
-        TASK_CHANNELS_QUERY_KEY,
-        (channels) =>
-          channels?.map((channel) =>
-            channel.id === updated.id ? updated : channel,
-          ),
-      );
-    }
   };
 
   const flowStartedAtRef = useRef(Date.now());
@@ -494,7 +450,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
       <div className="h-full overflow-y-auto px-8 pt-16">
         <div className="mx-auto flex min-h-full w-full max-w-[720px] flex-col items-center">
           <div className="w-full">
-            <div aria-hidden="true" className="h-16 shrink-0" />
+            <div aria-hidden="true" className="h-20 shrink-0" />
             <AnimatePresence mode="wait" custom={direction}>
               {currentStep === "project-select" && (
                 <motion.div

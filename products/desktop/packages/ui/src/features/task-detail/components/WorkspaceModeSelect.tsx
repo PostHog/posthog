@@ -82,9 +82,6 @@ const CLOUD_ICON = <Cloud size={14} weight="regular" />;
 
 const IMAGE_ICON = <Cube size={14} weight="regular" />;
 
-const ICON_BUTTON_CLASS =
-  "flex cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0.5 text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground";
-
 export function WorkspaceModeSelect({
   value,
   onChange,
@@ -295,14 +292,15 @@ export function WorkspaceModeSelect({
                       GitHub setup required
                     </span>
                   )}
-                  <button
+                  <Button
                     type="button"
+                    size="icon-xs"
+                    variant="default"
                     onClick={handleAddEnvironment}
                     aria-label="Add cloud environment"
-                    className={ICON_BUTTON_CLASS}
                   >
                     <Plus size={12} />
-                  </button>
+                  </Button>
                 </div>
               </div>
 
@@ -379,8 +377,10 @@ function CloudTargetItem({
             </ItemDescription>
           </ItemContent>
           <ItemActions className="mr-1.5 ml-auto self-center">
-            <button
+            <Button
               type="button"
+              size="icon-xs"
+              variant="default"
               tabIndex={-1}
               aria-label={
                 isFavorite
@@ -398,14 +398,13 @@ function CloudTargetItem({
                 onToggleFavorite(option.target);
               }}
               className={cn(
-                "flex cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0.5 transition-colors hover:text-foreground",
                 isFavorite
                   ? "text-foreground"
                   : "text-muted-foreground opacity-0 group-hover/dropdown-menu-item:opacity-100",
               )}
             >
               <Star size={12} weight={isFavorite ? "fill" : "regular"} />
-            </button>
+            </Button>
           </ItemActions>
         </ItemMenuItem>
       }

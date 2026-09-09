@@ -1,6 +1,7 @@
 import { ArrowSquareOutIcon } from "@phosphor-icons/react";
 import {
   Button,
+  cn,
   Empty,
   EmptyContent,
   EmptyDescription,
@@ -21,7 +22,8 @@ interface GithubConnectionEmptyProps {
   descriptionClassName?: string;
   loading?: boolean;
   showLearnMore?: boolean;
-  title: ReactNode;
+  title?: ReactNode;
+  className?: string;
 }
 
 export function GithubConnectionEmpty({
@@ -32,14 +34,15 @@ export function GithubConnectionEmpty({
   loading = false,
   showLearnMore = true,
   title,
+  className,
 }: GithubConnectionEmptyProps) {
   return (
-    <Empty className="py-6" aria-live="polite">
+    <Empty className={cn("py-6", className)} aria-live="polite">
       <EmptyHeader>
         <EmptyMedia>
           <GithubConnectionIcon connected={connected} loading={loading} />
         </EmptyMedia>
-        <EmptyTitle>{title}</EmptyTitle>
+        {title ? <EmptyTitle>{title}</EmptyTitle> : null}
         <EmptyDescription className={descriptionClassName}>
           {description}
         </EmptyDescription>

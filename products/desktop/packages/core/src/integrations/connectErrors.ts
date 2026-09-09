@@ -1,4 +1,5 @@
 import { requestErrorStatus } from "@posthog/api-client/fetcher";
+import { readApiErrorBody } from "./apiErrorBody";
 
 export interface GithubConnectError {
   message: string;
@@ -102,14 +103,7 @@ export function describeIntegrationDisconnectError(
   if (requestErrorStatus(error) === 403) {
     return "Only project admins can disconnect this integration.";
   }
-  const body =
-    error && typeof error === "object" && "body" in error
-      ? (error as { body?: unknown }).body
-      : null;
-  const detail =
-    body && typeof body === "object" && "detail" in body
-      ? (body as { detail?: unknown }).detail
-      : null;
-  if (typeof detail === "string" && detail) return detail;
+  const { detail } = readApiErrorBody(error);
+  if (detail) return detail;
   return error instanceof Error ? error.message : fallback;
 }

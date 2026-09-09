@@ -3,7 +3,6 @@ import {
   ArrowRight,
   CheckCircle,
   FolderOpen,
-  GithubLogo,
 } from "@phosphor-icons/react";
 import { repoMatchesGitHubRepos } from "@posthog/core/onboarding/repoProvider";
 import {
@@ -194,8 +193,7 @@ export function SelectRepoStep({
             <OptionalBadge />
           </div>
           <Text size="sm" variant="muted">
-            New tasks use this repo by default. You can change it from the home
-            screen.
+            New tasks use this repo by default. Change it anytime from home.
           </Text>
         </motion.div>
 
@@ -206,39 +204,23 @@ export function SelectRepoStep({
           className="flex flex-col gap-4"
         >
           {useGithubRepository ? (
-            <Empty className="py-6" aria-live="polite">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <GithubLogo size={18} weight="fill" />
-                </EmptyMedia>
-                <EmptyTitle>Choose a GitHub repository</EmptyTitle>
-                <EmptyDescription>
-                  Select a repository that PostHog Desktop can use for new
-                  tasks.
-                </EmptyDescription>
-              </EmptyHeader>
-              <EmptyContent className="w-full max-w-none items-stretch">
-                <GitHubRepoPicker
-                  value={
-                    localWorkspaces
-                      ? selectedCloudRepo
-                      : selectedDirectory || null
-                  }
-                  onChange={(repo) =>
-                    localWorkspaces
-                      ? onCloudRepoChange(repo)
-                      : onDirectoryChange(repo ?? "")
-                  }
-                  repositories={repositories}
-                  isLoading={isLoadingRepos}
-                  onRefresh={refreshRepositories}
-                  isRefreshing={isRefreshingRepos}
-                  placeholder="Select repository…"
-                  variant="field"
-                  disabled={isCompleting}
-                />
-              </EmptyContent>
-            </Empty>
+            <GitHubRepoPicker
+              value={
+                localWorkspaces ? selectedCloudRepo : selectedDirectory || null
+              }
+              onChange={(repo) =>
+                localWorkspaces
+                  ? onCloudRepoChange(repo)
+                  : onDirectoryChange(repo ?? "")
+              }
+              repositories={repositories}
+              isLoading={isLoadingRepos}
+              onRefresh={refreshRepositories}
+              isRefreshing={isRefreshingRepos}
+              placeholder="Select repository…"
+              variant="field"
+              disabled={isCompleting}
+            />
           ) : (
             <Empty
               className={cn("py-6", isDraggingFolder && "bg-muted")}
