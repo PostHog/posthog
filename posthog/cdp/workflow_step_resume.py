@@ -48,7 +48,7 @@ def _cap_value(value: Any, budget: int) -> Any:
     return value if value is not None and _json_size(value) <= budget else None
 
 
-def resume_workflow_step(
+def emit_workflow_step_resume(
     *,
     team_id: int,
     origin_key: str,
@@ -56,7 +56,12 @@ def resume_workflow_step(
     result: Mapping[str, Any] | None = None,
     raise_on_error: bool = False,
 ) -> None:
-    """Wake the step that dispatched `origin_key`; delivery activities can opt into retries."""
+    """Produce the internal event that wakes the step which dispatched `origin_key`.
+
+    The wake is asynchronous. This call returns once the event is produced, not once the step
+    resumes: the engine's subscription matcher consumes the event and schedules the parked job.
+    Delivery activities can opt into retries with `raise_on_error`.
+    """
     try:
         produce_internal_event(
             team_id=team_id,

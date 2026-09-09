@@ -2652,7 +2652,7 @@ async def test_activity_wakes_the_workflow_step_that_started_the_run(ateam, work
 
     with (
         patch("products.signals.backend.scout_harness.runner.arun_signals_scout", side_effect=fake_arun),
-        patch("products.signals.backend.temporal.agentic.scout_scheduler.resume_workflow_step") as resume,
+        patch("products.signals.backend.temporal.agentic.scout_scheduler.emit_workflow_step_resume") as resume,
     ):
         await ActivityEnvironment().run(
             run_signals_scout_activity,
@@ -2717,7 +2717,7 @@ async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_canno
             "products.signals.backend.temporal.agentic.scout_scheduler.temporalio.workflow.execute_activity",
             side_effect=execute_activity,
         ),
-        patch("products.signals.backend.temporal.agentic.scout_scheduler.resume_workflow_step") as resume,
+        patch("products.signals.backend.temporal.agentic.scout_scheduler.emit_workflow_step_resume") as resume,
     ):
         workflow = RunSignalsScoutWorkflow()
         input = RunSignalsScoutInput(team_id=7, skill_name=output.skill_name, workflow_origin_key=workflow_origin_key)

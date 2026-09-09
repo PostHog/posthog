@@ -17,7 +17,7 @@ from products.tasks.backend.logic.services.workflow_step_resume import (
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.relay_sandbox_events import _persist_final_message
 
-_RESUME = "products.tasks.backend.logic.services.workflow_step_resume.resume_workflow_step"
+_RESUME = "products.tasks.backend.logic.services.workflow_step_resume.emit_workflow_step_resume"
 _SEND_TASK = "products.tasks.backend.logic.services.workflow_step_resume.current_app.send_task"
 
 
