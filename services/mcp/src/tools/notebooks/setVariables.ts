@@ -4,31 +4,9 @@ import type { Schemas } from '@/api/generated'
 import { withInformationalResponse } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
-import { DATAFRAME_NAME_REGEX, parseCellTags, variableReaders } from './cellTags'
+import { parseCellTags, variableReaders } from './cellTags'
 import { fetchMarkdownNotebook } from './markdownDoc'
-
-/** Mirrors MAX_VARIABLES_PER_NOTEBOOK in sql_v2_serializers.py, so the schema stops at the server's limit. */
-const MAX_NOTEBOOK_VARIABLES = 10
-
-const NotebookVariableSchema = z
-    .object({
-        name: z
-            .string()
-            .regex(DATAFRAME_NAME_REGEX)
-            .describe(
-                "Identifier cells read: `{name}` in a SQL cell, a plain global in a Python cell. Letters, numbers, and underscores; must not start with a number, repeat another variable, or reuse a cell's dataframe_name."
-            ),
-        type: z
-            .enum(['string', 'number', 'boolean', 'date'])
-            .describe(
-                "How the value binds: 'string', 'number', 'boolean', or 'date'. A 'date' is an absolute ISO 8601 date or datetime ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions like '-7d' are rejected, so compute the date first."
-            ),
-        value: z
-            .union([z.string(), z.number(), z.boolean(), z.null()])
-            .optional()
-            .describe('The current value. Omit or pass null for a declared-but-unset variable.'),
-    })
-    .strict()
+import { MAX_NOTEBOOK_VARIABLES, NotebookVariableSchema, duplicateVariableNames } from './variables'
 
 export const NotebooksSetVariablesSchema = z
     .object({
@@ -47,14 +25,15 @@ export interface SetVariablesResult {
     stale_cells: { node_id: string; dataframe_name?: string }[]
 }
 
-type VariableInput = z.infer<typeof NotebookVariableSchema>
-
 function sameDeclaration(a: Schemas.NotebookVariable | undefined, b: Schemas.NotebookVariable | undefined): boolean {
     return !!a && !!b && a.type === b.type && (a.value ?? null) === (b.value ?? null)
 }
 
 /** Names whose declaration differs between the two lists: added, removed, retyped, or given a new value. */
-function changedVariableNames(before: Schemas.NotebookVariable[], after: VariableInput[]): string[] {
+function changedVariableNames(
+    before: Schemas.NotebookVariable[],
+    after: z.infer<typeof NotebookVariableSchema>[]
+): string[] {
     const byNameBefore = new Map(before.map((variable) => [variable.name, variable]))
     const byNameAfter = new Map(after.map((variable) => [variable.name, variable]))
     const names = new Set([...byNameBefore.keys(), ...byNameAfter.keys()])
@@ -65,11 +44,9 @@ export const setVariablesHandler: ToolBase<typeof NotebooksSetVariablesSchema, S
     context: Context,
     params: z.infer<typeof NotebooksSetVariablesSchema>
 ) => {
-    const duplicates = params.variables
-        .map((variable) => variable.name)
-        .filter((name, index, names) => names.indexOf(name) !== index)
+    const duplicates = duplicateVariableNames(params.variables)
     if (duplicates.length) {
-        throw new Error(`Variable names must be unique. Repeated: ${[...new Set(duplicates)].join(', ')}.`)
+        throw new Error(`Variable names must be unique. Repeated: ${duplicates.join(', ')}.`)
     }
 
     const initial = await fetchMarkdownNotebook(context, params.notebook_id)

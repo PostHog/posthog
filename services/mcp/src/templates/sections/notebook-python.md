@@ -5,3 +5,5 @@ When an analysis needs Python — dataframe manipulation, statistics, clustering
 Do this by default, without being asked, whenever the Python is part of the analysis being delivered. Create a notebook for it if none exists yet. Python cells read upstream cells' dataframes by name, so the usual shape is: SQL cell pulls the data → Python cell analyzes it → markdown cell says what it means. The sandbox has pandas, numpy, scipy, scikit-learn, and matplotlib.
 
 The exception is throwaway scratch work that isn't part of the deliverable, like a quick sanity check on a figure. If a computation is load-bearing for a conclusion you report, it belongs in a cell.
+
+When a notebook's cells are all in place and you want fresh results end to end, run the whole document with `notebooks-run` instead of walking the cells one at a time. It runs every SQL and Python cell in document order, stops at the first failure, and writes each result back as it lands. A long run returns `status: 'running'` — continue it with `notebooks-run-status`, never with a second `notebooks-run`.
