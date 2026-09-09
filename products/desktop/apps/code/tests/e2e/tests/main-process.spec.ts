@@ -89,15 +89,15 @@ test.describe("Main Process", () => {
 
     await frame.getByText("Navigate externally").click();
 
-    // Each poll is a main-process round trip, so the wait scales with the test
-    // timeout rather than the 5s default that expect.poll would apply.
+    // The event fires as soon as the click lands, so this only bounds the
+    // delivery. It starts after the setup above, which is the slow part.
     await expect
       .poll(
         () =>
           electronApp.evaluate(
             () => (globalThis as NavigationProbe).__e2eSubframeNavigation,
           ),
-        { timeout: test.info().timeout / 2 },
+        { timeout: 30000 },
       )
       .toEqual({
         defaultPrevented: true,
