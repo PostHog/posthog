@@ -12,6 +12,8 @@ description: >
 
 # Stacked PRs with `gh stack`
 
+Before you divide a change into layers, check [things already tried](../../../docs/internal/ci-things-already-tried.md). It records when a stack cost more review effort than one PR.
+
 GitHub's native stacked PRs are enabled on this repo.
 A stack is an ordered chain of PRs where each one targets the branch of the PR below it; the bottom PR targets `master`.
 GitHub tracks the chain as a first-class object: the PR UI shows a stack map, branch protections (code owner approval, required checks) apply to **every** layer including mid-stack ones, and CI that runs on `master` PRs runs on every layer.

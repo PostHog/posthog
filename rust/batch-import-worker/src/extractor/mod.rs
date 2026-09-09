@@ -1,5 +1,5 @@
 use anyhow::Error;
-use flate2::read::GzDecoder;
+use flate2::read::MultiGzDecoder;
 use serde::{Deserialize, Serialize};
 use std::panic::AssertUnwindSafe;
 use std::{
@@ -237,7 +237,7 @@ impl PartExtractor for PlainGzipExtractor {
     }
 }
 
-/// Decompress a single gzip member, streaming blocks to `tx`. Appends a trailing
+/// Decompress a gzip stream, streaming blocks to `tx`. Appends a trailing
 /// newline if the decompressed content is non-empty and didn't already end with
 /// one, so the downstream JSONL parser always sees a complete final line.
 ///
@@ -249,9 +249,11 @@ impl PartExtractor for PlainGzipExtractor {
 /// *non-gzip* compression header is a compression-setting mismatch worth naming
 /// up front, not corruption.
 ///
-/// `GzDecoder` decodes a single gzip member (it stops at the first member's end).
-/// This matches the previous materializing extractor; the export endpoints we
-/// consume emit single-member gzip streams, not concatenated members.
+/// `MultiGzDecoder` decodes every gzip member in the file, not just the first.
+/// PostHog's own S3 batch exports compress each record as its own gzip member
+/// and concatenate them, so a single-member decoder would stop after the first
+/// event and report a clean EOF, importing a truncated part as complete.
+/// Single-member streams (Mixpanel, Amplitude) decode identically.
 pub(crate) fn run_plain_gzip_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
     let mut file = match std::fs::File::open(&raw_file_path) {
         Ok(f) => f,
@@ -277,7 +279,7 @@ pub(crate) fn run_plain_gzip_producer(raw_file_path: PathBuf, tx: mpsc::Sender<B
     };
 
     let mut reader: Box<dyn Read> = match sniffed {
-        Some("gzip") => Box::new(GzDecoder::new(file)),
+        Some("gzip") => Box::new(MultiGzDecoder::new(file)),
         Some(fmt) => {
             let _unused = tx.blocking_send(Err(format!(
                 "The file appears to be {fmt}-compressed, but this import expects gzip \
@@ -293,28 +295,42 @@ pub(crate) fn run_plain_gzip_producer(raw_file_path: PathBuf, tx: mpsc::Sender<B
     let mut produced_any = false;
 
     loop {
-        match reader.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(n) => {
-                produced_any = true;
-                last_byte = Some(buffer[n - 1]);
-                if tx.blocking_send(Ok(buffer[..n].to_vec())).is_err() {
+        // Fill the block across multiple reads before sending: one decoder read
+        // never crosses a gzip member boundary, so per-record members would
+        // otherwise produce one allocation and one channel send per record.
+        let mut filled = 0usize;
+        let mut eof = false;
+        while filled < buffer.len() {
+            match reader.read(&mut buffer[filled..]) {
+                Ok(0) => {
+                    eof = true;
+                    break;
+                }
+                Ok(n) => filled += n,
+                Err(e) => {
+                    // In passthrough mode the reader is the plain file, so a read
+                    // failure is an I/O problem (permissions, disk), not corruption.
+                    let msg = match sniffed {
+                        Some("gzip") => format!("Failed to decompress gzip data: {e}"),
+                        _ => format!(
+                            "Failed to read plaintext file {}: {e}",
+                            raw_file_path.display()
+                        ),
+                    };
+                    let _unused = tx.blocking_send(Err(msg));
                     return;
                 }
             }
-            Err(e) => {
-                // In passthrough mode the reader is the plain file, so a read
-                // failure is an I/O problem (permissions, disk), not corruption.
-                let msg = match sniffed {
-                    Some("gzip") => format!("Failed to decompress gzip data: {e}"),
-                    _ => format!(
-                        "Failed to read plaintext file {}: {e}",
-                        raw_file_path.display()
-                    ),
-                };
-                let _unused = tx.blocking_send(Err(msg));
+        }
+        if filled > 0 {
+            produced_any = true;
+            last_byte = Some(buffer[filled - 1]);
+            if tx.blocking_send(Ok(buffer[..filled].to_vec())).is_err() {
                 return;
             }
+        }
+        if eof {
+            break;
         }
     }
 
@@ -323,9 +339,10 @@ pub(crate) fn run_plain_gzip_producer(raw_file_path: PathBuf, tx: mpsc::Sender<B
     }
 }
 
-/// Decompress every `.json.gz` member of a zip archive in natural-sorted order,
+/// Decompress every `.json.gz` entry of a zip archive in natural-sorted order,
 /// streaming blocks to `tx`. A trailing newline is appended after each non-empty
-/// member that didn't end with one, matching the previous concatenation behavior.
+/// entry that didn't end with one, so the downstream JSONL parser sees complete
+/// lines at every entry boundary.
 pub(crate) fn run_zip_gzip_json_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
     let file = match std::fs::File::open(&raw_file_path) {
         Ok(f) => f,
@@ -367,26 +384,38 @@ pub(crate) fn run_zip_gzip_json_producer(raw_file_path: PathBuf, tx: mpsc::Sende
                 return;
             }
         };
-        let mut decoder = GzDecoder::new(zip_file);
+        let mut decoder = MultiGzDecoder::new(zip_file);
         let mut last_byte: Option<u8> = None;
         let mut entry_bytes: u64 = 0;
 
         loop {
-            match decoder.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(n) => {
-                    entry_bytes += n as u64;
-                    last_byte = Some(buffer[n - 1]);
-                    if tx.blocking_send(Ok(buffer[..n].to_vec())).is_err() {
+            // Fill the block across multiple reads, as in run_plain_gzip_producer.
+            let mut filled = 0usize;
+            let mut eof = false;
+            while filled < buffer.len() {
+                match decoder.read(&mut buffer[filled..]) {
+                    Ok(0) => {
+                        eof = true;
+                        break;
+                    }
+                    Ok(n) => filled += n,
+                    Err(e) => {
+                        let _unused = tx.blocking_send(Err(format!(
+                            "Failed to decompress gzip data from {name}: {e}"
+                        )));
                         return;
                     }
                 }
-                Err(e) => {
-                    let _unused = tx.blocking_send(Err(format!(
-                        "Failed to decompress gzip data from {name}: {e}"
-                    )));
+            }
+            if filled > 0 {
+                entry_bytes += filled as u64;
+                last_byte = Some(buffer[filled - 1]);
+                if tx.blocking_send(Ok(buffer[..filled].to_vec())).is_err() {
                     return;
                 }
+            }
+            if eof {
+                break;
             }
         }
 
@@ -480,10 +509,16 @@ mod tests {
     use zip::{write::SimpleFileOptions, ZipWriter};
 
     fn create_test_gzip_file(content: &str, path: &std::path::Path) -> Result<()> {
-        let file = StdFile::create(path)?;
-        let mut encoder = GzEncoder::new(file, Compression::default());
-        encoder.write_all(content.as_bytes())?;
-        encoder.finish()?;
+        create_multi_member_gzip_file(&[content], path)
+    }
+
+    fn create_multi_member_gzip_file(members: &[&str], path: &std::path::Path) -> Result<()> {
+        let mut file = StdFile::create(path)?;
+        for content in members {
+            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+            encoder.write_all(content.as_bytes())?;
+            file.write_all(&encoder.finish()?)?;
+        }
         Ok(())
     }
 
@@ -565,7 +600,7 @@ mod tests {
         // message is actionable, instead of a bare "failed to decompress" string.
         let temp_dir = TempDir::new().unwrap();
         let zstd_file = temp_dir.path().join("actually.zst");
-        // A minimal zstd magic-led body is enough: GzDecoder rejects it at the header.
+        // A minimal zstd magic-led body is enough: the gzip decoder rejects it at the header.
         std::fs::write(&zstd_file, [0x28, 0xb5, 0x2f, 0xfd, 0x00, 0x01, 0x02, 0x03]).unwrap();
 
         let mut reader = PlainGzipExtractor.open_reader(zstd_file);
@@ -666,6 +701,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_plain_gzip_extractor_concatenated_members() -> Result<()> {
+        // The S3 batch export shape: each record is its own gzip member,
+        // concatenated into one file (see run_plain_gzip_producer). Every member
+        // must decode, and newline normalization must apply to the reassembled
+        // stream, not per member.
+        let temp_dir = TempDir::new()?;
+        let gzip_file = temp_dir.path().join("multi.gz");
+        create_multi_member_gzip_file(
+            &[
+                "{\"event\":\"a\"}\n",
+                "{\"event\":\"b\"}\n",
+                "{\"event\":\"c\"}", // no trailing newline on the last member
+            ],
+            &gzip_file,
+        )?;
+
+        let mut reader = PlainGzipExtractor.open_reader(gzip_file);
+        let (data, size) = reader.read_to_end_for_test(8192).await;
+
+        let expected = "{\"event\":\"a\"}\n{\"event\":\"b\"}\n{\"event\":\"c\"}\n";
+        assert_eq!(size as usize, expected.len());
+        assert_eq!(data, expected.as_bytes());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_plain_gzip_extractor_trailing_garbage_errors() {
+        // A valid member followed by non-gzip bytes must error instead of
+        // reporting a clean EOF: the trailing bytes may be real data, and a
+        // clean EOF would record the part as complete without them.
+        let temp_dir = TempDir::new().unwrap();
+        let gzip_file = temp_dir.path().join("trailing.gz");
+        create_multi_member_gzip_file(&["{\"event\":\"a\"}\n"], &gzip_file).unwrap();
+        let mut file = StdFile::options().append(true).open(&gzip_file).unwrap();
+        file.write_all(b"not gzip data").unwrap();
+
+        let mut reader = PlainGzipExtractor.open_reader(gzip_file);
+        let mut offset = 0u64;
+        loop {
+            match reader.read_at(offset, 8192).await {
+                Err(_) => return,
+                Ok(chunk) => {
+                    assert!(
+                        chunk.total.is_none(),
+                        "trailing garbage must not decode to a clean EOF"
+                    );
+                    assert!(!chunk.bytes.is_empty(), "no error and no progress");
+                    offset += chunk.bytes.len() as u64;
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn test_plain_gzip_extractor_corrupt_midstream_errors() {
         let temp_dir = TempDir::new().unwrap();
         let gzip_file = temp_dir.path().join("corrupt.gz");
@@ -761,6 +850,29 @@ mod tests {
         let extracted = String::from_utf8(data).unwrap();
         // Natural sort keeps members ordered; newline appended after each.
         assert_eq!(extracted, "{\"id\": 1}\n{\"id\": 2}\n{\"id\": 3}\n");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_zip_gzip_json_extractor_concatenated_members_in_entry() -> Result<()> {
+        // An entry whose bytes are concatenated gzip members must decode past
+        // the first member, like the plain-gzip path.
+        let temp_dir = TempDir::new()?;
+        let zip_file = temp_dir.path().join("multi_member.zip");
+
+        let file = StdFile::create(&zip_file)?;
+        let mut zip = ZipWriter::new(file);
+        zip.start_file("data.json.gz", SimpleFileOptions::default())?;
+        for content in ["{\"id\":1}\n", "{\"id\":2}"] {
+            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+            encoder.write_all(content.as_bytes())?;
+            zip.write_all(&encoder.finish()?)?;
+        }
+        zip.finish()?;
+
+        let mut reader = ZipGzipJsonExtractor.open_reader(zip_file);
+        let (data, _size) = reader.read_to_end_for_test(8192).await;
+        assert_eq!(data, b"{\"id\":1}\n{\"id\":2}\n");
         Ok(())
     }
 

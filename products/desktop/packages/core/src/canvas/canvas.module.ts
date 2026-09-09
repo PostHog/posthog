@@ -1,12 +1,14 @@
 import { ContainerModule } from "inversify";
 import { CanvasApplicationService } from "./canvasApplicationService";
 import { CanvasDataService } from "./canvasDataService";
+import { CanvasListService } from "./canvasListService";
 import { CanvasTemplatesService } from "./canvasTemplatesService";
 import { ChannelTasksService } from "./channelTasksService";
 import { DashboardsService } from "./dashboardsService";
 import {
   CANVAS_APPLICATION_SERVICE,
   CANVAS_DATA_SERVICE,
+  CANVAS_LIST_SERVICE,
   CANVAS_TEMPLATES_SERVICE,
   CHANNEL_TASKS_SERVICE,
   DASHBOARDS_SERVICE,
@@ -35,11 +37,13 @@ export const canvasCoreModule = new ContainerModule(({ bind }) => {
   bind(CANVAS_TEMPLATES_SERVICE).toService(CanvasTemplatesService);
 });
 
-// Canvas generation orchestration. Bound separately from canvasCoreModule
-// because it runs where tasks are created (the desktop renderer / web app
-// container, which bind TASK_SERVICE and the model/title helpers), while
-// canvasCoreModule's persistence services run host-side behind tRPC.
+// Portable canvas application policy. Bound separately from canvasCoreModule
+// because it runs in the desktop renderer and web app, while canvasCoreModule's
+// persistence services run host-side behind tRPC.
 export const canvasApplicationModule = new ContainerModule(({ bind }) => {
+  bind(CanvasListService).toSelf().inSingletonScope();
+  bind(CANVAS_LIST_SERVICE).toService(CanvasListService);
+
   bind(CanvasApplicationService).toSelf().inSingletonScope();
   bind(CANVAS_APPLICATION_SERVICE).toService(CanvasApplicationService);
 });

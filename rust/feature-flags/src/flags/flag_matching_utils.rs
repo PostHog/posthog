@@ -166,8 +166,10 @@ pub fn populate_missing_initial_properties(properties: &mut HashMap<String, Valu
 ///
 /// Web SDKs (posthog-js) report the OS as `$os`; mobile SDKs report it as
 /// `$os_name`. Ingestion normalizes `$os_name` -> `$os` at write time
-/// (`personInitialAndUTMProperties` in nodejs/src/utils/db/utils.ts), but that
-/// only covers newly-written rows — historical and un-normalized person rows can
+/// (`normalizeOsAlias` in nodejs/src/common/utils/event.ts for the event's own
+/// `$os`, `personInitialAndUTMProperties` in nodejs/src/common/utils/db/utils.ts
+/// for the person row), but that only covers newly-written rows, and it excludes
+/// `$is_server` events; historical and un-normalized person rows can
 /// carry only one of the two keys. Flag matching does exact-key lookups, so
 /// without this a mobile person whose row has only `$os_name` never matches an
 /// `$os` filter (and vice versa). The mirror is bidirectional so either filter
@@ -601,6 +603,14 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         )?;
 
         apply_person_cohort_to_state(flag_evaluation_state, person_cohort);
+        // Mark every requested index as fetched, not just the ones the query returned a
+        // row for. The group query is authoritative for all requested (index, key) pairs,
+        // so "no row" means the group genuinely has no properties. Recording that keeps it
+        // distinguishable from "prep never ran", which is what
+        // `FlagEvaluationState::group_properties_pending` keys on.
+        for &idx in group_type_to_key.keys() {
+            flag_evaluation_state.mark_group_properties_fetched(idx);
+        }
         for (idx, props) in group.group_properties {
             flag_evaluation_state.set_group_properties(idx, props);
         }

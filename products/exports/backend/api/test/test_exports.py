@@ -1,3 +1,4 @@
+import ipaddress
 from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import Literal, Optional
@@ -35,6 +36,7 @@ from posthog.settings import (
 )
 from posthog.tasks import exporter
 from posthog.temporal.session_replay.rasterize_recording.types import RASTERIZE_WORKFLOW_TIMEOUT
+from posthog.test.insight_queries import browser_filtered_pageview_query
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -85,6 +87,46 @@ class TestExports(APIBaseTest):
             export_context={"heatmap_url": "https://example.com/page"},
         ) == ["export:write", "heatmap:read"]
 
+    @parameterized.expand(
+        [
+            (
+                "us_same_origin",
+                "https://us.posthog.com",
+                "https://us.posthog.com/api/environments/1/heatmap_screenshots/2/content/",
+                201,
+            ),
+            (
+                "eu_same_origin",
+                "https://eu.posthog.com",
+                "https://eu.posthog.com/api/environments/1/heatmap_screenshots/2/content/",
+                201,
+            ),
+            ("cross_origin", "https://us.posthog.com", "https://example.com/collect", 400),
+        ]
+    )
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_screenshot_heatmap_export_requires_same_origin_url(
+        self, _name: str, site_url: str, heatmap_url: str, expected_status: int, mock_exporter_task
+    ) -> None:
+        with self.settings(SITE_URL=site_url):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/exports/",
+                {
+                    "export_format": ExportedAsset.ExportFormat.PNG,
+                    "export_context": {
+                        "heatmap_url": heatmap_url,
+                        "heatmap_data_url": "https://example.com/page",
+                        "heatmap_type": "screenshot",
+                    },
+                },
+            )
+
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_201_CREATED:
+            mock_exporter_task.assert_called_once()
+        else:
+            mock_exporter_task.assert_not_called()
+
     insight_filter_dict = {
         "events": [{"id": "$pageview"}],
         "properties": [{"key": "$browser", "value": "Mac OS X"}],
@@ -96,7 +138,7 @@ class TestExports(APIBaseTest):
 
         cls.dashboard = Dashboard.objects.create(team=cls.team, name="example dashboard", created_by=cls.user)
         cls.insight = Insight.objects.create(
-            filters=Filter(data=cls.insight_filter_dict).to_dict(),
+            query=browser_filtered_pageview_query(),
             team=cls.team,
             created_by=cls.user,
             name="example insight",
@@ -461,6 +503,22 @@ class TestExports(APIBaseTest):
                 "type": "validation_error",
             },
         )
+
+    def test_errors_if_the_request_picks_its_own_limit_context(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "image/png",
+                "export_context": {
+                    "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
+                    "limit_context": "posthog_ai",
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "export_context")
+        self.assertEqual(response.json()["detail"], "limit_context is not supported for exports.")
 
     @parameterized.expand(["not/allowed", ExportedAsset.ExportFormat.JSONL])
     def test_errors_if_bad_format(self, export_format: str) -> None:
@@ -1863,8 +1921,6 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
         ]
     )
     def test_accepts_valid_heatmap_url(self, _name: str, url: str) -> None:
-        import ipaddress
-
         with (
             patch("posthog.security.url_validation.resolve_host_ips") as mock_resolve,
             patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow"),
@@ -1878,6 +1934,29 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
                 },
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @parameterized.expand(
+        [
+            ("http", "http://app.example.com:80", "http://app.example.com/heatmap"),
+            ("https", "https://app.example.com:443", "https://app.example.com/heatmap"),
+        ]
+    )
+    def test_accepts_screenshot_url_with_default_site_port(self, _name: str, site_url: str, heatmap_url: str) -> None:
+        with (
+            self.settings(SITE_URL=site_url),
+            patch("posthog.security.url_validation.resolve_host_ips") as mock_resolve,
+            patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow"),
+        ):
+            mock_resolve.return_value = {ipaddress.ip_address("93.184.216.34")}
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/exports",
+                {
+                    "export_format": "image/png",
+                    "export_context": {"heatmap_url": heatmap_url, "heatmap_type": "screenshot"},
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
 
 class TestExportMixin(APIBaseTest):

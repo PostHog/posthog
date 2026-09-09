@@ -1,8 +1,9 @@
-import type {
-  McpServerConnection,
-  McpToolApprovalState,
-  McpToolPolicy,
-  StoredLogEntry,
+import {
+  type McpServerConnection,
+  type McpToolApprovalState,
+  type McpToolPolicy,
+  type StoredLogEntry,
+  taskRunStateSchema,
 } from "@posthog/shared";
 import packageJson from "../package.json" with { type: "json" };
 import type {
@@ -109,13 +110,7 @@ export interface PeerMessageSendResult {
 export type TaskRunUpdate = Partial<
   Pick<
     TaskRun,
-    | "status"
-    | "branch"
-    | "stage"
-    | "error_message"
-    | "output"
-    | "state"
-    | "environment"
+    "status" | "branch" | "stage" | "error_message" | "output" | "state"
   >
 > & {
   state_remove_keys?: string[];
@@ -137,8 +132,12 @@ export class PostHogAPIClient {
     return host;
   }
 
-  private isAuthFailure(status: number): boolean {
-    return status === 401 || status === 403;
+  private isTokenRejection(status: number): boolean {
+    // 401 means the token is invalid or expired, which a forced refresh
+    // fixes. 403 means the credential lacks permission; a refresh from the
+    // same grant cannot gain any, and forcing one on every 403 rotates the
+    // refresh token and rebuilds the whole desktop session.
+    return status === 401;
   }
 
   private async resolveApiKey(forceRefresh = false): Promise<string> {
@@ -184,7 +183,7 @@ export class PostHogAPIClient {
   ): Promise<Response> {
     let response = await this.performRequest(endpoint, options);
 
-    if (!response.ok && this.isAuthFailure(response.status)) {
+    if (!response.ok && this.isTokenRejection(response.status)) {
       response = await this.performRequest(endpoint, options, true);
     }
 
@@ -339,38 +338,31 @@ export class PostHogAPIClient {
     signal?: AbortSignal,
   ): Promise<TaskRun> {
     const teamId = this.getTeamId();
-    return this.apiRequest<TaskRun>(
+    const taskRun = await this.apiRequest<TaskRun>(
       `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/`,
       { signal },
     );
+    return { ...taskRun, state: taskRunStateSchema.parse(taskRun.state) };
   }
 
   /**
-   * File one task-analysis finding. The server owns the findings list, validates the
+   * Record one task-analysis activity. The server owns the activities list, validates the
    * shape and enforces the per-run cap, so this is the only way to add one.
    */
-  async reportAnalysisInsight(
+  async reportAnalysisActivity(
     taskId: string,
     runId: string,
-    insight: Record<string, unknown>,
+    activity: Record<string, unknown>,
     signal?: AbortSignal,
-  ): Promise<{ insight_index: number }> {
+  ): Promise<{ activity_index: number }> {
     const teamId = this.getTeamId();
-    return this.apiRequest<{ insight_index: number }>(
-      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/analysis-insight/`,
+    return this.apiRequest<{ activity_index: number }>(
+      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/analysis-activity/`,
       {
         method: "POST",
-        body: JSON.stringify(insight),
+        body: JSON.stringify(activity),
         signal,
       },
-    );
-  }
-
-  async resumeRunInCloud(taskId: string, runId: string): Promise<TaskRun> {
-    const teamId = this.getTeamId();
-    return this.apiRequest<TaskRun>(
-      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/resume_in_cloud/`,
-      { method: "POST" },
     );
   }
 
@@ -487,6 +479,7 @@ export class PostHogAPIClient {
     text: string,
     textParts?: string[],
     messageId?: string,
+    traceId?: string | null,
   ): Promise<void> {
     const teamId = this.getTeamId();
     // Send `text_parts` alongside the joined `text` so backends that understand
@@ -494,7 +487,12 @@ export class PostHogAPIClient {
     // backends still get the flat `text` field they already handle.
     // `message_id` correlates the relay with the user message that initiated
     // the turn; it is omitted when no message id is known (e.g. boot prompt).
-    const body: { text: string; text_parts?: string[]; message_id?: string } = {
+    const body: {
+      text: string;
+      text_parts?: string[];
+      message_id?: string;
+      trace_id?: string;
+    } = {
       text,
     };
     if (textParts && textParts.length > 0) {
@@ -502,6 +500,9 @@ export class PostHogAPIClient {
     }
     if (messageId) {
       body.message_id = messageId;
+    }
+    if (traceId) {
+      body.trace_id = traceId;
     }
     await this.apiRequest<{ status: string }>(
       `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/relay_message/`,

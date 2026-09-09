@@ -77,6 +77,7 @@ export function AttachmentMenu({
     queryKey: ["git", "getGhStatus"],
     queryFn: () => getGhStatus(),
     staleTime: 60_000,
+    enabled: menuOpen && !!repoPath,
   });
 
   const issueDisabledReason = getIssueDisabledReason(ghStatus, repoPath);

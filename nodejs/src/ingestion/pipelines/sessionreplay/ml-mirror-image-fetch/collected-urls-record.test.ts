@@ -49,19 +49,28 @@ function record(overrides: Record<string, unknown> = {}): Buffer {
 
 describe('frontier record', () => {
     it('round trips the durable job state', () => {
-        const parsed = parseCollectedUrlsRecord(serializeFrontierRecord([candidate()]), 'example.com')
+        const durableCandidate = candidate({ lastBlockReason: 'configuration_unreachable' })
+        const parsed = parseCollectedUrlsRecord(serializeFrontierRecord([durableCandidate]), 'example.com')
 
-        expect(parsed).toEqual({ ok: true, candidates: [candidate()], urlCount: 1, rejected: [] })
+        expect(parsed).toEqual({ ok: true, candidates: [durableCandidate], urlCount: 1, rejected: [], skipped: [] })
     })
 
-    it('round trips the optional low-origin-diversity marker', () => {
-        const marked = candidate({ lowOriginDiversityDeferred: true })
+    it('does not persist source partition attribution', () => {
+        const parsed = parseCollectedUrlsRecord(
+            serializeFrontierRecord([candidate({ sourcePartitions: [7] })]),
+            'example.com'
+        )
 
-        expect(parseCollectedUrlsRecord(serializeFrontierRecord([marked]), 'example.com')).toEqual({
+        expect(parsed).toEqual({ ok: true, candidates: [candidate()], urlCount: 1, rejected: [], skipped: [] })
+    })
+
+    it('accepts and removes the legacy low-origin-diversity marker', () => {
+        expect(parseCollectedUrlsRecord(record({ lowOriginDiversityDeferred: true }), 'example.com')).toEqual({
             ok: true,
-            candidates: [marked],
+            candidates: [candidate()],
             urlCount: 1,
             rejected: [],
+            skipped: [],
         })
     })
 
@@ -103,6 +112,58 @@ describe('frontier record', () => {
         expect(parsed).toEqual({ ok: false, reason })
     })
 
+    it('skips a tracking beacon job and keeps the rest of the record', () => {
+        const beacon = candidate({
+            originalRef: `imageurl:${'b'.repeat(22)}`,
+            currentUrl: 'https://analytics.twitter.com/i/adsct?txn_id=abc&p_id=Twitter',
+            host: 'analytics.twitter.com',
+            origin: 'https://analytics.twitter.com',
+            registrableDomain: 'twitter.com',
+        })
+        const image = candidate({
+            currentUrl: 'https://cdn.twitter.com/logo.png',
+            host: 'cdn.twitter.com',
+            origin: 'https://cdn.twitter.com',
+            registrableDomain: 'twitter.com',
+        })
+
+        const parsed = parseCollectedUrlsRecord(serializeFrontierRecord([beacon, image]), 'twitter.com')
+
+        expect(parsed).toEqual({
+            ok: true,
+            candidates: [image],
+            urlCount: 2,
+            rejected: [],
+            skipped: [{ reason: 'tracking_beacon' }],
+        })
+    })
+
+    it('skips a tracking beacon in a retained v1 record', () => {
+        const pseudoTeam = 'b'.repeat(32)
+        const value = Buffer.from(
+            JSON.stringify({
+                v: 1,
+                pseudoTeam,
+                capturedAtMs: 1_700_000_000_000,
+                urls: [
+                    {
+                        ref: `imageurl:${pseudoTeam}:${'c'.repeat(22)}`,
+                        url: 'https://t.co/i/adsct?txn_id=abc',
+                        host: 't.co',
+                    },
+                ],
+            })
+        )
+
+        expect(parseCollectedUrlsRecord(value, 't.co')).toEqual({
+            ok: true,
+            candidates: [],
+            urlCount: 1,
+            rejected: [],
+            skipped: [{ reason: 'tracking_beacon' }],
+        })
+    })
+
     it('drops a job placed on another registrable-domain partition', () => {
         const parsed = parseCollectedUrlsRecord(record(), 'other.net')
 
@@ -140,6 +201,7 @@ describe('frontier record', () => {
             ],
             urlCount: 1,
             rejected: [],
+            skipped: [],
         })
     })
 
@@ -150,6 +212,7 @@ describe('frontier record', () => {
         ['fetchCount', 1.5],
         ['republishCount', Number.MAX_SAFE_INTEGER + 1],
         ['lastRepublishReason', 'unknown'],
+        ['lastBlockReason', 'unknown'],
     ])('drops an invalid %s', (field, value) => {
         const parsed = parseCollectedUrlsRecord(record({ [field]: value }), 'example.com')
 

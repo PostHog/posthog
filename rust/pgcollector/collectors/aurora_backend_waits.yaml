@@ -1,0 +1,30 @@
+name: aurora_backend_waits
+description: >
+  Per-session wait profile (aurora_stat_backend_waits) for non-idle client
+  backends only: top 5 wait events by cumulative time since the connection
+  opened. Gauge — cumulative per pid, and pids get reused, so the API should
+  key on (pid, backend_start). wait_time is milliseconds.
+interval: 10s
+scope: cluster
+kind: gauge
+# Off by default: one aurora_stat_backend_waits() call per non-idle backend
+# every 10s. Enable per server once the active-backend count is known to be
+# small (overrides.aurora_backend_waits.enabled = true).
+enabled: false
+requires: { aurora: true }
+query: |
+  SELECT pid, backend_start, datname, usename, application_name, state,
+         wait_event_type AS current_wait_event_type, wait_event AS current_wait_event,
+         query_id, type_name, event_name, waits, wait_time
+  FROM (
+    SELECT a.pid, a.backend_start, a.datname, a.usename, a.application_name, a.state,
+           a.wait_event_type, a.wait_event, a.query_id,
+           wt.type_name, we.event_name, bw.waits, bw.wait_time,
+           rank() OVER (PARTITION BY a.pid ORDER BY bw.wait_time DESC) AS r
+    FROM pg_stat_activity a
+    CROSS JOIN LATERAL aurora_stat_backend_waits(a.pid) bw
+    NATURAL JOIN aurora_stat_wait_type() wt
+    NATURAL JOIN aurora_stat_wait_event() we
+    WHERE a.backend_type = 'client backend' AND a.state <> 'idle' AND a.pid <> pg_backend_pid()
+  ) x
+  WHERE r <= 5

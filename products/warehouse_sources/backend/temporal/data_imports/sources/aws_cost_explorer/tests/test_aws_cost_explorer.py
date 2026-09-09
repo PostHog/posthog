@@ -12,6 +12,9 @@ from tenacity import wait_none
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer import aws_cost_explorer
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer.aws_cost_explorer import (
+    GENERIC_VALIDATION_ERROR,
+    TRANSIENT_VALIDATION_ERROR,
+    VALIDATION_ERROR_MESSAGES,
     AwsCostExplorerError,
     AwsCostExplorerResumeConfig,
     AwsCostExplorerThrottledError,
@@ -411,11 +414,24 @@ class TestValidateCredentials:
 
         assert send.call_args[0][2] == "GetCostAndUsage"
 
-    def test_an_api_error_is_surfaced_to_the_user(self) -> None:
-        error = AwsCostExplorerError("AWS Cost Explorer request failed: AccessDeniedException - denied")
+    @pytest.mark.parametrize(
+        "code,expected",
+        [
+            ("AccessDeniedException", VALIDATION_ERROR_MESSAGES["AccessDeniedException"]),
+            ("ExpiredTokenException", VALIDATION_ERROR_MESSAGES["ExpiredTokenException"]),
+            ("ThrottlingException", TRANSIENT_VALIDATION_ERROR),
+            ("HTTP 503", TRANSIENT_VALIDATION_ERROR),
+            ("SomeUnmappedException", GENERIC_VALIDATION_ERROR),
+        ],
+    )
+    def test_an_api_error_is_translated_instead_of_echoing_the_aws_text(self, code: str, expected: str) -> None:
+        # A denial names the calling identity, so the AWS text can never reach the wizard.
+        raw = (
+            f"AWS Cost Explorer request failed: {code} - User: arn:aws:iam::000000000000:user/example is not authorized"
+        )
 
-        with mock.patch.object(aws_cost_explorer, "send_operation", side_effect=error):
-            assert validate_credentials("key", "secret", None) == (False, str(error))
+        with mock.patch.object(aws_cost_explorer, "send_operation", side_effect=AwsCostExplorerError(raw, code)):
+            assert validate_credentials("key", "secret", None) == (False, expected)
 
     def test_a_transport_failure_does_not_leak_internals(self) -> None:
         with mock.patch.object(aws_cost_explorer, "send_operation", side_effect=requests.ConnectionError("boom")):

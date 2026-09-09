@@ -50,7 +50,6 @@ const PACE_ICON_CLASS = 'text-xl text-secondary shrink-0'
  * cadence write, so a live control only buys a 400. The reason carries the way out instead.
  */
 const MODE_DISABLED_REASONS: Record<string, string> = {
-    dag_schedule: "This project runs one schedule per DAG, so this view follows its DAG's frequency.",
     managed_viewset: 'PostHog manages this view, including how often it refreshes.',
     no_node: 'This view is not set up for scheduled refreshes yet. Save it again, then pick a cadence.',
 }
@@ -89,12 +88,21 @@ export function SyncFrequencySelect({
 }: SyncFrequencySelectProps): JSX.Element {
     const options = buildOptions(bounds)
     const explanation = buildExplanation(bounds)
+    const modeReason = modeDisabledReason(bounds)
     const reason =
         disabledReason ??
         (loading ? 'Saving the new cadence.' : undefined) ??
         unsatisfiableReason(bounds) ??
-        modeDisabledReason(bounds) ??
+        modeReason ??
         undefined
+
+    if (modeReason) {
+        return (
+            <span className="text-xs text-secondary max-w-prose" data-attr={dataAttr}>
+                {modeReason}
+            </span>
+        )
+    }
 
     return (
         <div className="flex flex-col gap-1 items-start" data-attr={dataAttr}>

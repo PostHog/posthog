@@ -1,6 +1,12 @@
 Query server/infrastructure metrics (OTel- or Prometheus-ingested) as bucketed time series. The response is a list of series — `{labels, points: [{time, value}], metric_name, clause}` — where every series shares one time grid (missing buckets are zero-filled). A single ungrouped query returns exactly one series with empty labels.
 
-All parameters are nested inside a `query` object. Two request forms:
+All parameters go inside `query`:
+
+```json
+{ "query": { "metricName": "m", "aggregation": "rate", "dateFrom": "2026-01-01T00:00:00Z" } }
+```
+
+Two request forms:
 
 - **Single metric (shorthand):** set `metricName` (+ `aggregation`, `filters`, `groupBy`).
 - **Multi-clause / formula:** set `clauses: [{name, metricName, aggregation, quantile?, filters?, groupBy?}, ...]` and optionally `formula` (e.g. `"(a - b) / a"` over clause names; `+ - * /` and parentheses; division by zero yields 0). With a formula set, only the formula result series are returned.
@@ -25,4 +31,4 @@ All parameters are nested inside a `query` object. Two request forms:
 4. Use `formula` for normalized comparisons, e.g. error ratio `errors / requests` instead of raw error counts.
 5. Correlate the onset window across signals: query logs (`query-logs`, filtered to the same `service.name` and time window, severity error) and traces (APM span tools, same service/window) to find the cause and its blast radius.
 
-CRITICAL: be minimalist — only include filters/settings essential to the question. Time ranges: `dateFrom` is required, ISO 8601; `dateTo` defaults to now.
+CRITICAL: be minimalist — only include filters/settings essential to the question. Time ranges: `dateFrom` is required, ISO 8601; `dateTo` defaults to now. `dateFrom` snaps down to its bucket boundary, so the first point can be labelled up to one interval earlier than requested but always covers a whole bucket.

@@ -19,11 +19,13 @@ import logging
 import datetime
 from collections import Counter
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import posthoganalytics
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.team import Team
@@ -46,7 +48,6 @@ from products.review_hog.backend.reviewer.constants import (
     VALIDATION_RUNTIME_ADAPTER,
     effective_priority,
     published_priorities_for,
-    resolve_review_arm,
 )
 from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_authoring,
@@ -103,6 +104,7 @@ from products.review_hog.backend.reviewer.status_comment import (
     finalize_status_comment,
     maybe_refresh_status_comment,
 )
+from products.review_hog.backend.reviewer.telemetry import review_routing_properties
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
 from products.review_hog.backend.reviewer.tools.github_meta import (
     PRFetcher,
@@ -137,8 +139,12 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
 from products.review_hog.backend.temporal.types import TRIGGER_LABEL, TRIGGER_MANUAL
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCounts
+from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+
+if TYPE_CHECKING:
+    from products.review_hog.backend.reviewer.artefact_content import PRSnapshotArtefact
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +157,7 @@ class ValidateIntegrationInput:
     team_id: int
 
 
-@dataclass
+@frozen
 class FetchPRDataInput:
     team_id: int
     user_id: int
@@ -165,6 +171,8 @@ class FetchPRDataInput:
     # Provenance stamped onto the ReviewReport at upsert (see `upsert_review_report`).
     signal_report_id: str | None = None
     trigger_source: str = TRIGGER_MANUAL
+    # `ReportPriority` value the trigger read before the implementation agent could write its own.
+    signal_priority: str | None = None
 
 
 @dataclass
@@ -398,7 +406,7 @@ class AppendCodeReviewArtefactInput:
     review_url: str | None = None
 
 
-@dataclass
+@frozen
 class TrackReviewCompletedInput:
     """One `reviewhog_review_completed` analytics event per finalized review turn."""
 
@@ -410,15 +418,31 @@ class TrackReviewCompletedInput:
     # The workflow's start_time (ISO 8601) — one turn is one workflow execution, so this anchors
     # the event's turn duration.
     workflow_started_at: str
+    # Which trigger started THIS turn. The report row only remembers the trigger that created it,
+    # and a person's re-trigger of an inbox report is the case the tier telemetry has to see.
+    # Defaulted so in-flight payloads from before the field still deserialize.
+    turn_trigger_source: str | None = None
 
 
-@dataclass
+@frozen
+class TrackReviewStartedInput:
+    """One `reviewhog_review_started` analytics event per review turn that passed every gate."""
+
+    team_id: int
+    report_id: str
+    head_sha: str
+    run_index: int
+    turn_trigger_source: str | None
+
+
+@frozen
 class TrackReviewFailedInput:
     """One `reviewhog_review_failed` analytics event per failed review turn."""
 
     team_id: int
     report_id: str
     run_index: int
+    turn_trigger_source: str | None = None
 
 
 @dataclass
@@ -546,6 +570,9 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         pr_metadata=pr_metadata,
         signal_report_id=input.signal_report_id,
         trigger_source=input.trigger_source,
+        # Only the creating turn routes on it: the upsert is what knows whether the row exists.
+        signal_priority=ReportPriority(input.signal_priority) if input.signal_priority is not None else None,
+        lift_tier_on_human_trigger=True,
     )
     # Read the report's watermark BEFORE persist_commit_snapshot advances it, so the parent can decide
     # whether this turn has anything to do. `published_head_sha == head_sha` means we already reviewed
@@ -588,9 +615,10 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     return ReviewMeta(
         report_id=report_id,
         head_sha=head_sha,
-        # Sandboxes check out this ref. For PRs use the pinned pull ref: refs/pull/N/head outlives the
-        # head branch (merging mid-review deletes it, killing every later sandbox checkout).
-        branch=f"pull/{pr_number}/head" if pr_number is not None else pr_metadata.head_branch,
+        # Sandboxes check out this branch by name. The Tasks checkout only resolves refs/heads/<name>;
+        # a pull ref like `pull/N/head` falls through to a fresh branch on the base tip, so every
+        # sandbox would review the base branch instead of the PR.
+        branch=pr_metadata.head_branch,
         repository=input.repository,
         run_index=run_index,
         snapshotted=snapshotted,
@@ -950,9 +978,10 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         if input.blind_spot_check
         else f"issues-review-p{input.pass_number}-c{input.chunk_id}"
     )
-    # The report's persisted experiment arm, not the module pins. Each unit resolves it against the
-    # live registry, so all units of a turn agree unless a deploy deregisters the model mid-turn —
-    # which is why experiment teardown drops arms from REVIEW_EXPERIMENT_ARMS, never the registry.
+    # The report's persisted arm (its tier's, decided at creation), not the module pins. Each unit
+    # resolves it against the live registry, so all units of a turn agree unless a deploy
+    # deregisters the model mid-turn — which is why a tier's arm changes in REVIEW_ARMS_BY_TIER,
+    # never by deregistering the model.
     arm = await database_sync_to_async(load_review_arm, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id
     )
@@ -1284,37 +1313,86 @@ def _review_event_identity(report: ReviewReport) -> str:
     return str(acting_distinct_id) if acting_distinct_id else str(report.team.uuid)
 
 
-def _review_arm_properties(report: ReviewReport) -> dict[str, str | bool]:
-    """The model-experiment labels on every review analytics event (the model name is the arm).
+def _turn_event_properties(
+    report: ReviewReport, *, run_index: int, turn_trigger_source: str | None
+) -> dict[str, str | int | None]:
+    """The identity every per-turn review event shares: which report, which turn, and who asked for it.
 
-    Resolved, not raw: pre-experiment rows carry NULLs but their reviews run on the default pins,
-    and the event must say what actually ran.
+    `trigger_source` is the trigger that created the report; `turn_trigger_source` is the trigger
+    of this turn, which differs when a person re-triggers an inbox report.
     """
-    persisted = (
-        report.review_runtime_adapter,
-        report.review_model,
-        report.review_reasoning_effort,
-        report.review_initial_permission_mode,
-    )
-    arm = resolve_review_arm(*persisted)
-    resolved = (arm.runtime_adapter.value, arm.model, arm.reasoning_effort.value, arm.initial_permission_mode)
     return {
-        "review_runtime_adapter": arm.runtime_adapter.value,
-        "review_model": arm.model,
-        "review_reasoning_effort": arm.reasoning_effort.value,
-        # True when a persisted assignment failed resolution and the turn ran the fallback pins
-        # instead of its drawn arm; per-arm dashboards must exclude these contaminated turns.
-        # The whole bundle is compared because a failed assignment can share the default arm's model
-        # string while differing on adapter or effort. Pre-experiment rows (all NULL) stay False.
-        "review_arm_fallback": any(persisted) and resolved != persisted,
+        "report_id": str(report.id),
+        "team_id": report.team_id,
+        "repository": report.repository,
+        "pr_number": report.pr_number,
+        "run_index": run_index,
+        "trigger_source": report.trigger_source,
+        "turn_trigger_source": turn_trigger_source,
+        "author_login": report.author_login,
     }
+
+
+def _pr_size_properties(snapshot: "PRSnapshotArtefact | None") -> dict[str, int | None]:
+    """PR size as fetched for the turn; every value is None when the turn's snapshot is unavailable."""
+    pr_meta = snapshot.pr_metadata if snapshot is not None else None
+    return {
+        "pr_additions": pr_meta.additions if pr_meta is not None else None,
+        "pr_deletions": pr_meta.deletions if pr_meta is not None else None,
+        "pr_changed_files": pr_meta.changed_files if pr_meta is not None else None,
+        "pr_commits": pr_meta.commits if pr_meta is not None else None,
+        # Added lines ReviewHog actually reviews (lockfiles/tests/generated filtered out), which is
+        # the honest denominator for per-line cost.
+        "pr_reviewable_additions": count_reviewable_additions(snapshot.pr_files) if snapshot is not None else None,
+    }
+
+
+def _track_review_started(input: TrackReviewStartedInput) -> None:
+    report = ReviewReport.objects.for_team(input.team_id).select_related("acting_user", "team").get(id=input.report_id)
+    snapshot = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
+    posthoganalytics.capture(
+        distinct_id=_review_event_identity(report),
+        event="reviewhog_review_started",
+        # Deterministic per turn, like the completed event: a parent retry re-runs the gates and
+        # re-captures the same uuid, so a turn starts once however many attempts it takes.
+        uuid=str(uuid.uuid5(uuid.NAMESPACE_URL, f"reviewhog_review_started:{input.report_id}:{input.run_index}")),
+        properties={
+            **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
+            **review_routing_properties(report),
+            **_pr_size_properties(snapshot),
+        },
+        groups=groups(team=report.team),
+        send_feature_flags=True,
+    )
+
+
+def _track_review_started_safe(input: TrackReviewStartedInput) -> None:
+    # Analytics must never fail a review: any load/capture failure is logged, not raised.
+    try:
+        _track_review_started(input)
+    except Exception:
+        logger.exception("Failed to capture reviewhog_review_started for report %s; continuing", input.report_id)
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def track_review_started_activity(input: TrackReviewStartedInput) -> None:
+    """Capture the turn's `reviewhog_review_started` product-analytics event.
+
+    Fires once every gate has passed and the turn is about to spend sandboxes, so it counts turns
+    that actually run. It carries the arm as it stood when the turn began: a person's trigger that
+    joins a cheaper turn lifts the row mid-run, so the completed event alone would show the lifted
+    arm for a turn whose units mostly ran on the cheap one. Started versus completed is how a
+    dashboard sees that lift. Best-effort: any failure is logged, not raised.
+    """
+    await database_sync_to_async(_track_review_started_safe, thread_sensitive=False)(input)
 
 
 def _track_review_completed(input: TrackReviewCompletedInput) -> None:
     report = ReviewReport.objects.for_team(input.team_id).select_related("acting_user", "team").get(id=input.report_id)
     findings = load_turn_findings(team_id=input.team_id, report_id=input.report_id, run_index=input.run_index)
     snapshot = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
-    pr_meta = snapshot.pr_metadata if snapshot is not None else None
     duration_seconds = round(
         (
             datetime.datetime.now(tz=datetime.UTC) - datetime.datetime.fromisoformat(input.workflow_started_at)
@@ -1334,28 +1412,15 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
         # same event uuid, so ingestion dedupes it instead of double-counting the review.
         uuid=str(uuid.uuid5(uuid.NAMESPACE_URL, f"reviewhog_review_completed:{input.report_id}:{input.run_index}")),
         properties={
-            "report_id": str(report.id),
-            "team_id": report.team_id,
-            "repository": report.repository,
-            "pr_number": report.pr_number,
-            "run_index": input.run_index,
-            "trigger_source": report.trigger_source,
-            "author_login": report.author_login,
+            **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
             "published": input.published,
             "findings_total": len(findings),
             "findings_valid": sum(1 for _, verdict in findings if verdict is not None and verdict.is_valid),
             "findings_must_fix": valid_by_priority.get(IssuePriority.MUST_FIX, 0),
             "findings_should_fix": valid_by_priority.get(IssuePriority.SHOULD_FIX, 0),
             "findings_consider": valid_by_priority.get(IssuePriority.CONSIDER, 0),
-            **_review_arm_properties(report),
-            # PR size as fetched for this turn; None when the turn's snapshot is unavailable.
-            "pr_additions": pr_meta.additions if pr_meta is not None else None,
-            "pr_deletions": pr_meta.deletions if pr_meta is not None else None,
-            "pr_changed_files": pr_meta.changed_files if pr_meta is not None else None,
-            "pr_commits": pr_meta.commits if pr_meta is not None else None,
-            # Added lines ReviewHog actually reviews (lockfiles/tests/generated filtered out) —
-            # the honest denominator for per-line cost.
-            "pr_reviewable_additions": count_reviewable_additions(snapshot.pr_files) if snapshot is not None else None,
+            **review_routing_properties(report),
+            **_pr_size_properties(snapshot),
             "duration_seconds": duration_seconds,
         },
         groups=groups(team=report.team),
@@ -1395,14 +1460,8 @@ def _track_review_failed(input: TrackReviewFailedInput) -> None:
         # completion rate counts turns, not attempts.
         uuid=str(uuid.uuid5(uuid.NAMESPACE_URL, f"reviewhog_review_failed:{input.report_id}:{input.run_index}")),
         properties={
-            "report_id": str(report.id),
-            "team_id": report.team_id,
-            "repository": report.repository,
-            "pr_number": report.pr_number,
-            "run_index": input.run_index,
-            "trigger_source": report.trigger_source,
-            "author_login": report.author_login,
-            **_review_arm_properties(report),
+            **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
+            **review_routing_properties(report),
         },
         groups=groups(team=report.team),
         send_feature_flags=True,

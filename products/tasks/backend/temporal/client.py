@@ -1,6 +1,7 @@
 import uuid
 import asyncio
 import logging
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
@@ -414,6 +415,9 @@ def _resolve_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
 
     if task_run.task.origin_product == Task.OriginProduct.SIGNALS_SCOUT:
         return "signals_scout_reports"
+    # The suggestion scan only reads; a reconciled run must not inherit the generic full posture.
+    if task_run.task.origin_product == Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS:
+        return "read_only"
 
     # Loop-fired runs persist their real scopes in pending_dispatch; a row missing it must
     # degrade to read_only, never escalate to the full write surface the generic fallback
@@ -590,6 +594,7 @@ def signal_task_followup_message(
     context: dict[str, Any] | None = None,
     *,
     steer: bool = False,
+    rpc_timeout: timedelta | None = None,
 ) -> None:
     """Legacy positional signal args stay frozen for worker deploy compatibility."""
     client = sync_connect()
@@ -613,7 +618,10 @@ def signal_task_followup_message(
                 if isinstance(protocol_version, int) and protocol_version >= STEERING_PROTOCOL_VERSION:
                     signal_name = SEND_STEER_SIGNAL
         signal_args = [message, artifact_ids, message_id, actor_user_id, context]
-        await handle.signal(signal_name, args=signal_args)
+        if rpc_timeout is None:
+            await handle.signal(signal_name, args=signal_args)
+        else:
+            await handle.signal(signal_name, args=signal_args, rpc_timeout=rpc_timeout)
 
     asyncio.run(signal())
 
@@ -633,6 +641,7 @@ def execute_posthog_code_agent_relay_workflow(
     delete_progress: bool = True,
     reaction_emoji: str | None = None,
     message_id: str | None = None,
+    trace_id: str | None = None,
 ) -> str:
     relay_id = relay_id or str(uuid.uuid4())
     workflow_id = f"posthog-code-agent-relay-{run_id}-{relay_id}"
@@ -649,6 +658,7 @@ def execute_posthog_code_agent_relay_workflow(
                 delete_progress=delete_progress,
                 reaction_emoji=reaction_emoji,
                 message_id=message_id,
+                trace_id=trace_id,
             ),
             id=workflow_id,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,

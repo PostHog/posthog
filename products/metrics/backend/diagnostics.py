@@ -234,6 +234,13 @@ def decompose_bucket(
     for key in ordered_keys[:max_series]:
         samples = grouped[key]
         service_name, labels, resource_labels = identities[key]
+        if plan.temporal is TemporalReducer.POOLED_SAMPLES:
+            series_value = None
+        else:
+            # Normalized the same way as the bucket's total, so the series
+            # a reader adds up still reach the number they are explaining.
+            reduced = reduce_temporal(reduction_input[key], plan.temporal)
+            series_value = None if reduced is None else reduced / plan.divisor
         breakdown.append(
             MetricSeriesBreakdown(
                 service_name=service_name,
@@ -245,11 +252,7 @@ def decompose_bucket(
                 ),
                 sample_count=len(samples),
                 samples_truncated=len(samples) > max_samples_per_series,
-                # Normalized the same way as the bucket's total, so the series
-                # a reader adds up still reach the number they are explaining.
-                value=None
-                if plan.temporal is TemporalReducer.POOLED_SAMPLES
-                else reduce_temporal(reduction_input[key], plan.temporal) / plan.divisor,
+                value=series_value,
             )
         )
 

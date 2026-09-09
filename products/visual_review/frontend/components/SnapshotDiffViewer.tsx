@@ -14,7 +14,16 @@ import { visualReviewPreferencesLogic } from '../scenes/visualReviewPreferencesL
 import { QuarantineAction } from './QuarantineAction'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from './SnapshotChangeBadge'
 import { SnapshotClusterPanel } from './SnapshotClusterPanel'
+import { SnapshotShiftSummary } from './SnapshotShiftSummary'
 import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
+
+// A toleration the diff pipeline minted for sub-threshold jitter reads very
+// differently from one somebody chose, so the two never share a label.
+const TOLERATION_REASON_LABELS: Record<string, string> = {
+    human: 'manual',
+    agent: 'agent',
+    auto_threshold: 'auto',
+}
 
 function DiffMinimap({ url, onClick }: { url: string; onClick?: () => void }): JSX.Element {
     const [loaded, setLoaded] = useState(false)
@@ -121,6 +130,7 @@ export function SnapshotDiffViewer({
             })),
         [visibleClusterSummary]
     )
+    const rowShift = snapshot.row_shift ?? null
     const diffPixelTotal =
         snapshot.diff_artifact?.width && snapshot.diff_artifact?.height
             ? snapshot.diff_artifact.width * snapshot.diff_artifact.height
@@ -241,6 +251,7 @@ export function SnapshotDiffViewer({
                         onModeChange={setComparisonMode}
                         className="min-h-[200px]"
                         diffOverlayBoxes={overlayBoxes}
+                        diffOverlayBands={rowShift?.bands}
                         diffOverlayWidth={snapshot.diff_artifact?.width ?? undefined}
                         diffOverlayHeight={snapshot.diff_artifact?.height ?? undefined}
                         highlightedOverlayIndex={highlightedClusterIndex}
@@ -257,6 +268,9 @@ export function SnapshotDiffViewer({
                             onClick={() => setComparisonMode('diff')}
                         />
                     )}
+
+                    {/* === Row shift === */}
+                    {rowShift && <SnapshotShiftSummary rowShift={rowShift} />}
 
                     {/* === Change clusters === */}
                     {visibleClusterSummary && visibleClusterSummary.items.length > 0 && (
@@ -491,7 +505,7 @@ export function SnapshotDiffViewer({
                                             {entry.alternate_hash.slice(0, 10)}…
                                         </span>
                                         <LemonTag type="muted" size="small">
-                                            {entry.reason === 'human' ? 'manual' : 'auto'}
+                                            {TOLERATION_REASON_LABELS[entry.reason] ?? 'auto'}
                                         </LemonTag>
                                     </div>
                                 ))}

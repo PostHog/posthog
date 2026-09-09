@@ -10,7 +10,8 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 
 import { CertificationTargetType, ProposedStatus, certificationsLogic } from '../certificationsLogic'
 
-const VIEW_TABLE_TYPES = new Set(['view', 'materialized_view', 'managed_view'])
+// TODO: Managed-view certification needs its own target column and migration.
+const VIEW_TABLE_TYPES = new Set(['view', 'materialized_view'])
 
 function targetTypeForTable(tableType: string): CertificationTargetType | null {
     if (tableType === 'data_warehouse') {
@@ -37,6 +38,7 @@ export function NewCertificationModal(): JSX.Element {
         )
         .map(({ table, targetType }) => ({
             value: `${targetType}:${table.name}`,
+            id: table.id,
             name: table.name,
             targetType,
         }))
@@ -70,6 +72,7 @@ export function NewCertificationModal(): JSX.Element {
                                 const selected = optionEntries.find((entry) => entry.value === value)
                                 setNewCertificationForm({
                                     targetName: selected?.name ?? '',
+                                    targetId: selected?.id ?? '',
                                     targetType: selected?.targetType ?? 'table',
                                 })
                             }}

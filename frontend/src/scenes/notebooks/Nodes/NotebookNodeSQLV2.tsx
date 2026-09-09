@@ -152,6 +152,7 @@ const Component = ({
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
         getContent: () => notebookLogic.values.content ?? null,
+        getVariables: () => notebookLogic.values.runnableVariables,
     })
     const {
         isRunning,
@@ -162,14 +163,15 @@ const Component = ({
         pageLoading,
         operationBlockReason,
         isStale,
+        staleReason,
         isChainRunning,
         staleDownstreamCount,
         pendingKernelStart,
     } = useValues(dataLogic)
     const { setPage, setPageSize, runStaleChain } = useActions(dataLogic)
 
-    const usageLabel = (nodeType: NotebookNodeType, nodeIndex: number | undefined, title: string): string =>
-        title.trim() || getCellLabel(nodeIndex, nodeType) || 'SQL'
+    const usageLabel = (nodeIndex: number | undefined, title: string): string =>
+        title.trim() || getCellLabel(nodeIndex) || 'SQL'
 
     const result = attributes.result ?? null
     const returnVariableError = returnVariableValidationError(attributes.returnVariable ?? '')
@@ -245,7 +247,7 @@ const Component = ({
             >
                 {isStale ? (
                     <div className="shrink-0 pb-2" onClick={(event) => event.stopPropagation()}>
-                        <NotebookStaleCellBanner />
+                        <NotebookStaleCellBanner reason={staleReason ?? undefined} />
                     </div>
                 ) : staleDownstreamCount > 0 && !isChainRunning ? (
                     <div className="shrink-0 pb-2" onClick={(event) => event.stopPropagation()}>
@@ -372,7 +374,7 @@ const Component = ({
                                 className="text-muted hover:text-default underline underline-offset-2 ml-1"
                                 onClick={() => navigateToNode(usage.nodeId)}
                             >
-                                {usageLabel(usage.nodeType, usage.nodeIndex, usage.title)}
+                                {usageLabel(usage.nodeIndex, usage.title)}
                             </button>
                         ))}
                     </span>
@@ -397,6 +399,7 @@ const Settings = ({
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
         getContent: () => notebookLogic.values.content ?? null,
+        getVariables: () => notebookLogic.values.runnableVariables,
     })
     const { isRunning } = useValues(dataLogic)
     const { runNode } = useActions(dataLogic)

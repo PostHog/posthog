@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
     parse_buffer_file_name,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import read_load_position
+from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BatchQueue,
@@ -82,6 +83,18 @@ def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
 def is_buffered_consolidated(schema: ExternalDataSchema, *, ingest_mode: str) -> bool:
     """Whether this schema's changes are delivered through the buffer."""
     return ingest_mode == "buffered" and serves_buffered_lane(schema)
+
+
+def scheduled_sync_consumes_buffer(schema: ExternalDataSchema) -> bool:
+    """Whether this schema's scheduled sync consumes the S3 change buffer.
+
+    Doubles as the pipeline-version override: buffered consumption must run the v3 pipeline,
+    because only the v3 loader records the load position that proves buffer files consumed and
+    resolves versions and deletes. The team's general rollout flag cannot make that call (it can
+    neither see individual sources nor be trusted to stay wide after a flip), so the version
+    check consults this predicate before the flag.
+    """
+    return is_buffered_consolidated(schema, ingest_mode=parse_ingest_mode(schema.source.job_inputs))
 
 
 def has_pending_legacy_backlog(schema: ExternalDataSchema) -> bool:

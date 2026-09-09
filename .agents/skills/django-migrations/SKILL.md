@@ -5,6 +5,8 @@ description: Django migration patterns and safety workflow for PostHog. Use when
 
 # Django migrations
 
+Before you propose a change to the migration history or to how migrations run, check [things already tried](../../../docs/internal/ci-things-already-tried.md). It records the closed attempts at squashing the history and at the Person table cutover.
+
 Read these files first, before writing or editing a migration:
 
 - `docs/published/handbook/engineering/developing-locally.md` (`## Django migrations`, `### Non-blocking migrations`, `### Resolving merge conflicts`)
@@ -27,6 +29,21 @@ To retire a model/table:
 3. Optionally `DROP TABLE` later in a NEW `RunSQL` migration — never by deleting old files.
 
 Full guide: `safe-django-migrations.md` (`## Dropping Tables`, `### Removing a whole product or app`). Deleting a migration your branch added but never merged to master is allowed (regenerating).
+
+## Retire a column in two phases
+
+Deleting the field and running `makemigrations` is not the first phase.
+Django generates a plain `RemoveField`, which drops the column in the same deploy that removes the code.
+Old pods still write to that column, and a rollback finds it gone.
+
+1. Remove all usage and the field from the model. `makemigrations`, then wrap the generated `RemoveField` in `migrations.SeparateDatabaseAndState(state_operations=[...], database_operations=[])`. The column stays in Postgres. Example: `posthog/migrations/1328_remove_userproductlist_reason_state.py`.
+2. Deploy, wait at least one full deploy cycle, and confirm no deployed code reads the column.
+3. Drop the column in a NEW `RunSQL` migration with `ALTER TABLE ... DROP COLUMN IF EXISTS`. Example: `posthog/migrations/1340_drop_userproductlist_reason_columns.py`.
+
+`RemoveFieldAnalyzer` scores a bare `RemoveField` at 5, the highest risk the "Migration Risk Analysis" CI job reports.
+The phase 2 drop scores low only when `check_drop_properly_staged` finds the phase 1 state removal in an ancestor migration, so the two phases must land in that order and never in one migration.
+
+Full guide: `safe-django-migrations.md` (`## Dropping Columns`).
 
 ## Retire dedicated migration tests
 
@@ -81,6 +98,10 @@ All concurrent-index ops require `atomic = False`.
 
 Meta-principle when you hit a risky-but-common pattern with no helper: don't hand-roll the safe DDL from docs — ship a drop-in helper in `posthog/migration_helpers` and point the CI policy at it. A one-import helper beats a wall of caveated `RunSQL` every time.
 
+## Scripting against the risk analyzer
+
+`posthog/management/migration_analysis/models.py` holds two risk dataclasses. `OperationRisk` scores one operation; `MigrationRisk` scores a whole migration file and exposes `max_score`, `level`, and `category`. Both answer `.score`, so on a `MigrationRisk` you can read either `score` or `max_score` — they return the same number.
+
 ## Hot table hazard
 
 `posthog_team`, `posthog_user`, `posthog_organization`, and `posthog_project` are read on virtually every request. Any `ALTER TABLE` on them — including a plain nullable `AddField`, which is "safe" everywhere else — needs an `ACCESS EXCLUSIVE` lock, and while that lock request waits behind in-flight queries, every later query on the table queues behind it. Even a metadata-only `ADD COLUMN` can stall site-wide traffic in waves (one per `bin/migrate` retry) until the ALTER wins the lock race. This has caused production 5xx incidents.
@@ -97,6 +118,10 @@ A `ForeignKey` _targeting_ a hot table is the same hazard from the other side, a
 
 - **`db_constraint=False` on the `ForeignKey`** — emits no FK constraint and takes **no** lock on the parent at all (app-level enforcement only). This is the only truly lock-free path.
 - **A real DB constraint, two-phase** — declare the FK `db_constraint=False`, then add it back as a DB constraint with `AddForeignKeyNotValid`, and `ValidateForeignKey` in a later migration. Be honest: `ADD CONSTRAINT ... NOT VALID` still takes a _brief_ `SHARE ROW EXCLUSIVE` lock on the parent for the metadata add — it skips the row scan, so it shrinks the lock window but does not eliminate it. `VALIDATE` then runs lock-free on the parent.
+
+## Product database boundaries
+
+Apps listed in `products/db_routing.yaml` migrate on their own database and nowhere else. A migration may only depend on migrations that apply to a database it applies to itself, so never add a dependency from another app onto one of those apps, and never the reverse. No foreign key or index can cross databases, so the edge buys nothing, and the CI schema restore relies on its absence: it forgets the routed apps' `django_migrations` rows so each job applies them under its own routing, and a dependant of a forgotten row makes Django refuse to migrate. `posthog/test/repo_invariants/test_migration_dependencies_share_a_database.py` blocks the edge.
 
 ## Cross-language `NOT NULL` hazard
 

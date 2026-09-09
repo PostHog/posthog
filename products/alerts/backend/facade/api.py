@@ -17,7 +17,7 @@ from posthog.utils import relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.destination_configs import (
-    DESTINATION_TEMPLATE_IDS,
+    DESTINATION_SPECS,
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
@@ -25,12 +25,23 @@ from products.alerts.backend.destination_configs import (
     validate_destination_data,
 )
 from products.alerts.backend.destinations import (
+    count_active_alert_destinations,
     create_alert_destination_hog_functions,
+    list_alert_destination_groups,
+    owned_alert_destinations_qs,
+    redact_urls_in_name,
     soft_delete_alert_destinations,
     soft_delete_alert_destinations_for_alerts,
     soft_delete_all_alert_destinations,
 )
 from products.alerts.backend.email_notifications import send_alert_email
+from products.alerts.backend.insight_alert_destinations import (
+    INSIGHT_ALERT_DESTINATION_TYPES,
+    INSIGHT_ALERT_EVENT_IDS,
+    MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
+    MAX_DESTINATIONS_PER_ALERT,
+    build_insight_alert_slack_config,
+)
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
@@ -202,7 +213,11 @@ def snooze_alert_from_slack(
 
 
 __all__ = [
-    "DESTINATION_TEMPLATE_IDS",
+    "DESTINATION_SPECS",
+    "INSIGHT_ALERT_DESTINATION_TYPES",
+    "INSIGHT_ALERT_EVENT_IDS",
+    "MAX_DESTINATIONS_PER_ALERT",
+    "MAX_DESTINATION_IDS_PER_DELETE_REQUEST",
     "AlertDestinationData",
     "AlertDestinationValidationError",
     "AlertScheduleRestriction",
@@ -210,11 +225,16 @@ __all__ = [
     "SLACK_SNOOZE_MAX_DAYS",
     "SlackSnoozeOutcome",
     "build_alert_destination_config",
+    "build_insight_alert_slack_config",
+    "count_active_alert_destinations",
     "create_alert_destination_hog_functions",
     "delete_insight_alerts",
     "get_alert_team_id",
     "insight_alerts_prefetch",
     "insight_ids_with_alerts",
+    "list_alert_destination_groups",
+    "owned_alert_destinations_qs",
+    "redact_urls_in_name",
     "serialize_insight_alerts",
     "snooze_alert_from_slack",
     "soft_delete_alert_destinations",

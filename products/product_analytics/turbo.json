@@ -8,8 +8,8 @@
                 "backend/routes.py",
                 "backend/models/**",
                 "backend/migrations/**",
-                "backend/hogql_queries/**",
-                "!backend/hogql_queries/*/test/**"
+                "backend/hogql_queries/trends/**",
+                "!backend/hogql_queries/trends/test/**"
             ],
             "outputs": [],
             "cache": true

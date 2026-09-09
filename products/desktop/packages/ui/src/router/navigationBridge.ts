@@ -13,8 +13,22 @@ import { getRouterOrNull } from "./routerRef";
 // (early boot, unit tests). These are renderer conveniences — they must never
 // throw just because the router singleton hasn't been created.
 
+// A plain navigation never changes which tab you are in; the tab strip
+// re-stamps the new history entry with the active tab after the fact (see
+// decideTabNavigation). The new-task screens key their composer session on
+// `state.tabId` (getTaskInputSessionId) and remount on that key, so an entry
+// born unstamped flips the key mid-mount and the remounted composer finds the
+// one-shot prefill already consumed — silently dropping prompts handed to
+// openTaskInput (posthog-code://new?prompt= deep links, show_actions compose
+// buttons). Carrying the tag forward matches what the strip would stamp, so
+// the session key never changes under the composer. Only the tag: the other
+// state keys (loopListOrigin, inboxBackOrigin) describe the route being left.
+const keepTabTag = (prev: { tabId?: string }): { tabId?: string } => ({
+  tabId: prev.tabId,
+});
+
 export function navigateToNewTask(): void {
-  void getRouterOrNull()?.navigate({ to: "/new" });
+  void getRouterOrNull()?.navigate({ to: "/new", state: keepTabTag });
 }
 
 export function navigateToTaskDetail(taskId: string): void {
@@ -31,15 +45,15 @@ export function navigateToPullRequestView(prUrl: string): void {
   });
 }
 
-export function navigateToTaskPending(key: string): void {
-  void getRouterOrNull()?.navigate({
-    to: "/tasks/pending/$key",
-    params: { key },
-  });
-}
-
 export function navigateToActivity(): void {
   void getRouterOrNull()?.navigate({ to: "/activity" });
+}
+
+export function navigateToCanvases(canvasId?: string): void {
+  void getRouterOrNull()?.navigate({
+    to: "/canvases",
+    search: { canvas: canvasId },
+  });
 }
 
 export function navigateToHome(): void {
@@ -51,6 +65,10 @@ export function navigateToFeed(feedId: string): void {
     to: "/feeds/$feedId",
     params: { feedId },
   });
+}
+
+export function navigateToFeeds(): void {
+  void getRouterOrNull()?.navigate({ to: "/feeds" });
 }
 
 export function navigateToChannel(channelId: string): void {
@@ -71,6 +89,7 @@ export function navigateToChannelNewTask(channelId: string): void {
   void getRouterOrNull()?.navigate({
     to: "/spaces/$channelId/new",
     params: { channelId },
+    state: keepTabTag,
   });
 }
 
@@ -124,6 +143,10 @@ export function navigateToInbox(): void {
   void getRouterOrNull()?.navigate({ to: "/inbox" });
 }
 
+export function navigateToInboxReports(): void {
+  void getRouterOrNull()?.navigate({ to: "/inbox/reports" });
+}
+
 export function navigateToInboxPullRequestDetail(reportId: string): void {
   void getRouterOrNull()?.navigate({
     to: "/inbox/pulls/$reportId",
@@ -131,10 +154,28 @@ export function navigateToInboxPullRequestDetail(reportId: string): void {
   });
 }
 
-export function navigateToInboxReportDetail(reportId: string): void {
-  void getRouterOrNull()?.navigate({
+export function navigateToInboxReportDetail(
+  reportId: string,
+  options?: { returnToTriage?: boolean },
+): void {
+  const router = getRouterOrNull();
+  if (!router) return;
+
+  const inboxTriageOrigin = options?.returnToTriage ? { reportId } : undefined;
+  if (inboxTriageOrigin) {
+    const location = router.history.location;
+    router.history.replace(location.href, {
+      ...location.state,
+      inboxTriageOrigin,
+    });
+  }
+
+  void router.navigate({
     to: "/inbox/reports/$reportId",
     params: { reportId },
+    state: inboxTriageOrigin
+      ? (previous) => ({ ...previous, inboxTriageOrigin })
+      : undefined,
   });
 }
 
@@ -153,21 +194,6 @@ export function navigateToChannelReportDetail(
     to: "/spaces/$channelId/reports/$reportId",
     params: { channelId, reportId },
   });
-}
-
-export function navigateToScoutDetail(
-  skillSlug: string,
-  findingId?: string,
-): void {
-  void getRouterOrNull()?.navigate({
-    to: "/agents/scouts/$skillName",
-    params: { skillName: skillSlug },
-    search: findingId ? { finding: findingId } : {},
-  });
-}
-
-export function navigateToScoutFindings(): void {
-  void getRouterOrNull()?.navigate({ to: "/agents/scouts/findings" });
 }
 
 export function navigateToLoops(options?: { ignoreBlocker?: boolean }): void {
@@ -193,10 +219,6 @@ export function navigateToLoopDetail(
   });
 }
 
-export function navigateToAgents(): void {
-  void getRouterOrNull()?.navigate({ to: "/agents" });
-}
-
 export function navigateToArchived(): void {
   void getRouterOrNull()?.navigate({ to: "/archived" });
 }
@@ -210,14 +232,6 @@ export function navigateToContext(path?: string): void {
     to: "/context",
     search: { path },
   });
-}
-
-export function navigateToSkills(): void {
-  void getRouterOrNull()?.navigate({ to: "/skills" });
-}
-
-export function navigateToMcpServers(): void {
-  void getRouterOrNull()?.navigate({ to: "/mcp-servers" });
 }
 
 // The spaces index, where the project's spaces are listed.
@@ -246,10 +260,17 @@ export function navigateToSettings(
   });
 }
 
+// Settings sits under the pathless `_shell` layout, so its route IDs read
+// `/_shell/settings/…` rather than `/settings/…`. Match on the substring so a
+// later move between layouts does not silently switch this off.
+export function isSettingsRouteId(routeId: string): boolean {
+  return routeId.includes("/settings/");
+}
+
 export function isOnSettingsRoute(): boolean {
   return (
     getRouterOrNull()?.state.matches.some((m) =>
-      m.routeId.startsWith("/settings"),
+      isSettingsRouteId(m.routeId),
     ) ?? false
   );
 }
@@ -274,10 +295,6 @@ export function goForwardInHistory(): void {
 // `useRouterState` hook from `@tanstack/react-router`.
 export function getCurrentMatches() {
   return getRouterOrNull()?.state.matches ?? [];
-}
-
-export function getCurrentLocation() {
-  return getRouterOrNull()?.state.location ?? null;
 }
 
 export function subscribeToRouterResolved(handler: () => void): () => void {

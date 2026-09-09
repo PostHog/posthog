@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   href: "/",
   navigate: vi.fn(),
   navigateToActivity: vi.fn(),
+  navigateToCanvases: vi.fn(),
   navigateToSpaces: vi.fn(),
   navigateToChannel: vi.fn(),
   navigateToHome: vi.fn(),
@@ -41,14 +42,14 @@ vi.mock(
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: (key: string) => mocks.featureFlags.get(key) ?? false,
 }));
-vi.mock("@posthog/ui/features/feature-flags/useSpacesTabs", () => ({
+vi.mock("@posthog/ui/features/browser-tabs/useSpacesTabs", () => ({
   useSpacesTabs: () => true,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => true,
 }));
-vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
-  useInboxAllReports: () => ({ counts: { pulls: 1 } }),
+vi.mock("@posthog/ui/features/inbox/hooks/useInboxDecisionCount", () => ({
+  useInboxDecisionCount: () => 1,
 }));
 vi.mock("@posthog/ui/features/sidebar/components/ProjectSwitcher", () => ({
   ProjectSwitcher: () => (
@@ -66,13 +67,18 @@ vi.mock("@posthog/ui/features/settings/hooks/useOpenSettings", () => ({
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   getCurrentMatches: () => [{ fullPath: mocks.fullPath }],
   navigateToActivity: (...a: unknown[]) => mocks.navigateToActivity(...a),
+  navigateToCanvases: (...a: unknown[]) => mocks.navigateToCanvases(...a),
   navigateToSpaces: (...a: unknown[]) => mocks.navigateToSpaces(...a),
   navigateToChannel: (...a: unknown[]) => mocks.navigateToChannel(...a),
   navigateToHome: (...a: unknown[]) => mocks.navigateToHome(...a),
   navigateToInbox: (...a: unknown[]) => mocks.navigateToInbox(...a),
+  navigateToFeeds: vi.fn(),
   navigateToLoops: vi.fn(),
   navigateToCommandCenter: vi.fn(),
   navigateToSpacesContext: vi.fn(),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useProjectTaskFeeds", () => ({
+  useProjectTaskFeeds: () => [],
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@posthog/ui/features/canvas/components/ActivityHoverCard", () => ({
@@ -81,13 +87,13 @@ vi.mock("@posthog/ui/features/canvas/components/ActivityHoverCard", () => ({
 
 import { browserTabsStore } from "@posthog/core/browser-tabs/browserTabsStore";
 import { DESKTOP_HOME_FLAG, type RailVisit } from "@posthog/shared";
+import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import {
   clearKeepListForRoute,
   shouldKeepListForRoute,
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
-import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { NavRail } from "./NavRail";
 
 it("stays above floating sidebar layers", () => {
@@ -131,7 +137,7 @@ describe("NavRail", () => {
     mocks.featureFlags.set(DESKTOP_HOME_FLAG, true);
     mocks.fullPath = "/";
     mocks.href = "/";
-    useSidebarStore.setState({ navItemOverrides: {}, navItemOrder: [] });
+    useActivityFilterStore.setState({ mentionsEnabled: true });
     useCurrentChannelStore.setState({ currentChannelId: null });
     useChannelPaneStore.setState({ pane: "channel" });
     rememberVisits({});
@@ -170,6 +176,16 @@ describe("NavRail", () => {
       expect(dot).toHaveClass("absolute", "top-0", "right-0");
       expect(dot).toHaveTextContent("");
     }
+  });
+
+  it("hides the Activity notification dot when mentions are excluded", () => {
+    useActivityFilterStore.setState({ mentionsEnabled: false });
+
+    render(<NavRail />);
+
+    expect(
+      screen.getByLabelText("Activity").querySelector('[data-slot="dot"]'),
+    ).toBeNull();
   });
 
   // The route is the whole answer, so a destination can never be lit over a
@@ -211,6 +227,17 @@ describe("NavRail", () => {
 
       expect(mocks.openSettings).toHaveBeenCalledOnce();
       expect(mocks.openBrowserTab).not.toHaveBeenCalled();
+    });
+
+    it("navigates a Spaces click away from a page that is no destination", async () => {
+      const user = userEvent.setup();
+      mocks.fullPath = "/folders/$folderId";
+      mocks.href = "/folders/folder-1";
+      render(<NavRail />);
+
+      await user.click(screen.getByLabelText("Spaces"));
+
+      expect(mocks.navigateToSpaces).toHaveBeenCalledOnce();
     });
 
     it("routes to Activity from a screen that has no column for it", async () => {
@@ -302,6 +329,20 @@ describe("NavRail", () => {
       await user.click(screen.getByLabelText("Spaces"));
 
       expect(useChannelPaneStore.getState().pane).toBe("list");
+    });
+
+    it("ignores a remembered visit that is not a Spaces page", async () => {
+      const user = userEvent.setup();
+      mocks.fullPath = "/activity";
+      rememberVisits({
+        spaces: { href: "/settings/general", listOpen: false },
+      });
+      render(<NavRail />);
+
+      await user.click(screen.getByLabelText("Spaces"));
+
+      expect(mocks.navigate).not.toHaveBeenCalled();
+      expect(mocks.navigateToSpaces).toHaveBeenCalledOnce();
     });
 
     it("returns to the space pane when the list was not open", async () => {
@@ -406,51 +447,6 @@ describe("NavRail", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 400));
     expect(screen.queryByText("Recent activity card")).not.toBeInTheDocument();
-  });
-
-  it("drops an item hidden in the sidebar settings", () => {
-    useSidebarStore.setState({ navItemOverrides: { "command-center": false } });
-    render(<NavRail />);
-
-    expect(screen.queryByLabelText("Command Center")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Self-driving")).toBeInTheDocument();
-  });
-
-  it("keeps the column's own destinations when everything else is hidden", () => {
-    useSidebarStore.setState({
-      navItemOverrides: {
-        inbox: false,
-        activity: false,
-        "command-center": false,
-        loops: false,
-        configure: false,
-      },
-    });
-    render(<NavRail />);
-
-    expect(screen.getByLabelText("Home")).toBeInTheDocument();
-    expect(screen.getByLabelText("Spaces")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Settings")).not.toBeInTheDocument();
-  });
-
-  it("follows a stored order without moving the pinned destinations", () => {
-    useSidebarStore.setState({
-      navItemOrder: ["command-center", "inbox", "activity"],
-    });
-    const { container } = render(<NavRail />);
-
-    // Search leads the rail and is not a destination, so it sits outside the
-    // customizable order.
-    const labels = [...container.querySelectorAll("button")]
-      .map((button) => button.getAttribute("aria-label"))
-      .filter((label) => label !== "Search");
-    expect(labels.slice(0, 5)).toEqual([
-      "Home",
-      "Spaces",
-      "Command Center",
-      "Self-driving",
-      "Activity",
-    ]);
   });
 
   it("lights the last square of the Spaces mark while a space is open", () => {

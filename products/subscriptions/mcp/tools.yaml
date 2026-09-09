@@ -26,7 +26,7 @@ tools:
             (1) set `insight` — schedule periodic snapshots of one insight (`resource_type: "insight"`).
 
             (2) set `dashboard` and `dashboard_export_insights` (the subset of the dashboard's insights to include, max
-            6) — schedule periodic snapshots of one dashboard (`resource_type: "dashboard"`).
+            10) — schedule periodic snapshots of one dashboard (`resource_type: "dashboard"`).
 
             (3) set `prompt` (≤4000 chars, with no insight or dashboard) — schedule a recurring LLM-generated report
             (`resource_type: "ai_prompt"`). Available on PostHog Cloud (self-hosted production is not eligible) once the
@@ -34,7 +34,14 @@ tools:
             is rejected with a 400. Creating a prompt subscription also requires the `query:read` scope — the report
             runs LLM-generated HogQL over your data — so a `subscription:write`-only token is rejected for this kind.
 
-            Delivery is set by `target_type` — `email` or `slack`.
+            Delivery is set by `target_type` — `email`, `slack`, or `teams` (a Microsoft Teams webhook URL in
+            `target_value`). A Teams webhook URL is only ever read back as its host. Creating a Teams subscription
+            requires the full webhook URL in `target_value`.
+
+            Set `start_date` to an ISO 8601 datetime. Its date anchors the recurrence and may be in the past. Deliveries
+            run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but
+            delivery happens during the next cycle instead of at that exact minute. For example, use a value ending in
+            `T16:30:00Z` for the 16:30 delivery cycle.
 
             The kind is fixed at create time — a PATCH that would change the populated relation to a different kind is
             rejected.
@@ -168,6 +175,9 @@ tools:
             prompt subscription additionally requires the `query:read` scope. Use `subscriptions-delete` to soft-delete
             — `deleted` is not settable here.
 
+            For Microsoft Teams, omit `target_value` to keep the stored webhook URL. To replace it, send a full Teams
+            webhook URL; the host returned by this API is not a valid replacement.
+
             For insight and dashboard subscriptions, toggle the per-delivery AI summary with `summary_enabled` and steer
             it with `summary_prompt_guide`. Enabling a summary requires the organization to have approved AI data
             processing and to be within its active-summary cap and AI credit budget; otherwise the update is rejected.
@@ -190,9 +200,9 @@ tools:
         title: Get subscription
         description:
             'Fetch a single subscription by numeric ID. Returns its kind (`resource_type`: insight, dashboard, or
-            ai_prompt), target (`target_type`/`target_value`), schedule, enabled state, and AI-summary settings.
-            Metadata only — for the send history and delivered reports, use `subscriptions-deliveries-list` /
-            `subscriptions-deliveries-retrieve`.'
+            ai_prompt), target (`target_type`/`target_value`, host-only for a Teams webhook), schedule, enabled state,
+            and AI-summary settings. Metadata only — for the send history and delivered reports, use
+            `subscriptions-deliveries-list` / `subscriptions-deliveries-retrieve`.'
         response:
             exclude:
                 - invite_message
@@ -210,14 +220,14 @@ tools:
             idempotent: false
         title: Send test delivery
         description: >
-            Trigger an immediate test delivery of a subscription to its configured target(s) (email or Slack). Runs the
-            same pipeline as a scheduled delivery but with trigger_type=manual, producing a real delivery record you can
-            inspect via subscriptions-deliveries-list / subscriptions-deliveries-retrieve. Returns 202 Accepted once the
-            delivery workflow is queued; poll subscriptions-deliveries-list (newest first) or
-            subscriptions-deliveries-retrieve for the outcome. Returns 409 if a test delivery for the same subscription
-            is already in flight, or if the subscription is disabled (re-enable it first); 404 if it has been deleted.
-            Test-delivering a prompt subscription additionally requires the `query:read` scope (it runs the AI HogQL
-            pipeline).
+            Trigger an immediate test delivery of a subscription to its configured target(s) (email, Slack, or Microsoft
+            Teams). Runs the same pipeline as a scheduled delivery but with trigger_type=manual, producing a real
+            delivery record you can inspect via subscriptions-deliveries-list / subscriptions-deliveries-retrieve.
+            Returns 202 Accepted once the delivery workflow is queued; poll subscriptions-deliveries-list (newest first)
+            or subscriptions-deliveries-retrieve for the outcome. Returns 409 if a test delivery for the same
+            subscription is already in flight, or if the subscription is disabled (re-enable it first); 404 if it has
+            been deleted. Test-delivering a prompt subscription additionally requires the `query:read` scope (it runs
+            the AI HogQL pipeline).
     subscriptions-update:
         operation: subscriptions_update
         enabled: false

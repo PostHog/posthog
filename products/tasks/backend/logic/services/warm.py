@@ -15,6 +15,7 @@ quota gate before it can warm.
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 from django.db import transaction
 
@@ -42,6 +43,10 @@ class WarmResult:
 
     run: TaskRun
     just_created: bool
+
+
+class WarmSourceChanged(Exception):
+    pass
 
 
 @dataclass(frozen=True)
@@ -131,7 +136,13 @@ class SandboxWarmer:
         return warm_runs.filter(task__team__organization_id=team.organization_id).count() >= caps.per_org
 
     def warm(
-        self, *, mode: str = "interactive", extra_state: dict[str, Any] | None = None, create_pr: bool = False
+        self,
+        *,
+        mode: str = "interactive",
+        extra_state: dict[str, Any] | None = None,
+        create_pr: bool = False,
+        expected_resume_from_run_id: str | UUID | None = None,
+        required_existing_state: dict[str, Any] | None = None,
     ) -> WarmResult:
         """Idempotently ensure the Task has a warm Run, then dispatch the processing workflow after commit.
 
@@ -154,8 +165,42 @@ class SandboxWarmer:
             locked = Task.objects.select_for_update().get(id=self.task.id)
             existing = locked.latest_run
             if existing is not None and not existing.is_terminal:
+                if expected_resume_from_run_id is not None:
+                    existing_state = existing.state or {}
+                    expected_resume_id = str(expected_resume_from_run_id)
+                    matches_resume_source = (
+                        existing_state.get("await_user_message") is True
+                        and existing_state.get("resume_from_run_id") == expected_resume_id
+                    )
+                    matches_required_state = all(
+                        existing_state.get(key) == value for key, value in (required_existing_state or {}).items()
+                    )
+                    if not matches_resume_source or not matches_required_state:
+                        raise WarmSourceChanged
                 # A warm Run already idling, or an active Run in progress — either way, no double-provision.
                 return WarmResult(run=existing, just_created=False)
+
+            # The Run the successor resumes from. Normally the latest Run is the source itself, but a
+            # successor the composer already handed back is terminal and sits in front of it — resume
+            # from the source the caller named rather than from that dead successor, whose own
+            # `resume_from_run_id` would otherwise be lost and leave the new warm unrecognizable as a
+            # successor of the source.
+            resume_source = existing
+            if expected_resume_from_run_id is not None:
+                if existing is None:
+                    raise WarmSourceChanged
+                if str(existing.id) != str(expected_resume_from_run_id):
+                    existing_state = existing.state or {}
+                    released_successor = (
+                        existing_state.get("prewarmed") is True
+                        and existing_state.get("await_user_message") is True
+                        and existing_state.get("resume_from_run_id") == str(expected_resume_from_run_id)
+                    )
+                    if not released_successor:
+                        raise WarmSourceChanged
+                    resume_source = locked.runs.filter(id=expected_resume_from_run_id).first()
+                    if resume_source is None:
+                        raise WarmSourceChanged
 
             if self.at_capacity(locked.origin_product, locked.team, self.user):
                 raise Throttled(detail="Warm-pool capacity reached. Release an idle warm session and try again.")
@@ -166,10 +211,10 @@ class SandboxWarmer:
                 "initial_permission_mode": "default",
                 **(extra_state or {}),
             }
-            if existing is not None:
+            if resume_source is not None:
                 # Latest Run is terminal — resume into a successor so the warm session reuses its filesystem.
-                run_state["resume_from_run_id"] = str(existing.id)
-                run_state.update(parse_run_state(existing.state).resume_snapshot_carry_state())
+                run_state["resume_from_run_id"] = str(resume_source.id)
+                run_state.update(parse_run_state(resume_source.state).resume_snapshot_carry_state())
 
             new_run = locked.create_run(mode=mode, extra_state=run_state, branch=run_state.get("branch"))
 

@@ -16,19 +16,34 @@ export function useActiveSession(): ActiveSession {
   const { showsActivityDetail } = useRailSurface();
   const selected = useActivitySelection();
   const feedSelected = useTaskFeedSelectionStore((s) => s.selected);
-  const params = useParams({ strict: false });
+  // Select each param on its own. `useParams` without a selector subscribes to
+  // the whole param set the nearest match carries for the route chain, so an
+  // unrelated param (a settings category) changing would re-render every
+  // consumer of this hook.
+  const taskId = useParams({ strict: false, select: (p) => p.taskId });
+  const channelId = useParams({ strict: false, select: (p) => p.channelId });
+  const feedId = useParams({ strict: false, select: (p) => p.feedId });
 
   if (showsActivityDetail) {
+    const taskSelection = selected?.kind === "task" ? selected : null;
     return {
-      taskId: selected?.taskId,
-      channelId: selected?.channelId ?? undefined,
+      taskId: taskSelection?.taskId,
+      channelId: taskSelection?.channelId ?? undefined,
     };
   }
-  if (params.feedId && feedSelected?.feedId === params.feedId) {
+  if (feedId && feedSelected?.feedId === feedId) {
     return {
       taskId: feedSelected.taskId,
       channelId: feedSelected.channelId ?? undefined,
     };
   }
-  return { taskId: params.taskId, channelId: params.channelId };
+  return { taskId, channelId };
+}
+
+const NO_SESSION: ActiveSession = { taskId: undefined, channelId: undefined };
+
+export function useTabSession(): ActiveSession {
+  const params = useParams({ strict: false });
+  const session = useActiveSession();
+  return params.feedId ? NO_SESSION : session;
 }

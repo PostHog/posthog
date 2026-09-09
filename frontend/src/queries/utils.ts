@@ -50,7 +50,6 @@ import {
     MetricsQuery,
     Node,
     NodeKind,
-    NonIntegratedConversionsTableQuery,
     PathsQuery,
     PathsV2Query,
     PersonsNode,
@@ -162,6 +161,12 @@ export function isDataTableNodeWithHogQLQuery(node?: Record<string, any> | null)
 
 export function isDataVisualizationNode(node?: Record<string, any> | null): node is DataVisualizationNode {
     return node?.kind === NodeKind.DataVisualizationNode
+}
+
+export function isDataVisualizationNodeWithHogQLQuery(
+    node?: Record<string, any> | null
+): node is DataVisualizationNode & { source: HogQLQuery } {
+    return isDataVisualizationNode(node) && isHogQLQuery(node.source)
 }
 
 export function convertDataTableNodeToDataVisualizationNode(node: Node | null): Node | null {
@@ -284,12 +289,6 @@ export function isMarketingAnalyticsAggregatedQuery(
     node?: Record<string, any> | null
 ): node is MarketingAnalyticsAggregatedQuery {
     return node?.kind === NodeKind.MarketingAnalyticsAggregatedQuery
-}
-
-export function isNonIntegratedConversionsTableQuery(
-    node?: Record<string, any> | null
-): node is NonIntegratedConversionsTableQuery {
-    return node?.kind === NodeKind.NonIntegratedConversionsTableQuery
 }
 
 export function isTracesQuery(node?: Record<string, any> | null): node is TracesQuery {
@@ -474,7 +473,7 @@ export const getInterval = (query: InsightQueryNode): IntervalType | undefined =
 // For trends/stickiness, ActionsStackedBar is a deprecated alias of ActionsBar (which renders stacked):
 // the UI never emits it, but the API and MCP accept it. Normalizing here — the point all `display`
 // selectors derive from — makes such insights behave exactly like their UI-created equivalents.
-const normalizeDisplay = (display: ChartDisplayType | undefined): ChartDisplayType | undefined =>
+export const normalizeDisplay = (display: ChartDisplayType | undefined): ChartDisplayType | undefined =>
     display === ChartDisplayType.ActionsStackedBar ? ChartDisplayType.ActionsBar : display
 
 export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefined => {
@@ -498,6 +497,7 @@ const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
     ChartDisplayType.ActionsStackedBar,
     ChartDisplayType.ActionsBarValue,
     ChartDisplayType.ActionsPie,
+    ChartDisplayType.ActionsDonut,
     ChartDisplayType.Metric,
     ChartDisplayType.BoxPlot,
     ChartDisplayType.SlopeGraph,
@@ -883,6 +883,24 @@ export function taxonomicPersonFilterToHogQL(
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
     }
+    return null
+}
+
+export function taxonomicSessionFilterToHogQL(
+    groupType: TaxonomicFilterGroupType,
+    value: TaxonomicFilterValue
+): string | null {
+    if (groupType === TaxonomicFilterGroupType.SessionProperties) {
+        return `session.${escapePropertyAsHogQLIdentifier(String(value))}`
+    }
+    if (groupType === TaxonomicFilterGroupType.PersonProperties) {
+        return `person.properties.${escapePropertyAsHogQLIdentifier(String(value))}`
+    }
+    if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
+        return String(value)
+    }
+    // Event-scoped picks (e.g. a suggested or recent event property) have no
+    // equivalent on the sessions table — adding one would fail resolution.
     return null
 }
 

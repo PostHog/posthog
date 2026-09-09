@@ -2,8 +2,9 @@ name: Weekly flaky test report
 
 # Posts the week's top flaky tests to #flakey-tests every Monday morning. PULL
 # model, sibling of eng-analytics-weekly-digest.yml: the script reads the
-# engineering_analytics product's flaky_tests endpoint and relays one table to
-# Slack via the DevEx bot — it does not re-derive the flake signal. Owner
+# engineering_analytics product's flaky_tests endpoint and relays a channel
+# table plus per-team thread slices to Slack via the DevEx bot — it does not
+# re-derive the flake signal. Owner
 # attribution runs in the script through the tools/owners resolver, which is why
 # the sparse checkout includes the ownership files.
 #
@@ -72,7 +73,7 @@ jobs:
                   # Optional: override the source-prefixed runs table name.
                   ENG_ANALYTICS_RUNS_TABLE: ${{ vars.ENG_ANALYTICS_RUNS_TABLE }}
                   # The same switches the CI uploaders read, so the report can only claim a test is
-                  # masked when Trunk is actually masking it. Unset means no Trunk section at all.
+                  # masked when Trunk is actually masking it. Unset means no Trunk state at all.
                   TRUNK_UPLOAD_ENABLED: ${{ vars.TRUNK_UPLOAD_ENABLED }}
                   TRUNK_QUARANTINE_ENABLED: ${{ vars.TRUNK_QUARANTINE_ENABLED }}
                   # Optional: override the source-prefixed Trunk quarantine table name.

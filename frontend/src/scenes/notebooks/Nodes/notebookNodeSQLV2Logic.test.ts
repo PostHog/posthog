@@ -1,15 +1,27 @@
+import { render } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
 import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from '../Notebook/markdownNotebookV2'
 import { notebookSettingsLogic } from '../Notebook/notebookSettingsLogic'
 import { NotebookNodeType } from '../types'
-import { collectSqlV2Refs, notebookNodeSQLV2Logic, pollIntervalMs } from './notebookNodeSQLV2Logic'
+import {
+    collectSqlV2Refs,
+    notebookNodeSQLV2Logic,
+    pollIntervalMs,
+    sqlV2RunErrorMessage,
+} from './notebookNodeSQLV2Logic'
+
+const renderToastText = (message: string | JSX.Element): string =>
+    typeof message === 'string' ? message : (render(message).container.textContent ?? '')
 
 describe('notebookNodeSQLV2Logic', () => {
     let logic: ReturnType<typeof notebookNodeSQLV2Logic.build>
@@ -35,6 +47,30 @@ describe('notebookNodeSQLV2Logic', () => {
     afterEach(() => {
         logic?.unmount()
         jest.restoreAllMocks()
+    })
+
+    describe('sqlV2RunErrorMessage', () => {
+        // The browser endpoints render every 404 as DRF's generic {"detail": "Not found."}, so the
+        // message must come from the caller's notFoundKind, not from matching the backend string.
+        const notFound = new ApiError(undefined, 404, undefined, { detail: 'Not found.' })
+
+        it('names the notebook for a 404 on a notebook-addressed request', () => {
+            expect(sqlV2RunErrorMessage(notFound, 'fallback', 'notebook')).toBe(
+                'This notebook could not be found. It may have been deleted.'
+            )
+        })
+
+        it('points at a rerun for a 404 on a result-addressed request', () => {
+            // The result/page call sites rely on the default kind.
+            expect(sqlV2RunErrorMessage(notFound, 'fallback')).toBe(
+                'This query result is no longer available. Run the cell again.'
+            )
+        })
+
+        it('keeps the original message for non-404 failures', () => {
+            // A syntax error carries the detail the user needs; the not-found mapping must not swallow it.
+            expect(sqlV2RunErrorMessage(new ApiError('Unexpected token', 400), 'fallback')).toBe('Unexpected token')
+        })
     })
 
     describe('collectSqlV2Refs', () => {
@@ -187,23 +223,51 @@ describe('notebookNodeSQLV2Logic', () => {
             })
         })
 
-        it('opens the kernel panel and notifies for a kernel-lane run, and not for a direct one', async () => {
+        it('opens the kernel panel for a kernel-lane run, and not for a direct one', async () => {
             // Scenario B: a run that needs the sandbox must surface the provisioning wait;
-            // a pure-SQL run must never pop the panel or toast (it needs no sandbox at all).
-            const toastSpy = jest.spyOn(lemonToast, 'info')
+            // a pure-SQL run must never pop the panel (it needs no sandbox at all).
             mount()
             logic.actions.runQuery('select 1')
             await expectLogic(logic).toFinishAllListeners()
             expect(notebookSettingsLogic.findMounted()?.values.showKernelInfo).toBe(false)
             expect(logic.values.pendingKernelStart).toBe(false)
-            expect(toastSpy).not.toHaveBeenCalled()
 
             logic.actions.runQuery('select * from new_events', { new_events: { node_id: 'py', kind: 'local' } })
             await expectLogic(logic).toFinishAllListeners()
             expect(notebookSettingsLogic.findMounted()?.values.showKernelInfo).toBe(true)
             expect(logic.values.pendingKernelStart).toBe(true)
-            expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('Starting a compute sandbox'))
         })
+    })
+
+    // The run response is the only source that knows whether this run provisions, because the
+    // backend decides it at dispatch. A client that guesses from a kernel poll either bills a
+    // user twice for one sandbox or starts a paid one in silence.
+    test.each([
+        ['names the rate when the run starts a paid sandbox', true, 0.25, false, ['compute sandbox at $0.25 / h']],
+        [
+            'strikes the rate through to $0.00 when the free compute flag is on',
+            true,
+            0.25,
+            true,
+            ['compute sandbox at $0.25 / h $0.00 / h while it runs'],
+        ],
+        // The unpriced branch is the only one that ends the sentence here, so matching it also
+        // proves no rate was quoted.
+        ['announces without a rate when the run reports no price', true, null, false, ['compute sandbox. The cell']],
+        ['stays quiet when the run reuses a running sandbox', false, null, false, []],
+    ])('%s', async (_name, startsSandbox, price, freeCompute, expected) => {
+        featureFlagLogic.actions.setFeatureFlags(freeCompute ? [FEATURE_FLAGS.NOTEBOOK_SANDBOX_FREE_COMPUTE] : [], {
+            [FEATURE_FLAGS.NOTEBOOK_SANDBOX_FREE_COMPUTE]: freeCompute,
+        })
+        runSpy.mockResolvedValue({ run_id: 'r1', starts_sandbox: startsSandbox, sandbox_hourly_price: price })
+        const toastSpy = jest.spyOn(lemonToast, 'info')
+        mount()
+        logic.actions.runQuery('select * from new_events', { new_events: { node_id: 'py', kind: 'local' } })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastSpy.mock.calls.map(([message]) => renderToastText(message))).toEqual(
+            expected.map((fragment) => expect.stringContaining(fragment))
+        )
     })
 
     it('rejects blank code before dispatching a run', async () => {
@@ -223,6 +287,18 @@ describe('notebookNodeSQLV2Logic', () => {
         // runId is persisted so a reload/remount can recover the in-flight run; nodeId is
         // pinned so the markdown cell's fingerprint id can't drift away from the run's node_id.
         expect(updateAttributes).toHaveBeenCalledWith({ nodeId: 'n1', runId: 'r1', result: null, runStatus: null })
+    })
+
+    it('shows the notebook-gone message when the run dispatch 404s', async () => {
+        // A deleted or inaccessible notebook 404s the dispatch as a generic "Not found."; the cell
+        // must say the notebook is gone, not send the user into a rerun loop for a result that
+        // never existed.
+        runSpy.mockRejectedValue(new ApiError(undefined, 404, undefined, { detail: 'Not found.' }))
+        mount()
+        logic.actions.runQuery('select 1')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.runError).toBe('This notebook could not be found. It may have been deleted.')
+        expect(logic.values.isRunning).toBe(false)
     })
 
     it('dispatches a run against the cell’s connection', async () => {

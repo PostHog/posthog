@@ -1880,6 +1880,24 @@ class TestUnwatchedGarages:
         product_dir, _ = _write_facade_product(tmp_path, sources={garage_file: ""}, turbo_inputs=turbo_inputs)
         assert unwatched_garages(product_dir) == expected
 
+    @pytest.mark.parametrize(
+        "garage_file, driven, expected",
+        [
+            # no evidence at all: every present garage must stay watched
+            ("hogql_queries/paths.py", None, {"backend/hogql_queries/"}),
+            # evidence says nothing outside drives the computed garage: it may leave the inputs
+            ("hogql_queries/paths.py", frozenset(), set()),
+            ("hogql_queries/paths.py", frozenset({"backend/hogql_queries/"}), {"backend/hogql_queries/"}),
+            # a garage whose drive channel is not scanned stays presence-watched whatever the evidence says
+            ("tasks/tasks.py", frozenset(), {"backend/tasks/"}),
+        ],
+    )
+    def test_computed_garage_follows_the_evidence(
+        self, tmp_path: Path, garage_file: str, driven: frozenset[str] | None, expected: set[str]
+    ) -> None:
+        product_dir, _ = _write_facade_product(tmp_path, sources={garage_file: ""}, turbo_inputs=["backend/facade/**"])
+        assert unwatched_garages(product_dir, driven) == expected
+
 
 class TestNarrowedTurboWiringSurface:
     @pytest.mark.parametrize(

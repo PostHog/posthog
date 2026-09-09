@@ -19,8 +19,20 @@ import {
   POSTHOG_METHODS,
   POSTHOG_NOTIFICATIONS,
 } from "@posthog/agent";
+import { machineClaudeAuth } from "@posthog/agent/adapters/claude/machine-auth";
 import type { McpToolApprovals } from "@posthog/agent/adapters/claude/mcp/tool-metadata";
 import { hydrateSessionJsonl } from "@posthog/agent/adapters/claude/session/jsonl-hydration";
+import {
+  type ClaudeAuthAction,
+  claudeAuthTerminalCommand,
+  hasClaudeLogin,
+} from "@posthog/agent/adapters/claude/subscription-login";
+import {
+  type CodexLoginSession,
+  hasCodexChatgptLogin,
+  signOutCodexChatgpt,
+  startCodexChatgptLogin,
+} from "@posthog/agent/adapters/codex-app-server/subscription-login";
 import {
   getContextWindowOptions,
   getFastModeOptions,
@@ -32,6 +44,7 @@ import {
   getAvailableModes,
 } from "@posthog/agent/execution-mode";
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
+import { buildTaskSystemPrompt } from "@posthog/agent/pi/task-system-prompt";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import {
   findPrUrls,
@@ -68,9 +81,13 @@ import {
   type Adapter,
   type BedrockGatewayVariant,
   buildCloudTaskConfigOptions,
+  buildProviderModelGroups,
   type CloudRegion,
   type ExecutionMode,
   isAuthError,
+  type ModelAccess,
+  readAgentToolName,
+  readMcpToolName,
   resolveCloudInitialPermissionMode,
   serializeError,
   TypedEventEmitter,
@@ -87,7 +104,11 @@ import type { ProcessTrackingService } from "../process-tracking/process-trackin
 import { loadSessionEnvOverrides } from "../session-env/loader";
 import { isScratchPath } from "../workspace/scratch";
 import type { AgentAuthAdapter, McpToolInstallations } from "./auth-adapter";
-import { cleanupCodexHome, prepareCodexHome } from "./codex-home";
+import {
+  cleanupCodexHome,
+  getCodexHomeDir,
+  prepareCodexHome,
+} from "./codex-home";
 import { prepareContextWiki } from "./context-wiki";
 import { discoverExternalPlugins } from "./discover-plugins";
 import {
@@ -107,12 +128,16 @@ import type {
 import {
   AgentServiceEvent,
   type AgentServiceEvents,
+  type ClaudeAuthTerminal,
+  type ClaudeSubscriptionStatus,
+  type CodexSubscriptionStatus,
   type Credentials,
   type EffortLevel,
   type InterruptReason,
   type PromptOutput,
   type ReconnectSessionInput,
   type RtkStatus,
+  type SessionContextChange,
   type SessionResponse,
   type SideQuestionOutput,
   type StartSessionInput,
@@ -127,11 +152,6 @@ function isDevBuild(): boolean {
 
 /** Mark all content blocks as hidden so the renderer doesn't show a duplicate user message on retry */
 type MessageCallback = (message: unknown) => void;
-
-/** Shape of the `_meta.claudeCode` extension field on tool call updates. */
-interface ClaudeCodeToolMeta {
-  claudeCode?: { toolName?: string };
-}
 
 class NdJsonTap {
   private decoder = new TextDecoder();
@@ -272,6 +292,8 @@ interface SessionConfig {
   /** The agent's session ID (for resume - SDK session ID for Claude, Codex's session ID for Codex) */
   sessionId?: string;
   adapter?: Adapter;
+  codexModelAccess?: ModelAccess;
+  claudeModelAccess?: ModelAccess;
   /** Permission mode to use for the session */
   permissionMode?: string;
   /** Custom instructions injected into the system prompt */
@@ -506,6 +528,113 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     return this.bundledResources.resolve(`.vite/build/codex-acp/${binary}`);
   }
 
+  private codexLogin?: CodexLoginSession;
+  private codexAuthGeneration = 0;
+  private claudeAuthGeneration = 0;
+
+  async getCodexSubscriptionStatus(): Promise<CodexSubscriptionStatus> {
+    if (this.codexLogin) return { loginState: "logged-out" };
+    const status = await hasCodexChatgptLogin({
+      binaryPath: this.getCodexBinaryPath(),
+    });
+    return {
+      loginState: status.loggedIn ? "logged-in" : "logged-out",
+      email: status.email,
+      subscriptionType: status.planType,
+    };
+  }
+
+  async getClaudeSubscriptionStatus(): Promise<ClaudeSubscriptionStatus> {
+    const status = await hasClaudeLogin({
+      claudeCliPath: this.getClaudeCliPath(),
+      machineAuth: machineClaudeAuth(),
+      logger: this.log,
+    });
+    return {
+      loginState: status.state,
+      email: status.email,
+      organization: status.organization,
+      subscriptionType: status.subscriptionType,
+    };
+  }
+
+  async getClaudeAuthTerminal(
+    action: ClaudeAuthAction,
+  ): Promise<ClaudeAuthTerminal> {
+    if (action === "logout") {
+      await this.prepareClaudeAccountChange();
+    }
+    const { command, env } = claudeAuthTerminalCommand(
+      action,
+      this.getClaudeCliPath(),
+      machineClaudeAuth(),
+    );
+    return {
+      command,
+      cwd: homedir(),
+      additionalEnv: env.set,
+      unsetEnv: env.unset,
+    };
+  }
+
+  private async prepareClaudeAccountChange(): Promise<void> {
+    this.claudeAuthGeneration += 1;
+    await this.stopClaudeSubscriptionSessions();
+  }
+
+  private async stopClaudeSubscriptionSessions(): Promise<void> {
+    const sessionIds = [...this.sessions.entries()]
+      .filter(
+        ([, session]) =>
+          session.config.claudeModelAccess === "own-subscription",
+      )
+      .map(([taskRunId]) => taskRunId);
+    await Promise.all(
+      sessionIds.map((taskRunId) => this.cleanupSession(taskRunId)),
+    );
+  }
+
+  async startCodexSubscriptionLogin(): Promise<{ authUrl: string }> {
+    await this.prepareCodexAccountChange();
+    const login = await startCodexChatgptLogin({
+      binaryPath: this.getCodexBinaryPath(),
+    });
+    this.codexLogin = login;
+    void login.completed.then((loggedIn) => {
+      if (this.codexLogin === login) this.codexLogin = undefined;
+      this.log.info("Codex subscription login finished", { loggedIn });
+    });
+    return { authUrl: login.authUrl };
+  }
+
+  async signOutCodexSubscription(): Promise<void> {
+    await this.prepareCodexAccountChange();
+    await signOutCodexChatgpt({
+      binaryPath: this.getCodexBinaryPath(),
+    });
+  }
+
+  private async prepareCodexAccountChange(): Promise<void> {
+    this.codexAuthGeneration += 1;
+    const currentLogin = this.codexLogin;
+    this.codexLogin = undefined;
+    await Promise.all([
+      currentLogin?.cancel(),
+      this.stopCodexSubscriptionSessions(),
+    ]);
+  }
+
+  private async stopCodexSubscriptionSessions(): Promise<void> {
+    const sessionIds = [...this.sessions.entries()]
+      .filter(
+        ([, session]) => session.config.codexModelAccess === "own-subscription",
+      )
+      .map(([taskRunId]) => taskRunId);
+    await Promise.all(
+      sessionIds.map((taskRunId) => this.cleanupSession(taskRunId)),
+    );
+  }
+
   /**
    * Respond to a pending permission request from the UI.
    * This resolves the promise that the agent is waiting on.
@@ -679,6 +808,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   private buildSystemPrompt(
     credentials: Credentials,
     taskId: string,
+    cwd: string,
     customInstructions?: string,
     additionalDirectories?: string[],
     systemPromptOverride?: string,
@@ -695,75 +825,22 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       };
     }
 
-    let prompt = `PostHog context: use project ${credentials.projectId} on ${credentials.apiHost}. When using PostHog MCP tools, operate only on this project.`;
-
-    prompt += `
-
-## Attribution
-Do NOT use Claude Code's default attribution (no "Co-Authored-By" trailers, no "Generated with [Claude Code]" lines).
-
-Instead, add the following trailers to EVERY commit message (after a blank line at the end):
-  Generated-By: PostHog Desktop
-  Task-Id: ${taskId}
-
-Example:
-\`\`\`
-git commit -m "$(cat <<'EOF'
-fix: resolve login redirect loop
-
-Generated-By: PostHog Desktop
-Task-Id: ${taskId}
-EOF
-)"
-\`\`\`
-
-When creating new branches, prefix them with \`posthog/\` (e.g. \`posthog/fix-login-redirect\`).
-
-When creating pull requests, add the following footer at the end of the PR description:
-\`\`\`
----
-*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*
-\`\`\`
-
-When you mention a pull request in any reply or summary, always hyperlink it to its full URL (e.g. a Markdown link like [#123](https://github.com/org/repo/pull/123)) rather than plain text, so readers can open it directly.
-
-## Questions
-When you need an answer from the user before you can continue, use the structured user-input tool available in your current mode. Never end a turn with a blocking question in a normal assistant message because plain-text questions mark the task as finished instead of waiting for the user's response.
-
-## Shell efficiency
-Optimize for the fewest shell round trips.
-- Batch related commands into one Bash invocation using \`&&\` (e.g. \`npm run typecheck && npm run lint && npm test\`).
-- Emit all independent tool calls in the same response.
-- Read multiple files at once.
-- Never rerun a command solely to reproduce output you already have.
-
-`;
-
-    if (channelMode) {
-      prompt += `
-
-## Channel task (no repository attached)
-You are running in a PostHog channel as a general-purpose assistant. This task may not need a code repository. It could be data analysis via PostHog tools, drafting a message, or answering a question. Do not assume you need a repo.
-
-- Your working directory is a scratch directory, not a git checkout. Treat it as empty.
-- Decide from the user's request and the channel CONTEXT.md, if present, whether the task requires a code repository. If it doesn't, do the work in the scratch directory.
-- Do not \`cd\` into or edit an existing checkout elsewhere on the machine. Another task may be using it.
-
-If a repository is required, call \`list_repos\` to find it, then use \`clone_repo\` with its \`owner/repo\`. The tool creates a task-specific clone inside the scratch directory and returns the path to use. If you cannot confidently identify the repository, ask the user which repository to clone.`;
-    }
-
-    if (customInstructions) {
-      prompt += `\n\nUser custom instructions:\n${customInstructions}`;
-    }
-
-    if (additionalDirectories?.length) {
-      const escapeXml = (s: string) =>
-        s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-      const dirs = additionalDirectories
-        .map((d) => `  <directory>${escapeXml(d)}</directory>`)
-        .join("\n");
-      prompt += `\n\nThe user has granted you access to additional directories outside the working directory. You may read and edit files in these paths just like the working directory:\n<additional_directories>\n${dirs}\n</additional_directories>`;
-    }
+    const prompt = buildTaskSystemPrompt(
+      {
+        projectId: credentials.projectId,
+        apiHost: credentials.apiHost,
+        taskId,
+        cwd,
+        environment: "local",
+        customInstructions,
+        additionalDirectories,
+        channelMode,
+      },
+      {
+        structuredInput: true,
+        repositoryTools: true,
+      },
+    );
 
     return {
       append: appendRichOutputPrompt(prependProductEngineerPrompt(prompt)),
@@ -918,6 +995,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
       const systemPrompt = this.buildSystemPrompt(
         credentials,
         taskId,
+        repoPath,
         customInstructions,
         additionalDirectories,
         systemPromptOverride,
@@ -928,27 +1006,46 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         this.posthogPluginService.getPluginPath(),
         "skills",
       );
+      const codexSubscription =
+        adapter === "codex" && config.codexModelAccess === "own-subscription";
+      let claudeSubscription =
+        adapter === "claude" && config.claudeModelAccess === "own-subscription";
+      if (claudeSubscription) {
+        const { state: loginState } = await hasClaudeLogin({
+          claudeCliPath: this.getClaudeCliPath(),
+          machineAuth: machineClaudeAuth(),
+          logger: this.log,
+        });
+        if (loginState !== "logged-in") {
+          this.log.warn(
+            "Claude own-subscription requested but login is not active; using gateway",
+            { loginState, isReconnect },
+          );
+          claudeSubscription = false;
+        }
+      }
+      const codexAuthGeneration = this.codexAuthGeneration;
+      const claudeAuthGeneration = this.claudeAuthGeneration;
 
       let codexHome: string | undefined;
       if (adapter === "codex") {
-        try {
+        if (codexSubscription) {
+          codexHome = getCodexHomeDir(this.storagePaths.appDataPath, taskRunId);
+          await fs.promises.mkdir(codexHome, { recursive: true });
+        } else {
           codexHome = await prepareCodexHome({
             appDataPath: this.storagePaths.appDataPath,
             taskRunId,
             bundledSkillsDir,
             log: this.log,
           });
-        } catch (err) {
-          // A skills-prep failure must not kill the session; Codex falls back
-          // to its default home and the user's own ~/.agents/skills.
-          this.log.warn("Failed to prepare codex home", {
-            error: err instanceof Error ? err.message : String(err),
-          });
         }
       }
 
       const acpConnection = await agent.run(taskId, taskRunId, {
         adapter,
+        codexModelAccess: codexSubscription ? "own-subscription" : undefined,
+        claudeModelAccess: claudeSubscription ? "own-subscription" : undefined,
         gatewayUrl: proxyUrl,
         contextWiki: contextWiki ?? undefined,
         codexBinaryPath:
@@ -1179,6 +1276,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
             ...(logUrl && {
               persistence: { taskId, runId: taskRunId, logUrl },
             }),
+            ...(!isPreview && { taskId }),
             taskRunId,
             environment: "local",
             sessionId: existingSessionId,
@@ -1214,6 +1312,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
           cwd: repoPath,
           mcpServers,
           _meta: {
+            ...(!isPreview && { taskId }),
             taskRunId,
             environment: "local",
             systemPrompt,
@@ -1265,6 +1364,20 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
       };
 
       this.sessions.set(taskRunId, session);
+      if (
+        codexSubscription &&
+        codexAuthGeneration !== this.codexAuthGeneration
+      ) {
+        await this.cleanupSession(taskRunId);
+        throw new Error("The Codex account changed during task setup.");
+      }
+      if (
+        claudeSubscription &&
+        claudeAuthGeneration !== this.claudeAuthGeneration
+      ) {
+        await this.cleanupSession(taskRunId);
+        throw new Error("The Claude account changed during task setup.");
+      }
       this.recordActivity(taskRunId);
 
       if (isRetry) {
@@ -1700,7 +1813,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
    */
   async notifySessionContext(
     sessionId: string,
-    context: import("./schemas.js").SessionContextChange,
+    context: SessionContextChange,
   ): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) {
@@ -1734,9 +1847,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
     });
   }
 
-  private buildContextMessage(
-    context: import("./schemas.js").SessionContextChange,
-  ): string {
+  private buildContextMessage(context: SessionContextChange): string {
     if (context.isDetached) {
       return `Your worktree is now on detached HEAD while the user edits in their main repo. The branch is \`${context.branchName}\`.
 
@@ -1750,6 +1861,8 @@ For git operations while detached:
 
   @preDestroy()
   async cleanupAll(): Promise<void> {
+    await this.codexLogin?.cancel();
+    this.codexLogin = undefined;
     for (const { handle } of this.idleTimeouts.values()) clearTimeout(handle);
     this.idleTimeouts.clear();
     const sessionIds = Array.from(this.sessions.keys());
@@ -2088,9 +2201,8 @@ For git operations while detached:
           return;
         }
 
-        const toolName = (update._meta as ClaudeCodeToolMeta | undefined)
-          ?.claudeCode?.toolName;
-        if (!toolName?.startsWith("mcp__")) return;
+        const toolName = readMcpToolName(update._meta);
+        if (!toolName) return;
 
         const session = service.sessions.get(taskRunId);
         if (update.sessionUpdate === "tool_call") {
@@ -2211,6 +2323,10 @@ For git operations while detached:
       logUrl: "logUrl" in params ? params.logUrl : undefined,
       sessionId: "sessionId" in params ? params.sessionId : undefined,
       adapter: "adapter" in params ? params.adapter : undefined,
+      codexModelAccess:
+        "codexModelAccess" in params ? params.codexModelAccess : undefined,
+      claudeModelAccess:
+        "claudeModelAccess" in params ? params.claudeModelAccess : undefined,
       permissionMode:
         "permissionMode" in params ? params.permissionMode : undefined,
       customInstructions:
@@ -2258,13 +2374,7 @@ For git operations while detached:
         params?: {
           update?: {
             sessionUpdate?: string;
-            _meta?: {
-              claudeCode?: {
-                toolName?: string;
-                toolResponse?: unknown;
-                bashCommand?: string;
-              };
-            };
+            _meta?: unknown;
             content?: Array<{ type?: string; text?: string }>;
           };
         };
@@ -2281,8 +2391,7 @@ For git operations while detached:
       // toolName (e.g. in terminal output).
       this.maybeAttachCreatedPr(taskRunId, session, update);
 
-      const toolMeta = update._meta?.claudeCode;
-      const toolName = toolMeta?.toolName;
+      const toolName = readAgentToolName(update._meta);
       if (!toolName) return;
 
       this.trackAgentFileActivity(taskRunId, session, toolName);
@@ -2465,6 +2574,7 @@ For git operations while detached:
   async getPreviewConfigOptions(
     apiHost: string,
     adapter: Adapter = "claude",
+    allHarnessModels = false,
   ): Promise<SessionConfigOption[]> {
     const gatewayUrl = getLlmGatewayUrl(apiHost);
     const gatewayModels = await fetchGatewayModels({
@@ -2483,6 +2593,14 @@ For git operations while detached:
     );
     const resolvedModelId =
       modelOption?.type === "select" ? modelOption.currentValue : "";
+
+    if (allHarnessModels && modelOption?.type === "select") {
+      modelOption.options = buildProviderModelGroups(
+        gatewayModels,
+        adapter,
+        resolvedModelId,
+      );
+    }
 
     // The adapter-level effort options carry _meta (default notch, docs links)
     // that the shared cloud builder omits; the desktop picker needs them.

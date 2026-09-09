@@ -19,7 +19,7 @@
         "chromium": 11.882,
         "webkit": 2.322
     },
-    "frontend/src/layout/FeaturePreviews/FeaturePreviews.stories.tsx": {
+    "frontend/src/lib/components/FeaturePreviews/FeaturePreviews.stories.tsx": {
         "chromium": 8.528,
         "webkit": 1.752
     },
@@ -30,10 +30,6 @@
     "frontend/src/layout/navigation/ImpersonationNotice/ImpersonationReasonModal.stories.tsx": {
         "chromium": 11.725,
         "webkit": 1.981
-    },
-    "frontend/src/layout/navigation/SelfReadOnlyNotice/SelfReadOnlyNotice.stories.tsx": {
-        "chromium": 5.614,
-        "webkit": 1.513
     },
     "frontend/src/layout/panel-layout/InstallationStatusNavButton.stories.tsx": {
         "chromium": 28.015,
@@ -190,10 +186,6 @@
     "frontend/src/lib/components/Map/Map.stories.tsx": {
         "chromium": 1.667,
         "webkit": 1.22
-    },
-    "frontend/src/lib/components/MarkdownEditor/inline/InlineRichMarkdownEditor.stories.tsx": {
-        "chromium": 12.076,
-        "webkit": 2.125
     },
     "frontend/src/lib/components/MarkdownEditor/rich/RichMarkdownEditor.stories.tsx": {
         "chromium": 5.579,
@@ -811,10 +803,6 @@
         "chromium": 5.93,
         "webkit": 1.497
     },
-    "frontend/src/scenes/data-management/comments/Comments.stories.tsx": {
-        "chromium": 16.358,
-        "webkit": 2.867
-    },
     "frontend/src/scenes/data-management/definition/DefinitionView.stories.tsx": {
         "chromium": 19.557,
         "webkit": 2.311
@@ -1387,7 +1375,7 @@
         "chromium": 1.94,
         "webkit": 1.587
     },
-    "frontend/src/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/CellActionsMenu.stories.tsx": {
+    "frontend/src/scenes/web-analytics/tabs/marketing-analytics/frontend/components/CampaignMapping/CampaignMappingCellActions.stories.tsx": {
         "chromium": 25.403,
         "webkit": 3.212
     },

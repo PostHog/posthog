@@ -17,7 +17,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.db import IntegrityError
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils.timezone import now
 
 import grpc
@@ -28,15 +28,18 @@ from rest_framework import status
 from rest_framework.relations import ManyRelatedField
 from rest_framework.response import Response
 
+from posthog.hogql.database.database import Database
+
 from posthog import redis
 from posthog.api.cohort import BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS, get_cohort_actors_for_feature_flag
-from posthog.api.services.flags_service import FlagVersionConflictError
+from posthog.api.services.flags_service import FlagVersionConflictError, PropertyMatchingVersionConflictError
 from posthog.constants import AvailableFeature
 from posthog.models import TaggedItem, User
-from posthog.models.group.util import create_group
+from posthog.models.group.util import create_group, raw_create_group_ch
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -59,6 +62,7 @@ from products.feature_flags.backend.api.feature_flag import (
     FLAG_FILTERS_VIOLATION_COUNTER,
     FLAG_FILTERS_WRITE_COUNTER,
     FeatureFlagSerializer,
+    FeatureFlagStatusResponseSerializer,
     parse_created_by_ids,
 )
 from products.feature_flags.backend.encrypted_flag_payloads import (
@@ -5083,22 +5087,42 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # now enable enriched analytics
         instance.has_enriched_analytics = True
         instance.save()
+        mock_report_user_action.reset_mock()
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/{flag_id}/enrich_usage_dashboard",
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Deprecation"], "true")
+        self.assertNotIn("Sunset", response)
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "deprecated feature flag usage dashboard endpoint called",
+            {"endpoint": "enrich_usage_dashboard", "outcome": "success"},
+            team=instance.team,
+            organization=self.organization,
+        )
 
         # now try enriching again
+        mock_report_user_action.reset_mock()
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/{flag_id}/enrich_usage_dashboard",
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response["Deprecation"], "true")
+        self.assertNotIn("Sunset", response)
         self.assertEqual(
             response.json(),
             {"error": "Usage dashboard already has enriched data", "success": False},
+        )
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "deprecated feature flag usage dashboard endpoint called",
+            {"endpoint": "enrich_usage_dashboard", "outcome": "error"},
+            team=instance.team,
+            organization=self.organization,
         )
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
@@ -5144,21 +5168,29 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         flag_id = response.json()["id"]
+        flag = FeatureFlag.objects.get(id=flag_id)
+        mock_report_user_action.reset_mock()
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/{flag_id}/enrich_usage_dashboard",
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response["Deprecation"], "true")
+        self.assertNotIn("Sunset", response)
         self.assertEqual(
             response.json(),
             {
-                "error": (
-                    "Usage dashboard not found. Create one first with "
-                    "POST /api/projects/{project_id}/feature_flags/{id}/dashboard/"
-                ),
+                "error": "Usage dashboard not found. Usage charts are available on the feature flag Usage tab.",
                 "success": False,
             },
+        )
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "deprecated feature flag usage dashboard endpoint called",
+            {"endpoint": "enrich_usage_dashboard", "outcome": "error"},
+            team=flag.team,
+            organization=self.organization,
         )
 
     def test_dashboard_endpoint_is_idempotent(self) -> None:
@@ -5179,6 +5211,81 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(instance.usage_dashboard_id, first_dashboard_id)
         self.assertTrue(Dashboard.objects.filter(id=first_dashboard_id, deleted=False).exists())
+
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    def test_dashboard_endpoint_announces_deprecation_and_reports_usage(
+        self, mock_report_user_action: MagicMock
+    ) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="deprecated-dashboard-endpoint")
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/dashboard")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+        self.assertEqual(response["Deprecation"], "true")
+        self.assertEqual(response["Sunset"], "Fri, 25 Sep 2026 00:00:00 GMT")
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "deprecated feature flag usage dashboard endpoint called",
+            {"endpoint": "dashboard", "outcome": "created"},
+            team=flag.team,
+            organization=self.organization,
+        )
+
+        mock_report_user_action.reset_mock()
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/dashboard")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "deprecated feature flag usage dashboard endpoint called",
+            {"endpoint": "dashboard", "outcome": "existing"},
+            team=flag.team,
+            organization=self.organization,
+        )
+
+    @patch("products.feature_flags.backend.api.feature_flag.capture_exception")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag._create_usage_dashboard", side_effect=RuntimeError)
+    def test_dashboard_endpoint_deprecation_headers_are_returned_on_error(
+        self,
+        mock_create_usage_dashboard: MagicMock,
+        mock_report_user_action: MagicMock,
+        mock_capture_exception: MagicMock,
+    ) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="dashboard-generation-error")
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/dashboard")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json(), {"success": False, "error": "Unable to generate usage dashboard"})
+        self.assertEqual(response["Deprecation"], "true")
+        self.assertEqual(response["Sunset"], "Fri, 25 Sep 2026 00:00:00 GMT")
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "deprecated feature flag usage dashboard endpoint called",
+            {"endpoint": "dashboard", "outcome": "error"},
+            team=flag.team,
+            organization=self.organization,
+        )
+        mock_capture_exception.assert_called_once()
+        mock_create_usage_dashboard.assert_called_once()
+
+    @patch(
+        "products.feature_flags.backend.api.feature_flag.report_user_action",
+        side_effect=RuntimeError("telemetry unavailable"),
+    )
+    def test_dashboard_endpoint_ignores_telemetry_failures(self, mock_report_user_action: MagicMock) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="dashboard-telemetry-error")
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/dashboard")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Deprecation"], "true")
+        self.assertEqual(response["Sunset"], "Fri, 25 Sep 2026 00:00:00 GMT")
+        flag.refresh_from_db()
+        self.assertIsNotNone(flag.usage_dashboard_id)
+        mock_report_user_action.assert_called_once()
 
     def test_dashboard_endpoint_regenerates_after_dashboard_is_deleted(self) -> None:
         response = self.client.post(
@@ -5210,6 +5317,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("has been deleted", response.json()["error"])
+        self.assertEqual(response["Deprecation"], "true")
+        if endpoint == "dashboard":
+            self.assertEqual(response["Sunset"], "Fri, 25 Sep 2026 00:00:00 GMT")
+        else:
+            self.assertNotIn("Sunset", response)
         flag.refresh_from_db()
         self.assertIsNone(flag.usage_dashboard_id)
 
@@ -7996,6 +8108,33 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         status_response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/status/")
         self.assertEqual(status_response.status_code, status.HTTP_403_FORBIDDEN)
 
+        # The lifecycle actions declare feature_flag:write, so viewer access reads the flag but
+        # cannot flip its state.
+        viewable_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="read-only flag",
+            key="read-only-flag",
+        )
+        AccessControl.objects.create(
+            resource="feature_flag", resource_id=viewable_flag.id, team=self.team, access_level="viewer"
+        )
+
+        assert (
+            self.client.get(f"/api/projects/{self.team.pk}/feature_flags/{viewable_flag.id}/").status_code
+            == status.HTTP_200_OK
+        )
+        for lifecycle_action in ("enable", "disable", "archive", "unarchive"):
+            lifecycle_response = self.client.post(
+                f"/api/projects/{self.team.pk}/feature_flags/{viewable_flag.id}/{lifecycle_action}/",
+                {},
+                format="json",
+            )
+            assert lifecycle_response.status_code == status.HTTP_403_FORBIDDEN, lifecycle_action
+        viewable_flag.refresh_from_db()
+        assert viewable_flag.active is True
+        assert viewable_flag.archived is False
+
     def test_org_admin_can_list_flag_with_default_none_after_grantee_removed(self) -> None:
         # Regression: a flag with a team-wide "none" default plus a single explicit
         # editor grant becomes invisible to everyone once the grantee is removed
@@ -8116,9 +8255,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_reuse_key_with_inconsistent_soft_deleted_flag_referenced_by_active_experiment(self, mode: str):
         # If a tombstone is still referenced by an active experiment (invariant
         # violation), renaming it would silently break the experiment. Error out.
+        # A team gating replay on the tombstone must not change that: the replay relink
+        # takes the rename path, which would otherwise skip this check.
         legacy_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="inconsistent-key")
         exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=legacy_flag)
         FeatureFlag.objects_including_soft_deleted.filter(pk=legacy_flag.pk).update(deleted=True)
+        self.team.session_recording_linked_flag = {"id": legacy_flag.id, "key": "inconsistent-key"}
+        self.team.save()
 
         if mode == "create":
             response = self.client.post(
@@ -8149,7 +8292,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_reuse_key_with_inconsistent_soft_deleted_flag_referenced_by_eaf(self, mode: str):
         # EarlyAccessFeature.feature_flag uses on_delete=PROTECT (sibling of
         # RESTRICT). A tombstone with an EAF must surface the same defensive
-        # error, not a 500.
+        # error, not a 500. A team gating replay on it must not skip that check
+        # by diverting to the rename path.
         legacy_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="eaf-key")
         EarlyAccessFeature.objects.create(
             team=self.team,
@@ -8159,6 +8303,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             feature_flag=legacy_flag,
         )
         FeatureFlag.objects_including_soft_deleted.filter(pk=legacy_flag.pk).update(deleted=True)
+        self.team.session_recording_linked_flag = {"id": legacy_flag.id, "key": "eaf-key"}
+        self.team.save()
 
         if mode == "create":
             response = self.client.post(
@@ -8817,7 +8963,91 @@ class TestFeatureFlagFiltersEnforcement(APIBaseTest):
         self.assertEqual(filters_edit.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(filters_edit.json()["attr"], "filters")
 
-    @override_settings(FEATURE_FLAG_FILTERS_ENFORCEMENT=False)
+    # Two cross-field violations that reach the same decision point, so a case can enforce one
+    # and leave the other rolling out. Both are structurally valid; a structural failure would
+    # short-circuit before the cross-field tier runs.
+    _SUM_RULE = "cross_field.variant_rollout_sum_not_100"
+    _VARIANT_RULE = "cross_field.group_variant_not_a_variant"
+    _VIOLATES_SUM: dict = {
+        "groups": [{"properties": [], "rollout_percentage": 100}],
+        "multivariate": {"variants": [{"key": "a", "rollout_percentage": 30}, {"key": "b", "rollout_percentage": 30}]},
+    }
+    _VIOLATES_VARIANT: dict = {
+        "groups": [{"properties": [], "rollout_percentage": 100, "variant": "ghost"}],
+        "multivariate": {"variants": [{"key": "a", "rollout_percentage": 50}, {"key": "b", "rollout_percentage": 50}]},
+    }
+
+    @parameterized.expand(
+        [
+            ("enforced rule rejects", {_SUM_RULE}, _VIOLATES_SUM, status.HTTP_400_BAD_REQUEST),
+            ("rule still rolling out is accepted", {_SUM_RULE}, _VIOLATES_VARIANT, status.HTTP_201_CREATED),
+            ("unset enforces nothing", set(), _VIOLATES_SUM, status.HTTP_201_CREATED),
+            ("wildcard enforces every rule", {"*"}, _VIOLATES_VARIANT, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_only_the_rules_in_the_setting_reject(
+        self, name: str, enforced_rules: set[str], filters: dict, expected_status: int
+    ) -> None:
+        with override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=enforced_rules):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"key": f"rollout-{abs(hash(name))}", "filters": filters},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES={_SUM_RULE})
+    def test_a_rule_still_rolling_out_does_not_reject_by_sharing_a_request(self) -> None:
+        # Both rules are violated but only one is enforced. The write is rejected for that one
+        # alone, so turning on a rule cannot make a second rule's message reach a customer.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "mixed-violations",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100, "variant": "ghost"}],
+                    "multivariate": {
+                        "variants": [{"key": "a", "rollout_percentage": 30}, {"key": "b", "rollout_percentage": 30}]
+                    },
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
+        self.assertEqual(body["code"], self._SUM_RULE)
+        self.assertNotIn("ghost", body["detail"])
+
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES={"structural.multivariate.variants[].key.max_length"})
+    def test_structural_tier_also_rejects_only_the_enforced_rule(self) -> None:
+        # The structural tier decides separately from the cross-field one, so it needs its own
+        # case. Both violations are on variant keys, which the serde guard only type-checks, so
+        # they reach the structural tier instead of being rejected before it.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "mixed-structural-violations",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "", "rollout_percentage": 50},
+                            {"key": "x" * 401, "rollout_percentage": 50},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
+        self.assertEqual(body["code"], "structural.multivariate.variants[].key.max_length")
+        self.assertNotIn("blank", body["detail"])
+
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=set())
     def test_kill_switch_logs_new_rules_but_still_rejects_serde_unsafe_input(self):
         # An empty variant key is structurally invalid but still deserializes as a Rust String,
         # so log-only mode records it without widening the cache-poisoning surface.
@@ -9029,6 +9259,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             project_id=self.team.project_id,
             flag_key="some-feature",
             expected_version=1,
+            expected_property_matching_version=1,
             cursor=0,
             limit=1_000,
         )
@@ -9060,6 +9291,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
     def test_cursor_loop_advances_and_terminates(self, mock_batch_evaluate):
         self._create_flag()
+        TeamFeatureFlagsConfig.objects.filter(team=self.team).update(property_matching_version=2)
         persons = [
             _create_person(team=self.team, distinct_ids=[f"person{i}"], properties={"key": "value"}, immediate=True)
             for i in range(3)
@@ -9080,6 +9312,10 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(cursors, [0, 100, 200])
         limits = {call.kwargs["limit"] for call in mock_batch_evaluate.call_args_list}
         self.assertEqual(limits, {2})
+        matching_versions = {
+            call.kwargs["expected_property_matching_version"] for call in mock_batch_evaluate.call_args_list
+        }
+        self.assertEqual(matching_versions, {2})
 
         cohort.refresh_from_db()
         self.assertEqual(cohort.count, 3)
@@ -9155,15 +9391,26 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert history.error is not None
         self.assertNotIn("connection refused", history.error)
 
+    @parameterized.expand(
+        [
+            ("flag_version", FlagVersionConflictError("flag changed during cohort generation")),
+            (
+                "property_matching_version",
+                PropertyMatchingVersionConflictError("matching changed during cohort generation"),
+            ),
+        ]
+    )
     @patch("posthog.api.cohort.time.sleep")
     @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
-    def test_version_conflict_is_not_retried_and_surfaces_user_facing_error(self, mock_batch_evaluate, mock_sleep):
+    def test_pinned_input_conflict_is_not_retried_and_surfaces_user_facing_error(
+        self, _name, conflict, mock_batch_evaluate, mock_sleep
+    ):
         self._create_flag()
         cohort = self._create_static_cohort()
 
-        mock_batch_evaluate.side_effect = FlagVersionConflictError("flag changed during cohort generation")
+        mock_batch_evaluate.side_effect = conflict
 
-        with self.assertRaises(FlagVersionConflictError):
+        with self.assertRaises(type(conflict)):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
 
         # Permanent error: no retries
@@ -9351,6 +9598,38 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         response_json = response.json()
         self.assertLessEqual({"affected": 4, "total": 10}.items(), response_json.items())
+
+    @snapshot_clickhouse_queries
+    def test_persons_seen_so_far_ignores_team_v2_argmax_modifier(self):
+        team = Team.objects.create(organization=self.organization, modifiers={"personsArgMaxVersion": "v2"})
+        for i in range(3):
+            _create_person(team_id=team.pk, distinct_ids=[f"seen_person_{i}"], properties={"group": f"{i}"})
+
+        with self.capture_select_queries() as queries:
+            assert team.persons_seen_so_far == 3
+
+        assert queries
+        for query in queries:
+            # A truncated start of the v2 dedup semi-join, on purpose. The expression continues
+            # with a subquery, so a balanced paren would build a string that never occurs and
+            # the assertion would always pass.
+            assert "in(tuple(person.id, person.version)" not in query
+
+        # The filtered path builds one database and shares it between its two counts.
+        # The denominator must keep the pinned v1 shape even then.
+        with patch.object(Database, "create_for", wraps=Database.create_for) as create_for_spy:
+            with self.capture_select_queries() as queries:
+                result = get_user_blast_radius(
+                    team,
+                    {"properties": [{"key": "group", "type": "person", "value": ["0"], "operator": "exact"}]},
+                )
+
+        assert (result.affected, result.total) == (1, 3)
+        assert create_for_spy.call_count == 1
+        denominator_queries = [query for query in queries if "count(DISTINCT" not in query]
+        assert denominator_queries
+        for query in denominator_queries:
+            assert "in(tuple(person.id, person.version)" not in query
 
     @parameterized.expand(
         [
@@ -10077,6 +10356,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                 group_key=f"org:{i}",
                 properties={"industry": f"{i}"},
             )
+        # A property update writes a second ClickHouse row for the same key; it is still one group.
+        raw_create_group_ch(self.team.pk, 1, "org:0", {"industry": "updated"}, created_at=now())
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
@@ -11652,6 +11933,26 @@ class TestFeatureFlagEvaluationContexts(APIBaseTest):
         self.assertEqual(len(entries), 1)
 
 
+class TestFeatureFlagStatusResponseSerializer(SimpleTestCase):
+    def test_fractional_rollout_percentage_is_not_truncated(self):
+        # Release conditions accept decimals, so a rollout can be 0.5. IntegerField dropped that
+        # to 0, which made the stale banner read "0% of all users" for a flag still gating users.
+        serialized = FeatureFlagStatusResponseSerializer(
+            {
+                "status": FeatureFlagStatus.STALE,
+                "reason": "Flag has not been called in 45 days",
+                "reason_states_rollout": False,
+                "rollout": {
+                    "effectively_full_rollout": False,
+                    "has_targeting_conditions": False,
+                    "max_rollout_percentage": 0.5,
+                    "is_multivariate": False,
+                },
+            }
+        ).data
+        assert serialized["rollout"]["max_rollout_percentage"] == 0.5
+
+
 class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
     def setUp(self):
         cache.clear()
@@ -12231,6 +12532,45 @@ class TestFeatureFlagStatus(APIBaseTest, ClickhouseTestMixin):
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/status")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["rollout"], expected_rollout)
+
+    # (name, last_called_at, expected) — the route the stale verdict came from.
+    @parameterized.expand(
+        [
+            ("config_route", None, True),
+            ("usage_route", datetime.now(UTC) - timedelta(days=45), False),
+        ]
+    )
+    def test_flag_status_reports_whether_reason_states_rollout(self, name, last_called_at, expected):
+        flag = FeatureFlag.objects.create(
+            name=f"{name} flag",
+            key=f"{name}-flag",
+            team=self.team,
+            active=True,
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+            last_called_at=last_called_at,
+            created_at=datetime.now(UTC) - timedelta(days=45),
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/status")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], FeatureFlagStatus.STALE)
+        self.assertEqual(response.json()["reason_states_rollout"], expected)
+
+    def test_flag_status_keeps_whole_rollout_percentages_as_integers(self):
+        """A whole rollout stays the integer the endpoint has always sent; a fractional one keeps its value."""
+        for key, percentage, expected in (("whole", 100, 100), ("fractional", 0.5, 0.5)):
+            flag = FeatureFlag.objects.create(
+                name=f"{key} flag",
+                key=f"{key}-rollout-flag",
+                team=self.team,
+                active=True,
+                filters={"groups": [{"rollout_percentage": percentage, "properties": []}]},
+                last_called_at=datetime.now(UTC),
+            )
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/status")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            returned = response.json()["rollout"]["max_rollout_percentage"]
+            self.assertEqual(returned, expected)
+            self.assertIsInstance(returned, type(expected))
 
     def test_get_flags_with_stale_filter_usage_and_config_based(self):
         """Test filtering by STALE status with both usage and config-based detection"""
@@ -14338,7 +14678,7 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
             violation_before + 1,
         )
 
-    @override_settings(FEATURE_FLAG_FILTERS_ENFORCEMENT=False)
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=set())
     def test_bypassed_write_is_not_also_counted_as_accepted(self) -> None:
         accepted_before = self._write_count("create", "accepted")
         bypassed_before = self._write_count("create", "bypassed")
@@ -14412,7 +14752,7 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
         self.assertEqual(self._write_count("create", "rejected_preexisting"), preexisting_before + 1)
         self.assertEqual(self._write_count("create", "rejected"), rejected_before)
 
-    @override_settings(FEATURE_FLAG_FILTERS_ENFORCEMENT=False)
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=set())
     def test_cross_field_bypass_is_logged_counted_and_persisted(self) -> None:
         # The branch production runs while the switch is off: structurally valid input with a
         # cross-field violation. It marks the write bypassed, counts the rule, and saves anyway.
@@ -14438,7 +14778,7 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
             rule_before + 1,
         )
 
-    @override_settings(FEATURE_FLAG_FILTERS_ENFORCEMENT=False)
+    @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=set())
     def test_structural_failure_records_cross_field_as_not_evaluated(self) -> None:
         # Cross-field checks need structurally valid input, so they never run for these writes.
         # The dashboard has to see that, or a bare zero reads as "nothing left to fix".
@@ -14550,3 +14890,48 @@ class TestFeatureFlagReplayLinkFollowsRename(APIBaseTest):
         sibling_team.refresh_from_db()
         assert sibling_team.session_recording_linked_flag == linked_flag_before
         assert sibling_team.id not in {call.args[0] for call in mock_refresh.call_args_list}
+
+    def test_rename_still_relinks_teams_while_the_activity_signal_is_muted(self) -> None:
+        # mute_selected_signals is for mass-deletion scenarios where firing the activity-log
+        # signal thousands of times would be wasteful, but it silences every @mutable_receiver
+        # indiscriminately. Muting the audit log must not also stop teams recording sessions.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        self._link_flag(self.team, {"id": flag.id, "key": "replay-gate"})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            with mute_selected_signals():
+                flag.key = "replay-gate-v2"
+                flag.save()
+
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag == {"id": flag.id, "key": "replay-gate-v2"}
+
+    @parameterized.expand([("create",), ("rename",)])
+    def test_freeing_a_tombstoned_key_relinks_teams_to_the_tombstone(self, mode: str) -> None:
+        # Nothing here blocks the hard delete, which is what makes this the interesting case:
+        # a hard delete fires no save, so a team gating replay on this tombstone would be left
+        # on the key the new flag is about to claim. _free_key_held_by_soft_deleted_flags keeps
+        # the row and renames it instead, and the relink follows it to the tombstone. The rename
+        # path frees the key inside the update transaction, where the tombstone and the claiming
+        # flag each schedule their own relink, so it needs its own coverage.
+        old_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate", deleted=True)
+        self._link_flag(self.team, {"id": old_flag.id, "key": "replay-gate"})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            if mode == "create":
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/feature_flags/",
+                    {"name": "New gate", "key": "replay-gate"},
+                )
+            else:
+                claiming_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate-tmp")
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/feature_flags/{claiming_flag.id}/",
+                    {"key": "replay-gate"},
+                )
+
+        assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), response.content
+        old_flag.refresh_from_db()
+        assert old_flag.key == f"replay-gate:deleted:{old_flag.id}"
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag == {"id": old_flag.id, "key": old_flag.key}
