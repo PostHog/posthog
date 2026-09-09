@@ -45,6 +45,7 @@ from posthog.llm.wizard_gateway_token import (
     wizard_product_node,
     wizard_tier_limits,
 )
+from posthog.llm.wizard_mint_events import report_wizard_mint_denied, report_wizard_token_minted
 from posthog.models import Team, User
 from posthog.models.project import Project
 from posthog.permissions import APIScopePermission
@@ -136,14 +137,25 @@ def _refuse_mint(
     product_node: str | None,
     user: User | None = None,
     team: Team | None = None,
+    posture: WizardPosture | None = None,
 ) -> NoReturn:
-    """Count and raise one mint refusal, so no exit can skip the counter.
+    """Count, report, and raise one mint refusal, so no exit can skip the event.
 
     The outcome rides as the body's `code`: the exception handler renders every
     APIException as {type, code, detail, attr}, so a dict detail would be
     flattened and a separate key dropped. The CLI shows `detail` and reports `code`.
     """
     WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome=outcome).inc()
+    report_wizard_mint_denied(
+        surface="gateway_token",
+        outcome=outcome,
+        status_code=exc.status_code,
+        program=program,
+        product_node=product_node,
+        user=user,
+        team=team,
+        posture=posture,
+    )
     detail = ErrorDetail(_detail_text(exc), code=outcome)
     # The handler reads a ValidationError's codes as a list, every other class's as a string.
     exc.detail = [detail] if isinstance(exc, exceptions.ValidationError) else detail
@@ -365,6 +377,16 @@ class SetupWizardViewSet(viewsets.ViewSet):
         ):
             # No outcome label: query labels no other exit, and the blocklist
             # counter already carries this surface with its own denominator.
+            report_wizard_mint_denied(
+                surface="query",
+                outcome="blocked",
+                status_code=status.HTTP_403_FORBIDDEN,
+                program=None,
+                product_node=None,
+                user=blocklist_user,
+                team=Team.objects.select_related("organization").filter(id=team_id).first() if team_id else None,
+                distinct_id=str(distinct_id) if distinct_id else None,
+            )
             raise exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL)
 
         posthog_client = posthoganalytics.default_client
@@ -510,7 +532,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
         reads_reason = body.get("reads_refusal_reason") is True
 
         def refuse(outcome: str, exc: exceptions.APIException, *, user: User | None = None) -> NoReturn:
-            _refuse_mint(outcome, exc, program=program, product_node=product, user=user, team=team)
+            _refuse_mint(outcome, exc, program=program, product_node=product, user=user, team=team, posture=posture)
 
         def refuse_absent_gateway(outcome: str, message: str, *, user: User | None = None) -> NoReturn:
             """Refuse one of the three outcomes the CLI's legacy fallback absorbed.
@@ -650,10 +672,28 @@ class SetupWizardViewSet(viewsets.ViewSet):
             if not e.token_may_exist:
                 refund_wizard_mint(reserved)
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="mint_failed").inc()
+            report_wizard_mint_denied(
+                surface="gateway_token",
+                outcome="mint_failed",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                program=program,
+                product_node=product,
+                user=user,
+                team=team,
+                posture=posture,
+            )
             capture_exception(e, {"ai_product": "wizard", "team_id": team.id})
             return Response({"error": "Gateway token mint failed."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="minted").inc()
+        report_wizard_token_minted(
+            program=program,
+            product_node=product,
+            user=user,
+            team=team,
+            cap_usd=minted.get("cap_usd"),
+            posture=posture,
+        )
         return Response(
             {
                 "token": minted["token"],
@@ -818,6 +858,15 @@ class SetupWizardViewSet(viewsets.ViewSet):
         ):
             # No outcome label: `cloud_run` already counts every PermissionDenied as
             # permission_denied.
+            report_wizard_mint_denied(
+                surface="cloud_run",
+                outcome="blocked",
+                status_code=status.HTTP_403_FORBIDDEN,
+                program=None,
+                product_node=None,
+                user=user,
+                team=project.passthrough_team,
+            )
             raise exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL)
 
         self._reserve_cloud_run_attempt(user.id)
