@@ -357,14 +357,19 @@ class ErrorTrackingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             raise PermissionDenied("You do not have access to error tracking in this environment.")
         return team
 
-    @extend_schema(
-        parameters=[ErrorTrackingAlertThreadsParamsSerializer],
+    @validated_request(
+        query_serializer=ErrorTrackingAlertThreadsParamsSerializer,
         responses={200: OpenApiResponse(response=ErrorTrackingAlertThreadSerializer(many=True))},
     )
     @action(methods=["GET"], detail=False, pagination_class=None)
-    def threads(self, request: Request, *args, **kwargs) -> Response:
+    def threads(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         """Slack threads that alerts have opened for one issue, newest first."""
-        params = ErrorTrackingAlertThreadsParamsSerializer(data=request.query_params)
-        params.is_valid(raise_exception=True)
-        threads = alerts_facade.list_issue_threads(self.team.id, params.validated_data["issue_id"])
+        issue_id = request.validated_query_data["issue_id"]
+        # Thread rows are project-wide, but the issue belongs to one environment and access
+        # control is per environment: the caller must be allowed on that environment.
+        environment_id = alerts_facade.issue_environment_id(self.team.project_id, issue_id)
+        if environment_id is None:
+            raise NotFound("Issue not found in this project.")
+        self._authorized_environment(request, Team.objects.get(id=environment_id))
+        threads = alerts_facade.list_issue_threads(self.team.id, issue_id)
         return Response(ErrorTrackingAlertThreadSerializer(threads, many=True).data)
