@@ -22,8 +22,9 @@ export function ChannelRouteSync() {
   const channelsLayout = useChannelsLayout();
   const sourceChannelId = useRouterState({
     select: (state) =>
-      resolveNavigationSource(reportSourceHrefFromLocation(state.location))
-        ?.spaceId ?? undefined,
+      resolveNavigationSource(
+        reportSourceHrefFromLocation(state.resolvedLocation ?? state.location),
+      )?.spaceId ?? undefined,
   });
   const routeChannelId =
     useParams({ strict: false }).channelId ?? sourceChannelId;

@@ -19,7 +19,12 @@ export interface RailSurface {
 export function useRailPane(): NavRailPane {
   return useRouterState({
     select: (state) => {
-      const source = reportSourceHrefFromLocation(state.location);
+      // The settled location, not the in-flight one: during a pending
+      // navigation `location` is already the destination while `matches` still
+      // describe the page being left. Pairing the two unmounts the sidebar for
+      // one painted frame (the yieldToPaint skeleton) and rebuilds it after.
+      const location = state.resolvedLocation ?? state.location;
+      const source = reportSourceHrefFromLocation(location);
       return source
         ? railPaneForPath(source.split(/[?#]/)[0])
         : railPaneForMatches(state.matches);

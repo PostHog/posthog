@@ -216,8 +216,9 @@ function ChannelsSidebarImpl() {
   const selectedActivityId = useActivitySelection()?.id;
   const sourceFeedId = useRouterState({
     select: (state) =>
-      resolveNavigationSource(reportSourceHrefFromLocation(state.location))
-        ?.feedId ?? undefined,
+      resolveNavigationSource(
+        reportSourceHrefFromLocation(state.resolvedLocation ?? state.location),
+      )?.feedId ?? undefined,
   });
   const feedId =
     useParams({
