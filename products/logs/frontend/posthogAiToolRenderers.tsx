@@ -2,11 +2,11 @@ import { IconBell, IconList, IconPulse, IconSearch, IconServer, IconStack, IconW
 
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
-import { registerToolRenderers, type ToolRegistryEntry } from 'products/posthog_ai/frontend/api/tools'
+import type { ToolRegistryEntry } from 'products/posthog_ai/frontend/api/tools'
 
 // The card pulls its chunk on first use, so registering the whole family stays a strings-and-icons cost.
 const LogsQueryRenderer = lazyWithRetry(() =>
-    import('./LogsQueryToolWidget').then((m) => ({ default: m.LogsQueryToolWidget }))
+    import('./agentTools/LogsQueryToolWidget').then((m) => ({ default: m.LogsQueryToolWidget }))
 )
 
 // Friendly header (name + icon) for a logs tool call, without a bespoke result card. A no-Renderer
@@ -18,14 +18,7 @@ function labelled(keys: string[], displayName: string, icon: JSX.Element): ToolR
     return keys.map((key) => ({ key, displayName, icon, requiresPostHogOrigin: true }))
 }
 
-/**
- * Claim the logs tool names in the shared registry. Called from `bootApp` rather than run at module
- * load: a thread renders tool cards wherever it is opened, including an `/ai/{id}` link followed
- * before the lazy Logs scene has ever loaded, so registering from the scene entrypoint would leave
- * those calls on the generic wrench card.
- */
-export function registerLogsToolRenderers(): void {
-    registerToolRenderers([
+export const posthogAiToolRenderers: ToolRegistryEntry[] = [
         // The flagship: renders the returned log rows as a compact severity-tagged list.
         {
             key: 'query-logs',
@@ -58,5 +51,4 @@ export function registerLogsToolRenderers(): void {
             'Log alert',
             <IconBell />
         ),
-    ])
-}
+]
