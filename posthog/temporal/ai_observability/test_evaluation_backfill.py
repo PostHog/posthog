@@ -115,7 +115,7 @@ async def _run(mocks: _BackfillMocks, inputs: EvaluationBackfillInputs | None = 
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
         patch("temporalio.workflow.start_child_workflow", side_effect=mocks.start_child_workflow),
         patch("temporalio.workflow.continue_as_new") as continue_as_new,
-        patch("asyncio.sleep", new=AsyncMock()),
+        patch("temporalio.workflow.sleep", new=AsyncMock()),
     ):
         await EvaluationBackfillWorkflow().run(inputs or _inputs())
     return continue_as_new

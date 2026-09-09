@@ -322,7 +322,7 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
         if finished:
             return
 
-        await asyncio.sleep(BACKFILL_TICK_INTERVAL.total_seconds())
+        await temporalio.workflow.sleep(BACKFILL_TICK_INTERVAL)
         temporalio.workflow.continue_as_new(replace(inputs, consecutive_failures=0))
 
     async def _dispatch_batch(self, inputs: EvaluationBackfillInputs, tick: PrepareTickOutput) -> bool:
@@ -370,7 +370,7 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
                 retry_policy=FAIL_BACKFILL_RETRY_POLICY,
             )
             return
-        await asyncio.sleep(BACKFILL_TICK_INTERVAL.total_seconds())
+        await temporalio.workflow.sleep(BACKFILL_TICK_INTERVAL)
         temporalio.workflow.continue_as_new(replace(inputs, consecutive_failures=failures))
 
     async def _start_child(
