@@ -1,6 +1,38 @@
 import { Input, Text } from "@posthog/quill";
 import type { CustomCloudDraft } from "./useCustomCloud";
 
+const FIELDS: {
+  key: keyof CustomCloudDraft;
+  type: "url" | "text" | "password";
+  placeholder: string;
+  label: string;
+}[] = [
+  {
+    key: "url",
+    type: "url",
+    placeholder: "https://posthog.example.com",
+    label: "PostHog instance URL",
+  },
+  {
+    key: "oauthClientId",
+    type: "text",
+    placeholder: "OAuth client ID",
+    label: "OAuth client ID",
+  },
+  {
+    key: "gatewayUrl",
+    type: "url",
+    placeholder: "LLM gateway URL (optional)",
+    label: "LLM gateway URL",
+  },
+  {
+    key: "gatewayToken",
+    type: "password",
+    placeholder: "Personal API key for the gateway (optional)",
+    label: "Personal API key for the gateway",
+  },
+];
+
 interface CustomCloudFieldsProps {
   draft: CustomCloudDraft;
   onChange: (patch: Partial<CustomCloudDraft>) => void;
@@ -18,43 +50,19 @@ export function CustomCloudFields({
 }: CustomCloudFieldsProps) {
   return (
     <div className="flex w-full flex-col gap-2">
-      <Input
-        type="url"
-        placeholder="https://posthog.example.com"
-        aria-label="PostHog instance URL"
-        value={draft.url}
-        disabled={disabled}
-        onChange={(event) => onChange({ url: event.target.value })}
-        onBlur={onBlur}
-      />
-      <Input
-        type="text"
-        placeholder="OAuth client ID"
-        aria-label="OAuth client ID"
-        value={draft.oauthClientId}
-        disabled={disabled}
-        onChange={(event) => onChange({ oauthClientId: event.target.value })}
-        onBlur={onBlur}
-      />
-      <Input
-        type="url"
-        placeholder="LLM gateway URL (optional)"
-        aria-label="LLM gateway URL"
-        value={draft.gatewayUrl}
-        disabled={disabled}
-        onChange={(event) => onChange({ gatewayUrl: event.target.value })}
-        onBlur={onBlur}
-      />
-      <Input
-        type="password"
-        autoComplete="off"
-        placeholder="Personal API key for the gateway (optional)"
-        aria-label="Personal API key for the gateway"
-        value={draft.gatewayToken}
-        disabled={disabled}
-        onChange={(event) => onChange({ gatewayToken: event.target.value })}
-        onBlur={onBlur}
-      />
+      {FIELDS.map(({ key, type, placeholder, label }) => (
+        <Input
+          key={key}
+          type={type}
+          autoComplete="off"
+          placeholder={placeholder}
+          aria-label={label}
+          value={draft[key]}
+          disabled={disabled}
+          onChange={(event) => onChange({ [key]: event.target.value })}
+          onBlur={onBlur}
+        />
+      ))}
       {error && (
         <Text className="text-(--red-11) text-xs" role="alert">
           {error}

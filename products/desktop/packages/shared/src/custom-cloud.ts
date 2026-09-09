@@ -9,12 +9,6 @@ export const customCloudSchema = z.object({
 
 export type CustomCloud = z.infer<typeof customCloudSchema>;
 
-export const CUSTOM_CLOUD_ENV = {
-  url: "POSTHOG_CUSTOM_CLOUD_URL",
-  oauthClientId: "POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID",
-  gatewayUrl: "POSTHOG_CUSTOM_CLOUD_GATEWAY_URL",
-} as const;
-
 function httpUrl(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   if (!trimmed) return undefined;
@@ -61,9 +55,9 @@ export function customCloudGatewayToken(
 function fromEnv(): CustomCloud | null {
   if (typeof process === "undefined" || !process.env) return null;
   return normalizeCustomCloud({
-    url: process.env[CUSTOM_CLOUD_ENV.url],
-    oauthClientId: process.env[CUSTOM_CLOUD_ENV.oauthClientId],
-    gatewayUrl: process.env[CUSTOM_CLOUD_ENV.gatewayUrl],
+    url: process.env.POSTHOG_CUSTOM_CLOUD_URL,
+    oauthClientId: process.env.POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID,
+    gatewayUrl: process.env.POSTHOG_CUSTOM_CLOUD_GATEWAY_URL,
   });
 }
 

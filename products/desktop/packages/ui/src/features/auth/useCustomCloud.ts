@@ -60,12 +60,13 @@ export function useCustomCloud() {
       return true;
     }
     const target = normalizeCustomCloud(draft);
-    if (!target) {
-      setError("Enter the full URL of the instance, with http:// or https://");
-      return false;
-    }
-    if (draft.gatewayUrl.trim() && !target.gatewayUrl) {
-      setError("Enter the full URL of the gateway, with http:// or https://");
+    const rejected = (["url", "gatewayUrl"] as const).find(
+      (field) => draft[field].trim() && !target?.[field],
+    );
+    if (!target || rejected) {
+      setError(
+        `Enter the full URL of the ${rejected === "gatewayUrl" ? "gateway" : "instance"}, with http:// or https://`,
+      );
       return false;
     }
     await save.mutateAsync(target);
