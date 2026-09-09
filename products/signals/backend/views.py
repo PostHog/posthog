@@ -1545,7 +1545,7 @@ class SignalReportViewSet(
                 "artefacts",
                 queryset=SignalReportArtefact.objects.filter(
                     type=SignalReportArtefact.ArtefactType.REPO_SELECTION
-                ).order_by("-created_at"),
+                ).order_by("-created_at")[:1],
                 to_attr="prefetched_repo_selection_artefacts",
             ),
         )

@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode
@@ -56,6 +56,7 @@ from products.signals.backend.task_run_artefacts import (
 )
 from products.signals.backend.views import (
     PR_CI_STATUS_MAX_REPORTS,
+    SignalReportViewSet,
     classify_report_list_client,
     parse_pr_ci_status_report_ids,
 )
@@ -1373,7 +1374,9 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["dismissal_reason"] == "analysis_wrong"
 
-    def _repo_selection_artefact(self, report: SignalReport, *, repository: str | None, created_at=None):
+    def _repo_selection_artefact(
+        self, report: SignalReport, *, repository: str | None, created_at: datetime | None = None
+    ) -> SignalReportArtefact:
         art = SignalReportArtefact(
             team=self.team,
             report=report,
@@ -1394,6 +1397,17 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["repo_slug"] == "acme/new"
+
+    def test_list_prefetches_only_latest_repo_selection(self):
+        report = self._create_report()
+        self._repo_selection_artefact(report, repository="acme/old", created_at=timezone.now() - timedelta(days=1))
+        latest = self._repo_selection_artefact(report, repository="acme/new")
+
+        reports = list(
+            SignalReportViewSet()._prefetch_signal_report_priority_artefacts(SignalReport.objects.filter(pk=report.pk))
+        )
+
+        assert reports[0].prefetched_repo_selection_artefacts == [latest]
 
     def test_list_repo_slug_null_without_selection(self):
         report = self._create_report()
