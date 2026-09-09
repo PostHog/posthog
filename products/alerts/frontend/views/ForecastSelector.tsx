@@ -201,6 +201,11 @@ function TargetByDateFields({
     onChange: (config: ForecastConfig) => void
 }): JSX.Element {
     const targetValueError = forecastTargetValueError(config.target)
+    // The server accepts every ISO date form, week dates included, and stores what it was sent.
+    // dayjs reads none of the week forms and prints "Invalid Date" for them, so hand the calendar
+    // nothing and show the stored date until the picker replaces it.
+    const storedTargetDate = config.target_date ? dayjs(config.target_date) : null
+    const pickedTargetDate = storedTargetDate?.isValid() ? storedTargetDate : null
 
     return (
         <div className="space-y-2">
@@ -240,7 +245,8 @@ function TargetByDateFields({
                         'data-attr': 'alertForm-forecast-target-date',
                         disabledReason,
                     }}
-                    value={config.target_date ? dayjs(config.target_date) : null}
+                    value={pickedTargetDate}
+                    placeholder={config.target_date || undefined}
                     onChange={(date) =>
                         onChange({
                             ...config,

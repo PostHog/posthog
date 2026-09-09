@@ -146,6 +146,26 @@ describe('ForecastSelector', () => {
         target_date: dayjs().subtract(1, 'year').format('YYYY-MM-DD'),
     } as const satisfies ForecastConfig
 
+    const targetOn = (target_date: string): ForecastConfig => ({ ...expiredTarget, target_date })
+
+    // The server accepts every ISO date form and stores what it was sent, so a stored date can be
+    // one dayjs cannot read. The date button has to show it rather than the words "Invalid Date".
+    it.each([
+        ['a week date dayjs cannot read', '2026-W40-1', '2026-W40-1'],
+        ['an ordinary date', '2026-12-01', 'December 1, 2026'],
+    ] as const)('shows %s on the date button', (_name, targetDate, expected) => {
+        const { container } = render(
+            <ForecastSelector
+                value={targetOn(targetDate)}
+                onChange={() => {}}
+                insightInterval="day"
+                targetDateError={null}
+            />
+        )
+
+        expect(container.querySelector('[data-attr="alertForm-forecast-target-date"]')?.textContent).toBe(expected)
+    })
+
     it.each([
         ['shows nothing when the form accepts the date', null, null],
         ['shows the form message when the form rejects it', 'Choose a target date', 'Choose a target date'],
