@@ -1336,12 +1336,14 @@ describe('CDP API', () => {
                     .post(
                         `/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-791`
                     )
-                    .send({ filters: { properties: snapshotProperties } })
+                    .send({ filters: { properties: snapshotProperties, assignment_status: 'assigned' } })
 
                 expect(res.status).toEqual(200)
                 const arg = createJobMock.mock.calls[0][0]
                 const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, any>
                 expect(state.filters.properties).toEqual(snapshotProperties)
+                expect(state.filters.assignment_status).toEqual('assigned')
+                expect(state.filters.all_roles_unassigned).toBeUndefined()
                 expect(state.filters.properties).not.toEqual((batchHogFlow as any).trigger.filters.properties)
             } finally {
                 api['batchResolverProducer'] = null

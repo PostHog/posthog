@@ -1325,6 +1325,7 @@ export class CdpApi {
             }
 
             const audienceType = req.body.filters?.audience_type ?? hogFlow.trigger.filters.audience_type
+            const assignmentStatus = req.body.filters?.assignment_status ?? hogFlow.trigger.filters.assignment_status
             const initialState: BatchResolverState = {
                 batchJobId: parent_run_id,
                 teamId: team.id,
@@ -1339,10 +1340,12 @@ export class CdpApi {
                         req.body.filters?.filter_test_accounts ??
                         (hogFlow.trigger.filters.filter_test_accounts || false),
                     tag_names: req.body.filters?.tag_names ?? hogFlow.trigger.filters.tag_names,
+                    assignment_status: assignmentStatus,
                     assigned_to_user_ids:
                         req.body.filters?.assigned_to_user_ids ?? hogFlow.trigger.filters.assigned_to_user_ids,
-                    all_roles_unassigned:
-                        req.body.filters?.all_roles_unassigned ?? hogFlow.trigger.filters.all_roles_unassigned,
+                    all_roles_unassigned: assignmentStatus
+                        ? undefined
+                        : (req.body.filters?.all_roles_unassigned ?? hogFlow.trigger.filters.all_roles_unassigned),
                 },
                 variables: req.body.variables ?? {},
                 groupTypeIndex: typeof req.body.group_type_index === 'number' ? req.body.group_type_index : undefined,
