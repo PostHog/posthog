@@ -19,7 +19,10 @@ by the sibling ``organization_members`` module.
 """
 
 import json
+from datetime import timedelta
 from typing import Any
+
+from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
@@ -74,6 +77,7 @@ from products.customer_analytics.backend.facade.contracts import (
     MeetingParticipantView,
     MeetingView,
 )
+from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 
 
 class AccountTrackRuleFieldSerializer(serializers.Serializer):
@@ -1388,6 +1392,23 @@ class CalendarSyncTriggerResponseSerializer(serializers.Serializer):
     )
 
 
+class CalendarSyncBackfillSerializer(serializers.Serializer):
+    integration_id = serializers.IntegerField(help_text="Id of the Google account integration to backfill.")
+    start_date = serializers.DateField(help_text="First UTC date to include. Must be within the last 365 days.")
+    end_date = serializers.DateField(help_text="Final UTC date to include. Cannot be after today.")
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        today = timezone.now().date()
+        earliest_date = today - timedelta(days=365)
+        if attrs["start_date"] < earliest_date:
+            raise serializers.ValidationError({"start_date": "Start date must be within the last 365 days."})
+        if attrs["end_date"] > today:
+            raise serializers.ValidationError({"end_date": "End date cannot be after today."})
+        if attrs["start_date"] > attrs["end_date"]:
+            raise serializers.ValidationError({"end_date": "End date must be on or after the start date."})
+        return attrs
+
+
 class MeetingParticipantSerializer(DataclassSerializer):
     """One attendee of a synced calendar meeting (read-only)."""
 
@@ -1914,11 +1935,12 @@ class CustomPropertyValueWriteSerializer(serializers.Serializer):
         help_text="UUID of the custom property definition whose value to set for this account."
     )
     value = CustomPropertyValueField(
+        allow_null=True,
         help_text=(
             "Value to store, matching the definition's type: a number for number/currency/percent, a "
             "boolean for boolean, an ISO-8601 string for date/datetime, an HTTP or HTTPS URL for link properties, "
-            "or text for text properties."
-        )
+            "or text for text properties. Null clears the current value while preserving its history."
+        ),
     )
 
 
@@ -1953,6 +1975,36 @@ class CustomPropertyValueSuggestionsResponseSerializer(serializers.Serializer):
     )
     refreshing = serializers.BooleanField(
         read_only=True, help_text="Always false — present for compatibility with the property-values consumer."
+    )
+
+
+class PinnedAccountPropertySerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=[
+            (AccountPropertyPinKind.CUSTOM_PROPERTY.value, "Custom property"),
+            (AccountPropertyPinKind.RELATIONSHIP.value, "Relationship"),
+        ],
+        help_text="Definition type for this pinned account property.",
+    )
+    id = serializers.UUIDField(
+        help_text="Team-scoped custom property or relationship definition UUID.",
+    )
+
+
+class UserCustomerAnalyticsConfigSerializer(serializers.Serializer):
+    pinned_properties = PinnedAccountPropertySerializer(
+        many=True,
+        read_only=True,
+        help_text="Account properties pinned in sidebar display order.",
+    )
+
+
+class UserCustomerAnalyticsConfigUpdateSerializer(serializers.Serializer):
+    pinned_properties = PinnedAccountPropertySerializer(
+        many=True,
+        allow_empty=True,
+        required=False,
+        help_text="Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them.",
     )
 
 

@@ -121,6 +121,20 @@ class TestRelaySlackMessage(TestCase):
         self.task_run.refresh_from_db()
         assert relay_id in self.task_run.state.get("slack_sent_relay_ids", [])
 
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message", autospec=True)
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_relay_hands_the_reply_the_turns_trace_id(self, _mock_delete_progress, mock_post):
+        # The posted reply is the only place the turn's trace id survives.
+        trace_id = "f960aead-b2af-4ee0-b0eb-630109a1b2a0"
+
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id), relay_id="relay-trace", text="Done.", trace_id=trace_id
+            )
+        )
+
+        assert mock_post.call_args.args[0].turn_trace_id == trace_id
+
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
     def test_relay_does_not_post_when_claim_write_fails(self, mock_delete_progress, mock_post):

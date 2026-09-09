@@ -19,6 +19,7 @@ interface ChatThreadFooterProps {
   taskId?: string;
   footerState?: Omit<BuildResult, "items">;
   hasPendingPermission?: boolean;
+  currentWork?: string;
 }
 
 /**
@@ -38,6 +39,7 @@ export function ChatThreadFooter({
   taskId,
   footerState,
   hasPendingPermission,
+  currentWork,
 }: ChatThreadFooterProps) {
   const showDebugLogs = useSettingsStore((s) => s.debugLogsCloudRuns);
   const eventFooterState = useConversationItems(events, isPromptPending, {
@@ -85,6 +87,7 @@ export function ChatThreadFooter({
         isBackgroundTurnActive={isBackgroundTurnActive}
         completedToolCallCount={completedToolCallCount}
         lastActivityAt={lastActivityAt}
+        currentWork={currentWork}
       />
     </div>
   );

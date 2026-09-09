@@ -312,6 +312,9 @@ class AgentServerLaunchMixin(SandboxBase):
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
+        # Before the already-healthy shortcut: images that boot the agent server never relaunch it,
+        # and the agent reads its skill directories when a session starts, not when the server does.
+        self.clear_bundled_skills_if_disabled()
         if self._agent_server_is_healthy() and (allowed_domains is None or self._agentsh_daemon_is_healthy()):
             logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
             return 0 if wait_for_health else None
