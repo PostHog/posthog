@@ -726,15 +726,28 @@ def _product_owned_name_prefix(name: str) -> str:
     return next((prefix for prefix, _ in CATEGORY_BY_NAME_PREFIX if name.startswith(prefix)), "")
 
 
-def rename_skill(team: Team, *, skill_name: str, new_name: str) -> LLMSkill:
+def rename_skill(
+    team: Team,
+    *,
+    skill_name: str,
+    new_name: str,
+    _product_owned_prefix: str | None = None,
+) -> LLMSkill:
     """Move a logical skill to `new_name`, keeping its versions, files, and owners.
 
     Every version row carries the name, and owners are keyed on `(team, skill_name)`, so the rename
     has to move all of them together or it loses history and ownership — which is exactly what the
-    duplicate-then-archive workaround did.
+    duplicate-then-archive workaround did. A product that owns a registered name prefix may pass
+    its private prefix only while it moves every product row keyed on the name in the same outer
+    transaction. The public skill endpoint never does this, so it keeps refusing owned names.
     """
     blocked_prefix = _product_owned_name_prefix(skill_name) or _product_owned_name_prefix(new_name)
-    if blocked_prefix:
+    product_owns_both_names = (
+        _product_owned_prefix == blocked_prefix
+        and skill_name.startswith(blocked_prefix)
+        and new_name.startswith(blocked_prefix)
+    )
+    if blocked_prefix and not product_owns_both_names:
         raise LLMSkillRenameNotAllowedError(prefix=blocked_prefix)
 
     with transaction.atomic():

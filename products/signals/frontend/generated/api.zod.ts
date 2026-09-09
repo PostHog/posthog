@@ -958,6 +958,21 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .describe('Editable schedule, enablement, and emit posture for one scout config.')
 
 /**
+ * Rename a custom scout without recreating it. The skill versions, owners, config, run history, source link, and targeted notes move together in one transaction. Canonical scouts cannot be renamed because fleet sync owns their names. A scout with a live run must finish before rename.
+ * @summary Rename a scout
+ */
+export const signalsScoutConfigRenameBodyNewNameMax = 64
+
+export const SignalsScoutConfigRenameBody = /* @__PURE__ */ zod
+    .object({
+        new_name: zod
+            .string()
+            .max(signalsScoutConfigRenameBodyNewNameMax)
+            .describe('New scout skill name. Keep the current prefix class and use a unique kebab-case name.'),
+    })
+    .describe('The new logical identity for an existing custom scout.')
+
+/**
  * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (a configured scout), to one stage of the report pipeline via a reserved audience (`pipeline:report-research`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.
  * @summary Leave a note for the scouts
  */

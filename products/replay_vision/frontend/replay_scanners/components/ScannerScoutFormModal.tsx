@@ -161,6 +161,7 @@ export function ScannerScoutFormModal({
     const unchanged =
         !template &&
         !!config &&
+        form.name === prettifyScoutSkillName(config.skill_name) &&
         form.body === (skillPrompt?.body ?? '') &&
         form.cron === config.run_cron_schedule &&
         JSON.stringify(form.outputDestinations ?? {}) === JSON.stringify(config.output_destinations ?? {}) &&
@@ -225,9 +226,6 @@ export function ScannerScoutFormModal({
                         onChange={(name) => patch({ name })}
                         placeholder={template?.defaultName}
                         maxLength={45}
-                        // A scout's name is its identity in the fleet, so renaming isn't possible
-                        // without losing its run history.
-                        disabledReason={template ? undefined : "A scout's name can't be changed after it's created"}
                         data-attr="vision-scout-form-name"
                     />
                 </div>

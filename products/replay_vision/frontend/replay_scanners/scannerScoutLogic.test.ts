@@ -3,9 +3,10 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
 import { hogFunctionsPartialUpdate, hogFunctionsRetrieve } from 'products/cdp/frontend/generated/api'
-import { signalsScoutConfigDestroy } from 'products/signals/frontend/generated/api'
+import { signalsScoutConfigDestroy, signalsScoutConfigRename } from 'products/signals/frontend/generated/api'
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
+import { llmSkillsNameRetrieve } from 'products/skills/frontend/generated/api'
 
 import {
     visionScannersScoutReportsList,
@@ -26,9 +27,11 @@ const mockReportRetrieve = visionScannersScoutReportsRetrieve as jest.MockedFunc
     typeof visionScannersScoutReportsRetrieve
 >
 const mockScoutConfigDestroy = signalsScoutConfigDestroy as jest.MockedFunction<typeof signalsScoutConfigDestroy>
+const mockScoutConfigRename = signalsScoutConfigRename as jest.MockedFunction<typeof signalsScoutConfigRename>
 const mockScoutsCreate = visionScannersScoutsCreate as jest.MockedFunction<typeof visionScannersScoutsCreate>
 const mockHogFunctionsRetrieve = hogFunctionsRetrieve as jest.MockedFunction<typeof hogFunctionsRetrieve>
 const mockHogFunctionsPartialUpdate = hogFunctionsPartialUpdate as jest.MockedFunction<typeof hogFunctionsPartialUpdate>
+const mockSkillRetrieve = llmSkillsNameRetrieve as jest.MockedFunction<typeof llmSkillsNameRetrieve>
 
 const SCANNER_ID = '01a014ea-854f-72b5-8192-bb6ac9f212a5'
 const SKILL_NAME = 'signals-scout-daily-digest'
@@ -202,6 +205,58 @@ describe('scannerScoutLogic', () => {
         const [firstName, secondName] = mockScoutsCreate.mock.calls.map((call) => (call[2] as any).name)
         expect(firstName).toBe('signals-scout-rage-clicks-on-checkout-daily-digest')
         expect(secondName).toBe('signals-scout-rage-clicks-on-checkout-daily-digest-2')
+    })
+
+    it('renames a scout and repoints its existing webhook destination', async () => {
+        await mountWithReports([])
+        const fleet = scoutFleetLogic.findMounted()!
+        const config = makeConfig()
+        const renamed = makeConfig({ skill_name: 'signals-scout-daily-summary' })
+        fleet.actions.loadScoutConfigsSuccess([config])
+        mockSkillRetrieve.mockResolvedValue({ body: 'Watch this scanner.' } as any)
+        mockHogFunctionsRetrieve.mockResolvedValue({
+            id: WEBHOOK_ID,
+            name: 'Replay Vision · Daily digest',
+            deleted: false,
+            template: { id: 'template-webhook' },
+            filters: {
+                events: [{ id: '$scout_report_emitted' }],
+                properties: [{ key: 'skill_name', value: SKILL_NAME }],
+            },
+            inputs: { url: { value: 'https://example.com/hook' } },
+        } as any)
+        mockScoutConfigRename.mockResolvedValue(renamed)
+        mockHogFunctionsPartialUpdate.mockResolvedValue({} as any)
+
+        logic.actions.openScoutSettings(SKILL_NAME)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.saveScoutSettings({
+            name: 'Daily summary',
+            body: 'Watch this scanner.',
+            cron: '0 9 * * *',
+            outputDestinations: config.output_destinations,
+            webhookUrl: 'https://example.com/hook',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockScoutConfigRename).toHaveBeenCalledWith(expect.any(String), config.id, {
+            new_name: 'signals-scout-daily-summary',
+        })
+        expect(mockHogFunctionsPartialUpdate).toHaveBeenCalledWith(
+            expect.any(String),
+            WEBHOOK_ID,
+            expect.objectContaining({
+                filters: expect.objectContaining({
+                    properties: expect.arrayContaining([
+                        expect.objectContaining({
+                            key: 'skill_name',
+                            value: 'signals-scout-daily-summary',
+                            operator: 'exact',
+                        }),
+                    ]),
+                }),
+            })
+        )
     })
 
     it('separates a failed report load from a scout that filed nothing', async () => {

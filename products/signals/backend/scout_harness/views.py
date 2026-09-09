@@ -67,7 +67,11 @@ from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
 from products.signals.backend.scout_harness.config_registry import enabled_scout_count, ensure_scout_category
 from products.signals.backend.scout_harness.fleet_sync import materialize_scout_fleet
-from products.signals.backend.scout_harness.lazy_seed import SCOUT_SKILL_CATEGORY, scout_skill_origin
+from products.signals.backend.scout_harness.lazy_seed import (
+    SCOUT_SKILL_CATEGORY,
+    scout_skill_origin,
+    scout_skill_row_origin,
+)
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
 from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
@@ -111,6 +115,7 @@ from products.signals.backend.scout_harness.serializers import (
     SearchRecentRunsQuerySerializer,
     SignalScoutConfigCreateSerializer,
     SignalScoutConfigListQuerySerializer,
+    SignalScoutConfigRenameSerializer,
     SignalScoutConfigSerializer,
     SignalScoutConfigUpdateSerializer,
     SignalScoutCreateResponseSerializer,
@@ -122,6 +127,7 @@ from products.signals.backend.scout_harness.serializers import (
 )
 from products.signals.backend.scout_harness.skill_loader import (
     REPORT_CHANNEL_TOOLS,
+    SIGNALS_SCOUT_SKILL_PREFIX,
     SkillNotFoundError,
     load_skill_for_run,
     resolve_scout_acting_user_id,
@@ -169,7 +175,10 @@ from products.signals.backend.scout_harness.tools.structured_output import (
 from products.signals.backend.scout_report import InvalidScoutReportError
 from products.skills.backend.api.skill_services import (
     LLMSkillDuplicateNameConflictError,
+    LLMSkillNotFoundError,
+    LLMSkillRenameNotAllowedError,
     create_skill,
+    rename_skill,
     resolve_skill_owners_for_names,
 )
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
@@ -2223,7 +2232,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # schema is rendered verbatim into the run prompt (its `description` fields are free prose).
         # Reads, other config edits, and clearing the schema stay on the base config scopes.
         action = getattr(view, "action", None)
-        if action == "create":
+        if action in ("create", "rename"):
             return ["signal_scout:write", "llm_skill:write"]
         if action == "partial_update" and self._sets_structured_output_schema(request):
             return ["signal_scout:write", "llm_skill:write"]
@@ -2435,6 +2444,91 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             instance = serializer.save(**save_kwargs)
         context = scout_config_context(team, [instance.skill_name], request)
         return Response(SignalScoutConfigSerializer(instance, context=context).data)
+
+    @extend_schema(
+        request=SignalScoutConfigRenameSerializer,
+        responses={
+            200: OpenApiResponse(response=SignalScoutConfigSerializer, description="Renamed scout."),
+            400: OpenApiResponse(description="Invalid, unchanged, canonical, or already-used name."),
+            403: OpenApiResponse(description="The caller lacks editor access to skills on this project."),
+            404: OpenApiResponse(description="Config or scout skill not found for this project."),
+            409: OpenApiResponse(description="This scout has a run in progress."),
+        },
+        summary="Rename a scout",
+        description=(
+            "Rename a custom scout without recreating it. The skill versions, owners, config, run history, "
+            "source link, and targeted notes move together in one transaction. Canonical scouts cannot be "
+            "renamed because fleet sync owns their names. A scout with a live run must finish before rename."
+        ),
+        operation_id="signals_scout_config_rename",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="rename",
+        required_scopes=["signal_scout:write", "llm_skill:write"],
+    )
+    def rename(self, request: Request, *args, **kwargs) -> Response:
+        team = _canonical_team(self)
+        config_id = _parse_run_id_or_404(kwargs)
+        payload = SignalScoutConfigRenameSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        new_name = payload.validated_data["new_name"]
+
+        with transaction.atomic():
+            config = (
+                SignalScoutConfig.objects.unscoped().select_for_update().filter(team_id=team.id, id=config_id).first()
+            )
+            if config is None:
+                raise exceptions.NotFound()
+            self._assert_can_register_scout()
+            old_name = config.skill_name
+            if new_name == old_name:
+                raise exceptions.ValidationError({"new_name": "The scout already has this name."})
+            if (
+                SignalScoutConfig.objects.unscoped()
+                .select_for_update()
+                .filter(team_id=team.id, skill_name=new_name)
+                .exclude(id=config.id)
+                .exists()
+            ):
+                raise exceptions.ValidationError({"new_name": "A scout with this name already exists."})
+            skill = (
+                LLMSkill.objects.filter(team_id=team.id, name=old_name, is_latest=True, deleted=False)
+                .prefetch_related("files")
+                .first()
+            )
+            if skill is None:
+                raise exceptions.NotFound("The scout skill no longer exists.")
+            if scout_skill_row_origin(skill) == "canonical":
+                raise exceptions.ValidationError({"new_name": "Canonical scouts keep the names managed by fleet sync."})
+            if rejection := check_run_in_flight(team.id, old_name):
+                raise Conflict(detail=rejection.detail)
+
+            allowed_prefix = SIGNALS_SCOUT_SKILL_PREFIX if old_name.startswith(SIGNALS_SCOUT_SKILL_PREFIX) else None
+            try:
+                rename_skill(
+                    team,
+                    skill_name=old_name,
+                    new_name=new_name,
+                    _product_owned_prefix=allowed_prefix,
+                )
+            except LLMSkillDuplicateNameConflictError:
+                raise exceptions.ValidationError({"new_name": "A skill with this name already exists."})
+            except LLMSkillRenameNotAllowedError:
+                raise exceptions.ValidationError(
+                    {"new_name": "The new name must keep the scout's current name prefix."}
+                )
+            except LLMSkillNotFoundError:
+                raise exceptions.NotFound("The scout skill no longer exists.")
+
+            SignalScoutRun.objects.for_team(team.id).filter(skill_name=old_name).update(skill_name=new_name)
+            SignalScoutNote.objects.for_team(team.id).filter(skill_name=old_name).update(skill_name=new_name)
+            config.skill_name = new_name
+            config.save(update_fields=["skill_name"])
+
+        context = scout_config_context(team, [new_name], request)
+        return Response(SignalScoutConfigSerializer(config, context=context).data)
 
     @extend_schema(
         request=None,

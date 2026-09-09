@@ -2,11 +2,12 @@ import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/a
 
 import type { ScannerScoutTemplate } from './scannerScout'
 import {
-    scoutNameToSkillName,
     isScannerScoutConfig,
     scannerScoutCreatePayload,
     scannerScoutTemplates,
     scoutBodyPlaceholders,
+    scoutDisplayNameToSkillName,
+    scoutNameToSkillName,
 } from './scannerScout'
 
 describe('scannerScout', () => {
@@ -29,6 +30,12 @@ describe('scannerScout', () => {
         const second = scoutNameToSkillName('Daily digest', 'Signup drop-off', [first])
         expect(first).toBe('signals-scout-checkout-rage-clicks-daily-digest')
         expect(second).toBe('signals-scout-signup-drop-off-daily-digest')
+    })
+
+    it('turns an edited display name directly into the new scout identity', () => {
+        expect(scoutDisplayNameToSkillName('Checkout friction daily summary')).toBe(
+            'signals-scout-checkout-friction-daily-summary'
+        )
     })
 
     it('keeps the label whole when the scanner name would overrun the cap', () => {

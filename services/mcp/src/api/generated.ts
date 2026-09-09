@@ -79674,6 +79674,17 @@ export namespace Schemas {
     }
 
     /**
+     * The new logical identity for an existing custom scout.
+     */
+    export interface SignalScoutConfigRename {
+      /**
+         * New scout skill name. Keep the current prefix class and use a unique kebab-case name.
+         * @maxLength 64
+         */
+      new_name: string;
+    }
+
+    /**
      * Create a runnable custom scout and its config in one atomic request.
      */
     export interface SignalScoutCreate {

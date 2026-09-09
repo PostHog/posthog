@@ -61,6 +61,11 @@ export function scoutNameToSkillName(label: string, scannerName: string, takenNa
     }
 }
 
+/** Turns the complete display name from an existing scout's settings into its skill identity. */
+export function scoutDisplayNameToSkillName(label: string): string {
+    return scoutNameToSkillName(label, '', [])
+}
+
 export type ScannerScoutTemplateKey = 'daily-digest' | 'trend-watch' | 'new-issues' | 'scratch'
 
 export interface ScannerScoutTemplate {

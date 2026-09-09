@@ -2315,6 +2315,154 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         # The partial_update path resolves skill_info independently of list — assert origin too.
         assert response.json()["scout_origin"] == "custom"
 
+    def test_rename_moves_the_custom_scout_and_its_history(self) -> None:
+        old_name = "signals-scout-checkout-typoo"
+        new_name = "signals-scout-checkout-typo-free"
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name=old_name,
+            source_product="replay_vision",
+            source_id="scanner-1",
+        )
+        LLMSkill.objects.create(
+            team=self.team,
+            name=old_name,
+            description="Checkout scout.",
+            body="v1",
+            version=1,
+            is_latest=False,
+        )
+        LLMSkill.objects.create(
+            team=self.team,
+            name=old_name,
+            description="Checkout scout.",
+            body="v2",
+            version=2,
+            is_latest=True,
+        )
+        owner = User.objects.create_and_join(self.organization, "scout-owner@example.com", None)
+        LLMSkillOwner.objects.for_team(self.team.id).create(team=self.team, skill_name=old_name, user=owner)
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        run = _make_run(
+            self.team,
+            scout_config=config,
+            skill_name=old_name,
+            task_run_status=TaskRun.Status.COMPLETED,
+        )
+        note = SignalScoutNote.objects.create(team=self.team, skill_name=old_name, content="Check the funnel.")
+
+        response = self.client.post(
+            f"{self._detail_url(str(config.id))}rename/",
+            data={"new_name": new_name},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["skill_name"] == new_name
+        assert [row["email"] for row in response.json()["owners"]] == [owner.email]
+        assert sorted(
+            LLMSkill.objects.filter(team=self.team, name=new_name, deleted=False).values_list("version", flat=True)
+        ) == [1, 2]
+        assert not LLMSkill.objects.filter(team=self.team, name=old_name, deleted=False).exists()
+        assert LLMSkillOwner.objects.for_team(self.team.id).filter(skill_name=new_name, user=owner).exists()
+        config.refresh_from_db()
+        run.refresh_from_db()
+        note.refresh_from_db()
+        assert config.skill_name == new_name
+        assert config.source_product == "replay_vision"
+        assert config.source_id == "scanner-1"
+        assert run.skill_name == new_name
+        assert note.skill_name == new_name
+
+    def test_rename_rejects_a_canonical_scout(self) -> None:
+        name = "signals-scout-general"
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name=name)
+        LLMSkill.objects.create(
+            team=self.team,
+            name=name,
+            description="Canonical scout.",
+            body="...",
+            metadata={"seeded_by": HARNESS_SEEDED_BY},
+        )
+
+        response = self.client.post(
+            f"{self._detail_url(str(config.id))}rename/",
+            data={"new_name": "signals-scout-renamed-general"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "fleet sync" in str(response.json())
+        assert LLMSkill.objects.filter(team=self.team, name=name, deleted=False).exists()
+
+    def test_rename_rejects_a_live_run(self) -> None:
+        old_name = "signals-scout-checkout"
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name=old_name)
+        self._make_skill(old_name)
+        _make_run(self.team, scout_config=config, skill_name=old_name)
+
+        response = self.client.post(
+            f"{self._detail_url(str(config.id))}rename/",
+            data={"new_name": "signals-scout-checkout-renamed"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert LLMSkill.objects.filter(team=self.team, name=old_name, deleted=False).exists()
+
+    @parameterized.expand(
+        [
+            ("scout_scope_only", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
+            ("both_scopes", ["signal_scout:write", "llm_skill:write"], status.HTTP_200_OK),
+        ]
+    )
+    def test_rename_requires_skill_authoring_scope(self, _name: str, scopes: list[str], expected: int) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        old_name = "signals-scout-checkout"
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name=old_name)
+        self._make_skill(old_name)
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            f"{self._detail_url(str(config.id))}rename/",
+            data={"new_name": "signals-scout-checkout-renamed"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw}",
+        )
+
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
+            ("unchanged", "signals-scout-checkout", None),
+            ("different_prefix", "checkout-renamed", None),
+            ("skill_name_taken", "signals-scout-taken", "skill"),
+            ("config_name_taken", "signals-scout-taken", "config"),
+        ]
+    )
+    def test_rename_rejects_invalid_targets(self, _label: str, new_name: str, conflict: str | None) -> None:
+        old_name = "signals-scout-checkout"
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name=old_name)
+        self._make_skill(old_name)
+        if conflict == "skill":
+            self._make_skill(new_name)
+        elif conflict == "config":
+            SignalScoutConfig.objects.create(team=self.team, skill_name=new_name)
+
+        response = self.client.post(
+            f"{self._detail_url(str(config.id))}rename/",
+            data={"new_name": new_name},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "new_name"
+        assert LLMSkill.objects.filter(team=self.team, name=old_name, deleted=False).exists()
+
     @parameterized.expand(
         [
             # (label, skill_name, metadata, expected). `signals-scout-general` is a real on-disk

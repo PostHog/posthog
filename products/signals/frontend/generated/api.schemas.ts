@@ -2484,6 +2484,17 @@ export interface PatchedSignalScoutConfigUpdateApi {
 }
 
 /**
+ * The new logical identity for an existing custom scout.
+ */
+export interface SignalScoutConfigRenameApi {
+    /**
+     * New scout skill name. Keep the current prefix class and use a unique kebab-case name.
+     * @maxLength 64
+     */
+    new_name: string
+}
+
+/**
  * Response for an on-demand (`run now`) scout dispatch.
  *
  * The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`

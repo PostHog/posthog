@@ -9678,6 +9678,20 @@
             "readOnlyHint": true
         }
     },
+    "scout-config-rename": {
+        "description": "Rename a custom scout by its config `id`. Pass the complete new skill name in `new_name`. The skill versions, owners, config, run history, source link, and targeted notes move together. The rename keeps the current prefix class, refuses canonical scouts and name conflicts, and waits for any live run to finish.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Rename a scout",
+        "title": "Rename a scout",
+        "required_scopes": ["signal_scout:write", "llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "scout-config-sync": {
         "description": "Materialize the Signals scout fleet for this project (idempotent): seeds the canonical `signals-scout-*` skills and creates a default-schedule config for any scout lacking one, then returns all scout configs. The Temporal coordinator does the same on its next tick; call this when a setup flow needs a tunable fleet immediately instead of waiting for the tick. Pair with `scout-config-update` to tune the returned configs.",
         "category": "Signals",

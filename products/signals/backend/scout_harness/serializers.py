@@ -2956,6 +2956,18 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
         ]
 
 
+class SignalScoutConfigRenameSerializer(serializers.Serializer):
+    """The new logical identity for an existing custom scout."""
+
+    new_name = serializers.CharField(
+        max_length=64,
+        help_text="New scout skill name. Keep the current prefix class and use a unique kebab-case name.",
+    )
+
+    def validate_new_name(self, value: str) -> str:
+        return validate_skill_name_value(value)
+
+
 class SignalScoutConfigOptionsSerializer(serializers.Serializer):
     """Schedule, enablement, and delivery options accepted while creating a scout."""
 

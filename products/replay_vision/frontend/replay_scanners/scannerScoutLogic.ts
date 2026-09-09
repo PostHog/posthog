@@ -9,7 +9,7 @@ import {
     hogFunctionsPartialUpdate,
     hogFunctionsRetrieve,
 } from 'products/cdp/frontend/generated/api'
-import { signalsScoutConfigUpdate } from 'products/signals/frontend/generated/api'
+import { signalsScoutConfigRename, signalsScoutConfigUpdate } from 'products/signals/frontend/generated/api'
 import type {
     ScoutMetadataApi,
     SignalScoutConfigApi,
@@ -30,7 +30,12 @@ import {
 } from '../generated/api'
 import type { ScoutReportApi } from '../generated/api.schemas'
 import type { ScannerScoutTemplateKey } from './scannerScout'
-import { isScannerScoutConfig, scannerScoutCreatePayload, scoutNameToSkillName } from './scannerScout'
+import {
+    isScannerScoutConfig,
+    scannerScoutCreatePayload,
+    scoutDisplayNameToSkillName,
+    scoutNameToSkillName,
+} from './scannerScout'
 import { isScoutDestination, scoutWebhookDestinationPayload } from './scannerScoutDelivery'
 
 /** Everything the scout form edits, in both create and settings mode. */
@@ -649,7 +654,8 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
          * not read as the whole save failing. */
         const reconcileDelivery = async (
             config: Pick<SignalScoutConfigApi, 'id' | 'skill_name' | 'output_destinations'>,
-            form: Pick<ScannerScoutForm, 'webhookUrl' | 'outputDestinations'>
+            form: Pick<ScannerScoutForm, 'webhookUrl' | 'outputDestinations'>,
+            previousSkillName: string = config.skill_name
         ): Promise<boolean> => {
             const projectId = teamLogic.values.currentProjectId
             const teamId = teamLogic.values.currentTeamId
@@ -662,7 +668,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
             try {
                 const existing = await findScoutDelivery(
                     String(projectId),
-                    config.skill_name,
+                    previousSkillName,
                     config.output_destinations
                 )
                 const payload = url ? scoutWebhookDestinationPayload(skillName, label, url) : null
@@ -856,8 +862,15 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                     return
                 }
                 try {
+                    let savedConfig = config
                     if (form.body !== values.skillPrompt?.body) {
                         await llmSkillsNamePartialUpdate(String(projectId), config.skill_name, { body: form.body })
+                    }
+                    const renamedSkillName = scoutDisplayNameToSkillName(form.name)
+                    if (renamedSkillName !== config.skill_name) {
+                        savedConfig = await signalsScoutConfigRename(String(teamId), config.id, {
+                            new_name: renamedSkillName,
+                        })
                     }
                     const configUpdates: Record<string, unknown> = {}
                     if (form.cron !== config.run_cron_schedule) {
@@ -870,12 +883,14 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                         configUpdates.output_destinations = form.outputDestinations ?? {}
                     }
                     if (Object.keys(configUpdates).length > 0) {
-                        await signalsScoutConfigUpdate(String(teamId), config.id, configUpdates)
+                        savedConfig = await signalsScoutConfigUpdate(String(teamId), config.id, configUpdates)
+                    }
+                    if (savedConfig !== config) {
                         actions.loadScoutConfigs()
                     }
                     // Reads the destination from the id the config records, so a retry after a
                     // partial failure patches what exists instead of provisioning a second one.
-                    if (!(await reconcileDelivery(config, form))) {
+                    if (!(await reconcileDelivery(savedConfig, form, config.skill_name))) {
                         // reconcileDelivery already said what failed. Leaving the form open keeps the
                         // user's delivery edits in front of them instead of closing over the failure.
                         return
