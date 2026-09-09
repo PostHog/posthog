@@ -1,5 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { SnapshotMode } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
+
 import { ReplayIndexEntry } from './replay-index-entry'
 
 /**
@@ -32,6 +34,7 @@ export function createNoopBlockMetadata(sessionId: string, teamId: number): Sess
         messageCount: 0,
         snapshotSource: null,
         snapshotLibrary: null,
+        snapshotMode: null,
         retentionPeriodDays: null,
         isDeleted: false,
     }
@@ -88,6 +91,8 @@ export interface SessionBlockMetadata {
     snapshotSource: string | null
     /** Library used for the snapshot */
     snapshotLibrary: string | null
+    /** Only applies when snapshotSource is 'mobile'; null until a visual snapshot identifies the mode. */
+    snapshotMode: SnapshotMode | null
     /** Retention period for this session block */
     retentionPeriodDays: number | null
     /** Whether this recording has been deleted */
