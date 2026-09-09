@@ -382,6 +382,8 @@ function SketchpadScene({
           onRestore={(seq) => client.restoreTo(seq)}
           onHighlight={view.setHighlightedIds}
           onLoadFullLog={() => void client.loadFullLog()}
+          onRebasePending={() => client.rebasePendingAfterCompaction()}
+          onDiscardPending={() => client.discardPendingAfterCompaction()}
         />
       </div>
 

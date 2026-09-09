@@ -22,7 +22,7 @@ export function SketchpadHealthNotice({
     ? "This board is stopped"
     : "This board stopped answering";
   const hint = stopped
-    ? "Nothing on it runs until you start it."
+    ? "Review its code before you start it. Fragments can read data with your PostHog access."
     : "A fragment on it is busy. Stop the board, then start it again.";
 
   return (
@@ -37,6 +37,7 @@ export function SketchpadHealthNotice({
           <p className="text-(--gray-11) text-[12px]">{hint}</p>
         </div>
         <Button
+          data-attr={stopped ? "sketchpad-start-board" : "sketchpad-stop-board"}
           variant={stopped ? "primary" : "outline"}
           size="sm"
           className="ml-1 shrink-0"

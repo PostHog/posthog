@@ -14,7 +14,7 @@ import {
   Spinner,
   Text,
 } from "@posthog/quill";
-import { emptySketchpadSnapshot, type SketchpadActor } from "@posthog/shared";
+import type { SketchpadActor } from "@posthog/shared";
 import { SketchpadPanel } from "@posthog/ui/features/sketchpad/components/SketchpadPanel";
 import {
   DIALOG_CANCEL,
@@ -27,6 +27,8 @@ export interface HistoryPanelProps {
   onRestore: (seq: number) => void | Promise<void>;
   onHighlight: (fragmentIds: string[]) => void;
   onLoadFullLog: () => void;
+  onRebasePending: () => void;
+  onDiscardPending: () => void;
   currentUserId?: number;
   onClose?: () => void;
 }
@@ -42,6 +44,8 @@ export function HistoryPanel({
   onRestore,
   onHighlight,
   onLoadFullLog,
+  onRebasePending,
+  onDiscardPending,
   currentUserId,
   onClose,
 }: HistoryPanelProps): ReactElement {
@@ -51,6 +55,7 @@ export function HistoryPanel({
     null,
   );
   const [restorePending, setRestorePending] = useState(false);
+  const [discardOpen, setDiscardOpen] = useState(false);
 
   useEffect(() => {
     if (requestedFullLog.current || state.logComplete) return;
@@ -59,8 +64,8 @@ export function HistoryPanel({
   }, [state.logComplete, onLoadFullLog]);
 
   const groups = useMemo(
-    () => groupLogEntries(state.log, emptySketchpadSnapshot()),
-    [state.log],
+    () => groupLogEntries(state.log, state.historySnapshot),
+    [state.historySnapshot, state.log],
   );
 
   const select = (group: HistoryGroup): void => {
@@ -88,6 +93,33 @@ export function HistoryPanel({
       onClose={onClose}
     >
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-2">
+        {state.historyConflict ? (
+          <div className="mb-3 rounded-(--radius-2) border border-(--amber-6) bg-(--amber-2) p-3">
+            <Text size="sm">
+              These unsaved edits started before older board history was
+              removed. Review the current board, then apply or discard the
+              edits.
+            </Text>
+            <div className="mt-2 flex gap-2">
+              <Button
+                data-attr="sketchpad-apply-pending-edits"
+                size="sm"
+                variant="primary"
+                onClick={onRebasePending}
+              >
+                Apply pending edits
+              </Button>
+              <Button
+                data-attr="sketchpad-discard-pending-edits"
+                size="sm"
+                variant="outline"
+                onClick={() => setDiscardOpen(true)}
+              >
+                Discard pending edits
+              </Button>
+            </div>
+          </div>
+        ) : null}
         {state.logComplete ? null : (
           <div className="flex items-center gap-2 pb-2">
             <Spinner className="size-3" />
@@ -148,6 +180,33 @@ export function HistoryPanel({
               onClick={() => void confirmRestore()}
             >
               Restore board
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={discardOpen} onOpenChange={setDiscardOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard the unsaved edits?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the local pending edits. You cannot restore them from
+              the board history.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button variant="outline" onClick={() => setDiscardOpen(false)}>
+              {DIALOG_CANCEL}
+            </Button>
+            <Button
+              data-attr="sketchpad-confirm-discard-pending-edits"
+              variant="destructive"
+              onClick={() => {
+                onDiscardPending();
+                setDiscardOpen(false);
+              }}
+            >
+              Discard edits
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

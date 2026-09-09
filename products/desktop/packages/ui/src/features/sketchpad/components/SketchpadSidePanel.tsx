@@ -18,6 +18,8 @@ interface SketchpadSidePanelProps {
   onRestore: (seq: number) => void;
   onHighlight: (ids: string[]) => void;
   onLoadFullLog: () => void;
+  onRebasePending: () => void;
+  onDiscardPending: () => void;
 }
 
 export function SketchpadSidePanel(
@@ -43,6 +45,8 @@ function PanelContent({
   onRestore,
   onHighlight,
   onLoadFullLog,
+  onRebasePending,
+  onDiscardPending,
 }: SketchpadSidePanelProps & {
   activePanel: SketchpadPanelName;
 }): ReactElement {
@@ -62,6 +66,8 @@ function PanelContent({
           onRestore={onRestore}
           onHighlight={onHighlight}
           onLoadFullLog={onLoadFullLog}
+          onRebasePending={onRebasePending}
+          onDiscardPending={onDiscardPending}
           currentUserId={currentUserId}
           onClose={onClose}
         />

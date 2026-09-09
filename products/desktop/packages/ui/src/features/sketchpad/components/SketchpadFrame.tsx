@@ -51,6 +51,10 @@ export function SketchpadFrame({
 
   const inertClass = inert ? "pointer-events-none" : "";
 
+  if (stopped) {
+    return <div className="absolute inset-0 h-full w-full" />;
+  }
+
   if (vendored) {
     return (
       <div

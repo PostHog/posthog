@@ -32,6 +32,7 @@ import {
 } from "@posthog/ui/features/sketchpad/interaction/sketchpadViewStore";
 import { useSketchpadPointer } from "@posthog/ui/features/sketchpad/interaction/useSketchpadPointer";
 import type { SketchpadFrameElement } from "@posthog/ui/features/sketchpad/runtime/sketchpadFrameElement";
+import { useSketchpadCodeTrust } from "@posthog/ui/features/sketchpad/runtime/useSketchpadCodeTrust";
 import {
   type SketchpadFrameHandle,
   useSketchpadFrame,
@@ -97,7 +98,8 @@ export function SketchpadStage({
   const { vendoredSketchpadModules } = useHostCapabilities();
   const [frameHealth, setFrameHealth] =
     useState<SketchpadFrameHealth>("running");
-  const [stopped, setStopped] = useState(false);
+  const codeTrust = useSketchpadCodeTrust(sketchpadId, snapshot.fragments);
+  const stopped = codeTrust.stopped;
 
   const selectedIds = useSketchpadSelectedIds();
   const highlightedIds = useSketchpadHighlightedIds();
@@ -362,10 +364,10 @@ export function SketchpadStage({
         health={frameHealth}
         stopped={stopped}
         onStop={() => {
-          setStopped(true);
+          codeTrust.stop();
           setFrameHealth("running");
         }}
-        onStart={() => setStopped(false)}
+        onStart={codeTrust.start}
       />
       {focusedId === null ? (
         <OverlayLayer
