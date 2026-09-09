@@ -71,8 +71,6 @@ from posthog.rate_limit import (
     LLMPromptProjectSecretApiKeyTeamBurstThrottle,
     LLMPromptProjectSecretApiKeyTeamSustainedThrottle,
     LLMPromptPublishBurstRateThrottle,
-    PersonalOrProjectSecretApiKeyBurstRateThrottle,
-    PersonalOrProjectSecretApiKeySustainedRateThrottle,
     SustainedRateThrottle,
 )
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
@@ -112,9 +110,13 @@ class LLMPromptViewSet(
         if self.action == "update_by_name":
             return [LLMPromptPublishBurstRateThrottle(), BurstRateThrottle(), SustainedRateThrottle()]
         if self.action in ["get_by_name", "resolve_by_name"]:
+            # Each request runs one pair: the defaults skip project secret API keys, and the
+            # team pair skips every other authenticator. A per-key pair on top would never
+            # reject anything, because it shares these rates and its bucket is a subset of
+            # the team bucket, so the team cap always binds first.
             return [
-                PersonalOrProjectSecretApiKeyBurstRateThrottle(),
-                PersonalOrProjectSecretApiKeySustainedRateThrottle(),
+                BurstRateThrottle(),
+                SustainedRateThrottle(),
                 LLMPromptProjectSecretApiKeyTeamBurstThrottle(),
                 LLMPromptProjectSecretApiKeyTeamSustainedThrottle(),
             ]

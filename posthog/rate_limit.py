@@ -483,19 +483,6 @@ class PersonalOrProjectSecretApiKeyRateThrottle(PersonalApiKeyRateThrottle):
         return super().get_cache_key(request, view)
 
 
-class PersonalOrProjectSecretApiKeyBurstRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
-    # The default burst budget, extended to project secret API keys. It shares BurstRateThrottle's
-    # scope, so it shares its bucket too and session and personal-key behavior is unchanged.
-    scope = BurstRateThrottle.scope
-    rate = BurstRateThrottle.rate
-
-
-class PersonalOrProjectSecretApiKeySustainedRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
-    # The default sustained budget, extended to project secret API keys.
-    scope = SustainedRateThrottle.scope
-    rate = SustainedRateThrottle.rate
-
-
 class ProjectSecretApiKeyTeamRateThrottle(PersonalApiKeyRateThrottle):
     """
     Per-team aggregate throttle for project secret API key (PSAK) requests.

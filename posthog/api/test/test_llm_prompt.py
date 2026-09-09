@@ -28,8 +28,6 @@ from posthog.rate_limit import (
     LLMPromptProjectSecretApiKeyTeamBurstThrottle,
     LLMPromptProjectSecretApiKeyTeamSustainedThrottle,
     LLMPromptPublishBurstRateThrottle,
-    PersonalOrProjectSecretApiKeyBurstRateThrottle,
-    PersonalOrProjectSecretApiKeySustainedRateThrottle,
     SustainedRateThrottle,
 )
 from posthog.test.api_keys import create_project_secret_api_key
@@ -946,15 +944,15 @@ class TestLLMPromptAPI(APIBaseTest):
         assert isinstance(throttles[2], SustainedRateThrottle)
 
     @parameterized.expand([("get_by_name",), ("resolve_by_name",)])
-    def test_fetch_actions_use_project_secret_api_key_aware_throttles(self, action: str):
+    def test_fetch_actions_add_project_secret_api_key_team_throttles(self, action: str):
         view = LLMPromptViewSet()
         view.action = action
 
         throttles = view.get_throttles()
 
         assert len(throttles) == 4
-        assert isinstance(throttles[0], PersonalOrProjectSecretApiKeyBurstRateThrottle)
-        assert isinstance(throttles[1], PersonalOrProjectSecretApiKeySustainedRateThrottle)
+        assert isinstance(throttles[0], BurstRateThrottle)
+        assert isinstance(throttles[1], SustainedRateThrottle)
         assert isinstance(throttles[2], LLMPromptProjectSecretApiKeyTeamBurstThrottle)
         assert isinstance(throttles[3], LLMPromptProjectSecretApiKeyTeamSustainedThrottle)
 
