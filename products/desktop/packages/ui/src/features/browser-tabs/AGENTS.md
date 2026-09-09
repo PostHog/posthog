@@ -215,9 +215,9 @@ retarget its originating background tab as described below. `railHistoryStore`
 - `rewriteSavedLocation` (in `@posthog/shared`) runs over persisted hrefs on
   load, so a snapshot written before the routes were flattened does not restore
   tabs onto `/website/*` routes that no longer exist.
-- Per-tab `scrollState` is reserved but **unwired** — scroll restoration is a
-  later follow-up (it needs a sandbox postMessage contract; the canvas iframe is
-  null-origin so the host can't read scroll).
+- Per-tab `scrollState` is reserved but **unwired**. Router history restores native
+  page scroll for report visits and their source pages. Canvas iframe scrolling
+  still needs a sandbox postMessage contract; the iframe is null-origin.
 
 ## Gotchas / implementation notes
 
