@@ -128,7 +128,7 @@ class _CreatedAtWindow:
     # Set when this window is one half of a verification split.
     check: _SplitCheck | None = None
 
-    def halves(self, check: _SplitCheck | None = None) -> tuple["_CreatedAtWindow", "_CreatedAtWindow"] | None:
+    def halves(self, check: _SplitCheck | None = None) -> list["_CreatedAtWindow"] | None:
         """Split around the midpoint second, or return None when the window is too narrow to split.
 
         The halves overlap by one second on each side of the midpoint, so no story is lost whether
@@ -139,10 +139,10 @@ class _CreatedAtWindow:
         if span_seconds < 3:
             return None
         midpoint = self.start + timedelta(seconds=span_seconds // 2)
-        return (
+        return [
             _CreatedAtWindow(start=self.start, end=midpoint + timedelta(seconds=1), check=check),
             _CreatedAtWindow(start=midpoint, end=self.end, check=check),
-        )
+        ]
 
 
 class StoriesSearchPaginator(BasePaginator):
