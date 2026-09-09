@@ -274,7 +274,11 @@ class VercelIntegration:
             account=account,
         )
 
-        if user_claims.user_email and user_claims.user_email.lower() != contact_data["email"].lower():
+        contact_email_matches_token = (
+            user_claims.user_email.lower() == contact_data["email"].lower() if user_claims.user_email else None
+        )
+
+        if contact_email_matches_token is False:
             logger.warning(
                 "Vercel installation contact email differs from token email",
                 installation_id=installation_id,
@@ -283,7 +287,11 @@ class VercelIntegration:
             )
 
         logger.info(
-            "Starting Vercel installation upsert process", installation_id=installation_id, integration="vercel"
+            "Starting Vercel installation upsert process",
+            installation_id=installation_id,
+            integration="vercel",
+            token_email_verified=user_claims.user_email_verified,
+            contact_email_matches_token=contact_email_matches_token,
         )
 
         # Check if there's already an OrganizationIntegration for this installation_id

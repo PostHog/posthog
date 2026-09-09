@@ -365,6 +365,7 @@ class TestVercelIntegration(TestCase):
         claims = self._create_user_claims("mismatch_vercel_id")
         claims.installation_id = new_installation_id
         claims.user_email = "token-holder@example.com"
+        claims.user_email_verified = True
 
         with patch("ee.vercel.integration.logger") as mock_logger:
             VercelIntegration.upsert_installation(new_installation_id, self.payload, claims)
@@ -379,6 +380,32 @@ class TestVercelIntegration(TestCase):
         for value in (*args, *kwargs.values()):
             assert "token-holder@example.com" not in str(value)
             assert self.payload["account"]["contact"]["email"] not in str(value)
+
+        mock_logger.info.assert_any_call(
+            "Starting Vercel installation upsert process",
+            installation_id=new_installation_id,
+            integration="vercel",
+            token_email_verified=True,
+            contact_email_matches_token=False,
+        )
+
+    def test_upsert_installation_logs_contact_email_match_with_token(self):
+        new_installation_id = self.NEW_INSTALLATION_ID
+        claims = self._create_user_claims("match_vercel_id")
+        claims.installation_id = new_installation_id
+        claims.user_email_verified = False
+
+        with patch("ee.vercel.integration.logger") as mock_logger:
+            VercelIntegration.upsert_installation(new_installation_id, self.payload, claims)
+
+        mock_logger.warning.assert_not_called()
+        mock_logger.info.assert_any_call(
+            "Starting Vercel installation upsert process",
+            installation_id=new_installation_id,
+            integration="vercel",
+            token_email_verified=False,
+            contact_email_matches_token=True,
+        )
 
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_sso_requires_login_for_external_user(self, mock_report):

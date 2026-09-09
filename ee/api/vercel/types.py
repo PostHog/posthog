@@ -21,6 +21,7 @@ class VercelUserClaims(VercelBaseClaims):
     user_avatar_url: str | None
     user_email: str | None  # Only available if integration is opted in (Which it is in our case)
     user_name: str | None
+    user_email_verified: bool | None = None
 
 
 @dataclass
