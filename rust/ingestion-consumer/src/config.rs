@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
@@ -6,6 +8,31 @@ use tracing::info;
 use crate::discovery::DiscoveryMode;
 use crate::routing::RoutingStrategy;
 use common_kafka_consumer::config::ConsumerConfigBuilder;
+
+/// The unit that completes and commits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum CompletionGranularity {
+    /// A poll completes as a whole, oldest first.
+    #[default]
+    Poll,
+    /// Each send's groups complete on their own, in any order, and the ledger
+    /// frontier gates each partition's commit.
+    Group,
+}
+
+impl FromStr for CompletionGranularity {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_lowercase().as_str() {
+            "poll" => Ok(Self::Poll),
+            "group" => Ok(Self::Group),
+            other => Err(format!(
+                "unknown consumer completion granularity '{other}' (expected 'poll' or 'group')"
+            )),
+        }
+    }
+}
 
 /// Configuration for the ingestion consumer.
 ///
@@ -167,6 +194,12 @@ pub struct Config {
     /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
     pub consumer_max_background_tasks: usize,
+
+    /// The unit that completes and commits. `poll` completes a whole poll at a
+    /// time, oldest first. `group` completes each send's groups on their own,
+    /// so a stalled key holds only its own partition.
+    #[envconfig(from = "CONSUMER_COMPLETION_GRANULARITY", default = "poll")]
+    pub consumer_completion_granularity: CompletionGranularity,
 
     // ---- Debug API ----
     /// Serve the real-time debug API (`/debug/load`, `/debug/state`,
@@ -462,5 +495,24 @@ impl Config {
         builder = builder.strip_classic_protocol_keys_if_consumer();
 
         builder.build()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CompletionGranularity;
+    use std::str::FromStr;
+
+    #[test]
+    fn completion_granularity_parses_known_values() {
+        assert_eq!(
+            CompletionGranularity::from_str(" POLL "),
+            Ok(CompletionGranularity::Poll)
+        );
+        assert_eq!(
+            CompletionGranularity::from_str("group"),
+            Ok(CompletionGranularity::Group)
+        );
+        assert!(CompletionGranularity::from_str("batch").is_err());
     }
 }

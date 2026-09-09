@@ -72,6 +72,7 @@ impl std::error::Error for LedgerError {}
 /// covers, and how many of its offsets Kafka never delivered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TakenFrontier {
+    pub first: Offset,
     pub offset: Offset,
     pub charge: Charge,
     pub gap_offset_count: usize,
@@ -230,6 +231,7 @@ impl PartitionOffsetLedger {
 
     pub fn take_frontier(&mut self) -> Option<TakenFrontier> {
         let frontier_offset = self.frontier()?;
+        let window_base = self.base_offset.expect("a frontier implies a window base");
         let mut charge = Charge::ZERO;
         let mut gap_offset_count = 0;
         for slot in self.slots.drain(..self.completed_prefix_len) {
@@ -242,6 +244,7 @@ impl PartitionOffsetLedger {
         self.base_offset = Some(frontier_offset);
         self.completed_prefix_len = 0;
         Some(TakenFrontier {
+            first: window_base,
             offset: frontier_offset,
             charge,
             gap_offset_count,
@@ -447,10 +450,16 @@ mod tests {
         let mut ledger = PartitionOffsetLedger::new(1);
         ledger.charge([charge(0), charge(1)]).unwrap();
         ledger.complete([Offset(0), Offset(1)]).unwrap();
-        ledger.take_frontier().unwrap();
+        let first_take = ledger.take_frontier().unwrap();
+        assert_eq!(first_take.first, Offset(0));
         ledger.charge([charge(2)]).unwrap();
         ledger.complete([Offset(2)]).unwrap();
         assert_eq!(ledger.frontier(), Some(Offset(3)));
-        assert_eq!(ledger.take_frontier().unwrap().charge.events, 1);
+        let second_take = ledger.take_frontier().unwrap();
+        assert_eq!(second_take.charge.events, 1);
+        assert_eq!(
+            second_take.first, first_take.offset,
+            "each take starts where the last one ended"
+        );
     }
 }
