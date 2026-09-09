@@ -11,6 +11,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.temporal.common.client import sync_connect
 
 from products.notebooks.backend.temporal.frame_materialize import FrameMaterializeInputs
+from products.notebooks.backend.temporal.notebook_run_inputs import NOTEBOOK_RUN_BUDGET_SECONDS, NotebookRunInput
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
 from products.notebooks.backend.temporal.widget_generation import WidgetGenerationInput
 
@@ -62,3 +63,15 @@ def start_widget_generation_workflow(job_id: str, team_id: int) -> None:
         )
     except WorkflowAlreadyStartedError:
         pass
+
+
+def start_notebook_run_workflow(inputs: NotebookRunInput) -> None:
+    _start_workflow(
+        sync_connect(),
+        "notebook-run",
+        f"notebook-run-{inputs.notebook_run_id}",
+        inputs,
+        # A hard backstop only. The workflow measures the same budget itself, so it can give
+        # the run row a terminal status and a reason before this fires.
+        execution_timeout=timedelta(seconds=NOTEBOOK_RUN_BUDGET_SECONDS + 300),
+    )

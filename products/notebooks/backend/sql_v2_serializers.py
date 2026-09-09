@@ -627,3 +627,103 @@ class NotebookSQLV2InterruptResponseSerializer(serializers.Serializer):
         required=False,
         help_text="Present when the interrupt could not take effect yet, e.g. the run has not reached the kernel.",
     )
+
+
+class NotebookRunRequestSerializer(serializers.Serializer):
+    variables = NotebookVariableSerializer(
+        many=True,
+        required=False,
+        allow_null=True,
+        default=None,
+        # DRF forwards this to the ListSerializer (LIST_SERIALIZER_KWARGS); the stubs only
+        # type Serializer.__init__, so mypy cannot see it.
+        max_length=MAX_VARIABLES_PER_NOTEBOOK,  # type: ignore[call-arg]
+        help_text=(
+            "Replace the notebook's saved variables with this list before the run starts, so the results "
+            "match what the document then declares. Omit to run with the variables already saved. "
+            f"At most {MAX_VARIABLES_PER_NOTEBOOK}; an empty list removes them all."
+        ),
+    )
+
+
+class NotebookRunStartResponseSerializer(serializers.Serializer):
+    run_id = serializers.UUIDField(
+        help_text="Identifier of the whole-notebook run. Poll the run status endpoint with it until the status is terminal."
+    )
+    cell_count = serializers.IntegerField(
+        help_text="How many cells the run will execute, frozen when it started. A cell added later does not join it."
+    )
+    starts_sandbox = serializers.BooleanField(
+        help_text=(
+            "True when the run has to provision a sandbox, because it holds a Python cell and no kernel is "
+            "live for the caller. Tell the user what that costs."
+        )
+    )
+    sandbox_hourly_price = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "What the sandbox this run provisions costs per hour in USD. Null when the run needs no new "
+            "sandbox, or when the backend is not charged."
+        ),
+    )
+
+
+class NotebookRunCellStateSerializer(serializers.Serializer):
+    node_id = serializers.CharField(help_text="Durable cell identity, the same id the cell run and edit endpoints use.")
+    cell_type = serializers.CharField(help_text="Cell kind: 'sql' or 'python'.")
+    dataframe_name = serializers.CharField(
+        allow_blank=True, help_text="Name other cells reference this cell's result by; blank means display-only."
+    )
+    run_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The cell run this whole-notebook run produced, or null before its turn. Read its rows from the "
+            "single-run result endpoint."
+        ),
+    )
+    # CharField, not ChoiceField: a `status` enum collides with other generated enums.
+    status = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="The cell run's state: 'running', 'done', 'failed', or 'interrupted'. Null before its turn.",
+    )
+    error = serializers.CharField(required=False, allow_null=True, help_text="Why this cell failed, when it did.")
+
+
+class NotebookRunStatusResponseSerializer(serializers.Serializer):
+    run_id = serializers.UUIDField(help_text="Identifier of the whole-notebook run.")
+    # CharField for the same enum-collision reason as the single-run status fields.
+    status = serializers.CharField(
+        help_text="Run state: 'running' (keep polling), or terminal — 'done', 'failed', or 'interrupted'."
+    )
+    trigger = serializers.CharField(help_text="Which surface started the run: 'ui' or 'mcp'.")
+    variables = NotebookVariableSerializer(
+        many=True, help_text="The variables this run bound, snapshotted when it started."
+    )
+    current_node_id = serializers.CharField(
+        required=False, allow_null=True, help_text="The cell the run is on now, or null once it finished."
+    )
+    current_index = serializers.IntegerField(help_text="Position of the current cell in the run's plan, from zero.")
+    failed_node_id = serializers.CharField(
+        required=False, allow_null=True, help_text="The cell that stopped the run, when one did."
+    )
+    error = serializers.CharField(
+        required=False, allow_null=True, help_text="Why the run stopped: the failing cell's error, or a run-level one."
+    )
+    cells = NotebookRunCellStateSerializer(
+        many=True, help_text="Every cell in the run's plan, in run order, with the run it produced."
+    )
+    created_at = serializers.DateTimeField(help_text="When the run started.")
+    finished_at = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="When the run reached a terminal state; null while running."
+    )
+
+
+class NotebookRunInterruptResponseSerializer(serializers.Serializer):
+    interrupted = serializers.BooleanField(
+        help_text="True when this call stopped the run. False when it had already finished (idempotent noop)."
+    )
+    # CharField for the same enum-collision reason as above.
+    status = serializers.CharField(help_text="The run's status after the request.")

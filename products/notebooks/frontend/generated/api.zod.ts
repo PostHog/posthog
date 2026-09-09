@@ -530,6 +530,42 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Run every SQL and Python cell of a markdown notebook, in document order, as one run. Returns a run_id immediately; poll the run status endpoint until the status is terminal. The run stops at the first cell that fails or is interrupted, and a Python cell starts a paid sandbox. One run at a time per notebook. Flag-gated (revamped-py-notebooks).
+ */
+export const notebooksRunsCreateBodyVariablesItemNameMax = 200
+
+export const NotebooksRunsCreateBody = /* @__PURE__ */ zod.object({
+    variables: zod
+        .array(
+            zod
+                .object({
+                    name: zod
+                        .string()
+                        .max(notebooksRunsCreateBodyVariablesItemNameMax)
+                        .describe(
+                            'Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.'
+                        ),
+                    type: zod
+                        .string()
+                        .describe(
+                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                        ),
+                    value: zod
+                        .unknown()
+                        .optional()
+                        .describe(
+                            "The variable's current value. A 'date' is an absolute date or datetime in ISO 8601 form ('2025-01-31', '2025-01-31T09:00:00Z'); relative expressions such as '-7d' are rejected."
+                        ),
+                })
+                .describe("One notebook-level variable. Shared by the notebook's own `variables` field and a run body.")
+        )
+        .nullish()
+        .describe(
+            "Replace the notebook's saved variables with this list before the run starts, so the results match what the document then declares. Omit to run with the variables already saved. At most 10; an empty list removes them all."
+        ),
+})
+
+/**
  * Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; poll the run result endpoint until the status is terminal. One run at a time per notebook. Flag-gated (revamped-py-notebooks).
  */
 export const notebooksSqlV2RunCreateBodyNodeTypeDefault = `hogql`

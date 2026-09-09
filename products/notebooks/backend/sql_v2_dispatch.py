@@ -92,6 +92,10 @@ class NodeRunRequest:
     # Set when a whole-notebook run owns this cell, so the status endpoint can join the
     # per-cell rows back to the run that ordered them.
     notebook_run_id: UUID | None = None
+    # Resolving the disclosure asks the sandbox for its status, so a caller that already
+    # told the user the price — a whole-notebook run does that once, at the start — turns
+    # it off rather than paying for that call on every cell.
+    disclose_sandbox: bool = True
 
 
 @frozen
@@ -311,5 +315,7 @@ def dispatch_node_run(notebook: Notebook, user: User | None, team: Team, request
         finish_node_run(run, NotebookNodeRun.Status.FAILED, error="Failed to start run.")
         raise NodeRunDispatchFailed("Failed to start run.") from e
 
-    starts_sandbox, hourly_price = resolve_sandbox_disclosure(notebook, user, plan.node_type != "hogql")
+    starts_sandbox, hourly_price = resolve_sandbox_disclosure(
+        notebook, user, request.disclose_sandbox and plan.node_type != "hogql"
+    )
     return NodeRunDispatch(run_id=run.id, starts_sandbox=starts_sandbox, sandbox_hourly_price=hourly_price)

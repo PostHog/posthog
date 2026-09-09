@@ -53567,6 +53567,96 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface NotebookRunCellState {
+      /** Durable cell identity, the same id the cell run and edit endpoints use. */
+      node_id: string;
+      /** Cell kind: 'sql' or 'python'. */
+      cell_type: string;
+      /** Name other cells reference this cell's result by; blank means display-only. */
+      dataframe_name: string;
+      /**
+         * The cell run this whole-notebook run produced, or null before its turn. Read its rows from the single-run result endpoint.
+         * @nullable
+         */
+      run_id?: string | null;
+      /**
+         * The cell run's state: 'running', 'done', 'failed', or 'interrupted'. Null before its turn.
+         * @nullable
+         */
+      status?: string | null;
+      /**
+         * Why this cell failed, when it did.
+         * @nullable
+         */
+      error?: string | null;
+    }
+
+    export interface NotebookRunInterruptResponse {
+      /** True when this call stopped the run. False when it had already finished (idempotent noop). */
+      interrupted: boolean;
+      /** The run's status after the request. */
+      status: string;
+    }
+
+    export interface NotebookRunRequest {
+      /**
+         * Replace the notebook's saved variables with this list before the run starts, so the results match what the document then declares. Omit to run with the variables already saved. At most 10; an empty list removes them all.
+         * @nullable
+         */
+      variables?: NotebookVariable[] | null;
+    }
+
+    export interface NotebookRunStartResponse {
+      /** Identifier of the whole-notebook run. Poll the run status endpoint with it until the status is terminal. */
+      run_id: string;
+      /** How many cells the run will execute, frozen when it started. A cell added later does not join it. */
+      cell_count: number;
+      /** True when the run has to provision a sandbox, because it holds a Python cell and no kernel is live for the caller. Tell the user what that costs. */
+      starts_sandbox: boolean;
+      /**
+         * What the sandbox this run provisions costs per hour in USD. Null when the run needs no new sandbox, or when the backend is not charged.
+         * @nullable
+         */
+      sandbox_hourly_price?: number | null;
+    }
+
+    export interface NotebookRunStatusResponse {
+      /** Identifier of the whole-notebook run. */
+      run_id: string;
+      /** Run state: 'running' (keep polling), or terminal — 'done', 'failed', or 'interrupted'. */
+      status: string;
+      /** Which surface started the run: 'ui' or 'mcp'. */
+      trigger: string;
+      /** The variables this run bound, snapshotted when it started. */
+      variables: NotebookVariable[];
+      /**
+         * The cell the run is on now, or null once it finished.
+         * @nullable
+         */
+      current_node_id?: string | null;
+      /** Position of the current cell in the run's plan, from zero. */
+      current_index: number;
+      /**
+         * The cell that stopped the run, when one did.
+         * @nullable
+         */
+      failed_node_id?: string | null;
+      /**
+         * Why the run stopped: the failing cell's error, or a run-level one.
+         * @nullable
+         */
+      error?: string | null;
+      /** Every cell in the run's plan, in run order, with the run it produced. */
+      cells: NotebookRunCellState[];
+      /** When the run started. */
+      created_at: string;
+      /**
+         * When the run reached a terminal state; null while running.
+         * @nullable
+         */
+      finished_at?: string | null;
+    }
+
     /**
      * Phase durations in seconds. From the sandbox: input_wait_s (waiting on the data plane), download_s (presigned frame downloads), kernel_boot_s (ensuring the ipykernel is up), exec_s (kernel cell execution), sandbox_total_s (the whole sandbox-side run). From the direct lane: queued_s (enqueue to Celery pickup), clickhouse_s (pickup to completion). Feeds the node-run metrics.
      */

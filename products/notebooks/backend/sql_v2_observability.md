@@ -99,6 +99,33 @@ One deliberate hole: the callback is best-effort, so a kernel-lane run whose san
 
 Still open from the original gap: lost-callback kernel runs (above), the frontend's own poll-to-render latency, and the kernel's presigned _download failure_ modes, which remain observable only as an `input_wait`-heavy failed run (see gap 5).
 
+## Whole-notebook run instrumentation
+
+A whole-notebook run (`notebook_run.md`) reports one terminal transition, from
+`notebook_runs.finish_notebook_run`, the only path that moves a `NotebookRun` out of `running`.
+The recorder is `sql_v2_metrics.record_notebook_run_terminal`, and it emits three sinks:
+
+| Sink                               | Name                                            | Labels                                                                                      |
+| ---------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Prometheus counter                 | `posthog_notebooks_notebook_run_terminal_total` | `outcome`, `trigger`                                                                        |
+| Prometheus histogram (+ OTLP twin) | `posthog_notebooks_notebook_run_seconds`        | `outcome`, `trigger`                                                                        |
+| Product analytics event            | `notebook run completed`                        | `trigger`, `outcome`, `cell_count`, `python_cell_count`, `failed_index`, `duration_seconds` |
+
+`outcome` is the run's terminal status (`done`, `failed`, `interrupted`), and `trigger` is the
+surface that started it (`ui` or `mcp`), so adoption and success rate split the same way the
+create and read events already do.
+
+`failed_index` is the position of the cell that stopped the run, not its `node_id`: a node id is
+document content, and the position is what answers "do runs die on the first Python cell?".
+
+The per-cell rows are unchanged — each cell of a run is a `NotebookNodeRun` and reports through
+`record_node_run_terminal` exactly as a single-cell run does. Joining the two is what a
+"which cell type fails inside a run" question needs, and `NotebookNodeRun.notebook_run_id`
+carries that link.
+
+Workflow steps log with `notebook_short_id`, `notebook_run_id`, `index`, and `node_id`. Cell code
+is never logged.
+
 ## Gaps — suggested follow-ups
 
 Ordered by how much they'd hurt during a rollout.

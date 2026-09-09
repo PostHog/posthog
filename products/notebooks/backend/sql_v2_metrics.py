@@ -32,13 +32,13 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.utils import timezone
 
 import structlog
-from prometheus_client import Histogram
+from prometheus_client import Counter, Histogram
 
 from posthog.event_usage import report_user_or_team_action
 from posthog.models import Team
 from posthog.otel_metrics import OtelInstrumentFactory
 
-from products.notebooks.backend.models import NotebookNodeRun
+from products.notebooks.backend.models import NotebookNodeRun, NotebookRun
 from products.notebooks.backend.sql_v2 import (
     DELIVERY_DIRECT,
     DELIVERY_INLINE,
@@ -51,6 +51,7 @@ from products.notebooks.backend.sql_v2 import (
 logger = structlog.get_logger(__name__)
 
 NODE_RUN_COMPLETED_EVENT = "notebook node run completed"
+NOTEBOOK_RUN_COMPLETED_EVENT = "notebook run completed"
 
 # The terminal statuses, plus `timed_out` — a FAILED written by the direct lane's
 # grace-expiry watchdog. Kept distinct so an expired query is a visible bucket rather
@@ -112,10 +113,57 @@ NODE_RUN_PHASE_SECONDS = Histogram(
     labelnames=["phase", "node_type"],
     buckets=[0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600],
 )
+NOTEBOOK_RUN_TERMINAL = Counter(
+    "posthog_notebooks_notebook_run_terminal_total",
+    "Whole-notebook runs that reached a terminal state, by outcome and the surface that started them.",
+    labelnames=["outcome", "trigger"],
+)
+NOTEBOOK_RUN_SECONDS = Histogram(
+    "posthog_notebooks_notebook_run_seconds",
+    "End-to-end whole-notebook run duration: run-row creation to its terminal transition.",
+    labelnames=["outcome", "trigger"],
+    buckets=[1, 5, 10, 30, 60, 120, 300, 600, 1200, 1800, 2700, 3600],
+)
 
 
 def outcome_for_status(status: str) -> str:
     return _OUTCOME_BY_STATUS.get(NotebookNodeRun.Status(status), OUTCOME_FAILED)
+
+
+def record_notebook_run_terminal(notebook_run: NotebookRun) -> None:
+    """Report one terminal transition of a whole-notebook run.
+
+    Call only when this caller won the RUNNING -> terminal transition, so an interrupt
+    racing the workflow's own finish reports once between them. Never raises.
+    """
+    try:
+        duration = max((timezone.now() - notebook_run.created_at).total_seconds(), 0.0)
+        cell_plan = notebook_run.cell_plan if isinstance(notebook_run.cell_plan, list) else []
+        labels = {"outcome": notebook_run.status, "trigger": notebook_run.trigger}
+        NOTEBOOK_RUN_SECONDS.labels(**labels).observe(duration)
+        _otel.record_histogram_twin(NOTEBOOK_RUN_SECONDS, duration, labels)
+        NOTEBOOK_RUN_TERMINAL.labels(**labels).inc()
+
+        python_cell_count = sum(1 for cell in cell_plan if isinstance(cell, dict) and cell.get("cell_type") == "python")
+        properties: dict[str, Any] = {
+            "notebook_short_id": notebook_run.notebook.short_id,
+            "trigger": notebook_run.trigger,
+            "outcome": notebook_run.status,
+            "cell_count": len(cell_plan),
+            "python_cell_count": python_cell_count,
+            # Where the run stopped, as a position rather than the cell's id: a node id is
+            # document content, and the position is what tells us "the first Python cell".
+            "failed_index": notebook_run.current_index if notebook_run.failed_node_id else None,
+            "duration_seconds": round(duration, 3),
+        }
+        try:
+            user = notebook_run.user
+        except ObjectDoesNotExist:
+            user = None
+        team = Team.objects.filter(pk=notebook_run.team_id).first()
+        report_user_or_team_action(NOTEBOOK_RUN_COMPLETED_EVENT, properties, user=user, team=team)
+    except Exception:
+        logger.exception("notebook_run_metrics_failed", notebook_run_id=str(notebook_run.id))
 
 
 def record_node_run_terminal(run: NotebookNodeRun, outcome: str) -> None:
