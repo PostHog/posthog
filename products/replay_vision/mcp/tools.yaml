@@ -657,3 +657,6 @@ tools:
             - created_by
             - updated_at
         requires_ai_consent: true
+    vision-scanners-watch-feed-retrieve:
+        operation: vision_scanners_watch_feed_retrieve
+        enabled: false

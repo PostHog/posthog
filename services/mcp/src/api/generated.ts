@@ -90054,6 +90054,103 @@ export namespace Schemas {
       run_id: string;
     }
 
+    /**
+     * * `signal_emitted` - Signal Emitted
+     * * `unusual_verdict` - Unusual Verdict
+     * * `verdict_yes` - Verdict Yes
+     * * `outlier_score` - Outlier Score
+     * * `rare_tag` - Rare Tag
+     * * `novel_summary` - Novel Summary
+     * * `friction` - Friction
+     * * `unviewed_recent` - Unviewed Recent
+     * * `recent` - Recent
+     */
+    export type WatchFeedReasonEnum = typeof WatchFeedReasonEnum[keyof typeof WatchFeedReasonEnum];
+
+
+    export const WatchFeedReasonEnum = {
+      SignalEmitted: 'signal_emitted',
+      UnusualVerdict: 'unusual_verdict',
+      VerdictYes: 'verdict_yes',
+      OutlierScore: 'outlier_score',
+      RareTag: 'rare_tag',
+      NovelSummary: 'novel_summary',
+      Friction: 'friction',
+      UnviewedRecent: 'unviewed_recent',
+      Recent: 'recent',
+    } as const;
+
+    /**
+     * Machine-readable reason an observation made the feed; the frontend renders the copy.
+     */
+    export interface WatchFeedReason {
+      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `friction` (the scan describes errors, retries, or dead ends), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+       *
+       * * `signal_emitted` - Signal Emitted
+       * * `unusual_verdict` - Unusual Verdict
+       * * `verdict_yes` - Verdict Yes
+       * * `outlier_score` - Outlier Score
+       * * `rare_tag` - Rare Tag
+       * * `novel_summary` - Novel Summary
+       * * `friction` - Friction
+       * * `unviewed_recent` - Unviewed Recent
+       * * `recent` - Recent */
+      kind: WatchFeedReasonEnum;
+      /**
+         * Signals this observation emitted, for `signal_emitted`.
+         * @nullable
+         */
+      signals_count?: number | null;
+      /**
+         * The monitor's answer, for `unusual_verdict`.
+         * @nullable
+         */
+      verdict?: string | null;
+      /**
+         * Share (0-1) of the scanner's window observations with this answer, for `unusual_verdict`.
+         * @nullable
+         */
+      verdict_share?: number | null;
+      /**
+         * The observation's score, for `outlier_score`.
+         * @nullable
+         */
+      score?: number | null;
+      /**
+         * The scanner's mean score in the window, for `outlier_score`.
+         * @nullable
+         */
+      window_mean?: number | null;
+      /**
+         * The rare tag that ranked the observation, for `rare_tag`.
+         * @nullable
+         */
+      tag?: string | null;
+      /**
+         * Share (0-1) of the scanner's window observations carrying `tag`, for `rare_tag`.
+         * @nullable
+         */
+      tag_share?: number | null;
+    }
+
+    /**
+     * One feed entry: the observation plus why it ranked.
+     */
+    export interface WatchFeedItem {
+      /** The observation, in the standard shape. */
+      observation: ReplayObservation;
+      /** Why this observation made the feed. */
+      reason: WatchFeedReason;
+    }
+
+    /**
+     * Response of GET /vision/scanners/watch_feed/.
+     */
+    export interface WatchFeedResponse {
+      /** Succeeded observations in the window worth watching, most interesting first: unviewed before viewed, then signal emitters, then type-specific hits, then newest. */
+      results: WatchFeedItem[];
+    }
+
     export interface WebAnalyticsBotCondition {
       /**
          * Stable id for the condition. Generated when omitted.
@@ -104272,6 +104369,50 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type VisionScannersWatchFeedRetrieveParams = {
+    /**
+     * Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Only observations created at or before this time. Same formats as `date_from`; omit it to query through the current time.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Feed items to return, at most 50. The feed is bounded, not paginated.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number;
+    /**
+     * Comma-separated scanner UUIDs to restrict the feed to. Defaults to every scanner you can read.
+     * @minLength 1
+     */
+    scanner_ids?: string;
+    /**
+     * Restrict the feed to observations from scanners of this type.
+     *
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer
+     * @minLength 1
+     */
+    scanner_type?: VisionScannersWatchFeedRetrieveScannerType;
+    };
+
+    export type VisionScannersWatchFeedRetrieveScannerType = typeof VisionScannersWatchFeedRetrieveScannerType[keyof typeof VisionScannersWatchFeedRetrieveScannerType];
+
+
+    export const VisionScannersWatchFeedRetrieveScannerType = {
+      Monitor: 'monitor',
+      Classifier: 'classifier',
+      Scorer: 'scorer',
+      Summarizer: 'summarizer',
+    } as const;
 
     export type VisualReviewReposListParams = {
     /**
