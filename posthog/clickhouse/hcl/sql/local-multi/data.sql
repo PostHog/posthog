@@ -601,6 +601,12 @@ CREATE TABLE posthog.person_overrides (
   created_at DateTime64(6, 'UTC') DEFAULT now(),
   version Int32
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_overrides', '{replica}-{shard}', version) ORDER BY (team_id, old_person_id) PARTITION BY toYYYYMM(oldest_event) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.person_property_mutation_log (
+  team_id Int64,
+  event_uuid UUID,
+  properties String,
+  ingested_at DateTime('UTC')
+) ENGINE = Distributed('aux', 'posthog', 'person_property_mutation_log_data');
 CREATE TABLE posthog.person_static_cohort (
   id UUID,
   person_id UUID,
