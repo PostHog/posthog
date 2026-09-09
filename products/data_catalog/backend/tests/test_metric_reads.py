@@ -2,6 +2,9 @@ from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 
 from posthog.models.team import Team
@@ -11,6 +14,7 @@ from products.data_catalog.backend.facade.contracts import HogQLMetricDefinition
 from products.data_catalog.backend.logic.metric_reads import (
     get_metric_summary,
     live_metric_summaries,
+    metric_names_for_ids,
     metric_reads_for_ids,
 )
 from products.data_catalog.backend.logic.metrics import upsert_metric
@@ -177,3 +181,53 @@ class TestMetricReads(APIBaseTest):
 
         assert [summary.id for summary in summaries] == [trend.id, markdown.id]
         assert get_metric_summary(self.team.id, deleted.id) is None
+
+    def test_metric_names_are_team_scoped_and_read_without_hydrating_definitions(self) -> None:
+        signups = upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="signups",
+            description="New signups",
+            definition=_HOGQL,
+        )
+        revenue = upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="revenue",
+            description="Recognized revenue",
+            definition=_TRENDS,
+        )
+        deleted = upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="deleted_metric",
+            description="Deleted metric",
+            definition=_HOGQL,
+        )
+        type(deleted).objects.for_team(self.team.id).filter(id=deleted.id).update(deleted=True)
+        other_team = Team.objects.create_with_data(
+            organization=self.organization, initiating_user=self.user, name="Other"
+        )
+        other_teams_metric = upsert_metric(
+            team=other_team,
+            user=self.user,
+            name="other_team_metric",
+            description="Other team's metric",
+            definition=_HOGQL,
+        )
+
+        with self.assertNumQueries(0):
+            assert metric_names_for_ids(self.team.id, []) == {}
+
+        with CaptureQueriesContext(connection) as captured:
+            names = metric_names_for_ids(
+                self.team.id,
+                [signups.id, revenue.id, revenue.id, deleted.id, other_teams_metric.id, uuid4()],
+            )
+
+        assert names == {signups.id: "signups", revenue.id: "revenue"}
+        # One team resolution plus one batched select, whatever the id count.
+        assert len(captured.captured_queries) == 2
+        selected = captured.captured_queries[-1]["sql"]
+        assert "definition" not in selected
+        assert "description" not in selected
