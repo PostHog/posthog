@@ -47,12 +47,22 @@ _DATA_QUALITY_INFORMATION_SCHEMA_TABLES = frozenset(
 _ACCOUNT_COMMUNICATION_LAZY_FIELDS = frozenset({"email_threads", "support_tickets"})
 
 # Scopes a system table's rows depend on beyond its own `access_scope`, because its visibility rules
-# read another access-controlled table. `system.activity_logs` limits Canvas rows to the canvases in
-# `system.canvases` (see activity_log_visibility.py), so its rows follow the caller's Canvas grants:
-# without partitioning on `canvas` too, two users with identical activity-log access but different
-# Canvas grants share one cache key, and the narrower one is served the wider one's Canvas rows.
+# read another access-controlled table, or because it declares no scope of its own.
+# `system.activity_logs` limits Canvas rows to the canvases in `system.canvases` (see
+# activity_log_visibility.py), so its rows follow the caller's Canvas grants: without partitioning
+# on `canvas` too, two users with identical activity-log access but different Canvas grants share
+# one cache key, and the narrower one is served the wider one's Canvas rows.
 _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
     "system.activity_logs": frozenset({"canvas"}),
+    # Hidden backing tables that hold no `access_scope` of their own, because their rows key off
+    # neither the parent object nor a foreign key to it: `_ticket_assignee_roles` holds the roles
+    # this team's ticket assignments point at, and `_task_public_channels` the spaces
+    # `system.tasks` filters on. Their data still follows the parent's scope, so a query that
+    # names one must partition on it. Gating them in the schema instead would deny them to a
+    # caller who reaches the parent through object-level grants alone, and the parent's predicate
+    # and lazy join must still resolve them for that caller.
+    "system._ticket_assignee_roles": frozenset({"ticket"}),
+    "system._task_public_channels": frozenset({"task"}),
 }
 
 
