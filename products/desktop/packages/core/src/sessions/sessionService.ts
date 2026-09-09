@@ -68,6 +68,7 @@ import {
 } from "@posthog/shared/domain-types";
 import type { SendCommandOutput } from "../cloud-task/schemas";
 import type { CommentTarget } from "../comments/anchors";
+import { isGithubConnectionRequiredError } from "../integrations/connectErrors";
 import type { AgentSessionNotification } from "../notification/agentSessionNotifications";
 import { extractPostHogObjectReferences } from "../posthog-objects/references";
 import type { SpeechKind, SpeechSource } from "../speech/identifiers";
@@ -5124,6 +5125,21 @@ export class SessionService {
       }
       throw error;
     }
+  }
+
+  async retryGithubRequiredCloudRun(
+    taskId: string,
+    prompt: string,
+  ): Promise<void> {
+    const session = this.d.store.getSessionByTaskId(taskId);
+    if (
+      !session?.isCloud ||
+      session.cloudStatus !== "failed" ||
+      !isGithubConnectionRequiredError(session.cloudErrorMessage)
+    ) {
+      throw new Error("This task is not waiting for a GitHub connection");
+    }
+    await this.resumeCloudRun(session, prompt);
   }
 
   /**
