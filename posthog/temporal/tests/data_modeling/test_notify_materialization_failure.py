@@ -13,7 +13,7 @@ from posthog.temporal.data_modeling.activities import (
 from posthog.temporal.data_modeling.activities.notify_materialization_failure import _FailedView, _failure_copy
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
-from products.notifications.backend.facade.api import TargetType
+from products.notifications.backend.facade.api import Priority, TargetType
 
 RUN_STARTED_AT = "2026-08-12T10:00:00+00:00"
 # The shape a tier schedule produces, rather than an arbitrary long string.
@@ -94,6 +94,7 @@ class TestNotifyDAGMaterializationFailures:
         data = mock_create.call_args.args[0]
         assert data.title == "3 views failed to materialize"
         assert data.body == "alpha, beta, gamma"
+        assert data.priority == Priority.NORMAL
 
     async def test_an_earlier_run_under_the_same_workflow_id_is_left_out(
         self, activity_environment, ateam, adag, auser, aorganization

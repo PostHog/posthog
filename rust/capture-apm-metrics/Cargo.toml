@@ -15,7 +15,20 @@ common-alloc = { path = "../common/alloc" }
 limiters = { path = "../common/limiters" }
 capture = { path = "../capture" }
 capture-logs = { path = "../capture-logs" }
+common-compression = { path = "../common/compression" }
+common-redis = { path = "../common/redis" }
 tower-http = { workspace = true }
+envconfig = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+dashmap = { workspace = true }
+metrics = { workspace = true }
+opentelemetry-proto = { workspace = true }
+prost = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+siphasher = { workspace = true }
+thiserror = { workspace = true }
 
 [lints]
 workspace = true

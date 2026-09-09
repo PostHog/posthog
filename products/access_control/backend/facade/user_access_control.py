@@ -33,6 +33,8 @@ else:
 
 from products.access_control.backend.models.access_control import AccessControl
 
+from .enums import ResolvedAccessSourceSubjectValue, ResolvedAccessSourceValue
+
 
 class AccessSource(Enum):
     """Enum for how a user got access to a resource"""
@@ -262,19 +264,10 @@ class ResolvedAccess:
     """
 
     access_level: AccessControlLevel
-    source: Literal[
-        "object",
-        "parent_object",
-        "resource",
-        "parent_resource",
-        "system_default",
-        "org_admin",
-        "creator",
-        "org_membership",
-    ]
+    source: ResolvedAccessSourceValue
     # The source rule's subject: an everyone-row ("default"), a role row, or a member row.
     # None when no row decided.
-    source_subject: Optional[Literal["member", "role", "default"]]
+    source_subject: Optional[ResolvedAccessSourceSubjectValue]
     # The resource the source rule belongs to — a table resolved through its source reports the
     # source's resource, and the system default reports the resource whose rules would apply
     # (the RESOURCE_INHERITANCE_MAP umbrella), not necessarily the object's own.
@@ -342,6 +335,8 @@ def model_to_resource(model: Model | type[Model]) -> Optional[APIScopeObject]:
         return "customer_task"
     if name in ("replayscanner", "replayobservation"):
         return "replay_scanner"
+    if name == "llmskill":
+        return "llm_skill"
     if name in ("visionalertconfiguration", "visionalertevent"):
         return "vision_alert"
     # These scopes are served by several viewsets, each with its own model

@@ -30,6 +30,22 @@ def is_turn_complete(event: dict) -> bool:
     return isinstance(result, dict) and result.get("stopReason") == STOP_REASON_END_TURN
 
 
+def turn_complete_trace_id(event: dict) -> str | None:
+    """The finished turn's gateway trace id, when the agent reported one.
+
+    Only the synthetic ``_posthog/turn_complete`` notification carries it; the agent
+    derives it from the ``traceparent`` the CLI sends and the gateway stamps the same id
+    on the turn's ``$ai_generation`` events. Absent for a turn that ran without the
+    traceparent hook, and for the raw ACP prompt response, which has no such field.
+    """
+    notification = event.get("notification") or {}
+    params = notification.get("params")
+    if not isinstance(params, dict):
+        return None
+    trace_id = params.get("traceId")
+    return trace_id if isinstance(trace_id, str) and trace_id else None
+
+
 # Session update types
 ACP_SESSION_UPDATE_AGENT_MESSAGE_CHUNK = "agent_message_chunk"
 

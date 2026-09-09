@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { visionObservationsRetrieve } from '../generated/api'
+import { visionObservationsRetrieve, visionObservationsViewedCreate } from '../generated/api'
 import type { ReplayObservationApi, VisionObservationsRetrieveParams } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { requestObservationRetry } from '../logics/observationRetry'
@@ -119,6 +119,9 @@ export interface replayObservationLogicActions {
     loadObservationSuccess: (observation: ReplayObservationApi) => {
         observation: ReplayObservationApi
     }
+    markViewed: () => {
+        value: true
+    }
     retryObservation: () => {
         value: true
     }
@@ -156,6 +159,7 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
         loadObservation: true,
         loadObservationSuccess: (observation: ReplayObservationApi) => ({ observation }),
         loadObservationFailure: true,
+        markViewed: true,
         retryObservation: true,
         retryObservationSuccess: true,
         retryObservationFailure: true,
@@ -220,8 +224,26 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                 }
             },
 
-            loadObservationSuccess: reschedulePoll,
+            loadObservationSuccess: ({ observation }) => {
+                reschedulePoll()
+                // An in-flight row has no result to read yet.
+                if (!observation.viewed && observation.status !== 'pending' && observation.status !== 'running') {
+                    actions.markViewed()
+                }
+            },
             loadObservationFailure: reschedulePoll,
+
+            markViewed: async () => {
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    return
+                }
+                try {
+                    await visionObservationsViewedCreate(String(teamId), props.id)
+                } catch {
+                    // The next open retries; not worth a toast.
+                }
+            },
 
             retryObservation: async () => {
                 // The retried row is deleted, so this page's id dangles afterwards. Hand off to whatever

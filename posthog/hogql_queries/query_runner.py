@@ -179,6 +179,9 @@ from products.access_control.backend.facade.user_access_control import (
 from products.web_analytics.backend.hogql_queries.first_pageview_flag import resolve_first_pageview_filters_modifier
 
 logger = structlog.get_logger(__name__)
+# Named so posthog/settings/logs.py can opt it into INFO: the posthoganalytics SDK clamps the
+# "posthog" logger tree to WARNING, which would drop the budget line under __name__.
+budget_logger = structlog.get_logger("posthog.api_queries_budget")
 
 QUERY_EXECUTION_TOTAL = Counter(
     "posthog_query_execution_total",
@@ -526,7 +529,7 @@ def get_query_runner(
                         user=user,
                     )
 
-            from .insights.trends.calendar_heatmap_trends_query_runner import CalendarHeatmapTrendsQueryRunner
+            from products.product_analytics.backend.facade.queries import CalendarHeatmapTrendsQueryRunner
 
             return CalendarHeatmapTrendsQueryRunner(
                 query=query_obj,
@@ -538,7 +541,7 @@ def get_query_runner(
             )
 
         if display_type == ChartDisplayType.BOX_PLOT:
-            from .insights.trends.boxplot_trends_query_runner import BoxPlotTrendsQueryRunner
+            from products.product_analytics.backend.facade.queries import BoxPlotTrendsQueryRunner
 
             return BoxPlotTrendsQueryRunner(
                 query=query_obj,
@@ -550,7 +553,7 @@ def get_query_runner(
             )
 
         if display_type == ChartDisplayType.SLOPE_GRAPH:
-            from .insights.trends.slope_graph_trends_query_runner import SlopeGraphTrendsQueryRunner
+            from products.product_analytics.backend.facade.queries import SlopeGraphTrendsQueryRunner
 
             return SlopeGraphTrendsQueryRunner(
                 query=query_obj,
@@ -587,7 +590,7 @@ def get_query_runner(
                     user=user,
                 )
 
-        from .insights.trends.trends_query_runner import TrendsQueryRunner
+        from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 
         return TrendsQueryRunner(
             query=query_obj,
@@ -643,7 +646,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "CalendarHeatmapQuery":
-        from .insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
+        from products.product_analytics.backend.facade.queries import CalendarHeatmapQueryRunner
 
         return CalendarHeatmapQueryRunner(
             query=cast(CalendarHeatmapQuery | dict[str, Any], query),
@@ -1436,20 +1439,6 @@ def get_query_runner(
         )
 
         return MarketingAnalyticsRetentionQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY:
-        from products.marketing_analytics.backend.hogql_queries.non_integrated_conversions_table_query_runner import (
-            NonIntegratedConversionsTableQueryRunner,
-        )
-
-        return NonIntegratedConversionsTableQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -2551,7 +2540,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         enforced = _api_queries_budget_enforcement_enabled(self.team)
         outcome = "enforced" if enforced else "observed"
         API_QUERIES_BUDGET_LIMITED_COUNTER.labels(outcome=outcome).inc()
-        logger.info(
+        budget_logger.info(
             "api_queries_budget_limited",
             organization_id=str(self.team.organization_id),
             team_id=self.team.pk,
