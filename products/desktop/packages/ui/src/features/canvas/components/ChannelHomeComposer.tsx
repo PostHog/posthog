@@ -38,6 +38,7 @@ import { useDraftStore } from "../../message-editor/draftStore";
 import type { EditorHandle } from "../../message-editor/types";
 import { PiModelSelector } from "../../pi-sessions/PiSessionControls";
 import { usePiModelCatalog } from "../../pi-sessions/usePiModelCatalog";
+import { BillingChip } from "../../sessions/components/BillingChip";
 import type { AgentHarness } from "../../sessions/components/HarnessSubmenu";
 import { ReasoningLevelSelector } from "../../sessions/components/ReasoningLevelSelector";
 import { getCurrentModeFromConfigOptions } from "../../sessions/sessionStore";
@@ -555,6 +556,15 @@ export const ChannelHomeComposer = forwardRef<
               onMenuOpenChange={setModelMenuOpen}
             />
           ) : null
+        }
+        billingChip={
+          runtime === "pi" ? null : (
+            <BillingChip
+              adapter={adapter ?? "claude"}
+              workspaceMode={workspaceMode}
+              disabled={isBusy}
+            />
+          )
         }
         reasoningSelector={
           runtime === "pi" ? null : (
