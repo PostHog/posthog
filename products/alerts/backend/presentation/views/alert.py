@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
 
@@ -244,10 +245,17 @@ class TeamScopedInsightReferenceField(TeamScopedPrimaryKeyRelatedField):
 class ForecastConfigField(serializers.JSONField):
     def to_internal_value(self, data):
         value = super().to_internal_value(data)
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Invalid forecast config: expected an object")
         try:
-            ForecastConfig.model_validate(value)
+            config = ForecastConfig.model_validate(value).root
         except Exception as e:
             raise serializers.ValidationError(f"Invalid forecast config: {e}")
+        target_date = getattr(config, "target_date", None)
+        if target_date is not None:
+            # Python accepts every ISO 8601 date form, including week dates. Persist the canonical
+            # calendar form so API clients do not need to implement Python's wider parser.
+            value["target_date"] = date.fromisoformat(target_date).isoformat()
         return value
 
 

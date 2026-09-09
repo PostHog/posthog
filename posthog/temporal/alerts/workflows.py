@@ -162,7 +162,10 @@ class CheckAlertWorkflow(PostHogWorkflow):
                 )
             except Exception as evaluation_error:
                 cause = unwrap_temporal_cause(evaluation_error) or evaluation_error
-                if getattr(cause, "type", type(cause).__name__) == "ForecastEvaluationCapacityExceeded":
+                if getattr(cause, "type", type(cause).__name__) in {
+                    "ForecastEvaluationCapacityExceeded",
+                    "ForecastCapacityUnavailable",
+                }:
                     # Capacity pressure is neither a completed check nor an alert error. Leave
                     # next_check_at overdue so the next one-minute sweep tries this alert again.
                     skip_reason = "capacity"

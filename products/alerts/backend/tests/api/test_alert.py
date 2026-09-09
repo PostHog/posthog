@@ -32,12 +32,31 @@ from products.alerts.backend.insight_alert_destinations import (
     SLACK_TEMPLATE_ID,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
+from products.alerts.backend.presentation.views.alert import ForecastConfigField
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.product_analytics.backend.facade.models import Insight
 
 TEST_DESTINATION_DELIVERY = AlertDelivery(
     channel="hog_function", target="Eng alerts", template="slack", at="2026-08-11T00:00:00+00:00"
 )
+
+
+def test_forecast_config_field_canonicalizes_supported_iso_week_dates() -> None:
+    target_date = (datetime.now(UTC) + timedelta(days=30)).date()
+    iso_year, iso_week, iso_weekday = target_date.isocalendar()
+
+    value = ForecastConfigField().to_internal_value(
+        {
+            "type": "ForecastConfig",
+            "engine": "prophet",
+            "condition": "target_by_date",
+            "target": 100,
+            "target_direction": "at_least",
+            "target_date": f"{iso_year}-W{iso_week:02d}-{iso_weekday}",
+        }
+    )
+
+    assert value["target_date"] == target_date.isoformat()
 
 
 def _trends_insight_data(
