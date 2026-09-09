@@ -565,6 +565,66 @@ describe('EmailService', () => {
                 expect(limitedSendSpy).toHaveBeenCalled()
             })
         })
+
+        describe('team trust-tier sending cap', () => {
+            let claimAllOrNothingPair: jest.Mock
+            let cappedService: EmailService
+            let cappedSendSpy: jest.SpyInstance
+
+            beforeEach(() => {
+                claimAllOrNothingPair = jest.fn().mockResolvedValue({ granted: true, deniedIndex: null })
+                cappedService = new EmailService(
+                    {
+                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                        sesRegion: hub.SES_REGION,
+                        sesEndpoint: hub.SES_ENDPOINT,
+                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                        teamEmailCapMode: 'enforce',
+                        teamEmailTierHourlyCaps: [50],
+                        teamEmailTierDailyCaps: [100],
+                    },
+                    hub.integrationManager,
+                    new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
+                    hub.ENCRYPTION_SALT_KEYS,
+                    hub.SITE_URL,
+                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                    new RecipientsManagerService(hub.postgres),
+                    undefined,
+                    null,
+                    { claimAllOrNothingPair } as unknown as RateLimiterService
+                )
+                cappedSendSpy = jest.spyOn(cappedService.sesV2Client!, 'send') as any
+                cappedSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            })
+
+            it('names the cap that denied the send', async () => {
+                claimAllOrNothingPair.mockResolvedValue({ granted: false, deniedIndex: 1 })
+
+                const result = await cappedService.executeSendEmail(invocation)
+
+                expect(cappedSendSpy).not.toHaveBeenCalled()
+                expect(result.finished).toBe(false)
+                expect(result.logs.map((log) => log.message)).toContainEqual(
+                    expect.stringContaining('reached its email sending limit of 100 emails per day')
+                )
+            })
+
+            it('does not report a cap when the claim itself failed', async () => {
+                claimAllOrNothingPair.mockResolvedValue({ granted: false, deniedIndex: null })
+
+                const result = await cappedService.executeSendEmail(invocation)
+
+                expect(cappedSendSpy).not.toHaveBeenCalled()
+                expect(result.finished).toBe(false)
+                expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
+                const messages = result.logs.map((log) => log.message)
+                expect(messages).toContainEqual(expect.stringContaining('could not check'))
+                expect(messages).not.toContainEqual(expect.stringContaining('reached its email sending limit'))
+            })
+        })
     })
     describe('native email sending with maildev', () => {
         let invocation: CyclotronJobInvocationHogFunction

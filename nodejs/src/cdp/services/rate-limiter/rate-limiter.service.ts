@@ -191,6 +191,14 @@ export class RateLimiterService {
      * the worker's empty-batch sleep instead of crashing.
      */
     public async claimUpTo(req: ClaimRequest): Promise<number> {
+        return (await this.claimUpToWithStatus(req)).granted
+    }
+
+    /**
+     * `claimUpTo` plus whether the claim failed. A fault and a real denial both grant 0 tokens,
+     * so a caller that reports the reason to a customer, or counts denials, needs them apart.
+     */
+    public async claimUpToWithStatus(req: ClaimRequest): Promise<{ granted: number; errored: boolean }> {
         const endTimer = claimLatency.startTimer({ limiter: this.config.name })
         const ttlSeconds = req.ttlSeconds ?? 3600
         try {
@@ -217,19 +225,19 @@ export class RateLimiterService {
                     raw: result,
                 })
                 claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
-                return 0
+                return { granted: 0, errored: true }
             }
 
             const outcome = granted === 0 ? 'denied' : granted < req.requested ? 'granted_partial' : 'granted_full'
             claimCounter.inc({ limiter: this.config.name, result: outcome })
-            return granted
+            return { granted, errored: false }
         } catch (err) {
             logger.warn('🪙', `RateLimiterService(${this.config.name}) claim threw`, {
                 key: req.key,
                 error: String(err),
             })
             claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
-            return 0
+            return { granted: 0, errored: true }
         } finally {
             endTimer()
         }
@@ -239,7 +247,8 @@ export class RateLimiterService {
      * Atomically claim `requested` tokens from BOTH buckets, or neither. A denial consumes
      * nothing, so a caller that retries a multi-token claim cannot drain the buckets while never
      * succeeding. Returns which bucket denied (index into `buckets`), or null when granted.
-     * Runtime errors deny with `deniedIndex: null` — fail-closed, like claimUpTo.
+     * Runtime errors deny with `deniedIndex: null` — fail-closed, like claimUpTo. A lost response
+     * can follow a claim the server already ran, so a null index means the outcome is unknown.
      *
      * On clustered Valkey the two keys must hash to the same slot (give them the same `{...}`
      * hash tag), because the Lua script touches both keys in one call and the cluster rejects
