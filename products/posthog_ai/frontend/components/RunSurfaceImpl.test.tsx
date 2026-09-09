@@ -45,6 +45,7 @@ function setValues(
     ;(useValues as jest.Mock).mockReturnValue({
         bootstrapLoading: false,
         threadItems: [],
+        hasThreadItems: !!overrides.threadItems?.length,
         pendingPermissionRequest: null,
         respondingToPermission: false,
         currentRunStatus: 'in_progress',
@@ -277,26 +278,32 @@ describe('RunSurface', () => {
     })
 
     describe('Thread slot', () => {
-        it('shows the run-log skeleton while bootstrapping with no thread items yet', () => {
-            setValues({ bootstrapLoading: true, threadItems: [] })
-            render(
-                <RunSurface.Root taskId="task-1" runId="run-1" interaction="read-only">
-                    <RunSurface.Thread />
-                </RunSurface.Root>
-            )
-            expect(screen.getByTestId('run-log-skeleton')).toBeInTheDocument()
-            expect(screen.queryByTestId('thread')).not.toBeInTheDocument()
-        })
+        it.each([null, { origin_product: 'user_created' }])(
+            'shows the run-log skeleton with no thread items and task=%j',
+            (task) => {
+                setValues({ bootstrapLoading: true, threadItems: [], task })
+                render(
+                    <RunSurface.Root taskId="task-1" runId="run-1" interaction="read-only">
+                        <RunSurface.Thread />
+                    </RunSurface.Root>
+                )
+                expect(screen.getByTestId('run-log-skeleton')).toBeInTheDocument()
+                expect(screen.queryByTestId('thread')).not.toBeInTheDocument()
+            }
+        )
 
-        it('swaps the skeleton for the thread once items arrive', () => {
-            setValues({ bootstrapLoading: true, threadItems: [{ id: 'x' }] })
-            render(
-                <RunSurface.Root taskId="task-1" runId="run-1" interaction="read-only">
-                    <RunSurface.Thread />
-                </RunSurface.Root>
-            )
-            expect(screen.getByTestId('thread')).toBeInTheDocument()
-            expect(screen.queryByTestId('run-log-skeleton')).not.toBeInTheDocument()
-        })
+        it.each([null, { origin_product: 'user_created' }])(
+            'keeps a populated thread visible while bootstrapping with task=%j',
+            (task) => {
+                setValues({ bootstrapLoading: true, threadItems: [{ id: 'x' }], task })
+                render(
+                    <RunSurface.Root taskId="task-1" runId="run-1" interaction="read-only">
+                        <RunSurface.Thread />
+                    </RunSurface.Root>
+                )
+                expect(screen.getByTestId('thread')).toBeInTheDocument()
+                expect(screen.queryByTestId('run-log-skeleton')).not.toBeInTheDocument()
+            }
+        )
     })
 })

@@ -1481,6 +1481,7 @@ export interface runStreamLogicValues {
     currentStage: string | null
     foldedThread: FoldedThread
     hasGitArtifacts: boolean
+    hasThreadItems: boolean
     isBootstrapResumeRun: boolean
     isThinking: boolean
     latestTurnTraceId: string | null
@@ -1749,6 +1750,7 @@ export interface runStreamLogicMeta {
         foldedThread: (log: RunLog, isBootstrapResumeRun: boolean) => FoldedThread
         latestTurnTraceId: (threadItems: ThreadItem[]) => string | null
         threadItems: (foldedThread: FoldedThread, showDebugLogs: boolean) => ThreadItem[]
+        hasThreadItems: (threadItems: ThreadItem[]) => boolean
         toolInvocations: (foldedThread: FoldedThread) => Map<string, ToolInvocation>
         isThinking: (
             runStarted: boolean,
@@ -2373,6 +2375,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         (item: ThreadItem) => (item.type !== 'debug' || showDebugLogs) && rendersThreadItemContent(item)
                     ),
         ],
+        hasThreadItems: [(s) => [s.threadItems], (threadItems: ThreadItem[]): boolean => threadItems.length > 0],
         toolInvocations: [
             (s) => [s.foldedThread],
             (foldedThread: FoldedThread): Map<string, ToolInvocation> => foldedThread.toolInvocations,

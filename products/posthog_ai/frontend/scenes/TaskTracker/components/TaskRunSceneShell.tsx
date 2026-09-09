@@ -53,8 +53,7 @@ export interface TaskRunSceneShellProps {
 /**
  * The task-run scene chrome — scene panel, title header, run metadata, divider — around a run-log slot.
  * Purely presentational: both the detail page (wired from `taskDetailSceneLogic`) and the optimistic
- * create thread (wired all-loading) render it, so the `/tasks/new → /tasks/:id` handoff shows byte-identical
- * shell while only the continuous thread underneath persists.
+ * create thread render it, so the thread keeps the same layout across the `/tasks/new → /tasks/:id` handoff.
  */
 export function TaskRunSceneShell({
     task,
@@ -84,9 +83,9 @@ export function TaskRunSceneShell({
                 </SceneMenuBar>
             )}
             <ScenePanel>
-                {isHeaderLoading || !task ? (
+                {isHeaderLoading ? (
                     <TaskPanelSkeleton />
-                ) : (
+                ) : task ? (
                     <>
                         <ScenePanelInfoSection>
                             <div className="flex flex-col gap-3">
@@ -122,7 +121,7 @@ export function TaskRunSceneShell({
                             </ButtonPrimitive>
                         </ScenePanelActionsSection>
                     </>
-                )}
+                ) : null}
             </ScenePanel>
 
             {taskError && !task ? (

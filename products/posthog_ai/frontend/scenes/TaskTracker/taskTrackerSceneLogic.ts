@@ -839,6 +839,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 if (disposables.isDisposed) {
                     return
                 }
+                if (!runId) {
+                    throw new Error('Run creation did not return a run ID')
+                }
 
                 // Mark the seeded non-text refs sent under the created task, so the run's first follow-up
                 // (sent via `runInteractionLogic`) doesn't re-wrap them. Text items always resend.
@@ -876,7 +879,13 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     return
                 }
                 actions.releaseApplyBackTargets(streamKey)
-                actions.clearActiveCreation()
+                if (values.activeCreation?.streamKey === streamKey) {
+                    const draft = values.activeCreation.draft
+                    if (draft) {
+                        actions.setNewTaskData({ description: [values.newTaskData.description, draft].join('\n\n') })
+                    }
+                    actions.clearActiveCreation()
+                }
                 if (error instanceof ApiError && error.code === 'warm_run_activation_unavailable') {
                     lemonToast.error("Couldn't start this run yet. Please try again.")
                 }
