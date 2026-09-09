@@ -110,8 +110,7 @@ class TestCustomBotRulesAPI(ClickhouseTestMixin, APIBaseTest):
             ("regex clickhouse cannot run", {"key": "$raw_user_agent", "matcher": "regex", "pattern": "(?=lookahead)"}),
             ("blank category", {"key": "$raw_user_agent", "matcher": "contains", "pattern": "AcmeBot", "category": ""}),
             (
-                # The id-keyed editor collapses conditions that share an id, and its next save
-                # would persist the collapsed rule.
+                # A shared id collapses entries in the id-keyed editor.
                 "duplicate condition ids",
                 {
                     "combiner": "AND",

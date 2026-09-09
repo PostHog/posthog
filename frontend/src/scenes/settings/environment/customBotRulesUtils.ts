@@ -343,8 +343,7 @@ export function upcastCustomBotRules(raw: unknown): CustomBotRule[] {
         return []
     }
     const rules: CustomBotRule[] = []
-    // The editor keys rules and conditions by id in one drag-and-drop context, so every id must
-    // exist and be unique or entries silently collapse and the next save persists the loss.
+    // A shared or missing id collapses entries in the id-keyed drag-and-drop context.
     const seenIds = new Set<string>()
     const uniqueId = (candidate: string, fallback: string): string => {
         const id = candidate && !seenIds.has(candidate) ? candidate : fallback

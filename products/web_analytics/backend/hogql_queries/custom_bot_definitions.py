@@ -257,8 +257,7 @@ def validate_rule(rule: "CustomBotRule") -> None:
         raise ValueError("A rule needs at least one condition.")
     if len(rule.items) > MAX_CONDITIONS_PER_RULE:
         raise ValueError(f"A rule can have at most {MAX_CONDITIONS_PER_RULE} conditions.")
-    # The settings editor keys rules and conditions in one id-keyed drag-and-drop context, where
-    # a shared id collapses entries and the next save persists the collapsed list.
+    # A shared id collapses entries in the editor's id-keyed drag-and-drop context.
     seen_ids = {rule.id}
     for item in rule.items:
         if len(item.id) > MAX_ID_LENGTH:

@@ -146,8 +146,7 @@ class TestValidation:
 
     @parameterized.expand(
         [
-            # The editor keys rules and conditions by id in one drag-and-drop context, so a shared
-            # id collapses entries and the next save persists the collapsed list.
+            # A shared id collapses entries in the id-keyed editor.
             ("two conditions share an id", [{"id": "a"}, {"id": "a"}]),
             ("a condition reuses the rule id", [{"id": "1"}]),
         ]
@@ -332,8 +331,7 @@ class TestCompileDefinitions:
         ]
 
     def test_only_contiguous_rules_share_a_group(self):
-        # The editor promises list order is precedence, so a later same-property rule must not
-        # slide into a group positioned above a rule listed between them.
+        # List order is precedence: a later same-property rule must not jump the rule between them.
         groups = compile_definitions(
             [
                 rule(id="1", name="First UA", pattern="First"),

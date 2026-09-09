@@ -263,8 +263,7 @@ describe('customBotRulesUtils', () => {
             expect(upcast[0].id).toBeTruthy()
             expect(upcast[0].id).not.toEqual(upcast[1].id)
             expect(upcast[0].items[0].id).not.toEqual(upcast[0].id)
-            // Deterministic: a random id would differ per render and read as an endless unsaved
-            // change against the saved state.
+            // Deterministic ids: a random id would read as an endless unsaved change.
             expect(upcastCustomBotRules(raw)).toEqual(upcast)
         })
 
