@@ -11,6 +11,10 @@ from django.utils import timezone
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import TraversingVisitor
+
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import Team
 from posthog.temporal.ai_observability.eval_reports.activities import (
@@ -30,7 +34,10 @@ from posthog.temporal.ai_observability.eval_reports.activities import (
     store_report_run_activity,
 )
 from posthog.temporal.ai_observability.eval_reports.constants import (
+    COUNT_TRIGGER_MAX_LOOKBACK,
+    COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS,
+    COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR,
     COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS,
 )
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import EvalReportContent, EvalReportMetrics
@@ -44,6 +51,26 @@ from posthog.temporal.ai_observability.eval_reports.types import (
 
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
 from products.ai_observability.backend.models.evaluations import Evaluation
+
+
+def _scanned_window(query: ast.SelectQuery) -> list[dt.datetime]:
+    """Return the timestamp bounds a count query puts in its WHERE clause, oldest first.
+
+    These bounds decide how many rows ClickHouse reads, which is what the lookback clamp and
+    the time split control, so the tests assert on the query the code sends.
+    """
+
+    class CollectTimestamps(TraversingVisitor):
+        def __init__(self) -> None:
+            self.timestamps: list[dt.datetime] = []
+
+        def visit_constant(self, node: ast.Constant) -> None:
+            if isinstance(node.value, dt.datetime):
+                self.timestamps.append(node.value)
+
+    visitor = CollectTimestamps()
+    visitor.visit(query.where)
+    return sorted(visitor.timestamps)
 
 
 class TestUpdateNextDeliveryDate(SimpleTestCase):
@@ -699,46 +726,78 @@ class TestCountTriggeredReportChecks(BaseTest):
         self.assertEqual([r.skipped_reason for r in results], ["not_deliverable", "cooldown", "daily_cap"])
         self.assertTrue(all(r.due is False for r in results))
 
+    @parameterized.expand(
+        [
+            ("anchor_older_than_lookback", COUNT_TRIGGER_MAX_LOOKBACK * 12, COUNT_TRIGGER_MAX_LOOKBACK),
+            ("anchor_inside_lookback", dt.timedelta(days=2), dt.timedelta(days=2)),
+        ]
+    )
+    def test_count_window_never_reaches_further_back_than_the_lookback(self, _name, anchor_age, expected_age):
+        # A report that never crosses its threshold keeps its anchor forever, so an unclamped
+        # window scans more events on every 5-minute poll until no budget can cover it.
+        now = timezone.now()
+        report = self._create_report(starts_at=now - anchor_age)
+
+        with patch("posthog.hogql.query.execute_hogql_query") as execute_hogql_query:
+            execute_hogql_query.return_value = Mock(results=[[1]])
+            _check_count_triggered_eval_report_sync(str(report.id), now)
+
+        self.assertEqual(_scanned_window(execute_hogql_query.call_args.kwargs["query"]), [now - expected_age])
+
 
 class TestCountEvalResultsForReportsSplitRetry(BaseTest):
-    """Guards the retry behavior a `ClickHouseQueryTimeOut` needs: split the chunk and
-    retry narrower, rather than replaying the identical too-wide query."""
+    """Guards the retry behavior a `ClickHouseQueryTimeOut` needs: halve the time range and
+    retry over each half, rather than replaying a query over the same rows."""
 
-    def _entries(self, count: int) -> list[_CountEntry]:
-        now = timezone.now()
+    def _entries(self, count: int, since: dt.datetime) -> list[_CountEntry]:
         return [
             _CountEntry(
                 key=f"r{i}",
                 evaluation_id=f"e{i}",
-                since=now,
+                since=since,
                 event_predicate="1 = 1",
                 target_predicate="1 = 1",
             )
             for i in range(count)
         ]
 
-    def test_splits_chunk_in_half_on_timeout_and_merges_results(self):
-        # Full width times out once; each half then succeeds. If the timeout instead
-        # propagated unhandled, this would raise instead of returning merged counts.
-        side_effects = [ClickHouseQueryTimeOut(), Mock(results=[[1, 2]]), Mock(results=[[3, 4]])]
+    def test_splits_time_range_in_half_on_timeout_and_sums_the_halves(self):
+        # The full range times out once; each half then succeeds over half the rows. The old
+        # column split left both retries reading the same range, so they timed out too.
+        until = timezone.now()
+        since = until - dt.timedelta(days=8)
+        side_effects = [ClickHouseQueryTimeOut(), Mock(results=[[1, 2]]), Mock(results=[[30, 40]])]
+
         with patch("posthog.hogql.query.execute_hogql_query", side_effect=side_effects) as execute_hogql_query:
-            counts = _count_eval_results_for_reports_with_split_retry(self.team, self._entries(4), until=timezone.now())
+            counts = _count_eval_results_for_reports_with_split_retry(self.team, self._entries(2, since), until=until)
 
-        self.assertEqual(counts, {"r0": 1, "r1": 2, "r2": 3, "r3": 4})
-        self.assertEqual(execute_hogql_query.call_count, 3)
+        self.assertEqual(counts, {"r0": 31, "r1": 42})
+        midpoint = since + (until - since) / 2
+        self.assertEqual(
+            [_scanned_window(call.kwargs["query"]) for call in execute_hogql_query.call_args_list],
+            [
+                [since, until],
+                [since, midpoint],
+                [midpoint + dt.timedelta(microseconds=1), until],
+            ],
+        )
 
-    def test_reraises_when_a_single_entry_still_times_out(self):
-        # A width-1 query has nothing narrower to split into — the failure must surface
-        # so the activity retries (or fails visibly) instead of looping forever.
+    def test_reraises_when_the_narrowest_range_still_times_out(self):
+        # A range too narrow to halve has nothing cheaper to retry, so the failure must
+        # surface instead of recursing until the budget runs out.
+        until = timezone.now()
         with patch("posthog.hogql.query.execute_hogql_query", side_effect=ClickHouseQueryTimeOut()):
             with self.assertRaises(ClickHouseQueryTimeOut):
-                _count_eval_results_for_reports_with_split_retry(self.team, self._entries(1), until=timezone.now())
+                _count_eval_results_for_reports_with_split_retry(
+                    self.team, self._entries(1, until - dt.timedelta(seconds=30)), until=until
+                )
 
     def test_stops_splitting_once_shared_budget_is_exhausted(self):
         # A first attempt that burns nearly the whole wall-clock budget must not be followed
         # by narrower retries: if each half drew a fresh budget instead of sharing the
         # deadline, the split tree could outlive the activity timeout again.
         clock = [0.0]
+        until = timezone.now()
 
         def timeout_burning_budget(*args, **kwargs):
             clock[0] += COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS - COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS + 1
@@ -749,9 +808,38 @@ class TestCountEvalResultsForReportsSplitRetry(BaseTest):
             patch("posthog.hogql.query.execute_hogql_query", side_effect=timeout_burning_budget) as execute_hogql_query,
         ):
             with self.assertRaises(ClickHouseQueryTimeOut):
-                _count_eval_results_for_reports_with_split_retry(self.team, self._entries(4), until=timezone.now())
+                _count_eval_results_for_reports_with_split_retry(
+                    self.team, self._entries(4, until - dt.timedelta(days=8)), until=until
+                )
 
         self.assertEqual(execute_hogql_query.call_count, 1)
+
+    def test_execution_limit_leaves_room_for_clickhouse_to_overshoot_it(self):
+        # ClickHouse can run past max_execution_time, so a retry that claimed the whole
+        # remaining budget as its limit would overshoot past the deadline and be killed by
+        # Temporal mid-split. Each attempt claims only what it can afford to overshoot.
+        clock = [0.0]
+        until = timezone.now()
+        remaining_after_first_attempt = COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS * 1.5
+        execution_limits: list[int] = []
+
+        def record_limit_then_time_out_once(*args, **kwargs):
+            execution_limits.append(kwargs["settings"].max_execution_time)
+            if len(execution_limits) > 1:
+                return Mock(results=[[0]])
+            clock[0] = COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS - remaining_after_first_attempt
+            raise ClickHouseQueryTimeOut()
+
+        with (
+            patch("time.monotonic", side_effect=lambda: clock[0]),
+            patch("posthog.hogql.query.execute_hogql_query", side_effect=record_limit_then_time_out_once),
+        ):
+            _count_eval_results_for_reports_with_split_retry(
+                self.team, self._entries(1, until - dt.timedelta(days=8)), until=until
+            )
+
+        self.assertEqual(execution_limits[0], COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS)
+        self.assertEqual(execution_limits[1], int(remaining_after_first_attempt / COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR))
 
 
 class TestPeriodForScheduledReport(BaseTest):
@@ -900,6 +988,36 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
         self.assertTrue(due_by_id[str(report_a.id)])
         self.assertFalse(due_by_id[str(report_b.id)])
         self.assertFalse(due_by_id[str(report_c.id)])
+
+    def test_split_after_a_timeout_counts_a_midpoint_event_exactly_once(self):
+        # A timeout halves the window, so an event that lands on the midpoint sits on the
+        # boundary between the halves. Dropped, a report that is exactly at its threshold
+        # stops firing; counted twice, a report below its threshold fires early.
+        midpoint = self.T0 + (self.NOW - self.T0) / 2
+        timestamps = [self.T0 + dt.timedelta(hours=1), midpoint, self.NOW - dt.timedelta(hours=1)]
+        at_threshold = self._create_report(self.team, threshold=3, since=self.T0, name="at threshold")
+        self._emit_eval_events(self.team, str(at_threshold.evaluation_id), timestamps)
+        above_threshold = self._create_report(self.team, threshold=4, since=self.T0, name="above threshold")
+        self._emit_eval_events(self.team, str(above_threshold.evaluation_id), timestamps)
+
+        attempts = 0
+
+        def time_out_the_first_attempt(*args, **kwargs):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise ClickHouseQueryTimeOut()
+            return execute_hogql_query(*args, **kwargs)
+
+        with patch("posthog.hogql.query.execute_hogql_query", side_effect=time_out_the_first_attempt):
+            results = _check_count_triggered_eval_reports_batch(
+                [str(at_threshold.id), str(above_threshold.id)], self.NOW
+            )
+
+        self.assertEqual(attempts, 3)
+        due_by_id = {r.report_id: r.due for r in results}
+        self.assertTrue(due_by_id[str(at_threshold.id)])
+        self.assertFalse(due_by_id[str(above_threshold.id)])
 
     def test_events_after_check_time_are_excluded(self):
         # An event timestamped after the check's `now` must not count — guards the explicit
