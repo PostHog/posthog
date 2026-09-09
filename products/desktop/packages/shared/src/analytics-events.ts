@@ -57,6 +57,7 @@ export type CommandMenuAction =
   | "open-task"
   | "open-task-from-pull-request"
   | "open-artifact"
+  | "open-canvas"
   | "open-channel"
   | "open-command-center"
   | "save-feed"
@@ -343,6 +344,11 @@ export interface SettingChangedProperties {
   old_value?: string | boolean | number;
 }
 
+export interface CloudCredentialRelayProperties {
+  credential: "claude_subscription_token";
+  outcome: "sent" | "no_token" | "expired" | "rejected";
+}
+
 export interface CustomSoundAddedProperties {
   // How the clip was captured.
   source: "recording" | "import";
@@ -415,8 +421,20 @@ export interface ModelSwitchWarningShownProperties {
 
 export interface ModelSwitchWarningActionProperties
   extends ModelSwitchWarningShownProperties {
-  action: "cancel" | "copy_handoff_summary" | "switch_now";
+  action: "cancel" | "switch_now";
   result?: "failed" | "succeeded";
+}
+
+export interface SessionSummaryRequestedProperties {
+  task_id: string;
+  source: "retry" | "task_menu";
+}
+
+export interface SessionSummaryActionProperties {
+  task_id: string;
+  action: "copied" | "dismissed" | "stopped_waiting";
+  /** How long the summary had been running when the action happened. */
+  wait_ms: number;
 }
 
 // Tour events
@@ -819,7 +837,6 @@ export interface InboxReportScrolledProperties {
 }
 
 export interface UsageViewedProperties {
-  is_pro: boolean;
   /** Monthly bucket percent (0-100), null when usage is unavailable. */
   sustained_used_percent: number | null;
   /** Daily bucket percent (0-100), null when usage is unavailable. */
@@ -1290,7 +1307,6 @@ export interface UpgradePromptClickedProperties {
 
 export interface CloudTaskUsageBlockedProperties {
   bucket: "burst" | "sustained" | null;
-  is_pro: boolean;
 }
 
 // Claude Code session import events
@@ -1571,6 +1587,8 @@ export const ANALYTICS_EVENTS = {
   SESSION_CONFIG_CHANGED: "Session config changed",
   MODEL_SWITCH_WARNING_SHOWN: "Model switch warning shown",
   MODEL_SWITCH_WARNING_ACTION: "Model switch warning action",
+  SESSION_SUMMARY_REQUESTED: "Session summary requested",
+  SESSION_SUMMARY_ACTION: "Session summary action",
 
   // Settings events
   SETTING_CHANGED: "Setting changed",
@@ -1580,6 +1598,9 @@ export const ANALYTICS_EVENTS = {
   CODEX_SUBSCRIPTION_SIGNED_OUT: "Codex subscription signed out",
   CLAUDE_SUBSCRIPTION_CONNECTED: "Claude subscription connected",
   CLAUDE_SUBSCRIPTION_SIGNED_OUT: "Claude subscription signed out",
+  CLAUDE_CLOUD_TOKEN_SAVED: "Claude cloud token saved",
+  CLAUDE_CLOUD_TOKEN_REMOVED: "Claude cloud token removed",
+  CLOUD_CREDENTIAL_RELAY: "Cloud credential relay",
 
   // Feedback events
   AI_METRIC: "$ai_metric",
@@ -1779,9 +1800,14 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.SESSION_CONFIG_CHANGED]: SessionConfigChangedProperties;
   [ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_SHOWN]: ModelSwitchWarningShownProperties;
   [ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION]: ModelSwitchWarningActionProperties;
+  [ANALYTICS_EVENTS.SESSION_SUMMARY_REQUESTED]: SessionSummaryRequestedProperties;
+  [ANALYTICS_EVENTS.SESSION_SUMMARY_ACTION]: SessionSummaryActionProperties;
 
   // Settings events
   [ANALYTICS_EVENTS.SETTING_CHANGED]: SettingChangedProperties;
+  [ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_SAVED]: never;
+  [ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_REMOVED]: never;
+  [ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY]: CloudCredentialRelayProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_ADDED]: CustomSoundAddedProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_RECORDING_SILENT]: never;
   [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_CONNECTED]: never;
