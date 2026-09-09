@@ -51,7 +51,9 @@ class AzureBlobContainerTestStep(DestinationTestStep):
             )
 
         try:
-            async with BlobServiceClient.from_connection_string(self.connection_string) as blob_service_client:
+            async with BlobServiceClient.from_connection_string(
+                self.connection_string, permit_redirects=False
+            ) as blob_service_client:
                 container_client = blob_service_client.get_container_client(self.container_name)
                 await container_client.get_container_properties()
 

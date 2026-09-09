@@ -205,6 +205,7 @@ class AzureBlobConsumer(Consumer):
                 read_timeout=600,
                 # Azure SDK defaults but we set them explicitly for visibility.
                 retry_policy=ExponentialRetry(initial_backoff=15, increment_base=3, retry_total=3),
+                permit_redirects=False,
             )
         except EndpointNotAllowedError:
             raise
