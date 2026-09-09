@@ -3,7 +3,7 @@ from typing import Generic, Optional, TypeVar
 
 from langchain_core.messages import BaseMessage as LangchainBaseMessage
 from langgraph.graph import END, START
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ee.hogai.utils.types.base import BaseStateWithIntermediateSteps, BaseStateWithMessages
 
@@ -15,6 +15,8 @@ class TaxonomyAgentState(BaseStateWithIntermediateSteps, BaseStateWithMessages, 
     Partial state class for filter options functionality.
     Only includes fields relevant to filter options generation.
     """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     output: Optional[OutputType | str] = Field(default=None)
     """
