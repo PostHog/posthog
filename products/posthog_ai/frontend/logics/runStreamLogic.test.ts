@@ -18,6 +18,7 @@ import { computeTurnTrailers } from '../utils/turnTrailers'
 import { attachedContextLogic } from './attachedContextLogic'
 import {
     extractRunArtifacts,
+    foldLogToThread,
     mapHttpStatusToStreamError,
     MAX_CUMULATIVE_RECONNECT_ATTEMPTS,
     MAX_HISTORY_FETCH_ATTEMPTS,
@@ -213,6 +214,29 @@ describe('runStreamLogic', () => {
     })
 
     describe('ingestAcpFrame replay', () => {
+        it('omits imported timing and resumes timing on the next native run', () => {
+            const frames = [
+                notification('_posthog/run_started', { imported: true }),
+                sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'imported', status: 'completed' }),
+                notification('_posthog/run_started', {}),
+                sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'native', status: 'in_progress' }),
+                sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'native', status: 'completed' }),
+                sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'missing-start', status: 'completed' }),
+            ]
+            const result = foldLogToThread(
+                frames.map((entry, index) => ({
+                    source: 'replay',
+                    entry: { ...entry, timestamp: new Date((index + 1) * 1000).toISOString() },
+                })),
+                { isResumeRun: true }
+            )
+            expect(result.threadItems.find((item) => item.id === 'imported')?.startedAt).toBeUndefined()
+            expect(result.threadItems.find((item) => item.id === 'native')).toMatchObject({
+                startedAt: 4000,
+                endedAt: 5000,
+            })
+            expect(result.threadItems.find((item) => item.id === 'missing-start')?.startedAt).toBeUndefined()
+        })
         it('folds a stream of StoredLogEntry frames into thread items', async () => {
             const frames: StoredLogEntry[] = [
                 notification('_posthog/run_started', {}),
@@ -236,6 +260,9 @@ describe('runStreamLogic', () => {
                 }),
                 notification('_posthog/turn_complete', {}),
             ]
+            frames.forEach((frame, index) => {
+                frame.timestamp = new Date((index + 1) * 1000).toISOString()
+            })
 
             await expectLogic(logic, () => {
                 frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
@@ -250,6 +277,8 @@ describe('runStreamLogic', () => {
 
             const toolItem = logic.values.threadItems.find((item) => item.type === 'tool_invocation')
             expect(toolItem?.toolCallId).toEqual('t1')
+            expect(toolItem).toMatchObject({ startedAt: 5000, endedAt: 6000 })
+            expect(assistantItem).toMatchObject({ startedAt: 2000, endedAt: 4000 })
 
             const invocation = logic.values.toolInvocations.get('t1')
             expect(invocation?.rawServerName).toEqual('posthog')
@@ -391,6 +420,37 @@ describe('runStreamLogic', () => {
     })
 
     describe('showThinkingIndicator', () => {
+        it.each(['in_progress', 'completed', 'failed'] as const)(
+            'does not repeat the startup loader after a %s progress step',
+            async (status) => {
+                logic.actions.setRunOpening(true)
+                expect(logic.values.showThinkingIndicator).toBe(true)
+
+                await expectLogic(logic, () => {
+                    logic.actions.ingestAcpFrame(
+                        notification('_posthog/progress', {
+                            group: 'setup:run-1',
+                            step: 'sandbox',
+                            status,
+                            label: 'Sandbox setup',
+                        })
+                    )
+                }).toFinishAllListeners()
+
+                expect(logic.values.showThinkingIndicator).toBe(false)
+
+                logic.actions.reset()
+                logic.actions.setRunOpening(true)
+                expect(logic.values.showThinkingIndicator).toBe(true)
+            }
+        )
+
+        it('does not show startup progress after a delivery error', () => {
+            logic.actions.sseOpened()
+            logic.actions.pushErrorItem('Unable to deliver the message')
+            expect(logic.values.showThinkingIndicator).toBe(false)
+        })
+
         const runStartedFrame = notification('_posthog/run_started', {})
         const messageChunk = sessionUpdate({
             sessionUpdate: 'agent_message_chunk',
