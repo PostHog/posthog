@@ -617,6 +617,11 @@ export interface ScoutConfig {
    * the field itself is absent entirely on backends predating it.
    */
   scout_origin?: "canonical" | "custom";
+  /**
+   * Extra write access this scout's runs carry. Each scope reaches every object of its kind in the
+   * project; a dry run holds none of them, and an older backend sends no field at all.
+   */
+  write_scopes?: string[];
   run_interval_minutes: number;
   /**
    * Cron schedule the scout runs on, evaluated in the project timezone. Null when
@@ -2554,6 +2559,8 @@ export class PostHogAPIClient {
       /** A cron expression puts the scout on a calendar; null returns it to the rolling cadence. */
       run_cron_schedule?: string | null;
       auto_pause_exempt?: boolean;
+      /** The complete grant to hold, not a delta: an omitted scope is revoked. */
+      write_scopes?: string[];
     },
   ): Promise<ScoutConfig> {
     const urlPath = `/api/projects/${projectId}/signals/scout/configs/${configId}/`;

@@ -30,6 +30,7 @@ import { skillUrl } from "@posthog/ui/utils/posthogLinks";
 import { type ReactNode, useId, useState } from "react";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
 import { ScoutHelperSkillLinks } from "./ScoutHelperSkillLinks";
+import { ScoutWriteAccessSection } from "./ScoutWriteAccessSection";
 
 const MODE_OPTIONS = [
   {
@@ -262,6 +263,16 @@ export function ScoutConfigForm({
           ) : null}
         </div>
       </SettingBlock>
+
+      {/* Absent means an older backend that cannot persist the field. */}
+      {config.write_scopes ? (
+        <SettingBlock
+          title="Write access"
+          help="What this agent may change in the project. Every agent reads the project and writes to Self-driving; a grant adds to that."
+        >
+          <ScoutWriteAccessSection config={config} onUpdate={onUpdate} />
+        </SettingBlock>
+      ) : null}
 
       {/* Null means the backend never sent the field, so a PATCH carrying it
           could not persist. Offer the control only where it writes. */}
