@@ -39,7 +39,11 @@ from products.web_analytics.backend.temporal.weekly_digest.types import (
     SendTestDigestInput,
     WAWeeklyDigestInput,
 )
-from products.web_analytics.backend.weekly_digest import auto_select_project_for_user, build_team_digest
+from products.web_analytics.backend.weekly_digest import (
+    DigestDataUnavailableError,
+    auto_select_project_for_user,
+    build_team_digest,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -231,6 +235,19 @@ def _is_user_targeted_for_digest(user: User, org_id: str) -> bool:
     return _is_user_flag_enabled(user, org_id, "web-analytics-weekly-digest")
 
 
+def _build_digests_for_teams(teams: list[Team], org_id: str) -> dict[int, dict]:
+    """A project whose queries ClickHouse rejected is left out rather than mailed as a row of zeros,
+    which would read as "no traffic last week". The org's other projects still go out.
+    """
+    digests: dict[int, dict] = {}
+    for team in teams:
+        try:
+            digests[team.id] = build_team_digest(team)
+        except DigestDataUnavailableError:
+            logger.exception("wa_weekly_digest.team_build_failed", team_id=team.id, org_id=org_id)
+    return digests
+
+
 def _build_and_send_for_org(org_id: str, dry_run: bool = False) -> OrgDigestCounts:
     close_old_connections()
 
@@ -255,9 +272,13 @@ def _build_and_send_for_org(org_id: str, dry_run: bool = False) -> OrgDigestCoun
         return counts
 
     build_start = time.monotonic()
-    team_digest_data: dict[int, dict] = {team.id: build_team_digest(team) for team in all_org_teams}
+    team_digest_data = _build_digests_for_teams(all_org_teams, org_id)
     counts.build_duration = time.monotonic() - build_start
     counts.team_count = len(team_digest_data)
+
+    if not team_digest_data:
+        counts.skipped_reason = "no_team_data"
+        return counts
 
     date_suffix = timezone.now().strftime("%Y-%W")
 

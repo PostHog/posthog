@@ -444,7 +444,7 @@ export const getWebAnalyticsWeeklyDigestUrl = (projectId: string, params?: WebAn
 }
 
 /**
- * Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions.
+ * Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions. Always excludes internal and test users. Fails with a 503 when the underlying queries cannot run, so a zero total always means the project had no traffic.
  * @summary Summarize web analytics
  */
 export const webAnalyticsWeeklyDigest = async (
