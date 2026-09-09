@@ -75,7 +75,7 @@ jobs:
             VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
             POSTHOG_SOURCEMAP_API_KEY: ${{ secrets.DESKTOP_POSTHOG_SOURCEMAP_API_KEY }}
             POSTHOG_ENV_ID: ${{ vars.DESKTOP_POSTHOG_ENV_ID }}
-            POSTHOG_HOST: ${{ secrets.DESKTOP_POSTHOG_HOST }}
+            POSTHOG_HOST: ${{ vars.DESKTOP_POSTHOG_HOST }}
             CSC_LINK: ${{ secrets.APPLE_CODESIGN_CERT_BASE64 }}
             CSC_KEY_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
             APPLE_ID: ${{ vars.APPLE_ID }}
@@ -330,7 +330,7 @@ jobs:
             VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
             POSTHOG_SOURCEMAP_API_KEY: ${{ secrets.DESKTOP_POSTHOG_SOURCEMAP_API_KEY }}
             POSTHOG_ENV_ID: ${{ vars.DESKTOP_POSTHOG_ENV_ID }}
-            POSTHOG_HOST: ${{ secrets.DESKTOP_POSTHOG_HOST }}
+            POSTHOG_HOST: ${{ vars.DESKTOP_POSTHOG_HOST }}
         steps:
             - name: Get app token
               id: app-token
@@ -514,7 +514,7 @@ jobs:
             VITE_POSTHOG_UI_HOST: ${{ vars.VITE_POSTHOG_UI_HOST }}
             POSTHOG_SOURCEMAP_API_KEY: ${{ secrets.DESKTOP_POSTHOG_SOURCEMAP_API_KEY }}
             POSTHOG_ENV_ID: ${{ vars.DESKTOP_POSTHOG_ENV_ID }}
-            POSTHOG_HOST: ${{ secrets.DESKTOP_POSTHOG_HOST }}
+            POSTHOG_HOST: ${{ vars.DESKTOP_POSTHOG_HOST }}
         steps:
             - name: Get app token
               id: app-token
