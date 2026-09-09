@@ -49,6 +49,14 @@ class ForecastCapacityUnavailable(Exception):
     """
 
 
+# A scheduled evaluation that exhausts its retries records this message on the alert check and
+# sends it to the alert's subscribers by email and in-app notification. A redis-py connection
+# failure renders as "Error 111 connecting to <host>:<port>", which tells a recipient nothing and
+# carries the store's address, so the raise sites use fixed wording and chain the original error
+# for the logs and error tracking.
+FORECAST_CAPACITY_UNAVAILABLE_MESSAGE = "Forecasting is temporarily unavailable"
+
+
 def _get_global_limiter(pool: str, max_concurrency: int) -> RateLimit:
     limiter = __GLOBAL_LIMITERS.get(pool)
     if limiter is None:
@@ -105,14 +113,14 @@ def _forecast_slot(*, team_id: int, pool: str, global_concurrency: int, team_con
         except ConcurrencyLimitExceeded:
             raise ForecastSimulationCapacityExceeded from None
         except RedisError as err:
-            raise ForecastCapacityUnavailable(str(err)) from err
+            raise ForecastCapacityUnavailable(FORECAST_CAPACITY_UNAVAILABLE_MESSAGE) from err
 
         try:
             team_slot = team_limiter.use(team_id=team_id, request_id=request_id)
         except ConcurrencyLimitExceeded:
             raise ForecastSimulationCapacityExceeded from None
         except RedisError as err:
-            raise ForecastCapacityUnavailable(str(err)) from err
+            raise ForecastCapacityUnavailable(FORECAST_CAPACITY_UNAVAILABLE_MESSAGE) from err
 
         yield
     finally:
