@@ -507,6 +507,38 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
     @freeze_time("2022-01-10 12:11:00")
     @snapshot_clickhouse_queries
+    def test_search_matches_stack_frame_text(self):
+        # The term lives only inside a stack frame of `$exception_list`, not in
+        # any flattened `$exception_*` array. Search must still find the issue.
+        self.create_events_and_issue(
+            issue_id="01936e81-b0ce-7b56-8497-791e505b0d0c",
+            fingerprint="fingerprint_frame_match",
+            distinct_ids=[self.distinct_id_one],
+            exception_list=[
+                {
+                    "type": "TypeError",
+                    "value": "undefined is not a function",
+                    "stacktrace": {"frames": [{"filename": "app/services/checkoutHandler.ts", "function": "submit"}]},
+                }
+            ],
+            additional_properties={"$exception_types": "['TypeError']"},
+        )
+        self.create_events_and_issue(
+            issue_id="01936e81-f5ce-79b1-99f1-f0e9675fcfef",
+            fingerprint="fingerprint_no_match",
+            distinct_ids=[self.distinct_id_two],
+            exception_list=[{"type": "TypeError", "value": "undefined is not a function"}],
+            additional_properties={"$exception_types": "['TypeError']"},
+        )
+        flush_persons_and_events()
+
+        results = self._calculate(filterTestAccounts=True, searchQuery="checkoutHandler")["results"]
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], "01936e81-b0ce-7b56-8497-791e505b0d0c")
+
+    @freeze_time("2022-01-10 12:11:00")
+    @snapshot_clickhouse_queries
     def test_search_query_with_multiple_search_items(self):
         self.create_events_and_issue(
             issue_id="01936e81-b0ce-7b56-8497-791e505b0d0c",

@@ -853,6 +853,12 @@ class ErrorTrackingQueryBuilder:
             or_exprs: list[ast.Expr] = []
             props_to_search = {
                 ("e", "properties"): [
+                    # `$exception_list` is the raw exception chain, so a substring
+                    # match over it reaches stack frame fields (filename, module,
+                    # function) that the flattened arrays below leave out. Frame
+                    # source context is not among them: cymbal strips it before the
+                    # event reaches ClickHouse (it stays in Postgres for the UI).
+                    "$exception_list",
                     "$exception_types",
                     "$exception_values",
                     "$exception_sources",
