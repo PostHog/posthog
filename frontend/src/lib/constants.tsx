@@ -477,6 +477,7 @@ export const FEATURE_FLAGS = {
     REPLAY_TRIGGERS_V2: 'replay-triggers-v2', // owner: #team-replay
     REPLAY_UI_REDESIGN_2026: 'replay-ui-redesign-2026', // owner: #team-replay, New UI layout for replay
     REPLAY_VISION_ANALYSIS_NUDGE: 'replay-vision-analysis-nudge', // owner: #team-replay, in-player nudge offering an AI-drafted scanner after analyzing several recordings
+    REPLAY_VISION_HOME_REDESIGN_EXPERIMENT: 'replay-vision-home-redesign-experiment', // owner: #team-replay multivariate=control,test — gate on === 'test'; a truthy check turns on for control too
     REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT: 'replay-vision-model-tier-naming-experiment', // owner: #team-replay multivariate=control,test,lite-standard-pro
     REVAMPED_PY_NOTEBOOKS: 'revamped-py-notebooks', // owner: #team-data-tools
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics
