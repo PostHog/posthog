@@ -910,8 +910,6 @@ function handleRuntimeStatus(
   },
   timestamp: number,
 ): void {
-  // Startup phases surface in the pending-session status line
-  // (SessionStartupStatus), not as transcript rows.
   if (isSessionStartupPhase(status.status)) return;
 
   ensureImplicitTurn(b, timestamp);

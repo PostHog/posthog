@@ -303,8 +303,6 @@ describe("buildConversationItems", () => {
   it.each(["sdk_initialization", "setup_hooks"] as const)(
     "keeps the %s startup phase out of the transcript",
     (phase) => {
-      // The pending-session view already shows the startup phase; the
-      // transcript must not also render a raw "Status: <phase>" row.
       const result = buildConversationItems(
         [
           userPromptMsg(1, 1, "hi"),
