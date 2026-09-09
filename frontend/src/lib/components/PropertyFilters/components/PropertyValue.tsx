@@ -482,16 +482,22 @@ export function PropertyValue({
                         : undefined
                 }
                 onChange={(nextVal) => {
-                    // Trim whitespace so a stray leading/trailing space (common when pasting an ID)
-                    // doesn't silently break the filter — the snack display hides the space.
-                    // Skip regex operators, where leading/trailing whitespace can be a meaningful
-                    // part of the pattern (e.g. `^ foo`, `bar $`).
-                    const trimmedVal = isOperatorRegex(operator)
-                        ? nextVal
-                        : nextVal.map((v) => (typeof v === 'string' ? v.trim() : v))
+                    const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
+                    // Whitespace is stripped from newly typed free text only, where a stray leading
+                    // or trailing space is almost always a paste artifact that the snack display
+                    // hides and that silently breaks the filter. Everything else keeps its
+                    // whitespace: a value matching a suggestion carries the whitespace of the
+                    // property value as it is stored, so trimming it is what breaks the match; an
+                    // already committed value was settled on an earlier commit; and under a regex
+                    // operator a space can be part of the pattern (e.g. `^ foo`, `bar $`).
+                    const keepVerbatim = (v: (typeof nextVal)[number]): boolean =>
+                        typeof v !== 'string' ||
+                        isOperatorRegex(operator) ||
+                        availableValues.has(v) ||
+                        formattedValues.includes(v)
+                    const trimmedVal = nextVal.map((v) => (keepVerbatim(v) ? v : (v as string).trim()))
                     const newValues = trimmedVal.filter((v) => !formattedValues.includes(String(v)))
                     if (newValues.length > 0) {
-                        const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
                         const fromSuggestion = newValues.every((v) => availableValues.has(toString(v)))
 
                         posthog.capture('property_value_selected', {

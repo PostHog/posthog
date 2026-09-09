@@ -192,6 +192,53 @@ describe('PropertyValue', () => {
         })
     })
 
+    it('keeps the whitespace of a value picked from the suggestions', async () => {
+        // A suggested value's whitespace belongs to the property value as it is stored in
+        // ClickHouse (e.g. an organization named `Acme Corp `). Trimming it on commit leaves a
+        // filter that can never match, which is what makes `exact` silently return nothing.
+        useMocks({
+            get: {
+                '/api/event/values': {
+                    results: [{ name: 'Acme Corp ' }],
+                    refreshing: false,
+                },
+                '/api/environments/:team/events/values': {
+                    results: [{ name: 'Acme Corp ' }],
+                    refreshing: false,
+                },
+            },
+        })
+
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="organization_name"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                />
+            </Provider>
+        )
+
+        const user = userEvent.setup()
+        await user.click(screen.getByRole('textbox'))
+
+        await waitFor(
+            () => {
+                expect(screen.getByText('Acme Corp')).toBeInTheDocument()
+            },
+            { timeout: 3000 }
+        )
+
+        await user.click(screen.getByText('Acme Corp'))
+
+        await waitFor(() => {
+            expect(onSet).toHaveBeenCalledWith(['Acme Corp '])
+        })
+    })
+
     it('allows text when a polymorphic property overrides a globally inferred numeric type', async () => {
         propertyDefinitionsModel.actions.updatePropertyDefinitions({
             'event/current_value': {
