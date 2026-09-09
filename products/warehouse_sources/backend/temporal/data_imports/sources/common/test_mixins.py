@@ -12,7 +12,10 @@ from parameterized import parameterized
 
 from posthog.models.integration import Integration
 
-from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
+    MISSING_INTEGRATION_MESSAGE,
+    Any_Source_Errors,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     OAuthMixin,
@@ -493,6 +496,37 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
                 OAuthMixin().get_oauth_integration(integration_id=1, team_id=2)
 
         assert get.call_count == 2
+
+    @parameterized.expand(
+        [
+            ("deleted_integration", Integration.DoesNotExist(), 4212),
+            ("unset_integration_id", None, 0),
+        ]
+    )
+    def test_lookup_failure_is_classified_for_every_oauth_source(
+        self, _name: str, side_effect: Exception | None, integration_id: int
+    ):
+        # Every OAuth source shares this lookup, so its two failure messages have to be in the
+        # all-source map: unclassified they get retried to exhaustion and then shown to the
+        # customer raw, with the integration id in them.
+        get = mock.Mock(side_effect=side_effect)
+
+        with (
+            patch(f"{_MIXINS_MODULE}.Integration.objects.get", get),
+            patch(f"{_MIXINS_MODULE}.close_old_connections"),
+            patch(f"{_MIXINS_MODULE}.time.sleep"),
+        ):
+            with pytest.raises(ValueError) as raised:
+                OAuthMixin().get_oauth_integration(integration_id=integration_id, team_id=2)
+
+        assert error_message_matches(str(raised.value), Any_Source_Errors.keys())
+        friendly = next(
+            message
+            for pattern, message in Any_Source_Errors.items()
+            if error_message_matches(str(raised.value), [pattern])
+        )
+        assert friendly == MISSING_INTEGRATION_MESSAGE
+        assert str(integration_id) not in MISSING_INTEGRATION_MESSAGE
 
 
 class TestDirectHostIsCheckedAtConnect(SimpleTestCase):
