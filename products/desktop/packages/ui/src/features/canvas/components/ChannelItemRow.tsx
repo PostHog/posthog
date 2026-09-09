@@ -1,4 +1,5 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
+import { presenceTier } from "@posthog/core/canvas/presence";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -16,14 +17,21 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
+import type { AvatarPerson } from "@posthog/ui/features/auth/UserAvatar";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { writeCanvasDragData } from "@posthog/ui/features/canvas/canvasDrag";
 import { ChannelItemHoverCard } from "@posthog/ui/features/canvas/components/ChannelItemHoverCard";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
+import { PresenceAvatar } from "@posthog/ui/features/canvas/components/PresenceAvatars";
 import {
+  type TaskRowBulkMenu,
   TaskRowContextMenu,
   type TaskRowMenuProps,
 } from "@posthog/ui/features/canvas/components/TaskRowMenu";
+import { useChannelItemMetadata } from "@posthog/ui/features/canvas/hooks/useChannelItemFacts";
 import { useChannelTaskStatus } from "@posthog/ui/features/canvas/hooks/useChannelTaskStatus";
 import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
+import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { InlineEditInput } from "@posthog/ui/features/sidebar/components/items/TaskItem";
 import {
   PinnedBadge,
@@ -37,7 +45,11 @@ import {
   taskDot,
 } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
+import { writeTaskDragData } from "@posthog/ui/features/sidebar/taskDrag";
 import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSelection";
+import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
+import { useMountedOnceOpened } from "@posthog/ui/hooks/useMountedOnceOpened";
+import { useNow } from "@posthog/ui/hooks/useNow";
 import {
   type DragEvent,
   type ReactNode,
@@ -53,9 +65,11 @@ import {
 export interface ChannelItemActions {
   open: (item: ChannelItemModel) => void;
   togglePin: (item: ChannelItemModel) => void;
+  /** Pins or unpins a whole batch, which a drag over the pinned run applies. */
+  setPinned: (items: ChannelItemModel[], pinned: boolean) => void;
   archive: (item: ChannelItemModel) => void;
-  /** Canvases only — a task is archived, not deleted. */
-  remove: (item: ChannelItemModel) => void;
+  remove?: (item: ChannelItemModel) => void;
+  fileCanvas?: (item: ChannelItemModel, channelId: string) => void;
 }
 
 // The channel sidebar's own chrome. Deliberately not shared with the Code
@@ -137,6 +151,87 @@ function CanvasBadgeStack({
   );
 }
 
+/** The person a row is attributed to, as a face can draw them. */
+function rowAuthor(
+  item: ChannelItemModel,
+): { user: AvatarPerson; label: string } | null {
+  if (item.authorUser) {
+    return { user: item.authorUser, label: userDisplayName(item.authorUser) };
+  }
+  if (item.kind === "task") return null;
+  const name = item.authorName;
+  if (!name && !item.authorUuid) return null;
+  const [first, ...rest] = (name ?? "").split(/\s+/).filter(Boolean);
+  return {
+    user: {
+      uuid: item.authorUuid,
+      first_name: first ?? null,
+      last_name: rest.join(" ") || null,
+    },
+    label: name ?? "Unknown",
+  };
+}
+
+/**
+ * The face of whoever is working on a row, shown only while the item is live or
+ * recently active — a quiet row stays clean.
+ *
+ * Idle is decided here, once, off the clock: an item's activity time is fixed,
+ * so a row that is idle now stays idle until its item changes, and re-rendering
+ * it every minute would buy nothing. Only a row with a face to fade subscribes.
+ */
+function RowPresence({
+  item,
+  currentUserUuid,
+}: {
+  item: ChannelItemModel;
+  currentUserUuid?: string;
+}) {
+  const author = rowAuthor(item);
+  if (!author) return null;
+  if (presenceTier(item.ts, Date.now()) === "idle") return null;
+  return (
+    <ActiveRowPresence
+      item={item}
+      author={author}
+      isCurrentUser={author.user.uuid === currentUserUuid}
+    />
+  );
+}
+
+/**
+ * Subscribed to the clock rather than reading it once: the row is memoized on
+ * its item, which a poll returning the same rows leaves untouched, so nothing
+ * else would re-render it as the live window closes and the recent one ends.
+ */
+function ActiveRowPresence({
+  item,
+  author,
+  isCurrentUser,
+}: {
+  item: ChannelItemModel;
+  author: NonNullable<ReturnType<typeof rowAuthor>>;
+  isCurrentUser: boolean;
+}) {
+  const tier = presenceTier(item.ts, useNow());
+  if (tier === "idle") return null;
+  return (
+    <PresenceAvatar
+      user={author.user}
+      tier={tier}
+      label={
+        isCurrentUser && tier === "live"
+          ? "You are working on this"
+          : isCurrentUser
+            ? "You were here recently"
+            : tier === "live"
+              ? `${author.label} is working on this`
+              : `${author.label} was here recently`
+      }
+    />
+  );
+}
+
 /**
  * A row's leading mark, always the task-list state vocabulary. Canvases have no
  * live run, so they take the quiet dot and move their glyph to the trailing
@@ -167,20 +262,25 @@ function ChannelItemDot({
 export function ChannelItemRowView({
   item,
   status,
+  subtitle,
   isActive,
   isSelected = false,
   showPinBadge = true,
   draggable = false,
+  currentUserUuid,
   onClick,
   onDragStart,
   onDragEnd,
 }: {
   item: ChannelItemModel;
   status: TaskStatusInput | null;
+  /** The metadata row under the title, when the appearance settings ask for one. */
+  subtitle?: ReactNode;
   isActive: boolean;
   isSelected?: boolean;
   showPinBadge?: boolean;
   draggable?: boolean;
+  currentUserUuid?: string;
   onClick?: (e: React.MouseEvent) => void;
   onDragStart?: (e: DragEvent) => void;
   onDragEnd?: (e: DragEvent) => void;
@@ -188,10 +288,15 @@ export function ChannelItemRowView({
   const pinBadge = item.pinned && showPinBadge;
   return (
     <SidebarItem
+      // The space's lists follow web conventions — every clickable row shows a
+      // pointer, like the feed and activity rows — unlike the Code sidebar,
+      // which keeps SidebarItem's native cursor-default.
+      className="cursor-pointer"
       depth={0}
       icon={<ChannelItemDot item={item} status={status} />}
       // A non-string label opts out of SidebarItem's truncation tooltip.
       label={<span>{item.title}</span>}
+      subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}
       // Lets a drag-selection find the row and its session; canvases are not
@@ -203,6 +308,9 @@ export function ChannelItemRowView({
       onClick={onClick}
       endContent={
         <span className={TRAILING_CLASS}>
+          {/* Who's here, ahead of the badges: presence is the row's most
+              time-sensitive fact, and it's absent on a quiet row. */}
+          <RowPresence item={item} currentUserUuid={currentUserUuid} />
           {/* Badges take the timestamp's slot: identity (pin, source, cloud,
               PR) is what you scan a task list for, and the age is still on the
               preview card. */}
@@ -243,6 +351,8 @@ export function ChannelItemRow({
   onEditCancel,
   onDragStart,
   onDragEnd,
+  bulk,
+  onContextMenuOpenChange,
 }: {
   item: ChannelItemModel;
   /** The space this row is listed under, ticked in the menu's "File to…". */
@@ -265,14 +375,39 @@ export function ChannelItemRow({
   /** Only the space sidebar passes these; they drive its pin/unpin drag. */
   onDragStart?: (e: DragEvent) => void;
   onDragEnd?: (e: DragEvent) => void;
+  /**
+   * Present when this row is inside a multi-session selection, which its
+   * right-click menu then acts on instead of the row alone. The confirm behind
+   * `onArchive` belongs to the list, which owns the selection.
+   */
+  bulk?: TaskRowBulkMenu | null;
+  onContextMenuOpenChange?: (open: boolean) => void;
 }) {
   const status = useChannelTaskStatus(item);
+  const subtitle = useChannelItemMetadata(item);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [handoffOpen, setHandoffOpen] = useState(false);
+  const handoffMounted = useMountedOnceOpened(handoffOpen);
+  const currentUser = useCurrentUser();
+  const canHandoff =
+    item.kind === "task" &&
+    item.task != null &&
+    item.authorUser?.id != null &&
+    currentUser.data?.id === item.authorUser.id;
+  const canFileCanvas =
+    item.kind === "canvas" &&
+    actions.fileCanvas !== undefined &&
+    item.authorUuid != null &&
+    currentUser.data?.uuid === item.authorUuid;
   const handleDragStart = useCallback(
     (event: DragEvent) => {
-      if (item.kind !== "task") return;
+      if (item.kind === "canvas") {
+        writeCanvasDragData(event.dataTransfer, item.id);
+        event.dataTransfer.effectAllowed = "copy";
+        return;
+      }
 
-      event.dataTransfer.setData("text/x-task-id", item.id);
+      writeTaskDragData(event.dataTransfer, item.id);
       // Both, always. Command Center tiles ask for `copy` and the pinned run
       // asks for `move`; a source that permits only one resolves the other
       // pairing to no drop, and the tile silently stops accepting the row.
@@ -282,9 +417,8 @@ export function ChannelItemRow({
     [item.id, item.kind, onDragStart],
   );
 
-  // A canvas gets the same menu with the items it actually has: pin, and delete
-  // instead of archive. Filing and command-centre cells are task-shaped, and the
-  // menu drops them rather than showing them dead.
+  // A canvas gets the same menu with the items it actually has: command-centre
+  // placement, pin, filing, and delete instead of archive.
   //
   // Memoized because it travels to the shared preview card as the trigger's
   // payload, which is written to the card's store whenever its identity changes.
@@ -296,7 +430,15 @@ export function ChannelItemRow({
             id: item.id,
             title: item.title,
             isPinned: item.pinned,
+            channelId,
+            ...(canFileCanvas
+              ? {
+                  onFile: (targetChannelId: string) =>
+                    actions.fileCanvas?.(item, targetChannelId),
+                }
+              : {}),
             onTogglePin: () => actions.togglePin(item),
+            onAddToCommandCenter,
             // Confirm first, like the canvas menus in the artifacts grid and
             // the canvas header: the canvas and its history go for everyone.
             onDelete: () => setConfirmDeleteOpen(true),
@@ -306,13 +448,25 @@ export function ChannelItemRow({
             id: item.id,
             title: item.title,
             isPinned: item.pinned,
+            task: item.task ?? undefined,
             channelId,
             onAddToCommandCenter,
             onRename,
             onTogglePin: () => actions.togglePin(item),
             onArchive: () => actions.archive(item),
+            ...(canHandoff ? { onHandoff: () => setHandoffOpen(true) } : {}),
           },
-    [item, channelId, actions, onAddToCommandCenter, onRename],
+    // Ownership rides on the currentUser query, so these belong in deps for a
+    // sign-in refresh to re-evaluate.
+    [
+      item,
+      channelId,
+      actions,
+      onAddToCommandCenter,
+      onRename,
+      canHandoff,
+      canFileCanvas,
+    ],
   );
 
   if (isEditing) {
@@ -335,10 +489,12 @@ export function ChannelItemRow({
       <ChannelItemRowView
         item={item}
         status={status}
+        subtitle={subtitle}
         isActive={isActive}
         isSelected={isSelected}
         showPinBadge={showPinBadge}
-        draggable={item.kind === "task"}
+        draggable
+        currentUserUuid={currentUser.data?.uuid}
         onDragStart={handleDragStart}
         onDragEnd={onDragEnd}
         onClick={(e) => (onClick ? onClick(e) : actions.open(item))}
@@ -351,7 +507,13 @@ export function ChannelItemRow({
   // definition, so the two can't drift.
   return (
     <>
-      <TaskRowContextMenu menu={menu}>{tipped}</TaskRowContextMenu>
+      <TaskRowContextMenu
+        menu={menu}
+        bulk={bulk}
+        onOpenChange={onContextMenuOpenChange}
+      >
+        {tipped}
+      </TaskRowContextMenu>
       {/* The same confirm the artifacts grid and the canvas header show: a
           canvas goes for everyone in the space, so it isn't a one-click action
           however small the row is. The undo window still follows. */}
@@ -378,7 +540,7 @@ export function ChannelItemRow({
               size="sm"
               onClick={() => {
                 setConfirmDeleteOpen(false);
-                actions.remove(item);
+                actions.remove?.(item);
               }}
             >
               Delete
@@ -386,6 +548,13 @@ export function ChannelItemRow({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {canHandoff && item.task && handoffMounted ? (
+        <HandoffTaskDialog
+          task={item.task}
+          open={handoffOpen}
+          onOpenChange={setHandoffOpen}
+        />
+      ) : null}
     </>
   );
 }

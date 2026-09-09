@@ -28,6 +28,8 @@ It is exercised locally via management commands, and it is also used by the prod
   - Called after the artefact write commits (via `transaction.on_commit` where a transaction is open), never in-transaction: the research activity (`source="pipeline"`), scout report creation and reviewer edits (`"scout"` / `"scout_edit"`), custom-agent persistence (`"custom_agent"`), the app reviewers PUT (`"user_edit"`), and the artefacts POST (`"api"`).
   - Best-effort: failures are logged and never break report generation.
   - Delivery is at-least-once (activity retries re-fire an identical payload) and reviewer edits legitimately re-fire with the new list, so consumers read report state as the latest event per `report_id`, never by counting raw events.
+  - Also emits `signals_suggested_reviewers_unresolved` when a pipeline run resolves no reviewers at all (nothing is persisted for an empty list, so this is the only record of why): the `outcome` (`no_repository`, `no_commit_hashes`, `no_github_integration`, `github_rate_limited`, `no_commit_authors`, `only_bot_authors`, `no_candidates`) plus lookup counters from `ReviewerResolutionDiagnostics` in `resolve_reviewers.py`. Same latest-per-`report_id` read contract, which is why a re-promotion that resolves nobody stays silent when the report's previous reviewers remain its live set.
+  - Two outcomes read narrower than they are: `no_github_integration` also covers an access probe that failed transiently, and `no_repository` never reaches this event (the summary workflow bails to `repo_selection_required` before research runs) — see the comment on `ReviewerResolutionOutcome`.
 - `fixtures/analyze_report_funnel_research_output.json`
   Saved previous research output used by local `update` testing.
 - `fixtures/insight_scene_logic_mode_property_bug.json`
@@ -69,6 +71,35 @@ The presentation step can also author `charts` — query nodes the inbox draws o
 - **Not safety-judged.** The pipeline's safety judge screens the input signals before research runs, so it never sees research-authored charts — the same as it never sees research-authored title/summary. Charts are agent output derived from already-screened signals, consistent with that model. (This differs from the scout emit path, where charts and prose are judged together.)
 
 The caller activity passes `has_business_knowledge=True` when the team's business knowledge product is both feature-flagged on and has at least one READY source (via `products.business_knowledge.backend.logic.is_available_for_team`). When true, the research prompt includes a `## Business knowledge` block that instructs the agent to search the team's curated knowledge base via MCP tools.
+
+### Fleet steering
+
+The caller activity also passes `steering_section`, resolved by `report_steering.load_research_steering` from the notes the team left the scout fleet. `build_initial_research_prompt` renders it verbatim under the research protocol, and renders nothing when it is empty, so a team with no notes pays no tokens for a heading.
+
+Why this stage needs it: dismissing, discussing, or rating an inbox report leaves the person's text as a scout note, and until this landed only scheduled scout runs read those. Research is the stage that produces the findings, actionability, priority, and title, so a reviewer's "this is expected, it's the approval flow" shaped the scout and not the judgment it was actually about.
+
+The research variant includes **every** note origin, unlike the implementation run, which reads `HUMAN` notes only, and it is the one reader of the `pipeline:report-research` audience, merged newest first with the scout and fleet-wide notes under the same cap. See the `report_steering` module docstring for the reasoning on both sides. The section itself carries the untrusted-input rule, says that most notes will not apply to this report and that a note counts only when it speaks to the same behavior, entity, or area the signals describe, and asks the run to name the note in the explanation of any assessment it changed, so a reviewer can see their feedback land.
+
+`signals_research_steering_attached` fires once per run with `notes_attached`, `dismissal_notes_attached`, `pipeline_notes_attached`, `scratchpad_available`, and `memory_protocol`. Join it to `signal_report_completed` on `report_id` to read whether steering moved the outcome; there is deliberately no self-reported "steering applied" artefact, because the agent's own claim is weaker evidence than that join.
+
+### Research memory
+
+The same section asks the run to write back what it verified, so the next report over the same entities starts from that judgment instead of re-deriving it.
+Findings and assessments die with the run; the scratchpad is the one channel that is entity-keyed, searchable, and shared with the scouts.
+
+It renders only when the run's token carries `signal_scratchpad_internal:write`.
+`load_research_steering` takes `memory_writable`, and the caller activity derives it from `oauth.grants_scratchpad_write(RESEARCH_MCP_SCOPES)`, the same constant it mints the token with, so the instruction cannot outlive the scope behind it. That is the implementation side's arrangement too.
+Entries are attributed to `pipeline:report-research` through `SignalScratchpad.created_by_identity`, resolved server-side from the sandbox token's task (`pipeline_identity.py`) rather than from anything the agent claims.
+
+What the protocol asks for: entity-keyed judgments (`noise:`, `already_addressed:`, `pattern:`), operational learnings under `pattern:research:<topic>`, and a record of which steering notes were absorbed.
+What it forbids: writing anything unverified, restating the report, quoting note or signal text, blind-overwriting a key on a shared keyspace, and omitting `expires_at`.
+The report id is interpolated into the section rather than asked for, because the research prompt names one only on a re-research and a first run would otherwise omit or invent it.
+The read pointer normally waits until the team's scratchpad holds an entry; under the write posture it ships anyway, because a writer has to read a key before it overwrites it.
+That is the one place the two stages differ in shape: the implementation protocol carries its own search step and replaces the pointer, so `_compose` takes `keep_pointer` and this stage passes it.
+
+Per-run counts of entries read and written are not on the steering event: the calls happen inside the sandbox over MCP, so they are only visible to the pipeline as tool-call telemetry, not as a value the activity holds.
+
+Both stages write, under one gate and three shared rules: describe never quote, search the key then condense, always set `expires_at`. The autostarted implementation run holds `signals_implementation` and keys its entries on a repository (see "Fleet memory the implementation run writes back" in `products/signals/ARCHITECTURE.md`); this stage holds `signals_research` and keys its entries on the entities a report names. Keep the two prompt sections consistent when either changes.
 
 ## Local debug commands
 

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, TypeVar
 
 from django.conf import settings
@@ -9,18 +10,22 @@ import temporalio
 import posthoganalytics
 from pydantic import BaseModel, ValidationError
 
+from posthog.dataclasses import frozen
+from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
+from posthog.temporal.oauth import McpScopePreset, grants_scratchpad_write
 
 from products.business_knowledge.backend.logic import is_available_for_team
 from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_runtime
 from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, SuggestedReviewers
-from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
+from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
+from products.signals.backend.repo_corrections import WRONG_REPO_CONTENT_NEEDLE
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
@@ -31,9 +36,16 @@ from products.signals.backend.report_generation.research import (
     SignalFinding,
     run_multi_turn_research,
 )
-from products.signals.backend.report_generation.resolve_reviewers import resolve_suggested_reviewers
-from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
+from products.signals.backend.report_generation.resolve_reviewers import (
+    ReviewerResolutionDiagnostics,
+    resolve_suggested_reviewers_with_diagnostics,
+)
+from products.signals.backend.report_generation.reviewer_telemetry import (
+    capture_suggested_reviewers_resolved,
+    capture_suggested_reviewers_unresolved,
+)
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_steering import ReportSteering, load_research_steering
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -46,12 +58,17 @@ from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 logger = structlog.get_logger(__name__)
 
 
-@dataclass
+@frozen
 class RunAgenticReportInput:
     team_id: int
     report_id: str
     signals: list[SignalData]
     repo_selection: RepoSelectionResult
+    # Workflow time from just before repo_selection was resolved. Lets the persist step detect a
+    # reviewer rewriting the selection while the run was in flight (a wrong-repo dismissal
+    # correcting or clearing it) so the run does not bury that newer row. Defaults to None so an
+    # older workflow history that predates this field replays cleanly (guard off).
+    repo_selection_as_of: datetime | None = None
 
 
 @dataclass
@@ -210,16 +227,22 @@ class ArtefactDraft:
     attribution: ArtefactAttribution
 
 
+@frozen
+class _PipelineReviewerResolution:
+    reviewers: list[ReviewerContent]
+    diagnostics: ReviewerResolutionDiagnostics
+
+
 def _build_reviewers_content(
     team_id: int,
     repository: str,
     findings: list[SignalFinding],
-) -> list[ReviewerContent]:
+) -> _PipelineReviewerResolution:
     """Collect relevant commit SHAs from research findings and resolve them to GitHub reviewers.
 
     Deduplicates commit hashes across all findings (keeping the first reason seen per SHA),
-    then calls resolve_suggested_reviewers to identify the authors/committers of those commits
-    and returns them as serializable ReviewerContent dicts.
+    then calls the resolver to identify the authors/committers of those commits and returns
+    them as serializable ReviewerContent dicts, plus the diagnostics explaining an empty list.
 
     The returned list is stored as a ``suggested_reviewers`` artefact keyed only by
     github_login — no PostHog user IDs are persisted. This is intentional:
@@ -237,15 +260,10 @@ def _build_reviewers_content(
             if sha and sha not in commit_hashes_with_reasons:
                 commit_hashes_with_reasons[sha] = str(reason) if reason else ""
 
-    if not commit_hashes_with_reasons or not repository:
-        return []
-
-    resolved = resolve_suggested_reviewers(team_id, repository, commit_hashes_with_reasons)
-    if not resolved:
-        return []
+    resolution = resolve_suggested_reviewers_with_diagnostics(team_id, repository, commit_hashes_with_reasons)
 
     reviewers_content: list[ReviewerContent] = []
-    for reviewer in resolved:
+    for reviewer in resolution.reviewers:
         reviewers_content.append(
             ReviewerContent(
                 github_login=reviewer.login.lower(),
@@ -254,9 +272,69 @@ def _build_reviewers_content(
                 reason=None,
                 # Pipeline reviewers are commit-authorship-derived, never owner-injected.
                 is_skill_owner=False,
+                source_skill=None,
             )
         )
-    return reviewers_content
+    return _PipelineReviewerResolution(reviewers=reviewers_content, diagnostics=resolution.diagnostics)
+
+
+def _report_has_live_suggested_reviewers(report_id: str) -> bool:
+    """Whether the report's live (latest) ``suggested_reviewers`` artefact still names anyone.
+
+    Unlike the artefacts this pipeline writes, this one can also come from a user edit or the API,
+    so unparseable content is treated as "someone is still assigned": the caller only uses this to
+    decide whether it may call the report reviewerless, and it must not claim that on a guess.
+    """
+    artefact = (
+        SignalReportArtefact.objects.filter(
+            report_id=report_id, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if artefact is None:
+        return False
+    try:
+        return bool(SuggestedReviewers.model_validate_json(artefact.content).root)
+    except ValidationError:
+        logger.warning(
+            "Could not parse the report's suggested_reviewers artefact",
+            report_id=report_id,
+            artefact_id=str(artefact.id),
+        )
+        return True
+
+
+def _reviewer_selection_written_since(team_id: int, report_id: str, since: datetime) -> bool:
+    """Whether a reviewer superseded the run's repo selection after `since` — a wrong-repo
+    dismissal's correction or clear that landed while the run was in flight.
+
+    Two shapes count. A person editing the selection directly (a repo_selection artefact through
+    the artefacts API) carries a non-null `created_by`. A wrong-repo dismissal filed through the
+    state API records its correction on a `dismissal` artefact under the request's attribution —
+    which is null-`created_by` for an agent call, since the forwarded task id attributes the row and
+    attribution is exclusive — so filtering on `created_by` alone would miss an agent-issued
+    correction. Keying off the dismissal artefact instead is attribution-agnostic, and it cannot
+    false-positive on the activity's own retry (whose `repo_selection_as_of` does not advance past
+    its first attempt) because the pipeline never writes `dismissal` artefacts — only the
+    state-transition path does.
+    """
+    reviewer_edited_selection = SignalReportArtefact.objects.filter(
+        team_id=team_id,
+        report_id=report_id,
+        type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+        created_at__gt=since,
+        created_by__isnull=False,
+    ).exists()
+    if reviewer_edited_selection:
+        return True
+    return SignalReportArtefact.objects.filter(
+        team_id=team_id,
+        report_id=report_id,
+        type=SignalReportArtefact.ArtefactType.DISMISSAL,
+        created_at__gt=since,
+        content__contains=WRONG_REPO_CONTENT_NEEDLE,
+    ).exists()
 
 
 def _append_agentic_report_artefacts(*, team_id: int, report_id: str, artefacts: list[ArtefactDraft]) -> None:
@@ -316,14 +394,17 @@ async def _persist_agentic_report_artefacts(
     report_id: str,
     result: ReportResearchOutput,
     repo_selection: RepoSelectionResult,
+    repo_selection_as_of: datetime | None = None,
 ) -> None:
     # Resolve suggested reviewers from commit hashes (always, from the effective findings —
     # auto-start below needs them even when nothing is persisted this run)
-    reviewers_content = await database_sync_to_async(_build_reviewers_content, thread_sensitive=False)(
+    findings = result.effective_findings()
+    reviewer_resolution = await database_sync_to_async(_build_reviewers_content, thread_sensitive=False)(
         team_id=team_id,
         repository=repo_selection.repository or "",
-        findings=result.effective_findings(),
+        findings=findings,
     )
+    reviewers_content = reviewer_resolution.reviewers
 
     # Persist only what's new this run; values the agent confirmed unchanged keep their latest
     # persisted row. Reviewers are derived purely from findings, so they're only re-persisted
@@ -348,8 +429,27 @@ async def _persist_agentic_report_artefacts(
     # model. Reviewers are derived from findings, so they're only re-persisted when a finding changed.
     has_new_finding = any(isinstance(content, SignalFinding) for content in result.new_artefacts)
 
+    # A reviewer can rewrite the selection while this run is in flight (a wrong-repo dismissal
+    # correcting or clearing it). The run's value predates that decision, so persisting it would
+    # bury the reviewer's row (latest-wins), handing the rejected repository to the next run and
+    # to settle-time auto-start, which reads the report's current artefacts.
+    superseded_by_reviewer = repo_selection_as_of is not None and await database_sync_to_async(
+        _reviewer_selection_written_since, thread_sensitive=False
+    )(team_id, report_id, repo_selection_as_of)
+    if superseded_by_reviewer:
+        logger.info(
+            "signals repo selection persist skipped: a reviewer rewrote the selection mid-run",
+            report_id=report_id,
+            team_id=team_id,
+            repository=repo_selection.repository,
+        )
+
     artefacts = [
-        ArtefactDraft(content=repo_selection, attribution=repo_selection_attribution),
+        *(
+            []
+            if superseded_by_reviewer
+            else [ArtefactDraft(content=repo_selection, attribution=repo_selection_attribution)]
+        ),
         *(ArtefactDraft(content=content, attribution=research_attribution) for content in result.new_artefacts),
     ]
     if reviewers_content and has_new_finding:
@@ -377,6 +477,29 @@ async def _persist_agentic_report_artefacts(
             github_logins=[reviewer["github_login"] for reviewer in reviewers_content],
             source="pipeline",
         )
+    elif not reviewers_content:
+        # An empty list persists nothing, so without this the report's lack of a reviewer is
+        # indistinguishable from never having been researched. A re-promotion that resolves
+        # nobody leaves the previously-persisted list as the report's live reviewer set, though —
+        # that report isn't reviewerless, so firing here would make the latest-event-per-report
+        # read contradict the artefact.
+        keeps_previous_reviewers = await database_sync_to_async(
+            _report_has_live_suggested_reviewers, thread_sensitive=False
+        )(report_id)
+        if keeps_previous_reviewers:
+            logger.info(
+                "Reviewer resolution came back empty but the report keeps its previous reviewers",
+                report_id=report_id,
+                outcome=reviewer_resolution.diagnostics.outcome,
+            )
+        else:
+            await database_sync_to_async(capture_suggested_reviewers_unresolved, thread_sensitive=False)(
+                team_id=team_id,
+                report_id=report_id,
+                diagnostics=reviewer_resolution.diagnostics,
+                finding_count=len(findings),
+                has_new_finding=has_new_finding,
+            )
 
     # Backfill the research task's title now that research has produced the report title. At
     # task-creation time the report has no title yet (research is what produces it), so the task
@@ -385,27 +508,10 @@ async def _persist_agentic_report_artefacts(
         await database_sync_to_async(tasks_facade.set_task_title, thread_sensitive=False)(
             result.research_task_id, team_id, f"Research: {result.title}"
         )
-
-    try:
-        await maybe_autostart_implementation_task(
-            team_id=team_id,
-            report_id=report_id,
-            repository=repo_selection.repository or "",
-            title=result.title,
-            summary=result.summary,
-            actionability=result.effective_actionability(),
-            priority=result.effective_priority(),
-            reviewers_content=reviewers_content,
-        )
-    except Exception as error:
-        posthoganalytics.capture_exception(error)
-        logger.exception(
-            "signals auto-start task failed",
-            report_id=report_id,
-            team_id=team_id,
-            repository=repo_selection.repository,
-            error=str(error),
-        )
+    # Auto-start is not triggered here. The summary workflow starts implementation once the report
+    # has settled (READY with no pending signals), so the task is scoped to the report's final
+    # summary rather than whichever research pass finished first — see
+    # `maybe_autostart_implementation_activity` in temporal/summary.py.
 
 
 def _team_has_business_knowledge(team_id: int) -> bool:
@@ -443,6 +549,47 @@ def _team_report_charts_enabled(team_id: int) -> bool:
         return False
 
 
+# The posture the research sandbox's token is minted from. Named once because two things depend on
+# it: the token the sandbox holds, and the memory protocol rendered into the research prompt. The
+# prompt side derives its gate from this constant, so a posture that loses the scratchpad write
+# scope also loses the instructions that depend on it.
+RESEARCH_MCP_SCOPES: McpScopePreset = "signals_research"
+
+
+def _capture_research_steering_attached(*, team_id: int, report_id: str, steering: ReportSteering) -> None:
+    """`signals_research_steering_attached` — fired for every research run, so the share that carried
+    the team's steering is readable against the share that carried none, and against how those
+    reports were judged afterwards (join `signal_report_completed` on `report_id`).
+
+    `dismissal_notes_attached` is the one that answers whether a reviewer's "stop flagging this"
+    reaches the stage that decides whether to flag it again. `pipeline_notes_attached` answers
+    whether anyone addresses notes to this stage at all.
+
+    Delivery is at-least-once, because an activity retry re-fires an identical payload, so read
+    report state as the latest event per `report_id` rather than by counting raw events.
+    """
+    try:
+        team = Team.objects.select_related("organization").get(id=team_id)
+        posthoganalytics.capture(
+            event="signals_research_steering_attached",
+            distinct_id=str(team.uuid),
+            properties={
+                "team_id": team.id,
+                "organization_id": str(team.organization.id),
+                "report_id": report_id,
+                "notes_attached": steering.notes_attached,
+                "dismissal_notes_attached": steering.dismissal_notes_attached,
+                "pipeline_notes_attached": steering.pipeline_notes_attached,
+                "scratchpad_available": steering.scratchpad_available,
+                "memory_protocol": steering.memory_protocol,
+            },
+            groups=groups(team.organization, team),
+        )
+    except Exception:
+        # Analytics must never break research.
+        logger.exception("Failed to capture signals_research_steering_attached", report_id=report_id)
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -467,10 +614,11 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 user_id=user_id,
                 repository=repository,
                 sandbox_environment_id=sandbox_env_id,
-                # Reads only: the research agent queries data/insights and can list the report's
-                # artefacts, but never writes artefacts itself — the pipeline persists its
-                # structured outputs after the session.
-                posthog_mcp_scopes="read_only",
+                # Reads, plus the scratchpad: the research agent queries data/insights and can
+                # list the report's artefacts, but never writes artefacts itself — the pipeline
+                # persists its structured outputs after the session. What it does keep is what it
+                # judged, so the next run over the same entities starts from it.
+                posthog_mcp_scopes=RESEARCH_MCP_SCOPES,
                 model=agent_runtime.model,
                 runtime_adapter=agent_runtime.runtime_adapter,
                 reasoning_effort=agent_runtime.reasoning_effort,
@@ -485,6 +633,14 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             resolved_report_title, resolved_report_summary = await _load_resolved_report_context(
                 input.team_id, input.report_id
             )
+            # 2c. Load what the team already told the scout fleet, so a reviewer's verdict on an
+            # earlier report reaches the stage that judges this one.
+            steering = await database_sync_to_async(load_research_steering, thread_sensitive=False)(
+                input.team_id, input.report_id, memory_writable=grants_scratchpad_write(RESEARCH_MCP_SCOPES)
+            )
+            await database_sync_to_async(_capture_research_steering_attached, thread_sensitive=False)(
+                team_id=input.team_id, report_id=input.report_id, steering=steering
+            )
             # 3. Run the agentic research in the sandbox
             result = await run_multi_turn_research(
                 input.signals,
@@ -496,6 +652,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 resolved_report_title=resolved_report_title,
                 resolved_report_summary=resolved_report_summary,
                 charts_enabled=charts_enabled,
+                steering_section=steering.section,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(
@@ -503,6 +660,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 input.report_id,
                 result,
                 input.repo_selection,
+                repo_selection_as_of=input.repo_selection_as_of,
             )
         actionability = result.effective_actionability()
         priority = result.effective_priority()

@@ -28,6 +28,7 @@ Do not run `sampo publish`; cargo-dist owns publishing for `posthog-cli`.
 If you need to cut a release by hand, merge a CLI changeset to `master` and let `Release CLI` run from there.
 Do not push `posthog-cli/vX.Y.Z` tags manually; cargo-dist tag-push releases are disabled.
 If cargo-dist fails after `Release CLI` commits the release bump, rerun the failed jobs from the same workflow run.
+Any failed job in `Release CLI` posts to the approval thread and to the [#alerts-posthog-js channel in Slack](https://posthog.slack.com/archives/C07HTMN9X47).
 
 The release workflow also builds `services/mcp` into `cli/lib/posthog-api-cli.mjs` before cargo-dist packages artifacts.
 This keeps `posthog-cli api` aligned with the generated MCP tool catalog at release time.

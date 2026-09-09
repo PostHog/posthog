@@ -1,4 +1,5 @@
 import uuid
+import datetime as dt
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Optional
@@ -27,6 +28,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     mark_initial_sync_complete,
+    update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -40,7 +42,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     filter_dwh_columns_by_enabled_columns,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import (
+    DataWarehouseTableCreatedVia,
+    DataWarehouseTableFormat,
+    ExternalDataSourceType,
+)
 
 LOGGER = get_logger(__name__)
 
@@ -121,17 +127,43 @@ async def update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> No
     @retry_on_operational_error
     def _update():
         job = ExternalDataJob.objects.get(pk=job_id)
-        schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
-        schema.last_synced_at = job.created_at
-        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
-        # `_get_before_update` SELECT that also needs a pooler connection (see save()).
-        schema.save(skip_activity_log=True)
+        # `last_full_run_at` rides along in the same locked write: only a run that reached
+        # post-load extracted anything, which is what bounds how long a schema can go on
+        # negative probes alone (see `_fast_return_eligible`). The helper's select_for_update
+        # also stops this save from clobbering a concurrent `sync_type_config` update.
+        update_sync_type_config_keys(
+            schema_id,
+            team_id,
+            updates={"last_full_run_at": dt.datetime.now(dt.UTC).isoformat()},
+            extra_model_fields={"last_synced_at": job.created_at},
+        )
 
     await _update()
 
 
-async def set_initial_sync_complete(schema_id: str, team_id: int) -> None:
-    await database_sync_to_async_pool(mark_initial_sync_complete)(schema_id=schema_id, team_id=team_id)
+def _purge_stale_buffer_then_mark_initial_sync_complete(
+    schema_id: str, team_id: int, logger: FilteringBoundLogger
+) -> None:
+    # cdc.buffer pulls in pipeline_v3, whose package __init__ imports common.load, which imports
+    # this module back — a true cycle only a deferred import breaks.
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import purge_buffer_prefix  # noqa: PLC0415
+
+    schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
+    # About to flip a CDC schema snapshot→streaming: anything in the prefix predates the snapshot
+    # that just landed — a leftover from before a TRUNCATE, a re-enable, or this run's own capture
+    # tail — and merging it after the flip would resurrect rows the snapshot wiped. The ingress lane
+    # cannot write here until the flip commits; the shadow lane writes on its flag alone, so a
+    # concurrent capture tick is the one remaining writer, and the consumer's position guard covers
+    # what it leaves. Strict because a survived stale file corrupts the table.
+    if schema.is_cdc and not schema.initial_sync_complete and schema.cdc_mode == "snapshot":
+        purge_buffer_prefix(team_id, str(schema_id), logger, strict=True)
+    mark_initial_sync_complete(schema_id=schema_id, team_id=team_id)
+
+
+async def set_initial_sync_complete(schema_id: str, team_id: int, logger: FilteringBoundLogger) -> None:
+    await database_sync_to_async_pool(_purge_stale_buffer_then_mark_initial_sync_complete)(
+        schema_id=schema_id, team_id=team_id, logger=logger
+    )
 
 
 def _refresh_cumulative_row_count(table: DataWarehouseTable, logger: FilteringBoundLogger, context: str) -> None:
@@ -150,7 +182,7 @@ async def validate_schema_and_update_table(
     team_id: int,
     schema_id: uuid.UUID,
     row_count: int,
-    table_format: DataWarehouseTable.TableFormat,
+    table_format: DataWarehouseTableFormat,
     queryable_folder: str,
     table_schema_dict: Optional[dict[str, str]] = None,
     primary_keys: Optional[list[str]] = None,
@@ -170,10 +202,6 @@ async def validate_schema_and_update_table(
         table_schema_dict: The schema of the table
     """
     logger = LOGGER.bind(team_id=team_id)
-
-    if row_count == 0:
-        logger.warning("Skipping `validate_schema_and_update_table` due to `row_count` being 0")
-        return
 
     @database_sync_to_async_pool
     def _validate_and_update():
@@ -215,12 +243,25 @@ async def validate_schema_and_update_table(
             # minutes, surfacing as "idle in transaction" connections that stalled vacuum and
             # exhausted the connection pool.
             table_created: DataWarehouseTable | None = external_data_schema.table
+
+            # A reported row_count of 0 does not always mean the run wrote nothing: the v3 load
+            # consumer reads it from a batch notification that can arrive as 0 on a redelivered final
+            # batch after a real write. Skip only when no table exists yet, so a genuinely empty first
+            # sync does not create an empty table. An existing table still gets repointed below at the
+            # freshly published files — stranding it on the previous queryable_folder would serve stale
+            # data under a green sync.
+            if row_count == 0 and table_created is None:
+                logger.warning("Skipping table creation: row_count is 0 and no table exists yet")
+                return
+
             if table_created:
                 table = table_created
                 table.format = table_params["format"]
                 table.url_pattern = new_url_pattern
                 table.queryable_folder = queryable_folder
-                if external_data_schema.table_row_count_is_cumulative:
+                if external_data_schema.table_row_count_is_cumulative or row_count == 0:
+                    # A reported 0 can under-count a real write (see above), so read the true count
+                    # from the just-published files rather than zero a table we are republishing.
                     _refresh_cumulative_row_count(table, logger, f"{_schema_name} ({_schema_id})")
                 else:
                     table.row_count = row_count
@@ -251,7 +292,9 @@ async def validate_schema_and_update_table(
                 if not table_created:
                     logger.debug(f"Creating table for schema: {str(schema_id)}")
                     table_created = DataWarehouseTable.objects.create(
-                        external_data_source_id=job.pipeline.id, **table_params
+                        external_data_source_id=job.pipeline.id,
+                        created_via=DataWarehouseTableCreatedVia.SOURCE,
+                        **table_params,
                     )
 
             assert isinstance(table_created, DataWarehouseTable) and table_created is not None
@@ -334,7 +377,7 @@ async def register_cdc_companion_table(
     schema_id: uuid.UUID,
     resource_name: str,
     row_count: int,
-    table_format: DataWarehouseTable.TableFormat,
+    table_format: DataWarehouseTableFormat,
     queryable_folder: str,
     table_schema_dict: Optional[dict[str, str]] = None,
     set_as_schema_table: bool = False,
@@ -405,7 +448,9 @@ async def register_cdc_companion_table(
             else:
                 logger.debug(f"Creating CDC companion table: {companion_table_name}")
                 companion_table = DataWarehouseTable.objects.create(
-                    external_data_source_id=job.pipeline.id, **table_params
+                    external_data_source_id=job.pipeline.id,
+                    created_via=DataWarehouseTableCreatedVia.SOURCE,
+                    **table_params,
                 )
 
             raw_db_columns = companion_table.get_columns()

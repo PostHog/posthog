@@ -17,7 +17,8 @@ import subprocess
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Optional
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.conf import settings
 
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
 from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX, SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
 from products.tasks.backend.exceptions import (
     ProcessTaskError,
+    ProcessTaskFatalError,
     SandboxCleanupError,
     SandboxExecutionError,
     SandboxNotFoundError,
@@ -49,7 +51,12 @@ from .agentsh import (
     generate_policy_yaml,
     read_gh_guard_script,
 )
-from .local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
+from .local_skills import (
+    ENV_LOCAL_SKILLS_HOST_PATH,
+    LocalSkillsCache,
+    bundled_skills_disabled,
+    snapshot_local_task_skills,
+)
 from .sandbox import (
     WORKING_DIR,
     AgentServerResult,
@@ -476,7 +483,19 @@ class DockerSandbox(SandboxBase):
 
     @staticmethod
     def create(config: SandboxConfig) -> DockerSandbox:
+        skills_snapshot: tempfile.TemporaryDirectory[str] | None = None
         try:
+            skill_source = DockerSandbox._local_skill_source(config)
+            if skill_source == "local":
+                skills_snapshot = tempfile.TemporaryDirectory(prefix="posthog-task-skills-")
+                try:
+                    snapshot_local_task_skills(Path(skills_snapshot.name))
+                except Exception as error:
+                    raise ProcessTaskFatalError(
+                        "Failed to build local task skills. Fix the skill error before starting another task.",
+                        {"config_name": config.name, "error": _truncate_output(str(error))},
+                        cause=error,
+                    ) from error
             image = DockerSandbox._get_image(config)
             DockerSandbox._verify_image_available(image, config)
             container_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
@@ -511,7 +530,12 @@ class DockerSandbox(SandboxBase):
             # the baked-in rendered skills in the image stay visible — only
             # the specific skills the user has on disk get overlaid.
             local_skills_host = os.environ.get(ENV_LOCAL_SKILLS_HOST_PATH)
-            if local_skills_host and os.path.isdir(local_skills_host):
+            if (
+                skill_source != "local"
+                and not bundled_skills_disabled(config.environment_variables)
+                and local_skills_host
+                and os.path.isdir(local_skills_host)
+            ):
                 for entry in sorted(os.listdir(local_skills_host)):
                     if entry.startswith(".") or entry == "__pycache__":
                         continue
@@ -554,6 +578,17 @@ class DockerSandbox(SandboxBase):
             container_id = result.stdout.strip()
 
             sandbox = DockerSandbox(container_id=container_id, config=config, host_port=host_port)
+            if skill_source is not None:
+                try:
+                    sandbox._install_local_skills(Path(skills_snapshot.name) if skills_snapshot else None)
+                except Exception as error:
+                    sandbox.destroy()
+                    raise SandboxProvisionError(
+                        "Failed to install local task skills",
+                        {"config_name": config.name, "error": _truncate_output(str(error))},
+                        cause=error,
+                    ) from error
+                logger.info("Docker task skill source: %s", skill_source)
             logger.info(f"Created Docker sandbox {sandbox.id} for {config.name} (port {host_port})")
 
             return sandbox
@@ -576,6 +611,43 @@ class DockerSandbox(SandboxBase):
                 {"config_name": config.name, "error": _truncate_output(str(e))},
                 cause=e,
             )
+        finally:
+            if skills_snapshot is not None:
+                skills_snapshot.cleanup()
+
+    @staticmethod
+    def _local_skill_source(config: SandboxConfig) -> str | None:
+        if not settings.DEBUG or config.template not in {
+            SandboxTemplate.DEFAULT_BASE,
+            SandboxTemplate.VM_BASE,
+            SandboxTemplate.PI_BASE,
+        }:
+            return None
+        source = os.environ.get("POSTHOG_DESKTOP_SKILLS")
+        if source not in {None, "local", "production"}:
+            raise ValueError("POSTHOG_DESKTOP_SKILLS must be local or production")
+        return source
+
+    def _install_local_skills(self, skills_dir: Path | None) -> None:
+        container_dir = "/tmp/posthog-local-skills"
+        if skills_dir is not None:
+            self._run(["docker", "cp", str(skills_dir), f"{self._container_id}:{container_dir}"], check=True)
+        script = (Path(__file__).parents[2] / "sandbox" / "images" / "install-local-skills.sh").read_text()
+        self._run(
+            [
+                "docker",
+                "exec",
+                self._container_id,
+                "bash",
+                "-c",
+                script,
+                "install-local-skills",
+                container_dir if skills_dir is not None else "--restore",
+            ],
+            check=True,
+        )
+        if skills_dir is not None:
+            self._run(["docker", "exec", self._container_id, "rm", "-rf", container_dir], check=True)
 
     @staticmethod
     def _recover_published_host_port(container_id: str) -> int | None:
@@ -752,7 +824,7 @@ class DockerSandbox(SandboxBase):
 
         return _DockerExecutionStream(process, timeout_seconds, self.id)
 
-    def write_file(self, path: str, payload: bytes) -> ExecutionResult:
+    def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult:
         if not self.is_running():
             raise SandboxExecutionError(
                 "Sandbox not in running state.",
@@ -760,6 +832,7 @@ class DockerSandbox(SandboxBase):
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
             )
 
+        step_timeout = timeout_seconds or self.config.default_execution_timeout_seconds
         chunk_size = 50000
         encoded_payload = base64.b64encode(payload).decode("utf-8")
         temp_path = f"{path}.tmp-{uuid.uuid4().hex}"
@@ -780,7 +853,7 @@ class DockerSandbox(SandboxBase):
                 "    response_file.write(payload)\n"
                 "EOF_SANDBOX_WRITE"
             )
-            result = self.execute(command, timeout_seconds=self.config.default_execution_timeout_seconds)
+            result = self.execute(command, timeout_seconds=step_timeout)
             if result.exit_code != 0:
                 logger.warning(
                     "sandbox_write_failed",
@@ -790,7 +863,7 @@ class DockerSandbox(SandboxBase):
 
         if result.exit_code == 0:
             move_command = f"mv {shlex.quote(temp_path)} {shlex.quote(path)}"
-            result = self.execute(move_command, timeout_seconds=self.config.default_execution_timeout_seconds)
+            result = self.execute(move_command, timeout_seconds=step_timeout)
             if result.exit_code != 0:
                 logger.warning(
                     "sandbox_write_failed",
@@ -851,6 +924,9 @@ class DockerSandbox(SandboxBase):
         logger.info(f"Got connect credentials for sandbox {self.id}: {url}")
         return AgentServerResult(url=url, token=None)
 
+    def create_preview_connect_credentials(self, port: int, user_metadata: dict[str, Any]) -> AgentServerResult:
+        raise NotImplementedError("Docker sandboxes do not support preview connect tokens")
+
     def _build_agent_server_command(
         self,
         repo_path: str | None,
@@ -878,7 +954,10 @@ class DockerSandbox(SandboxBase):
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         rtk_enabled: bool = True,
+        benjamin_enabled: bool = False,
+        peer_messaging: bool = False,
         posthog_exec_permission_regex: str | None = None,
+        claude_model_access: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
         # rewrite it the same way POSTHOG_API_URL is for Docker sandboxes.
@@ -900,7 +979,10 @@ class DockerSandbox(SandboxBase):
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             rtk_enabled=rtk_enabled,
+            benjamin_enabled=benjamin_enabled,
+            peer_messaging=peer_messaging,
         )
+        subscription_flag = " --claudeSubscription" if claude_model_access == "own-subscription" else ""
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown
         # flags, so default runs (and resumes of old snapshots) must not see it.
@@ -924,7 +1006,7 @@ class DockerSandbox(SandboxBase):
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
-            f"{domains_flag}{repo_ready_flag}{exec_permission_flag}"
+            f"{domains_flag}{repo_ready_flag}{exec_permission_flag}{subscription_flag}"
         )
 
         # agentsh injects HTTP_PROXY pointing at a per-session egress proxy port; undici
@@ -940,12 +1022,12 @@ class DockerSandbox(SandboxBase):
         if allowed_domains is not None:
             return (
                 f"cd /scripts && {initialize_env_file} && "
-                f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &)"
+                f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} & echo $! > /tmp/agent-server.pid)"
             )
         else:
-            return f"cd /scripts && {initialize_env_file} && (nohup {server_cmd} > /tmp/agent-server.log 2>&1 &)"
+            return f"cd /scripts && {initialize_env_file} && (nohup {server_cmd} > /tmp/agent-server.log 2>&1 & echo $! > /tmp/agent-server.pid)"
 
-    def _launch_and_check(self, command: str) -> bool:
+    def _launch_and_check(self, command: str, *, max_attempts: int = 20) -> bool:
         """Execute the agent-server command and wait for the health check.
 
         Returns True if the server started successfully, False otherwise.
@@ -954,7 +1036,7 @@ class DockerSandbox(SandboxBase):
         if result.exit_code != 0:
             logger.warning(f"Agent-server process failed to launch in sandbox {self.id}: {result.stderr}")
             return False
-        return self._wait_for_health_check(max_attempts=20)
+        return self._wait_for_health_check(max_attempts=max_attempts)
 
     def _install_gh_guard(self) -> None:
         """Install the gh PATH shim at runtime so it's present regardless of image age.
@@ -993,6 +1075,9 @@ class DockerSandbox(SandboxBase):
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
+        benjamin_enabled: bool = False,
+        peer_messaging: bool = False,
+        claude_model_access: str | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -1004,6 +1089,8 @@ class DockerSandbox(SandboxBase):
 
         if self._host_port is None:
             raise RuntimeError("Sandbox was not created with port exposure.")
+
+        self.clear_bundled_skills_if_disabled()
 
         repo_path: str | None = None
         if repository:
@@ -1040,7 +1127,7 @@ class DockerSandbox(SandboxBase):
         if not self.agent_server_supports_exec_permission_regex():
             logger.warning(
                 f"Installed agent-server in sandbox {self.id} predates --posthogExecPermissionRegex; "
-                "exec sub-tools will not prompt"
+                "connected-project operations will not prompt"
             )
             exec_permission_regex = None
 
@@ -1070,7 +1157,10 @@ class DockerSandbox(SandboxBase):
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             rtk_enabled=rtk_enabled,
+            benjamin_enabled=benjamin_enabled,
+            peer_messaging=peer_messaging,
             posthog_exec_permission_regex=exec_permission_regex,
+            claude_model_access=claude_model_access,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
@@ -1085,7 +1175,8 @@ class DockerSandbox(SandboxBase):
                 )
             return
 
-        if self._launch_and_check(command):
+        max_attempts = 300 if claude_model_access == "own-subscription" else 20
+        if self._launch_and_check(command, max_attempts=max_attempts):
             logger.info(f"Agent-server started on port {self._host_port}")
             return
 
@@ -1125,9 +1216,12 @@ class DockerSandbox(SandboxBase):
                 event_ingest_keep_stream_open=event_ingest_keep_stream_open,
                 repo_ready_file=repo_ready_file,
                 rtk_enabled=rtk_enabled,
+                benjamin_enabled=benjamin_enabled,
+                peer_messaging=peer_messaging,
                 posthog_exec_permission_regex=exec_permission_regex,
+                claude_model_access=claude_model_access,
             )
-            if self._launch_and_check(command):
+            if self._launch_and_check(command, max_attempts=max_attempts):
                 logger.info(f"Agent-server started on port {self._host_port} (without --baseBranch)")
                 return
 
@@ -1142,8 +1236,10 @@ class DockerSandbox(SandboxBase):
             capture=False,
         )
 
-    def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None:
-        if self._wait_for_health_check(max_attempts=240):
+    def wait_for_agent_server_ready(
+        self, allowed_domains: list[str] | None = None, *, claude_model_access: str | None = None
+    ) -> None:
+        if self._wait_for_health_check(max_attempts=300 if claude_model_access == "own-subscription" else 240):
             logger.info(f"Agent-server ready on port {self._host_port}")
             return
         log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
@@ -1210,10 +1306,21 @@ class DockerSandbox(SandboxBase):
     def _wait_for_health_check(self, max_attempts: int = 60, poll_interval: float = 0.5) -> bool:
         """Poll health endpoint until server is ready (single remote call)."""
 
-        return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)
+        return wait_for_health_check(
+            self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval, pid_file="/tmp/agent-server.pid"
+        )
 
     def read_agent_server_session_init_ms(self) -> int | None:
         return self._read_health_session_init_ms(AGENT_SERVER_PORT)
+
+    def read_agent_server_boot_phases_ms(self) -> dict[str, int]:
+        return self._read_health_boot_phases_ms(AGENT_SERVER_PORT)
+
+    def read_agent_server_boot_metrics(self) -> tuple[int | None, dict[str, int]]:
+        return self._read_health_boot_metrics(AGENT_SERVER_PORT)
+
+    def agent_server_health_url(self) -> str:
+        return f"http://127.0.0.1:{AGENT_SERVER_PORT}/health"
 
     def create_snapshot(self, *, timeout_seconds: int | None = None) -> str:
         # timeout_seconds bounds Modal's snapshot RPC; docker commits have no equivalent knob.
@@ -1292,6 +1399,17 @@ def _base_dockerfile_path() -> str:
     return os.path.join(settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base")
 
 
+def _base_image_source_sha(dockerfile_path: str) -> str:
+    digest = hashlib.sha256()
+    for path in [
+        Path(dockerfile_path),
+        *sorted(Path(settings.BASE_DIR, "products/desktop/packages/agent-shadow").rglob("*")),
+    ]:
+        if path.is_file():
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
 def _none_if_blank(value: str) -> str | None:
     """Normalize a docker inspect label value: a missing label prints as ``<no value>``."""
     value = value.strip()
@@ -1328,8 +1446,7 @@ def ensure_fresh_base_image(*, force: bool = False) -> None:
     This is the only place that reaches out to npm.
     """
     dockerfile_path = _base_dockerfile_path()
-    with open(dockerfile_path, "rb") as dockerfile:
-        current_dockerfile_sha = hashlib.sha256(dockerfile.read()).hexdigest()
+    current_dockerfile_sha = _base_image_source_sha(dockerfile_path)
 
     latest = _resolve_latest_agent_version()
 
@@ -1390,7 +1507,10 @@ def ensure_fresh_base_image(*, force: bool = False) -> None:
         DEFAULT_IMAGE_NAME,
         dockerfile_path,
         build_args={"COMMIT_HASH": cache_bust},
-        labels={_AGENT_VERSION_LABEL: latest or "unknown"},
+        labels={
+            _AGENT_VERSION_LABEL: latest or "unknown",
+            _DOCKERFILE_SHA_LABEL: current_dockerfile_sha,
+        },
         force=True,
     )
 

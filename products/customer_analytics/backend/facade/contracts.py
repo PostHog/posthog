@@ -14,9 +14,9 @@ from dataclasses import (
     dataclass as stdlib_dataclass,
     field,
 )
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -53,6 +53,17 @@ class AccountRelationshipDefinition:
 
 
 @dataclass(frozen=True)
+class PinnedAccountProperty:
+    kind: Literal["custom_property", "relationship"]
+    id: UUID
+
+
+@dataclass(frozen=True)
+class UserCustomerAnalyticsConfig:
+    pinned_properties: list[PinnedAccountProperty] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class AccountRelationship:
     """One assignment of a user to an account relationship, with its effective range."""
 
@@ -70,6 +81,7 @@ class AccountProperties:
     Mirrors ``models.account.AccountProperties`` as a stable, framework-free shape.
     """
 
+    website_domain: str | None = None
     stripe_customer_id: str | None = None
     hubspot_deal_id: str | None = None
     billing_id: str | None = None
@@ -166,6 +178,7 @@ class MeetingView:
 
     id: UUID
     title: str
+    gong_url: str | None
     start_time: datetime
     end_time: datetime | None
     organizer_email: str
@@ -192,6 +205,7 @@ class AccountTableField(str, Enum):
     CREATED_AT = "created_at"
     UPDATED_AT = "updated_at"
     CHURNED_AT = "churned_at"
+    IGNORED_AT = "ignored_at"
     STRIPE_CUSTOMER_ID = "stripe_customer_id"
     HUBSPOT_DEAL_ID = "hubspot_deal_id"
     BILLING_ID = "billing_id"
@@ -225,13 +239,51 @@ class AccountTableAssignedToFilter:
 
 
 @dataclass(frozen=True, kw_only=True)
+class AccountTableAssignedFilter:
+    pass
+
+
+@dataclass(frozen=True, kw_only=True)
 class AccountTableUnassignedFilter:
     pass
+
+
+class AccountTableRelationshipOperator(str, Enum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableRelationshipFilter:
+    definition_id: UUID
+    operator: AccountTableRelationshipOperator
+    user_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, kw_only=True)
 class AccountTableAccountIdFilter:
     account_id: UUID
+
+
+class AccountTableFieldOperator(str, Enum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    CONTAINS = "icontains"
+    DOES_NOT_CONTAIN = "not_icontains"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+    DATE_EXACT = "is_date_exact"
+    DATE_BEFORE = "is_date_before"
+    DATE_AFTER = "is_date_after"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableFieldFilter:
+    field: AccountTableField
+    operator: AccountTableFieldOperator
+    values: tuple[str, ...] = ()
 
 
 class AccountTableCustomPropertyOperator(str, Enum):
@@ -263,10 +315,86 @@ AccountTableFilter = (
     AccountTableSearchFilter
     | AccountTableTagsFilter
     | AccountTableAssignedToFilter
+    | AccountTableAssignedFilter
     | AccountTableUnassignedFilter
+    | AccountTableRelationshipFilter
     | AccountTableAccountIdFilter
+    | AccountTableFieldFilter
     | AccountTableCustomPropertyFilter
 )
+
+
+class AccountTrackRuleFieldKind(str, Enum):
+    ACCOUNT_FIELD = "account_field"
+    CUSTOM_PROPERTY = "custom_property"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleField:
+    kind: AccountTrackRuleFieldKind
+    field: AccountTableField | None = None
+    definition_id: UUID | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleCondition:
+    field: AccountTrackRuleField
+    operator: str
+    values: tuple[float | bool | str, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleGroup:
+    conditions: tuple[AccountTrackRuleCondition, ...]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRulesConfig:
+    schema_version: int = 1
+    version: int = 0
+    enabled: bool = False
+    groups: tuple[AccountTrackRuleGroup, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleSample:
+    id: UUID
+    name: str
+    external_id: str | None
+    rule_values: dict[str, float | bool | str | None]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRulePreview:
+    config_version: int
+    eligible_active: int
+    skipped_churned: int
+    tracked: int
+    ignored: int
+    newly_ignored: int
+    restored: int
+    tracked_samples: tuple[AccountTrackRuleSample, ...]
+    ignored_samples: tuple[AccountTrackRuleSample, ...]
+    validation_errors: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleRunView:
+    id: UUID
+    config_version: int
+    trigger: str
+    status: str
+    eligible_active: int
+    skipped_churned: int
+    tracked: int
+    ignored: int
+    newly_ignored: int
+    restored: int
+    started_at: datetime | None
+    finished_at: datetime | None
+    error: str | None
+    created_by: int | None
+    created_at: datetime
 
 
 class AccountTableSortKind(str, Enum):
@@ -340,6 +468,7 @@ class AccountTableRow:
     id: UUID
     name: str
     external_id: str | None
+    logo_domain: str | None = None
     account_fields: dict[AccountTableField, str | None] = field(default_factory=dict)
     tags: list[str] | None = None
     note_count: int | None = None
@@ -378,6 +507,7 @@ class AccountContextData:
     external_id: str | None
     created_at: datetime | None
     churned_at: datetime | None
+    ignored_at: datetime | None
     properties: AccountProperties
     tags: list[str] = field(default_factory=list)
     notes: list[AccountNote] = field(default_factory=list)
@@ -391,7 +521,7 @@ class ExternalAccount:
     ``properties`` is carried as a plain dict set to exactly
     ``account.properties.model_dump(mode="json")`` — a validated pydantic
     pass-through, not a re-typed projection. ``id`` is the stringified UUID,
-    and ``churned_at`` carries the account lifecycle timestamp.
+    while ``churned_at`` and ``ignored_at`` carry lifecycle timestamps.
 
     ``custom_properties`` contains every team-defined custom property definition
     keyed by definition name, with the account's current scalar value (or ``None``
@@ -403,6 +533,7 @@ class ExternalAccount:
     external_id: str | None
     name: str
     churned_at: datetime | None
+    ignored_at: datetime | None
     properties: dict
     tags: list[str] = field(default_factory=list)
     relationships: dict[str, list[dict]] = field(default_factory=dict)
@@ -431,6 +562,7 @@ class ExternalAccountListItem:
     external_id: str
     name: str
     churned_at: datetime | None
+    ignored_at: datetime | None
     relationships: dict[str, list[ExternalAccountAssignment]] = field(default_factory=dict)
 
 
@@ -528,6 +660,7 @@ class AccountView:
     notebooks: list[str] = field(default_factory=list)
     slack_summary_cadence: str | None = None
     churned_at: datetime | None = None
+    ignored_at: datetime | None = None
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
@@ -567,6 +700,31 @@ class FeatureRequestAccountView:
 
 
 @stdlib_dataclass(frozen=True)
+class FeatureRequestEvidenceView:
+    id: UUID | None = None
+    summary: str = ""
+    customer_quote: str = ""
+    evidence_source: str = "conversation"
+    source_url: str = ""
+    requested_on: date | None = None
+    image_ids: list[UUID] = field(default_factory=list)
+    created_by: int | None = None
+    updated_by: int | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class FeatureRequestAccountLinkView:
+    id: UUID | None = None
+    account: FeatureRequestAccountView | None = None
+    evidence: list[FeatureRequestEvidenceView] = field(default_factory=list)
+    evidence_count: int = 0
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
 class FeatureRequestView:
     id: UUID | None = None
     title: str = ""
@@ -577,7 +735,10 @@ class FeatureRequestView:
     archived_at: datetime | None = None
     archived_by: int | None = None
     version: int = 1
+    can_update: bool = False
     account: FeatureRequestAccountView | None = None
+    account_links: list[FeatureRequestAccountLinkView] = field(default_factory=list)
+    evidence_count: int = 0
     product_areas: list[FeatureRequestProductAreaView] = field(default_factory=list)
     created_by: int | None = None
     updated_by: int | None = None
@@ -620,8 +781,19 @@ class FeatureRequestListFilters:
     priorities: tuple[str, ...] = ()
     product_area_ids: tuple[UUID, ...] = ()
     account_ids: tuple[UUID, ...] = ()
+    created_by_ids: tuple[int, ...] = ()
     archive_state: str = "active"
     ordering: str = "-updated_at"
+
+
+@dataclass(frozen=True)
+class FeatureRequestEvidenceInput:
+    summary: str
+    customer_quote: str
+    evidence_source: str
+    source_url: str
+    requested_on: date | None
+    image_ids: tuple[UUID, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -631,6 +803,7 @@ class CreateFeatureRequestInput:
     account_id: UUID
     product_area_ids: tuple[UUID, ...]
     idempotency_key: UUID
+    evidence: FeatureRequestEvidenceInput | None = None
 
 
 @dataclass(frozen=True)
@@ -644,11 +817,48 @@ class UpdateFeatureRequestInput:
     expected_version: int
     title: str | None = None
     description: str | None = None
-    account_id: UUID | None = None
+    account_ids: tuple[UUID, ...] | None = None
     product_area_ids: tuple[UUID, ...] | None = None
     request_status: str | None = None
     request_priority: str | None = None
     request_priority_is_set: bool = False
+
+
+@dataclass(frozen=True)
+class AddFeatureRequestAccountInput:
+    expected_version: int
+    account_id: UUID
+    evidence: FeatureRequestEvidenceInput | None = None
+
+
+@dataclass(frozen=True)
+class CreateFeatureRequestEvidenceInput:
+    expected_version: int
+    account_link_id: UUID
+    summary: str
+    customer_quote: str
+    evidence_source: str
+    source_url: str
+    requested_on: date | None
+    image_ids: tuple[UUID, ...] = ()
+
+
+@dataclass(frozen=True)
+class UpdateFeatureRequestEvidenceInput:
+    expected_version: int
+    evidence_id: UUID
+    summary: str
+    customer_quote: str
+    evidence_source: str
+    source_url: str
+    requested_on: date | None
+    image_ids: tuple[UUID, ...] | None = None
+
+
+@dataclass(frozen=True)
+class DeleteFeatureRequestEvidenceInput:
+    expected_version: int
+    evidence_id: UUID
 
 
 @stdlib_dataclass(frozen=True)
@@ -713,6 +923,7 @@ class CustomPropertyDefinitionView:
     created_by: int | None = None
     updated_at: datetime | None = None
     references: list[CustomPropertyReference] = field(default_factory=list)
+    has_workflow_reference: bool = False
     source: "CustomPropertySourceView | None" = None
     options: list[CustomPropertyOption] | None = None
 
@@ -763,11 +974,16 @@ class CustomPropertySourceView:
 
 @stdlib_dataclass(frozen=True)
 class CustomPropertySyncRunView:
-    """One person-property sync/backfill run, as returned by the source ``runs`` endpoint and nested
-    on a source as ``latest_run``. The counts are the sync funnel (read -> changed -> existing (=
-    persons affected) -> produced; skipped_missing_person is changed rows with no matching person)."""
+    """One warehouse-backed custom property sync run."""
 
     id: UUID | None = None
+    job_id: str | None = None
+    account_segment: str | None = None
+    sync_phase: str | None = None
+    attempt: int | None = None
+    workflow_id: str | None = None
+    workflow_run_id: UUID | None = None
+    temporal_url: str | None = None
     trigger: str = ""
     status: str = ""
     started_at: datetime | None = None
@@ -976,3 +1192,118 @@ class AnnouncementView:
     created_by: UserBasicInfo | None = None
     deliveries: list[AnnouncementDeliveryView] = field(default_factory=list)
     channels: list[str] = field(default_factory=list)
+
+
+class CustomerTaskAccountNotFound(Exception):
+    pass
+
+
+class CustomerTaskAssigneeInvalid(Exception):
+    pass
+
+
+class CustomerTaskAssigneeCannotViewAccount(Exception):
+    pass
+
+
+class CustomerTaskInvalidTransition(Exception):
+    def __init__(self, current: str, requested: str) -> None:
+        self.current = current
+        self.requested = requested
+        super().__init__(current, requested)
+
+
+class CustomerTaskArchived(Exception):
+    pass
+
+
+class CustomerTaskAccessDenied(Exception):
+    pass
+
+
+@stdlib_dataclass(frozen=True)
+class CustomerTaskUserView:
+    id: int
+    email: str
+    first_name: str
+    last_name: str
+
+
+@stdlib_dataclass(frozen=True)
+class CustomerTaskAccountView:
+    id: UUID
+    name: str
+
+
+@stdlib_dataclass(frozen=True)
+class CustomerTaskView:
+    id: UUID
+    account: CustomerTaskAccountView | None
+    name: str
+    description: str | None
+    status: str
+    assigned_to: CustomerTaskUserView | None
+    due_at: datetime | None
+    completed_at: datetime | None
+    completed_by: CustomerTaskUserView | None
+    created_by: CustomerTaskUserView | None
+    archived_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+    can_edit: bool
+    can_restore: bool
+
+
+@stdlib_dataclass(frozen=True)
+class CustomerTaskChange:
+    field: str
+    before: object | None
+    after: object | None
+
+
+@stdlib_dataclass(frozen=True)
+class CustomerTaskActivityView:
+    id: UUID
+    activity_type: str
+    changes: list[CustomerTaskChange]
+    actor: CustomerTaskUserView | None
+    created_at: datetime
+
+
+@stdlib_dataclass(frozen=True)
+class CustomerTaskListFilters:
+    search: str | None = None
+    account_id: UUID | None = None
+    assigned_to: str | None = None
+    statuses: tuple[str, ...] = ()
+    archive_state: str = "active"
+    due_after: datetime | None = None
+    due_before: datetime | None = None
+    has_due_at: bool | None = None
+    ordering: str | None = None
+
+
+@stdlib_dataclass(frozen=True)
+class CreateCustomerTaskInput:
+    account_id: UUID | None = None
+    name: str = ""
+    description: str | None = None
+    assigned_to_id: int | None = None
+    due_at: datetime | None = None
+    status: str = "open"
+
+
+@stdlib_dataclass(frozen=True)
+class UpdateCustomerTaskInput:
+    account_id: UUID | None = None
+    name: str | None = None
+    description: str | None = None
+    assigned_to_id: int | None = None
+    due_at: datetime | None = None
+    status: str | None = None
+    account_id_provided: bool = False
+    name_provided: bool = False
+    description_provided: bool = False
+    assigned_to_id_provided: bool = False
+    due_at_provided: bool = False
+    status_provided: bool = False

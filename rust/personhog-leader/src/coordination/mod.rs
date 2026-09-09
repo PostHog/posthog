@@ -353,6 +353,10 @@ impl HandoffHandler for LeaderHandoffHandler {
         }
     }
 
+    // CONSTRAINT: synchronous local work only. The shutdown fence's
+    // certified teardown sum (`validate_lease_timescales`) counts these
+    // releases as free; making this await an external system requires
+    // growing SHUTDOWN_FENCE_BOUND.
     async fn release_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "releasing partition");
         if let Some(fenced) = &self.fenced {

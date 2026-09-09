@@ -1,13 +1,12 @@
 from typing import Optional
 
-import structlog
-import posthoganalytics
-
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex
@@ -19,44 +18,10 @@ from products.feature_flags.backend.user_blast_radius import (
     unevaluable_filters_as_validation_errors,
 )
 
-logger = structlog.get_logger(__name__)
-
 PERSON_BATCH_SIZE = 500
 
 EMAIL_DEDUPE_KEY = "email"
 SUPPORTED_DEDUPE_KEYS = (EMAIL_DEDUPE_KEY,)
-
-WORKFLOWS_BATCH_AUDIENCE_QUERY_FLAG = "workflows-batch-audience-query"
-
-
-def use_workflows_batch_audience_query(team: Team) -> bool:
-    """Gates the workflows-owned audience query; off means the legacy flags-owned query.
-
-    A raised exception (Redis/HyperCache blip, network glitch, SDK bug) is treated as
-    "flag off" — the legacy path is the safe fallback per the PR's kill-switch design.
-    Batch sends are a critical path, so a transient flag-eval failure must not 500 the
-    preview endpoint or cause the resolver to exhaust its retry budget and fail the job.
-    """
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                WORKFLOWS_BATCH_AUDIENCE_QUERY_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-            )
-        )
-    except Exception:
-        logger.warning(
-            "workflows.batch_audience.feature_flag_check_failed_defaulting_off",
-            team_id=team.id,
-            flag=WORKFLOWS_BATCH_AUDIENCE_QUERY_FLAG,
-            exc_info=True,
-        )
-        return False
 
 
 def get_batch_audience_person_ids(
@@ -65,6 +30,7 @@ def get_batch_audience_person_ids(
     group_type_index: Optional[GroupTypeIndex] = None,
     cursor: Optional[str] = None,
     dedupe_key: Optional[str] = None,
+    settings: Optional[HogQLGlobalSettings] = None,
 ) -> list[str]:
     """
     Enumerate one page of a batch workflow's audience (person UUIDs, cursor-paginated).
@@ -82,7 +48,9 @@ def get_batch_audience_person_ids(
         select_query = _build_audience_person_query(team, cleaned_filter, cursor=cursor, dedupe_key=dedupe_key)
 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
-        response = execute_hogql_query(query=select_query, team=team)
+        # Background traffic: the only caller is the internal batch-send resolver, so route to
+        # the offline pool like the group branch does, away from interactive product queries.
+        response = execute_hogql_query(query=select_query, team=team, settings=settings, workload=Workload.OFFLINE)
 
     return [str(row[0]) for row in response.results] if response.results else []
 
@@ -96,12 +64,17 @@ def get_batch_audience_count(
     Count how many sends a batch workflow would produce with dedup applied — i.e. the
     number of dedupe groups (unique emails, plus one group per email-less person).
     Mirrors get_batch_audience_person_ids so the preview matches the actual audience.
+
+    The count is exact up to uniqCombined's hash-table threshold and approximate above it,
+    so a very large audience can read a fraction of a percent off the delivered send count.
+    Nothing gates on this number: the confirm token signs the filters rather than the count,
+    and the batch trigger cap is applied by the resolver at dispatch.
     """
     # Defence-in-depth against a new dedupe key slipping past the endpoint's allowlist:
     # if we ever add another supported key, this raise forces the caller to teach this
     # function about it too, rather than silently returning the email-deduped count.
     if dedupe_key == EMAIL_DEDUPE_KEY:
-        group_expr = _email_dedupe_group_expr()
+        group_expr = email_dedupe_group_expr()
     else:
         raise ValueError(f"Unsupported dedupe_key: {dedupe_key!r} (supported: {SUPPORTED_DEDUPE_KEYS})")
 
@@ -117,8 +90,15 @@ def get_batch_audience_count(
             property_to_expr(cleaned_filter.property_groups, team, scope="person"),
         ]
 
+        # uniqCombined, not count(DISTINCT ...): the latter compiles to uniqExact, which holds
+        # every distinct email of the matching audience in memory and runs the query out of memory
+        # on large person tables. uniqCombined keeps an exact set below its threshold and switches
+        # to a fixed-size sketch above it, so the aggregate state stops growing with the audience.
+        # The persons expansion still holds one entry per matching person, in the id set it pushes
+        # the filter into and in the group-by that picks the latest version, so this drops one term
+        # from peak memory instead of making it flat.
         select_query = ast.SelectQuery(
-            select=[ast.Call(name="count", distinct=True, args=[group_expr])],
+            select=[ast.Call(name="uniqCombined", args=[group_expr])],
             select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
             where=ast.And(exprs=where_exprs),
         )
@@ -129,7 +109,7 @@ def get_batch_audience_count(
     return response.results[0][0] if response.results else 0
 
 
-def _email_dedupe_group_expr() -> ast.Expr:
+def email_dedupe_group_expr() -> ast.Expr:
     # Fields stay fully qualified so nothing resolves to an enclosing query's alias.
     return parse_expr(
         """
@@ -191,7 +171,7 @@ def _wrap_with_email_dedupe(where_exprs: list[ast.Expr], cursor: Optional[str]) 
         select=[ast.Alias(alias="person_id", expr=ast.Call(name="min", args=[ast.Field(chain=["persons", "id"])]))],
         select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
         where=ast.And(exprs=where_exprs),
-        group_by=[_email_dedupe_group_expr()],
+        group_by=[email_dedupe_group_expr()],
     )
 
     outer_where: Optional[ast.Expr] = None

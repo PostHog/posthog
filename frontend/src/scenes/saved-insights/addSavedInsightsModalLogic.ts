@@ -242,7 +242,9 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
 
                 return {
                     ...response,
-                    results: response.results.map((rawInsight: any) => getQueryBasedInsightModel(rawInsight)),
+                    results: response.results.map((rawInsight: any) =>
+                        getQueryBasedInsightModel(rawInsight, 'add_saved_insights_modal')
+                    ),
                 }
             },
         },
@@ -371,10 +373,9 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                 })
                 if (response) {
                     actions.updateInsight(response)
-                    const logic = dashboardLogic({ id: dashboardId })
-                    logic.mount()
-                    logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
-                    logic.unmount()
+                    dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
+                        action: DashboardLoadAction.Update,
+                    })
                     lemonToast.success('Insight added to dashboard')
                 }
             } catch (e) {
@@ -402,10 +403,9 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                 })
                 if (response) {
                     actions.updateInsight(response)
-                    const logic = dashboardLogic({ id: dashboardId })
-                    logic.mount()
-                    logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
-                    logic.unmount()
+                    dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
+                        action: DashboardLoadAction.Update,
+                    })
                     lemonToast.success('Insight removed from dashboard')
                 }
             } catch (e) {

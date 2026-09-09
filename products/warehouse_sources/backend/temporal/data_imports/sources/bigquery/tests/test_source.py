@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from freezegun import freeze_time
@@ -15,7 +16,9 @@ from google.api_core.exceptions import (
     PermissionDenied,
     ServiceUnavailable,
 )
+from google.auth.credentials import Credentials as GoogleAuthCredentials
 from google.auth.exceptions import RefreshError
+from requests.adapters import HTTPAdapter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
@@ -28,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_QUERY_CREATE_RETRY,
     BIGQUERY_QUERY_JOB_RETRY,
     BIGQUERY_READ_ROWS_RETRY,
+    BIGQUERY_TOKEN_REFRESH_RETRY,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BIGQUERY_VALIDATION_GENERIC_ERROR,
     BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR,
@@ -184,7 +188,9 @@ def test_bigquery_get_columns_raises_friendly_error_when_dataset_not_found():
     assert BIGQUERY_DATASET_NOT_FOUND_ERROR in BigQuerySource().get_non_retryable_errors()
 
 
-@pytest.mark.parametrize("phrase", ['Invalid dataset ID "(default)"', 'Invalid project ID "bad id"'])
+@pytest.mark.parametrize(
+    "phrase", ['Invalid dataset ID "(default)"', 'Invalid project ID "bad id"', "ProjectId must be non-empty"]
+)
 def test_bigquery_get_columns_raises_friendly_error_for_invalid_identifier(phrase):
     """A syntactically invalid project/dataset ID surfaces as a raw 400 `BadRequest` from
     `client.query()`. Schema discovery must re-raise it with actionable wording instead of leaking
@@ -1017,7 +1023,7 @@ def test_bigquery_get_columns_trims_whitespace_in_identifiers():
     BigQueryImplementation().get_columns(fake_client, config, names=None)
 
     sql = fake_client.query.call_args.args[0]
-    assert "`524098457564.bigquery_aloalo.INFORMATION_SCHEMA.COLUMNS`" in sql
+    assert "`524098457564.bigquery_aloalo`.INFORMATION_SCHEMA.COLUMNS" in sql
     assert " bigquery_aloalo" not in sql
     assert " 524098457564" not in sql
     assert fake_client.query.call_args.kwargs["project"] == "524098457564"
@@ -1026,7 +1032,10 @@ def test_bigquery_get_columns_trims_whitespace_in_identifiers():
 def test_bigquery_get_columns_qualifies_information_schema_with_dataset_project():
     """When the dataset lives in a different project (`dataset_project`), the INFORMATION_SCHEMA
     reference must carry that project — an unqualified `dataset.INFORMATION_SCHEMA.*` makes BigQuery
-    reject the job with "ProjectId must be non-empty"."""
+    reject the job with "ProjectId must be non-empty". The backtick-quoted identifier must close
+    after the dataset (matching `get_primary_keys`/`get_leading_index_columns`) rather than wrapping
+    `INFORMATION_SCHEMA.COLUMNS` inside it too — quoting the whole path as one identifier stops
+    BigQuery from resolving it as the INFORMATION_SCHEMA view and raises the same error again."""
     fake_client = mock.MagicMock()
     fake_client.query.return_value.result.return_value = []
 
@@ -1038,7 +1047,8 @@ def test_bigquery_get_columns_qualifies_information_schema_with_dataset_project(
     BigQueryImplementation().get_columns(fake_client, config, names=None)
 
     sql = fake_client.query.call_args.args[0]
-    assert "`dataset-project.posthog_export.INFORMATION_SCHEMA.COLUMNS`" in sql
+    assert "`dataset-project.posthog_export`.INFORMATION_SCHEMA.COLUMNS" in sql
+    assert "INFORMATION_SCHEMA.COLUMNS`" not in sql
     assert fake_client.query.call_args.kwargs["project"] == "dataset-project"
 
 
@@ -1138,6 +1148,7 @@ def test_bigquery_validate_credentials_missing_fields_reports_actionable_message
         ),
         (RefreshError("('invalid_grant: Invalid JWT Signature.', {})"), BIGQUERY_CREDENTIALS_REJECTED_ERROR, False),
         (BadRequest('Invalid dataset ID "(default)"'), BIGQUERY_INVALID_IDENTIFIER_ERROR, False),
+        (BadRequest("400 ProjectId must be non-empty"), BIGQUERY_INVALID_IDENTIFIER_ERROR, False),
         (
             NotFound("404 Not found: Dataset my-project:my_dataset was not found in location US"),
             BIGQUERY_DATASET_NOT_FOUND_ERROR,
@@ -1154,8 +1165,14 @@ def test_bigquery_validate_credentials_missing_fields_reports_actionable_message
 def test_bigquery_validate_credentials_maps_failures_to_actionable_messages(
     exception, expected_message, should_capture
 ):
+    # Validation consumes the first page of `list_tables`, and that page fetch is where the request
+    # actually runs, so surface each failure from page consumption — the real request site. This
+    # also guards the regression: an inert validation that never consumes a page would return
+    # `(True, None)` and fail these assertions.
+    bq = mock.MagicMock()
+    bq.list_tables.return_value.pages.__next__.side_effect = exception
     client_cm = mock.MagicMock()
-    client_cm.__enter__.side_effect = exception
+    client_cm.__enter__.return_value = bq
 
     with (
         mock.patch.object(bq_module, "bigquery_client", return_value=client_cm),
@@ -1291,13 +1308,27 @@ def test_non_retryable_errors_match_permission_denied(observed_error):
             "bigquery.tables.create",
             "create",
         ),
+        # Querying a table/view that reads through a BigQuery connection (federated query or
+        # BigLake) the service account isn't authorized to use — denied with
+        # bigquery.connections.use on the connection resource, not the table/dataset.
+        (
+            str(
+                Forbidden(
+                    "Access Denied: Connection projects/proj/locations/us/connections/conn: User does not "
+                    "have bigquery.connections.use permission for connection "
+                    "projects/proj/locations/us/connections/conn."
+                )
+            ),
+            "bigquery.connections.use",
+            "connection",
+        ),
     ],
 )
-def test_temp_table_write_denial_surfaces_write_permission_guidance(observed_error, expected_key, expected_word):
-    # A temp-table write/create denial also contains "Access Denied:", so both that generic key and the
-    # write-specific key match. external_data_job surfaces the first matching key's message, so the
-    # write-specific key must sit above "Access Denied:" — otherwise the customer is told to grant read
-    # access to fix a write/create failure.
+def test_specific_permission_denial_outranks_generic_access_denied(observed_error, expected_key, expected_word):
+    # Each of these denials also contains "Access Denied:", so both the generic key and the
+    # more specific key match. external_data_job surfaces the first matching key's message, so the
+    # specific key must sit above "Access Denied:" — otherwise the customer is told to grant table
+    # read access to fix a failure that read access can't resolve.
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     first_key, friendly = next((key, msg) for key, msg in non_retryable_errors.items() if key in observed_error)
     assert first_key == expected_key
@@ -1871,20 +1902,6 @@ def test_bigquery_table_not_found_during_sync_is_non_retryable():
     assert "was not found in location" not in error_msg
 
 
-@pytest.mark.parametrize(
-    "other_error",
-    [
-        # Transient server errors must stay retryable.
-        "503 Service unavailable, please retry",
-        "500 Internal error encountered, please retry",
-    ],
-)
-def test_bigquery_table_not_found_key_does_not_match_unrelated_errors(other_error):
-    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    assert "Not found: Table" not in other_error
-    assert not any(key in other_error for key in non_retryable_errors)
-
-
 def test_bigquery_project_not_found_during_sync_is_non_retryable():
     """A source referencing a deleted or mistyped GCP project surfaces from `get_table()` at sync time
     as a google NotFound whose str() is "... Project <id> is not found. Make sure it references valid
@@ -1931,6 +1948,34 @@ def test_bigquery_storage_read_client_disables_grpc_message_size_limit():
     options = dict(mock_transport_cls.create_channel.call_args.kwargs["options"])
     assert options["grpc.max_receive_message_length"] == -1
     assert options["grpc.max_send_message_length"] == -1
+
+
+def test_bigquery_client_retries_transient_token_refresh_failures():
+    """Regression: `AuthorizedSession`'s default token-refresh session only retries connection
+    errors, not HTTP error responses, so a transient 502/503/504 from Google's OAuth token
+    endpoint escaped every `bigquery_client` call site as an opaque `RefreshError` instead of
+    being retried. `bigquery_client` must hand `AuthorizedSession` an `auth_request` built from
+    a session carrying `BIGQUERY_TOKEN_REFRESH_RETRY`."""
+    with mock.patch.object(
+        bq_module.service_account.Credentials,
+        "from_service_account_info",
+        return_value=mock.Mock(spec=GoogleAuthCredentials),
+    ):
+        with bq_module.bigquery_client(
+            project_id="project-id",
+            location=None,
+            private_key="private-key",
+            private_key_id="private-key-id",
+            client_email="client-email",
+            token_uri="token-uri",
+        ) as client:
+            auth_request_session = client._http._auth_request.session
+            adapter = cast(HTTPAdapter, auth_request_session.get_adapter("https://oauth2.googleapis.com"))
+            retry = adapter.max_retries
+
+    assert retry is BIGQUERY_TOKEN_REFRESH_RETRY
+    assert retry.allowed_methods and "POST" in retry.allowed_methods
+    assert retry.status_forcelist and {502, 503, 504} <= set(retry.status_forcelist)
 
 
 def test_bigquery_billing_not_enabled_is_non_retryable():

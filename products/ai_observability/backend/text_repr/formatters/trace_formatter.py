@@ -24,6 +24,7 @@ from .message_formatter import (
     format_input_messages,
     format_output_messages,
     reduce_by_uniform_sampling,
+    sanitize_surrogates,
     truncate_content,
 )
 
@@ -177,14 +178,20 @@ def llm_trace_to_formatter_format(
     return trace_dict, hierarchy
 
 
-def _format_latency(latency: float) -> str:
-    """Format latency to 2 decimal places."""
-    return f"{latency:.2f}s"
+def _format_latency(latency: Any) -> str:
+    """Format latency to 2 decimal places. Coerces string-valued latencies before formatting."""
+    try:
+        return f"{float(latency):.2f}s"
+    except (TypeError, ValueError):
+        return str(latency)
 
 
-def _format_cost(cost: float) -> str:
-    """Format cost in USD."""
-    return f"${cost:.4f}"
+def _format_cost(cost: Any) -> str:
+    """Format cost in USD. Coerces string-valued costs before formatting."""
+    try:
+        return f"${float(cost):.4f}"
+    except (TypeError, ValueError):
+        return str(cost)
 
 
 def _get_event_summary(event: dict[str, Any]) -> str:
@@ -271,9 +278,9 @@ def _get_event_summary(event: dict[str, Any]) -> str:
         if applicable is False or applicable == "false":
             parts.append("N/A")
         elif result is True or result == "true":
-            parts.append("PASS")
+            parts.append("true")
         elif result is False or result == "false":
-            parts.append("FAIL")
+            parts.append("false")
 
         summary = eval_name
         if parts:
@@ -430,7 +437,7 @@ def _render_tree(
         lines.append(f"{prefix}  [... max depth reached]")
         return lines
 
-    options = options or {}  # ty: ignore[invalid-assignment]
+    options = options or {}
     include_markers = options.get("include_markers", True)
     collapsed = options.get("collapsed", False)
 
@@ -542,4 +549,4 @@ def format_trace_text_repr(
     if max_length and len(formatted_text) > max_length:
         formatted_text, was_sampled = reduce_by_uniform_sampling(formatted_text, max_length)
 
-    return formatted_text, was_sampled
+    return sanitize_surrogates(formatted_text), was_sampled

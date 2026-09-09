@@ -42,6 +42,7 @@ export interface IDashboardsService {
   list(channelId: string): Promise<DashboardRecord[]>;
   // The component store: component-kind canvases visible to the caller.
   listComponents(input: { search?: string }): Promise<DashboardRecord[]>;
+  listAll(): Promise<DashboardRecord[]>;
   get(id: string): Promise<DashboardRecord | null>;
   create(input: {
     channelId: string;
@@ -69,12 +70,12 @@ export interface IDashboardsService {
     prompt?: string;
     expectedCurrentVersionId: string | null;
   }): Promise<CanvasLayoutResult>;
-  saveContext(input: { id: string; context: string }): Promise<DashboardRecord>;
   setGenerationTask(input: {
     id: string;
     taskId: string | null;
   }): Promise<DashboardRecord>;
   setPinned(input: { id: string; pinned: boolean }): Promise<DashboardRecord>;
+  file(input: { id: string; channelId: string }): Promise<DashboardRecord>;
   // File a rendering error against the build that threw it (best-effort).
   reportError(input: {
     id: string;

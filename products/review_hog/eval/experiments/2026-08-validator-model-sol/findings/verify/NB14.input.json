@@ -1,0 +1,12 @@
+{
+    "id": "NB14",
+    "file": "products/stamphog/backend/tasks/tasks.py",
+    "lines": "853-860,887-898",
+    "priority": "consider",
+    "title": "Base-retarget dismissal promises a review after opt-out",
+    "problem": "For a base retarget, action equals edited, so line 887 skips the new opt-out message. The earlier path dismisses with \"Stamphog re-reviews automatically.\" The carve-out then reports opted_out and queues no review. The GitHub message promises work that will not run.",
+    "suggestion": "Resolve the inbox carve-out before the base-retarget dismissal. Pass an opt-out message when no review will run. Only use the automatic-review message when the code will queue a replacement run.",
+    "cluster": 50,
+    "cluster_issue": "Opt-out dismissal copy/log mismatch on a base-retarget delivery (retarget message posted while log says inbox_opt_out)",
+    "cluster_verified": "0/0"
+}

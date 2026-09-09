@@ -7,13 +7,7 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from posthog.schema import (
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldOauthAccountSelectConfig,
-    SourceFieldOauthConfig,
-)
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldOauthConfig
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
 
@@ -32,7 +26,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_an
     ENDPOINTS,
     REVISION_LOOKBACK_SECONDS,
     TOP_VIDEOS,
-    YOUTUBE_ANALYTICS_REPORTS,
     YOUTUBE_READONLY_SCOPE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.source import (
@@ -40,9 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_an
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.youtube_analytics import (
     YouTubeAnalyticsAuthError,
-    YouTubeAnalyticsResumeConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.source"
 INTEGRATION_ID = 42
@@ -87,9 +78,6 @@ class TestYouTubeAnalyticsSource:
             oauth,
         )
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.YOUTUBEANALYTICS
-
     def test_source_config_is_released_as_alpha(self) -> None:
         config = self.source.get_source_config
 
@@ -118,15 +106,6 @@ class TestYouTubeAnalyticsSource:
         assert [f.name for f in inputs] == ["start_date"]
         assert inputs[0].type == SourceFieldInputConfigType.TEXT
         assert inputs[0].required is False
-
-    def test_channel_is_picked_from_the_connected_account(self) -> None:
-        fields = self.source.get_source_config.fields
-        channel = next(f for f in fields if isinstance(f, SourceFieldOauthAccountSelectConfig))
-
-        assert channel.name == "channel_id"
-        assert channel.required is True
-        assert channel.integrationField == "youtube_analytics_integration_id"
-        assert channel.integrationKind == "youtube-analytics"
 
     def test_pins_the_vendor_api_version_it_calls(self) -> None:
         assert self.source.supported_versions == ("v2",)
@@ -168,15 +147,6 @@ class TestYouTubeAnalyticsSource:
     def test_lists_tables_without_credentials(self) -> None:
         # The report catalog is static, so public docs can render it without connecting.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_canonical_descriptions_cover_every_report(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-
-        assert set(descriptions) == set(ENDPOINTS)
-        for endpoint, entry in descriptions.items():
-            columns = entry.get("columns") or {}
-            expected_columns = {"day", *YOUTUBE_ANALYTICS_REPORTS[endpoint].dimensions}
-            assert expected_columns <= set(columns)
 
     @parameterized.expand(
         [
@@ -307,12 +277,6 @@ class TestYouTubeAnalyticsSource:
 
         assert is_valid is False
         assert error is not None and "reconnect" in error.lower()
-
-    def test_get_resumable_source_manager_is_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is YouTubeAnalyticsResumeConfig
 
     def _inputs(self, **overrides: Any) -> SourceInputs:
         values: dict[str, Any] = {

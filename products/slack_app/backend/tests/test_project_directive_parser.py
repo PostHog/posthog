@@ -46,6 +46,21 @@ class TestParseProjectCommand:
                 "project   12   build feature",
                 RulesCommand(action="project_set", project_team_id=12),
             ),
+            (
+                "set_backticked_id",
+                "project `452770`",
+                RulesCommand(action="project_set", project_team_id=452770),
+            ),
+            (
+                "set_bold_id",
+                "project *452770*",
+                RulesCommand(action="project_set", project_team_id=452770),
+            ),
+            (
+                "set_italic_id_with_request",
+                "project _19_ fix auth",
+                RulesCommand(action="project_set", project_team_id=19),
+            ),
             ("show_plain", "project", RulesCommand(action="project_show")),
             ("show_uppercase", "PROJECT", RulesCommand(action="project_show")),
             ("show_trailing_whitespace", "project   ", RulesCommand(action="project_show")),
@@ -74,6 +89,16 @@ class TestParseProjectCommand:
                 "workspace_set_extra_whitespace",
                 "project   workspace   6",
                 RulesCommand(action="project_set_workspace", project_team_id=6),
+            ),
+            (
+                "workspace_set_backticked_id",
+                "project workspace `452770`",
+                RulesCommand(action="project_set_workspace", project_team_id=452770),
+            ),
+            (
+                "workspace_set_bold_id",
+                "project workspace *8*",
+                RulesCommand(action="project_set_workspace", project_team_id=8),
             ),
         ]
     )

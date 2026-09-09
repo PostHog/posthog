@@ -66,6 +66,7 @@ import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
 import {
     convertToHogFunctionInvocationGlobals,
+    isConvertibleClickHouseEvent,
     isNativeHogFunction,
     isSegmentPluginHogFunction,
     sanitizeLogMessage,
@@ -208,11 +209,11 @@ export class CdpApi {
         )
         this.cancelInvocationsJwt = new ScopedServiceJwt(
             PosthogJwtAudience.WORKFLOWS_CANCEL_INVOCATIONS,
-            config.WORKFLOWS_RESCHEDULE_JWT_SECRET || ''
+            config.WORKFLOWS_CANCEL_JWT_SECRET || ''
         )
         this.cancelBatchJwt = new ScopedServiceJwt(
             PosthogJwtAudience.WORKFLOWS_CANCEL_BATCH,
-            config.WORKFLOWS_RESCHEDULE_JWT_SECRET || ''
+            config.WORKFLOWS_CANCEL_JWT_SECRET || ''
         )
     }
 
@@ -248,6 +249,7 @@ export class CdpApi {
             this.cdpSourceWebhooksConsumer.stop(),
             this.batchExportHogFunctionService.stop(),
             this.rerunJobManager?.disconnect() ?? Promise.resolve(),
+            this.invocationResultsService.stop(),
         ])
     }
 
@@ -468,7 +470,7 @@ export class CdpApi {
                 return res.status(404).json({ error: 'Team not found' })
             }
 
-            globals = clickhouse_event
+            globals = isConvertibleClickHouseEvent(clickhouse_event)
                 ? convertToHogFunctionInvocationGlobals(clickhouse_event, team, this.config.SITE_URL)
                 : globals
 
@@ -747,7 +749,7 @@ export class CdpApi {
                 return res.status(404).json({ error: 'Hog flow not found' })
             }
 
-            const globals: HogFunctionInvocationGlobals | null = clickhouse_event
+            const globals: HogFunctionInvocationGlobals | null = isConvertibleClickHouseEvent(clickhouse_event)
                 ? convertToHogFunctionInvocationGlobals(
                       clickhouse_event,
                       team,
@@ -1169,7 +1171,7 @@ export class CdpApi {
             }
             if (!this.cancelInvocationsJwt.enabled) {
                 return res.status(503).json({
-                    error: 'Workflows scoped auth not configured (WORKFLOWS_RESCHEDULE_JWT_SECRET unset)',
+                    error: 'Workflows scoped auth not configured (WORKFLOWS_CANCEL_JWT_SECRET unset)',
                 })
             }
 
@@ -1254,7 +1256,7 @@ export class CdpApi {
             }
             if (!this.cancelBatchJwt.enabled) {
                 return res.status(503).json({
-                    error: 'Workflows scoped auth not configured (WORKFLOWS_RESCHEDULE_JWT_SECRET unset)',
+                    error: 'Workflows scoped auth not configured (WORKFLOWS_CANCEL_JWT_SECRET unset)',
                 })
             }
 

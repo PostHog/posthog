@@ -16,14 +16,20 @@ silently pointed at a repository it can no longer reach.
 request (see ``posthog.api.github_callback.install_requests``). The payload's ``requester.id``
 is who asked, so matching pending ``GitHubInstallRequest`` rows on ``github_user_id`` flip to
 approved, which is how the desktop learns the wait is over without polling GitHub itself.
+
+The separate ``installation_repositories`` event fires when an owner changes which repositories
+the App can see. It carries the new ``repository_selection`` ("all" or "selected"), which every
+row for the installation mirrors so the UI can say "all repositories" instead of listing them.
 """
+
+from typing import Any
 
 from django.http import HttpResponse
 from django.utils import timezone
 
 import structlog
 
-from posthog.models.integration import Integration
+from posthog.models.integration import Integration, invalidate_github_repository_caches_for_installation
 from posthog.models.user_integration import GitHubInstallRequest, UserIntegration
 
 logger = structlog.get_logger(__name__)
@@ -101,13 +107,20 @@ def _handle_installation_created(payload: dict) -> HttpResponse:
         )
         return HttpResponse(status=200)
 
+    account = (payload.get("installation") or {}).get("account") or {}
+    update_fields: dict[str, Any] = {
+        "status": GitHubInstallRequest.Status.APPROVED,
+        "installation_id": str(installation_id),
+        "resolved_at": timezone.now(),
+    }
+    if account.get("login"):
+        update_fields["account_login"] = str(account["login"])[:255]
+    if account.get("type"):
+        update_fields["account_type"] = str(account["type"])[:32]
+
     resolved_count = GitHubInstallRequest.objects.filter(
         github_user_id=requester_id, status=GitHubInstallRequest.Status.PENDING
-    ).update(
-        status=GitHubInstallRequest.Status.APPROVED,
-        installation_id=str(installation_id),
-        resolved_at=timezone.now(),
-    )
+    ).update(**update_fields)
 
     logger.info(
         "github_installation_webhook_created",
@@ -116,4 +129,53 @@ def _handle_installation_created(payload: dict) -> HttpResponse:
         resolved_count=resolved_count,
     )
 
+    return HttpResponse(status=200)
+
+
+def handle_installation_repositories_event(payload: dict) -> HttpResponse:
+    """Mirror a changed ``repository_selection`` onto every row for the installation and drop
+    their repository caches so the next list reflects the new access."""
+    installation_id = (payload.get("installation") or {}).get("id")
+    repository_selection = payload.get("repository_selection")
+    if installation_id is None or not isinstance(repository_selection, str):
+        logger.warning(
+            "github_installation_repositories_webhook_missing_fields",
+            has_installation_id=installation_id is not None,
+            repository_selection=repository_selection,
+        )
+        return HttpResponse(status=200)
+
+    installation_id = str(installation_id)
+    # Load only the columns we touch. The unbounded repository_cache blob and the encrypted
+    # sensitive_config (decrypted eagerly on load) are skipped so a widely shared installation
+    # can't spike a web worker's memory here. Writes go out as one bulk_update per model instead
+    # of a save per row — which also skips the (no-op for github) push-config post_save signal,
+    # avoiding a per-row lazy load of the deferred `kind`.
+    team_changed = [
+        row
+        for row in Integration.objects.filter(kind="github", integration_id=installation_id).only("id", "config")
+        if row.config.get("repository_selection") != repository_selection
+    ]
+    user_changed = [
+        row
+        for row in UserIntegration.objects.filter(kind="github", integration_id=installation_id).only("id", "config")
+        if row.config.get("repository_selection") != repository_selection
+    ]
+    changed: list[Integration | UserIntegration] = [*team_changed, *user_changed]
+    for row in changed:
+        row.config = {**row.config, "repository_selection": repository_selection}
+    if team_changed:
+        Integration.objects.bulk_update(team_changed, ["config"])
+    if user_changed:
+        UserIntegration.objects.bulk_update(user_changed, ["config"])
+    updated = len(changed)
+
+    invalidate_github_repository_caches_for_installation(installation_id)
+
+    logger.info(
+        "github_installation_repositories_webhook_applied",
+        installation_id=installation_id,
+        repository_selection=repository_selection,
+        rows_updated=updated,
+    )
     return HttpResponse(status=200)

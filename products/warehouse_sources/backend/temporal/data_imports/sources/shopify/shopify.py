@@ -68,6 +68,42 @@ SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR = (
     "docs, then enter its client ID and secret."
 )
 
+# Raised on a 4xx whose body reports `error: shop_not_permitted`. Shopify only allows the
+# client_credentials grant when the app and the store belong to the same Shopify organization,
+# so re-entering credentials can never fix it. Surfaced separately so the message points at the
+# organization rather than the credentials.
+SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR = (
+    "Shopify doesn't allow this app to connect to this store (shop_not_permitted). The app and "
+    "the store must be in the same Shopify organization. In the Shopify Dev Dashboard, open the "
+    "organization that contains your store and create the app there."
+)
+
+# Raised on a 4xx whose body reports `error: app_not_installed`. The client ID and secret are
+# valid, but the app is not installed on this store, so Shopify refuses to mint a token for it.
+# Re-entering the credentials cannot fix that; the user must install the app on the store first.
+# Surfaced separately so the message points at installing the app rather than the credentials.
+SHOPIFY_ACCESS_TOKEN_APP_NOT_INSTALLED_ERROR = (
+    "This Shopify app isn't installed on your store, so PostHog can't get an access token. "
+    "Install the app on your store, then re-enter the client ID and secret here."
+)
+
+# Shopify shows the app's client secret and the Admin API access token on adjacent screens, and
+# both are opaque strings, so pasting the secret into the token field is an easy mistake. The
+# secret carries a distinct prefix, so reject it here instead of sending it to the Admin API and
+# reporting a generic 401 that points at the wrong field.
+SHOPIFY_ACCESS_TOKEN_IS_APP_SECRET_ERROR = (
+    "That looks like your app's client secret, not an Admin API access token. The access token "
+    "starts with 'shpat_' and is shown on your app's API credentials page in your store admin."
+)
+
+# Raised when neither authentication method was filled in. The form marks every credential field
+# optional because the user supplies one method or the other, so the "at least one method" rule
+# cannot be enforced there and is enforced here instead.
+SHOPIFY_MISSING_CREDENTIALS_ERROR = (
+    "Shopify credentials are incomplete. Enter either an Admin API access token, or the client ID "
+    "and secret of a Dev Dashboard app."
+)
+
 # Raised when the OAuth token endpoint returns 404 — there is no store at
 # `<store-id>.myshopify.com`, so the store id is wrong or the store no longer exists.
 # Reconnecting the app can't fix a bad store id, so this is surfaced separately from the
@@ -377,6 +413,10 @@ def _access_token_auth_error_message(error_code: str | None) -> str:
         return SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR
     if error_code == "unsupported_grant_type":
         return SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR
+    if error_code == "shop_not_permitted":
+        return SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR
+    if error_code == "app_not_installed":
+        return SHOPIFY_ACCESS_TOKEN_APP_NOT_INSTALLED_ERROR
     return SHOPIFY_ACCESS_TOKEN_AUTH_ERROR
 
 
@@ -419,7 +459,9 @@ def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, sho
         "client_secret": shopify_client_secret,
         "grant_type": SHOPIFY_ACCESS_TOKEN_GRANT,
     }
-    access_res = make_tracked_session().post(access_token_url, data=access_data)
+    # The Accept header is load-bearing: without it Shopify renders 4xx OAuth errors as an HTML
+    # page instead of JSON, which leaves `_parse_oauth_error` with no error code to read.
+    access_res = make_tracked_session(headers={"Accept": "application/json"}).post(access_token_url, data=access_data)
     if not access_res.ok:
         # A 404 means there's no store at this subdomain — the store id is wrong or the store
         # is gone. Reconnecting the app can't fix that, so point the user at the store id
@@ -449,6 +491,33 @@ def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, sho
     return access_res.json()["access_token"]
 
 
+# The prefix Shopify puts on an app's client secret, as opposed to the `shpat_` on an Admin API
+# access token.
+_SHOPIFY_APP_SECRET_PREFIX = "shpss_"
+
+
+def _resolve_access_token(
+    shopify_store_id: str,
+    shopify_client_id: str | None,
+    shopify_client_secret: str | None,
+    shopify_access_token: str | None,
+) -> str:
+    """The Admin API access token to authenticate with.
+
+    A token the user supplied is used as it is. Shopify issues such a token for one store, so it
+    works where `_get_shopify_access_token` cannot. That function uses the `client_credentials`
+    grant, which Shopify allows only when the app and the store are in the same Shopify
+    organization, and a merchant store often cannot join the organization that holds the app.
+    """
+    if shopify_access_token:
+        if shopify_access_token.startswith(_SHOPIFY_APP_SECRET_PREFIX):
+            raise Exception(SHOPIFY_ACCESS_TOKEN_IS_APP_SECRET_ERROR)
+        return shopify_access_token
+    if not shopify_client_id or not shopify_client_secret:
+        raise Exception(SHOPIFY_MISSING_CREDENTIALS_ERROR)
+    return _get_shopify_access_token(shopify_store_id, shopify_client_id, shopify_client_secret)
+
+
 def _get_granted_scopes(store_id: str, sess: requests.Session) -> set[str] | None:
     """The token's granted scope handles, or None on any failure — best-effort so a blip degrades
     the query rather than failing the sync."""
@@ -464,8 +533,8 @@ def _get_granted_scopes(store_id: str, sess: requests.Session) -> set[str] | Non
 
 def shopify_source(
     shopify_store_id: str,
-    shopify_client_id: str,
-    shopify_client_secret: str,
+    shopify_client_id: str | None,
+    shopify_client_secret: str | None,
     graphql_object_name: str,
     db_incremental_field_last_value: Any | None,
     db_incremental_field_earliest_value: Any | None,
@@ -473,15 +542,17 @@ def shopify_source(
     resumable_source_manager: ResumableSourceManager[ShopifyResumeConfig],
     api_version: str = SHOPIFY_API_VERSION_2026_07,
     should_use_incremental_field: bool = False,
+    shopify_access_token: str | None = None,
 ):
     store_id = normalize_store_id(shopify_store_id)
     api_url = SHOPIFY_API_URL.format(store_id, api_version)
-    shopify_access_token = _get_shopify_access_token(store_id, shopify_client_id, shopify_client_secret)
+    access_token = _resolve_access_token(store_id, shopify_client_id, shopify_client_secret, shopify_access_token)
     schema_name = resolve_schema_name(graphql_object_name)
 
     def get_rows():
         sess = make_tracked_session(
-            headers={"X-Shopify-Access-Token": shopify_access_token, "Content-Type": "application/json"}
+            headers={"X-Shopify-Access-Token": access_token, "Content-Type": "application/json"},
+            redact_values=(access_token,),
         )
         graphql_object = SHOPIFY_GRAPHQL_OBJECTS.get(schema_name)
         if not graphql_object:
@@ -601,7 +672,11 @@ def _format_graphql_errors(errors: Any) -> str:
 
 
 def _authenticated_session(
-    store_id: str, client_id: str, client_secret: str, api_version: str = SHOPIFY_API_VERSION_2026_07
+    store_id: str,
+    client_id: str | None,
+    client_secret: str | None,
+    api_version: str = SHOPIFY_API_VERSION_2026_07,
+    access_token: str | None = None,
 ) -> tuple[str, requests.Session]:
     """Fetch an access token and return the GraphQL URL plus a session that carries it.
 
@@ -610,8 +685,11 @@ def _authenticated_session(
     current default. Pre-creation callers omit it and get `default_version`.
     """
     api_url = SHOPIFY_API_URL.format(store_id, api_version)
-    access_token = _get_shopify_access_token(store_id, client_id, client_secret)
-    sess = make_tracked_session(headers={"Content-Type": "application/json", "X-Shopify-Access-Token": access_token})
+    access_token = _resolve_access_token(store_id, client_id, client_secret, access_token)
+    sess = make_tracked_session(
+        headers={"Content-Type": "application/json", "X-Shopify-Access-Token": access_token},
+        redact_values=(access_token,),
+    )
     return api_url, sess
 
 
@@ -631,10 +709,11 @@ def _probe_resource_permission(api_url: str, sess: requests.Session, resource: S
 
 def validate_credentials(
     shopify_store_id: str,
-    shopify_client_id: str,
-    shopify_client_secret: str,
+    shopify_client_id: str | None,
+    shopify_client_secret: str | None,
     resources: list[str] | None = None,
     api_version: str = SHOPIFY_API_VERSION_2026_07,
+    shopify_access_token: str | None = None,
 ) -> bool:
     """Validate Shopify credentials.
 
@@ -644,7 +723,9 @@ def validate_credentials(
       naming any whose scope is missing.
     """
     store_id = normalize_store_id(shopify_store_id)
-    api_url, sess = _authenticated_session(store_id, shopify_client_id, shopify_client_secret, api_version)
+    api_url, sess = _authenticated_session(
+        store_id, shopify_client_id, shopify_client_secret, api_version, shopify_access_token
+    )
 
     # A valid token can always read the shop resource.
     try:
@@ -674,16 +755,19 @@ def validate_credentials(
 
 def check_endpoint_permissions(
     shopify_store_id: str,
-    shopify_client_id: str,
-    shopify_client_secret: str,
+    shopify_client_id: str | None,
+    shopify_client_secret: str | None,
     endpoints: list[str],
     api_version: str = SHOPIFY_API_VERSION_2026_07,
+    shopify_access_token: str | None = None,
 ) -> dict[str, str | None]:
     """Per-endpoint read-scope probe for the schema picker: {name: None} if reachable, else a
     message naming the missing scope. A throttle/5xx/transport blip on one endpoint leaves that
     table unknown rather than aborting the batch; only failing to obtain the access token raises."""
     store_id = normalize_store_id(shopify_store_id)
-    api_url, sess = _authenticated_session(store_id, shopify_client_id, shopify_client_secret, api_version)
+    api_url, sess = _authenticated_session(
+        store_id, shopify_client_id, shopify_client_secret, api_version, shopify_access_token
+    )
     results: dict[str, str | None] = {}
     for name in endpoints:
         resource = SHOPIFY_GRAPHQL_OBJECTS.get(resolve_schema_name(name))

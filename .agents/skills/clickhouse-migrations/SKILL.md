@@ -26,18 +26,19 @@ operations = [
 
 Only the members of `NodeRole` in `posthog/clickhouse/client/connection.py` are valid: `ALL`, `DATA`,
 `INGESTION_EVENTS`, `INGESTION_SMALL`, `INGESTION_MEDIUM`, `ENDPOINTS`, `LOGS`, `AI_EVENTS`, `AUX`,
-`OPS`, `SESSIONS`. A name that is not in that enum fails at import, which aborts migration discovery
-and takes every job that runs migrations down with it.
+`BATCH_EXPORTS`, `OPS`, `SESSIONS`. A name that is not in that enum fails at import, which aborts
+migration discovery and takes every job that runs migrations down with it.
 
 Pick the role by **which cluster owns the object**, not by its type alone:
 
 - `[NodeRole.DATA]`: anything on the main cluster — sharded tables, non-sharded replicated tables,
   distributed read tables, views, dictionaries. The default, and right for most migrations.
 - `[NodeRole.INGESTION_SMALL]`: writable tables, Kafka tables, materialized views on the ingestion layer
-- `[NodeRole.OPS]`, `[NodeRole.LOGS]`, `[NodeRole.AUX]`, `[NodeRole.AI_EVENTS]`, `[NodeRole.SESSIONS]`:
-  objects that live on a satellite cluster. A table for one of those on `DATA` lands on the wrong
-  nodes and leaves the intended cluster without it, so check where the object is read and written
-  before defaulting to `DATA`.
+- `[NodeRole.OPS]`, `[NodeRole.LOGS]`, `[NodeRole.AUX]`, `[NodeRole.AI_EVENTS]`, `[NodeRole.SESSIONS]`,
+  `[NodeRole.BATCH_EXPORTS]`: objects that live on a satellite cluster. A table for one of those on
+  `DATA` lands on the wrong nodes and leaves the intended cluster without it, so check where the
+  object is read and written before defaulting to `DATA`. Dev runs the same satellite clusters as
+  US/EU prod — never branch on `CLOUD_DEPLOYMENT` to give dev a different layout.
 - `[NodeRole.ALL]`: rarely used
 
 ### Table engines quick reference
@@ -79,15 +80,27 @@ If you need both a schema change and application code that uses the new schema, 
 
 **No table should exist only in the cloud.** Every table created via migration must also exist in a local dev environment.
 
-Some migrations are cloud-guarded and skipped in local/hobby dev:
+Some migrations are cloud-guarded and skipped in local/hobby dev. Gate on `posthog.run_mode`, never on `settings.CLOUD_DEPLOYMENT` directly, because the `clickhouse-migrations-use-run-mode` semgrep rule blocks raw comparisons:
 
 ```python
+from posthog.run_mode import RunMode, run_mode
+
 operations = (
     []
-    if settings.CLOUD_DEPLOYMENT not in ("US", "EU", "DEV")
+    if not run_mode().is_deployed_cloud  # US/EU/DEV
     else [...]
 )
 ```
+
+| Predicate                        | True for                                      |
+| -------------------------------- | --------------------------------------------- |
+| `run_mode().is_deployed_cloud`   | US, EU, DEV (the usual migration gate)        |
+| `run_mode().is_prod_cloud`       | US, EU (excludes staging)                     |
+| `run_mode() is RunMode.CLOUD_US` | one region (`CLOUD_EU`, `CLOUD_DEV` likewise) |
+
+`run_mode().is_cloud` also counts E2E, so it is wrong for a migration. That one matches `posthog.cloud_utils.is_cloud`.
+
+Call `run_mode()` where you need it rather than assigning a module-level constant. `posthog/clickhouse/test/test_migrations.py` re-imports every migration under a patched `posthog.settings.CLOUD_DEPLOYMENT` to check each deployment's branch for stray `ON CLUSTER`, and a cached value would silently skip that coverage.
 
 If you create a new table inside such a guard, you must also add its SQL function to `posthog/clickhouse/schema.py` in the appropriate tuple so the table gets created locally:
 

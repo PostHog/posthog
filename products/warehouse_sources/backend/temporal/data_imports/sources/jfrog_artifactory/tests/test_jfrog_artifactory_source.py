@@ -1,22 +1,13 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jfrogartifactory import (
     JfrogArtifactorySourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory.jfrog_artifactory import (
-    JfrogArtifactoryResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory.settings import (
-    ENDPOINTS,
-    JFROG_ARTIFACTORY_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory.source import (
     JfrogArtifactorySource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # AQL endpoints expose server-side timestamp filters; the REST list endpoints don't.
 _INCREMENTAL_ENDPOINTS = {"artifacts", "builds"}
@@ -28,31 +19,6 @@ class TestJfrogArtifactorySource:
         self.source = JfrogArtifactorySource()
         self.team_id = 123
         self.config = JfrogArtifactorySourceConfig(base_url="https://acme.jfrog.io", access_token="token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.JFROGARTIFACTORY
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "JfrogArtifactory"
-        assert config.label == "JFrog (Artifactory / JFrog Platform)"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/jfrog_artifactory.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/jfrog-artifactory"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["base_url", "access_token"]
-
-    def test_access_token_field_is_secret_password(self):
-        config = self.source.get_source_config
-        token_field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "access_token"
-        )
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.secret is True
-        assert token_field.required is True
 
     def test_base_url_listed_as_connection_host_field(self):
         # The access token is sent to base_url, so retargeting it must re-require the token.
@@ -113,10 +79,6 @@ class TestJfrogArtifactorySource:
         assert self.source.lists_tables_without_credentials is True
         documented = self.source.get_documented_tables()
         assert {table["name"] for table in documented} == set(ENDPOINTS)
-
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        canonical = self.source.get_canonical_descriptions()
-        assert set(canonical) == set(JFROG_ARTIFACTORY_ENDPOINTS)
 
     @pytest.mark.parametrize(
         "probe_return, schema_name, expected_valid, expected_message_part",
@@ -188,11 +150,6 @@ class TestJfrogArtifactorySource:
             assert permissions[endpoint] is None
         else:
             assert expected_reason_part in (permissions[endpoint] or "")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is JfrogArtifactoryResumeConfig
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_artifactory.source.jfrog_artifactory_source"

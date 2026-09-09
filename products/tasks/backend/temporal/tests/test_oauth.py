@@ -6,8 +6,17 @@ from posthog.models.user import User
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.exceptions import TaskInvalidStateError
-from products.tasks.backend.models import MCPBuiltInAgentKey, Task
-from products.tasks.backend.temporal.oauth import create_oauth_access_token, create_oauth_access_token_for_run
+from products.tasks.backend.models import (
+    INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN,
+    TASK_OWNERSHIP_VERSION_STATE_KEY,
+    MCPBuiltInAgentKey,
+    Task,
+)
+from products.tasks.backend.temporal.oauth import (
+    INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS,
+    create_oauth_access_token,
+    create_oauth_access_token_for_run,
+)
 
 
 @pytest.mark.parametrize(
@@ -15,6 +24,7 @@ from products.tasks.backend.temporal.oauth import create_oauth_access_token, cre
     [
         (Task.OriginProduct.SIGNALS_SCOUT, "signals"),
         (Task.OriginProduct.SUPPORT_REPLY, "array"),
+        (Task.OriginProduct.WORKFLOW, "array"),
     ],
 )
 @patch("products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=True)
@@ -112,14 +122,34 @@ def test_default_task_uses_array_oauth_application(mock_create: MagicMock) -> No
     )
 
 
+# is_interactive_signals_run short-circuits on origin, so an omitted one reads as
+# pipeline-started and leaves an interactive-mode run with no ceiling.
+def test_every_stamped_origin_is_an_interactive_signals_origin() -> None:
+    assert set(INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN) <= set(INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS)
+
+
 @pytest.mark.parametrize(
-    ("origin_product", "internal", "application", "interactive"),
+    ("origin_product", "internal", "run_state", "application", "interactive"),
     [
-        (Task.OriginProduct.SIGNAL_REPORT, False, "signals", True),
-        (Task.OriginProduct.SIGNAL_REPORT, True, "signals", False),
-        (Task.OriginProduct.SIGNALS_CHAT, False, "signals", True),
-        (Task.OriginProduct.SIGNALS_SCOUT, True, "signals", False),
-        (Task.OriginProduct.USER_CREATED, False, "array", False),
+        # Inbox CTA: a person creates the task; create_run stamps the interactive `inbox` stage.
+        (Task.OriginProduct.SIGNAL_REPORT, False, {"ai_stage": "inbox"}, "signals", True),
+        # A bare signal_report task (no report link) gets no stamp and stays interactive.
+        (Task.OriginProduct.SIGNAL_REPORT, False, None, "signals", True),
+        # Auto-started implementation: the pipeline stamps the run it started.
+        (Task.OriginProduct.SIGNAL_REPORT, True, {"ai_stage": "implementation"}, "signals", False),
+        # A person starting a second run on that same auto-started task. `internal` still says
+        # True because it answers for the task, but this run carries no stage of its own.
+        (Task.OriginProduct.SIGNAL_REPORT, True, {"mode": "interactive"}, "signals", True),
+        # A forged stage is impossible through the API, but an empty string must not read as one.
+        (Task.OriginProduct.SIGNAL_REPORT, True, {"ai_stage": ""}, "signals", True),
+        (Task.OriginProduct.SIGNAL_REPORT, True, {"ai_stage": "research"}, "signals", False),
+        (Task.OriginProduct.SIGNAL_REPORT, True, {"ai_stage": "custom_agent"}, "signals", False),
+        (Task.OriginProduct.SIGNALS_CHAT, False, {"ai_stage": "chat"}, "signals", True),
+        (Task.OriginProduct.SIGNALS_CHAT, False, None, "signals", True),
+        (Task.OriginProduct.SIGNALS_SCOUT, True, {"ai_stage": "scout"}, "signals", False),
+        # The interactive stamp never reaches a scheduled origin, and would not make it interactive.
+        (Task.OriginProduct.SIGNALS_SCOUT, True, {"ai_stage": "inbox"}, "signals", False),
+        (Task.OriginProduct.USER_CREATED, False, None, "array", False),
     ],
 )
 @patch("products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=False)
@@ -129,6 +159,7 @@ def test_signals_origins_mint_under_the_signals_app_and_mark_only_user_started_r
     mock_enforcement: MagicMock,
     origin_product: Task.OriginProduct,
     internal: bool,
+    run_state: dict | None,
     application: str,
     interactive: bool,
 ) -> None:
@@ -140,7 +171,7 @@ def test_signals_origins_mint_under_the_signals_app_and_mark_only_user_started_r
         internal=internal,
     )
 
-    assert create_oauth_access_token(task) == "token"
+    assert create_oauth_access_token(task, run_state=run_state) == "token"
 
     expected: dict = {
         "scopes": "read_only",
@@ -150,6 +181,31 @@ def test_signals_origins_mint_under_the_signals_app_and_mark_only_user_started_r
     if interactive:
         expected["include_interactive_run_scope"] = True
     mock_create.assert_called_once_with(task.created_by, 123, **expected)
+
+
+@pytest.mark.django_db
+@patch("products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=False)
+@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
+def test_two_runs_on_one_auto_started_task_get_different_signals_budgets(
+    mock_create: MagicMock,
+    mock_enforcement: MagicMock,
+) -> None:
+    organization = Organization.objects.create(name="signals-budget-org")
+    team = Team.objects.create(organization=organization, name="signals-budget-team")
+    creator = User.objects.create(email="signals-budget-creator@example.com")
+    task = Task.objects.create(
+        team=team,
+        title="Implementation: report",
+        created_by=creator,
+        origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        internal=True,
+    )
+
+    create_oauth_access_token_for_run(task, {"ai_stage": "implementation", "mode": "background"})
+    assert "include_interactive_run_scope" not in mock_create.call_args.kwargs
+
+    create_oauth_access_token_for_run(task, {"mode": "interactive"})
+    assert mock_create.call_args.kwargs["include_interactive_run_scope"] is True
 
 
 def test_oauth_token_can_disable_task_creator_fallback() -> None:
@@ -170,6 +226,7 @@ def test_oauth_token_can_disable_task_creator_fallback() -> None:
     [
         (Task.OriginProduct.SIGNALS_SCOUT, "scout"),
         (Task.OriginProduct.SUPPORT_REPLY, "support"),
+        (Task.OriginProduct.WORKFLOW, "workflow"),
     ],
 )
 def test_server_created_task_persists_trusted_mcp_agent_marker(
@@ -260,6 +317,25 @@ def test_run_token_fails_closed_for_slack_run_with_unresolvable_actor(mock_creat
 
     # Non-Slack runs keep the creator fallback.
     assert create_oauth_access_token_for_run(task, {}) == "token"
+
+
+@pytest.mark.django_db
+@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
+def test_run_token_rejects_previous_task_owner(mock_create: MagicMock) -> None:
+    organization = Organization.objects.create(name="oauth-handoff-org")
+    team = Team.objects.create(organization=organization, name="oauth-handoff-team")
+    creator = User.objects.create(email="oauth-handoff-creator@example.com")
+    task = Task.objects.create(
+        team=team,
+        title="Transferred task",
+        created_by=creator,
+        state={TASK_OWNERSHIP_VERSION_STATE_KEY: "new-owner"},
+    )
+
+    with pytest.raises(TaskInvalidStateError):
+        create_oauth_access_token_for_run(task, {})
+
+    mock_create.assert_not_called()
 
 
 @pytest.mark.django_db
@@ -376,11 +452,14 @@ def test_workflow_run_fails_closed_when_owner_is_not_a_current_org_member(mock_c
     [
         ("full", "read_only"),
         ("read_only", "full"),
+        # A snapshotted scout posture is a dict rather than a preset string. Skipping it would
+        # drop the snapshot leg of the intersection and grant the request in full.
+        ("full", {"preset": "signals_scout", "extra_write_scopes": ["dashboard:write"]}),
     ],
 )
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
 def test_workflow_run_scopes_never_exceed_request_or_snapshot(
-    mock_create: MagicMock, requested: PosthogMcpScopes, snapshot: str
+    mock_create: MagicMock, requested: PosthogMcpScopes, snapshot: PosthogMcpScopes
 ) -> None:
     from posthog.models.organization import OrganizationMembership
     from posthog.temporal.oauth import resolve_scopes
@@ -397,10 +476,10 @@ def test_workflow_run_scopes_never_exceed_request_or_snapshot(
     create_oauth_access_token_for_run(task, state, scopes=requested)
 
     granted = set(mock_create.call_args.kwargs["scopes"])
-    read_only = set(resolve_scopes("read_only", include_internal_scopes=True))
     # Whichever side is narrower wins: a teammate rerun requesting full cannot exceed the
     # workflow's snapshot, and a narrow request is never widened to the snapshot.
-    assert granted <= read_only
+    assert granted <= set(resolve_scopes(requested, include_internal_scopes=True))
+    assert granted <= set(resolve_scopes(snapshot, include_internal_scopes=True))
 
 
 @pytest.mark.django_db

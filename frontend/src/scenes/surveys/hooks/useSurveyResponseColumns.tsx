@@ -2,14 +2,16 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconLlmAnalytics, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { getSurveyResponse, isScaleTwoRating } from 'scenes/surveys/utils'
+import { getSurveyResponseStatus, isScaleTwoRating } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
+import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
 import { QueryContextColumn } from '~/queries/types'
-import { SurveyQuestionType } from '~/types'
+import { EventType } from '~/types'
 
 const getTraceIdFromRecord = (record: unknown): string | null => {
     if (!Array.isArray(record)) {
@@ -39,20 +41,34 @@ export function useSurveyResponseColumns(): Record<string, QueryContextColumn> {
     const { survey } = useValues(surveyLogic)
 
     return useMemo(() => {
-        const columns: Record<string, QueryContextColumn> = {}
+        const columns: Record<string, QueryContextColumn> = {
+            status: {
+                title: 'Status',
+                render: ({ record }) => {
+                    const event = (record as EventType[])[0]
+                    const status = getSurveyResponseStatus(event.event, event.properties)
+                    return (
+                        <LemonTag type={status ? 'warning' : 'success'} size="small">
+                            {status || 'Completed'}
+                        </LemonTag>
+                    )
+                },
+            },
+            respondent: {
+                title: 'Person',
+                render: ({ record }) => <PersonDisplay person={(record as EventType[])[0].person} />,
+            },
+            actions: {
+                title: ' ',
+                render: ({ record }) => <EventRowActions event={(record as EventType[])[0]} />,
+            },
+        }
 
         survey.questions.forEach((question, index) => {
             const isThumb = isScaleTwoRating(question)
             const isFirstQuestion = index === 0
-            const baseExpression = getSurveyResponse(question, index)
-            // Must match the column expression built in surveyLogic.tsx so multi-choice
-            // questions (wrapped in arrayStringConcat) also get matched.
-            const columnName =
-                question.type === SurveyQuestionType.MultipleChoice
-                    ? `arrayStringConcat(${baseExpression}, ', ')`
-                    : baseExpression
-
-            columns[columnName] = {
+            columns[`answer_${index}`] = {
+                title: question.question || `Question ${index + 1}`,
                 render: ({ value, record }) => {
                     const traceId = isFirstQuestion ? getTraceIdFromRecord(record) : null
                     const stringValue = value == null ? '' : String(value)

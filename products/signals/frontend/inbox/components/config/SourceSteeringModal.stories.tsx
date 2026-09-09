@@ -21,7 +21,7 @@ interface HarnessProps {
 }
 
 function ModalHarness({ config }: HarnessProps): JSX.Element {
-    return <SourceSteeringModal sourceConfig={sourceConfig(config)} sourceLabel="GitHub issues" onClose={() => {}} />
+    return <SourceSteeringModal sourceConfigs={[sourceConfig(config)]} sourceLabel="GitHub issues" onClose={() => {}} />
 }
 
 const meta: Meta<typeof ModalHarness> = {

@@ -1,6 +1,13 @@
+import { signalsConfigKeys } from "../inbox/inboxQuery";
+import { readApiErrorBody } from "./apiErrorBody";
 import { githubInstallRequestKeys } from "./repositoryKeys";
 
-export type ConnectState = "idle" | "connecting" | "timed-out" | "error";
+export type ConnectState =
+  | "idle"
+  | "connecting"
+  | "timed-out"
+  | "error"
+  | "pending";
 
 export interface ConnectError {
   message: string;
@@ -16,6 +23,7 @@ export type ConnectAction =
   | { type: "begin" }
   | { type: "succeed" }
   | { type: "fail"; error: ConnectError }
+  | { type: "pending" }
   | { type: "timeout" }
   | { type: "reset" };
 
@@ -35,6 +43,9 @@ export function connectReducer(
       return { state: "idle", error: null };
     case "fail":
       return { state: "error", error: action.error };
+    // GitHub handed the install to an org owner: the flow ended, but not in failure.
+    case "pending":
+      return { state: "pending", error: null };
     case "timeout":
       return { state: "timed-out", error: status.error };
     case "reset":
@@ -48,6 +59,7 @@ export interface ConnectFlags {
   isConnecting: boolean;
   isTimedOut: boolean;
   hasError: boolean;
+  isPending: boolean;
 }
 
 export function deriveConnectFlags(state: ConnectState): ConnectFlags {
@@ -55,6 +67,7 @@ export function deriveConnectFlags(state: ConnectState): ConnectFlags {
     isConnecting: state === "connecting",
     isTimedOut: state === "timed-out",
     hasError: state === "error",
+    isPending: state === "pending",
   };
 }
 
@@ -62,9 +75,11 @@ export function toConnectError(
   error: unknown,
   fallbackMessage: string,
 ): ConnectError {
+  const { code, detail } = readApiErrorBody(error);
   return {
-    message: error instanceof Error ? error.message : fallbackMessage,
-    code: null,
+    message:
+      detail || (error instanceof Error ? error.message : fallbackMessage),
+    code,
   };
 }
 
@@ -83,5 +98,11 @@ export function githubInvalidationKeys(
 }
 
 export function slackInvalidationKeys(): ReadonlyArray<ReadonlyArray<unknown>> {
-  return [["integrations", "list"], ["integrations"]];
+  // The autonomy config caches slack_notification_integration_id; connecting or
+  // disconnecting a workspace changes it server-side, so refresh it too.
+  return [
+    ["integrations", "list"],
+    ["integrations"],
+    [...signalsConfigKeys.userAutonomyConfig],
+  ];
 }

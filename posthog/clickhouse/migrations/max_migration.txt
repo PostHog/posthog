@@ -1,1 +1,1 @@
-0301_flag_evaluations_default_columns
+0315_add_snapshot_mode_to_session_replay_events

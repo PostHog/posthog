@@ -1,8 +1,9 @@
-import random
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from enum import StrEnum
 
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
+from products.signals.backend.enums import ReportPriority
 from products.tasks.backend.facade.run_config import (
     ReasoningEffort,
     RuntimeAdapter,
@@ -25,13 +26,18 @@ REVIEW_INITIAL_PERMISSION_MODE = "full-access"
 # untrusted PR-comment text, and their only legitimate MCP use is reading their criteria skill
 # (skill-get / skill-file-get) — without this the context defaults to "full", handing an injectable
 # agent execute-sql and every write tool. Internal sandbox-plumbing scopes are re-added by the
-# resolver, so this cannot break session mechanics.
-REVIEW_MCP_SCOPES: list[str] = ["llm_skill:read"]
+# resolver, so this cannot break session mechanics. `user:read` is the MCP handshake: the MCP
+# server resolves the calling user (`/api/users/@me/`) when a session opens and refuses the whole
+# connection without it, so the agent never gets `skill-get` and silently reviews without its skill.
+# `project:read` is deliberately NOT granted: the handshake's project fetch is best-effort, so the
+# scope buys only analytics attribution, but `GET /api/projects/<id>/` returns the team's unmasked
+# `secret_api_token`, which an injected agent reading untrusted PR text must never be able to read.
+REVIEW_MCP_SCOPES: list[str] = ["llm_skill:read", "user:read"]
 
 
 @dataclass(frozen=True)
 class ReviewArm:
-    """One reviewer configuration the model experiment can assign to a report.
+    """One reviewer configuration a report's review units run on.
 
     The four fields travel as one bundle: provider routing is derived from the adapter, so a model
     handed over without its adapter silently falls back to the agent server's default, and Codex
@@ -51,22 +57,83 @@ DEFAULT_REVIEW_ARM = ReviewArm(
     initial_permission_mode=REVIEW_INITIAL_PERMISSION_MODE,
 )
 
-# The reviewer-model arm draw: each new report draws its arm once at creation and keeps it for
-# life, because a per-turn redraw would feed one arm's findings into the other arm's
-# "already covered" injection. Weights are relative shares (`random.choices` normalizes them).
-# Run a model experiment by adding weighted arms here; end it by dropping arms HERE, never by
-# deregistering the model in products/tasks: persisted assignments resolve against the live
-# registry per unit, so a mid-experiment deregistration silently falls in-flight turns back to
-# the default pins, unit by unit. Reports that drew a now-dropped arm keep running it while its
-# combo stays registered, by design.
-REVIEW_EXPERIMENT_ARMS: tuple[tuple[float, ReviewArm], ...] = ((1.0, DEFAULT_REVIEW_ARM),)
+
+class ReviewTier(StrEnum):
+    """The routing bucket a report's reviewer arm is chosen from; persisted as `ReviewReport.review_tier`.
+
+    Named after the bucket, not the arm it maps to, so a dashboard split by tier keeps reading the
+    same way when the table below moves a bucket to another effort.
+    """
+
+    # A person's PR, or any PR a person explicitly asked to review.
+    HUMAN = "human"
+    # Agent PRs (a self-driving implementation of a Signals report), by the report's priority.
+    AGENT_P0_P1 = "agent_p0_p1"
+    AGENT_P2 = "agent_p2"
+    AGENT_P3_P4 = "agent_p3_p4"
+    # An agent PR whose report carries no readable priority judgment.
+    AGENT_UNPRIORITIZED = "agent_unprioritized"
 
 
-def draw_review_arm() -> ReviewArm:
-    """The weighted arm draw for a newly created report; persisted once, never redrawn."""
-    arms = [arm for _, arm in REVIEW_EXPERIMENT_ARMS]
-    weights = [weight for weight, _ in REVIEW_EXPERIMENT_ARMS]
-    return random.choices(arms, weights=weights, k=1)[0]
+# The tier table. A report is placed in a tier once, when it is created (`upsert_review_report`),
+# and keeps that arm for life: a per-turn re-decision would feed a cheap turn's findings into a
+# stronger turn's "already covered" injection. Lower-priority agent PRs trade findings for cost:
+# in the 2026-08 reviewer experiment (eval/experiments/2026-08-validator-model-sol/FINAL_REPORT.md)
+# medium kept about half of xhigh's real findings, low about a third, and only xhigh surfaced
+# issues nobody reported before. A missing priority fails expensive on purpose, because an
+# over-review costs dollars and an under-review costs a missed bug. The validator runs its own pins
+# for every tier. Change a bucket's arm HERE, never by deregistering the model in products/tasks:
+# persisted arms resolve against the live registry per unit, so a deregistration silently falls
+# in-flight turns back to the default pins, unit by unit.
+REVIEW_ARMS_BY_TIER: dict[ReviewTier, ReviewArm] = {
+    ReviewTier.HUMAN: DEFAULT_REVIEW_ARM,
+    ReviewTier.AGENT_P0_P1: DEFAULT_REVIEW_ARM,
+    ReviewTier.AGENT_P2: replace(DEFAULT_REVIEW_ARM, reasoning_effort=ReasoningEffort.MEDIUM),
+    ReviewTier.AGENT_P3_P4: replace(DEFAULT_REVIEW_ARM, reasoning_effort=ReasoningEffort.LOW),
+    ReviewTier.AGENT_UNPRIORITIZED: DEFAULT_REVIEW_ARM,
+}
+
+_TIER_BY_PRIORITY: dict[ReportPriority, ReviewTier] = {
+    ReportPriority.P0: ReviewTier.AGENT_P0_P1,
+    ReportPriority.P1: ReviewTier.AGENT_P0_P1,
+    ReportPriority.P2: ReviewTier.AGENT_P2,
+    ReportPriority.P3: ReviewTier.AGENT_P3_P4,
+    ReportPriority.P4: ReviewTier.AGENT_P3_P4,
+}
+
+
+# The trigger sources (`temporal/types.py`) that carry an explicit ask for a review: a label, the
+# CLI, or the Code review scene and its MCP tool (both stamped `ui`, so an agent driving the MCP
+# tool on someone's behalf counts as that person asking). Only the inbox trigger fires with nobody
+# asking, and a trigger from this set on an inbox-created report lifts its tier
+# (`upsert_review_report`). Spelled out here because persistence cannot import the temporal
+# package (its `__init__` imports the activities, which import persistence); `test_constants.py`
+# locks the set to the trigger constants.
+HUMAN_TRIGGER_SOURCES = frozenset({"label", "manual", "ui"})
+
+
+def select_review_tier(*, agent_pr: bool, signal_priority: ReportPriority | None) -> ReviewTier:
+    """The tier a new report reviews on, from who opened the PR and how important its report is.
+
+    `agent_pr` is decided by the caller (a Signals report link present at creation). The priority
+    only matters for agent PRs: a person's PR reviews at full strength whatever the report says.
+    """
+    if not agent_pr:
+        return ReviewTier.HUMAN
+    if signal_priority is None:
+        return ReviewTier.AGENT_UNPRIORITIZED
+    return _TIER_BY_PRIORITY[signal_priority]
+
+
+def is_below_human_tier(tier: ReviewTier) -> bool:
+    """Whether a person's re-trigger of a report in `tier` lifts it to the human tier.
+
+    Compared on the arm's effort, so a tier that already runs the human arm (P0/P1, unprioritized)
+    keeps its label: the lift exists to buy a person the stronger review, not to relabel the PR.
+    """
+    efforts = list(ReasoningEffort)  # declared weakest first in the tasks registry
+    human_effort = REVIEW_ARMS_BY_TIER[ReviewTier.HUMAN].reasoning_effort
+    return efforts.index(REVIEW_ARMS_BY_TIER[tier].reasoning_effort) < efforts.index(human_effort)
 
 
 def resolve_review_arm(
@@ -77,10 +144,11 @@ def resolve_review_arm(
 ) -> ReviewArm:
     """The arm a report's review units actually run on: its persisted assignment, else the pins.
 
-    Missing fields (pre-experiment rows) fall back silently. An assignment that is no longer a
-    registry-supported combo also falls back, with a warning, so a persisted model that outlives
-    its registration degrades to the default reviewer instead of burning sandbox turns on a
-    rejected model.
+    Missing fields (rows created before arms were persisted) fall back silently. An assignment that
+    is no longer a registry-supported combo also falls back, with a warning, so a persisted model
+    that outlives its registration degrades to the default reviewer instead of burning sandbox
+    turns on a rejected model. The fallback is the full-strength arm, so a broken cheap tier costs
+    money rather than findings; the analytics events flag it as `review_arm_fallback`.
     """
     if not (runtime_adapter and model and reasoning_effort):
         return DEFAULT_REVIEW_ARM
@@ -124,9 +192,9 @@ VALIDATION_INITIAL_PERMISSION_MODE: str | None = None
 
 # RESOLUTION MODEL
 # Pins for the resolution stage's warm per-PR session (assess + implement, one thread per turn).
-# Starts on the validator's setup — resolution is judgment + careful editing, the validator's tier.
+# The validator's model and effort: resolution is judgment plus careful editing, the validator's job.
 RESOLUTION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
-RESOLUTION_MODEL: str | None = "claude-opus-4-8"
+RESOLUTION_MODEL: str | None = "claude-opus-5"
 RESOLUTION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
 RESOLUTION_INITIAL_PERMISSION_MODE: str | None = None
 

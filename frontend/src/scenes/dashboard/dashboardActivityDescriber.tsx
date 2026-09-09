@@ -2,7 +2,10 @@ import posthog from 'posthog-js'
 import { DashboardFilter, HogQLVariable } from 'src/queries/schema/schema-general'
 
 import { Link } from '@posthog/lemon-ui'
-import { DASHBOARD_TILE_SPACING_LABELS } from '@posthog/products-dashboards/frontend/dashboardCustomization'
+import {
+    DASHBOARD_GRID_COMPACTION_LABELS,
+    DASHBOARD_TILE_SPACING_LABELS,
+} from '@posthog/products-dashboards/frontend/dashboardCustomization'
 
 import {
     ActivityChange,
@@ -161,17 +164,28 @@ const dashboardActionsMapping: Record<
     last_viewed_at: () => null,
     quick_filter_ids: () => null,
     customization: function onChangedCustomization(change) {
-        const customization = change?.after as DashboardType['customization']
-        if (!customization?.tile_spacing) {
-            return null
-        }
-        return {
-            description: [
+        const before = change?.before as DashboardType['customization']
+        const after = change?.after as DashboardType['customization']
+        const description: Description[] = []
+        if (after?.layout_compaction && after.layout_compaction !== before?.layout_compaction) {
+            description.push(
                 <>
-                    changed tile density to <strong>{DASHBOARD_TILE_SPACING_LABELS[customization.tile_spacing]}</strong>
-                </>,
-            ],
+                    changed tile movement to{' '}
+                    <strong>{DASHBOARD_GRID_COMPACTION_LABELS[after.layout_compaction]}</strong>
+                </>
+            )
         }
+        if (after?.tile_spacing && after.tile_spacing !== before?.tile_spacing) {
+            if (description.length > 0) {
+                description.push(' and ')
+            }
+            description.push(
+                <>
+                    changed tile density to <strong>{DASHBOARD_TILE_SPACING_LABELS[after.tile_spacing]}</strong>
+                </>
+            )
+        }
+        return description.length > 0 ? { description } : null
     },
 }
 

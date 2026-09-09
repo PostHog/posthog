@@ -2,75 +2,35 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    ExperimentHoldoutsCreateBody,
-    ExperimentHoldoutsDestroyParams,
-    ExperimentHoldoutsListQueryParams,
-    ExperimentHoldoutsPartialUpdateBody,
-    ExperimentHoldoutsPartialUpdateParams,
-    ExperimentHoldoutsRetrieveParams,
-    ExperimentSavedMetricsCreateBody,
-    ExperimentSavedMetricsDestroyParams,
-    ExperimentSavedMetricsListQueryParams,
-    ExperimentSavedMetricsPartialUpdateBody,
-    ExperimentSavedMetricsPartialUpdateParams,
-    ExperimentSavedMetricsRetrieveParams,
-    ExperimentsActivityRetrieveParams,
-    ExperimentsActivityRetrieveQueryParams,
-    ExperimentsArchiveCreateBody,
-    ExperimentsArchiveCreateParams,
-    ExperimentsCalculateRunningTimeCreateBody,
-    ExperimentsCopyToProjectCreateBody,
-    ExperimentsCopyToProjectCreateParams,
-    ExperimentsCreateBody,
-    ExperimentsCreateFromPromptCreateBody,
-    ExperimentsDestroyParams,
-    ExperimentsDuplicateCreateBody,
-    ExperimentsDuplicateCreateParams,
-    ExperimentsEndCreateBody,
-    ExperimentsEndCreateParams,
-    ExperimentsFreezeExposureCreateParams,
-    ExperimentsLaunchCreateParams,
-    ExperimentsListQueryParams,
-    ExperimentsMetricsRecalculationCreateBody,
-    ExperimentsMetricsRecalculationCreateParams,
-    ExperimentsMetricsRecalculationLatestRetrieveParams,
-    ExperimentsMetricsRecalculationRetrieveParams,
-    ExperimentsPartialUpdateBody,
-    ExperimentsPartialUpdateParams,
-    ExperimentsPauseCreateParams,
-    ExperimentsResetCreateParams,
-    ExperimentsResumeCreateParams,
-    ExperimentsRetrieveParams,
-    ExperimentsSessionEventDeltasCreateParams,
-    ExperimentsShipVariantCreateBody,
-    ExperimentsShipVariantCreateParams,
-    ExperimentsTimeseriesResultsRetrieveParams,
-    ExperimentsTimeseriesResultsRetrieveQueryParams,
-    ExperimentsUnarchiveCreateParams,
-    ExperimentsUnfreezeExposureCreateParams,
-} from '@/generated/experiments/api'
+import * as orvalSchemas from '@/generated/experiments/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { SavedMetricsAttachSchema } from '@/schema/tool-inputs'
 import { castStringToInt } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
-    pickResponseFields,
     omitResponseFields,
+    pickResponseFields,
     withInformationalResponse,
     type WithPostHogUrl,
     type WithInformationalResponse,
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ExperimentActivitySchema = ExperimentsActivityRetrieveParams.omit({ project_id: true })
-    .extend(ExperimentsActivityRetrieveQueryParams.shape)
-    .extend({ id: z.preprocess(castStringToInt, ExperimentsActivityRetrieveParams.shape['id']) })
+const ExperimentActivitySchema = () => {
+    const ExperimentsActivityRetrieveParams = orvalSchemas.ExperimentsActivityRetrieveParams()
+    const ExperimentsActivityRetrieveQueryParams = orvalSchemas.ExperimentsActivityRetrieveQueryParams()
+    return ExperimentsActivityRetrieveParams.omit({ project_id: true })
+        .extend(ExperimentsActivityRetrieveQueryParams.shape)
+        .extend({ id: z.preprocess(castStringToInt, ExperimentsActivityRetrieveParams.shape['id']) })
+}
 
-const experimentActivity = (): ToolBase<typeof ExperimentActivitySchema, Schemas.ActivityLogPaginatedResponse> => ({
+const experimentActivity = (): ToolBase<
+    ReturnType<typeof ExperimentActivitySchema>,
+    Schemas.ActivityLogPaginatedResponse
+> => ({
     name: 'experiment-activity',
-    schema: ExperimentActivitySchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentActivitySchema>) => {
+    schema: ExperimentActivitySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentActivitySchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ActivityLogPaginatedResponse>({
             method: 'GET',
@@ -84,15 +44,22 @@ const experimentActivity = (): ToolBase<typeof ExperimentActivitySchema, Schemas
     },
 })
 
-const ExperimentArchiveSchema = ExperimentsArchiveCreateParams.omit({ project_id: true })
-    .extend(ExperimentsArchiveCreateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, ExperimentsArchiveCreateParams.shape['id']) })
+const ExperimentArchiveSchema = () => {
+    const ExperimentsArchiveCreateBody = orvalSchemas.ExperimentsArchiveCreateBody()
+    const ExperimentsArchiveCreateParams = orvalSchemas.ExperimentsArchiveCreateParams()
+    return ExperimentsArchiveCreateParams.omit({ project_id: true })
+        .extend(ExperimentsArchiveCreateBody.shape)
+        .extend({ id: z.preprocess(castStringToInt, ExperimentsArchiveCreateParams.shape['id']) })
+}
 
-const experimentArchive = (): ToolBase<typeof ExperimentArchiveSchema, WithPostHogUrl<Schemas.Experiment>> =>
+const experimentArchive = (): ToolBase<
+    ReturnType<typeof ExperimentArchiveSchema>,
+    WithPostHogUrl<Schemas.Experiment>
+> =>
     withUiApp('experiment', {
         name: 'experiment-archive',
-        schema: ExperimentArchiveSchema,
-        handler: async (context: Context, params: z.infer<typeof ExperimentArchiveSchema>) => {
+        schema: ExperimentArchiveSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentArchiveSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
             if (params.disable_feature_flag !== undefined) {
@@ -107,15 +74,18 @@ const experimentArchive = (): ToolBase<typeof ExperimentArchiveSchema, WithPostH
         },
     })
 
-const ExperimentCalculateRunningTimeSchema = ExperimentsCalculateRunningTimeCreateBody
+const ExperimentCalculateRunningTimeSchema = () => {
+    const ExperimentsCalculateRunningTimeCreateBody = orvalSchemas.ExperimentsCalculateRunningTimeCreateBody()
+    return ExperimentsCalculateRunningTimeCreateBody
+}
 
 const experimentCalculateRunningTime = (): ToolBase<
-    typeof ExperimentCalculateRunningTimeSchema,
+    ReturnType<typeof ExperimentCalculateRunningTimeSchema>,
     Schemas.RunningTimeCalculationResult
 > => ({
     name: 'experiment-calculate-running-time',
-    schema: ExperimentCalculateRunningTimeSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentCalculateRunningTimeSchema>) => {
+    schema: ExperimentCalculateRunningTimeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentCalculateRunningTimeSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.metric_type !== undefined) {
@@ -148,17 +118,45 @@ const experimentCalculateRunningTime = (): ToolBase<
     },
 })
 
-const ExperimentCopyToProjectSchema = ExperimentsCopyToProjectCreateParams.omit({ project_id: true })
-    .extend(ExperimentsCopyToProjectCreateBody.shape)
-    .extend({
-        id: z.preprocess(castStringToInt, ExperimentsCopyToProjectCreateParams.shape['id']),
-        target_team_id: z.preprocess(castStringToInt, ExperimentsCopyToProjectCreateBody.shape['target_team_id']),
+const ExperimentCleanupTaskSchema = () => {
+    const ExperimentsFlagCleanupTaskRetrieveParams = orvalSchemas.ExperimentsFlagCleanupTaskRetrieveParams()
+    return ExperimentsFlagCleanupTaskRetrieveParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, ExperimentsFlagCleanupTaskRetrieveParams.shape['id']),
     })
+}
 
-const experimentCopyToProject = (): ToolBase<typeof ExperimentCopyToProjectSchema, Schemas.Experiment> => ({
+const experimentCleanupTask = (): ToolBase<
+    ReturnType<typeof ExperimentCleanupTaskSchema>,
+    Schemas.ExperimentFlagCleanupTask
+> => ({
+    name: 'experiment-cleanup-task',
+    schema: ExperimentCleanupTaskSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentCleanupTaskSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ExperimentFlagCleanupTask>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/flag_cleanup_task/`,
+        })
+        const filtered = omitResponseFields(result, ['can_view_task']) as typeof result
+        return filtered
+    },
+})
+
+const ExperimentCopyToProjectSchema = () => {
+    const ExperimentsCopyToProjectCreateBody = orvalSchemas.ExperimentsCopyToProjectCreateBody()
+    const ExperimentsCopyToProjectCreateParams = orvalSchemas.ExperimentsCopyToProjectCreateParams()
+    return ExperimentsCopyToProjectCreateParams.omit({ project_id: true })
+        .extend(ExperimentsCopyToProjectCreateBody.shape)
+        .extend({
+            id: z.preprocess(castStringToInt, ExperimentsCopyToProjectCreateParams.shape['id']),
+            target_team_id: z.preprocess(castStringToInt, ExperimentsCopyToProjectCreateBody.shape['target_team_id']),
+        })
+}
+
+const experimentCopyToProject = (): ToolBase<ReturnType<typeof ExperimentCopyToProjectSchema>, Schemas.Experiment> => ({
     name: 'experiment-copy-to-project',
-    schema: ExperimentCopyToProjectSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentCopyToProjectSchema>) => {
+    schema: ExperimentCopyToProjectSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentCopyToProjectSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.target_team_id !== undefined) {
@@ -196,41 +194,44 @@ const experimentCopyToProject = (): ToolBase<typeof ExperimentCopyToProjectSchem
     },
 })
 
-const ExperimentCreateSchema = ExperimentsCreateBody.omit({
-    start_date: true,
-    end_date: true,
-    running_time_calculation: true,
-    excluded_variants: true,
-    secondary_metrics: true,
-    saved_metrics_ids: true,
-    filters: true,
-    archived: true,
-    deleted: true,
-    type: true,
-    metrics: true,
-    metrics_secondary: true,
-    scheduling_config: true,
-    _create_in_folder: true,
-    conclusion: true,
-    conclusion_comment: true,
-    repository: true,
-    primary_metrics_ordered_uuids: true,
-    secondary_metrics_ordered_uuids: true,
-    only_count_matured_users: true,
-    update_feature_flag_params: true,
-    version: true,
-    original_experiment: true,
-}).extend({
-    feature_flag: ExperimentsCreateBody.shape['feature_flag'].describe(
-        'Variant split, rollout scope, payloads, and experience continuity for the auto-created feature flag, in the flag\'s own filters shape. This is the canonical input for flag config. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100) to customize the variant split. Set filters.groups to a single group [{"properties": [], "rollout_percentage": N}] (0-100) to control the overall fraction of users entering the experiment. Default: 50/50 control/test, 100% rollout. Omit this parameter entirely when feature_flag_key refers to a pre-existing flag: the experiment links to that flag as-is and explicit config is rejected. No specific variant key is required. The analysis baseline defaults to the variant keyed `control` (lowercase) when present, else the first variant; override with stats_config.baseline_variant_key. Convention: when the user describes variants as "A/B", "old/new", "original/redesign", or any other natural-language pair without naming explicit keys, key the baseline `control` and keep their wording in the variant `name`. When the user asks for specific keys, use them as-is and put the baseline first.'
-    ),
-})
+const ExperimentCreateSchema = () => {
+    const ExperimentsCreateBody = orvalSchemas.ExperimentsCreateBody()
+    return ExperimentsCreateBody.omit({
+        start_date: true,
+        end_date: true,
+        running_time_calculation: true,
+        excluded_variants: true,
+        secondary_metrics: true,
+        saved_metrics_ids: true,
+        filters: true,
+        archived: true,
+        deleted: true,
+        type: true,
+        metrics: true,
+        metrics_secondary: true,
+        scheduling_config: true,
+        _create_in_folder: true,
+        conclusion: true,
+        conclusion_comment: true,
+        repository: true,
+        primary_metrics_ordered_uuids: true,
+        secondary_metrics_ordered_uuids: true,
+        only_count_matured_users: true,
+        update_feature_flag_params: true,
+        version: true,
+        original_experiment: true,
+    }).extend({
+        feature_flag: ExperimentsCreateBody.shape['feature_flag'].describe(
+            'Variant split, rollout scope, payloads, and experience continuity for the auto-created feature flag, in the flag\'s own filters shape. This is the canonical input for flag config. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100) to customize the variant split. Set filters.groups to a single group [{"properties": [], "rollout_percentage": N}] (0-100) to control the overall fraction of users entering the experiment. Default: 50/50 control/test, 100% rollout. Omit this parameter entirely when feature_flag_key refers to a pre-existing flag: the experiment links to that flag as-is and explicit config is rejected. No specific variant key is required. The analysis baseline defaults to the variant keyed `control` (lowercase) when present, else the first variant; override with stats_config.baseline_variant_key. Convention: when the user describes variants as "A/B", "old/new", "original/redesign", or any other natural-language pair without naming explicit keys, key the baseline `control` and keep their wording in the variant `name`. When the user asks for specific keys, use them as-is and put the baseline first.'
+        ),
+    })
+}
 
-const experimentCreate = (): ToolBase<typeof ExperimentCreateSchema, WithPostHogUrl<Schemas.Experiment>> =>
+const experimentCreate = (): ToolBase<ReturnType<typeof ExperimentCreateSchema>, WithPostHogUrl<Schemas.Experiment>> =>
     withUiApp('experiment', {
         name: 'experiment-create',
-        schema: ExperimentCreateSchema,
-        handler: async (context: Context, params: z.infer<typeof ExperimentCreateSchema>) => {
+        schema: ExperimentCreateSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentCreateSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
             if (params.name !== undefined) {
@@ -286,16 +287,19 @@ const experimentCreate = (): ToolBase<typeof ExperimentCreateSchema, WithPostHog
         },
     })
 
-const ExperimentCreateFromPromptSchema = ExperimentsCreateFromPromptCreateBody
+const ExperimentCreateFromPromptSchema = () => {
+    const ExperimentsCreateFromPromptCreateBody = orvalSchemas.ExperimentsCreateFromPromptCreateBody()
+    return ExperimentsCreateFromPromptCreateBody
+}
 
 const experimentCreateFromPrompt = (): ToolBase<
-    typeof ExperimentCreateFromPromptSchema,
+    ReturnType<typeof ExperimentCreateFromPromptSchema>,
     WithPostHogUrl<Schemas.Experiment>
 > =>
     withUiApp('experiment', {
         name: 'experiment-create-from-prompt',
-        schema: ExperimentCreateFromPromptSchema,
-        handler: async (context: Context, params: z.infer<typeof ExperimentCreateFromPromptSchema>) => {
+        schema: ExperimentCreateFromPromptSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentCreateFromPromptSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
             if (params.prompt_name !== undefined) {
@@ -342,14 +346,17 @@ const experimentCreateFromPrompt = (): ToolBase<
         },
     })
 
-const ExperimentDeleteSchema = ExperimentsDestroyParams.omit({ project_id: true }).extend({
-    id: z.preprocess(castStringToInt, ExperimentsDestroyParams.shape['id']),
-})
+const ExperimentDeleteSchema = () => {
+    const ExperimentsDestroyParams = orvalSchemas.ExperimentsDestroyParams()
+    return ExperimentsDestroyParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, ExperimentsDestroyParams.shape['id']),
+    })
+}
 
-const experimentDelete = (): ToolBase<typeof ExperimentDeleteSchema, Schemas.Experiment> => ({
+const experimentDelete = (): ToolBase<ReturnType<typeof ExperimentDeleteSchema>, Schemas.Experiment> => ({
     name: 'experiment-delete',
-    schema: ExperimentDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentDeleteSchema>) => {
+    schema: ExperimentDeleteSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentDeleteSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Experiment>({
             method: 'PATCH',
@@ -361,46 +368,50 @@ const experimentDelete = (): ToolBase<typeof ExperimentDeleteSchema, Schemas.Exp
     },
 })
 
-const ExperimentDuplicateSchema = ExperimentsDuplicateCreateParams.omit({ project_id: true })
-    .extend(
-        ExperimentsDuplicateCreateBody.omit({
-            description: true,
-            start_date: true,
-            end_date: true,
-            holdout_id: true,
-            parameters: true,
-            running_time_calculation: true,
-            excluded_variants: true,
-            secondary_metrics: true,
-            saved_metrics_ids: true,
-            filters: true,
-            archived: true,
-            deleted: true,
-            type: true,
-            exposure_criteria: true,
-            metrics: true,
-            metrics_secondary: true,
-            stats_config: true,
-            scheduling_config: true,
-            allow_unknown_events: true,
-            _create_in_folder: true,
-            conclusion: true,
-            conclusion_comment: true,
-            repository: true,
-            primary_metrics_ordered_uuids: true,
-            secondary_metrics_ordered_uuids: true,
-            only_count_matured_users: true,
-            update_feature_flag_params: true,
-            version: true,
-            original_experiment: true,
-        }).shape
-    )
-    .extend({ id: z.preprocess(castStringToInt, ExperimentsDuplicateCreateParams.shape['id']) })
+const ExperimentDuplicateSchema = () => {
+    const ExperimentsDuplicateCreateBody = orvalSchemas.ExperimentsDuplicateCreateBody()
+    const ExperimentsDuplicateCreateParams = orvalSchemas.ExperimentsDuplicateCreateParams()
+    return ExperimentsDuplicateCreateParams.omit({ project_id: true })
+        .extend(
+            ExperimentsDuplicateCreateBody.omit({
+                description: true,
+                start_date: true,
+                end_date: true,
+                holdout_id: true,
+                parameters: true,
+                running_time_calculation: true,
+                excluded_variants: true,
+                secondary_metrics: true,
+                saved_metrics_ids: true,
+                filters: true,
+                archived: true,
+                deleted: true,
+                type: true,
+                exposure_criteria: true,
+                metrics: true,
+                metrics_secondary: true,
+                stats_config: true,
+                scheduling_config: true,
+                allow_unknown_events: true,
+                _create_in_folder: true,
+                conclusion: true,
+                conclusion_comment: true,
+                repository: true,
+                primary_metrics_ordered_uuids: true,
+                secondary_metrics_ordered_uuids: true,
+                only_count_matured_users: true,
+                update_feature_flag_params: true,
+                version: true,
+                original_experiment: true,
+            }).shape
+        )
+        .extend({ id: z.preprocess(castStringToInt, ExperimentsDuplicateCreateParams.shape['id']) })
+}
 
-const experimentDuplicate = (): ToolBase<typeof ExperimentDuplicateSchema, unknown> => ({
+const experimentDuplicate = (): ToolBase<ReturnType<typeof ExperimentDuplicateSchema>, unknown> => ({
     name: 'experiment-duplicate',
-    schema: ExperimentDuplicateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentDuplicateSchema>) => {
+    schema: ExperimentDuplicateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentDuplicateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -418,15 +429,27 @@ const experimentDuplicate = (): ToolBase<typeof ExperimentDuplicateSchema, unkno
     },
 })
 
-const ExperimentEndSchema = ExperimentsEndCreateParams.omit({ project_id: true })
-    .extend(ExperimentsEndCreateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, ExperimentsEndCreateParams.shape['id']) })
+const ExperimentEndSchema = () => {
+    const ExperimentsEndCreateBody = orvalSchemas.ExperimentsEndCreateBody()
+    const ExperimentsEndCreateParams = orvalSchemas.ExperimentsEndCreateParams()
+    return ExperimentsEndCreateParams.omit({ project_id: true })
+        .extend(ExperimentsEndCreateBody.shape)
+        .extend({
+            id: z.preprocess(castStringToInt, ExperimentsEndCreateParams.shape['id']),
+            open_cleanup_pr: ExperimentsEndCreateBody.shape['open_cleanup_pr'].describe(
+                "When true, a background PostHog Code task removes the experiment's feature flag code and opens a draft pull request. Only works for teams with the flag cleanup feature enabled; silently skipped otherwise. Additionally requires the task:write scope. Ask the user before setting this."
+            ),
+            repository: ExperimentsEndCreateBody.shape['repository'].describe(
+                "Repository the cleanup pull request targets, as \"organization/repository\". Must be connected to the team's GitHub integration. Omit to fall back to the experiment's saved repository, the team default, or the team's only connected repository. When several repositories are connected and no default is set, the cleanup is skipped unless this is provided."
+            ),
+        })
+}
 
-const experimentEnd = (): ToolBase<typeof ExperimentEndSchema, WithPostHogUrl<Schemas.Experiment>> =>
+const experimentEnd = (): ToolBase<ReturnType<typeof ExperimentEndSchema>, WithPostHogUrl<Schemas.Experiment>> =>
     withUiApp('experiment', {
         name: 'experiment-end',
-        schema: ExperimentEndSchema,
-        handler: async (context: Context, params: z.infer<typeof ExperimentEndSchema>) => {
+        schema: ExperimentEndSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentEndSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
             if (params.conclusion !== undefined) {
@@ -441,9 +464,6 @@ const experimentEnd = (): ToolBase<typeof ExperimentEndSchema, WithPostHogUrl<Sc
             if (params.repository !== undefined) {
                 body['repository'] = params.repository
             }
-            if (params.set_repository_as_team_default !== undefined) {
-                body['set_repository_as_team_default'] = params.set_repository_as_team_default
-            }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/end/`,
@@ -453,18 +473,21 @@ const experimentEnd = (): ToolBase<typeof ExperimentEndSchema, WithPostHogUrl<Sc
         },
     })
 
-const ExperimentFreezeExposureSchema = ExperimentsFreezeExposureCreateParams.omit({ project_id: true }).extend({
-    id: z.preprocess(castStringToInt, ExperimentsFreezeExposureCreateParams.shape['id']),
-})
+const ExperimentFreezeExposureSchema = () => {
+    const ExperimentsFreezeExposureCreateParams = orvalSchemas.ExperimentsFreezeExposureCreateParams()
+    return ExperimentsFreezeExposureCreateParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, ExperimentsFreezeExposureCreateParams.shape['id']),
+    })
+}
 
 const experimentFreezeExposure = (): ToolBase<
-    typeof ExperimentFreezeExposureSchema,
+    ReturnType<typeof ExperimentFreezeExposureSchema>,
     WithPostHogUrl<Schemas.Experiment>
 > =>
     withUiApp('experiment', {
         name: 'experiment-freeze-exposure',
-        schema: ExperimentFreezeExposureSchema,
-        handler: async (context: Context, params: z.infer<typeof ExperimentFreezeExposureSchema>) => {
+        schema: ExperimentFreezeExposureSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentFreezeExposureSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
@@ -474,15 +497,18 @@ const experimentFreezeExposure = (): ToolBase<
         },
     })
 
-const ExperimentGetSchema = ExperimentsRetrieveParams.omit({ project_id: true }).extend({
-    id: z.preprocess(castStringToInt, ExperimentsRetrieveParams.shape['id']),
-})
+const ExperimentGetSchema = () => {
+    const ExperimentsRetrieveParams = orvalSchemas.ExperimentsRetrieveParams()
+    return ExperimentsRetrieveParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, ExperimentsRetrieveParams.shape['id']),
+    })
+}
 
-const experimentGet = (): ToolBase<typeof ExperimentGetSchema, WithPostHogUrl<Schemas.Experiment>> =>
+const experimentGet = (): ToolBase<ReturnType<typeof ExperimentGetSchema>, WithPostHogUrl<Schemas.Experiment>> =>
     withUiApp('experiment', {
         name: 'experiment-get',
-        schema: ExperimentGetSchema,
-        handler: async (context: Context, params: z.infer<typeof ExperimentGetSchema>) => {
+        schema: ExperimentGetSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentGetSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'GET',
@@ -492,16 +518,22 @@ const experimentGet = (): ToolBase<typeof ExperimentGetSchema, WithPostHogUrl<Sc
         },
     })
 
-const ExperimentHoldoutsCreateSchema = ExperimentHoldoutsCreateBody.extend({
-    filters: ExperimentHoldoutsCreateBody.shape['filters'].describe(
-        'Non-empty list of release-condition groups defining the held-out population. Each element needs a `rollout_percentage` (0–100, may be fractional) — this is the EXCLUSION percentage, i.e. the share of users held back from every experiment that references this holdout. `properties` optionally narrows the group by person/group properties (same shape as feature-flag release conditions); pass an empty array for an unconditional holdout. Do NOT set `variant` — the server sets it to `holdout-{id}` automatically. Only the first element\'s `rollout_percentage` is embedded into each linked experiment\'s feature flag. Example: [{ "rollout_percentage": 10, "properties": [] }].'
-    ),
-})
+const ExperimentHoldoutsCreateSchema = () => {
+    const ExperimentHoldoutsCreateBody = orvalSchemas.ExperimentHoldoutsCreateBody()
+    return ExperimentHoldoutsCreateBody.extend({
+        filters: ExperimentHoldoutsCreateBody.shape['filters'].describe(
+            'Non-empty list of release-condition groups defining the held-out population. Each element needs a `rollout_percentage` (0–100, may be fractional) — this is the EXCLUSION percentage, i.e. the share of users held back from every experiment that references this holdout. `properties` optionally narrows the group by person/group properties (same shape as feature-flag release conditions); pass an empty array for an unconditional holdout. Do NOT set `variant` — the server sets it to `holdout-{id}` automatically. Only the first element\'s `rollout_percentage` is embedded into each linked experiment\'s feature flag. Example: [{ "rollout_percentage": 10, "properties": [] }].'
+        ),
+    })
+}
 
-const experimentHoldoutsCreate = (): ToolBase<typeof ExperimentHoldoutsCreateSchema, Schemas.ExperimentHoldout> => ({
+const experimentHoldoutsCreate = (): ToolBase<
+    ReturnType<typeof ExperimentHoldoutsCreateSchema>,
+    Schemas.ExperimentHoldout
+> => ({
     name: 'experiment-holdouts-create',
-    schema: ExperimentHoldoutsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentHoldoutsCreateSchema>) => {
+    schema: ExperimentHoldoutsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentHoldoutsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -522,14 +554,17 @@ const experimentHoldoutsCreate = (): ToolBase<typeof ExperimentHoldoutsCreateSch
     },
 })
 
-const ExperimentHoldoutsDestroySchema = ExperimentHoldoutsDestroyParams.omit({ project_id: true }).extend({
-    id: z.preprocess(castStringToInt, ExperimentHoldoutsDestroyParams.shape['id']),
-})
+const ExperimentHoldoutsDestroySchema = () => {
+    const ExperimentHoldoutsDestroyParams = orvalSchemas.ExperimentHoldoutsDestroyParams()
+    return ExperimentHoldoutsDestroyParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, ExperimentHoldoutsDestroyParams.shape['id']),
+    })
+}
 
-const experimentHoldoutsDestroy = (): ToolBase<typeof ExperimentHoldoutsDestroySchema, unknown> => ({
+const experimentHoldoutsDestroy = (): ToolBase<ReturnType<typeof ExperimentHoldoutsDestroySchema>, unknown> => ({
     name: 'experiment-holdouts-destroy',
-    schema: ExperimentHoldoutsDestroySchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentHoldoutsDestroySchema>) => {
+    schema: ExperimentHoldoutsDestroySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentHoldoutsDestroySchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
@@ -539,15 +574,18 @@ const experimentHoldoutsDestroy = (): ToolBase<typeof ExperimentHoldoutsDestroyS
     },
 })
 
-const ExperimentHoldoutsListSchema = ExperimentHoldoutsListQueryParams
+const ExperimentHoldoutsListSchema = () => {
+    const ExperimentHoldoutsListQueryParams = orvalSchemas.ExperimentHoldoutsListQueryParams()
+    return ExperimentHoldoutsListQueryParams
+}
 
 const experimentHoldoutsList = (): ToolBase<
-    typeof ExperimentHoldoutsListSchema,
+    ReturnType<typeof ExperimentHoldoutsListSchema>,
     WithPostHogUrl<Schemas.PaginatedExperimentHoldoutList>
 > => ({
     name: 'experiment-holdouts-list',
-    schema: ExperimentHoldoutsListSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentHoldoutsListSchema>) => {
+    schema: ExperimentHoldoutsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentHoldoutsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedExperimentHoldoutList>({
             method: 'GET',
@@ -567,22 +605,26 @@ const experimentHoldoutsList = (): ToolBase<
     },
 })
 
-const ExperimentHoldoutsPartialUpdateSchema = ExperimentHoldoutsPartialUpdateParams.omit({ project_id: true })
-    .extend(ExperimentHoldoutsPartialUpdateBody.shape)
-    .extend({
-        id: z.preprocess(castStringToInt, ExperimentHoldoutsPartialUpdateParams.shape['id']),
-        filters: ExperimentHoldoutsPartialUpdateBody.shape['filters'].describe(
-            'Non-empty list of release-condition groups defining the held-out population. Each element needs a `rollout_percentage` (0–100, may be fractional) — the EXCLUSION percentage. Do NOT set `variant` (the server manages it as `holdout-{id}`). Changing this cascades to every linked experiment\'s feature flag. Example: [{ "rollout_percentage": 10, "properties": [] }].'
-        ),
-    })
+const ExperimentHoldoutsPartialUpdateSchema = () => {
+    const ExperimentHoldoutsPartialUpdateBody = orvalSchemas.ExperimentHoldoutsPartialUpdateBody()
+    const ExperimentHoldoutsPartialUpdateParams = orvalSchemas.ExperimentHoldoutsPartialUpdateParams()
+    return ExperimentHoldoutsPartialUpdateParams.omit({ project_id: true })
+        .extend(ExperimentHoldoutsPartialUpdateBody.shape)
+        .extend({
+            id: z.preprocess(castStringToInt, ExperimentHoldoutsPartialUpdateParams.shape['id']),
+            filters: ExperimentHoldoutsPartialUpdateBody.shape['filters'].describe(
+                'Non-empty list of release-condition groups defining the held-out population. Each element needs a `rollout_percentage` (0–100, may be fractional) — the EXCLUSION percentage. Do NOT set `variant` (the server manages it as `holdout-{id}`). Changing this cascades to every linked experiment\'s feature flag. Example: [{ "rollout_percentage": 10, "properties": [] }].'
+            ),
+        })
+}
 
 const experimentHoldoutsPartialUpdate = (): ToolBase<
-    typeof ExperimentHoldoutsPartialUpdateSchema,
+    ReturnType<typeof ExperimentHoldoutsPartialUpdateSchema>,
     Schemas.ExperimentHoldout
 > => ({
     name: 'experiment-holdouts-partial-update',
-    schema: ExperimentHoldoutsPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentHoldoutsPartialUpdateSchema>) => {
+    schema: ExperimentHoldoutsPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentHoldoutsPartialUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -603,17 +645,20 @@ const experimentHoldoutsPartialUpdate = (): ToolBase<
     },
 })
 
-const ExperimentHoldoutsRetrieveSchema = ExperimentHoldoutsRetrieveParams.omit({ project_id: true }).extend({
-    id: z.preprocess(castStringToInt, ExperimentHoldoutsRetrieveParams.shape['id']),
-})
+const ExperimentHoldoutsRetrieveSchema = () => {
+    const ExperimentHoldoutsRetrieveParams = orvalSchemas.ExperimentHoldoutsRetrieveParams()
+    return ExperimentHoldoutsRetrieveParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, ExperimentHoldoutsRetrieveParams.shape['id']),
+    })
+}
 
 const experimentHoldoutsRetrieve = (): ToolBase<
-    typeof ExperimentHoldoutsRetrieveSchema,
+    ReturnType<typeof ExperimentHoldoutsRetrieveSchema>,
     Schemas.ExperimentHoldout
 > => ({
     name: 'experiment-holdouts-retrieve',
-    schema: ExperimentHoldoutsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentHoldoutsRetrieveSchema>) => {
+    schema: ExperimentHoldoutsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentHoldoutsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ExperimentHoldout>({
             method: 'GET',
@@ -623,15 +668,18 @@ const experimentHoldoutsRetrieve = (): ToolBase<
     },
 })
 
-const ExperimentLaunchSchema = ExperimentsLaunchCreateParams.omit({ project_id: true }).extend({
-    id: z.preprocess(castStringToInt, ExperimentsLaunchCreateParams.shape['id']),
-})
+const ExperimentLaunchSchema = () => {
+    const ExperimentsLaunchCreateParams = orvalSchemas.ExperimentsLaunchCreateParams()
+    return ExperimentsLaunchCreateParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, ExperimentsLaunchCreateParams.shape['id']),
+    })
+}
 
-const experimentLaunch = (): ToolBase<typeof ExperimentLaunchSchema, WithPostHogUrl<Schemas.Experiment>> =>
+const experimentLaunch = (): ToolBase<ReturnType<typeof ExperimentLaunchSchema>, WithPostHogUrl<Schemas.Experiment>> =>
     withUiApp('experiment', {
         name: 'experiment-launch',
-        schema: ExperimentLaunchSchema,
-        handler: async (context: Context, params: z.infer<typeof ExperimentLaunchSchema>) => {
+        schema: ExperimentLaunchSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentLaunchSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
@@ -658,23 +706,26 @@ const experimentLaunch = (): ToolBase<typeof ExperimentLaunchSchema, WithPostHog
         },
     })
 
-const ExperimentListSchema = ExperimentsListQueryParams.extend({
-    status: ExperimentsListQueryParams.shape['status'].describe(
-        'Filter by experiment status. Values: "draft" (not yet launched), "running" (launched, flag active), "paused" (launched, flag deactivated — mutually exclusive with running), "exposure_frozen" (launched, enrollment frozen to the already-exposed cohort while metrics keep flowing), "stopped" or "complete" (both mean ended), "all" (no filter). Defaults to all non-archived experiments.'
-    ),
-    limit: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['limit']).optional(),
-    offset: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['offset']).optional(),
-    feature_flag_id: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['feature_flag_id']).optional(),
-})
+const ExperimentListSchema = () => {
+    const ExperimentsListQueryParams = orvalSchemas.ExperimentsListQueryParams()
+    return ExperimentsListQueryParams.extend({
+        status: ExperimentsListQueryParams.shape['status'].describe(
+            'Filter by experiment status. Values: "draft" (not yet launched), "running" (launched, flag active), "paused" (launched, flag deactivated — mutually exclusive with running), "exposure_frozen" (launched, enrollment frozen to the already-exposed cohort while metrics keep flowing), "stopped" or "complete" (both mean ended), "all" (no filter). Defaults to all non-archived experiments.'
+        ),
+        limit: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['limit']).optional(),
+        offset: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['offset']).optional(),
+        feature_flag_id: z.preprocess(castStringToInt, ExperimentsListQueryParams.shape['feature_flag_id']).optional(),
+    })
+}
 
 const experimentList = (): ToolBase<
-    typeof ExperimentListSchema,
+    ReturnType<typeof ExperimentListSchema>,
     WithPostHogUrl<Schemas.PaginatedExperimentBasicList>
 > =>
     withUiApp('experiment-list', {
         name: 'experiment-list',
-        schema: ExperimentListSchema,
-        handler: async (context: Context, params: z.infer<typeof ExperimentListSchema>) => {
+        schema: ExperimentListSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentListSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.PaginatedExperimentBasicList>({
                 method: 'GET',
@@ -724,19 +775,24 @@ const experimentList = (): ToolBase<
         },
     })
 
-const ExperimentMetricsRecalculationCreateSchema = ExperimentsMetricsRecalculationCreateParams.omit({
-    project_id: true,
-})
-    .extend(ExperimentsMetricsRecalculationCreateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationCreateParams.shape['id']) })
+const ExperimentMetricsRecalculationCreateSchema = () => {
+    const ExperimentsMetricsRecalculationCreateBody = orvalSchemas.ExperimentsMetricsRecalculationCreateBody()
+    const ExperimentsMetricsRecalculationCreateParams = orvalSchemas.ExperimentsMetricsRecalculationCreateParams()
+    return ExperimentsMetricsRecalculationCreateParams.omit({ project_id: true })
+        .extend(ExperimentsMetricsRecalculationCreateBody.shape)
+        .extend({ id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationCreateParams.shape['id']) })
+}
 
 const experimentMetricsRecalculationCreate = (): ToolBase<
-    typeof ExperimentMetricsRecalculationCreateSchema,
+    ReturnType<typeof ExperimentMetricsRecalculationCreateSchema>,
     WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
 > => ({
     name: 'experiment-metrics-recalculation-create',
-    schema: ExperimentMetricsRecalculationCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentMetricsRecalculationCreateSchema>) => {
+    schema: ExperimentMetricsRecalculationCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExperimentMetricsRecalculationCreateSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
             method: 'POST',
@@ -746,20 +802,24 @@ const experimentMetricsRecalculationCreate = (): ToolBase<
     },
 })
 
-const ExperimentMetricsRecalculationLatestRetrieveSchema = ExperimentsMetricsRecalculationLatestRetrieveParams.omit({
-    project_id: true,
-}).extend({ id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationLatestRetrieveParams.shape['id']) })
+const ExperimentMetricsRecalculationLatestRetrieveSchema = () => {
+    const ExperimentsMetricsRecalculationLatestRetrieveParams =
+        orvalSchemas.ExperimentsMetricsRecalculationLatestRetrieveParams()
+    return ExperimentsMetricsRecalculationLatestRetrieveParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationLatestRetrieveParams.shape['id']),
+    })
+}
 
 const experimentMetricsRecalculationLatestRetrieve = (): ToolBase<
-    typeof ExperimentMetricsRecalculationLatestRetrieveSchema,
+    ReturnType<typeof ExperimentMetricsRecalculationLatestRetrieveSchema>,
     WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
 > =>
     withUiApp('experiment-results', {
         name: 'experiment-metrics-recalculation-latest-retrieve',
-        schema: ExperimentMetricsRecalculationLatestRetrieveSchema,
+        schema: ExperimentMetricsRecalculationLatestRetrieveSchema(),
         handler: async (
             context: Context,
-            params: z.infer<typeof ExperimentMetricsRecalculationLatestRetrieveSchema>
+            params: z.infer<ReturnType<typeof ExperimentMetricsRecalculationLatestRetrieveSchema>>
         ) => {
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
@@ -782,17 +842,23 @@ const experimentMetricsRecalculationLatestRetrieve = (): ToolBase<
         },
     })
 
-const ExperimentMetricsRecalculationRetrieveSchema = ExperimentsMetricsRecalculationRetrieveParams.omit({
-    project_id: true,
-}).extend({ id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationRetrieveParams.shape['id']) })
+const ExperimentMetricsRecalculationRetrieveSchema = () => {
+    const ExperimentsMetricsRecalculationRetrieveParams = orvalSchemas.ExperimentsMetricsRecalculationRetrieveParams()
+    return ExperimentsMetricsRecalculationRetrieveParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, ExperimentsMetricsRecalculationRetrieveParams.shape['id']),
+    })
+}
 
 const experimentMetricsRecalculationRetrieve = (): ToolBase<
-    typeof ExperimentMetricsRecalculationRetrieveSchema,
+    ReturnType<typeof ExperimentMetricsRecalculationRetrieveSchema>,
     WithPostHogUrl<Schemas.ExperimentMetricsRecalculation>
 > => ({
     name: 'experiment-metrics-recalculation-retrieve',
-    schema: ExperimentMetricsRecalculationRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentMetricsRecalculationRetrieveSchema>) => {
+    schema: ExperimentMetricsRecalculationRetrieveSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExperimentMetricsRecalculationRetrieveSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ExperimentMetricsRecalculation>({
             method: 'GET',
@@ -814,15 +880,18 @@ const experimentMetricsRecalculationRetrieve = (): ToolBase<
     },
 })
 
-const ExperimentPauseSchema = ExperimentsPauseCreateParams.omit({ project_id: true }).extend({
-    id: z.preprocess(castStringToInt, ExperimentsPauseCreateParams.shape['id']),
-})
+const ExperimentPauseSchema = () => {
+    const ExperimentsPauseCreateParams = orvalSchemas.ExperimentsPauseCreateParams()
+    return ExperimentsPauseCreateParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, ExperimentsPauseCreateParams.shape['id']),
+    })
+}
 
-const experimentPause = (): ToolBase<typeof ExperimentPauseSchema, WithPostHogUrl<Schemas.Experiment>> =>
+const experimentPause = (): ToolBase<ReturnType<typeof ExperimentPauseSchema>, WithPostHogUrl<Schemas.Experiment>> =>
     withUiApp('experiment', {
         name: 'experiment-pause',
-        schema: ExperimentPauseSchema,
-        handler: async (context: Context, params: z.infer<typeof ExperimentPauseSchema>) => {
+        schema: ExperimentPauseSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentPauseSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
@@ -832,13 +901,12 @@ const experimentPause = (): ToolBase<typeof ExperimentPauseSchema, WithPostHogUr
         },
     })
 
-const ExperimentPromptTemplatesSchema = z.object({})
+const ExperimentPromptTemplatesSchema = () => z.object({})
 
-const experimentPromptTemplates = (): ToolBase<typeof ExperimentPromptTemplatesSchema, unknown> => ({
+const experimentPromptTemplates = (): ToolBase<ReturnType<typeof ExperimentPromptTemplatesSchema>, unknown> => ({
     name: 'experiment-prompt-templates',
-    schema: ExperimentPromptTemplatesSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof ExperimentPromptTemplatesSchema>) => {
+    schema: ExperimentPromptTemplatesSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof ExperimentPromptTemplatesSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
@@ -848,15 +916,18 @@ const experimentPromptTemplates = (): ToolBase<typeof ExperimentPromptTemplatesS
     },
 })
 
-const ExperimentResetSchema = ExperimentsResetCreateParams.omit({ project_id: true }).extend({
-    id: z.preprocess(castStringToInt, ExperimentsResetCreateParams.shape['id']),
-})
+const ExperimentResetSchema = () => {
+    const ExperimentsResetCreateParams = orvalSchemas.ExperimentsResetCreateParams()
+    return ExperimentsResetCreateParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, ExperimentsResetCreateParams.shape['id']),
+    })
+}
 
-const experimentReset = (): ToolBase<typeof ExperimentResetSchema, WithPostHogUrl<Schemas.Experiment>> =>
+const experimentReset = (): ToolBase<ReturnType<typeof ExperimentResetSchema>, WithPostHogUrl<Schemas.Experiment>> =>
     withUiApp('experiment', {
         name: 'experiment-reset',
-        schema: ExperimentResetSchema,
-        handler: async (context: Context, params: z.infer<typeof ExperimentResetSchema>) => {
+        schema: ExperimentResetSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentResetSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
@@ -866,15 +937,18 @@ const experimentReset = (): ToolBase<typeof ExperimentResetSchema, WithPostHogUr
         },
     })
 
-const ExperimentResumeSchema = ExperimentsResumeCreateParams.omit({ project_id: true }).extend({
-    id: z.preprocess(castStringToInt, ExperimentsResumeCreateParams.shape['id']),
-})
+const ExperimentResumeSchema = () => {
+    const ExperimentsResumeCreateParams = orvalSchemas.ExperimentsResumeCreateParams()
+    return ExperimentsResumeCreateParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, ExperimentsResumeCreateParams.shape['id']),
+    })
+}
 
-const experimentResume = (): ToolBase<typeof ExperimentResumeSchema, WithPostHogUrl<Schemas.Experiment>> =>
+const experimentResume = (): ToolBase<ReturnType<typeof ExperimentResumeSchema>, WithPostHogUrl<Schemas.Experiment>> =>
     withUiApp('experiment', {
         name: 'experiment-resume',
-        schema: ExperimentResumeSchema,
-        handler: async (context: Context, params: z.infer<typeof ExperimentResumeSchema>) => {
+        schema: ExperimentResumeSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentResumeSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
@@ -884,15 +958,18 @@ const experimentResume = (): ToolBase<typeof ExperimentResumeSchema, WithPostHog
         },
     })
 
-const ExperimentSavedMetricsCreateSchema = ExperimentSavedMetricsCreateBody
+const ExperimentSavedMetricsCreateSchema = () => {
+    const ExperimentSavedMetricsCreateBody = orvalSchemas.ExperimentSavedMetricsCreateBody()
+    return ExperimentSavedMetricsCreateBody
+}
 
 const experimentSavedMetricsCreate = (): ToolBase<
-    typeof ExperimentSavedMetricsCreateSchema,
+    ReturnType<typeof ExperimentSavedMetricsCreateSchema>,
     Schemas.ExperimentSavedMetric
 > => ({
     name: 'experiment-saved-metrics-create',
-    schema: ExperimentSavedMetricsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentSavedMetricsCreateSchema>) => {
+    schema: ExperimentSavedMetricsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentSavedMetricsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -916,14 +993,20 @@ const experimentSavedMetricsCreate = (): ToolBase<
     },
 })
 
-const ExperimentSavedMetricsDestroySchema = ExperimentSavedMetricsDestroyParams.omit({ project_id: true }).extend({
-    id: z.preprocess(castStringToInt, ExperimentSavedMetricsDestroyParams.shape['id']),
-})
+const ExperimentSavedMetricsDestroySchema = () => {
+    const ExperimentSavedMetricsDestroyParams = orvalSchemas.ExperimentSavedMetricsDestroyParams()
+    return ExperimentSavedMetricsDestroyParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, ExperimentSavedMetricsDestroyParams.shape['id']),
+    })
+}
 
-const experimentSavedMetricsDestroy = (): ToolBase<typeof ExperimentSavedMetricsDestroySchema, unknown> => ({
+const experimentSavedMetricsDestroy = (): ToolBase<
+    ReturnType<typeof ExperimentSavedMetricsDestroySchema>,
+    unknown
+> => ({
     name: 'experiment-saved-metrics-destroy',
-    schema: ExperimentSavedMetricsDestroySchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentSavedMetricsDestroySchema>) => {
+    schema: ExperimentSavedMetricsDestroySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentSavedMetricsDestroySchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
@@ -933,21 +1016,24 @@ const experimentSavedMetricsDestroy = (): ToolBase<typeof ExperimentSavedMetrics
     },
 })
 
-const ExperimentSavedMetricsListSchema = ExperimentSavedMetricsListQueryParams.extend({
-    limit: z.preprocess(castStringToInt, ExperimentSavedMetricsListQueryParams.shape['limit']).optional(),
-    offset: z.preprocess(castStringToInt, ExperimentSavedMetricsListQueryParams.shape['offset']).optional(),
-    event: ExperimentSavedMetricsListQueryParams.shape['event'].describe(
-        "Filter to shared metrics whose query references this event name — matched directly (an EventsNode) or via the step events of any action the metric references. For finding a reusable metric by what it measures; then confirm the match against each row's 'query'."
-    ),
-})
+const ExperimentSavedMetricsListSchema = () => {
+    const ExperimentSavedMetricsListQueryParams = orvalSchemas.ExperimentSavedMetricsListQueryParams()
+    return ExperimentSavedMetricsListQueryParams.extend({
+        limit: z.preprocess(castStringToInt, ExperimentSavedMetricsListQueryParams.shape['limit']).optional(),
+        offset: z.preprocess(castStringToInt, ExperimentSavedMetricsListQueryParams.shape['offset']).optional(),
+        event: ExperimentSavedMetricsListQueryParams.shape['event'].describe(
+            "Filter to shared metrics whose query references this event name — matched directly (an EventsNode) or via the step events of any action the metric references. For finding a reusable metric by what it measures; then confirm the match against each row's 'query'."
+        ),
+    })
+}
 
 const experimentSavedMetricsList = (): ToolBase<
-    typeof ExperimentSavedMetricsListSchema,
+    ReturnType<typeof ExperimentSavedMetricsListSchema>,
     WithPostHogUrl<Schemas.PaginatedExperimentSavedMetricList>
 > => ({
     name: 'experiment-saved-metrics-list',
-    schema: ExperimentSavedMetricsListSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentSavedMetricsListSchema>) => {
+    schema: ExperimentSavedMetricsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentSavedMetricsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedExperimentSavedMetricList>({
             method: 'GET',
@@ -969,17 +1055,24 @@ const experimentSavedMetricsList = (): ToolBase<
     },
 })
 
-const ExperimentSavedMetricsPartialUpdateSchema = ExperimentSavedMetricsPartialUpdateParams.omit({ project_id: true })
-    .extend(ExperimentSavedMetricsPartialUpdateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, ExperimentSavedMetricsPartialUpdateParams.shape['id']) })
+const ExperimentSavedMetricsPartialUpdateSchema = () => {
+    const ExperimentSavedMetricsPartialUpdateBody = orvalSchemas.ExperimentSavedMetricsPartialUpdateBody()
+    const ExperimentSavedMetricsPartialUpdateParams = orvalSchemas.ExperimentSavedMetricsPartialUpdateParams()
+    return ExperimentSavedMetricsPartialUpdateParams.omit({ project_id: true })
+        .extend(ExperimentSavedMetricsPartialUpdateBody.shape)
+        .extend({ id: z.preprocess(castStringToInt, ExperimentSavedMetricsPartialUpdateParams.shape['id']) })
+}
 
 const experimentSavedMetricsPartialUpdate = (): ToolBase<
-    typeof ExperimentSavedMetricsPartialUpdateSchema,
+    ReturnType<typeof ExperimentSavedMetricsPartialUpdateSchema>,
     Schemas.ExperimentSavedMetric
 > => ({
     name: 'experiment-saved-metrics-partial-update',
-    schema: ExperimentSavedMetricsPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentSavedMetricsPartialUpdateSchema>) => {
+    schema: ExperimentSavedMetricsPartialUpdateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExperimentSavedMetricsPartialUpdateSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
@@ -1003,17 +1096,20 @@ const experimentSavedMetricsPartialUpdate = (): ToolBase<
     },
 })
 
-const ExperimentSavedMetricsRetrieveSchema = ExperimentSavedMetricsRetrieveParams.omit({ project_id: true }).extend({
-    id: z.preprocess(castStringToInt, ExperimentSavedMetricsRetrieveParams.shape['id']),
-})
+const ExperimentSavedMetricsRetrieveSchema = () => {
+    const ExperimentSavedMetricsRetrieveParams = orvalSchemas.ExperimentSavedMetricsRetrieveParams()
+    return ExperimentSavedMetricsRetrieveParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, ExperimentSavedMetricsRetrieveParams.shape['id']),
+    })
+}
 
 const experimentSavedMetricsRetrieve = (): ToolBase<
-    typeof ExperimentSavedMetricsRetrieveSchema,
+    ReturnType<typeof ExperimentSavedMetricsRetrieveSchema>,
     Schemas.ExperimentSavedMetric
 > => ({
     name: 'experiment-saved-metrics-retrieve',
-    schema: ExperimentSavedMetricsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentSavedMetricsRetrieveSchema>) => {
+    schema: ExperimentSavedMetricsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentSavedMetricsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ExperimentSavedMetric>({
             method: 'GET',
@@ -1023,15 +1119,30 @@ const experimentSavedMetricsRetrieve = (): ToolBase<
     },
 })
 
-const ExperimentShipVariantSchema = ExperimentsShipVariantCreateParams.omit({ project_id: true })
-    .extend(ExperimentsShipVariantCreateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, ExperimentsShipVariantCreateParams.shape['id']) })
+const ExperimentShipVariantSchema = () => {
+    const ExperimentsShipVariantCreateBody = orvalSchemas.ExperimentsShipVariantCreateBody()
+    const ExperimentsShipVariantCreateParams = orvalSchemas.ExperimentsShipVariantCreateParams()
+    return ExperimentsShipVariantCreateParams.omit({ project_id: true })
+        .extend(ExperimentsShipVariantCreateBody.shape)
+        .extend({
+            id: z.preprocess(castStringToInt, ExperimentsShipVariantCreateParams.shape['id']),
+            open_cleanup_pr: ExperimentsShipVariantCreateBody.shape['open_cleanup_pr'].describe(
+                "When true, a background PostHog Code task removes the experiment's feature flag code, keeping the shipped variant's code path, and opens a draft pull request. Only works for teams with the flag cleanup feature enabled; silently skipped otherwise. Additionally requires the task:write scope. Ask the user before setting this."
+            ),
+            repository: ExperimentsShipVariantCreateBody.shape['repository'].describe(
+                "Repository the cleanup pull request targets, as \"organization/repository\". Must be connected to the team's GitHub integration. Omit to fall back to the experiment's saved repository, the team default, or the team's only connected repository. When several repositories are connected and no default is set, the cleanup is skipped unless this is provided."
+            ),
+        })
+}
 
-const experimentShipVariant = (): ToolBase<typeof ExperimentShipVariantSchema, WithPostHogUrl<Schemas.Experiment>> =>
+const experimentShipVariant = (): ToolBase<
+    ReturnType<typeof ExperimentShipVariantSchema>,
+    WithPostHogUrl<Schemas.Experiment>
+> =>
     withUiApp('experiment', {
         name: 'experiment-ship-variant',
-        schema: ExperimentShipVariantSchema,
-        handler: async (context: Context, params: z.infer<typeof ExperimentShipVariantSchema>) => {
+        schema: ExperimentShipVariantSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentShipVariantSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
             if (params.conclusion !== undefined) {
@@ -1045,9 +1156,6 @@ const experimentShipVariant = (): ToolBase<typeof ExperimentShipVariantSchema, W
             }
             if (params.repository !== undefined) {
                 body['repository'] = params.repository
-            }
-            if (params.set_repository_as_team_default !== undefined) {
-                body['set_repository_as_team_default'] = params.set_repository_as_team_default
             }
             if (params.variant_key !== undefined) {
                 body['variant_key'] = params.variant_key
@@ -1064,13 +1172,12 @@ const experimentShipVariant = (): ToolBase<typeof ExperimentShipVariantSchema, W
         },
     })
 
-const ExperimentStatsSchema = z.object({})
+const ExperimentStatsSchema = () => z.object({})
 
-const experimentStats = (): ToolBase<typeof ExperimentStatsSchema, unknown> => ({
+const experimentStats = (): ToolBase<ReturnType<typeof ExperimentStatsSchema>, unknown> => ({
     name: 'experiment-stats',
-    schema: ExperimentStatsSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof ExperimentStatsSchema>) => {
+    schema: ExperimentStatsSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof ExperimentStatsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
@@ -1080,14 +1187,19 @@ const experimentStats = (): ToolBase<typeof ExperimentStatsSchema, unknown> => (
     },
 })
 
-const ExperimentTimeseriesResultsSchema = ExperimentsTimeseriesResultsRetrieveParams.omit({ project_id: true })
-    .extend(ExperimentsTimeseriesResultsRetrieveQueryParams.shape)
-    .extend({ id: z.preprocess(castStringToInt, ExperimentsTimeseriesResultsRetrieveParams.shape['id']) })
+const ExperimentTimeseriesResultsSchema = () => {
+    const ExperimentsTimeseriesResultsRetrieveParams = orvalSchemas.ExperimentsTimeseriesResultsRetrieveParams()
+    const ExperimentsTimeseriesResultsRetrieveQueryParams =
+        orvalSchemas.ExperimentsTimeseriesResultsRetrieveQueryParams()
+    return ExperimentsTimeseriesResultsRetrieveParams.omit({ project_id: true })
+        .extend(ExperimentsTimeseriesResultsRetrieveQueryParams.shape)
+        .extend({ id: z.preprocess(castStringToInt, ExperimentsTimeseriesResultsRetrieveParams.shape['id']) })
+}
 
-const experimentTimeseriesResults = (): ToolBase<typeof ExperimentTimeseriesResultsSchema, unknown> => ({
+const experimentTimeseriesResults = (): ToolBase<ReturnType<typeof ExperimentTimeseriesResultsSchema>, unknown> => ({
     name: 'experiment-timeseries-results',
-    schema: ExperimentTimeseriesResultsSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentTimeseriesResultsSchema>) => {
+    schema: ExperimentTimeseriesResultsSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentTimeseriesResultsSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
@@ -1113,15 +1225,21 @@ const experimentTimeseriesResults = (): ToolBase<typeof ExperimentTimeseriesResu
     },
 })
 
-const ExperimentUnarchiveSchema = ExperimentsUnarchiveCreateParams.omit({ project_id: true }).extend({
-    id: z.preprocess(castStringToInt, ExperimentsUnarchiveCreateParams.shape['id']),
-})
+const ExperimentUnarchiveSchema = () => {
+    const ExperimentsUnarchiveCreateParams = orvalSchemas.ExperimentsUnarchiveCreateParams()
+    return ExperimentsUnarchiveCreateParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, ExperimentsUnarchiveCreateParams.shape['id']),
+    })
+}
 
-const experimentUnarchive = (): ToolBase<typeof ExperimentUnarchiveSchema, WithPostHogUrl<Schemas.Experiment>> =>
+const experimentUnarchive = (): ToolBase<
+    ReturnType<typeof ExperimentUnarchiveSchema>,
+    WithPostHogUrl<Schemas.Experiment>
+> =>
     withUiApp('experiment', {
         name: 'experiment-unarchive',
-        schema: ExperimentUnarchiveSchema,
-        handler: async (context: Context, params: z.infer<typeof ExperimentUnarchiveSchema>) => {
+        schema: ExperimentUnarchiveSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentUnarchiveSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
@@ -1131,18 +1249,21 @@ const experimentUnarchive = (): ToolBase<typeof ExperimentUnarchiveSchema, WithP
         },
     })
 
-const ExperimentUnfreezeExposureSchema = ExperimentsUnfreezeExposureCreateParams.omit({ project_id: true }).extend({
-    id: z.preprocess(castStringToInt, ExperimentsUnfreezeExposureCreateParams.shape['id']),
-})
+const ExperimentUnfreezeExposureSchema = () => {
+    const ExperimentsUnfreezeExposureCreateParams = orvalSchemas.ExperimentsUnfreezeExposureCreateParams()
+    return ExperimentsUnfreezeExposureCreateParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, ExperimentsUnfreezeExposureCreateParams.shape['id']),
+    })
+}
 
 const experimentUnfreezeExposure = (): ToolBase<
-    typeof ExperimentUnfreezeExposureSchema,
+    ReturnType<typeof ExperimentUnfreezeExposureSchema>,
     WithPostHogUrl<Schemas.Experiment>
 > =>
     withUiApp('experiment', {
         name: 'experiment-unfreeze-exposure',
-        schema: ExperimentUnfreezeExposureSchema,
-        handler: async (context: Context, params: z.infer<typeof ExperimentUnfreezeExposureSchema>) => {
+        schema: ExperimentUnfreezeExposureSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentUnfreezeExposureSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
@@ -1152,42 +1273,46 @@ const experimentUnfreezeExposure = (): ToolBase<
         },
     })
 
-const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id: true })
-    .extend(
-        ExperimentsPartialUpdateBody.omit({
-            start_date: true,
-            end_date: true,
-            feature_flag_key: true,
-            secondary_metrics: true,
-            filters: true,
-            deleted: true,
-            type: true,
-            scheduling_config: true,
-            _create_in_folder: true,
-            repository: true,
-            primary_metrics_ordered_uuids: true,
-            secondary_metrics_ordered_uuids: true,
-            only_count_matured_users: true,
-            version: true,
-            original_experiment: true,
-        }).shape
-    )
-    .extend({
-        id: z.preprocess(castStringToInt, ExperimentsPartialUpdateParams.shape['id']),
-        feature_flag: ExperimentsPartialUpdateBody.shape['feature_flag'].describe(
-            "Variant split, rollout scope, payloads, and experience continuity for the linked feature flag, in the flag's own filters shape. This is the canonical input for flag config. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100; the analysis baseline defaults to the variant keyed 'control' when present, else the first variant — except web experiments, which must keep a variant keyed 'control') to change the variant split. Set filters.groups to a single group [{\"properties\": [], \"rollout_percentage\": N}] (0-100) to change the overall rollout. Config this object omits is preserved from the flag's current state. On a running experiment this requires update_feature_flag_params=true (see rule 1: warn the user first)."
-        ),
-        running_time_calculation: ExperimentsPartialUpdateBody.shape['running_time_calculation'].describe(
-            "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config."
-        ),
-        saved_metrics_ids: SavedMetricsAttachSchema.optional(),
-    })
+const ExperimentUpdateSchema = () => {
+    const ExperimentsPartialUpdateBody = orvalSchemas.ExperimentsPartialUpdateBody()
+    const ExperimentsPartialUpdateParams = orvalSchemas.ExperimentsPartialUpdateParams()
+    return ExperimentsPartialUpdateParams.omit({ project_id: true })
+        .extend(
+            ExperimentsPartialUpdateBody.omit({
+                start_date: true,
+                end_date: true,
+                feature_flag_key: true,
+                secondary_metrics: true,
+                filters: true,
+                deleted: true,
+                type: true,
+                scheduling_config: true,
+                _create_in_folder: true,
+                repository: true,
+                primary_metrics_ordered_uuids: true,
+                secondary_metrics_ordered_uuids: true,
+                only_count_matured_users: true,
+                version: true,
+                original_experiment: true,
+            }).shape
+        )
+        .extend({
+            id: z.preprocess(castStringToInt, ExperimentsPartialUpdateParams.shape['id']),
+            feature_flag: ExperimentsPartialUpdateBody.shape['feature_flag'].describe(
+                "Variant split, rollout scope, payloads, and experience continuity for the linked feature flag, in the flag's own filters shape. This is the canonical input for flag config. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100; the analysis baseline defaults to the variant keyed 'control' when present, else the first variant — except web experiments, which must keep a variant keyed 'control') to change the variant split. Set filters.groups to a single group [{\"properties\": [], \"rollout_percentage\": N}] (0-100) to change the overall rollout. Config this object omits is preserved from the flag's current state. On a running experiment this requires update_feature_flag_params=true (see rule 1: warn the user first)."
+            ),
+            running_time_calculation: ExperimentsPartialUpdateBody.shape['running_time_calculation'].describe(
+                "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config."
+            ),
+            saved_metrics_ids: SavedMetricsAttachSchema.optional(),
+        })
+}
 
-const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHogUrl<Schemas.Experiment>> =>
+const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>, WithPostHogUrl<Schemas.Experiment>> =>
     withUiApp('experiment', {
         name: 'experiment-update',
-        schema: ExperimentUpdateSchema,
-        handler: async (context: Context, params: z.infer<typeof ExperimentUpdateSchema>) => {
+        schema: ExperimentUpdateSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof ExperimentUpdateSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
             if (params.name !== undefined) {
@@ -1269,17 +1394,23 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
         },
     })
 
-const ExperimentsSessionEventDeltasCreateSchema = ExperimentsSessionEventDeltasCreateParams.omit({
-    project_id: true,
-}).extend({ id: z.preprocess(castStringToInt, ExperimentsSessionEventDeltasCreateParams.shape['id']) })
+const ExperimentsSessionEventDeltasCreateSchema = () => {
+    const ExperimentsSessionEventDeltasCreateParams = orvalSchemas.ExperimentsSessionEventDeltasCreateParams()
+    return ExperimentsSessionEventDeltasCreateParams.omit({ project_id: true }).extend({
+        id: z.preprocess(castStringToInt, ExperimentsSessionEventDeltasCreateParams.shape['id']),
+    })
+}
 
 const experimentsSessionEventDeltasCreate = (): ToolBase<
-    typeof ExperimentsSessionEventDeltasCreateSchema,
+    ReturnType<typeof ExperimentsSessionEventDeltasCreateSchema>,
     WithInformationalResponse<WithPostHogUrl<Schemas.ExperimentSessionEventDeltaResponse>>
 > => ({
     name: 'experiments-session-event-deltas-create',
-    schema: ExperimentsSessionEventDeltasCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExperimentsSessionEventDeltasCreateSchema>) => {
+    schema: ExperimentsSessionEventDeltasCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExperimentsSessionEventDeltasCreateSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ExperimentSessionEventDeltaResponse>({
             method: 'POST',
@@ -1297,6 +1428,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-activity': experimentActivity,
     'experiment-archive': experimentArchive,
     'experiment-calculate-running-time': experimentCalculateRunningTime,
+    'experiment-cleanup-task': experimentCleanupTask,
     'experiment-copy-to-project': experimentCopyToProject,
     'experiment-create': experimentCreate,
     'experiment-create-from-prompt': experimentCreateFromPrompt,

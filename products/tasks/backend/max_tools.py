@@ -156,7 +156,8 @@ Use this tool when the user wants to:
         @transaction.atomic
         def get_task_and_create_run():
             task = (
-                Task.objects.filter(id=task_id, team=self._team, deleted=False)
+                Task.objects.select_for_update(of=("self",))
+                .filter(id=task_id, team=self._team, deleted=False)
                 .filter(task_control_q(self._user.id))
                 .first()
             )

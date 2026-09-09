@@ -69,6 +69,7 @@ export type NativeSourceHierarchyStatus = {
 export enum MarketingAnalyticsTab {
     DASHBOARD = 'dashboard',
     ATTRIBUTION = 'attribution',
+    RETENTION = 'retention',
     // Still the tab key when Setup's flag is off, which is everywhere until it rolls
     // out. Removing it would change the URL and the header copy for every user of the
     // audit — which is fully rolled out — for no gain.
@@ -240,6 +241,7 @@ const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
 export interface marketingAnalyticsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     conversion_goals: ConversionGoalFilter[] // marketingAnalyticsSettingsLogic
+    filter_test_accounts: boolean // marketingAnalyticsSettingsLogic
     sources_map: Record<string, SourceMap> // marketingAnalyticsSettingsLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourceManagementLogic
     dataWarehouseSourcesLoading: boolean // sourceManagementLogic
@@ -304,8 +306,10 @@ export interface marketingAnalyticsLogicValues {
     loading: boolean
     nativeSources: ExternalDataSource[]
     nativeSourcesHierarchyStatus: NativeSourceHierarchyStatus[]
+    optionsOpen: boolean
     overviewQuery: MarketingAnalyticsAggregatedQuery
     setupSection: SetupSection
+    shouldFilterTestAccounts: boolean
     tileColumnSelection: validColumnsForTiles
     uniqueConversionGoalName: string
     validExternalTables: ExternalTable[]
@@ -320,6 +324,9 @@ export interface marketingAnalyticsLogicActions {
     reloadAll: () => {} // dataNodeCollectionLogic
     addOrUpdateConversionGoal: (conversionGoal: ConversionGoalFilter) => {
         conversionGoal: ConversionGoalFilter
+    } // marketingAnalyticsSettingsLogic
+    updateFilterTestAccounts: (filterTestAccounts: boolean) => {
+        filterTestAccounts: boolean
     } // marketingAnalyticsSettingsLogic
     loadDatabase: (
         args_0?:
@@ -430,6 +437,9 @@ export interface marketingAnalyticsLogicActions {
     }
     setIntegrationFilter: (integrationFilter: IntegrationFilter) => {
         integrationFilter: IntegrationFilter
+    }
+    setOptionsOpen: (optionsOpen: boolean) => {
+        optionsOpen: boolean
     }
     setSetupSection: (section: SetupSection) => {
         section: SetupSection
@@ -566,6 +576,7 @@ export interface marketingAnalyticsLogicMeta {
             tileColumnSelection: validColumnsForTiles,
             integrationFilter: IntegrationFilter
         ) => DataWarehouseNode[]
+        shouldFilterTestAccounts: (filter_test_accounts: boolean) => boolean
         overviewQuery: (
             dateFilter: {
                 dateFrom: string | null
@@ -574,7 +585,8 @@ export interface marketingAnalyticsLogicMeta {
             },
             compareFilter: CompareFilter,
             draftConversionGoal: ConversionGoalFilter | null,
-            integrationFilter: IntegrationFilter
+            integrationFilter: IntegrationFilter,
+            shouldFilterTestAccounts: boolean
         ) => MarketingAnalyticsAggregatedQuery
     }
 }
@@ -593,7 +605,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             teamLogic,
             ['baseCurrency'],
             marketingAnalyticsSettingsLogic,
-            ['sources_map', 'conversion_goals'],
+            ['sources_map', 'conversion_goals', 'filter_test_accounts'],
             sourceManagementLogic,
             ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
             featureFlagLogic,
@@ -605,7 +617,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             dataNodeCollectionLogic({ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }),
             ['reloadAll'],
             marketingAnalyticsSettingsLogic,
-            ['addOrUpdateConversionGoal'],
+            ['addOrUpdateConversionGoal', 'updateFilterTestAccounts'],
             teamLogic,
             ['addProductIntent'],
         ],
@@ -633,6 +645,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             interval,
         }),
         setIntegrationFilter: (integrationFilter: IntegrationFilter) => ({ integrationFilter }),
+        setOptionsOpen: (optionsOpen: boolean) => ({ optionsOpen }),
         // Internal action for URL sync - updates state without triggering actionToUrl
         syncFromUrl: (params: {
             dateFrom?: string | null
@@ -709,6 +722,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     },
                 },
             ],
+            optionsOpen: [false as boolean, { setOptionsOpen: (_, { optionsOpen }) => optionsOpen }],
             integrationFilter: [
                 { integrationSourceIds: [] } as IntegrationFilter,
                 persistConfig,
@@ -1223,8 +1237,18 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 return [...nativeNodeList, ...nonNativeNodeList]
             },
         ],
+        shouldFilterTestAccounts: [
+            (s) => [s.filter_test_accounts],
+            (filter_test_accounts: boolean): boolean => filter_test_accounts,
+        ],
         overviewQuery: [
-            (s) => [s.dateFilter, s.compareFilter, s.draftConversionGoal, s.integrationFilter],
+            (s) => [
+                s.dateFilter,
+                s.compareFilter,
+                s.draftConversionGoal,
+                s.integrationFilter,
+                s.shouldFilterTestAccounts,
+            ],
             (
                 dateFilter: {
                     dateFrom: string | null
@@ -1233,7 +1257,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 },
                 compareFilter: CompareFilter,
                 draftConversionGoal: ConversionGoalFilter | null,
-                integrationFilter: IntegrationFilter
+                integrationFilter: IntegrationFilter,
+                shouldFilterTestAccounts: boolean
             ): MarketingAnalyticsAggregatedQuery => ({
                 kind: NodeKind.MarketingAnalyticsAggregatedQuery,
                 dateRange: {
@@ -1242,6 +1267,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 },
                 compareFilter,
                 properties: [],
+                filterTestAccounts: shouldFilterTestAccounts,
                 draftConversionGoal: draftConversionGoal || undefined,
                 integrationFilter,
             }),

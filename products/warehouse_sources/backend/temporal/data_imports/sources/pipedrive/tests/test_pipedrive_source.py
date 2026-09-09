@@ -3,17 +3,14 @@ import datetime
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pipedrive import (
     PipedriveSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.pipedrive import PipedriveResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.source import PipedriveSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPipedriveSource:
@@ -21,9 +18,6 @@ class TestPipedriveSource:
         self.source = PipedriveSource()
         self.team_id = 123
         self.config = PipedriveSourceConfig(company_domain="acme", api_token="token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.PIPEDRIVE
 
     def test_v1_is_deprecated_with_vendor_sunset_and_default_is_v2(self) -> None:
         # New sources start on v2; v1 stays supported but carries the vendor's sunset date so the
@@ -35,25 +29,6 @@ class TestPipedriveSource:
         assert deprecation is not None
         assert deprecation.sunset_at == datetime.date(2025, 12, 31)
         assert self.source.get_version_deprecation("v2") is None
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Pipedrive"
-        assert config.label == "Pipedrive"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/pipedrive.png"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["company_domain", "api_token"]
-
-    def test_api_token_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        token_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_token")
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.secret is True
-        assert token_field.required is True
 
     def test_company_domain_is_connection_host_field(self) -> None:
         assert self.source.connection_host_fields == ["company_domain"]
@@ -137,13 +112,6 @@ class TestPipedriveSource:
         )
         assert is_valid is False
         assert message is not None and "Invalid Pipedrive company domain" in message
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is PipedriveResumeConfig
 
     @pytest.mark.parametrize(
         "pinned_version, expected_version",

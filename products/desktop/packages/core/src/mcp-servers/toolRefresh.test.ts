@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { type AutoRefreshState, shouldAutoRefreshTools } from "./toolRefresh";
+import {
+  type AutoRefreshState,
+  shouldAutoRefreshTools,
+  shouldRetryAutoRefresh,
+} from "./toolRefresh";
 
 function state(overrides: Partial<AutoRefreshState> = {}): AutoRefreshState {
   return {
@@ -44,5 +48,16 @@ describe("shouldAutoRefreshTools", () => {
 
   it("does not fire while a refresh is already pending", () => {
     expect(shouldAutoRefreshTools(state({ refreshPending: true }))).toBe(false);
+  });
+});
+
+describe("shouldRetryAutoRefresh", () => {
+  it.each([
+    ["a silent refresh after its first failure", 0, true, true],
+    ["a silent refresh after its second failure", 1, true, true],
+    ["a silent refresh once the retry budget is spent", 2, true, false],
+    ["a manual refresh, which reports its first failure", 0, false, false],
+  ])("%s retries: %s", (_label, failureCount, silent, expected) => {
+    expect(shouldRetryAutoRefresh(failureCount, silent)).toBe(expected);
   });
 });

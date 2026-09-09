@@ -25,6 +25,18 @@ describe("connectReducer", () => {
     ).toEqual({ state: "error", error });
   });
 
+  it("pending ends the flow without an error", () => {
+    expect(
+      connectReducer({ state: "connecting", error: null }, { type: "pending" }),
+    ).toEqual({ state: "pending", error: null });
+    expect(deriveConnectFlags("pending")).toEqual({
+      isConnecting: false,
+      isTimedOut: false,
+      hasError: false,
+      isPending: true,
+    });
+  });
+
   it("succeed and reset return to idle", () => {
     expect(
       connectReducer(CONNECT_INITIAL_STATUS, { type: "succeed" }).state,
@@ -52,6 +64,7 @@ describe("deriveConnectFlags", () => {
       isConnecting: true,
       isTimedOut: false,
       hasError: false,
+      isPending: false,
     });
     expect(deriveConnectFlags("error").hasError).toBe(true);
     expect(deriveConnectFlags("timed-out").isTimedOut).toBe(true);
@@ -69,6 +82,19 @@ describe("toConnectError", () => {
   it("falls back for non-Error values", () => {
     expect(toConnectError("x", "fallback").message).toBe("fallback");
   });
+
+  it("extracts the code and detail from an API request error", () => {
+    const error = Object.assign(new Error("raw response"), {
+      body: {
+        code: "invalid_input",
+        detail: "All installations are linked.",
+      },
+    });
+    expect(toConnectError(error, "fallback")).toEqual({
+      message: "All installations are linked.",
+      code: "invalid_input",
+    });
+  });
 });
 
 describe("invalidation keys", () => {
@@ -85,10 +111,11 @@ describe("invalidation keys", () => {
     expect(githubInvalidationKeys(7)[0]).toEqual(["integrations", 7]);
   });
 
-  it("slack keys cover list and root", () => {
+  it("slack keys cover list, root, and the autonomy config", () => {
     expect(slackInvalidationKeys()).toEqual([
       ["integrations", "list"],
       ["integrations"],
+      ["signals", "user-autonomy-config"],
     ]);
   });
 });

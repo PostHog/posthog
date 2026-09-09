@@ -390,7 +390,9 @@ metadata:
 Releases are published to PyPI via `.github/workflows/publish-hogli.yml`,
 triggered by pushing a `hogli-v*` tag from `master`.
 
-1. Bump `version` in `tools/hogli/pyproject.toml` and merge to `master`.
+1. Bump `version` in `tools/hogli/pyproject.toml`, run `uv lock` (hogli is a uv
+   workspace member), add a `## <version>` section to `tools/hogli/CHANGELOG.md`,
+   and merge to `master`.
 2. From `master`, tag and push:
 
    ```bash
@@ -398,11 +400,14 @@ triggered by pushing a `hogli-v*` tag from `master`.
    git push origin hogli-v0.1.1
    ```
 
-The workflow verifies the tag matches the `pyproject.toml` version, builds
-the sdist and wheel with `uv build`, smoke-tests the wheel in a fresh
-venv, publishes via PyPI trusted publishing (OIDC) — no API tokens —
-and creates a GitHub Release with auto-generated notes from the commits
-since the previous tag.
+The workflow verifies the tag matches the `pyproject.toml` version, extracts
+that version's section from `CHANGELOG.md`, builds the sdist and wheel with
+`uv build`, smoke-tests the wheel in a fresh venv, publishes via PyPI trusted
+publishing (OIDC) with no API tokens, and creates a GitHub Release whose body
+is the changelog section.
+
+A tag with no matching changelog section fails the run before anything is
+published.
 
 To re-trigger after a failed publish, dispatch the workflow against the
 existing tag — no need to retag:

@@ -14,15 +14,7 @@ export interface CanvasGenerationStatusInput {
   latestRun: Pick<TaskRun, "environment" | "status"> | undefined;
   /** The live ACP session for the task, if one is connected in this client. */
   session:
-    | Pick<
-        AgentSession,
-        | "status"
-        | "isCloud"
-        | "cloudStatus"
-        | "isPromptPending"
-        | "taskRunId"
-        | "agentIdleForRunId"
-      >
+    | Pick<AgentSession, "status" | "cloudStatus" | "isPromptPending">
     | undefined;
 }
 
@@ -33,23 +25,20 @@ export type CanvasTerminalStatus = Extract<
 
 // A cloud run's turn-level activity. The sandbox lingers after the agent's
 // turn so follow-ups can reuse it — the run record only completes on the
-// inactivity timeout, long after generation actually ended. A live session
-// therefore decides: prompt-pending proves work is active, while the per-run
-// idle marker proves turn_complete arrived. The marker also covers attachment
-// after an automatic prompt, where the prompt event itself may not be replayed.
-// Without a mirror the run status is all there is.
+// inactivity timeout, long after generation actually ended — so a non-terminal
+// status alone can't mean "generating". A live session mirror carries the
+// turn-level signal (prompt-pending arms on session/prompt and clears on
+// turn_complete); when one exists it decides, with "connecting" covering the
+// attach/replay window before the prompt event has streamed in. Without a
+// mirror the run status is all there is.
 function isCloudRunActive(
-  latestRun: Pick<TaskRun, "status"> | undefined,
+  latestRun: Pick<TaskRun, "status">,
   session: CanvasGenerationStatusInput["session"],
 ): boolean {
-  const cloudStatus = session?.cloudStatus ?? latestRun?.status;
+  const cloudStatus = session?.cloudStatus ?? latestRun.status;
   if (isTerminalStatus(cloudStatus)) return false;
   if (session) {
-    return (
-      session.status === "connecting" ||
-      session.isPromptPending === true ||
-      session.agentIdleForRunId !== session.taskRunId
-    );
+    return session.status === "connecting" || session.isPromptPending === true;
   }
   return true;
 }
@@ -74,7 +63,7 @@ export function isCanvasGenerationRunning({
   // Assume running while the task record is still loading.
   if (genTaskLoading) return true;
 
-  if (latestRun?.environment === "cloud" || session?.isCloud === true) {
+  if (latestRun?.environment === "cloud") {
     return isCloudRunActive(latestRun, session);
   }
 
@@ -99,7 +88,7 @@ export function isCanvasGenerating({
   if (!genTaskId) return false;
   if (genTaskLoading) return true;
 
-  if (latestRun?.environment === "cloud" || session?.isCloud === true) {
+  if (latestRun?.environment === "cloud") {
     return isCloudRunActive(latestRun, session);
   }
 

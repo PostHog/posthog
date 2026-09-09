@@ -1,14 +1,11 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getReactNativeSteps as getReactNativeStepsPA } from '../product-analytics/react-native'
+import { getReactNativeInstallSteps } from '../product-analytics/react-native'
 import { StepDefinition } from '../steps'
 
 export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
-
-    // Get installation steps from product-analytics only
-    const installationSteps = getReactNativeStepsPA(ctx).filter((step: StepDefinition) => step.title !== 'Send events')
 
     // Add experiments-specific steps
     const experimentSteps: StepDefinition[] = [
@@ -39,7 +36,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
         },
     ]
 
-    return [...installationSteps, ...experimentSteps]
+    return [...getReactNativeInstallSteps(ctx), ...experimentSteps]
 }
 
 export const ReactNativeInstallation = createInstallation(getReactNativeSteps)

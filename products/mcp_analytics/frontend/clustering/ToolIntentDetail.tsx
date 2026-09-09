@@ -44,11 +44,17 @@ export function ToolIntentDetail({
     tool,
     clusters,
     showToolLink = true,
+    categories = [],
 }: {
     tool: MCPToolPivotApi
     /** The snapshot's clusters — the pivot's entries carry only ids and join against these. */
     clusters: readonly MCPIntentClusterApi[]
     showToolLink?: boolean
+    /**
+     * Categories the tool is called under. Passed in rather than read from the clustering
+     * logic, because the tool detail scene renders this without that logic mounted.
+     */
+    categories?: string[]
 }): JSX.Element {
     const switches = collectSwitches(tool.tool, clusters)
     const clusterRows = toolClusterRows(tool, clusters)
@@ -66,6 +72,15 @@ export function ToolIntentDetail({
                         ) : (
                             <h3 className="text-lg font-semibold leading-tight font-mono">{tool.tool}</h3>
                         )}
+                        {categories.length > 0 ? (
+                            <div className="flex flex-wrap items-center gap-1">
+                                {categories.map((category) => (
+                                    <Badge key={category} variant="info">
+                                        {category}
+                                    </Badge>
+                                ))}
+                            </div>
+                        ) : null}
                     </div>
                     <div className="flex flex-wrap items-center gap-2 shrink-0">
                         <Badge variant="default">{humanFriendlyNumber(tool.call_count)} calls</Badge>

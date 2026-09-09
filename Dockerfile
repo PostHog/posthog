@@ -150,7 +150,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
 
 COPY products/canvas/packages/canvas_builder/ products/canvas/packages/canvas_builder/
 RUN --mount=type=cache,id=npm,target=/root/.npm \
-    npm ci --ignore-scripts --omit=dev --prefix products/canvas/packages/canvas_builder
+    npm ci --ignore-scripts --omit=dev --no-audit --no-fund --prefix products/canvas/packages/canvas_builder
 
 # The transpiler bundle externalizes @babel/standalone (its only external runtime require — a
 # self-contained 24MB package with no deps). Materialize it as real files inside the transpiler's
@@ -272,56 +272,15 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-# NOTE: v1.32 is running bullseye, v1.33+ is running bookworm
-FROM unit:1.34.2-python3.13
+FROM python:3.13.13-bookworm@sha256:0544e35a04d3d3272a5e180a402065bfa84402bf39431a727f8989e32ffce979
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
-# Unit embeds libpython instead of launching the python3 CLI, so PEP 538 C-locale
+# Granian embeds libpython instead of launching the python3 CLI, so PEP 538 C-locale
 # coercion never runs and open() defaults to ASCII under the container's bare locale.
 # Force UTF-8 so file reads with non-ASCII bytes don't raise UnicodeDecodeError.
 ENV PYTHONUTF8 1
 ENV LANG C.UTF-8
-ARG UNIT_GIT_TAG=1.35.0
-ARG UNIT_GIT_REF=28404105810f53c570523c3e70006ad0ca210e58
-
-# Build Unit from the upstream 1.35.0 release ref to ensure the Django 5 ASGI fix is present even when Docker tags lag.
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    "build-essential" \
-    "git" \
-    "libpcre2-dev" \
-    "zlib1g-dev" \
-    && \
-    git clone --depth 1 --branch "$UNIT_GIT_TAG" https://github.com/nginx/unit.git /tmp/unit && \
-    cd /tmp/unit && \
-    test "$(git rev-parse HEAD)" = "$UNIT_GIT_REF" && \
-    NCPU="$(getconf _NPROCESSORS_ONLN)" && \
-    DEB_HOST_MULTIARCH="$(gcc -print-multiarch)" && \
-    CONFIGURE_ARGS="--prefix=/usr \
-        --statedir=/var/lib/unit \
-        --control=unix:/var/run/control.unit.sock \
-        --runstatedir=/var/run \
-        --pid=/var/run/unit.pid \
-        --logdir=/var/log \
-        --log=/var/log/unit.log \
-        --tmpdir=/var/tmp \
-        --user=unit \
-        --group=unit \
-        --openssl \
-        --libdir=/usr/lib/$DEB_HOST_MULTIARCH \
-        --modulesdir=/usr/lib/unit/modules" && \
-    ./configure $CONFIGURE_ARGS && \
-    make -j "$NCPU" unitd && \
-    install -pm755 build/sbin/unitd /usr/sbin/unitd && \
-    make clean && \
-    ./configure $CONFIGURE_ARGS && \
-    ./configure python --config=/usr/local/bin/python3-config && \
-    make -j "$NCPU" python3-install && \
-    rm -rf /tmp/unit && \
-    apt-get purge -y --auto-remove "build-essential" "git" "libpcre2-dev" "zlib1g-dev" && \
-    rm -rf /var/lib/apt/lists/*
-
 # Install OS runtime dependencies.
 # Note: please add in this stage runtime dependences only!
 # Runtime-only shared libs: lxml/xmlsec are compiled --no-binary in the build stage (which keeps
@@ -329,7 +288,7 @@ RUN apt-get update && \
 # libxmlsec1-openssl provides the OpenSSL crypto backend that libxmlsec1-dev used to pull in.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
-    "gettext-base" \
+    "git" \
     "libpq5" \
     "libxmlsec1=1.2.37-2" \
     "libxmlsec1-openssl=1.2.37-2" \
@@ -445,11 +404,11 @@ COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
 # Stamphog ships the review engine + owners resolver from this checkout into its sandbox at
 # runtime (products/stamphog/backend/temporal/activities.py), so both must exist in the image as
-# source. This is separate from posthog-owners being installed into the venv as a library: the
-# sandbox gets files copied into a checkout, not an import.
-COPY --chown=posthog:posthog tools/pr-approval-agent tools/pr-approval-agent/
+# source. The engine arrives with products/ above, and only tools/owners needs its own COPY. This
+# differs from the installation of posthog-owners into the venv as a library: the sandbox receives
+# files copied into a checkout, and not an import.
 COPY --chown=posthog:posthog tools/owners tools/owners/
-RUN test -f tools/pr-approval-agent/review_local.py && test -d tools/owners/posthog_owners
+RUN test -f products/stamphog/packages/pr-approval-agent/review_local.py && test -d tools/owners/posthog_owners
 # Generated MCP tool catalog, read at runtime from BASE_DIR by the OAuth consent page
 # (posthog/api/oauth/mcp_resource_scopes.py) and the tasks permission broker. The rest of
 # services/ is a Node build (Dockerfile.node) and deliberately stays out of this image.
@@ -468,7 +427,7 @@ EXPOSE 8000
 
 # Expose the port from which we serve OpenMetrics data.
 EXPOSE 8001
-COPY unit.json.tpl /docker-entrypoint.d/unit.json.tpl
+# Root is needed only so bin/docker-server can drop the app to nobody with setpriv.
 # nosemgrep: dockerfile.security.last-user-is-root.last-user-is-root
 USER root
 CMD ["./bin/docker"]

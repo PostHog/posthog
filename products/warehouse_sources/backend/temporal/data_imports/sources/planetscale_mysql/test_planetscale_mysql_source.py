@@ -4,7 +4,7 @@ from typing import cast
 import pytest
 from unittest import mock
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
+from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.planetscalemysql import (
@@ -49,15 +49,6 @@ def test_source_type_and_implementation():
     assert source.source_type == ExternalDataSourceType.PLANETSCALEMYSQL
     # The MySQL driver reads `config.using_ssl`, which this source's config has no field for.
     assert isinstance(source.get_implementation, PlanetScaleMySQLImplementation)
-
-
-def test_source_is_visible_and_alpha():
-    config = PlanetScaleMySQLSource().get_source_config
-
-    assert not config.unreleasedSource
-    assert config.featureFlag is None
-    assert config.releaseStatus == ReleaseStatus.ALPHA
-    assert config.category == DataWarehouseSourceCategory.DATABASES
 
 
 @pytest.mark.parametrize("name", ["ssh_tunnel", "using_ssl"])
@@ -175,7 +166,7 @@ def test_validate_credentials_never_opens_an_ssh_tunnel():
         ("Connection refused", "port 3306"),
         ("Can't connect to MySQL server on 'x' (timed out)", "timed out"),
         ("(1049, \"Unknown database 'x'\")", "does not exist on this PlanetScale branch"),
-        ("(1045, \"Access denied for user 'x'\")", "Invalid user or password"),
+        ("(1045, \"Access denied for user 'x'\")", "rejected the username or password"),
         ("branch is missing or sleeping: abc", "deleted or put to sleep"),
     ],
 )

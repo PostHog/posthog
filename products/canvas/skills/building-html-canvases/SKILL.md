@@ -47,15 +47,26 @@ build pipeline's dependency admission ships.
   Define your colors as CSS variables under `:root { … }` with overrides under `html.dark { … }`,
   or use theme token utilities (`bg-background`, `text-foreground`, `border-border`) — never a
   light-only hardcoded color.
+- Give your own CSS variables a prefix (`--doc-bg`, `--doc-muted`). Never reuse a platform token
+  name: the bundled Quill stylesheet sets `--background`, `--border`, `--card`, `--chrome`,
+  `--input`, `--muted`, `--primary`, and `--fill-*` on every element, so a `:root` or `html.dark`
+  value with one of those names never reaches any element. A page that colors its text with its own
+  `--muted` then renders unreadable (pale text on a pale page). Validation rejects such a
+  declaration with `platform_token_redeclared`.
 - For canvas/WebGL drawing colors, read the resolved token at runtime
   (`getComputedStyle(document.documentElement).getPropertyValue("--primary")`) or your own CSS
   variables, and re-read on theme change if the scene is long-lived.
 
 ## Rules that still apply
 
-- No `fetch()`/`XMLHttpRequest`, no `<script>` tags, no dynamic `import()`, no remote assets —
-  the sandbox blocks them. PostHog data comes only through the `ph` bridge (see the
-  `querying-canvas-data` skill), including `ph.capture` for interaction analytics.
+- PostHog data comes only through the `ph` bridge (see `querying-canvas-data`), including
+  `ph.capture` for interaction analytics. Other requests and external styles, images, fonts, media,
+  or frames require their exact public HTTPS origins in `capabilities.network.origins` and work only
+  after publishing. Remote scripts and dynamic imports remain blocked.
+- A document that states PostHog numbers must make each one verifiable: an insight-backed number
+  links its saved insight through `ph.openExternal` (URL from the `generate-app-url` MCP tool,
+  from a click); an ad-hoc `ph.query` number discloses the exact query that ran in a `<details>`
+  element beside the claim — see "Verifiability" in `querying-canvas-data`.
 - External links go through `ph.openExternal(url)` (posthog.com origins only), from a user
   interaction.
 - Validate and publish through the canvas tools as described in `validating-and-publishing-canvases`.

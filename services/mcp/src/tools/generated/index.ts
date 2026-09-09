@@ -13,6 +13,7 @@ import { GENERATED_TOOLS as canvas } from './canvas'
 import { GENERATED_TOOLS as cdp_function_templates } from './cdp_function_templates'
 import { GENERATED_TOOLS as cdp_functions } from './cdp_functions'
 import { GENERATED_TOOLS as cohorts } from './cohorts'
+import { GENERATED_TOOLS as context_layer } from './context_layer'
 import { GENERATED_TOOLS as conversations } from './conversations'
 import { GENERATED_TOOLS as core } from './core'
 import { GENERATED_TOOLS as customer_analytics } from './customer_analytics'
@@ -42,6 +43,7 @@ import { GENERATED_TOOLS as metrics } from './metrics'
 import { GENERATED_TOOLS as notebooks } from './notebooks'
 import { GENERATED_TOOLS as persons } from './persons'
 import { GENERATED_TOOLS as platform_features } from './platform_features'
+import { GENERATED_TOOLS as posthog_ai } from './posthog_ai'
 import { GENERATED_TOOLS as product_analytics } from './product_analytics'
 import { GENERATED_TOOLS as proxyRecords } from './proxy-records'
 import { GENERATED_TOOLS as queryWrappers } from './query-wrappers'
@@ -76,6 +78,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...cdp_function_templates,
     ...cdp_functions,
     ...cohorts,
+    ...context_layer,
     ...conversations,
     ...core,
     ...customer_analytics,
@@ -105,6 +108,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...notebooks,
     ...persons,
     ...platform_features,
+    ...posthog_ai,
     ...product_analytics,
     ...proxyRecords,
     ...queryWrappers,

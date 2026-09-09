@@ -102,7 +102,7 @@ class TestObservationCreateTask(_VisionAPITestCase):
         session_route_url = f"/api/environments/{self.team.id}/vision/observations/{self.observation.id}/create_task/"
         with (
             patch(
-                "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+                "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
                 side_effect=lambda obj, required_level=None, **_: not isinstance(obj, ReplayScanner),
             ),
             patch(_CREATE) as create,

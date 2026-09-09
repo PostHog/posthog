@@ -75,6 +75,12 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
     )
 }
 
+export function getAccountFieldDefinitionIcon(): JSX.Element {
+    return (
+        <IconWithBadge icon={<IconList />} tooltipTitle="Account field" className="taxonomy-icon taxonomy-icon-muted" />
+    )
+}
+
 export function getAccountCustomPropertyDefinitionIcon(
     definition: PropertyDefinition & { is_canonical?: boolean }
 ): JSX.Element {

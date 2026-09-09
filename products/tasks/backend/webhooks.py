@@ -1,24 +1,40 @@
 import hmac
 import uuid
 import hashlib
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 
-from django.db import transaction
+from django.conf import settings
+from django.db import OperationalError, connections, router, transaction
+from django.db.backends.base.base import BaseDatabaseWrapper
 from django.db.models import Case, IntegerField, Q, Value, When
 from django.http import HttpResponse
 
 import structlog
 import posthoganalytics
+from social_django.models import UserSocialAuth
 
 from posthog.event_usage import groups
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import Integration
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.models.user_integration import UserIntegration
 
-from products.signals.backend.models import InvalidStatusTransition, SignalReport
+from products.signals.backend.report_assignments import update_assignments_for_pull_request
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.tasks.backend.constants import PR_LOOP_ENABLED_STATE_KEY
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.metrics import (
+    GitHubWebhookAnalyticsEvent,
+    GitHubWebhookAttributionOutcome,
+    observe_github_webhook_attribution,
+    observe_github_webhook_pr_event_dropped,
+    observe_github_webhook_task_run_lookup,
+)
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.pr_urls import merge_pr_output, read_pr_urls
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
 
@@ -41,15 +57,36 @@ def find_task_run(
     pr_url: str | None = None,
     branch: str | None = None,
     repository: str | None = None,
+    team_ids: list[int] | None = None,
 ) -> TaskRun | None:
+    """Find the TaskRun a GitHub webhook belongs to, preferably scoped to ``team_ids``.
+
+    Every leg below filters on a JSON containment or a plain ``branch`` value, none of which
+    is indexed, so an unscoped lookup walks all of ``posthog_task_run`` three times per
+    delivery. ``team_id`` is a plain FK and therefore already indexed: passing the teams the
+    webhook's installation belongs to turns those walks into index scans. When the caller
+    cannot resolve any team the old unscoped behaviour is kept, just counted.
+    """
     repository = repository.strip() if repository else None
+
+    observe_github_webhook_task_run_lookup(scoped=bool(team_ids))
+    if not team_ids:
+        logger.info("github_webhook_task_run_lookup_unscoped", pr_url=pr_url, branch=branch, repository=repository)
+
+    candidates = TaskRun.objects.filter(team_id__in=team_ids) if team_ids else TaskRun.objects.all()
+    # ReviewHog runs check out the PR head branch to review it, but they never author a PR, so no
+    # leg below may return one. The exclusion belongs here rather than on each leg: a stale
+    # ``verified_pr_urls`` claim, left on a ReviewHog run by an earlier wrong branch match, would
+    # otherwise keep every later event for that PR on the reviewing run. Dropping the claim falls
+    # through to the legs below, which resolve the run that authored the PR.
+    candidates = candidates.exclude(task__origin_product=Task.OriginProduct.REVIEW_HOG)
 
     if pr_url:
         # A resumed wizard run inherits its predecessor's head branch, so a terminal
         # original and its live resume can both claim the same PR URL. Scope to the
         # webhook's repo and prefer non-terminal runs so merge handling lands on the
         # run that can still act on it.
-        runs = TaskRun.objects.filter(state__verified_pr_urls__contains=[pr_url])
+        runs = candidates.filter(state__verified_pr_urls__contains=[pr_url])
         if repository:
             runs = runs.filter(_run_repository_filter(repository))
         # Declared type keeps mypy happy: the annotated queryset yields an AnnotatedWith
@@ -73,15 +110,38 @@ def find_task_run(
     # Without this, a PR opened on an unrelated repo with a colliding branch name
     # (e.g. "main") gets attributed to whichever TaskRun shares that branch.
     if branch and repository:
+        # A self-driving implementation run stamps its server-generated head branch into
+        # PATCH-protected state (signals' auto_start). That stamp is the run->PR link no
+        # caller can forge, so resolve it before the generic branch legs below. Without
+        # this, a newer ReviewHog run whose checkout branch is the same head ref wins the
+        # branch match and every later webhook, misattributing the PR's lifecycle events.
+        # FAILED and CANCELLED runs and soft-deleted tasks are dropped; a COMPLETED run
+        # stays eligible because success flips the run to COMPLETED right after it opens
+        # the PR. The task_run_sd_branch_idx index covers this filter.
+        task_run = (
+            candidates.filter(
+                _run_repository_filter(repository),
+                state__self_driving_head_branch=branch,
+                task__deleted=False,
+            )
+            .exclude(status__in=(TaskRun.Status.FAILED, TaskRun.Status.CANCELLED))
+            .order_by("-created_at", "-id")
+            .select_related(*TASK_RUN_SELECT_RELATED)
+            .first()
+        )
+        if task_run:
+            return task_run
+
         # Wizard runs are excluded here: their `branch` column holds the checkout (base)
         # branch, so a same-repo PR whose head ref equals the base (e.g. "main") would
         # otherwise claim the run before the dedicated leg below is consulted.
         task_run = (
-            TaskRun.objects.filter(
+            candidates.filter(
                 _run_repository_filter(repository),
                 branch=branch,
                 state__wizard_head_branch__isnull=True,
             )
+            .order_by("-created_at", "-id")
             .select_related(*TASK_RUN_SELECT_RELATED)
             .first()
         )
@@ -93,11 +153,12 @@ def find_task_run(
         # cannot represent nested repositories or multiple PR branches.
         head_branch = {"repository": repository.lower(), "branch": branch}
         task_run = (
-            TaskRun.objects.filter(
+            candidates.filter(
                 _run_repository_filter(repository),
                 output__head_branches__contains=[head_branch],
                 state__wizard_head_branch__isnull=True,
             )
+            .order_by("-created_at", "-id")
             .select_related(*TASK_RUN_SELECT_RELATED)
             .first()
         )
@@ -110,7 +171,7 @@ def find_task_run(
         # (post-merge events for bound runs resolve via the pr_url leg above).
         if branch.startswith(WIZARD_HEAD_BRANCH_PREFIX):
             task_run = (
-                TaskRun.objects.filter(
+                candidates.filter(
                     _run_repository_filter(repository),
                     state__wizard_head_branch=branch,
                     task__deleted=False,
@@ -183,7 +244,7 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
 
     pr_state = _pr_state_for_action(action, pull_request)
-    analytics_event: str | None = None
+    analytics_event: GitHubWebhookAnalyticsEvent | None = None
     if action == "opened":
         event_action = "created"
         analytics_event = "pr_created"
@@ -205,7 +266,9 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
 
     branch = pull_request.get("head", {}).get("ref")
     repository_full_name = (payload.get("repository") or {}).get("full_name")
-    task_run = find_task_run(pr_url=pr_url, branch=branch, repository=repository_full_name)
+    scoped_team_ids = _task_run_scope_team_ids(payload)
+    assignment_team_ids = _installation_team_ids(payload)
+    task_run = find_task_run(pr_url=pr_url, branch=branch, repository=repository_full_name, team_ids=scoped_team_ids)
     claimed_pr_urls = (
         read_pr_urls(task_run.output if isinstance(task_run.output, dict) else {}) if task_run is not None else []
     )
@@ -235,12 +298,6 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     )
     if task_run is not None and is_internal_branch:
         _record_run_pr_url(task_run, pr_url)
-        # Fired regardless of whether this webhook was the first to record output.pr_url. The agent
-        # server usually records the URL first, so _record_run_pr_url takes its "already recorded"
-        # early return; a canvas the summary workflow built before the PR existed would otherwise
-        # keep implementation_pr_url null forever. The refresh is idempotent: an unchanged report
-        # fingerprint skips generation.
-        _enqueue_report_canvas_refresh(task_run)
 
     # After the backstop on purpose: a just-backfilled pr_url means the run now
     # claims this PR. Gated on the run's *primary* PR — output.pr_state describes
@@ -254,33 +311,35 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     ):
         _record_run_pr_state(task_run, pr_state)
 
+    if pr_state is not None and repository_full_name and assignment_team_ids:
+        try:
+            update_assignments_for_pull_request(
+                team_ids=assignment_team_ids,
+                repository=repository_full_name,
+                pr_number=int(pull_request.get("number")),
+                pr_state=pr_state,
+            )
+        except (TypeError, ValueError):
+            logger.warning("github_pr_webhook_signal_assignment_missing_number", pr_url=pr_url)
+        except Exception:
+            logger.exception("github_pr_webhook_signal_assignment_update_failed", pr_url=pr_url)
+
     if analytics_event is not None:
         # Deterministic UUID dedupes duplicate webhook deliveries of the same PR action.
         event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
         _capture_pr_event(payload, task_run, analytics_event, event_uuid)
 
-    if task_run and action == "closed" and merged:
+    if action == "closed" and merged:
         # Only trust the merge for the run that actually claims this PR URL. The pr_url backstop
         # above already covers branch-matched internal PRs, so requiring equality here keeps a
         # same-branch webhook for a different PR from marking this run's PR as merged.
-        if pr_url in claimed_pr_urls:
+        if task_run and pr_url in claimed_pr_urls:
             _record_run_pr_merged(task_run)
-        # Ungated on the pr_url match above: unlike the run-bookkeeping calls, this keys off
-        # task_id (reports_for_task_filter), not output.pr_url, so the same-branch trust rule
-        # doesn't apply — a merged PR resolves its report.
-        _transition_signal_reports_for_task(
-            task_run.task_id, pr_url, SignalReport.Status.RESOLVED, "github_pr_webhook_signal_report_resolved"
-        )
 
-    if task_run and action == "closed" and not merged:
+    if action == "closed" and not merged:
         # Same trust rule as the merge branch: only the run that claims this PR URL.
-        if pr_url in claimed_pr_urls:
+        if task_run and pr_url in claimed_pr_urls:
             _cancel_wizard_run_on_close(task_run)
-        # Ungated for the same reason as the merge branch's resolve call: a closed-unmerged PR
-        # archives (suppresses) its report so it leaves the inbox instead of lingering.
-        _transition_signal_reports_for_task(
-            task_run.task_id, pr_url, SignalReport.Status.SUPPRESSED, "github_pr_webhook_signal_report_archived"
-        )
 
     return HttpResponse(status=200)
 
@@ -312,7 +371,9 @@ def handle_pull_request_review_event(payload: dict) -> HttpResponse:
 
     branch = (pull_request.get("head") or {}).get("ref")
     repository_full_name = (payload.get("repository") or {}).get("full_name")
-    task_run = find_task_run(pr_url=pr_url, branch=branch, repository=repository_full_name)
+    task_run = find_task_run(
+        pr_url=pr_url, branch=branch, repository=repository_full_name, team_ids=_task_run_scope_team_ids(payload)
+    )
 
     # One review submission = one event; GitHub redeliveries collapse on the review id.
     event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:pr_reviewed:{review.get('id')}"))
@@ -326,21 +387,6 @@ def handle_pull_request_review_event(payload: dict) -> HttpResponse:
         run_id=str(task_run.id) if task_run else None,
     )
     return HttpResponse(status=200)
-
-
-def _enqueue_report_canvas_refresh(task_run: TaskRun) -> None:
-    """Rebuild the report canvas for this run's task after a PR webhook.
-
-    Best-effort: a Signals import or broker hiccup must never fail the webhook.
-    """
-    try:
-        from products.signals.backend.tasks import (  # noqa: PLC0415 — keeps Signals workers off webhook startup
-            refresh_report_canvases_for_task,
-        )
-
-        refresh_report_canvases_for_task.delay(str(task_run.task_id))
-    except Exception:
-        logger.warning("github_pr_webhook_report_canvas_refresh_failed", task_id=str(task_run.task_id), exc_info=True)
 
 
 def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
@@ -367,10 +413,10 @@ def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
     # log batches at exactly this moment — and append_log's read-modify-write would race it.
     # Tolerant: a stream hiccup must not fail the webhook; clients recover on refetch.
     try:
-        for event in (
-            task_run.build_progress_event("pr", "completed", "Opened pull request", "setup", detail=pr_url),
-            task_run.build_progress_event("ci", "in_progress", "Keeping CI green", "setup"),
-        ):
+        events = [task_run.build_progress_event("pr", "completed", "Opened pull request", "setup", detail=pr_url)]
+        if (task_run.state or {}).get(PR_LOOP_ENABLED_STATE_KEY):
+            events.append(task_run.build_progress_event("ci", "in_progress", "Keeping CI green", "setup"))
+        for event in events:
             task_run.publish_stream_event(event)
         task_run.publish_stream_state_event()
     except Exception:
@@ -525,6 +571,22 @@ def _record_run_output_field(task_run: TaskRun, key: str, value: str | bool, fai
 # Nulled on external PRs so their schema matches task-originated PR events.
 _TASK_ATTRIBUTION_KEYS = ("task_id", "run_id", "origin_product", "signal_report_id", "environment", "mode", "title")
 
+# What a PR says, rather than how big it is. Only task-authored PRs carry these values -- an
+# external PR's own words are customer business context, so it gets the keys as nulls for
+# schema parity, the same way _TASK_ATTRIBUTION_KEYS works.
+_PR_CONTENT_KEYS = (
+    "pr_title",
+    "pr_body",
+    "pr_body_truncated",
+    "pr_labels",
+    "pr_requested_reviewers",
+    "pr_is_draft",
+)
+
+# A PR body is the biggest string on the delivery, and an agent-authored one can run long.
+# Cap it so one verbose body cannot push the event past the capture size limit.
+_PR_BODY_MAX_CHARS = 10_000
+
 
 def _account_type(payload: dict) -> str | None:
     """Whether the webhook's repo is owned by a GitHub org or a personal account.
@@ -560,16 +622,148 @@ def _pr_payload_properties(payload: dict) -> dict:
     }
 
 
+def _pr_content_properties(payload: dict) -> dict:
+    """What a task-authored PR says: its title, body, labels, requested reviewers, draft state."""
+    pull_request = payload.get("pull_request") or {}
+    body = pull_request.get("body") or ""
+    return {
+        "pr_title": pull_request.get("title"),
+        "pr_body": body[:_PR_BODY_MAX_CHARS],
+        "pr_body_truncated": len(body) > _PR_BODY_MAX_CHARS,
+        "pr_labels": [label.get("name") for label in (pull_request.get("labels") or []) if label.get("name")],
+        "pr_requested_reviewers": [
+            reviewer.get("login")
+            for reviewer in (pull_request.get("requested_reviewers") or [])
+            if reviewer.get("login")
+        ],
+        "pr_is_draft": pull_request.get("draft"),
+    }
+
+
+# Cap the org-member lookup that attributes the merger (and reviewer). GitHub gives a
+# pull_request delivery one short window and never retries it, and the merged branch runs
+# functional side effects (merge bookkeeping, signal-report resolution, wizard wind-down)
+# right after capture. A slow lookup on the request path can therefore cost the whole
+# delivery, not just the analytics event. Bounding it degrades to no attribution instead.
+_ATTRIBUTION_STATEMENT_TIMEOUT_MS = 800
+
+# Models the org-member resolver reads. ReplicaRouter only sends a model to the replica when
+# that model is named in READ_REPLICA_OPT_IN, so the set of aliases the lookup can touch is
+# knowable up front.
+_ATTRIBUTION_MODELS = (Team, User, OrganizationMembership, UserSocialAuth, UserIntegration, Integration)
+
+
+def _attribution_db_aliases() -> list[str]:
+    """The aliases the org-member lookup actually reads from, deduped, in model order.
+
+    Bounding an alias means opening it, and opening is itself unbounded -- ``postgres_config``
+    sets no ``connect_timeout`` on these aliases. So take the set from the router rather than
+    assuming: reaching for an alias the resolver never uses could stall the webhook on
+    connection setup before the cap is installed, which is the failure this exists to prevent.
+    That cuts both ways -- a fully replica-opted deployment must not be made to wait on the
+    primary either.
+    """
+    aliases: list[str] = []
+    for model in _ATTRIBUTION_MODELS:
+        alias = router.db_for_read(model) or "default"
+        if alias not in aliases and alias in settings.DATABASES:
+            aliases.append(alias)
+    return aliases
+
+
+def _read_statement_timeout(connection: BaseDatabaseWrapper) -> str | None:
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW statement_timeout")
+        row = cursor.fetchone()
+    return row[0] if row else None
+
+
+def _apply_statement_timeout(connection: BaseDatabaseWrapper, value: str) -> None:
+    # set_config(..., is_local=True) is SET LOCAL, but takes the value as a bind parameter,
+    # so a restored value ("30s", "0", ...) does not have to be quoted by hand.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT set_config('statement_timeout', %s, true)", [value])
+
+
+@contextmanager
+def _statement_timeout(connection: BaseDatabaseWrapper, timeout_ms: int, *, restore: bool) -> Iterator[None]:
+    """Cap statements on one connection, optionally putting the previous value back."""
+    previous = _read_statement_timeout(connection) if restore else None
+    _apply_statement_timeout(connection, f"{timeout_ms}ms")
+
+    yield
+
+    # Only reached when the block succeeded. If it raised, the enclosing atomic() rolls the
+    # (sub)transaction back and PostgreSQL undoes SET LOCAL with it, so there is nothing to
+    # restore -- and a statement on an aborted transaction would error anyway.
+    if previous:
+        _apply_statement_timeout(connection, previous)
+
+
+@contextmanager
+def _bounded_attribution_lookup() -> Iterator[None]:
+    """Run a block under a per-statement timeout on each configured DB the lookup may use.
+
+    A read routed to an alias joins that alias's open transaction, so ``SET LOCAL
+    statement_timeout`` there caps the query regardless of read-replica routing.
+    """
+    with ExitStack() as stack:
+        for alias in _attribution_db_aliases():
+            connection = connections[alias]
+            # SET LOCAL dies with the transaction it was set in, so the cap only needs
+            # restoring when we are joining a transaction somebody else owns -- a future
+            # caller wrapping this in its own atomic block, or ATOMIC_REQUESTS (which
+            # PostHog does not enable today). Otherwise the commit below ends it for us.
+            restore = connection.in_atomic_block
+            stack.enter_context(transaction.atomic(using=alias))
+            stack.enter_context(_statement_timeout(connection, _ATTRIBUTION_STATEMENT_TIMEOUT_MS, restore=restore))
+        yield
+
+
+# PostgreSQL raises query_canceled when statement_timeout fires. Django wraps the driver
+# error in OperationalError, so the SQLSTATE lives on the cause -- psycopg3 spells it
+# `sqlstate`, psycopg2 `pgcode`. The message check is the fallback for anything that loses
+# the cause on the way up.
+_QUERY_CANCELED_SQLSTATE = "57014"
+
+
+def _is_statement_timeout(error: Exception) -> bool:
+    if not isinstance(error, OperationalError):
+        return False
+    cause = error.__cause__
+    if getattr(cause, "sqlstate", None) == _QUERY_CANCELED_SQLSTATE:
+        return True
+    if getattr(cause, "pgcode", None) == _QUERY_CANCELED_SQLSTATE:
+        return True
+    return "statement timeout" in str(error).lower()
+
+
 def _resolve_github_login_distinct_id(login: str | None, team_id: int) -> str | None:
-    """Distinct id of the org member matching a GitHub login, or None when unresolvable."""
+    """Distinct id of the org member matching a GitHub login, or None when unresolvable.
+
+    Runs under a per-statement timeout so a slow member lookup cannot hold the webhook
+    open past GitHub's delivery timeout (see ``_ATTRIBUTION_STATEMENT_TIMEOUT_MS``).
+    """
     if not login:
         return None
     try:
-        resolved = resolve_org_github_login_to_users(team_id, [login]).get(str(login).strip().lower())
+        with _bounded_attribution_lookup():
+            resolved = resolve_org_github_login_to_users(team_id, [login]).get(str(login).strip().lower())
     except Exception as e:
-        logger.warning("github_webhook_login_resolution_failed", login=login, team_id=team_id, error=str(e))
+        # timeout is meant to be the leading indicator for the cap we just installed, so it
+        # has to mean "statement cancelled", not "any OperationalError" -- connection resets
+        # and other DB incidents raise the same class and would drown the signal.
+        outcome: GitHubWebhookAttributionOutcome = "timeout" if _is_statement_timeout(e) else "error"
+        observe_github_webhook_attribution(outcome=outcome)
+        logger.warning(
+            "github_webhook_login_resolution_failed", login=login, team_id=team_id, outcome=outcome, error=str(e)
+        )
         return None
-    return str(resolved.distinct_id) if resolved is not None else None
+    if resolved is None:
+        observe_github_webhook_attribution(outcome="unresolved")
+        return None
+    observe_github_webhook_attribution(outcome="resolved")
+    return str(resolved.distinct_id)
 
 
 def _merged_by_attribution(payload: dict, team_id: int) -> tuple[dict, str | None]:
@@ -607,16 +801,19 @@ def _capture_pr_review_event(payload: dict, task_run: TaskRun | None, event_uuid
         reviewer_distinct_id = _resolve_github_login_distinct_id(login, task_run.team_id)
         if reviewer_distinct_id is not None:
             pr_properties["pr_reviewed_by_distinct_id"] = reviewer_distinct_id
-        task_run.capture_event(
+        captured = task_run.capture_event(
             "pr_reviewed",
-            {**pr_properties, "pr_source": "task"},
+            {**pr_properties, **_pr_content_properties(payload), "pr_source": "task"},
             event_uuid=event_uuid,
             distinct_id_override=reviewer_distinct_id,
         )
+        if not captured:
+            observe_github_webhook_pr_event_dropped(analytics_event="pr_reviewed", reason="capture_exception")
         return
 
     team = _resolve_external_team(payload)
     if team is None:
+        observe_github_webhook_pr_event_dropped(analytics_event="pr_reviewed", reason="unresolved_installation")
         logger.debug("github_pr_review_webhook_unresolved_installation", pr_url=pr_properties.get("pr_url"))
         return
 
@@ -629,8 +826,9 @@ def _capture_pr_review_event(payload: dict, task_run: TaskRun | None, event_uuid
         "repository": ((payload.get("repository") or {}).get("full_name") or "").strip().lower() or None,
         "pr_source": "external",
         "team_id": team.id,
-        # title omitted to avoid leaking customer business context.
+        # title and PR content omitted to avoid leaking customer business context.
         **dict.fromkeys(_TASK_ATTRIBUTION_KEYS, None),
+        **dict.fromkeys(_PR_CONTENT_KEYS, None),
     }
 
     try:
@@ -642,10 +840,13 @@ def _capture_pr_review_event(payload: dict, task_run: TaskRun | None, event_uuid
             uuid=event_uuid,
         )
     except Exception as e:
+        observe_github_webhook_pr_event_dropped(analytics_event="pr_reviewed", reason="capture_exception")
         logger.warning("github_pr_review_webhook_capture_failed", error=str(e))
 
 
-def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: str, event_uuid: str) -> None:
+def _capture_pr_event(
+    payload: dict, task_run: TaskRun | None, analytics_event: GitHubWebhookAnalyticsEvent, event_uuid: str
+) -> None:
     pr_properties = _pr_payload_properties(payload)
 
     if task_run is not None:
@@ -653,16 +854,19 @@ def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: 
         if analytics_event == "pr_merged":
             merged_by_properties, merger_distinct_id = _merged_by_attribution(payload, task_run.team_id)
             pr_properties = {**pr_properties, **merged_by_properties}
-        task_run.capture_event(
+        captured = task_run.capture_event(
             analytics_event,
-            {**pr_properties, "pr_source": "task"},
+            {**pr_properties, **_pr_content_properties(payload), "pr_source": "task"},
             event_uuid=event_uuid,
             distinct_id_override=merger_distinct_id,
         )
+        if not captured:
+            observe_github_webhook_pr_event_dropped(analytics_event=analytics_event, reason="capture_exception")
         return
 
     team = _resolve_external_team(payload)
     if team is None:
+        observe_github_webhook_pr_event_dropped(analytics_event=analytics_event, reason="unresolved_installation")
         logger.debug("github_pr_webhook_unresolved_installation", pr_url=pr_properties.get("pr_url"))
         return
 
@@ -677,8 +881,9 @@ def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: 
         "repository": ((payload.get("repository") or {}).get("full_name") or "").strip().lower() or None,
         "pr_source": "external",
         "team_id": team.id,
-        # title omitted to avoid leaking customer business context.
+        # title and PR content omitted to avoid leaking customer business context.
         **dict.fromkeys(_TASK_ATTRIBUTION_KEYS, None),
+        **dict.fromkeys(_PR_CONTENT_KEYS, None),
     }
 
     try:
@@ -690,61 +895,83 @@ def _capture_pr_event(payload: dict, task_run: TaskRun | None, analytics_event: 
             uuid=event_uuid,
         )
     except Exception as e:
+        observe_github_webhook_pr_event_dropped(analytics_event=analytics_event, reason="capture_exception")
         logger.warning("github_pr_webhook_capture_failed", analytics_event=analytics_event, error=str(e))
 
 
-def _resolve_external_team(payload: dict) -> Team | None:
+def _installation_id(payload: dict) -> str | None:
+    """The delivery's GitHub App installation id, in the form the integration rows store it."""
     installation_id = (payload.get("installation") or {}).get("id")
-    if installation_id is None:
-        return None
+    return None if installation_id is None else str(installation_id)
+
+
+# The run lookup these feed reads TaskRun off the writer, and they run on the request path
+# outside the bounded attribution block. Pin them to the writer too: a replica-opted
+# Integration or Team would otherwise let a slow replica stall a delivery whose own lookup
+# never needed it, and replica lag could hide a freshly connected installation.
+_SCOPE_DB_ALIAS = "default"
+
+
+def _installation_team_ids(payload: dict) -> list[int]:
+    """Teams whose GitHub Integration matches the delivery's installation, in deterministic order.
+
+    Empty when the payload carries no installation id or no Integration matches it — the
+    lookups that take this fall back to their unscoped behaviour in that case.
+    """
+    external_id = _installation_id(payload)
+    if external_id is None:
+        return []
 
     # One installation can map to multiple teams; order_by makes attribution deterministic.
-    integration = (
-        Integration.objects.filter(kind="github", integration_id=str(installation_id))
-        .select_related("team")
+    return list(
+        Integration.objects.using(_SCOPE_DB_ALIAS)
+        .filter(kind="github", integration_id=external_id)
         .order_by("team_id")
-        .first()
+        .values_list("team_id", flat=True)
     )
-    return integration.team if integration else None
 
 
-def _transition_signal_reports_for_task(
-    task_id: uuid.UUID, pr_url: str, target_status: SignalReport.Status, success_log_event: str
-) -> None:
-    """Transition signal reports linked to a task's PR to ``target_status``.
+def _task_run_scope_team_ids(payload: dict) -> list[int]:
+    """Teams to scope the TaskRun lookup to, or empty to leave the lookup unscoped.
 
-    Covers both PR outcomes: a merged PR resolves its reports, a closed-unmerged PR archives
-    (suppresses) them so they leave the inbox instead of lingering as if work were still pending.
-    Kept tolerant: a single bad transition should not fail the whole webhook, since GitHub retries
-    5xx responses and we've already acknowledged the PR event.
+    An installation reaches a team two ways. Team-level ``Integration`` rows are the obvious
+    one. The other is a personal install: a task picks a ``UserIntegration`` through
+    ``Task.github_user_integration``, which is deliberately unindexed, so the run cannot be
+    reached from the integration side at all. Those tasks live in a team of the installing
+    user's organization, so widening the scope to those teams keeps the run findable while
+    every leg still runs as ``team_id IN (...)`` on the FK index.
+
+    Accepted edge: a user who has since left the organization no longer widens the scope, so
+    a delivery for a run they created that way stops matching. Anything with no installation
+    id, or an installation nothing is linked to, falls back to the unscoped lookup.
     """
-    reports = (
-        SignalReport.objects.filter(SignalReport.reports_for_task_filter(task_id))
-        .exclude(
-            status__in=[
-                SignalReport.Status.RESOLVED,
-                SignalReport.Status.DELETED,
-                SignalReport.Status.SUPPRESSED,
-            ]
-        )
-        .distinct()
+    external_id = _installation_id(payload)
+    if external_id is None:
+        return []
+
+    team_ids = set(_installation_team_ids(payload))
+
+    # Left lazy on purpose: Django inlines these as subqueries, so the whole widening is one
+    # indexed round-trip rather than three.
+    user_ids = (
+        UserIntegration.objects.using(_SCOPE_DB_ALIAS)
+        .filter(kind="github", integration_id=external_id)
+        .values_list("user_id", flat=True)
+    )
+    org_ids = (
+        OrganizationMembership.objects.using(_SCOPE_DB_ALIAS)
+        .filter(user_id__in=user_ids)
+        .values_list("organization_id", flat=True)
+    )
+    team_ids.update(
+        Team.objects.using(_SCOPE_DB_ALIAS).filter(organization_id__in=org_ids).values_list("id", flat=True)
     )
 
-    for report in reports:
-        try:
-            updated_fields = report.transition_to(target_status)
-        except InvalidStatusTransition:
-            logger.warning(
-                "github_pr_webhook_signal_report_invalid_transition",
-                report_id=str(report.id),
-                from_status=report.status,
-                pr_url=pr_url,
-            )
-            continue
-        report.save(update_fields=updated_fields)
-        logger.info(
-            success_log_event,
-            report_id=str(report.id),
-            task_id=str(task_id),
-            pr_url=pr_url,
-        )
+    return sorted(team_ids)
+
+
+def _resolve_external_team(payload: dict) -> Team | None:
+    team_ids = _installation_team_ids(payload)
+    if not team_ids:
+        return None
+    return Team.objects.filter(pk=team_ids[0]).first()

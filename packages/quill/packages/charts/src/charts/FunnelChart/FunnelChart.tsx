@@ -17,6 +17,9 @@ import { BarChart } from '../BarChart/BarChart'
 /** Inner gap between variant bars as a fraction of a step's band slot. */
 export const FUNNEL_BAND_PADDING = 0.1
 
+/** Default min px hover/click extent of a non-zero bar; the resting bar keeps its true size. */
+export const FUNNEL_MIN_BAR_SIZE = 4
+
 const FUNNEL_BAR_SHADOW: BarsConfig['shadow'] = { color: 'rgba(0,0,0,0.15)', blur: 6, offsetY: -2 }
 const DEFAULT_CORNER_RADIUS = 10
 
@@ -41,6 +44,8 @@ export interface FunnelChartConfig {
     maxCategoryLabelWidth?: number
     /** Inner gap between variant bars as a fraction of the band slot. Defaults to {@link FUNNEL_BAND_PADDING}. */
     bandPadding?: number
+    /** Min px hover/click extent of a non-zero bar. Defaults to {@link FUNNEL_MIN_BAR_SIZE}; 0 disables. */
+    minBarSize?: number
     /** Cap (px) on the band-axis range — clusters steps at the start of the plot instead of
      *  stretching a 2–3 step funnel across the full width. */
     maxBandRange?: number
@@ -115,13 +120,16 @@ function StepFooterRow({
     stepFooter: (stepIndex: number) => React.ReactNode
 }): React.ReactElement {
     // One gutter column before each band column, so cells sit in normal flow (the row grows to
-    // the tallest cell) while staying pixel-aligned with the bars above.
+    // the tallest cell) while staying pixel-aligned with the bars above. Each cell also spans
+    // the gutter to its right (the last one a trailing 1fr), so footer content can use the
+    // dead space between bands; `pr-3` keeps neighbouring cells from touching.
     const columns: string[] = []
     let cursor = 0
     for (const band of bands) {
         columns.push(`${Math.max(0, band.left - cursor)}px`, `${band.width}px`)
         cursor = band.left + band.width
     }
+    columns.push('1fr')
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div
@@ -133,8 +141,8 @@ function StepFooterRow({
                 // eslint-disable-next-line react/forbid-dom-props
                 <div
                     key={stepIndex}
-                    className="min-w-0"
-                    style={{ gridColumn: 2 * stepIndex + 2, gridRow: 1 }}
+                    className="min-w-0 pr-3"
+                    style={{ gridColumn: `${2 * stepIndex + 2} / span 2`, gridRow: 1 }}
                     data-attr="hog-funnel-step-footer-cell"
                 >
                     {stepFooter(stepIndex)}
@@ -171,6 +179,7 @@ export function FunnelChart<Meta = unknown>({
         hideValueAxis,
         maxCategoryLabelWidth,
         bandPadding,
+        minBarSize,
         maxBandRange,
         chartMinHeight,
     } = config ?? {}
@@ -204,6 +213,8 @@ export function FunnelChart<Meta = unknown>({
                 track: true,
                 shadow: FUNNEL_BAR_SHADOW,
                 bandPadding: bandPadding ?? FUNNEL_BAND_PADDING,
+                minBarSize: minBarSize ?? FUNNEL_MIN_BAR_SIZE,
+                minBarSizeScope: 'hover',
                 maxBandRange,
             },
         }),

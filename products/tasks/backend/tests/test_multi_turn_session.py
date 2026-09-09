@@ -929,6 +929,16 @@ class TestExtractAgentError:
         assert result == AgentError(message=message, category=None)
         assert result.describe() == message
 
+    def test_extracts_legacy_snake_case_category(self):
+        message = "API Error: Connection error"
+        log = _agent_error_line(message, category="upstream_connection_error").replace(
+            '"errorCategory":', '"error_category":'
+        )
+
+        result = _extract_agent_error(log)
+
+        assert result == AgentError(message=message, category="upstream_connection_error")
+
     def test_returns_none_when_no_error_line(self):
         log = "\n".join([_agent_message_line("hello"), _end_turn_line()])
         assert _extract_agent_error(log) is None
@@ -1420,6 +1430,18 @@ class TestCreateTaskAndTriggerForwardsContext:
         assert mock_create.call_args.kwargs["ai_stage"] == expected
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(("runtime", "expected_pending_message"), [("acp", None), ("pi", "prompt")])
+    async def test_pi_runtime_seeds_the_initial_prompt(self, runtime, expected_pending_message):
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, runtime=runtime)
+
+        with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
+            _, task_run = await create_task_and_trigger("prompt", context)
+
+        persisted = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
+        assert persisted.state.get("pending_user_message") == expected_pending_message
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "model, runtime_adapter, reasoning_effort, initial_permission_mode",
         [
@@ -1473,7 +1495,7 @@ class TestMultiTurnSessionStartFallback:
             task_run=FakeTaskRun(),  # type: ignore[arg-type]
             _workflow_handle=AsyncMock(),
         )
-        session.end = AsyncMock()  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+        session.end = AsyncMock()  # type: ignore[method-assign]
         return session
 
     @pytest.mark.asyncio

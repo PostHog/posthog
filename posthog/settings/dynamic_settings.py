@@ -1,3 +1,4 @@
+from posthog.settings.base_variables import TEST
 from posthog.settings.utils import get_from_env, str_to_bool
 
 CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
@@ -18,6 +19,12 @@ CONSTANCE_CONFIG = {
         3,
         "Number of weeks recording performance events will be kept before removing them (for all projects). Storing performance events for a shorter timeframe can help reduce Clickhouse disk usage.",
         int,
+    ),
+    "HOGQL_SHARED_INSIGHT_DATABASE_ENABLED": (
+        get_from_env("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED", True, type_cast=str_to_bool),
+        "Whether insight query runners share one HogQL database across execution, response printing, "
+        "and series threads. Disable to fall back to building a database per call.",
+        bool,
     ),
     "MATERIALIZED_COLUMNS_ENABLED": (
         get_from_env("MATERIALIZED_COLUMNS_ENABLED", True, type_cast=str_to_bool),
@@ -50,7 +57,14 @@ CONSTANCE_CONFIG = {
         str,
     ),
     "PERSON_ON_EVENTS_V2_ENABLED": (
-        get_from_env("PERSON_ON_EVENTS_V2_ENABLED", False, type_cast=str_to_bool),
+        # Person-on-events v2 reads are the production default for every project created
+        # since 2024-06-14, and both CI lanes set this variable so their runs match it. A
+        # test run that leaves it unset, such as `hogli test products/<name>`, reads the
+        # legacy joined mode instead and fails against snapshots that CI recorded under
+        # v2. The test-mode default carries the same value so a local run matches CI.
+        # Production and self-hosted keep the off default. A test that needs the legacy
+        # mode pins it with override_settings or override_instance_config.
+        get_from_env("PERSON_ON_EVENTS_V2_ENABLED", TEST, type_cast=str_to_bool),
         "Whether to use query path using person_id and person_properties on events or the old query",
         bool,
     ),
@@ -251,6 +265,16 @@ CONSTANCE_CONFIG = {
         "Whether rate limiting is enabled",
         bool,
     ),
+    "GROWTH_SIGNUP_ENRICHMENT_ENABLED": (
+        get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False, type_cast=str_to_bool),
+        "Kill switch for signup enrichment (products/growth/backend/enrichment): dispatch at signup, the daily re-enrichment sweep, and the recovery backfill. Every pod reads this row, so it is the one per-region toggle.",
+        bool,
+    ),
+    "GROWTH_ICP_REENRICH_DAILY_CAP": (
+        get_from_env("GROWTH_ICP_REENRICH_DAILY_CAP", 500, type_cast=int),
+        "Max organizations the daily ICP re-enrichment sweep re-fetches from Harmonic per run. The provider spend bound.",
+        int,
+    ),
     "CLICKHOUSE_KILL_SWITCH": (
         get_from_env("CLICKHOUSE_KILL_SWITCH", "off"),
         "ClickHouse overload protection. Values: 'off', 'light' (reduce resources, shed background work), 'full' (aggressive caps on everything).",
@@ -339,6 +363,9 @@ CONSTANCE_CONFIG = {
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
+    "GROWTH_SIGNUP_ENRICHMENT_ENABLED",
+    "GROWTH_ICP_REENRICH_DAILY_CAP",
+    "HOGQL_SHARED_INSIGHT_DATABASE_ENABLED",
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
     "AUTO_START_ASYNC_MIGRATIONS",
     "AGGREGATE_BY_DISTINCT_IDS_TEAMS",

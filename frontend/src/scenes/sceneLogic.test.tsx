@@ -1,3 +1,5 @@
+import { MOCK_USER_UUID } from 'lib/api.mock'
+
 import { kea, path } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
@@ -30,6 +32,7 @@ const sceneImport = (): any => ({ scene: { component: Component, logic: testLogi
 const testScenes: Record<string, () => any> = {
     [Scene.Alerts]: sceneImport,
     [Scene.DataManagement]: sceneImport,
+    [Scene.PasswordResetComplete]: sceneImport,
     [Scene.Settings]: sceneImport,
 }
 
@@ -81,6 +84,36 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.featureFlag('123'))
     })
 
+    it('redirects a bare /billing to /organization/billing instead of a 404', async () => {
+        router.actions.push('/billing')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.organizationBilling())
+    })
+
+    it('keeps /billing/authorization_status on its own scene route, not the billing redirect', async () => {
+        router.actions.push(urls.billingAuthorizationStatus())
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.billingAuthorizationStatus())
+    })
+
+    it('redirects /project/new to the create-project flow instead of a 404', async () => {
+        router.actions.push('/project/new')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectCreateFirst())
+    })
+
+    it.each(['/project', '/project/'])('sends the id-less %s path to the homepage, not a 404', async (path) => {
+        router.actions.push(path)
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
+    })
+
+    it('redirects /data-warehouse/new to the new-source wizard instead of a 404', async () => {
+        router.actions.push('/data-warehouse/new')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dataWarehouseSourceNew())
+    })
+
     it('redirects the old /code_review path to /code-review, preserving the ?review= deep link and hash', async () => {
         router.actions.push('/code_review', { review: 'r-9' }, { panel: 'max:inspect' })
         await expectLogic(logic).delay(1)
@@ -90,6 +123,15 @@ describe('sceneLogic', () => {
         // carries global side-panel state, so it has to survive the redirect too.
         expect(router.values.searchParams.review).toEqual('r-9')
         expect(router.values.hashParams.panel).toEqual('max:inspect')
+    })
+
+    // The change password form emails this link to a user who is already signed in.
+    it('keeps a signed-in user on the password reset link instead of redirecting them away', async () => {
+        const resetLink = urls.passwordResetComplete(MOCK_USER_UUID, 'a-token')
+        router.actions.push(resetLink)
+        await expectLogic(logic).delay(1)
+
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(resetLink)
     })
 
     it('persists the loaded scenes', async () => {

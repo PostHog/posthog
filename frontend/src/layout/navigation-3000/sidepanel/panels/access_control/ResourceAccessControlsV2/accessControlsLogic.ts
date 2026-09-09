@@ -125,6 +125,7 @@ export interface accessControlsLogicValues {
     defaults: AccessControlDefaultsResponse | null
     defaultsLoading: boolean
     filteredMembers: AccessControlMemberEntry[]
+    filteredResourceKeySet: Set<APIScopeObject>
     filteredRoles: AccessControlRoleEntry[]
     filters: AccessControlFilters
     loading: boolean
@@ -394,6 +395,7 @@ export interface accessControlsLogicActions {
             | 'alert'
             | 'annotation'
             | 'approvals'
+            | 'autoresearch'
             | 'batch_export'
             | 'batch_import'
             | 'batch_import_support'
@@ -403,10 +405,12 @@ export interface accessControlsLogicActions {
             | 'clickhouse_test_cluster_perf'
             | 'cohort'
             | 'comment'
+            | 'context_layer_internal'
             | 'conversation'
             | 'customer_analytics'
             | 'customer_journey'
             | 'customer_profile_config'
+            | 'customer_task'
             | 'dashboard'
             | 'dashboard_template'
             | 'data_catalog'
@@ -476,6 +480,7 @@ export interface accessControlsLogicActions {
             | 'signal_scout'
             | 'signal_scout_internal'
             | 'signal_scout_report'
+            | 'signal_scratchpad_internal'
             | 'stamphog'
             | 'streamlit_app'
             | 'subscription'
@@ -490,6 +495,7 @@ export interface accessControlsLogicActions {
             | 'user'
             | 'user_interview'
             | 'vision_action'
+            | 'vision_alert'
             | 'visual_review'
             | 'warehouse_objects'
             | 'warehouse_table'
@@ -563,6 +569,7 @@ export interface accessControlsLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
@@ -572,10 +579,12 @@ export interface accessControlsLogicMeta {
                 | 'clickhouse_test_cluster_perf'
                 | 'cohort'
                 | 'comment'
+                | 'context_layer_internal'
                 | 'conversation'
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
@@ -645,6 +654,7 @@ export interface accessControlsLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -659,6 +669,7 @@ export interface accessControlsLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -687,6 +698,7 @@ export interface accessControlsLogicMeta {
                 label: string
             }[]
         ) => Set<APIScopeObject>
+        filteredResourceKeySet: (filters: AccessControlFilters) => Set<APIScopeObject>
         ruleOptions: (
             availableProjectLevels: AccessControlLevel[],
             availableResourceLevels: AccessControlLevel[]
@@ -708,6 +720,7 @@ export interface accessControlsLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
@@ -717,10 +730,12 @@ export interface accessControlsLogicMeta {
                 | 'clickhouse_test_cluster_perf'
                 | 'cohort'
                 | 'comment'
+                | 'context_layer_internal'
                 | 'conversation'
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
@@ -790,6 +805,7 @@ export interface accessControlsLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -804,6 +820,7 @@ export interface accessControlsLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -826,6 +843,7 @@ export interface accessControlsLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
@@ -835,10 +853,12 @@ export interface accessControlsLogicMeta {
                 | 'clickhouse_test_cluster_perf'
                 | 'cohort'
                 | 'comment'
+                | 'context_layer_internal'
                 | 'conversation'
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
@@ -908,6 +928,7 @@ export interface accessControlsLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -922,6 +943,7 @@ export interface accessControlsLogicMeta {
                 | 'user'
                 | 'user_interview'
                 | 'vision_action'
+                | 'vision_alert'
                 | 'visual_review'
                 | 'warehouse_objects'
                 | 'warehouse_table'
@@ -1239,6 +1261,10 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     label: string
                 }[]
             ): Set<APIScopeObject> => new Set(resourceKeys.map((r) => r.key)),
+        ],
+        filteredResourceKeySet: [
+            (s) => [s.filters],
+            (filters: AccessControlFilters): Set<APIScopeObject> => new Set(filters.resourceKeys),
         ],
 
         ruleOptions: [

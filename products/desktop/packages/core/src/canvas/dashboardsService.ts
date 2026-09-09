@@ -8,6 +8,7 @@ import {
 import type {
   CanvasActionDefinition,
   CanvasActionResult,
+  CanvasCreator,
   CanvasDraft,
   CanvasSource,
   CanvasSourceProject,
@@ -42,17 +43,11 @@ interface ApiCanvas {
   component_meta?: unknown;
   channel: string;
   template_id: string;
-  context: string;
   generation_task_id: string | null;
   pinned_at: string | null;
   current_version_id: string | null;
   published_build_id: string | null;
-  created_by?: {
-    uuid: string;
-    first_name?: string | null;
-    last_name?: string | null;
-    email?: string | null;
-  } | null;
+  created_by?: CanvasCreator | null;
   created_at: string;
   updated_at: string;
 }
@@ -102,10 +97,10 @@ function toRecord(api: ApiCanvas): DashboardRecord {
     description: api.description ?? "",
     componentMeta: meta.success ? meta.data : null,
     templateId: api.template_id || FREEFORM_TEMPLATE_ID,
-    context: api.context ?? "",
     generationTaskId: api.generation_task_id,
     createdBy: creatorLabel(api.created_by),
     createdByUuid: api.created_by?.uuid,
+    createdByUser: api.created_by ?? undefined,
     createdAt: toEpoch(api.created_at) ?? 0,
     updatedAt: toEpoch(api.updated_at) ?? 0,
     pinnedAt: toEpoch(api.pinned_at),
@@ -181,6 +176,15 @@ export class DashboardsService {
       { limit: 200 },
     );
     return rows.map(toRecord);
+  }
+
+  async listAll(): Promise<DashboardRecord[]> {
+    const rows = await this.api.listPaginated<ApiCanvas>(
+      "canvases/",
+      "list all canvases",
+      { limit: 500 },
+    );
+    return rows.map(toRecord).filter((record) => record.kind !== "component");
   }
 
   async create(input: {
@@ -301,18 +305,6 @@ export class DashboardsService {
     return toRecord(api);
   }
 
-  // Persist the author-written context (markdown) passed to generation tasks.
-  saveContext(input: {
-    id: string;
-    context: string;
-  }): Promise<DashboardRecord> {
-    return this.patch(
-      input.id,
-      { context: input.context },
-      "save canvas context",
-    );
-  }
-
   // Record (or clear, when taskId is null) the task currently generating this
   // canvas.
   setGenerationTask(input: {
@@ -329,6 +321,14 @@ export class DashboardsService {
   // Pin (or unpin) a canvas to its channel (shared across users).
   setPinned(input: { id: string; pinned: boolean }): Promise<DashboardRecord> {
     return this.patch(input.id, { pinned: input.pinned }, "set pin");
+  }
+
+  file(input: { id: string; channelId: string }): Promise<DashboardRecord> {
+    return this.patch(
+      input.id,
+      { channel_id: input.channelId },
+      "file canvas to space",
+    );
   }
 
   // File a rendering error in the canvas's authoring-task thread (the server
@@ -488,6 +488,7 @@ export class DashboardsService {
       prompt: row.prompt,
       taskId: row.task_id,
       createdBy: creatorLabel(row.created_by),
+      createdByUuid: row.created_by?.uuid,
       createdAt: toEpoch(row.created_at) ?? 0,
     }));
   }

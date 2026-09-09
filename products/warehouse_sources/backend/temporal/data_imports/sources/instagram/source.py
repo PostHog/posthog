@@ -59,8 +59,8 @@ class InstagramSource(ResumableSource[InstagramSourceConfig, InstagramResumeConf
     api_docs_url = "https://developers.facebook.com/docs/instagram-platform"
     # Meta pins the Graph API by URL path segment and keeps each version alive for
     # roughly two years, so the pin is a real choice rather than a constant.
-    supported_versions = ("v22.0", "v23.0")
-    default_version = "v23.0"
+    supported_versions = ("v22.0", "v23.0", "v26.0")
+    default_version = "v26.0"
 
     lists_tables_without_credentials = True
 
@@ -97,6 +97,14 @@ Connect your Instagram account, then pick the professional account you want to s
                         label="Instagram professional account",
                         integrationField="instagram_integration_id",
                         integrationKind="instagram",
+                        placeholder="17841400000000000",
+                        # An account a Business portfolio owns is missing from the list even when the
+                        # page is linked (see `list_professional_accounts`), so name the fallback here
+                        # rather than after a save fails.
+                        caption=(
+                            "Only professional accounts linked to a Facebook page are listed. If yours is missing, "
+                            "enter its numeric Instagram account ID from your Meta business settings."
+                        ),
                         required=True,
                     ),
                     SourceFieldInputConfig(

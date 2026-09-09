@@ -30,7 +30,7 @@ describe("canSubmitGatewayServer", () => {
 describe("buildGatewayInstallRequest", () => {
   it("builds an oauth install with admin team options", () => {
     const request = buildGatewayInstallRequest(
-      values({ description: "  Wiki tools  ", agentIds: ["svc-1"] }),
+      values({ description: "  Wiki tools  ", agentScope: "personal" }),
       { isAdmin: true, canManageAgentAccess: true },
     );
     expect(request).toEqual({
@@ -39,7 +39,7 @@ describe("buildGatewayInstallRequest", () => {
       description: "Wiki tools",
       auth_type: "oauth",
       team_enabled: true,
-      agent_ids: ["svc-1"],
+      agent_scope: "personal",
     });
   });
 
@@ -66,20 +66,20 @@ describe("buildGatewayInstallRequest", () => {
     expect(withCreds.client_secret).toBe("secret");
   });
 
-  it("lets permitted members share with agents without team enablement", () => {
-    const request = buildGatewayInstallRequest(
-      values({ agentIds: ["svc-1"] }),
-      { isAdmin: false, canManageAgentAccess: true },
-    );
+  it("lets permitted members pick the agent scope without team enablement", () => {
+    const request = buildGatewayInstallRequest(values({ agentScope: "team" }), {
+      isAdmin: false,
+      canManageAgentAccess: true,
+    });
     expect(request.team_enabled).toBeUndefined();
-    expect(request.agent_ids).toEqual(["svc-1"]);
+    expect(request.agent_scope).toBe("team");
   });
 
-  it("omits agent grants when team settings make them admin-only", () => {
-    const request = buildGatewayInstallRequest(
-      values({ agentIds: ["svc-1"] }),
-      { isAdmin: false, canManageAgentAccess: false },
-    );
-    expect(request.agent_ids).toBeUndefined();
+  it("omits the agent scope when team settings make agent access admin-only", () => {
+    const request = buildGatewayInstallRequest(values({ agentScope: "team" }), {
+      isAdmin: false,
+      canManageAgentAccess: false,
+    });
+    expect(request.agent_scope).toBeUndefined();
   });
 });
