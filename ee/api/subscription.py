@@ -23,6 +23,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import CursorPagination
 from rest_framework.response import Response
+from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -1069,11 +1070,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     ),
                     id=workflow_id,
                     task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                    # A delivery may already be in flight. Attach to it instead of raising, so
+                    # the skipped duplicate leaves no errored start span.
+                    id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
                 )
             )
         except WorkflowAlreadyStartedError:
-            # A delivery for this subscription is already in flight; the update itself
-            # succeeded, so skip the duplicate send rather than failing the request.
+            # Still reachable while a previous delivery is closing. The update itself
+            # succeeded, so skip the duplicate send.
             pass
 
         return instance

@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY, AvailableFeature
@@ -225,6 +226,12 @@ class TestSubscriptionTemporal(APILicensedTest):
         response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"send_test_now": True})
         # A delivery already in flight must not fail the update or fan out a second send
         assert response.status_code == status.HTTP_200_OK, response.content
+        # USE_EXISTING keeps the running delivery from erroring the start span in the first place;
+        # the catch above only covers the window while a previous delivery closes.
+        assert (
+            self.mock_temporal_client.start_workflow.call_args.kwargs["id_conflict_policy"]
+            == WorkflowIDConflictPolicy.USE_EXISTING
+        )
 
     def test_update_inferred_deliveries_get_unique_workflow_ids(self):
         # Only explicit send_test_now dedupes: two legitimate consecutive recipient edits must
