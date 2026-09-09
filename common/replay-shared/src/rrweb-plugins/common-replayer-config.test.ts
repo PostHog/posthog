@@ -19,4 +19,10 @@ describe('COMMON_REPLAYER_CONFIG', () => {
         // PostHog renders canvas via CanvasReplayerPlugin instead, so this must stay off.
         expect(COMMON_REPLAYER_CONFIG.UNSAFE_replayCanvas).toBe(false)
     })
+
+    it('neutralizes content-visibility so skipped subtrees keep their real height', () => {
+        // A skipped subtree collapses to its `contain-intrinsic-size` placeholder, which shortens
+        // the rebuilt page and makes every replayed scroll offset land on the wrong content.
+        expect(COMMON_REPLAYER_CONFIG.insertStyleRules).toContain('* { content-visibility: visible !important; }')
+    })
 })
