@@ -41,10 +41,18 @@ export function TeamDisplayName(): JSX.Element {
 
     // A rename patches the project, so the uniqueness rule applies to the project's name. That can
     // differ from the environment's name, which is what `teamLogic` holds.
-    const nameTaken = isProjectNameTaken(name, currentOrganization?.projects, {
+    const trimmedName = name.trim()
+    const nameTaken = isProjectNameTaken(trimmedName, currentOrganization?.projects, {
         excludeProjectId: currentProject?.id,
         currentName: currentProject?.name,
     })
+    const renameDisabledReason =
+        restrictedReason ||
+        (!trimmedName && 'Enter a name') ||
+        (!currentProject && 'Loading the project') ||
+        (trimmedName === currentProject?.name && "This is already the project's name") ||
+        (nameTaken && NAME_TAKEN_REASON) ||
+        null
 
     return (
         <div className="deprecated-space-y-4 max-w-160">
@@ -53,19 +61,8 @@ export function TeamDisplayName(): JSX.Element {
             </LemonField.Pure>
             <LemonButton
                 type="primary"
-                onClick={() => updateCurrentTeam({ name })}
-                disabledReason={
-                    restrictedReason ||
-                    (!name
-                        ? 'Enter a name'
-                        : !currentProject
-                          ? 'Loading the project'
-                          : name.trim() === currentProject.name
-                            ? "This is already the project's name"
-                            : nameTaken
-                              ? NAME_TAKEN_REASON
-                              : null)
-                }
+                onClick={() => updateCurrentTeam({ name: trimmedName })}
+                disabledReason={renameDisabledReason}
                 loading={currentTeamLoading}
             >
                 Rename project
