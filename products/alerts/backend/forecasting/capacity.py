@@ -6,6 +6,7 @@ from redis.exceptions import RedisError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.settings import TEST
+from posthog.temporal.common.errors import NonReportableError
 
 # Conservative launch limits for CPU-heavy synchronous fits. Saturation is recorded by
 # RateLimit, so these can be tuned from production data without changing the API contract.
@@ -29,8 +30,14 @@ class ForecastSimulationCapacityExceeded(Exception):
     pass
 
 
-class ForecastEvaluationCapacityExceeded(Exception):
-    """Scheduled forecast capacity is full, so the next sweep must retry the due check."""
+class ForecastEvaluationCapacityExceeded(NonReportableError):
+    """Scheduled forecast capacity is full, so the next sweep must retry the due check.
+
+    Saturation is a limiter decision the pool is designed to make, and RateLimit already records
+    it. The activity interceptor reports every other exception to error tracking on each attempt,
+    so without the NonReportableError marker one full pool mints an event per retry for every due
+    forecast alert, which is loudest exactly when the system is busiest.
+    """
 
 
 class ForecastCapacityUnavailable(Exception):
@@ -40,6 +47,14 @@ class ForecastCapacityUnavailable(Exception):
     Callers must treat it as a transient infrastructure failure and retry, because running the fit
     anyway would drop the concurrency ceiling exactly when the store is unhealthy.
     """
+
+
+# A scheduled evaluation that exhausts its retries records this message on the alert check and
+# sends it to the alert's subscribers by email and in-app notification. A redis-py connection
+# failure renders as "Error 111 connecting to <host>:<port>", which tells a recipient nothing and
+# carries the store's address, so the raise sites use fixed wording and chain the original error
+# for the logs and error tracking.
+FORECAST_CAPACITY_UNAVAILABLE_MESSAGE = "Forecasting is temporarily unavailable"
 
 
 def _get_global_limiter(pool: str, max_concurrency: int) -> RateLimit:
@@ -98,14 +113,14 @@ def _forecast_slot(*, team_id: int, pool: str, global_concurrency: int, team_con
         except ConcurrencyLimitExceeded:
             raise ForecastSimulationCapacityExceeded from None
         except RedisError as err:
-            raise ForecastCapacityUnavailable(str(err)) from err
+            raise ForecastCapacityUnavailable(FORECAST_CAPACITY_UNAVAILABLE_MESSAGE) from err
 
         try:
             team_slot = team_limiter.use(team_id=team_id, request_id=request_id)
         except ConcurrencyLimitExceeded:
             raise ForecastSimulationCapacityExceeded from None
         except RedisError as err:
-            raise ForecastCapacityUnavailable(str(err)) from err
+            raise ForecastCapacityUnavailable(FORECAST_CAPACITY_UNAVAILABLE_MESSAGE) from err
 
         yield
     finally:

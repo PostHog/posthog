@@ -6,8 +6,10 @@ from unittest.mock import MagicMock, patch
 from redis.exceptions import RedisError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot
+from posthog.temporal.common.errors import NonReportableError
 
 from products.alerts.backend.forecasting.capacity import (
+    FORECAST_CAPACITY_UNAVAILABLE_MESSAGE,
     FORECAST_SIMULATION_GLOBAL_CONCURRENCY,
     ForecastCapacityUnavailable,
     ForecastEvaluationCapacityExceeded,
@@ -116,10 +118,14 @@ def test_scheduled_evaluation_reports_saturation_for_the_workflow_to_defer() -> 
         patch("products.alerts.backend.forecasting.capacity.TEST", False),
         patch("products.alerts.backend.forecasting.capacity._get_global_limiter", return_value=global_limiter),
         patch("products.alerts.backend.forecasting.capacity._get_team_limiter", return_value=MagicMock()),
-        pytest.raises(ForecastEvaluationCapacityExceeded),
+        pytest.raises(ForecastEvaluationCapacityExceeded) as saturation,
         forecast_evaluation_slot(team_id=1),
     ):
         pass
+
+    # The Temporal activity interceptor keys off this marker to skip error tracking, so a
+    # saturated pool retries without minting an event per attempt.
+    assert isinstance(saturation.value, NonReportableError)
 
 
 @pytest.mark.parametrize("unreachable_limiter", ["global", "team"])
@@ -129,16 +135,23 @@ def test_forecast_simulation_slot_reports_an_unreachable_capacity_store(unreacha
     global_limiter.use.return_value = ConcurrencySlot(running_tasks_key="global", task_id="request")
     team_limiter.use.return_value = ConcurrencySlot(running_tasks_key="team", task_id="request")
     limiters = {"global": global_limiter, "team": team_limiter}
-    limiters[unreachable_limiter].use.side_effect = RedisError("connection refused")
+    limiters[unreachable_limiter].use.side_effect = RedisError(
+        "Error 111 connecting to forecast-limiter.internal:6379. Connection refused."
+    )
 
     with (
         patch("products.alerts.backend.forecasting.capacity.TEST", False),
         patch("products.alerts.backend.forecasting.capacity._get_global_limiter", return_value=global_limiter),
         patch("products.alerts.backend.forecasting.capacity._get_team_limiter", return_value=team_limiter),
-        pytest.raises(ForecastCapacityUnavailable),
+        pytest.raises(ForecastCapacityUnavailable) as unavailable,
         forecast_simulation_slot(team_id=123),
     ):
         pass
+
+    # A scheduled evaluation sends this message to the alert's subscribers, so it must not carry
+    # the store's address. The original error stays reachable through the exception chain.
+    assert str(unavailable.value) == FORECAST_CAPACITY_UNAVAILABLE_MESSAGE
+    assert "forecast-limiter.internal" in str(unavailable.value.__cause__)
 
 
 def test_scheduled_evaluation_does_not_read_an_unreachable_store_as_saturation() -> None:

@@ -687,6 +687,14 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                     user=user, alert_configuration=instance, defaults={"created_by": self.context["request"].user}
                 )
 
+        # forecast_config carries the alert's firing condition, so it gets the same reset a
+        # threshold change gets. The sweep picks up an alert only once next_check_at is due, which
+        # for a weekly or monthly cadence is days to a month out. A target date moved inside that
+        # window would otherwise pass first, and the target-date expiry then disables the alert
+        # silently without ever evaluating the new configuration.
+        if "forecast_config" in validated_data and validated_data["forecast_config"] != instance.forecast_config:
+            conditions_or_threshold_changed = True
+
         calculation_interval_changed = (
             "calculation_interval" in validated_data
             and validated_data["calculation_interval"] != instance.calculation_interval
