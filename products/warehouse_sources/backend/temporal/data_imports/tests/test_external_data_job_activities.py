@@ -29,6 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
+    _CONNECTION_DROPPED_EXHAUSTED_MESSAGE,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -269,13 +272,14 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
 @parameterized.expand(
     [
         # psycopg's connect-time wrapper around a dropped TLS session. The address is a
-        # documentation-reserved one, standing in for the host the driver echoes back.
+        # documentation-reserved one, standing in for the host the driver echoes back. The Postgres
+        # source names this class itself, and its message wins over the generic transient copy.
         (
             "postgres_ssl_drop",
             ExternalDataSourceType.POSTGRES,
             'connection failed: connection to server at "198.51.100.7", port 5432 failed: '
             "SSL SYSCALL error: EOF detected",
-            TRANSIENT_SOURCE_CONNECTION_MESSAGE,
+            _CONNECTION_DROPPED_EXHAUSTED_MESSAGE,
         ),
         # pymysql renders a mid-query drop as a bare code/message tuple.
         (
