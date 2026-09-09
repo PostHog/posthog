@@ -71,8 +71,14 @@ def resolve_psycopg_hostaddr_with_timeout(
     *,
     fail_on_resolution_error: bool = False,
     abort_check: Callable[[], None] | None = None,
+    raise_on_temporary_failure: bool = False,
 ) -> list[str] | None:
-    """Resolve a hostname before psycopg's unbounded Python-side DNS lookup."""
+    """Resolve a hostname before psycopg's unbounded Python-side DNS lookup.
+
+    `raise_on_temporary_failure` turns a resolver "try again" answer (EAI_AGAIN) into a retryable
+    `psycopg.OperationalError` instead of `None`, for callers that treat `None` as a name that does
+    not exist.
+    """
     if not is_resolvable_hostname(host):
         return None
 
@@ -99,6 +105,12 @@ def resolve_psycopg_hostaddr_with_timeout(
     if abort_check is not None:
         abort_check()
     if lookup_error:
+        if (
+            raise_on_temporary_failure
+            and isinstance(lookup_error[0], socket.gaierror)
+            and lookup_error[0].errno == socket.EAI_AGAIN
+        ):
+            raise psycopg.OperationalError("Temporary failure resolving database host name") from lookup_error[0]
         if isinstance(lookup_error[0], OSError):
             if fail_on_resolution_error:
                 raise psycopg.OperationalError("Could not resolve database host name") from lookup_error[0]

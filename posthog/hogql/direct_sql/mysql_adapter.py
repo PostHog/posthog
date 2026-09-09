@@ -150,6 +150,8 @@ class MySQLAdapter:
 
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
         source = request.source
+        from products.warehouse_sources.backend.facade.source_management import DatabaseHostNotAllowedError
+
         mysql_implementation, source_config = self.validate_source_config(source, request.team)
         settings = request.settings
         statement_timeout_seconds = max(
@@ -177,7 +179,12 @@ class MySQLAdapter:
                         )
                         results = cursor.fetchall()
                         description = cursor.description or []
-        except (pymysql.MySQLError, BaseSSHTunnelForwarderError, ExposedHogQLError) as error:
+        except (
+            pymysql.MySQLError,
+            BaseSSHTunnelForwarderError,
+            ExposedHogQLError,
+            DatabaseHostNotAllowedError,
+        ) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:
                 return DirectQueryResult(results=[], types=[], print_columns=[], error=mysql_error_to_message(error))

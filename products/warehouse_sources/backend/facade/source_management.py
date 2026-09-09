@@ -36,6 +36,7 @@ _LAZY = {
     "IntegrationAccountListingError": "sources.common.integration_accounts",
     "filter_integration_accounts": "sources.common.integration_accounts",
     "DATABASE_HOST_NOT_ALLOWED_GUIDANCE": "sources.common.mixins",
+    "DatabaseHostNotAllowedError": "sources.common.mixins",
     "OAuthMixin": "sources.common.mixins",
     "pinned_host_kwargs": "sources.common.mixins",
     "SourceSchema": "sources.common.schema",

@@ -1,3 +1,4 @@
+import re
 import time
 import socket
 import ipaddress
@@ -33,6 +34,7 @@ _INTERNAL_IP_ERROR = (
     "Use a host that's reachable from the public internet."
 )
 _DNS_FAILURE_ERROR = "Host could not be resolved"
+_MALFORMED_HOST_ERROR = "Enter a single hostname or IP address for the host, without a port, path, comma or space."
 
 # The sync registry and the schema-refresh map match this prefix; the rest of the message carries
 # the volatile host details.
@@ -48,8 +50,24 @@ class DatabaseHostNotAllowedError(Exception):
     """The host policy refused a database host at connect time.
 
     The message starts with `DATABASE_HOST_NOT_ALLOWED_ERROR` so the string registries match it.
-    The type exists for classifiers that only inspect exception types, such as the CDC one.
+    The type exists for handlers that inspect exception types, such as the CDC classifier and the
+    API views, and `reason` carries the user-facing explanation on its own.
     """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {reason}")
+        self.reason = reason
+
+
+class TemporaryHostResolutionError(Exception):
+    """The resolver answered "try again" (EAI_AGAIN) while the policy looked a host up.
+
+    Not a policy decision, so it stays a plain retryable error: no non-retryable registry
+    matches its message and the CDC classifier leaves it unknown.
+    """
+
+    def __init__(self, host: str) -> None:
+        super().__init__(f"Temporary failure resolving the host '{host}'. Try again in a moment.")
 
 
 def is_team_allowlisted_for_internal_hosts(team_id: int) -> bool:
@@ -86,7 +104,10 @@ def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
     Callers that go on to open the connection themselves should use `resolve_safe_host` and
     connect to the address it returns, so that the address checked is the address used.
     """
-    resolution = resolve_safe_host(host, team_id)
+    try:
+        resolution = resolve_safe_host(host, team_id)
+    except TemporaryHostResolutionError as e:
+        return False, str(e)
     return resolution.connect_host is not None, resolution.error
 
 
@@ -114,6 +135,10 @@ def resolve_safe_host(host: str, team_id: int | None) -> HostResolution:
     addresses in turn, resolves the host itself and passes the answer to
     `check_resolved_addresses` instead, so the set it validates is the set it dials.
     """
+    if is_cloud() and not _is_single_host(host):
+        _log_host_check(host, team_id, "block", "malformed_host", _MALFORMED_HOST_ERROR)
+        return HostResolution(connect_host=None, error=_MALFORMED_HOST_ERROR)
+
     exempt_stage = _host_check_exemption(host, team_id)
     if exempt_stage is not None:
         _log_host_check(host, team_id, "allow", exempt_stage, None)
@@ -135,7 +160,12 @@ def resolve_safe_host(host: str, team_id: int | None) -> HostResolution:
     try:
         addrinfo = socket.getaddrinfo(normalized, None, proto=socket.IPPROTO_TCP)
         resolved_ips = [str(sockaddr[0]) for *_meta, sockaddr in addrinfo]
-    except (socket.gaierror, UnicodeError):
+    except socket.gaierror as e:
+        # A resolver blip is not a verdict on the host; refusing it would disable the schema.
+        if e.errno == socket.EAI_AGAIN:
+            raise TemporaryHostResolutionError(host) from e
+        resolved_ips = []
+    except UnicodeError:
         # getaddrinfo IDNA-encodes the host, so a malformed hostname (e.g. a DNS label over 63
         # bytes) raises UnicodeError ("label too long") instead of gaierror. Either way the host
         # can't be resolved — return the actionable message rather than crashing.
@@ -157,6 +187,10 @@ def check_resolved_addresses(host: str, addresses: Sequence[str], team_id: int |
     exempt caller still dials what it resolved. An empty `addresses` is a failed lookup and is
     refused, because letting the connection library resolve again would reopen the gap.
     """
+    if is_cloud() and not _is_single_host(host):
+        _log_host_check(host, team_id, "block", "malformed_host", _MALFORMED_HOST_ERROR)
+        return HostResolution(connect_host=None, error=_MALFORMED_HOST_ERROR)
+
     exempt_stage = _host_check_exemption(host, team_id)
     if exempt_stage is not None:
         _log_host_check(host, team_id, "allow", exempt_stage, None)
@@ -175,8 +209,9 @@ def pinned_host_kwargs(host: str, *, port: int, connect_timeout: float, team_id:
     The hostname is repeated once per address because libpq pairs `host` and `hostaddr`
     positionally: the name keeps carrying SNI, which Neon and the Supabase pooler need, and every
     validated address stays in libpq's failover list. A failed lookup is refused rather than left
-    to libpq, because that retry would be a second, unvalidated lookup. A lookup that times out
-    raises `psycopg.OperationalError` unchanged so it stays retryable.
+    to libpq, because that retry would be a second, unvalidated lookup. A lookup that times out,
+    or that the resolver answers with "try again", raises `psycopg.OperationalError` so it stays
+    retryable; only a name that does not exist is refused.
 
     An IP literal (the SSH tunnel's loopback bind), a Unix socket path, or an empty host has no
     lookup to race and comes back unchanged. Dev and test connect to local or fake hosts, so the
@@ -185,13 +220,16 @@ def pinned_host_kwargs(host: str, *, port: int, connect_timeout: float, team_id:
     if settings.TEST or settings.DEBUG or settings.E2E_TESTING:
         return {"host": host}
 
+    if is_cloud() and not _is_single_host(host):
+        raise DatabaseHostNotAllowedError(_MALFORMED_HOST_ERROR)
+
     if not is_resolvable_hostname(host):
         return {"host": host}
 
-    addresses = _resolve_hostaddr_with_timeout(host, port, connect_timeout) or []
+    addresses = _resolve_hostaddr_with_timeout(host, port, connect_timeout, raise_on_temporary_failure=True) or []
     resolution = check_resolved_addresses(host, addresses, team_id)
     if resolution.connect_host is None:
-        raise DatabaseHostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error}")
+        raise DatabaseHostNotAllowedError(resolution.error or _INTERNAL_IP_ERROR)
     if not resolution.addresses:
         # An exempt host whose lookup failed. The policy does not apply, and there is nothing to
         # pin, so libpq resolves the name itself as it did before.
@@ -207,6 +245,25 @@ def _normalize_host(host: str) -> str:
     return host.lower().strip().rstrip(".")
 
 
+_HOST_LABEL = re.compile(r"^(?!-)[a-z0-9_-]{1,63}(?<!-)$")
+
+
+def _is_single_host(host: str) -> bool:
+    """Whether `host` names one endpoint: an IP literal, or one hostname with no separators.
+
+    libpq reads a comma as a host list and a leading slash as a socket directory, so an
+    exemption granted on the whole string would let the driver dial a part of it the policy
+    never looked at.
+    """
+    normalized = _normalize_host(host)
+    try:
+        ipaddress.ip_address(normalized.strip("[]"))
+        return True
+    except ValueError:
+        pass
+    return 0 < len(normalized) <= 253 and all(_HOST_LABEL.match(label) for label in normalized.split("."))
+
+
 def _host_check_exemption(host: str, team_id: int | None) -> str | None:
     """Return the stage name that exempts this host from the check, or None when it applies."""
     if not is_cloud():
@@ -218,7 +275,8 @@ def _host_check_exemption(host: str, team_id: int | None) -> str | None:
     if team_id is not None and is_team_allowlisted_for_internal_hosts(team_id):
         return "team_allowlist"
 
-    # PostHog-managed DuckLake hosts resolve to internal IPs but are safe.
+    # PostHog-managed DuckLake hosts resolve to internal IPs but are safe. A suffix test is
+    # enough only because callers refuse anything that is not one hostname before asking.
     if _normalize_host(host).endswith(".postwh.com"):
         return "postwh_managed"
 
@@ -402,7 +460,7 @@ def _check_direct_host(config, team_id: int | None) -> None:
     """
     resolution = resolve_safe_host(config.host, team_id)
     if resolution.connect_host is None:
-        raise DatabaseHostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error}")
+        raise DatabaseHostNotAllowedError(resolution.error or _INTERNAL_IP_ERROR)
 
 
 @contextmanager

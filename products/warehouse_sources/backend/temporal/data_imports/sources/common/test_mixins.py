@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     OAuthMixin,
     SSHTunnelMixin,
+    TemporaryHostResolutionError,
     ValidateDatabaseHostMixin,
     _is_host_safe,
     check_resolved_addresses,
@@ -106,6 +107,33 @@ class TestIsHostSafe(SimpleTestCase):
         valid, _ = _is_host_safe(host, team_id=999)
         assert valid
 
+    @parameterized.expand(
+        [
+            ("comma_joined_postwh", "10.0.0.5,x.postwh.com", 999),
+            ("comma_joined_allowlisted_team", "10.0.0.5,db.example.com", 2),
+            ("space_joined_postwh", "10.0.0.5 x.postwh.com", 999),
+            ("socket_path_postwh", "/var/run/x.postwh.com", 999),
+            ("port_suffix_postwh", "x.postwh.com:5432", 999),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_blocks_hosts_that_are_not_one_name_before_any_exemption(self, _name: str, host: str, team_id: int):
+        with patch(f"{_MIXINS_MODULE}.socket.getaddrinfo") as getaddrinfo_mock:
+            valid, error = _is_host_safe(host, team_id=team_id)
+
+        assert not valid
+        assert error is not None and "single hostname" in error
+        getaddrinfo_mock.assert_not_called()
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_a_resolver_blip_is_reported_as_try_again(self) -> None:
+        blip = socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")
+        with patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", side_effect=blip):
+            valid, error = _is_host_safe("db.example.com", team_id=999)
+
+        assert not valid
+        assert error is not None and "Try again" in error
+
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_blocks_fake_postwh_suffix(self):
         with patch(
@@ -172,12 +200,10 @@ class TestIsHostSafe(SimpleTestCase):
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_malformed_host_label_blocked(self):
-        # A single DNS label over 63 bytes makes getaddrinfo's IDNA encoding raise UnicodeError,
-        # not gaierror — this must be handled gracefully instead of crashing.
         valid, error = _is_host_safe("a" * 92, team_id=999)
         assert not valid
         assert error is not None
-        assert "resolve" in error
+        assert "single hostname" in error
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_blocked_host_logs_warning(self):
@@ -534,6 +560,21 @@ class TestDirectHostIsCheckedAtConnect(SimpleTestCase):
                 with self._connection_cm(entrypoint, config, 999):
                     pass
 
+    @parameterized.expand([("open_ssh_tunnel",), ("factory",)])
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_a_resolver_blip_is_a_retryable_error_not_a_rejection(self, entrypoint: str) -> None:
+        config = FakeConfig(host="db.example.com", ssh_tunnel=None)
+        blip = socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")
+        with (
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", side_effect=blip),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            with pytest.raises(TemporaryHostResolutionError) as exc:
+                with self._connection_cm(entrypoint, config, 999):
+                    pass
+
+        assert not error_message_matches(str(exc.value), Any_Source_Errors.keys())
+
 
 class TestDirectHostRejectionIsNonRetryable(SimpleTestCase):
     # The rejection is a config problem only the customer can fix, so it has to stop the schedule
@@ -571,6 +612,19 @@ class TestCheckResolvedAddresses(SimpleTestCase):
         assert resolution.connect_host is None
         assert resolution.addresses == ()
         assert resolution.error is not None
+
+    @parameterized.expand(
+        [("postwh_suffix", "10.0.0.5,x.postwh.com", 999), ("allowlisted_team", "10.0.0.5,db.example.com", 2)]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_a_host_that_is_not_one_name_is_refused_despite_an_exemption(
+        self, _name: str, host: str, team_id: int
+    ) -> None:
+        with patch(f"{_MIXINS_MODULE}.logger"):
+            resolution = check_resolved_addresses(host, ["10.0.0.5"], team_id=team_id)
+
+        assert resolution.connect_host is None
+        assert resolution.addresses == ()
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_a_public_set_is_returned_whole_in_resolver_order(self) -> None:

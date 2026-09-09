@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     FieldType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DatabaseHostNotAllowedError,
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
 )
@@ -1325,6 +1326,8 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             if require_ssl:
                 return False, _SSL_UNSUPPORTED_ERROR
             return False, str(e)
+        except DatabaseHostNotAllowedError as e:
+            return False, e.reason
         except OperationalError as e:
             error_msg = " ".join(str(n) for n in e.args)
             for key, value in PostgresErrors.items():

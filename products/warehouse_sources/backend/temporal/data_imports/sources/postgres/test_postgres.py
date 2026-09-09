@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.con
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import table_payload_bytes
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DatabaseHostNotAllowedError,
     _resolve_hostaddr_with_timeout,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import batching
@@ -2654,6 +2655,22 @@ class TestConnectToPostgresDialsOnlyValidatedAddresses:
 
         assert cloud.connect.call_args.kwargs["host"] == "db.example.com"
         assert "hostaddr" not in cloud.connect.call_args.kwargs
+
+    def test_a_resolver_blip_stays_retryable(self) -> None:
+        with self._production_cloud(socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")) as cloud:
+            with pytest.raises(psycopg.OperationalError, match="Temporary failure") as exc_info:
+                self._connect(team_id=999)
+
+        assert "Database host not allowed" not in str(exc_info.value)
+        cloud.connect.assert_not_called()
+
+    def test_a_comma_joined_host_is_refused_before_libpq_sees_it(self) -> None:
+        with self._production_cloud(self._addrinfo("10.0.0.5")) as cloud:
+            with pytest.raises(DatabaseHostNotAllowedError, match="single hostname"):
+                self._connect(host="10.0.0.5,x.postwh.com", team_id=999)
+
+        cloud.getaddrinfo.assert_not_called()
+        cloud.connect.assert_not_called()
 
     def test_an_ip_literal_host_is_dialed_as_is_without_a_lookup(self) -> None:
         with self._production_cloud(self._addrinfo("127.0.0.1")) as cloud:
