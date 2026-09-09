@@ -418,8 +418,9 @@ class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "slack_notification_channel": {
                 "help_text": (
-                    "Slack channel target in the same `channel_id|#channel-name` shape PostHog uses elsewhere "
-                    "(only the channel id is required). Null disables Slack notifications."
+                    "Where the reviewer ping goes, in the same `id|name` shape PostHog uses elsewhere (only "
+                    "the id is required): a channel (`C0123ABC456|#alerts`), or a workspace member "
+                    "(`U0123ABC456|@sam`) who is sent a direct message. Null disables Slack notifications."
                 )
             },
             "slack_notification_min_priority": {
@@ -453,7 +454,20 @@ class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
         allow_null=True,
         allow_blank=True,
         max_length=255,
-        help_text="`channel_id|#channel-name` target — same convention used by Insight Alerts.",
+        help_text=(
+            "`channel_id|#channel-name` target, the same convention used by Insight Alerts, or a "
+            "`member_id|@display-name` target (`U0123ABC456|@sam`) to send the ping as a direct message. "
+            "A member target is checked against the workspace on save."
+        ),
+    )
+    slack_notification_direct_message = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Set true to send the ping as a direct message from the PostHog app. The caller's own member id is "
+            "resolved in the connected workspace and stored in `slack_notification_channel`, so nothing has to be "
+            "picked. Rejected when the workspace has no eligible account for the caller, and cannot be combined "
+            "with `slack_notification_channel`."
+        ),
     )
     slack_notification_min_priority = serializers.ChoiceField(
         choices=AutonomyPriority.choices,
@@ -471,6 +485,13 @@ class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
             "never removes an existing assignee."
         ),
     )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("slack_notification_direct_message") and attrs.get("slack_notification_channel"):
+            raise serializers.ValidationError(
+                "Set either `slack_notification_channel` or `slack_notification_direct_message`, not both."
+            )
+        return attrs
 
 
 class SignalReportRefundSerializer(serializers.ModelSerializer):
