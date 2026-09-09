@@ -157,6 +157,7 @@ jobs:
                         - 'posthog/llm/**'
                         - 'posthog/person_db_router.py'
                         - 'posthog/persons_db.py'
+                        - 'posthog/personhog_client/**'
                         - 'posthog/redis.py'
                         - 'posthog/storage/**'
                         - 'posthog/event_usage.py'
