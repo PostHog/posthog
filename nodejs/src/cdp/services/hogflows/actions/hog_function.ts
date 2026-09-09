@@ -39,15 +39,19 @@ const AWAIT_DURATION_REGEX = /^(\d*\.?\d+)([dhms])$/
 const SECONDS_PER_UNIT: Record<string, number> = { d: 86400, h: 3600, m: 60, s: 1 }
 const AWAIT_MAX_WAIT_CEILING = Duration.fromObject({ hours: 24 })
 
+// A malformed request throws rather than returning null, so the step logs why it did not wait.
 const parseAwaitRequest = (execResult: unknown): AwaitRequest | null => {
     const request = (execResult as { await?: unknown } | undefined)?.await
-    if (!request || typeof request !== 'object') {
+    if (request === undefined || request === null) {
         return null
+    }
+    if (typeof request !== 'object') {
+        throw new Error(`await must be an object, got ${typeof request}`)
     }
     const { max_wait: maxWait, label } = request as { max_wait?: unknown; label?: unknown }
     const match = typeof maxWait === 'string' ? AWAIT_DURATION_REGEX.exec(maxWait) : null
     if (!match) {
-        return null
+        throw new Error(`await.max_wait must be a duration like '190m' or '2h', got ${JSON.stringify(maxWait)}`)
     }
     const requested = Duration.fromObject({ seconds: parseFloat(match[1]) * SECONDS_PER_UNIT[match[2]] })
     return {
@@ -57,6 +61,18 @@ const parseAwaitRequest = (execResult: unknown): AwaitRequest | null => {
 }
 
 const humanDuration = (duration: Duration): string => duration.rescale().toHuman()
+
+// Read off the raw resume result, before the variable cap, so a long warning is not cut.
+const readWarnings = (resumeResult: unknown): string[] => {
+    const warnings = (resumeResult as { warnings?: unknown } | undefined)?.warnings
+    return Array.isArray(warnings) ? warnings.filter((warning): warning is string => typeof warning === 'string') : []
+}
+
+// Unlabelled: how often a step degrades fleet-wide. Which flow and field goes to the warn log.
+const counterAwaitedStepResumedWithWarnings = new Counter({
+    name: 'cdp_hogflow_awaited_step_resumed_with_warnings',
+    help: 'A parked step resumed and continued, but the product that ran the job reported a warning.',
+})
 
 const counterAwaitedStepStaleResume = new Counter({
     name: 'cdp_hogflow_awaited_step_stale_resume',
@@ -163,8 +179,20 @@ export class HogFunctionHandler implements ActionHandler {
             }
         }
 
-        const awaitRequest =
-            awaitedStepsEnabled && !functionResult.error ? parseAwaitRequest(functionResult.execResult) : null
+        let awaitRequest: AwaitRequest | null = null
+        if (awaitedStepsEnabled && !functionResult.error) {
+            try {
+                awaitRequest = parseAwaitRequest(functionResult.execResult)
+            } catch (error) {
+                // The template asked to wait but the request is unusable. Continue instead of parking
+                // on a guess, and say so in the run log.
+                result.logs.push({
+                    level: 'warn',
+                    timestamp: DateTime.now(),
+                    message: `${actionIdForLogging(action)} Ignored the template's wait request: ${(error as Error).message}`,
+                })
+            }
+        }
         if (awaitRequest) {
             return this.parkForAwaitedRun(
                 invocation,
@@ -244,6 +272,19 @@ export class HogFunctionHandler implements ActionHandler {
                 timestamp: DateTime.now(),
                 message: `${actionIdForLogging(action)} The ${label} finished`,
             })
+            // The product that ran the job reports what went wrong short of failing it, such as
+            // an agent whose output misses a field. The step continues; the author reads the log.
+            const warnings = readWarnings(resume.result)
+            if (warnings.length > 0) {
+                counterAwaitedStepResumedWithWarnings.inc()
+            }
+            for (const warning of warnings) {
+                result.logs.push({
+                    level: 'warn',
+                    timestamp: DateTime.now(),
+                    message: `${actionIdForLogging(action)} ${warning}`,
+                })
+            }
             return {
                 nextAction: findContinueAction(invocation),
                 result: payload,

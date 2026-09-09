@@ -2424,12 +2424,15 @@ describe('Workflows E2E (postgres-v2)', () => {
                                 non_failure_status_codes: { value: [409] },
                             },
                         },
+                        output_variable: { key: 'task' },
                     },
+                    function_2: fetchAction('https://example.com/task-done'),
                     exit: exitAction(),
                 },
                 edges: [
                     { from: 'trigger', to: 'function_1', type: 'continue' },
-                    { from: 'function_1', to: 'exit', type: 'continue' },
+                    { from: 'function_1', to: 'function_2', type: 'continue' },
+                    { from: 'function_2', to: 'exit', type: 'continue' },
                 ],
             })
             flowId = flow.id
@@ -2487,13 +2490,51 @@ describe('Workflows E2E (postgres-v2)', () => {
             expect(claims.hog_flow_id).toEqual(flowId)
 
             // The step parks until Django wakes it with the task's outcome.
+            let originKey = ''
             await waitForExpect(async () => {
                 const { rows } = await cyclotronPool.query(`SELECT id, status, state FROM cyclotron_jobs`)
                 expect(rows).toHaveLength(1)
                 expect(rows[0].status).toEqual('available')
                 const state = parseJSON(rows[0].state.toString('utf-8')).state
                 expect(state.currentAction.awaitingResume.key).toEqual(`${rows[0].id}:function_1:0`)
+                originKey = state.currentAction.awaitingResume.key
             }, 10000)
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+            expect(runMetricNames()).not.toContain('failed')
+
+            // Django reports the run finished: the same internal event it produces, through the
+            // matcher's own parser, wakes the parked step and the workflow moves on.
+            const matcher = new CdpHogflowSubscriptionMatcherConsumer({ ...hub }, deps)
+            const { resumes } = matcher._splitStepResumes([
+                {
+                    value: Buffer.from(
+                        JSON.stringify({
+                            team_id: team.id,
+                            event: {
+                                uuid: 'a5c2d9e1-3f4b-4c8d-9e0f-1a2b3c4d5e6f',
+                                event: '$workflow_step_resume',
+                                distinct_id: `team_${team.id}`,
+                                properties: {
+                                    origin_key: originKey,
+                                    status: 'completed',
+                                    result: { run_id: 'run-1', final_message: 'Found the cause' },
+                                },
+                                timestamp: '2024-01-01T00:00:00Z',
+                            },
+                        })
+                    ),
+                } as any,
+            ])
+            await matcher.processStepResumes(resumes)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(2)
+            }, 10000)
+            expect(mockFetch.mock.calls[1][0]).toEqual('https://example.com/task-done')
+            const logs = mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+                .map((m: any) => m.value.message as string)
+            expect(logs).toContainEqual(expect.stringContaining('[Action:function_1] The task finished'))
             expect(runMetricNames()).not.toContain('failed')
         })
 
@@ -2512,7 +2553,8 @@ describe('Workflows E2E (postgres-v2)', () => {
                 expect(runMetricNames()).toContain('failed')
             }, 10000)
             // 409 is terminal for the step: one request, no retry burning the engine's budget.
-            expect(mockFetch).toHaveBeenCalledTimes(1)
+            const taskCreates = mockFetch.mock.calls.filter(([url]) => (url as string).includes('/workflow_tasks/'))
+            expect(taskCreates).toHaveLength(1)
         })
     })
 
