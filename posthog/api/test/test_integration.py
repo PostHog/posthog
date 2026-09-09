@@ -1235,6 +1235,7 @@ class TestAzureBlobIntegration:
             "DefaultEndpointsProtocol=https;AccountName=my-storage-account;AccountKey=my-key;EndpointSuffix=core.windows.net",
             "DefaultEndpointsProtocol=https;AccountName=my-storage-account;AccountKey=my-key;EndpointSuffix=core.usgovcloudapi.net",
             "AccountName=my-storage-account;AccountKey=my-key",
+            "AccountName=my-storage-account;AccountKey=YQ==; BlobEndpoint=https://example.com;EndpointSuffix=169.254.169.254",
         ],
     )
     @override_settings(FORCE_URL_VALIDATION=True)
@@ -1264,10 +1265,6 @@ class TestAzureBlobIntegration:
             "DefaultEndpointsProtocol=http://169.254.169.254/latest/meta-data?x=;AccountName=a;AccountKey=YQ==;EndpointSuffix=core.windows.net",
             "DefaultEndpointsProtocol=http;AccountName=a;AccountKey=YQ==",
             "AccountName=a;AccountKey=YQ==;BlobEndpoint=http://example.com",
-            # The SDK parses keys without stripping whitespace, so a padded key is ignored by
-            # the SDK while a stripping validator would see a safe endpoint and skip the
-            # attacker-controlled derived one.
-            "AccountName=a;AccountKey=YQ==; BlobEndpoint=https://example.com;EndpointSuffix=169.254.169.254",
         ],
     )
     @override_settings(FORCE_URL_VALIDATION=True)

@@ -64,7 +64,7 @@ async def test_azure_blob_check_container_invalid_connection_string():
 
     assert result.status == Status.FAILED
     assert result.message is not None
-    assert "Invalid connection string format" in result.message
+    assert "Invalid connection string: Malformed connection string" in result.message
 
 
 async def test_azure_blob_check_container_emulator_connection_string():
