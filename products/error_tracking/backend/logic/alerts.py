@@ -276,14 +276,15 @@ def _validate_filter_surface(filters: dict[str, Any]) -> None:
         for property_filter in property_list:
             # A leaf without a key makes the compiler fall back to a constant-true
             # branch, turning a "filtered" alert into a match-all.
-            if not isinstance(property_filter, dict) or not isinstance(property_filter.get("key"), str):
+            key = property_filter.get("key") if isinstance(property_filter, dict) else None
+            if not isinstance(property_filter, dict) or not isinstance(key, str):
                 raise AlertValidationError("Each alert property filter must be an object with a key.")
             property_type = property_filter.get("type")
             if property_type == "error_tracking_issue":
                 _validate_issue_leaf(property_filter)
-                issue_keys.add(_ISSUE_KEY_IN_EVENT_NAMESPACE.get(property_filter["key"], property_filter["key"]))
+                issue_keys.add(_ISSUE_KEY_IN_EVENT_NAMESPACE.get(key, key))
             elif property_type in (None, "event"):
-                event_keys.add(property_filter["key"])
+                event_keys.add(key)
             else:
                 raise AlertValidationError(
                     f"Alert filters support event and issue properties only, got: {property_type}."
