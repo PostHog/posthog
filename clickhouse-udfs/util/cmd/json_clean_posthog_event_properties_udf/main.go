@@ -20,6 +20,7 @@ const (
 	normalizationNone normalizationKind = iota
 	normalizationStringArray
 	normalizationObjectArray
+	normalizationObject
 )
 
 type propertiesKind byte
@@ -118,6 +119,7 @@ func makeEventPropertyRules() *pathRule {
 	addPathRules(root, normalizationObjectArray,
 		"$exception_list",
 	)
+	addPathRules(root, normalizationObject, "$feature_flags")
 	return root
 }
 
@@ -755,7 +757,11 @@ func (p *processor) cleanObject(pathRules *pathRule, obj *value) error {
 				writeJSONString(&unparsable, entry.key)
 				unparsable.WriteByte(':')
 				p.writeValue(&unparsable, cleaned)
-				cleaned = p.reuseAsEmptyArray(cleaned)
+				if childPathRules.normalization == normalizationObject {
+					p.resetValue(cleaned, kindObject)
+				} else {
+					cleaned = p.reuseAsEmptyArray(cleaned)
+				}
 			}
 		}
 		if cleaned.kind == kindNull {
@@ -930,6 +936,11 @@ func (p *processor) normalizeValue(normalization normalizationKind, v *value) (*
 		return p.coerceStringArray(v)
 	case normalizationObjectArray:
 		return p.coerceObjectArray(v)
+	case normalizationObject:
+		if v.kind != kindObject && v.kind != kindNull {
+			return nil, fmt.Errorf("cannot coerce %s to Map", valueKindName(v.kind))
+		}
+		return v, nil
 	default:
 		return v, nil
 	}

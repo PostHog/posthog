@@ -4,6 +4,8 @@
 Before emitting JSON for insertion, it sorts the keys in `$feature_flags` alphabetically using case-sensitive string order.
 This also applies to existing `$feature_flags` objects, after cleanup resolves duplicates and expands dotted keys.
 Flag values and person-property ordering follow the existing cleanup rules.
+If a retained `$feature_flags` value is neither an object nor null, the event cleaner replaces it with `{}` and preserves the incompatible value as escaped JSON in `$unparseable_properties`.
+This also applies when the event has no `$feature/<key>` properties, so arrays and scalars cannot reach the destination's typed Map path. Null values are removed by the existing cleanup rules.
 
 See [the utility UDF README](../../clickhouse-udfs/util/README.md) for build and integration-test commands.
 
