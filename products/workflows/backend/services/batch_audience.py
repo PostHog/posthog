@@ -1,10 +1,12 @@
 from typing import Optional
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.filters import Filter
 from posthog.models.property import GroupTypeIndex
@@ -28,6 +30,7 @@ def get_batch_audience_person_ids(
     group_type_index: Optional[GroupTypeIndex] = None,
     cursor: Optional[str] = None,
     dedupe_key: Optional[str] = None,
+    settings: Optional[HogQLGlobalSettings] = None,
 ) -> list[str]:
     """
     Enumerate one page of a batch workflow's audience (person UUIDs, cursor-paginated).
@@ -45,7 +48,9 @@ def get_batch_audience_person_ids(
         select_query = _build_audience_person_query(team, cleaned_filter, cursor=cursor, dedupe_key=dedupe_key)
 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
-        response = execute_hogql_query(query=select_query, team=team)
+        # Background traffic: the only caller is the internal batch-send resolver, so route to
+        # the offline pool like the group branch does, away from interactive product queries.
+        response = execute_hogql_query(query=select_query, team=team, settings=settings, workload=Workload.OFFLINE)
 
     return [str(row[0]) for row in response.results] if response.results else []
 
@@ -69,7 +74,7 @@ def get_batch_audience_count(
     # if we ever add another supported key, this raise forces the caller to teach this
     # function about it too, rather than silently returning the email-deduped count.
     if dedupe_key == EMAIL_DEDUPE_KEY:
-        group_expr = _email_dedupe_group_expr()
+        group_expr = email_dedupe_group_expr()
     else:
         raise ValueError(f"Unsupported dedupe_key: {dedupe_key!r} (supported: {SUPPORTED_DEDUPE_KEYS})")
 
@@ -104,7 +109,7 @@ def get_batch_audience_count(
     return response.results[0][0] if response.results else 0
 
 
-def _email_dedupe_group_expr() -> ast.Expr:
+def email_dedupe_group_expr() -> ast.Expr:
     # Fields stay fully qualified so nothing resolves to an enclosing query's alias.
     return parse_expr(
         """
@@ -166,7 +171,7 @@ def _wrap_with_email_dedupe(where_exprs: list[ast.Expr], cursor: Optional[str]) 
         select=[ast.Alias(alias="person_id", expr=ast.Call(name="min", args=[ast.Field(chain=["persons", "id"])]))],
         select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
         where=ast.And(exprs=where_exprs),
-        group_by=[_email_dedupe_group_expr()],
+        group_by=[email_dedupe_group_expr()],
     )
 
     outer_where: Optional[ast.Expr] = None

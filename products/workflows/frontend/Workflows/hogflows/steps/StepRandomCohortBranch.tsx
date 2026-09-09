@@ -120,7 +120,6 @@ export function StepRandomCohortBranchConfiguration({
     const percentages = cohorts.map((cohort) => cohort.percentage)
     const totalPercentage = percentages.reduce((sum, percentage) => sum + percentage, 0)
     const isBalanced = cohortPercentagesAddUp(percentages)
-    const shortfall = 100 - totalPercentage
 
     return (
         <div className="flex flex-col gap-3">
@@ -156,9 +155,7 @@ export function StepRandomCohortBranchConfiguration({
 
             {cohorts.length > 0 && !isBalanced && (
                 <div className="text-sm text-orange-600">
-                    {shortfall > 0
-                        ? `These add up to ${formatPercentage(totalPercentage)}%. The remaining ${formatPercentage(shortfall)}% will go to the last cohort.`
-                        : `These add up to ${formatPercentage(totalPercentage)}%. Later cohorts will get less than their share, and some may never be used.`}
+                    {`These add up to ${formatPercentage(totalPercentage)}%. Traffic is split in proportion to these values, so 10% and 10% sends half to each. To hold back a share of traffic, add a cohort for it.`}
                 </div>
             )}
 
