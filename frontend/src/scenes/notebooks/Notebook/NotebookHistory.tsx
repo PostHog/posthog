@@ -14,7 +14,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
-import { ActivityLogItem, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLogItem, ActivityLogUserName, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import { ActivityScope } from '~/types'
@@ -77,7 +77,7 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                                     size="md"
                                 />
                                 <span className="flex-1">
-                                    <b className="ph-no-capture">{name}</b> {actionLabel}
+                                    <ActivityLogUserName logItem={logItem} /> {actionLabel}
                                 </span>
                                 <span className="text-secondary">
                                     <TZLabel time={logItem.created_at} />

@@ -1,5 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { fullName } from 'lib/utils/strings'
 
 import { ActivityScope, InsightShortId, PersonType, UserBasicType } from '~/types'
@@ -157,6 +158,20 @@ function nameOrEmailForUser(
         return fallback
     }
     return fullName(user) || user.email || fallback
+}
+
+/**
+ * The person who did the thing, with their email on hover. Organizations often have several members
+ * who share a first name, and many accounts carry no last name, so the name alone can be ambiguous.
+ */
+export function ActivityLogUserName({ logItem }: { logItem: ActivityLogItem }): JSX.Element {
+    const name = userNameForLogItem(logItem)
+    const email = logItem.is_system ? undefined : logItem.user?.email
+    const nameElement = <strong className="ph-no-capture">{name}</strong>
+    if (!email || email === name) {
+        return nameElement
+    }
+    return <Tooltip title={<span className="ph-no-capture">{email}</span>}>{nameElement}</Tooltip>
 }
 
 const NO_PLURAL_SCOPES: ActivityScope[] = [ActivityScope.DATA_MANAGEMENT]

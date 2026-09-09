@@ -1,8 +1,8 @@
 import {
     ActivityLogItem,
+    ActivityLogUserName,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
 export function userActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
@@ -20,7 +20,7 @@ export function userActivityDescriber(logItem: ActivityLogItem, asNotification?:
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> logged in using {loginMethod}
+                    <ActivityLogUserName logItem={logItem} /> logged in using {loginMethod}
                     {reauthSensitiveOps && <> (re-authenticated for sensitive operations)</>}
                 </>
             ),
@@ -31,7 +31,7 @@ export function userActivityDescriber(logItem: ActivityLogItem, asNotification?:
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> logged out
+                    <ActivityLogUserName logItem={logItem} /> logged out
                 </>
             ),
         }

@@ -178,15 +178,19 @@ export const ActivityLogRow = ({
             <div
                 className={clsx('ActivityLogRow flex deprecated-space-x-2', logItem.unread && 'ActivityLogRow--unread')}
             >
-                <ProfilePicture
-                    showName={false}
-                    user={{
-                        first_name: logItem.isSystem || logItem.wasImpersonated ? logItem.name : undefined,
-                        email: logItem.email ?? undefined,
-                    }}
-                    type={logItem.isSystem || logItem.wasImpersonated ? 'system' : 'person'}
-                    size="xl"
-                />
+                <Tooltip title={logItem.email ? <span className="ph-no-capture">{logItem.email}</span> : undefined}>
+                    <span className="flex shrink-0">
+                        <ProfilePicture
+                            showName={false}
+                            user={{
+                                first_name: logItem.isSystem || logItem.wasImpersonated ? logItem.name : undefined,
+                                email: logItem.email ?? undefined,
+                            }}
+                            type={logItem.isSystem || logItem.wasImpersonated ? 'system' : 'person'}
+                            size="xl"
+                        />
+                    </span>
+                </Tooltip>
                 <div className="ActivityLogRow__details flex-grow">
                     <div className="ActivityLogRow__description">{logItem.description}</div>
                     {logItem.extendedDescription && (

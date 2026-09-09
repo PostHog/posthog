@@ -2,9 +2,9 @@ import { Suspense } from 'react'
 
 import {
     ActivityLogItem,
+    ActivityLogUserName,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Link } from 'lib/lemon-ui/Link'
@@ -74,7 +74,7 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created the {objectNoun}:{' '}
+                    <ActivityLogUserName logItem={logItem} /> created the {objectNoun}:{' '}
                     {nameOrLinkToHogFunction(logItem?.item_id, logItem?.detail.name)}
                 </>
             ),
@@ -85,21 +85,19 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted the {objectNoun}:{' '}
-                    {logItem.detail.name}
+                    <ActivityLogUserName logItem={logItem} /> deleted the {objectNoun}: {logItem.detail.name}
                 </>
             ),
         }
     }
 
     if (logItem.activity == 'restored') {
-        const name = userNameForLogItem(logItem)
         const functionName = nameOrLinkToHogFunction(logItem?.item_id, logItem?.detail.name)
 
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{name}</strong> restored the {objectNoun}: {functionName}
+                    <ActivityLogUserName logItem={logItem} /> restored the {objectNoun}: {functionName}
                 </>
             ),
         }
@@ -115,8 +113,7 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>{' '}
-                    {draftActivities[logItem.activity]} the {objectNoun}:{' '}
+                    <ActivityLogUserName logItem={logItem} /> {draftActivities[logItem.activity]} the {objectNoun}:{' '}
                     {nameOrLinkToHogFunction(logItem?.item_id, logItem?.detail.name)}
                 </>
             ),
@@ -259,19 +256,17 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
                     })
             }
         }
-        const name = userNameForLogItem(logItem)
         const functionName = nameOrLinkToHogFunction(logItem?.item_id, logItem?.detail.name)
 
         return {
             description:
                 changes.length == 1 ? (
                     <>
-                        <strong className="ph-no-capture">{name}</strong> {changes[0].inline} the {objectNoun}:{' '}
-                        {functionName}
+                        <ActivityLogUserName logItem={logItem} /> {changes[0].inline} the {objectNoun}: {functionName}
                     </>
                 ) : (
                     <div>
-                        <strong className="ph-no-capture">{name}</strong> updated the {objectNoun}: {functionName}
+                        <ActivityLogUserName logItem={logItem} /> updated the {objectNoun}: {functionName}
                         <ul className="ml-5 list-disc">
                             {changes.map((c, i) => (
                                 <li key={i}>{c.inlist}</li>

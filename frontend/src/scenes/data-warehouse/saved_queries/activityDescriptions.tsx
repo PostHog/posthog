@@ -1,9 +1,9 @@
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 
@@ -59,7 +59,7 @@ export function dataWarehouseSavedQueryActivityDescriber(
         return { description: null }
     }
 
-    const user = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+    const user = <ActivityLogUserName logItem={logItem} />
     const viewName = logItem.detail?.name ? <strong>{logItem.detail.name}</strong> : <i>a view</i>
 
     if (logItem.activity === 'created') {

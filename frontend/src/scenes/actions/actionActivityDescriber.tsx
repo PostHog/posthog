@@ -1,12 +1,12 @@
 import {
     ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     ChangeMapping,
     Description,
     HumanizedChange,
     defaultDescriber,
     detectBoolean,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -166,8 +166,7 @@ export function actionActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created action{' '}
-                    {nameAndLink(logItem)}
+                    <ActivityLogUserName logItem={logItem} /> created action {nameAndLink(logItem)}
                 </>
             ),
         }
@@ -177,8 +176,7 @@ export function actionActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted action{' '}
-                    {nameAndLink(logItem)}
+                    <ActivityLogUserName logItem={logItem} /> deleted action {nameAndLink(logItem)}
                 </>
             ),
         }
@@ -214,7 +212,7 @@ export function actionActivityDescriber(logItem: ActivityLogItem, asNotification
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>}
+                        prefix={<ActivityLogUserName logItem={logItem} />}
                         suffix={changeSuffix}
                     />
                 ),

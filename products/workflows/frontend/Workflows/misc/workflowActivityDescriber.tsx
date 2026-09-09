@@ -1,8 +1,8 @@
 import {
     ActivityLogItem,
+    ActivityLogUserName,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -89,7 +89,7 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created the {objectNoun}:{' '}
+                    <ActivityLogUserName logItem={logItem} /> created the {objectNoun}:{' '}
                     {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
                 </>
             ),
@@ -100,8 +100,7 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted the {objectNoun}:{' '}
-                    {logItem.detail.name}
+                    <ActivityLogUserName logItem={logItem} /> deleted the {objectNoun}: {logItem.detail.name}
                 </>
             ),
         }
@@ -111,9 +110,8 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> restored a past version
-                    into the staged draft of the {objectNoun}:{' '}
-                    {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                    <ActivityLogUserName logItem={logItem} /> restored a past version into the staged draft of the{' '}
+                    {objectNoun}: {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
                 </>
             ),
         }
@@ -123,8 +121,8 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> discarded the staged draft
-                    of the {objectNoun}: {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                    <ActivityLogUserName logItem={logItem} /> discarded the staged draft of the {objectNoun}:{' '}
+                    {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
                 </>
             ),
         }
@@ -198,13 +196,12 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
                     changes.push(<>updated {change.field}</>)
             }
         }
-        const name = userNameForLogItem(logItem)
         const workflowName = nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)
 
         return {
             description: (
                 <div>
-                    <strong className="ph-no-capture">{name}</strong> {verb} the {objectNoun}: {workflowName}
+                    <ActivityLogUserName logItem={logItem} /> {verb} the {objectNoun}: {workflowName}
                     <ul className="ml-5 list-disc">
                         {changes.map((c, i) => (
                             <li key={i}>{c}</li>
