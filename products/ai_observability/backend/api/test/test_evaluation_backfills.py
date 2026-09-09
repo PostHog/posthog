@@ -36,7 +36,13 @@ def _other_team() -> Team:
     return Team.objects.create(id=project.id, project=project, organization=org)
 
 
-def _evaluation(team: Team, conditions: list[dict] | None = None) -> Evaluation:
+def _evaluation(
+    team: Team,
+    conditions: list[dict] | None = None,
+    *,
+    target: str = "generation",
+    target_config: dict | None = None,
+) -> Evaluation:
     return Evaluation.objects.create(
         team=team,
         name="e",
@@ -45,6 +51,8 @@ def _evaluation(team: Team, conditions: list[dict] | None = None) -> Evaluation:
         evaluation_config={"source": "return true"},
         output_type="boolean",
         output_config={},
+        target=target,
+        target_config=target_config or {},
         conditions=conditions
         if conditions is not None
         else [{"id": "c1", "properties": [], "rollout_percentage": 100}],
@@ -307,6 +315,50 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         row = EvaluationBackfill.objects.unscoped().get(pk=created.json()["id"])
         assert abs(row.window_end - now) < timedelta(seconds=5)
         assert abs(row.window_start - expected_start) < timedelta(seconds=5)
+
+    @parameterized.expand(
+        [
+            ("a trace settles over its fixed window", "trace", {"strategy": "fixed_window", "window_seconds": 1800}),
+            (
+                "a session settles no later than its max age",
+                "session",
+                {"strategy": "inactivity", "quiet_period_seconds": 3600, "max_age_seconds": 7200},
+            ),
+        ]
+    )
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=3)
+    @patch(f"{API_MODULE}.sync_connect")
+    def test_holds_the_window_back_from_units_the_live_path_is_still_grading(
+        self, _case, target, target_config, connect, _count
+    ):
+        connect.return_value = _temporal_client()
+        evaluation = _evaluation(self.team, target=target, target_config=target_config)
+        url = f"/api/projects/{self.team.id}/evaluations/{evaluation.id}/backfills"
+        now = timezone.now()
+        hold = timedelta(seconds=target_config.get("max_age_seconds") or target_config["window_seconds"])
+
+        estimate = self.client.post(f"{url}/estimate/", _body(), format="json")
+        assert estimate.status_code == status.HTTP_200_OK, estimate.json()
+        window_end = datetime.fromisoformat(estimate.json()["window_end"])
+        assert abs(window_end - (now - hold)) < timedelta(seconds=30)
+
+        # A range that ends inside the hold has nothing the live path has finished with.
+        too_recent = _body(window_start=(now - hold / 2).isoformat())
+        refused = self.client.post(f"{url}/", too_recent, format="json")
+        assert refused.status_code == status.HTTP_400_BAD_REQUEST, refused.json()
+        assert "has to end before that" in refused.json()["detail"]
+        assert EvaluationBackfill.objects.unscoped().count() == 0
+
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=3)
+    @patch(f"{API_MODULE}.sync_connect")
+    def test_a_generation_backfill_reaches_up_to_now(self, connect, _count):
+        connect.return_value = _temporal_client()
+        now = timezone.now()
+
+        estimate = self.client.post(f"{self.url}/estimate/", _body(), format="json")
+
+        assert estimate.status_code == status.HTTP_200_OK, estimate.json()
+        assert abs(datetime.fromisoformat(estimate.json()["window_end"]) - now) < timedelta(seconds=30)
 
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=3)
     @patch(f"{API_MODULE}.sync_connect")

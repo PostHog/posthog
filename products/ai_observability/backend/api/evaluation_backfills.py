@@ -35,6 +35,7 @@ from posthog.temporal.ai_observability.evaluation_backfill import (
     backfill_workflow_id,
     cancel_backfill,
 )
+from posthog.temporal.ai_observability.run_aggregate_evaluation import INGESTION_LAG_MARGIN_SECONDS, resolve_settle_plan
 from posthog.temporal.ai_observability.run_session_evaluation import AI_EVENTS_RETENTION_DAYS
 from posthog.temporal.common.client import sync_connect
 
@@ -59,13 +60,18 @@ BACKFILL_RETENTION_MARGIN = timedelta(days=1)
 BACKFILL_START_GRACE = timedelta(minutes=2)
 
 
-def _drop_threshold_label(duration: timedelta) -> str:
-    hours = duration.total_seconds() / 3600
-    value, unit = (hours, "hour") if hours < 24 else (hours / 24, "day")
+def _duration_label(duration: timedelta) -> str:
+    minutes = duration.total_seconds() / 60
+    if minutes < 60:
+        value, unit = minutes, "minute"
+    elif minutes < 24 * 60:
+        value, unit = minutes / 60, "hour"
+    else:
+        value, unit = minutes / (24 * 60), "day"
     rounded = round(value, 1)
     shown = str(int(rounded)) if rounded == int(rounded) else str(rounded)
     label = f"{shown} {unit}" if shown == "1" else f"{shown} {unit}s"
-    # "about" whenever the threshold is not a whole number of its unit, so the message never
+    # "about" whenever the duration is not a whole number of its unit, so the message never
     # reads as an exact figure the project does not actually use.
     return label if value == int(value) else f"about {label}"
 
@@ -260,10 +266,30 @@ class EvaluationBackfillViewSet(
         serializer.is_valid(raise_exception=True)
         return cast(dict[str, Any], serializer.validated_data)
 
-    def _clamped_window(self, data: dict[str, Any]) -> tuple[datetime, datetime]:
+    def _settle_hold(self, evaluation: Evaluation) -> timedelta | None:
+        """How long after its first event a unit is still being graded live, or None for a
+        generation, which is complete the moment it lands."""
+        if evaluation.target == EvaluationTarget.GENERATION.value:
+            return None
+        plan = resolve_settle_plan(evaluation.target_config, evaluation.target)
+        return timedelta(seconds=plan.max_age_seconds + INGESTION_LAG_MARGIN_SECONDS)
+
+    def _clamped_window(self, evaluation: Evaluation, data: dict[str, Any]) -> tuple[datetime, datetime]:
         """The requested window, bounded to the span whose verdicts can be read back."""
         now = timezone.now()
         window_end: datetime = min(data["window_end"], now)
+        settle_hold = self._settle_hold(evaluation)
+        if settle_hold:
+            # A trace or session is graded over `settle_hold` from its first event, so a unit any
+            # younger is still filling up. Grading it now would freeze a partial verdict, and the
+            # shared workflow id would then keep the live path from ever grading it properly.
+            window_end = min(window_end, now - settle_hold)
+            if data["window_start"] >= window_end:
+                raise ValidationError(
+                    f"This evaluation grades a {evaluation.target} over "
+                    f"{_duration_label(settle_hold - timedelta(seconds=INGESTION_LAG_MARGIN_SECONDS))}, so a "
+                    "backfill has to end before that. Try a range that ends earlier."
+                )
         window_start: datetime = max(data["window_start"], now - timedelta(days=AI_EVENTS_RETENTION_DAYS))
         if window_start >= window_end:
             raise ValidationError(
@@ -280,12 +306,12 @@ class EvaluationBackfillViewSet(
             if reach < timedelta(hours=1):
                 raise ValidationError(
                     "Backfills are not available for this project because it drops events older than "
-                    f"{_drop_threshold_label(drop_events_older_than)}."
+                    f"{_duration_label(drop_events_older_than)}."
                 )
             window_start = max(window_start, now - reach)
             if window_start >= window_end:
                 raise ValidationError(
-                    f"Backfills on this project can only reach back {_drop_threshold_label(reach)}, "
+                    f"Backfills on this project can only reach back {_duration_label(reach)}, "
                     "because older events are dropped. Try a more recent range."
                 )
         return window_start, window_end
@@ -353,7 +379,7 @@ class EvaluationBackfillViewSet(
         evaluation = self._evaluation_for_url()
         self._require_enabled(evaluation)
         data = self._validated_request(request)
-        window_start, window_end = self._clamped_window(data)
+        window_start, window_end = self._clamped_window(evaluation, data)
         conditions = self._conditions(evaluation, data)
         total = self._count(evaluation, conditions, window_start, window_end, data["rerun_existing"])
         response = EvaluationBackfillEstimateSerializer(
@@ -412,7 +438,7 @@ class EvaluationBackfillViewSet(
         evaluation = self._evaluation_for_url()
         self._require_enabled(evaluation)
         data = self._validated_request(request)
-        window_start, window_end = self._clamped_window(data)
+        window_start, window_end = self._clamped_window(evaluation, data)
         active = (
             EvaluationBackfill.objects.for_team(self.team_id)
             .filter(evaluation=evaluation, status__in=ACTIVE_BACKFILL_STATUSES)
