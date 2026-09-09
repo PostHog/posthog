@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import UTC, datetime
@@ -33,7 +34,11 @@ from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, pre
 from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY
 from posthog.temporal.alerts.schedule import create_schedule_due_alert_checks_schedule
 from posthog.temporal.alerts.types import AlertInfo, CheckAlertWorkflowInputs, SkipReason
-from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleDueAlertChecksWorkflow
+from posthog.temporal.alerts.workflows import (
+    MAX_CONCURRENT_ALERT_CHECKS,
+    CheckAlertWorkflow,
+    ScheduleDueAlertChecksWorkflow,
+)
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.tests.test_alerts_activities import _email_delivery
 
@@ -63,6 +68,7 @@ async def test_schedule_due_alert_checks_adds_shared_slo_context() -> None:
             "posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity",
             new=AsyncMock(return_value=[alert]),
         ),
+        patch("posthog.temporal.alerts.workflows.temporalio.workflow.patched", new=MagicMock(return_value=True)),
         patch(
             "posthog.temporal.alerts.workflows.temporalio.workflow.execute_child_workflow", new=AsyncMock()
         ) as execute_child,
@@ -86,6 +92,51 @@ async def test_schedule_due_alert_checks_adds_shared_slo_context() -> None:
 
     inputs.slo.completion_properties["alert_state"] = AlertState.FIRING
     assert "alert_state" not in inputs.slo.start_properties
+
+
+@pytest.mark.asyncio
+async def test_schedule_due_alert_checks_caps_concurrent_children() -> None:
+    # A due batch larger than the cap must not start every child at once — the fan-out
+    # holds a semaphore across each child's run so at most MAX_CONCURRENT_ALERT_CHECKS
+    # checks are in flight, while still dispatching every alert.
+    alerts = [
+        AlertInfo(
+            alert_id=f"alert-{i}",
+            team_id=1,
+            distinct_id=f"user-{i}",
+            calculation_interval=AlertCalculationInterval.HOURLY.value,
+            insight_id=i,
+        )
+        for i in range(MAX_CONCURRENT_ALERT_CHECKS * 2 + 20)
+    ]
+
+    in_flight = 0
+    peak = 0
+
+    async def _child(*args: Any, **kwargs: Any) -> None:
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        # Yield so waiting children can pile up before this one releases its slot.
+        for _ in range(3):
+            await asyncio.sleep(0)
+        in_flight -= 1
+
+    with (
+        patch(
+            "posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity",
+            new=AsyncMock(return_value=alerts),
+        ),
+        patch("posthog.temporal.alerts.workflows.temporalio.workflow.patched", new=MagicMock(return_value=True)),
+        patch(
+            "posthog.temporal.alerts.workflows.temporalio.workflow.execute_child_workflow",
+            new=AsyncMock(side_effect=_child),
+        ) as execute_child,
+    ):
+        await ScheduleDueAlertChecksWorkflow().run()
+
+    assert execute_child.call_count == len(alerts)
+    assert peak == MAX_CONCURRENT_ALERT_CHECKS
 
 
 def test_schedule_is_registered_in_init_schedules():

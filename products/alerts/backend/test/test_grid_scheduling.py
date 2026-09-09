@@ -381,14 +381,16 @@ class TestAdvanceNextCheckAtWithShard(TestCase):
                 datetime(2026, 3, 19, 12, 12, tzinfo=UTC),
             ),
             (
-                # Pre-shard NCA on canonical grid (12:05) self-heals to shard
-                # grid (12:12) on next eval. One transient longer gap.
+                # Pre-shard NCA on the plain grid (12:05) heals onto the shifted
+                # grid (:02/:07/:12) at the first slot after now (12:06), which is
+                # 12:07. That is at most one cadence, not the near-double gap
+                # (12:12) that flooring before the offset would produce.
                 "drifted_to_canonical_self_heals_to_shard",
                 datetime(2026, 3, 19, 12, 5, tzinfo=UTC),
                 5,
                 datetime(2026, 3, 19, 12, 6, tzinfo=UTC),
                 120,
-                datetime(2026, 3, 19, 12, 12, tzinfo=UTC),
+                datetime(2026, 3, 19, 12, 7, tzinfo=UTC),
             ),
             (
                 # shard_offset=0 (default behaviour) preserves canonical grid.
@@ -400,13 +402,14 @@ class TestAdvanceNextCheckAtWithShard(TestCase):
                 datetime(2026, 3, 19, 12, 5, tzinfo=UTC),
             ),
             (
-                # First-run with shard offset lands on shifted grid.
+                # First-run with a 4-min shard offset lands on the first shifted
+                # slot after now (12:04), not a full cadence later (12:09).
                 "first_run_shard_240_lands_at_shifted_first_slot",
                 None,
                 5,
                 datetime(2026, 3, 19, 12, 0, tzinfo=UTC),
                 240,
-                datetime(2026, 3, 19, 12, 9, tzinfo=UTC),
+                datetime(2026, 3, 19, 12, 4, tzinfo=UTC),
             ),
         ]
     )
@@ -462,3 +465,29 @@ class TestAdvanceNextCheckAtWithShard(TestCase):
         # Next gap is exactly the new cadence.
         next_check = advance_next_check_at(result, new_cadence, result, shard_offset_seconds=new_shard_offset)
         assert next_check - result == timedelta(minutes=new_cadence)
+
+    @given(
+        cadence=st.sampled_from([2, 3, 5, 7, 10, 11, 15, 30, 60]),
+        shard_index=st.integers(min_value=0, max_value=59),
+        now_minute=st.integers(min_value=0, max_value=59),
+        now_second=st.integers(min_value=0, max_value=59),
+    )
+    @settings(max_examples=500, deadline=None)
+    def test_null_and_off_grid_inputs_land_within_one_cadence(
+        self, cadence: int, shard_index: int, now_minute: int, now_second: int
+    ) -> None:
+        # New alerts (current=None), quiet-hours exits, and every existing sub-
+        # daily alert at deploy sit off the shifted grid. Each must heal to a slot
+        # in (now, now + cadence]. Flooring before re-adding the shard offset used
+        # to overshoot by almost another cadence and reopen a coverage gap. The
+        # non-sharded bound test above does not exercise a shard offset, so this
+        # guards the sharded production path directly.
+        shard_count = max(1, (cadence * 60) // DEFAULT_SCHEDULE_INTERVAL_SECONDS)
+        offset = (shard_index % shard_count) * DEFAULT_SCHEDULE_INTERVAL_SECONDS
+        now = _anchor.replace(minute=now_minute, second=now_second)
+        for current in (None, now):
+            result = advance_next_check_at(current, cadence, now, shard_offset_seconds=offset)
+            assert now < result <= now + timedelta(minutes=cadence), (
+                f"cadence={cadence} offset={offset}s current={current} now={now}: "
+                f"result {result} outside (now, now + cadence]"
+            )
