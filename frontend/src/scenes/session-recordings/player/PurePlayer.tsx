@@ -367,8 +367,8 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                         >
                                             The first{' '}
                                             {humanFriendlyDuration(leadingUnplayableMs / 1000, { maxUnits: 2 })} of this
-                                            recording can't be shown — the initial snapshot of the screen arrived late,
-                                            so playback starts from the first frame we can render.{' '}
+                                            recording can't be played. The first screen snapshot arrived late, so
+                                            playback starts at the first frame we can render.{' '}
                                             <Link to="https://posthog.com/docs/session-replay/troubleshooting">
                                                 Learn more
                                             </Link>

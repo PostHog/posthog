@@ -1,1 +1,1 @@
-1342_drop_cimd_blocklist_table
+1347_drop_activitylog_detail_jsonb_ops_gin

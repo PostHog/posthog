@@ -802,25 +802,34 @@ class TestProductIntent(BaseTest):
         [
             # Charting or querying is only possible once metrics have reached the team,
             # so any engagement signal is itself proof of ingestion + activation.
-            ("charted", {"metrics_viewer_query_run": 1}, True),
-            ("queried in sql", {"metrics_sql_query_run": 2}, True),
+            ("charted", {"metrics_viewer_query_run": 1}, False, True),
+            ("queried in sql", {"metrics_sql_query_run": 2}, False, True),
             (
                 "first-ingested recorded then charted",
                 {"metrics_first_ingested": 1, "metrics_viewer_query_run": 1},
+                False,
                 True,
             ),
             # Pre-existing-metrics teams never record the transition-only first-ingested
             # context, so engagement alone must still activate them.
-            ("charted without first-ingested intent", {"metrics_viewer_query_run": 3}, True),
-            # Ingestion alone (no engagement) is a connected pipeline, not activation.
-            ("first-ingested but never looked at", {"metrics_first_ingested": 1}, False),
-            ("no engagement at all", {}, False),
+            ("charted without first-ingested intent", {"metrics_viewer_query_run": 3}, False, True),
+            # Data flowing activates without any engagement: sending does not require the
+            # viewer, so ingestion alone is the product outcome.
+            ("ingesting but never looked at", {"metrics_first_ingested": 1}, True, True),
+            ("ingesting with no contexts at all", {}, True, True),
+            # No engagement and no data is not activation.
+            ("first-ingested context but no data found", {"metrics_first_ingested": 1}, False, False),
+            ("no engagement at all", {}, False, False),
         ]
     )
-    def test_has_activated_metrics(self, _name: str, contexts: dict, expected: bool) -> None:
+    def test_has_activated_metrics(self, _name: str, contexts: dict, has_data: bool, expected: bool) -> None:
         intent = self._make_metrics_intent(contexts)
 
-        assert intent.has_activated_metrics() is expected
+        with patch(
+            "products.metrics.backend.facade.api.team_has_metrics",
+            return_value=has_data,
+        ):
+            assert intent.has_activated_metrics() is expected
 
     def test_check_and_update_activation_activates_metrics(self) -> None:
         # Guards the registration, not the criterion: an unregistered check never runs.

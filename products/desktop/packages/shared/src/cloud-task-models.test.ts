@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   adapterForModelId,
   buildCloudTaskConfigOptions,
@@ -7,6 +7,7 @@ import {
   formatGatewayModelName,
   type GatewayModel,
   getClaudeModelRecency,
+  getCloudTaskGatewayUrl,
   isAnthropicModel,
   isBasetenModel,
   isBlockedModelId,
@@ -17,6 +18,8 @@ import {
   normalizeGatewayModelsResponse,
   pickAllowedModel,
 } from "./cloud-task-models";
+import { configureCustomCloud } from "./custom-cloud";
+import { isCustomModelOption } from "./models";
 
 const model = (
   id: string,
@@ -362,6 +365,7 @@ describe("buildProviderModelGroups", () => {
     expect(groups.at(-1)).toMatchObject({
       options: [{ value: "my-custom", description: "Custom model" }],
     });
+    expect(isCustomModelOption(groups.at(-1)?.options[0]?._meta)).toBe(true);
   });
 
   // A gateway blip answers with an empty or one-sided catalog. The picker must
@@ -392,6 +396,44 @@ describe("buildProviderModelGroups", () => {
           },
         ],
       });
+      expect(isCustomModelOption(groups[0]?.options[0]?._meta)).toBe(true);
     },
   );
+});
+
+describe("getCloudTaskGatewayUrl with a custom cloud", () => {
+  afterEach(() => {
+    configureCustomCloud(null);
+  });
+
+  it("uses the gateway of the custom cloud for its own host only", () => {
+    configureCustomCloud({
+      url: "https://posthog.example.com",
+      oauthClientId: "client-id",
+      gatewayUrl: "https://gateway.example.com",
+    });
+    expect(getCloudTaskGatewayUrl("https://posthog.example.com")).toBe(
+      "https://gateway.example.com/posthog_code",
+    );
+    expect(getCloudTaskGatewayUrl("https://us.posthog.com")).toBe(
+      "https://gateway.us.posthog.com/posthog_code",
+    );
+  });
+
+  it("keeps the derived gateway when the custom cloud has none", () => {
+    configureCustomCloud({ url: "https://posthog.example.com" });
+    expect(getCloudTaskGatewayUrl("https://posthog.example.com")).toBe(
+      "https://gateway.us.posthog.com/posthog_code",
+    );
+  });
+
+  it("refuses a built-in host as the target, so its gateway never moves", () => {
+    configureCustomCloud({
+      url: "https://us.posthog.com",
+      gatewayUrl: "https://gateway.example.com",
+    });
+    expect(getCloudTaskGatewayUrl("https://us.posthog.com")).toBe(
+      "https://gateway.us.posthog.com/posthog_code",
+    );
+  });
 });

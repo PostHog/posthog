@@ -8,7 +8,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
 }));
 vi.mock("@posthog/host-router/react", () => ({
   useHostTRPC: () => ({
-    dashboards: { saveContext: { mutationKey: () => ["save-context"] } },
     channelTasks: {
       list: {
         queryOptions: () => ({ queryKey: ["ct"], queryFn: async () => [] }),
@@ -36,6 +35,7 @@ vi.mock("@tanstack/react-router", () => ({
   // The route's own pane, which is where the header's writer lives.
   Outlet: () => <ActivityDetailPane />,
   useNavigate: () => vi.fn(),
+  useSearch: () => ({}),
   useParams: () => ({ channelId: "chan-1", taskId: "task-1" }),
   useRouterState: ({
     select,

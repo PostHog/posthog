@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
@@ -19,7 +20,12 @@ from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import get_delivery_image_url
-from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery, get_unsubscribe_token
+from products.exports.backend.models.subscription import (
+    AIQueryPlanStatus,
+    Subscription,
+    SubscriptionDelivery,
+    get_unsubscribe_token,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
     generate_ai_report,
@@ -186,11 +192,13 @@ def _resolve_subscription_context(
     return team, subscription.created_by, window, subscription.ai_query_plan
 
 
-def _persist_ai_query_plan(subscription_id: int, team_id: int, prompt: str | None, plan: dict) -> None:
+def _persist_ai_query_plan(subscription_id: int, team_id: int, prompt: str | None, plan: dict) -> bool:
     # Targeted update, never a full save() — that would re-emit the activity-log/analytics signals.
     # Filtering on the planning-time prompt closes a race: a prompt edited mid-generation clears the
     # plan via Subscription.save(), and this no-ops instead of re-freezing a plan for the old prompt.
-    Subscription.objects.filter(id=subscription_id, team_id=team_id, prompt=prompt).update(ai_query_plan=plan)
+    return bool(
+        Subscription.objects.filter(id=subscription_id, team_id=team_id, prompt=prompt).update(ai_query_plan=plan)
+    )
 
 
 async def build_ai_subscription_report(subscription: Subscription) -> AiReportResult:
@@ -211,8 +219,9 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
     )
 
     if result.plan_to_persist is not None:
+        plan_persisted = False
         try:
-            await database_sync_to_async(_persist_ai_query_plan, thread_sensitive=False)(
+            plan_persisted = await database_sync_to_async(_persist_ai_query_plan, thread_sensitive=False)(
                 subscription.id, subscription.team_id, subscription.prompt, result.plan_to_persist
             )
         except Exception as exc:
@@ -225,6 +234,10 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
                 exc_info=True,
             )
             capture_exception(exc, {"subscription_id": subscription.id, "feature": "ai_subscription"})
+        if not plan_persisted:
+            # This delivery cannot claim the plan is frozen unless the conditional write succeeded.
+            # In particular, a mid-run prompt edit intentionally makes that write a no-op.
+            result = dataclasses.replace(result, query_plan_status=AIQueryPlanStatus.NOT_FROZEN)
 
     return result
 

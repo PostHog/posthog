@@ -41,6 +41,14 @@ function PrCiGlyph({ status }: { status: PrCiGlyphStatus | null }): JSX.Element 
     return <IconCheckCircle className={className} />
 }
 
+function IconGitPullRequestDraft(props: IconProps): JSX.Element {
+    return (
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
+            <path d="M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 14a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5ZM2.5 3.25a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0-5.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm0-3a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Z" />
+        </svg>
+    )
+}
+
 export function PrBadge({
     prNumber,
     prUrl,
@@ -54,8 +62,15 @@ export function PrBadge({
     ciStatus?: PullRequestCiStatusEnumApi | null
 }): JSX.Element {
     const { label, className, hoverClassName } = PR_BADGE_STATE[state]
+    // Each state carries its own shape, so the pill still reads when its colour does not.
     const StateIcon =
-        state === 'merged' ? IconGitMerge : state === 'closed' ? IconGitPullRequestClosed : IconPullRequest
+        state === 'merged'
+            ? IconGitMerge
+            : state === 'closed'
+              ? IconGitPullRequestClosed
+              : state === 'draft'
+                ? IconGitPullRequestDraft
+                : IconPullRequest
     const glyphStatus = prCiGlyphStatus(state, ciStatus)
     const description = glyphStatus ? `${label}, ${PR_CI_GLYPH[glyphStatus].label}` : label
     const badge = (
