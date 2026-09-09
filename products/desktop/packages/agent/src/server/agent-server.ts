@@ -124,10 +124,7 @@ import { createEventIdSource } from "../utils/event-id";
 import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
 import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
-import {
-  ClaudeTokenEventRedactor,
-  redactClaudeTokens,
-} from "../utils/redact-claude-tokens";
+import { redactSecrets, SecretEventRedactor } from "../utils/redact-secrets";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
 import { AgentBootTracker } from "./boot-phases";
 import {
@@ -517,7 +514,7 @@ export class AgentServer {
   private initializingSseController: SseController | null = null;
   private initializingTelemetry: OtelRunTelemetry | undefined;
   private pendingEvents: Record<string, unknown>[] = [];
-  private tokenEventRedactor = new ClaudeTokenEventRedactor();
+  private eventRedactor = new SecretEventRedactor();
   /** ACP notifications emitted by newSession/resumeSession before this.session is assigned. */
   private preSessionEvents: Record<string, unknown>[] = [];
   private deliveredMessageIds = new Set<string>();
@@ -1119,7 +1116,7 @@ export class AgentServer {
   async reportFatalError(error: unknown): Promise<void> {
     if (error instanceof CredentialRelayError && error.code === "cancelled")
       return;
-    const errorMessage = redactClaudeTokens(
+    const errorMessage = redactSecrets(
       error instanceof CredentialRelayError
         ? CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE
         : error instanceof Error
@@ -4970,7 +4967,7 @@ ${commonInstructions}
     errorMessage?: string,
     options?: { errorCategory?: AgentErrorClassification },
   ): Promise<void> {
-    errorMessage = redactClaudeTokens(errorMessage);
+    errorMessage = redactSecrets(errorMessage);
     const currentSession = this.session;
     const sessionMatchesRun = currentSession?.payload.run_id === payload.run_id;
     const terminalErrorMessage = errorMessage ?? "Agent error";
@@ -5993,7 +5990,7 @@ ${commonInstructions}
   }
 
   private broadcastEvent(event: Record<string, unknown>): void {
-    for (const redacted of this.tokenEventRedactor.redact(event)) {
+    for (const redacted of this.eventRedactor.redact(event)) {
       this.deliverEvent(redacted);
     }
   }

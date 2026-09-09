@@ -595,6 +595,10 @@ SPECTACULAR_SETTINGS = {
             "ShiftBandKindEnum": ["inserted", "deleted"],
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
             "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
+            # ResolvedAccess types source and source_subject as literals on a dataclass, so no Choices
+            # class carries them. The lists are derived from those literals.
+            "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
+            "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "TaskArtifactStatusEnum": ["active", "failed"],
             #
             # The same choice set is declared in more than one product. A shared Choices
