@@ -54,7 +54,17 @@ export const MatchingConfiguration: Story = {
                         }
                         const logic = hogFunctionConfigurationLogic({ id: 'new' })
                         unmount = logic.mount()
-                        logic.actions.setConfigurationValues({ name: 'Original destination' })
+                        logic.actions.loadHogFunctionSuccess({
+                            id: 'new',
+                            type: 'destination',
+                            name: 'Original destination',
+                            description: '',
+                            enabled: true,
+                            hog: '',
+                            created_by: null,
+                            created_at: '2026-01-01T00:00:00Z',
+                            updated_at: '2026-01-01T00:00:00Z',
+                        })
                         setReady(true)
                     }
                 )
