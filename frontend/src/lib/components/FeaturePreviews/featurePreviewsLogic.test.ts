@@ -74,6 +74,40 @@ describe('featurePreviewsLogic - submitEarlyAccessFeatureFeedback failure', () =
     })
 })
 
+describe('featurePreviewsLogic - loadEarlyAccessFeatures', () => {
+    let logic: ReturnType<typeof featurePreviewsLogic.build>
+    const mockGetEarlyAccessFeatures = jest.fn()
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+        ;(posthog as any).getEarlyAccessFeatures = mockGetEarlyAccessFeatures
+
+        initKeaTests()
+        logic = featurePreviewsLogic()
+        logic.mount()
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+    })
+
+    test('requests concept, alpha, and beta stages so alpha features render', async () => {
+        mockGetEarlyAccessFeatures.mockImplementation((callback: (features: any[]) => void) => callback([]))
+
+        await logic.asyncActions.loadEarlyAccessFeatures()
+
+        expect(mockGetEarlyAccessFeatures).toHaveBeenCalledWith(expect.any(Function), true, ['concept', 'alpha', 'beta'])
+    })
+
+    test('an alpha-stage feature is stored so the gate can offer its enrollment toggle', async () => {
+        const alphaFeature = { id: '1', name: 'Metrics', stage: 'alpha', flagKey: 'metrics' }
+        mockGetEarlyAccessFeatures.mockImplementation((callback: (features: any[]) => void) =>
+            callback([alphaFeature])
+        )
+
+        await logic.asyncActions.loadEarlyAccessFeatures()
+
+        await expectLogic(logic).toMatchValues({ rawEarlyAccessFeatures: [alphaFeature] })
+    })
+})
+
 describe('featurePreviewsLogic - updateEarlyAccessFeatureEnrollment', () => {
     let logic: ReturnType<typeof featurePreviewsLogic.build>
     const mockUpdateEnrollment = jest.fn()
