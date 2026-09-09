@@ -108,7 +108,7 @@ export function resolveToolCall(toolCall: ResolvableToolCall): ResolvedToolCall 
     return {
         ...resolveToolKey(
             mcp?.[1] ?? toolCall.rawServerName,
-            mcp?.[2] ?? toolCall.rawToolName,
+            mcp?.[0] ?? toolCall.rawToolName,
             toolCall.input,
             agentToolName
         ),

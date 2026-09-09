@@ -119,18 +119,24 @@ describe('toolResolver', () => {
         })
 
         it.each([
-            { posthog: { mcp: { server: 'other', tool: 'exec' } } },
-            { posthog: { toolName: 'mcp__other__exec' } },
-            { posthog: { toolName: 'mcp__posthog__exec', mcp: { server: 'other', tool: 'exec' } } },
-        ])('keeps external MCP origins out of PostHog exec resolution %j', (meta) => {
+            [{ posthog: { mcp: { server: 'other', tool: 'exec' } } }, 'exec', 'mcp__other__exec'],
+            [{ posthog: { toolName: 'mcp__other__exec' } }, 'exec', 'mcp__other__exec'],
+            [
+                { posthog: { toolName: 'mcp__posthog__exec', mcp: { server: 'other', tool: 'exec' } } },
+                'exec',
+                'mcp__other__exec',
+            ],
+            [{ claudeCode: { toolName: 'mcp__gitlab__clone_repo' } }, '', 'mcp__gitlab__clone_repo'],
+            [{ posthog: { mcp: { server: 'gitlab', tool: 'list_repos' } } }, '', 'mcp__gitlab__list_repos'],
+        ])('preserves external MCP identity from metadata %j', (meta, rawToolName, resolvedKey) => {
             expect(
                 resolveToolCall({
                     rawServerName: 'posthog',
-                    rawToolName: 'exec',
+                    rawToolName,
                     input: { command: 'call query-trends {}' },
                     meta,
                 })
-            ).toEqual({ resolvedKey: 'exec', claudeToolName: undefined })
+            ).toMatchObject({ resolvedKey })
         })
 
         it('resolves a raw built-in invocation from metadata at render time', () => {

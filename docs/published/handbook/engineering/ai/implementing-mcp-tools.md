@@ -413,7 +413,8 @@ They never decode TOON or JSON from result text or reconstruct an executed query
 tool arguments. Old transcripts containing only text show the generic tool card.
 Failed calls and missing or malformed widget data also use that fallback.
 The web client resolves tool identity from ACP `_meta.posthog`, with legacy
-`_meta.claudeCode` support. It retains `rawOutput` from both live updates and completed
+`_meta.claudeCode` support. Non-exec MCP tools retain their qualified metadata names
+to avoid collisions with built-in renderers. It retains `rawOutput` from both live updates and completed
 `tool_call` frames in history.
 
 Deploy MCP and agent transport support before deploying a frontend that requires
