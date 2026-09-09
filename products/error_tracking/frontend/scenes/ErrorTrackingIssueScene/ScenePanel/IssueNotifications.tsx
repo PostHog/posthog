@@ -55,7 +55,10 @@ export function IssueNotifications({ issueId }: { issueId: string }): JSX.Elemen
             <div className="flex flex-col divide-y">
                 {loadError ? (
                     <span className="text-xs text-secondary py-1">
-                        Could not load Slack threads. <Link onClick={loadThreads}>Retry</Link>
+                        Could not load Slack threads.{' '}
+                        <Link onClick={loadThreads} disabledReason={threadsLoading ? 'Retrying' : undefined}>
+                            Retry
+                        </Link>
                     </span>
                 ) : threadsLoading && !threadsLoaded ? (
                     <Spinner className="my-1" />
