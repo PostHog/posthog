@@ -90,19 +90,37 @@ DATABASE_TOKENS = (
 
 
 def _django_test_names(tree: ast.Module) -> set[str]:
-    """Names in this module that `django.test` supplied, under whatever alias."""
+    """Local names bound to a django.test database base, under whatever alias.
+
+    `from django.test import TestCase as DjangoTestCase` binds the base to a name this
+    scan would otherwise not recognise, so record the local name and not the imported one.
+    """
     names: set[str] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("django.test"):
-            names.update(alias.asname or alias.name for alias in node.names)
+        if not isinstance(node, ast.ImportFrom) or not (node.module or "").startswith("django.test"):
+            continue
+        names.update(alias.asname or alias.name for alias in node.names if alias.name in DJANGO_BASES)
     return names
+
+
+def _dotted(node: ast.expr) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = _dotted(node.value)
+        return f"{base}.{node.attr}" if base else None
+    return None
 
 
 def _takes_a_database(node: ast.ClassDef, django_names: set[str]) -> bool:
     for base in node.bases:
-        if not isinstance(base, ast.Name):
+        dotted = _dotted(base)
+        if dotted is None:
             continue
-        if base.id in POSTHOG_BASES or (base.id in DJANGO_BASES and base.id in django_names):
+        # `django.test.TestCase` written out in full reaches no import alias.
+        if dotted.startswith("django.test.") and dotted.rsplit(".", 1)[-1] in DJANGO_BASES:
+            return True
+        if dotted in POSTHOG_BASES or dotted in django_names:
             return True
     return False
 
