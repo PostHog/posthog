@@ -39,6 +39,30 @@ export default function Card() {
     expect(result.violations).toContain(`${reason} is not allowed`);
   });
 
+  it.each([
+    ['globalThis["ev" + "al"]("1");', 'member access to "eval"'],
+    ['globalThis["\\u0065val"]("1");', 'member access to "eval"'],
+    ['const F = ({})["cons" + "tructor"];', 'member access to "constructor"'],
+    ['const f = Function("return 1");', "Function() is not allowed"],
+    ["const p = ({}).constructor;", "constructor access is not allowed"],
+  ])("rejects the built-name route %s", (code, needle) => {
+    const result = checkCanvasCode(code);
+    expect(result.ok).toBe(false);
+    expect(result.violations.join(" ")).toContain(needle);
+  });
+
+  it("keeps run-time keys and plain property names legal", () => {
+    const code = `import { ph } from "@posthog/canvas-sdk";
+
+export default function List({ rows, name }) {
+  const first = rows[0];
+  const picked = rows[name];
+  const label = first["title"];
+  return <p>{label ?? picked}</p>;
+}`;
+    expect(checkCanvasCode(code)).toEqual({ ok: true, violations: [] });
+  });
+
   it("reads prose and comments as text, not as code", () => {
     const code = `// import evil from "https://evil.example/x.js";
 /* eval("no") */
