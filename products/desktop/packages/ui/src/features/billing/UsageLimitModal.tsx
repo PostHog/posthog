@@ -1,14 +1,15 @@
-import { WarningCircle } from "@phosphor-icons/react";
+import { Warning } from "@phosphor-icons/react";
 import { formatResetTime } from "@posthog/core/billing/usageDisplay";
 import type { UsageLimitContent } from "@posthog/core/billing/usageLimitContent";
 import { usageLimitContent } from "@posthog/core/billing/usageLimitContent";
 import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   Button,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogTitle,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useEffect } from "react";
@@ -77,32 +78,39 @@ export function UsageLimitModalContent({
   onAction: () => void;
 }) {
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onDismiss()}>
-      <DialogContent className="sm:max-w-[400px]">
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-2">
-            <WarningCircle size={20} weight="bold" color="var(--red-9)" />
-            <DialogTitle className="mb-0">{content.title}</DialogTitle>
-          </div>
-          <DialogDescription className="text-(--gray-11) text-sm">
-            {content.description}
-          </DialogDescription>
-          <DialogFooter className="border-t-0 bg-transparent">
-            <Button
-              type="button"
-              variant={content.actionLabel ? "outline" : "primary"}
-              onClick={onDismiss}
-            >
-              {content.dismissLabel}
-            </Button>
-            {content.actionLabel && (
-              <Button type="button" onClick={onAction}>
+    <AlertDialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) onDismiss();
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            <span className="flex items-center gap-2">
+              <Warning size={18} weight="fill" color="var(--orange-9)" />
+              {content.title}
+            </span>
+          </AlertDialogTitle>
+          <AlertDialogDescription>{content.description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          {content.actionLabel ? (
+            <>
+              <Button variant="outline" onClick={onDismiss}>
+                {content.dismissLabel}
+              </Button>
+              <Button variant="primary" onClick={onAction}>
                 {content.actionLabel}
               </Button>
-            )}
-          </DialogFooter>
-        </div>
-      </DialogContent>
-    </Dialog>
+            </>
+          ) : (
+            <Button variant="primary" onClick={onDismiss}>
+              {content.dismissLabel}
+            </Button>
+          )}
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

@@ -35,6 +35,16 @@ const mockAcpClient = vi.hoisted(() => ({
             _meta?: { codeToolKind?: string };
           };
         }) => Promise<unknown>;
+        sessionUpdate: (params: {
+          update: {
+            sessionUpdate: "tool_call" | "tool_call_update";
+            toolCallId: string;
+            status?: string;
+            rawInput?: unknown;
+            rawOutput?: unknown;
+            _meta?: unknown;
+          };
+        }) => Promise<void>;
       }
     | undefined,
 }));
@@ -148,6 +158,12 @@ vi.mock("@posthog/agent/adapters/claude/session/jsonl-hydration", () => ({
 
 vi.mock("./context-wiki", () => ({
   prepareContextWiki: mockPrepareContextWiki,
+}));
+
+vi.mock("./codex-home", () => ({
+  cleanupCodexHome: vi.fn().mockResolvedValue(undefined),
+  getCodexHomeDir: vi.fn(() => "/mock/codex-home"),
+  prepareCodexHome: vi.fn().mockResolvedValue("/mock/codex-home"),
 }));
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -308,6 +324,52 @@ describe("AgentService", () => {
     vi.unstubAllGlobals();
   });
 
+  describe("claude auth terminal", () => {
+    it.each([
+      { action: "login" as const, expected: "'auth' 'login'" },
+      { action: "logout" as const, expected: "'auth' 'logout'" },
+      { action: "setup-token" as const, expected: "'setup-token'" },
+    ])(
+      "describes the claude auth $action terminal",
+      async ({ action, expected }) => {
+        const terminal = await service.getClaudeAuthTerminal(action);
+
+        expect(terminal.command).toContain(
+          "/mock/appPath/.vite/build/claude-cli/claude",
+        );
+        expect(terminal.command).toContain(expected);
+        expect(terminal.additionalEnv.CLAUDE_CONFIG_DIR).toMatch(
+          /[\\/]\.claude$/,
+        );
+        expect(terminal.unsetEnv).toContain("ANTHROPIC_API_KEY");
+      },
+    );
+
+    it("stops active subscription sessions when logout starts", async () => {
+      const sessions = (
+        service as unknown as { sessions: Map<string, unknown> }
+      ).sessions;
+      const cleanedUp: string[] = [];
+      vi.spyOn(
+        service as unknown as { cleanupSession: (id: string) => Promise<void> },
+        "cleanupSession",
+      ).mockImplementation((taskRunId: string) => {
+        cleanedUp.push(taskRunId);
+        return Promise.resolve();
+      });
+      sessions.set("run-sub-1", {
+        config: { claudeModelAccess: "own-subscription" },
+      });
+      sessions.set("run-gw-1", {
+        config: { claudeModelAccess: "posthog-gateway" },
+      });
+
+      await service.getClaudeAuthTerminal("logout");
+
+      expect(cleanedUp).toEqual(["run-sub-1"]);
+    });
+  });
+
   describe("context wiki mount", () => {
     const credentials = {
       apiHost: "https://app.posthog.test",
@@ -438,6 +500,48 @@ describe("AgentService", () => {
     });
   });
 
+  it("groups models by provider when allHarnessModels is set", async () => {
+    vi.mocked(fetchGatewayModels).mockResolvedValueOnce([
+      {
+        id: "claude-opus-4-8",
+        owned_by: "anthropic",
+        context_window: 1_000_000,
+        supports_streaming: true,
+        supports_vision: true,
+        allowed: true,
+      },
+      {
+        id: "gpt-5.6-sol",
+        owned_by: "openai",
+        context_window: 400_000,
+        supports_streaming: true,
+        supports_vision: true,
+        allowed: true,
+      },
+    ]);
+
+    const options = await service.getPreviewConfigOptions(
+      "https://us.posthog.com",
+      "claude",
+      true,
+    );
+
+    const modelOption = options.find((option) => option.id === "model");
+    expect(modelOption).toMatchObject({
+      type: "select",
+      options: [
+        {
+          group: "anthropic",
+          options: [expect.objectContaining({ value: "claude-opus-4-8" })],
+        },
+        {
+          group: "openai",
+          options: [expect.objectContaining({ value: "gpt-5.6-sol" })],
+        },
+      ],
+    });
+  });
+
   describe("mcp-apps config resolver", () => {
     function registeredResolver(): (serverName: string) => Promise<void> {
       const call = deps.mcpAppsService.setConfigResolver.mock.calls[0];
@@ -492,6 +596,59 @@ describe("AgentService", () => {
       expect(deps.agentAuthAdapter.buildMcpServers).not.toHaveBeenCalled();
       expect(deps.mcpAppsService.addServerConfigs).not.toHaveBeenCalled();
     });
+  });
+
+  describe("MCP tool result forwarding", () => {
+    it.each([
+      [
+        "legacy claudeCode channel (Claude adapter)",
+        { claudeCode: { toolName: "mcp__posthog__query" } },
+      ],
+      [
+        "canonical posthog channel (Codex adapter)",
+        {
+          posthog: {
+            toolName: "mcp__posthog__query",
+            mcp: { server: "posthog", tool: "query" },
+          },
+        },
+      ],
+    ])(
+      "forwards tool input/result to McpAppsService for the %s",
+      async (_label, meta) => {
+        await service.startSession(baseSessionParams);
+
+        await mockAcpClient.current?.sessionUpdate({
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "tc-1",
+            rawInput: { sql: "SELECT 1" },
+            _meta: meta,
+          },
+        });
+        expect(deps.mcpAppsService.notifyToolInput).toHaveBeenCalledWith(
+          "mcp__posthog__query",
+          "tc-1",
+          { sql: "SELECT 1" },
+        );
+
+        await mockAcpClient.current?.sessionUpdate({
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "tc-1",
+            status: "completed",
+            rawOutput: { content: [{ type: "text", text: "42 rows" }] },
+            _meta: meta,
+          },
+        });
+        expect(deps.mcpAppsService.notifyToolResult).toHaveBeenCalledWith(
+          "mcp__posthog__query",
+          "tc-1",
+          { content: [{ type: "text", text: "42 rows" }] },
+          false,
+        );
+      },
+    );
   });
 
   describe("reconnect", () => {
@@ -645,6 +802,7 @@ describe("AgentService", () => {
 
       expect(mockNewSession).toHaveBeenCalledTimes(1);
       expect(mockNewSession.mock.calls[0][0]._meta).toMatchObject({
+        taskId: "task-1",
         taskRunId: "run-1",
         environment: "local",
       });

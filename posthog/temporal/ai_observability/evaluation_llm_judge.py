@@ -309,16 +309,7 @@ def call_llm_judge(
     client = Client(
         provider_key=provider_key,
         config=config,
-        privacy_mode=True,
-        distinct_id=f"team-{team_id}",
-        properties={
-            "ai_product": "aio_evaluations",
-            "ai_feature": "llm-judge",
-            "team_id": team_id,
-            "evaluation_id": evaluation["id"],
-            "$ai_billable": not is_byok,
-            "is_byok": is_byok,
-        },
+        capture_analytics=False,
     )
 
     try:
@@ -423,6 +414,13 @@ def call_llm_judge(
         # so track it as a metric and re-raise for the retry policy — without the logger.exception
         # that would clutter error tracking with a non-actionable issue.
         increment_errors("connection_error", provider=provider)
+        raise
+
+    except temporalio.exceptions.CancelledError:
+        # A worker drain or a workflow cancel interrupts the judge at whatever line it reached, so
+        # the fingerprint differs per cancellation. Logging it would file a new error tracking issue
+        # every time, so track it as a metric and re-raise for the retry policy instead.
+        increment_errors("cancelled", provider=provider)
         raise
 
     except Exception as e:

@@ -118,7 +118,7 @@ export type IngestionConsumerConfig = {
     // Maximum in-flight batches per worker (BatchingPipeline.concurrentBatches).
     // Mirrors INGESTION_WORKER_CONCURRENT_BATCHES on the Rust consumer side —
     // both values MUST agree, otherwise either the Rust consumer over-limits
-    // (idle worker capacity) or the worker rejects with HTTP 503.
+    // (idle worker capacity) or the worker stalls stream reads at capacity.
     INGESTION_WORKER_CONCURRENT_BATCHES: number
 
     // Feed-order sentinel (ingestion API server only): checks that each
@@ -130,11 +130,9 @@ export type IngestionConsumerConfig = {
     // least-recently-seen key is dropped and rebaselines unchecked.
     INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS: number
 
-    // Streaming ingest (ingestion API server only): serve
-    // ingestion.worker.v1.WorkerIngest over gRPC alongside HTTP /ingest.
-    // The stream delivers each consumer's sub-batches in order, closing the
-    // wire-reordering window concurrent HTTP requests leave open.
-    INGESTION_API_GRPC_ENABLED: boolean
+    // Streaming ingest (ingestion API server only): the port serving
+    // ingestion.worker.v1.WorkerIngest. The stream delivers each consumer's
+    // sub-batches in order.
     INGESTION_API_GRPC_PORT: number
     // Concurrency caps for the gRPC listener. Legitimate load is roughly one
     // stream per connected consumer, so these are generous ceilings that bound
@@ -194,6 +192,12 @@ export type IngestionConsumerConfig = {
     // recreated person revives above its own tombstone. Comma-separated team IDs, or '*' for all
     // teams; empty means no teams.
     PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: string
+    // Re-emit committed distinct id mappings for merge events that arrive already satisfied,
+    // debounced per (team, distinct id). Heals ClickHouse mapping rows lost to a crash between
+    // a merge's commit and its produce; see MergeMappingDebounce for why the cache is in-memory.
+    PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED: boolean
+    PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE: number
+    PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS: number
     // Teams whose person creation claims an existing unreachable posthog_person row holding
     // the same deterministic (team_id, uuid) instead of inserting a duplicate row. Scope to
     // teams whose distinct-ID mappings were destroyed outside the write path (stranded rows);
@@ -211,6 +215,12 @@ export type IngestionConsumerConfig = {
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
     GROUPS_PREFETCH_ENABLED: boolean
+
+    // Team-keyed cache prefetch config: one batched warm-up per chunk for each cache,
+    // instead of a per-event lookup in the sequential steps that read it.
+    TEAMS_PREFETCH_ENABLED: boolean
+    EVENT_SCHEMAS_PREFETCH_ENABLED: boolean
+    HOG_FUNCTIONS_PREFETCH_ENABLED: boolean
 
     // Event overflow config
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
@@ -324,7 +334,6 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_WORKER_CONCURRENT_BATCHES: 1,
         INGESTION_API_FEED_ORDER_SENTINEL_ENABLED: true,
         INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS: 200_000,
-        INGESTION_API_GRPC_ENABLED: false,
         INGESTION_API_GRPC_PORT: 6739,
         INGESTION_API_GRPC_MAX_STREAMS: 256,
         INGESTION_API_GRPC_MAX_SESSIONS: 256,
@@ -362,6 +371,9 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_FOLD_ENABLED: false,
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
         PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '',
+        PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED: false,
+        PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE: 500_000,
+        PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS: 60 * 60 * 1000,
         PERSON_CREATE_CLAIM_TEAM_ALLOWLIST: '',
 
         // Group batch writing config
@@ -371,6 +383,10 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUPS_PREFETCH_ENABLED: false,
+
+        TEAMS_PREFETCH_ENABLED: false,
+        EVENT_SCHEMAS_PREFETCH_ENABLED: false,
+        HOG_FUNCTIONS_PREFETCH_ENABLED: false,
 
         // Event overflow config
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,

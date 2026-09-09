@@ -9,6 +9,7 @@ inherit it unchanged.
 from __future__ import annotations
 
 import json
+import time
 import shlex
 import logging
 from typing import TYPE_CHECKING
@@ -16,7 +17,7 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 
 from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX, SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
-from products.tasks.backend.exceptions import SandboxExecutionError
+from products.tasks.backend.exceptions import ProcessTaskFatalError, SandboxExecutionError
 from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_DAEMON_PORT,
     BASH_ENV_SCRIPT,
@@ -37,6 +38,8 @@ from products.tasks.backend.logic.services.sandbox import (
     WORKING_DIR,
     SandboxBase,
     build_agent_runtime_env_prefix,
+    build_health_check_command,
+    health_check_timeout_seconds,
     wait_for_health_check,
 )
 
@@ -47,6 +50,7 @@ logger = logging.getLogger(__name__)
 
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
+AGENT_SERVER_HEALTH_DURATION_PREFIX = "__posthog_agent_health_ms="
 
 SESSION_INIT_PROBE_HOSTS = (
     "gateway.us.posthog.com",
@@ -72,8 +76,49 @@ def _session_init_probe_hosts() -> list[str]:
     return hosts
 
 
+def _start_and_wait_command(command: str, max_attempts: int = AGENT_SERVER_HEALTH_MAX_ATTEMPTS) -> str:
+    health_command = build_health_check_command(AGENT_SERVER_PORT, max_attempts, pid_file="/tmp/agent-server.pid")
+    return (
+        f"{command}; launch_status=$?; "
+        'if [ "$launch_status" -ne 0 ]; then exit "$launch_status"; fi; '
+        "health_started=$(date +%s%3N); "
+        f"({health_command}); health_status=$?; "
+        "health_finished=$(date +%s%3N); "
+        f'echo "{AGENT_SERVER_HEALTH_DURATION_PREFIX}$((health_finished - health_started))"; '
+        'exit "$health_status"'
+    )
+
+
+def _health_duration_ms(stdout: str) -> int | None:
+    for line in stdout.splitlines():
+        if line.startswith(AGENT_SERVER_HEALTH_DURATION_PREFIX):
+            try:
+                return max(0, int(line.removeprefix(AGENT_SERVER_HEALTH_DURATION_PREFIX)))
+            except ValueError:
+                return None
+    return None
+
+
 class AgentServerLaunchMixin(SandboxBase):
     """Launches and supervises the in-sandbox agent-server over ``execute``."""
+
+    def supports_combined_agent_server_start_and_health(self) -> bool:
+        return True
+
+    def _write_required_file(self, path: str, payload: bytes) -> None:
+        result = self.write_file(path, payload)
+        if result.exit_code != 0:
+            write_stage = (result.error or "unknown")[:100]
+            raise SandboxExecutionError(
+                "Failed to write required sandbox file",
+                {
+                    "sandbox_id": self.id,
+                    "path": path,
+                    "exit_code": str(result.exit_code),
+                    "write_stage": write_stage,
+                },
+                cause=RuntimeError(f"write_file returned {result.exit_code} during {write_stage}"),
+            )
 
     def _build_agent_server_command(
         self,
@@ -102,8 +147,10 @@ class AgentServerLaunchMixin(SandboxBase):
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         rtk_enabled: bool = True,
+        benjamin_enabled: bool = False,
         peer_messaging: bool = False,
         posthog_exec_permission_regex: str | None = None,
+        claude_model_access: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -121,8 +168,11 @@ class AgentServerLaunchMixin(SandboxBase):
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             rtk_enabled=rtk_enabled,
+            benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
+            unset_bedrock=self.disable_direct_bedrock,
         )
+        subscription_flag = " --claudeSubscription" if claude_model_access == "own-subscription" else ""
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown
         # flags, so default runs (and resumes of old snapshots) must not see it.
@@ -146,25 +196,33 @@ class AgentServerLaunchMixin(SandboxBase):
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{relay_mcp_servers_arg}"
-            f"{domains_flag}{repo_ready_flag}{exec_permission_flag}"
+            f"{domains_flag}{repo_ready_flag}{exec_permission_flag}{subscription_flag}"
         )
+        launch_started_at = "export POSTHOG_AGENT_LAUNCH_STARTED_AT_MS=$(date +%s%3N)"
 
         if repo_ready_file:
             # Keep the adapter process from inheriting a repository cwd that does not
             # exist yet, even if an overlaid agent-server mishandles its readiness flag.
-            wait_for_repo = f"while [ ! -f {shlex.quote(repo_ready_file)} ]; do sleep 0.1; done; exec {server_cmd}"
+            wait_for_repo = (
+                f"while [ ! -f {shlex.quote(repo_ready_file)} ]; do sleep 0.1; done; "
+                f"{launch_started_at}; exec {server_cmd}"
+            )
             server_cmd = f"bash -c {shlex.quote(wait_for_repo)}"
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
         initialize_env_file = f"bash {shlex.quote(BASH_ENV_SCRIPT)}"
+        launch_started_prefix = "" if repo_ready_file else f"{launch_started_at} && "
 
         if allowed_domains is not None:
             return (
-                f"cd /scripts && {initialize_env_file} && "
-                f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &)"
+                f"cd /scripts && {launch_started_prefix}{initialize_env_file} && "
+                f"({build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} & echo $! > /tmp/agent-server.pid)"
             )
         else:
-            return f"cd /scripts && {initialize_env_file} && (nohup {server_cmd} > /tmp/agent-server.log 2>&1 &)"
+            return (
+                f"cd /scripts && {launch_started_prefix}{initialize_env_file} && "
+                f"(nohup {server_cmd} > /tmp/agent-server.log 2>&1 & echo $! > /tmp/agent-server.pid)"
+            )
 
     def _termination_failure_reason(self) -> str:
         """Provider-specific detail for a sandbox that died before becoming healthy."""
@@ -241,8 +299,10 @@ class AgentServerLaunchMixin(SandboxBase):
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
+        benjamin_enabled: bool = False,
         peer_messaging: bool = False,
-    ) -> None:
+        claude_model_access: str | None = None,
+    ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
         The sandbox URL and token should be obtained via get_connect_credentials()
@@ -252,11 +312,12 @@ class AgentServerLaunchMixin(SandboxBase):
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
+        # Before the already-healthy shortcut: images that boot the agent server never relaunch it,
+        # and the agent reads its skill directories when a session starts, not when the server does.
+        self.clear_bundled_skills_if_disabled()
         if self._agent_server_is_healthy() and (allowed_domains is None or self._agentsh_daemon_is_healthy()):
-            if wait_for_health:
-                self.wait_for_agent_server_ready(allowed_domains)
             logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
-            return
+            return 0 if wait_for_health else None
         self._free_agent_server_port()
 
         repo_path: str | None = None
@@ -264,11 +325,11 @@ class AgentServerLaunchMixin(SandboxBase):
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        self.write_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
+        self._write_required_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
         # Install the gh shim at runtime too (see agentsh.GH_GUARD_INSTALL_PATH): a resume from a
         # pre-shim filesystem snapshot — or any window where the base image lags this backend —
         # would otherwise leave gh with no token once the frozen launch-env token is unset.
-        self.write_file(GH_GUARD_INSTALL_PATH, read_gh_guard_script())
+        self._write_required_file(GH_GUARD_INSTALL_PATH, read_gh_guard_script())
         self.execute(f"chmod +x {shlex.quote(GH_GUARD_INSTALL_PATH)}", timeout_seconds=30)
 
         if allowed_domains is not None:
@@ -294,7 +355,7 @@ class AgentServerLaunchMixin(SandboxBase):
         if not self.agent_server_supports_exec_permission_regex():
             logger.warning(
                 f"Installed agent-server in sandbox {self.id} predates --posthogExecPermissionRegex; "
-                "exec sub-tools will not prompt"
+                "connected-project operations will not prompt"
             )
             exec_permission_regex = None
 
@@ -324,13 +385,43 @@ class AgentServerLaunchMixin(SandboxBase):
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             rtk_enabled=rtk_enabled,
+            benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
             posthog_exec_permission_regex=exec_permission_regex,
+            claude_model_access=claude_model_access,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
-        launch_result = self.execute(command, timeout_seconds=30)
+        max_attempts = 300 if claude_model_access == "own-subscription" else AGENT_SERVER_HEALTH_MAX_ATTEMPTS
+        execute_command = _start_and_wait_command(command, max_attempts) if wait_for_health else command
+        timeout_seconds = 30 + health_check_timeout_seconds(max_attempts) if wait_for_health else 30
+        start_time = time.perf_counter()
+        launch_result = self.execute(execute_command, timeout_seconds=timeout_seconds)
+        start_and_health_ms = int((time.perf_counter() - start_time) * 1000)
         if launch_result.exit_code != 0:
+            health_duration_ms = _health_duration_ms(launch_result.stdout)
+            if wait_for_health and health_duration_ms is not None:
+                diagnostics = self._diagnose_startup_failure(allowed_domains)
+                if (
+                    "claude_credential_unavailable" in launch_result.stdout
+                    or "claude_credential_unavailable" in diagnostics.get("log", "")
+                ):
+                    raise ProcessTaskFatalError(
+                        "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.",
+                        {"task_id": task_id, "run_id": run_id},
+                        RuntimeError("Claude token unavailable"),
+                        capture=False,
+                    )
+                raise SandboxExecutionError(
+                    "Agent-server failed to start",
+                    {
+                        "sandbox_id": self.id,
+                        **diagnostics,
+                        "health_poll_ms": health_duration_ms,
+                        "start_and_health_ms": start_and_health_ms,
+                    },
+                    cause=RuntimeError(diagnostics.get("failure_reason", "Health check failed after retries")),
+                )
             logger.warning(f"Agent-server process failed to launch in sandbox {self.id}: {launch_result.stderr}")
             raise SandboxExecutionError(
                 "Agent-server failed to start",
@@ -339,10 +430,21 @@ class AgentServerLaunchMixin(SandboxBase):
             )
 
         if wait_for_health:
-            self.wait_for_agent_server_ready(allowed_domains)
+            if allowed_domains is not None and not self._agentsh_daemon_is_healthy():
+                raise SandboxExecutionError(
+                    "Failed to verify agentsh network enforcement",
+                    {"sandbox_id": self.id},
+                    cause=RuntimeError("agentsh daemon health check failed"),
+                )
+            logger.info(f"Agent-server ready in sandbox {self.id}")
+            return _health_duration_ms(launch_result.stdout)
+        return None
 
-    def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None:
-        if self._wait_for_health_check():
+    def wait_for_agent_server_ready(
+        self, allowed_domains: list[str] | None = None, *, claude_model_access: str | None = None
+    ) -> None:
+        max_attempts = 300 if claude_model_access == "own-subscription" else AGENT_SERVER_HEALTH_MAX_ATTEMPTS
+        if self._wait_for_health_check(max_attempts=max_attempts):
             if allowed_domains is not None and not self._agentsh_daemon_is_healthy():
                 raise SandboxExecutionError(
                     "Failed to verify agentsh network enforcement",
@@ -372,9 +474,9 @@ class AgentServerLaunchMixin(SandboxBase):
 
         self.execute("pkill -f 'agentsh server' || true", timeout_seconds=5)
         self.execute("mkdir -p /etc/agentsh/policies /var/log/agentsh /var/lib/agentsh/sessions", timeout_seconds=5)
-        self.write_file("/etc/agentsh/config.yaml", config_yaml.encode())
-        self.write_file("/etc/agentsh/policies/default.yaml", policy_yaml.encode())
-        self.write_file(ENV_WRAPPER_SCRIPT, generate_env_wrapper().encode())
+        self._write_required_file("/etc/agentsh/config.yaml", config_yaml.encode())
+        self._write_required_file("/etc/agentsh/policies/default.yaml", policy_yaml.encode())
+        self._write_required_file(ENV_WRAPPER_SCRIPT, generate_env_wrapper().encode())
         self.execute(f"chmod +x {ENV_WRAPPER_SCRIPT}", timeout_seconds=5)
 
         setup_script = build_setup_script(workspace_path)
@@ -437,7 +539,9 @@ class AgentServerLaunchMixin(SandboxBase):
         self, max_attempts: int = AGENT_SERVER_HEALTH_MAX_ATTEMPTS, poll_interval: float = 0.5
     ) -> bool:
         """Poll health endpoint until server is ready (single remote call)."""
-        return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)
+        return wait_for_health_check(
+            self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval, pid_file="/tmp/agent-server.pid"
+        )
 
     def _agent_server_is_healthy(self) -> bool:
         return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts=1, poll_interval=0.0)
@@ -453,8 +557,8 @@ class AgentServerLaunchMixin(SandboxBase):
 
     def _free_agent_server_port(self) -> None:
         self.execute(
-            "pkill -TERM -f agent-server 2>/dev/null || true; "
-            "for _ in $(seq 1 10); do pgrep -f agent-server >/dev/null || break; sleep 0.5; done; "
-            "pkill -KILL -f agent-server 2>/dev/null || true",
+            "pkill -TERM -f '[a]gent-server' 2>/dev/null || true; "
+            "for _ in $(seq 1 10); do pgrep -f '[a]gent-server' >/dev/null || break; sleep 0.5; done; "
+            "pkill -KILL -f '[a]gent-server' 2>/dev/null || true",
             timeout_seconds=15,
         )

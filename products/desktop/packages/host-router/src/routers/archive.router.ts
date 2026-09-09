@@ -3,6 +3,7 @@ import type { ArchiveService } from "@posthog/workspace-server/services/archive/
 import { ARCHIVE_SERVICE } from "@posthog/workspace-server/services/archive/identifiers";
 import {
   archivedTaskIdsOutput,
+  archiveScopeInput,
   archiveTaskInput,
   archiveTaskOutput,
   deleteArchivedTaskInput,
@@ -30,15 +31,21 @@ export const archiveRouter = router({
     ),
 
   list: publicProcedure
+    .input(archiveScopeInput)
     .output(listArchivedTasksOutput)
-    .query(({ ctx }) =>
-      ctx.container.get<ArchiveService>(ARCHIVE_SERVICE).listArchivedTasks(),
+    .query(({ ctx, input }) =>
+      ctx.container
+        .get<ArchiveService>(ARCHIVE_SERVICE)
+        .listArchivedTasks(input.serverArchiveScope),
     ),
 
   archivedTaskIds: publicProcedure
+    .input(archiveScopeInput)
     .output(archivedTaskIdsOutput)
-    .query(({ ctx }) =>
-      ctx.container.get<ArchiveService>(ARCHIVE_SERVICE).getArchivedTaskIds(),
+    .query(({ ctx, input }) =>
+      ctx.container
+        .get<ArchiveService>(ARCHIVE_SERVICE)
+        .getArchivedTaskIds(input.serverArchiveScope),
     ),
 
   delete: publicProcedure

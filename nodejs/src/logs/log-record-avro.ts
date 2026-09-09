@@ -53,6 +53,12 @@ export interface LogRecord {
     /** Per-row retention in days, stamped by the retention stage from team retention rules. Null/undefined
      * leaves ClickHouse to fall back to the batch `retention-days` header (the team default). */
     retention_days?: number | null
+    /** Masked body, stamped by the pattern masking stage. Identifiers become placeholders, so two
+     * lines differing only by a request id share one pattern. */
+    pattern?: string | null
+    /** Masking rule set that produced `pattern`. Null reads as 0 in ClickHouse, marking a row
+     * written before masking. */
+    pattern_version?: number | null
 }
 
 export async function decodeLogRecords(buffer: Buffer): Promise<[avro.Type | undefined, string, LogRecord[]]> {

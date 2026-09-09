@@ -22,9 +22,26 @@ describe("buildTaskSystemPrompt", () => {
     expect(prompt).toContain("<directory>/tmp/a&amp;b</directory>");
     expect(prompt).toContain("<directory>/tmp/&lt;shared&gt;</directory>");
     expect(prompt).toContain("## Channel task");
+    expect(prompt).toContain("Your working directory is `/tmp/task-123`");
   });
 
-  it("does not give local source-control instructions to cloud tasks", () => {
+  it("describes the repository tools only when the harness registers them", () => {
+    const context = {
+      projectId: 42,
+      apiHost: "https://us.posthog.com",
+      taskId: "task-123",
+      cwd: "/tmp/task-123",
+      environment: "local",
+      channelMode: true,
+    } as const;
+
+    expect(buildTaskSystemPrompt(context)).not.toContain("list_repos");
+    expect(buildTaskSystemPrompt(context, { repositoryTools: true })).toContain(
+      "call `list_repos` to find it",
+    );
+  });
+
+  it("includes signed commit attribution instructions for cloud tasks", () => {
     const prompt = buildTaskSystemPrompt({
       projectId: 42,
       apiHost: "https://us.posthog.com",
@@ -34,7 +51,10 @@ describe("buildTaskSystemPrompt", () => {
       additionalInstructions: "Use the existing pull request.",
     });
 
-    expect(prompt).not.toContain("Generated-By: PostHog Desktop");
+    expect(prompt).toContain("git_signed_commit");
+    expect(prompt).toContain("Generated-By: PostHog Desktop");
+    expect(prompt).toContain("Task-Id: task-123");
+    expect(prompt).not.toContain('git commit -m "$(cat');
     expect(prompt).toContain("Use the existing pull request.");
   });
 });

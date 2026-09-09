@@ -24,6 +24,7 @@ import { SlackMark } from "@posthog/ui/primitives/SlackMark";
  */
 export type TaskStatusInput = TaskIconProps & {
   prUrl?: string | null;
+  isAgentSessionStarting?: boolean;
 };
 
 /**
@@ -81,11 +82,7 @@ export interface TaskDot {
   style: "solid" | "hollow";
   /** Flashing = happening now, or wanting you now. */
   pulse: boolean;
-  /**
-   * Draw as the braille dots spinner instead of one dot — still dot-shaped, so
-   * it stays in the dot column's vocabulary, but the motion is a *cycle* rather
-   * than a blink, which is the honest shape for "output is arriving".
-   */
+  /** Draw a standard spinner instead of a status dot. */
   spinner?: boolean;
   /**
    * Draw the dot barely there. For states that are deliberately inert — the task
@@ -100,30 +97,35 @@ export interface TaskDot {
  * State → dot. Three things only: blue wants a decision from you, the brand
  * yellow is working or unread, grey is quiet.
  *
- * Run mechanics are deliberately absent. A cloud run is magic from the outside —
- * queued, claiming a sandbox, retrying, and erroring out are our problems, not
- * the reader's, and a list that reports them turns every infrastructure hiccup
- * into a red mark on the reader's work. So a failed run is not a state here: what
- * the reader actually gets is output they haven't seen, which is `isUnread`, and
- * the run's real story lives in the task detail where there's room to tell it.
+ * Recoverable run mechanics stay behind one loading state. A failed run uses a
+ * red mark because the loading spinner must end with a clear result.
  *
- * A cloud run's queued is folded into working for the same reason. "Waiting on a
- * sandbox" and "a sandbox is writing code" are one fact to the reader, that it's
- * under way, so they share the spinner. Two states don't share it: a local run
- * at `queued`, whose persisted status nothing ever advances, and a run at
- * `in_progress` with nothing streaming. Both claims outlive the work, and a
- * spinner that never stops is a lie about the machine.
+ * A cloud run's `not_started` and `queued` states show the same loading spinner
+ * as other startup states. A local run at `queued`, or any run at `in_progress` with nothing
+ * streaming, is not a live signal by itself because those states can outlive
+ * the work.
  *
- * And a run that has already opened a PR is not working, whatever its status
- * says. The cloud workflow keeps the run `in_progress` while it babysits CI
- * after opening the PR, and under a merge queue that wait ends only when someone
- * enqueues the merge — so the run can claim to be working for hours after the
- * agent stopped. The PR is the deliverable; once it exists the badge carries the
- * story and the dot goes quiet. This beats a status that merely claims work, not
- * one that is visibly starting: a re-queued cloud run keeps its spinner even
- * with last run's PR still on the task.
+ * A run that has already opened a PR follows the same rule. The PR badge carries
+ * that story; only a visibly loading or streaming run lights the dot.
  */
 export function taskDot(props: TaskStatusInput): TaskDot {
+  // Cloud `not_started` and `queued` are setup states that the backend leaves
+  // by itself. A local run can remain `queued` after the agent finishes.
+  const isLoadingCloudRun =
+    (props.taskRunStatus === "not_started" ||
+      props.taskRunStatus === "queued") &&
+    props.workspaceMode === "cloud" &&
+    !props.isGenerating;
+  const isLoading = props.isAgentSessionStarting || isLoadingCloudRun;
+  if (isLoading) {
+    return {
+      tone: "yellow",
+      style: "solid",
+      pulse: false,
+      spinner: true,
+      label: "Loading",
+    };
+  }
   if (props.needsPermission) {
     // Not flashing. Blue already reads as the one thing in the list that is
     // yours to answer, and a blink on top of that argues with every quiet row
@@ -139,36 +141,21 @@ export function taskDot(props: TaskStatusInput): TaskDot {
       label: "Needs your input",
     };
   }
-  // Spinning means something is moving on its own: a prompt in flight, or a
-  // cloud run still coming up. Cloud `queued` is a sandbox being claimed, and
-  // the backend leaves that state by itself, so the motion is bounded. A local
-  // run at `queued` is not a launch: nothing advances a local run's persisted
-  // status, so it can sit there for hours after the agent is done with it.
-  const isStartingCloudRun =
-    props.taskRunStatus === "queued" && props.workspaceMode === "cloud";
-  if (props.isGenerating || isStartingCloudRun) {
+  if (props.taskRunStatus === "failed" && !props.isGenerating) {
+    return {
+      tone: "red",
+      style: "solid",
+      pulse: false,
+      label: "Failed",
+    };
+  }
+  if (props.isGenerating) {
     return {
       tone: "yellow",
       style: "solid",
       pulse: false,
       spinner: true,
-      label: props.isGenerating ? "Working" : "Starting",
-    };
-  }
-  // Only a background run's status is a claim about work. An interactive run is
-  // left `in_progress` after it succeeds, deliberately — the session stays open
-  // for a follow-up, so the status says "followable", not "working". Reading it
-  // as a claim marked every finished session as pending, on a row nobody could
-  // clear: opening the session writes a viewed timestamp, not a status.
-  const runClaimsWork =
-    props.runMode === "background" &&
-    (props.taskRunStatus === "in_progress" || props.taskRunStatus === "queued");
-  if (runClaimsWork && !hasPullRequest(props)) {
-    return {
-      tone: "yellow",
-      style: "solid",
-      pulse: false,
-      label: "Pending — no work in flight",
+      label: "Working",
     };
   }
   if (props.isUnread) {
@@ -197,14 +184,6 @@ export function taskDot(props: TaskStatusInput): TaskDot {
     pulse: false,
     label: "All caught up",
   };
-}
-
-/**
- * Whether a PR exists at all, by either route: the state from a GitHub lookup,
- * or just the url the run wrote when it opened one.
- */
-function hasPullRequest(props: TaskStatusInput): boolean {
-  return props.prState != null || !!props.prUrl;
 }
 
 export interface TaskBadge {

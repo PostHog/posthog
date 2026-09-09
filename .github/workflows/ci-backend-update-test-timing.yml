@@ -12,11 +12,14 @@ on:
                 required: false
                 type: string
     schedule:
-        # Every 6 hours: merge the latest CI timing artifacts and refresh the Actions cache
-        # that ci-backend / ci-dagster restore for sharding. Frequent refresh keeps splits
-        # balanced even after large batches of new tests land mid-day. Cheap: it merges
+        # Hourly: merge the latest CI timing artifacts and refresh the Actions cache
+        # that ci-backend / ci-dagster restore for sharding. The timing data comes from
+        # the hourly scheduled master runs of those workflows (see "The hourly master
+        # lane" in .agents/skills/authoring-ci-workflows/SKILL.md for the cron offsets),
+        # so an hourly refresh here follows every new run. The minute is offset from the
+        # ci-backend cron so that run has most of the hour to finish. Cheap: it merges
         # artifacts without executing any tests.
-        - cron: '0 3,9,15,21 * * *'
+        - cron: '17 * * * *'
 
 permissions:
     contents: read
@@ -64,8 +67,10 @@ jobs:
                   fi
 
                   # Find recent successful ci-backend.yml runs with timing artifacts.
-                  # Most runs skip tests due to path filtering and finish in seconds, so filter by duration first
-                  # Runs that actually execute tests take 15+ minutes
+                  # Only the hourly scheduled runs carry them. Master pushes run the per-commit
+                  # checks only, but those take longer than the duration filter below, so
+                  # without the event filter they fill the candidate window and the search
+                  # finds nothing.
                   # Only consider runs from the past 14 days to ensure artifacts haven't expired
                   echo "Searching for Backend CI runs with timing artifacts..."
 
@@ -83,11 +88,13 @@ jobs:
                   # Calculate date 14 days ago in ISO 8601 format
                   cutoff_date=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-14d +%Y-%m-%dT%H:%M:%SZ)
                   # Newest first: runs that ran tests (>5 min) and uploaded a full set of timing
-                  # artifacts (>=38), up to N. Scan a wider candidate window since most runs skip.
-                  run_ids=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-backend.yml/runs?status=success&branch=master&per_page=100&created=>=$cutoff_date" \
+                  # artifacts (>=38), up to N. Scan N plus a margin so a run with expired or
+                  # partial artifacts does not end the search early; the margin also bounds
+                  # the artifact API calls when nothing qualifies.
+                  run_ids=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-backend.yml/runs?status=success&branch=master&event=schedule&per_page=100&created=>=$cutoff_date" \
                       --jq '.workflow_runs[] | select(
                           (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
-                      ) | .id' | head -25 | \
+                      ) | .id' | head -n "$((N + 20))" | \
                       while read id; do
                           count=$(gh api "repos/${{ github.repository }}/actions/runs/$id/artifacts?per_page=100" \
                               --jq '[.artifacts[] | select(.name | startswith("timing_data-")) | select(.expired == false)] | length' 2>/dev/null)
@@ -121,14 +128,15 @@ jobs:
                       exit 0
                   fi
 
-                  # Find a recent successful ci-dagster.yml run with timing artifacts
+                  # Find a recent successful ci-dagster.yml run with timing artifacts.
+                  # Only the hourly scheduled runs carry them (master pushes skip the suite).
                   # Only consider runs from the past 14 days to ensure artifacts haven't expired
                   echo "Searching for Dagster CI run with timing artifacts..."
 
                   # Calculate date 14 days ago in ISO 8601 format
                   cutoff_date=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-14d +%Y-%m-%dT%H:%M:%SZ)
                   # Get runs that took more than 5 minutes (300 seconds) - likely ran tests
-                  run_id=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-dagster.yml/runs?status=success&branch=master&per_page=100&created=>=$cutoff_date" \
+                  run_id=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-dagster.yml/runs?status=success&branch=master&event=schedule&per_page=100&created=>=$cutoff_date" \
                       --jq '.workflow_runs[] | select(
                           (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
                       ) | .id' | head -5 | \
@@ -155,7 +163,8 @@ jobs:
               # The merge below takes product entries only from the products file
               # (--replace-prefix), so a Products slice that fails the drift check
               # needs a stand-in or every product loses its durations. The last
-              # cached map is that stand-in. A miss leaves the checked-out file.
+              # cached map is that stand-in. .test_durations is untracked, so a miss
+              # leaves no file and the fallback below publishes no product entries.
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               continue-on-error: true
               with:
@@ -166,11 +175,17 @@ jobs:
                       posthog-test-durations-
 
             - name: Set the previous map aside
-              # The restore lands on the tracked file; keep the copy elsewhere and put
-              # the committed file back so the change check below diffs a clean tree.
+              # Keep the restored map where the drift fallback below expects it, and
+              # take it out of the tree so the fresh map is written rather than merged
+              # onto the old one. .test_durations is not tracked (it left the repo when
+              # the timing workflow started publishing it as an artifact), so there is
+              # nothing to restore it from and a cache miss leaves no file at all.
               run: |
-                  cp .test_durations /tmp/previous_durations
-                  git checkout -- .test_durations
+                  if [ -f .test_durations ]; then
+                      mv .test_durations /tmp/previous_durations
+                  else
+                      echo "::warning::No cached map restored; a drifting Products slice has no stand-in"
+                  fi
 
             - name: Download timing artifacts
               env:
@@ -265,12 +280,21 @@ jobs:
                   set -e
                   if [ "$products_status" -ne 0 ]; then
                       echo "::warning::Products durations refresh exited $products_status; keeping the previous products slice. Drift or an incomplete JUnit set are the expected causes, see the log above."
-                      # Only entries the fresh slices do not carry: the outlier merge would
-                      # otherwise let a stale value here beat a fresh one for the same test.
-                      jq -s 'add' $(ls /tmp/core_durations /tmp/temporal_durations /tmp/dagster_durations 2>/dev/null) > /tmp/fresh_durations
-                      jq --slurpfile fresh /tmp/fresh_durations \
-                          'with_entries(select((.key | startswith("products/")) and ($fresh[0][.key] == null)))' \
-                          /tmp/previous_durations > /tmp/products_durations
+                      if [ -f /tmp/previous_durations ]; then
+                          # Only entries the fresh slices do not carry: the outlier merge would
+                          # otherwise let a stale value here beat a fresh one for the same test.
+                          jq -s 'add' $(ls /tmp/core_durations /tmp/temporal_durations /tmp/dagster_durations 2>/dev/null) > /tmp/fresh_durations
+                          jq --slurpfile fresh /tmp/fresh_durations \
+                              'with_entries(select((.key | startswith("products/")) and ($fresh[0][.key] == null)))' \
+                              /tmp/previous_durations > /tmp/products_durations
+                      else
+                          # No cached slice to stand in and no fresh one. A map with no product
+                          # entries would still become the newest cache and the latest successful
+                          # artifact, so every consumer would fall back to the file-count estimate
+                          # and under-shard the fixture-heavy products. Leave the older map newest.
+                          echo "::error::Products slice failed with no previous map to stand in; refusing to publish a map without product entries"
+                          exit 1
+                      fi
                   fi
 
                   # Process Dagster segment if available
@@ -381,8 +405,9 @@ jobs:
             - name: Publish the merged durations as an artifact
               # The cold-start floor for the consumers. .test_durations is not in the
               # repo: every consumer restores the newest cache and, on a miss, downloads
-              # this artifact from the latest successful run of this workflow. 90 days
-              # outlives any plausible cache lapse; the daily refresh keeps it fresh.
+              # this artifact from the latest successful run of this workflow. The repo
+              # caps artifact retention at 30 days, which outlives any plausible cache
+              # lapse; the hourly refresh keeps it fresh.
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: test-durations
@@ -393,4 +418,4 @@ jobs:
                   include-hidden-files: true
                   # The per-segment files are absent when their multi-run average failed.
                   if-no-files-found: error
-                  retention-days: 90
+                  retention-days: 30

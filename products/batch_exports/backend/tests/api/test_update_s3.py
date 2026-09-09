@@ -16,44 +16,6 @@ pytestmark = [
 ]
 
 
-def _assert_empty_inputs_rejected(client: HttpClient, team_id: int, batch_export_id, destination_type: str) -> None:
-    response = patch_batch_export(
-        client,
-        team_id,
-        batch_export_id,
-        {
-            "destination": {
-                "type": destination_type,
-                "config": {
-                    "bucket_name": "my-new-bucket",
-                    "aws_access_key_id": "",
-                    "aws_secret_access_key": "",
-                },
-            },
-        },
-    )
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert response.json()["detail"] == "The following inputs are empty: ['aws_access_key_id', 'aws_secret_access_key']"
-
-
-def test_updating_legacy_s3_batch_export_validates_empty_inputs(client: HttpClient, temporal, organization, team, user):
-    """Legacy `S3` rows can no longer be created, but existing ones must remain patchable and validated."""
-    destination = BatchExportDestination.objects.create(
-        type="S3",
-        config={
-            "bucket_name": "my-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    )
-    batch_export = create_batch_export_orm(team, destination)
-
-    client.force_login(user)
-    _assert_empty_inputs_rejected(client, team.pk, str(batch_export.id), "S3")
-
-
 _S3_FAMILY_INTEGRATIONS = [
     ("AwsS3", Integration.IntegrationKind.AWS_S3, {"name": "prod-aws", "aws_account_id": "123456789012"}),
     (
@@ -93,7 +55,7 @@ def _create_integration_backed_export(client: HttpClient, team, user, destinatio
 
 @pytest.mark.parametrize("destination_type,kind,integration_config", _S3_FAMILY_INTEGRATIONS)
 @pytest.mark.parametrize("integration_value", [None, "omitted"])
-def test_updating_s3_family_batch_export_rejects_removing_integration(
+def test_updating_s3_family_batch_export_requires_an_integration(
     client: HttpClient,
     temporal,
     organization,
@@ -104,21 +66,25 @@ def test_updating_s3_family_batch_export_rejects_removing_integration(
     integration_config,
     integration_value,
 ):
-    """An integration-backed export can't drop back to inline credentials — whether the caller
-    sends `integration: null` or omits it entirely (clients re-send the full destination on update).
+    """An export can't drop its integration: sending `integration: null` is rejected, and omitting
+    it entirely keeps the one already linked.
     """
-    _, batch_export = _create_integration_backed_export(client, team, user, destination_type, kind, integration_config)
+    integration, batch_export = _create_integration_backed_export(
+        client, team, user, destination_type, kind, integration_config
+    )
 
-    destination: dict = {"type": destination_type, "config": {}}
+    destination: dict = {"type": destination_type, "config": {"prefix": "new-prefix/"}}
     if integration_value is None:
         destination["integration"] = None
 
     response = patch_batch_export(client, team.pk, batch_export["id"], {"destination": destination})
-    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert response.json()["detail"] == (
-        "Cannot remove the integration from an S3 batch export that uses one. "
-        "Re-send its `integration` to keep it (or a different one to swap)."
-    )
+
+    if integration_value is None:
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == f"Integration is required for {destination_type} batch exports"
+    else:
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["destination"]["integration"] == integration.id
 
 
 @pytest.mark.parametrize("destination_type,kind,integration_config", _S3_FAMILY_INTEGRATIONS)
@@ -141,8 +107,34 @@ def test_updating_integration_backed_s3_export_allows_config_patch_with_integrat
     assert response.json()["destination"]["integration"] == integration.id
 
 
-def test_updating_legacy_s3_batch_export_rejects_integration(client: HttpClient, temporal, organization, team, user):
-    """The legacy `S3` type doesn't support integration-based credentials, so linking one is rejected."""
+@pytest.mark.parametrize("destination_type,kind,integration_config", _S3_FAMILY_INTEGRATIONS)
+def test_updating_migrated_s3_batch_export_ignores_credentials_left_in_stored_config(
+    client: HttpClient, temporal, organization, team, user, destination_type, kind, integration_config
+):
+    """Exports migrated onto an integration still hold their old credentials in stored config.
+
+    Those stale values must not make the export unpatchable: only the submitted config is checked
+    for credential fields.
+    """
+    integration, batch_export = _create_integration_backed_export(
+        client, team, user, destination_type, kind, integration_config
+    )
+    destination = BatchExportDestination.objects.get(batchexport__id=batch_export["id"])
+    destination.config = {**destination.config, "aws_access_key_id": "stale", "aws_secret_access_key": "stale"}
+    destination.save()
+
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {"destination": {"type": destination_type, "config": {"prefix": "new-prefix/"}, "integration": integration.id}},
+    )
+    assert response.status_code == status.HTTP_200_OK, response.json()
+    assert response.json()["destination"]["config"]["prefix"] == "new-prefix/"
+
+
+def test_updating_legacy_s3_batch_export_is_rejected(client: HttpClient, temporal, organization, team, user):
+    """The legacy `S3` type has been migrated away and accepts no writes."""
     destination = BatchExportDestination.objects.create(
         type="S3",
         config={
@@ -154,21 +146,13 @@ def test_updating_legacy_s3_batch_export_rejects_integration(client: HttpClient,
         },
     )
     batch_export = create_batch_export_orm(team, destination)
-    integration = Integration.objects.create(
-        team=team,
-        kind=Integration.IntegrationKind.AWS_S3,
-        integration_id="prod-aws",
-        config={"name": "prod-aws", "aws_account_id": "123456789012"},
-        sensitive_config={"aws_access_key_id": "key", "aws_secret_access_key": "secret"},
-        created_by=user,
-    )
 
     client.force_login(user)
     response = patch_batch_export(
         client,
         team.pk,
         str(batch_export.id),
-        {"destination": {"type": "S3", "config": {}, "integration": integration.id}},
+        {"destination": {"type": "S3", "config": {"prefix": "new-prefix/"}}},
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert response.json()["detail"] == "S3 destinations do not support integration-based credentials."
+    assert "deprecated" in response.json()["detail"]

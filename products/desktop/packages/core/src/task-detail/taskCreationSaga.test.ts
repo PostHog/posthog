@@ -55,6 +55,8 @@ const sessionService = {
   watchCreatedCloudTask: vi.fn(),
   rememberInitialCloudPrompt: vi.fn(),
   markTaskCreationInFlight: vi.fn(),
+  clearVisibleTaskStarting: vi.fn(),
+  designateClaudeSubscription: vi.fn(),
 } as unknown as SessionService;
 
 const createTask = (overrides: Partial<Task> = {}): Task => ({
@@ -137,6 +139,48 @@ describe("TaskCreationSaga", () => {
       }),
     );
   });
+
+  it.each([true, false])(
+    "starts a cold subscription run only when credential designation succeeds (%s)",
+    async (designationSucceeds) => {
+      const createTaskMock = vi.fn().mockResolvedValue(createTask());
+      const createTaskRunMock = vi.fn().mockResolvedValue(createRun());
+      const startTaskRunMock = vi
+        .fn()
+        .mockResolvedValue(createTask({ latest_run: createRun() }));
+      const designate = vi.mocked(sessionService.designateClaudeSubscription);
+      designate.mockImplementationOnce(async () => {
+        if (!designationSucceeds) throw new Error("Host unavailable");
+      });
+      const saga = makeSaga({
+        createTask: createTaskMock,
+        createTaskRun: createTaskRunMock,
+        startTaskRun: startTaskRunMock,
+      });
+
+      const result = await saga.run({
+        content: "Ship the fix",
+        repository: "posthog/posthog",
+        workspaceMode: "cloud",
+        branch: "main",
+        adapter: "claude",
+        claudeCloudModelAccess: "own-subscription",
+      });
+
+      expect(createTaskMock.mock.calls[0][0].branch).toBeUndefined();
+      expect(createTaskRunMock).toHaveBeenCalledWith(
+        "task-123",
+        expect.objectContaining({
+          claudeModelAccess: "own-subscription",
+        }),
+      );
+      expect(designate).toHaveBeenCalledWith("task-123", "run-123");
+      expect(result.success).toBe(designationSucceeds);
+      expect(startTaskRunMock).toHaveBeenCalledTimes(
+        designationSucceeds ? 1 : 0,
+      );
+    },
+  );
 
   it("waits for the cloud run response before surfacing the task", async () => {
     const createdTask = createTask();
@@ -380,12 +424,18 @@ describe("TaskCreationSaga", () => {
     expect(deleteTask).not.toHaveBeenCalled();
   });
 
-  it("starts a Pi session without creating an ACP session", async () => {
+  it("starts a Pi session before surfacing a new local task", async () => {
+    let resolvePiSession: () => void = () => {};
+    const piSessionCreated = new Promise<void>((resolve) => {
+      resolvePiSession = resolve;
+    });
     const createdTask = createTask({ repository: undefined });
     const createTaskRequest = vi.fn().mockResolvedValue(createdTask);
-    const saga = makeSaga({ createTask: createTaskRequest });
+    const onTaskReady = vi.fn();
+    piRunner.create.mockImplementationOnce(() => piSessionCreated);
+    const saga = makeSaga({ createTask: createTaskRequest }, { onTaskReady });
 
-    const result = await saga.run({
+    const run = saga.run({
       content: "Draft a launch email",
       workspaceMode: "local",
       runtime: "pi",
@@ -396,7 +446,17 @@ describe("TaskCreationSaga", () => {
       allowNoRepo: true,
     });
 
+    await vi.waitFor(() => expect(piRunner.create).toHaveBeenCalledOnce());
+    expect(onTaskReady).not.toHaveBeenCalled();
+    resolvePiSession();
+
+    const result = await run;
+
     expect(result.success).toBe(true);
+    expect(onTaskReady).toHaveBeenCalledWith({
+      task: createdTask,
+      workspace: null,
+    });
     expect(createTaskRequest).toHaveBeenCalledWith(
       expect.objectContaining({ runtime: "pi" }),
     );
@@ -408,13 +468,47 @@ describe("TaskCreationSaga", () => {
         additionalDirectories: ["/tmp/shared"],
         channelMode: true,
       },
-      projectTrustPath: "/tmp/scratch/task-123",
       prompt: "Draft a launch email",
       model: "claude-sonnet",
       thinkingLevel: "medium",
     });
     expect(sessionService.connectToTask).not.toHaveBeenCalled();
     expect(sessionService.markTaskCreationInFlight).not.toHaveBeenCalled();
+  });
+
+  it("starts a Pi session before surfacing a new worktree task", async () => {
+    let resolvePiSession: () => void = () => {};
+    const piSessionCreated = new Promise<void>((resolve) => {
+      resolvePiSession = resolve;
+    });
+    const createdTask = createTask();
+    const onTaskReady = vi.fn();
+    mockHost.addFolder.mockResolvedValue({ id: "folder-1", path: "/repo" });
+    piRunner.create.mockImplementationOnce(() => piSessionCreated);
+    const saga = makeSaga(
+      { createTask: vi.fn().mockResolvedValue(createdTask) },
+      { onTaskReady },
+    );
+
+    const run = saga.run({
+      content: "Fix the login flow",
+      repoPath: "/repo",
+      workspaceMode: "worktree",
+      runtime: "pi",
+    });
+
+    await vi.waitFor(() => expect(piRunner.create).toHaveBeenCalledOnce());
+    expect(onTaskReady).not.toHaveBeenCalled();
+    resolvePiSession();
+
+    const result = await run;
+
+    expect(result).toMatchObject({ success: true });
+    expect(mockHost.createWorkspace).toHaveBeenCalledOnce();
+    expect(onTaskReady).toHaveBeenCalledWith({
+      task: createdTask,
+      workspace: expect.objectContaining({ taskId: createdTask.id }),
+    });
   });
 
   it("uploads cloud Pi attachments before starting the run", async () => {
@@ -473,6 +567,7 @@ describe("TaskCreationSaga", () => {
       repository: "posthog/posthog",
       workspaceMode: "cloud",
       runtime: "pi",
+      claudeCloudModelAccess: "own-subscription",
       branch: "main",
       adapter: "codex",
       model: "gpt-5.4",
@@ -488,6 +583,7 @@ describe("TaskCreationSaga", () => {
         branch: "main",
         adapter: undefined,
         piRuntime: true,
+        claudeModelAccess: undefined,
         model: "gpt-5.4",
         reasoningLevel: "high",
         initialPermissionMode: undefined,
@@ -498,6 +594,7 @@ describe("TaskCreationSaga", () => {
       pendingUserArtifactIds: undefined,
     });
     expect(piRunner.create).not.toHaveBeenCalled();
+    expect(sessionService.designateClaudeSubscription).not.toHaveBeenCalled();
   });
 
   it("uploads initial cloud attachments before starting the run", async () => {
@@ -995,6 +1092,7 @@ describe("TaskCreationSaga", () => {
       cloudRunSource: "signal_report",
       signalReportId: "report-123",
       signalReportTaskRelationship: "discussion",
+      signalReportDiscussionQuestion: "why?",
       githubIntegrationId: 123,
     });
 
@@ -1011,6 +1109,7 @@ describe("TaskCreationSaga", () => {
         repositories: undefined,
         signal_report: "report-123",
         signal_report_task_relationship: "discussion",
+        signal_report_discussion_question: "why?",
       }),
     );
     expect(createTaskRunMock).toHaveBeenCalledWith(
@@ -1339,6 +1438,9 @@ describe("TaskCreationSaga", () => {
     expect(deleteTaskMock).not.toHaveBeenCalled();
     // Spinner is dismissed and no agent session starts without a worktree.
     expect(mockHost.clearProvisioning).toHaveBeenCalledWith("task-123");
+    expect(sessionService.clearVisibleTaskStarting).toHaveBeenCalledWith(
+      "task-123",
+    );
     expect(sessionService.connectToTask).not.toHaveBeenCalled();
     // The early onTaskReady already navigated onto the task.
     expect(onTaskReady).toHaveBeenCalledTimes(1);
@@ -1370,6 +1472,9 @@ describe("TaskCreationSaga", () => {
     expect(result.success).toBe(false);
     // Only workspace_creation is protected; an agent_session failure rolls back.
     expect(deleteTaskMock).toHaveBeenCalledWith("task-123");
+    expect(sessionService.clearVisibleTaskStarting).toHaveBeenCalledWith(
+      "task-123",
+    );
     expect(mockHost.deleteWorkspace).toHaveBeenCalled();
   });
 
@@ -1436,7 +1541,7 @@ describe("TaskCreationSaga", () => {
   });
 
   it.each(["local", "worktree"] as const)(
-    "forwards context window and fast mode to the agent session for workspaceMode=%s",
+    "forwards run configuration to the agent session for workspaceMode=%s",
     async (workspaceMode) => {
       const createTaskMock = vi.fn().mockResolvedValue(createTask());
       mockHost.addFolder.mockResolvedValue({ id: "folder-1", path: "/repo" });
@@ -1448,14 +1553,45 @@ describe("TaskCreationSaga", () => {
         content: "Ship the fix",
         repoPath: "/repo",
         workspaceMode,
+        adapter: "codex",
+        codexModelAccess: "own-subscription",
         contextWindow: "1m",
         fastMode: true,
       });
 
       expect(result.success).toBe(true);
       expect(sessionService.connectToTask).toHaveBeenCalledWith(
-        expect.objectContaining({ contextWindow: "1m", fastMode: true }),
+        expect.objectContaining({
+          adapter: "codex",
+          codexModelAccess: "own-subscription",
+          contextWindow: "1m",
+          fastMode: true,
+        }),
       );
     },
   );
+
+  it("forwards the selected Claude model access to the agent session", async () => {
+    const createTaskMock = vi.fn().mockResolvedValue(createTask());
+    mockHost.addFolder.mockResolvedValue({ id: "folder-1", path: "/repo" });
+    mockHost.detectRepo.mockResolvedValue(null);
+
+    const saga = makeSaga({ createTask: createTaskMock });
+
+    const result = await saga.run({
+      content: "Ship the fix",
+      repoPath: "/repo",
+      workspaceMode: "local",
+      adapter: "claude",
+      claudeModelAccess: "own-subscription",
+    });
+
+    expect(result.success).toBe(true);
+    expect(sessionService.connectToTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adapter: "claude",
+        claudeModelAccess: "own-subscription",
+      }),
+    );
+  });
 });

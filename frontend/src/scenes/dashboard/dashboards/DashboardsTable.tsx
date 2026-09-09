@@ -177,7 +177,15 @@ export function DashboardsTable({
             title: 'Tags',
             dataIndex: 'tags' as keyof DashboardType,
             render: function Render(tags: DashboardType['tags']) {
-                return tags ? <ObjectTags tags={[...tags].sort()} staticOnly /> : null
+                return tags ? (
+                    <ObjectTags
+                        tags={[...tags].sort()}
+                        staticOnly
+                        maxVisibleTags={5}
+                        data-attr="dashboard-tags"
+                        onTagClick={(tag) => setFilters({ tags: [tag] })}
+                    />
+                ) : null
             },
         } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         {
@@ -328,7 +336,7 @@ export function DashboardsTable({
             <DashboardsFiltersBar extraActions={extraActions} />
             <LemonTable
                 data-attr="dashboards-table"
-                pagination={{ pageSize: 100 }}
+                pagination={{ pageSize: 50 }}
                 dataSource={dashboards as DashboardType[]}
                 rowKey="id"
                 rowClassName={(record) => (record._highlight ? 'highlighted' : null)}

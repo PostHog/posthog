@@ -747,6 +747,7 @@ WHERE and(
         return get_traffic_type_expr(
             user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]),
             ip_expr or ast.Field(chain=["events", "properties", "$ip"]),
+            modifiers=self.modifiers,
         )
 
     def _get_traffic_category_expr(
@@ -755,6 +756,7 @@ WHERE and(
         return get_traffic_category_expr(
             user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]),
             ip_expr or ast.Field(chain=["events", "properties", "$ip"]),
+            modifiers=self.modifiers,
         )
 
     def get_cache_key(self) -> str:

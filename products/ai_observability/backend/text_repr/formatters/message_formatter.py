@@ -6,6 +6,7 @@ and content blocks. Supports multiple provider formats (OpenAI, Anthropic, etc.)
 with truncation and interactive markers for frontend display.
 """
 
+import re
 import json
 import base64
 from typing import Any, TypedDict
@@ -157,6 +158,30 @@ def reduce_by_uniform_sampling(
     return result, True
 
 
+# UTF-16 surrogate code points. A well-formed pair survives the round trip in
+# `sanitize_surrogates` and becomes the character it encodes; a lone one becomes U+FFFD.
+SURROGATE_REGEX = re.compile("[\ud800-\udfff]")
+
+
+def sanitize_surrogates(text: str) -> str:
+    """Make `text` encodable as UTF-8.
+
+    Trace content arrives as it was captured, and the truncation and sampling above cut on
+    character counts, so either source can leave an unpaired surrogate -- half of an emoji -- in
+    the result. UTF-8 cannot represent one, so `str.encode("utf-8")` raises and the whole text
+    representation is lost: the Redis write in the batch summarization path and the request body of
+    the summarization LLM call both fail that way. Repair at the formatter exits, so every consumer
+    of a text representation gets the same encodable string.
+
+    Unlike `safe_clickhouse_string`, this does not escape the surrogate into literal `\\ud83c`
+    text. Escaping is right where the bytes must round-trip, but a text representation is read as
+    prose by a model, so a replacement character is the better loss.
+    """
+    if not SURROGATE_REGEX.search(text):
+        return text
+    return text.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
+
+
 def truncate_content(content: str, options: FormatterOptions | None = None) -> tuple[list[str], bool]:
     """
     Truncate content with middle ellipsis for long text.
@@ -256,15 +281,11 @@ def extract_tool_calls_from_content(content: Any) -> list[ToolCall]:
 
     tool_calls: list[ToolCall] = []
     for block in content:
-        if isinstance(block, dict):
+        match block:
             # Handle tool-call format: { type: "tool-call", function: {...} }
-            if block.get("type") == "tool-call" and "function" in block:
-                if isinstance(block["function"], dict):
-                    tool_calls.append({"function": block["function"]})
-            # Handle Anthropic function format: { type: "function", function: {...} }
-            elif block.get("type") == "function" and "function" in block:
-                if isinstance(block["function"], dict):
-                    tool_calls.append({"function": block["function"]})
+            # and Anthropic function format: { type: "function", function: {...} }
+            case {"type": "tool-call" | "function", "function": dict() as function}:
+                tool_calls.append({"function": function})
 
     return tool_calls
 

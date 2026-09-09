@@ -26,7 +26,6 @@ import {
   reportCanvasErrorInput,
   requestCanvasAgentInput,
   revertCanvasInput,
-  saveContextInput,
   setGenerationTaskInput,
   setPinnedInput,
 } from "@posthog/core/canvas/dashboardSchemas";
@@ -57,6 +56,11 @@ export const dashboardsRouter = router({
       ctx.container
         .get<IDashboardsService>(DASHBOARDS_SERVICE)
         .listComponents(input),
+    ),
+  listAll: publicProcedure
+    .output(z.array(dashboardRecordSchema))
+    .query(({ ctx }) =>
+      ctx.container.get<IDashboardsService>(DASHBOARDS_SERVICE).listAll(),
     ),
   get: publicProcedure
     .input(dashboardIdInput)
@@ -156,14 +160,6 @@ export const dashboardsRouter = router({
     .output(dashboardRecordSchema)
     .mutation(({ ctx, input }) =>
       ctx.container.get<IDashboardsService>(DASHBOARDS_SERVICE).create(input),
-    ),
-  saveContext: publicProcedure
-    .input(saveContextInput)
-    .output(dashboardRecordSchema)
-    .mutation(({ ctx, input }) =>
-      ctx.container
-        .get<IDashboardsService>(DASHBOARDS_SERVICE)
-        .saveContext(input),
     ),
   setGenerationTask: publicProcedure
     .input(setGenerationTaskInput)

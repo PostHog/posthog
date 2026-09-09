@@ -34,6 +34,63 @@ Two tRPC surfaces exist:
 - `@posthog/host-router`: Electron main process API for its renderer.
 - `@posthog/workspace-server`: privileged Node backend API consumed by `@posthog/workspace-client`.
 
+## New task startup
+
+New-task screens wait for the route's browser tab ID before mounting the
+composer. This keeps prefilled prompts in the tab's draft instead of a temporary
+session. Consuming a prompt clears its content, but keeps the request ID so model
+and mode settings can apply after their options load.
+
+Submitting a task keeps the composer busy until creation opens the task's chat.
+The chat displays the submitted prompt with the current startup status until
+initialization ends and the transcript or error state takes over. The waiting
+message and composer use the same outer gutters and column width as the live chat.
+
+Local startup retries retain the original prompt and run configuration after a
+failure. A failed replacement keeps its session when available, or restores the
+previous session with an error. A later retry can send the original prompt.
+A retry without a session reports failure instead of successful recovery.
+
+Claude initialization includes the repository's `SessionStart` hooks. These hooks
+can prepare a new worktree and install dependencies before the SDK becomes ready.
+An observed setup hook gets a separate, bounded wait of ten minutes. Startup with
+no active setup hooks keeps its 30-second timeout. Hook progress does not extend
+the hook deadline. Startup phase changes and failures use the desktop log path,
+without recording hook commands or output. The renderer subscribes before starting
+an agent, so it can show active setup hooks while `session/new` is still pending.
+Startup subscriptions end on success or failure. Updates from an older run cannot
+change the current run's startup phase. Startup events do not count as conversation
+history during recovery.
+
+Worktree creation shows its own preparation screen and setup output. Agent startup
+shows one status line beside a spinner: "Starting local agent" or "Running
+repository setup". The submitted prompt stays visible. Prompt retention is
+normal behavior and needs no extra message. These are observed phases, not
+estimated progress percentages.
+
+Desktop does not disable repository hooks, change repository settings, or share
+ignored dependency files between worktrees. Each worktree runs its configured
+setup in its own directory. A new worktree can need setup that an existing
+checkout has already completed. Setup time is not a connection failure while an
+observed hook remains within its deadline. The same rule applies to ordinary
+checkouts with slow hooks; it does not depend on a repository name or toolchain.
+
+A connected local session only waits for its first prompt when the session still
+has a prompt to send. A task description or an existing run does not imply that a
+prompt is pending. This lets an empty session open after a failed startup instead
+of keeping it in the loading view. Opening it does not resend the description.
+
+New cloud runs seed the full user message before subscribing to setup progress.
+The chat renders that message immediately, including its space context chip.
+Reopened transcripts reconcile the plain initial prompt with its context-bearing
+echo before rendering, so the same submission appears only once.
+
+Cloud creation can succeed while the run is still queued. The pending prompt
+remains available to the chat after that success; `SessionView` clears it when
+initialization ends. Successful submissions are marked as submitted so startup
+recovery does not reopen them as unsent drafts. Failed creation retains the prompt
+for recovery into the originating composer.
+
 ## Dependency Injection
 
 Use plain Inversify through `@posthog/di`.
@@ -43,7 +100,6 @@ Use plain Inversify through `@posthog/di`.
 - Bind services in feature `ContainerModule`s.
 - Load modules in host composition files.
 - Call `setRootContainer(container)` before React service resolution.
-- Use `bindToContainer((container) => ...)` for plain modules that register bindings before root initialization.
 - Do not call `container.get(...)` or `resolveService(...)` inside services or components.
 
 ```ts
@@ -148,6 +204,21 @@ The renderer imports `HostRouter` as a type and uses `useHostTRPC`. `trpcClient`
 - watchers
 
 It exposes colocated tRPC routers. `@posthog/workspace-client` is the typed client. `core` services inject narrow workspace-client slices and call those procedures.
+
+## Disk Cache
+
+The Electron main process owns one on-disk cache at `userData/disk-cache/<namespace>/` (`apps/code/src/main/services/disk-cache/service.ts`). An entry is bytes plus a content type and a stored-at time. Readers pass a max age and get stale entries back flagged, so a consumer can serve them when a refresh fails. "Clear application storage" removes the whole directory, which is why the directory is not named `cache`: `userData` is also Electron's `sessionData`, and on a case-insensitive filesystem that would be Chromium's own `Cache`.
+
+A namespace can take a `maxBytes` budget.
+Nothing else removes entries, so a namespace without one grows for as long as callers reach for new keys.
+With one, a write that passes the budget drops the oldest entries until the namespace fits again.
+
+Consumers take a namespace and serve it over the `posthog-cache://` protocol (`apps/code/src/main/protocols/disk-cache.ts`). Today `images/` serves remote images: the renderer rewrites an `https:` URL with `cachedImageUrl()` from `@posthog/ui/shell/cachedImageUrl`, backed by the `IDiskCacheImages` platform interface. Hosts without a disk cache leave the URL unchanged.
+
+The protocol is registered on the session that also renders untrusted artifact HTML, so treat every source as attacker-chosen.
+A source must be public `https:` with no embedded credentials: intranet and loopback addresses are refused, and a response that redirected onto one is thrown away.
+Bodies are read against a size cap while they stream, refreshes carry a deadline and a concurrency limit, and the namespace budget bounds what one preview can put on disk.
+A stale copy is served with `no-cache` so Chromium cannot hold it past the point where the disk layer would replace it.
 
 ## Schemas
 

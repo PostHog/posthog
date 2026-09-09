@@ -203,6 +203,102 @@ describe('EmailSuppressionService', () => {
         })
     })
 
+    describe('recordComplaints', () => {
+        it('suppresses immediately with source=COMPLAINT and the feedback type in the reason', async () => {
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            const email = 'reporter@example.com'
+            await svc.recordComplaints(team.id, [email], 'abuse')
+
+            expect(await readRow(email)).toMatchObject({
+                identifier: email,
+                source: 'COMPLAINT',
+                suppressed: true,
+                transient_bounce_count: 0,
+                deleted: false,
+            })
+            const detail = await hub.postgres.query<{ reason: string }>(
+                PostgresUse.COMMON_READ,
+                `SELECT reason FROM posthog_messagesuppression WHERE team_id = $1 AND identifier = $2`,
+                [team.id, email],
+                'test-read-complaint-reason'
+            )
+            expect(detail.rows[0].reason).toBe('Auto-suppressed after a spam complaint (feedback type: abuse)')
+        })
+
+        it('re-keys an unsuppressed BOUNCE counter to COMPLAINT when a complaint lands', async () => {
+            process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = '5'
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            const email = 'bounced-then-reported@example.com'
+            await svc.recordTransientBounces(team.id, [email], 'temp')
+            expect(await readRow(email)).toMatchObject({ source: 'BOUNCE', suppressed: false })
+
+            await svc.recordComplaints(team.id, [email])
+            expect(await readRow(email)).toMatchObject({
+                source: 'COMPLAINT',
+                suppressed: true,
+                // Counter is history; we keep it. The complaint is now the operative reason.
+                transient_bounce_count: 1,
+            })
+        })
+
+        it('does not override a MANUAL entry (user-managed rows are authoritative)', async () => {
+            const email = 'user-managed@example.com'
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_messagesuppression
+                    (id, team_id, identifier, source, reason, transient_bounce_count,
+                     suppressed, suppressed_at, deleted, created_at, updated_at)
+                 VALUES (gen_random_uuid(), $1, $2, 'MANUAL', 'Manually added', 0,
+                     true, NOW(), false, NOW(), NOW())`,
+                [team.id, email],
+                'test-insert-manual'
+            )
+
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            await svc.recordComplaints(team.id, [email], 'abuse')
+
+            expect(await readRow(email)).toMatchObject({ source: 'MANUAL', suppressed: true })
+            const detail = await hub.postgres.query<{ reason: string }>(
+                PostgresUse.COMMON_READ,
+                `SELECT reason FROM posthog_messagesuppression WHERE team_id = $1 AND identifier = $2`,
+                [team.id, email],
+                'test-read-reason'
+            )
+            expect(detail.rows[0].reason).toBe('Manually added')
+        })
+
+        it.each(['hard', 'transient'] as const)(
+            'keeps source and reason on a complaint row when a later %s bounce lands',
+            async (bounceType) => {
+                // Threshold=1 so one soft bounce crosses it. Above 1 the transient path never
+                // reaches the branch that rewrites the reason, and the case would prove nothing.
+                process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = '1'
+                const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+                const email = `complained-then-${bounceType}@example.com`
+                const diagnostic = 'smtp; 550 5.1.1 user unknown'
+
+                await svc.recordComplaints(team.id, [email], 'abuse')
+                await (bounceType === 'hard'
+                    ? svc.recordHardBounces(team.id, [email], diagnostic)
+                    : svc.recordTransientBounces(team.id, [email], diagnostic))
+
+                expect(await readRow(email)).toMatchObject({ source: 'COMPLAINT', suppressed: true })
+                const detail = await hub.postgres.query<{ reason: string; last_bounce_diagnostic: string }>(
+                    PostgresUse.COMMON_READ,
+                    `SELECT reason, last_bounce_diagnostic FROM posthog_messagesuppression
+                     WHERE team_id = $1 AND identifier = $2`,
+                    [team.id, email],
+                    'test-read-complaint-then-bounce'
+                )
+                // Without the precedence the row would read as a bounce suppression while still
+                // tagged COMPLAINT.
+                expect(detail.rows[0].reason).toBe('Auto-suppressed after a spam complaint (feedback type: abuse)')
+                // The bounce is still recorded, just not as the row's headline reason.
+                expect(detail.rows[0].last_bounce_diagnostic).toBe(diagnostic)
+            }
+        )
+    })
+
     describe('cache invalidation', () => {
         it("a write for one team does not evict another team's cached entries", async () => {
             // Guards against a regression from markForRefresh(touchedKeys) back to clear() — clear()

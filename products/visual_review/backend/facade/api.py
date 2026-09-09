@@ -21,10 +21,14 @@ from uuid import UUID
 
 from django.contrib.auth import get_user_model
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.helpers.trigram_search import search_match_type_from_instance
 
-from ..diff_metadata import DiffMetadata
+from ..diff_metadata import (
+    DiffMetadata,
+    RowShift as StoredRowShift,
+)
 from ..logic import (
     approvals,
     artifact_store,
@@ -42,7 +46,7 @@ from ..logic import (
     toleration,
 )
 from . import contracts
-from .enums import FlakinessState, RunPurpose
+from .enums import ActorType, RunPurpose, ShiftBandKind
 
 User = get_user_model()
 
@@ -109,17 +113,38 @@ def _to_artifact(artifact, repo_id: UUID) -> contracts.Artifact:
     )
 
 
-def _parse_diff_metadata(
-    diff_metadata_raw: dict | None,
-) -> tuple[contracts.ClusterSummary | None, bool]:
-    """Translate the compact storage shape into the verbose wire shape.
+def _to_row_shift(parsed: StoredRowShift | None) -> contracts.RowShift | None:
+    """Translate the stored row shift into the wire shape.
 
-    Returns `(cluster_summary, size_mismatch)`. The cluster_summary side
-    is None for legacy rows and identical-pair rows; size_mismatch
-    defaults to False everywhere it isn't explicitly recorded.
+    Takes the already validated model rather than the raw column, so a caller
+    that has parsed `DiffMetadata` does not pay for a second validation. The
+    contract carries fewer fields than storage does: the pixel counts behind
+    the residual are diagnostics, not something the UI renders.
     """
+    if parsed is None:
+        return None
+    return contracts.RowShift(
+        inserted_rows=parsed.inserted_rows,
+        deleted_rows=parsed.deleted_rows,
+        residual_percentage=parsed.residual_percentage,
+        raw_diff_percentage=parsed.raw_diff_percentage,
+        bands=[contracts.ShiftBand(y=b.y, rows=b.rows, kind=ShiftBandKind(b.kind)) for b in parsed.bands],
+    )
+
+
+@frozen
+class _ParsedDiffMetadata:
+    # cluster_summary and row_shift are None for legacy rows and identical-pair
+    # rows; size_mismatch is False wherever it was not explicitly recorded.
+    cluster_summary: contracts.ClusterSummary | None = None
+    size_mismatch: bool = False
+    row_shift: contracts.RowShift | None = None
+
+
+def _parse_diff_metadata(diff_metadata_raw: dict | None) -> _ParsedDiffMetadata:
+    """Translate the compact storage shape into the verbose wire shape."""
     if not diff_metadata_raw:
-        return None, False
+        return _ParsedDiffMetadata()
     parsed = DiffMetadata.model_validate(diff_metadata_raw)
     cluster_summary: contracts.ClusterSummary | None = None
     if parsed.cluster_summary is not None:
@@ -140,14 +165,18 @@ def _parse_diff_metadata(
             total=cs.total,
             truncated=cs.truncated,
         )
-    return cluster_summary, parsed.size_mismatch
+    return _ParsedDiffMetadata(
+        cluster_summary=cluster_summary,
+        size_mismatch=parsed.size_mismatch,
+        row_shift=_to_row_shift(parsed.row_shift),
+    )
 
 
 def _to_snapshot(
     snapshot, repo_id: UUID, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
 ) -> contracts.Snapshot:
     reviewed_by = (user_basic_infos or {}).get(snapshot.reviewed_by_id) if snapshot.reviewed_by_id else None
-    cluster_summary, size_mismatch = _parse_diff_metadata(snapshot.diff_metadata)
+    diff_meta = _parse_diff_metadata(snapshot.diff_metadata)
     return contracts.Snapshot(
         id=snapshot.id,
         run_id=snapshot.run_id,
@@ -168,8 +197,9 @@ def _to_snapshot(
         metadata=snapshot.metadata or {},
         ssim_score=snapshot.ssim_score,
         change_kind=snapshot.change_kind or "",
-        cluster_summary=cluster_summary,
-        size_mismatch=size_mismatch,
+        cluster_summary=diff_meta.cluster_summary,
+        size_mismatch=diff_meta.size_mismatch,
+        row_shift=diff_meta.row_shift,
     )
 
 
@@ -360,12 +390,20 @@ def get_flakiness_overview(repo_id: UUID) -> contracts.FlakinessOverview:
                 width=artifact.width if artifact is not None else None,
                 height=artifact.height if artifact is not None else None,
                 variant_count=row.variant_count,
+                hard_count=row.hard_count,
+                soft_count=row.soft_count,
+                window_runs=row.window_runs,
+                hard_rate=row.hard_rate,
+                soft_rate=row.soft_rate,
                 last_flaked_at=row.last_flaked_at,
                 avg_diff_percentage=row.avg_diff_percentage,
+                worst_soft_diff_percentage=row.worst_soft_diff_percentage,
+                headroom=row.headroom,
                 baseline_age_days=_days_since(row.baseline_moved_at, raw.generated_at),
-                daily_variant_counts=row.daily_counts,
+                daily_hard_counts=row.daily_hard_counts,
+                daily_soft_counts=row.daily_soft_counts,
                 baseline_moved_day_index=_baseline_moved_day_index(row.baseline_moved_at, raw.generated_at),
-                flakiness_state=_flakiness_state(row.is_unstable, row.variant_count),
+                flakiness_state=row.state,
                 is_quarantined=row.quarantine is not None,
                 needs_decision=row.needs_decision,
                 quarantine=(
@@ -379,8 +417,11 @@ def get_flakiness_overview(repo_id: UUID) -> contracts.FlakinessOverview:
     totals = contracts.FlakinessTotals(
         listed=len(entries),
         tracked=raw.tracked_total,
+        broken=raw.totals_broken,
         unstable=raw.totals_unstable,
-        settled=raw.totals_settled,
+        at_risk=raw.totals_at_risk,
+        noisy=raw.totals_noisy,
+        clean=raw.totals_clean,
         quarantined=raw.totals_quarantined,
         needs_decision=raw.totals_needs_decision,
         by_run_type=raw.by_run_type,
@@ -394,12 +435,6 @@ def get_flakiness_overview(repo_id: UUID) -> contracts.FlakinessOverview:
     )
 
 
-def _flakiness_state(is_unstable: bool, variant_count: int) -> str:
-    if is_unstable:
-        return FlakinessState.UNSTABLE
-    return FlakinessState.SETTLED if variant_count > 0 else FlakinessState.CLEAN
-
-
 def _days_since(moment: datetime | None, now: datetime) -> int | None:
     return None if moment is None else max((now - moment).days, 0)
 
@@ -411,9 +446,9 @@ def _baseline_moved_day_index(moved_at: datetime | None, now: datetime) -> int |
     common case, so the frontend draws no divider.
     """
     days_ago = _days_since(moved_at, now)
-    if days_ago is None or days_ago >= contracts.FLAKINESS_STRIP_DAYS:
+    if days_ago is None or days_ago >= contracts.FLAKINESS_WINDOW_DAYS:
         return None
-    return contracts.FLAKINESS_STRIP_DAYS - 1 - days_ago
+    return contracts.FLAKINESS_WINDOW_DAYS - 1 - days_ago
 
 
 # --- Run API ---
@@ -524,34 +559,39 @@ def get_run_snapshots(
     return contracts.RunSnapshots(snapshots=dtos, quarantined_count=quarantined_count)
 
 
+def _to_history_entry(entry, repo_id: UUID) -> contracts.SnapshotHistoryEntry:
+    # Validate the stored column once and read both fields off it. The history
+    # contract has no `cluster_summary`, so the parse stops at the pydantic
+    # model rather than building the cluster dataclasses that would be thrown
+    # away. Defaults mirror `DiffMetadata`.
+    stored = DiffMetadata.model_validate(entry.diff_metadata or {})
+    return contracts.SnapshotHistoryEntry(
+        run_id=entry.run_id,
+        snapshot_id=entry.id,
+        result=entry.result,
+        branch=entry.run.branch,
+        commit_sha=entry.run.commit_sha,
+        created_at=entry.run.created_at,
+        pr_number=entry.run.pr_number,
+        diff_percentage=entry.diff_percentage,
+        review_state=entry.review_state,
+        current_artifact=_to_artifact(entry.current_artifact, repo_id) if entry.current_artifact else None,
+        ssim_score=entry.ssim_score,
+        change_kind=entry.change_kind or "",
+        size_mismatch=stored.size_mismatch,
+        row_shift=_to_row_shift(stored.row_shift),
+    )
+
+
 def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[contracts.SnapshotHistoryEntry]:
     entries = history.get_snapshot_history(repo_id, identifier, run_type)
-    return [
-        contracts.SnapshotHistoryEntry(
-            run_id=e.run_id,
-            snapshot_id=e.id,
-            result=e.result,
-            branch=e.run.branch,
-            commit_sha=e.run.commit_sha,
-            created_at=e.run.created_at,
-            pr_number=e.run.pr_number,
-            diff_percentage=e.diff_percentage,
-            review_state=e.review_state,
-            current_artifact=_to_artifact(e.current_artifact, repo_id) if e.current_artifact else None,
-            ssim_score=e.ssim_score,
-            change_kind=e.change_kind or "",
-            # Read the flag directly instead of round-tripping through the
-            # full Pydantic parse — `cluster_summary` isn't on the history
-            # entry contract and we'd just be allocating cluster dataclasses
-            # to throw away. The default mirrors `DiffMetadata.size_mismatch`.
-            size_mismatch=bool((e.diff_metadata or {}).get("size_mismatch", False)),
-        )
-        for e in entries
-    ]
+    return [_to_history_entry(entry, repo_id) for entry in entries]
 
 
-def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, team_id: int) -> contracts.Snapshot:
-    snapshot = toleration.mark_snapshot_as_tolerated(run_id, snapshot_id, user_id, team_id)
+def mark_snapshot_as_tolerated(
+    run_id: UUID, snapshot_id: UUID, user_id: int, team_id: int, actor: ActorType = ActorType.HUMAN
+) -> contracts.Snapshot:
+    snapshot = toleration.mark_snapshot_as_tolerated(run_id, snapshot_id, user_id, team_id, actor=actor)
     return _to_snapshot(snapshot, snapshot.run.repo_id)
 
 
@@ -688,6 +728,7 @@ def _to_quarantined_entry(
         identifier=q.identifier,
         run_type=q.run_type,
         reason=q.reason,
+        source=q.source,
         expires_at=q.expires_at,
         created_at=q.created_at,
         updated_at=q.updated_at,
@@ -703,6 +744,7 @@ def _to_baseline_quarantine_summary(
     return contracts.BaselineQuarantineSummary(
         id=q.id,
         reason=q.reason,
+        source=q.source,
         expires_at=q.expires_at,
         created_at=q.created_at,
         created_by=created_by,
@@ -720,7 +762,12 @@ def list_quarantined(
 
 
 def quarantine_identifier(
-    repo_id: UUID, run_type: str, input: contracts.QuarantineInput, user_id: int, team_id: int
+    repo_id: UUID,
+    run_type: str,
+    input: contracts.QuarantineInput,
+    user_id: int,
+    team_id: int,
+    source: ActorType = ActorType.HUMAN,
 ) -> contracts.QuarantinedIdentifierEntry:
     entry = quarantine.quarantine_identifier(
         repo_id=repo_id,
@@ -729,6 +776,7 @@ def quarantine_identifier(
         reason=input.reason,
         expires_at=input.expires_at,
         source_run_id=input.source_run_id,
+        source=source,
         user_id=user_id,
         team_id=team_id,
     )

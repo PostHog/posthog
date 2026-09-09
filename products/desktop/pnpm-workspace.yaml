@@ -13,6 +13,7 @@ catalog:
     '@earendil-works/pi-tui': 0.84.1
     '@parcel/watcher': ^2.5.6
     '@phosphor-icons/react': ^2.1.10
+    '@posthog/brand': 0.11.0
     '@posthog/quill': 0.3.0-beta.28
     '@radix-ui/themes': ^3.2.1
     '@tanstack/react-query': ^5.100.14
@@ -144,5 +145,6 @@ onlyBuiltDependencies:
     - tree-sitter-cli
 
 patchedDependencies:
+    app-builder-lib@26.15.3: patches/app-builder-lib@26.15.3.patch
     node-pty: patches/node-pty.patch
     react-hotkeys-hook: patches/react-hotkeys-hook.patch

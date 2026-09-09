@@ -16,6 +16,7 @@ from clickhouse_driver.errors import ErrorCodes
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.errors import InternalCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.temporal.ingestion_acceptance_test.results import CapturedEventRef
 
 from .config import Config
 
@@ -86,6 +87,20 @@ class PostHogClient:
         self._test_start_date = (datetime.now(UTC) - timedelta(days=1)).date()
         self._pending_polls: dict[int, str] = {}
         self._pending_polls_lock = threading.Lock()
+        # Keyed by thread ID: each test runs in its own thread, so this is the
+        # per-test list of events the test sent (see take_captured_events).
+        self._captured_events: dict[int, list[CapturedEventRef]] = {}
+        self._captured_events_lock = threading.Lock()
+
+    def _record_captured(self, event_uuid: str, event_name: str, distinct_id: str) -> None:
+        ref = CapturedEventRef(uuid=event_uuid, event=event_name, distinct_id=distinct_id)
+        with self._captured_events_lock:
+            self._captured_events.setdefault(threading.get_ident(), []).append(ref)
+
+    def take_captured_events(self) -> list[CapturedEventRef]:
+        """Return and clear the events captured by the calling thread's test."""
+        with self._captured_events_lock:
+            return self._captured_events.pop(threading.get_ident(), [])
 
     def _retry_on_error(self, fn: Callable[[], T], description: str) -> T:
         """Retry a function on transient errors with exponential backoff.
@@ -145,6 +160,7 @@ class PostHogClient:
         )
 
         logger.info("Event captured", event_uuid=event_uuid)
+        self._record_captured(event_uuid, event_name, distinct_id)
 
         return event_uuid
 
@@ -164,6 +180,7 @@ class PostHogClient:
             description=f"alias {alias} -> {distinct_id}",
         )
         logger.info("Alias created", alias=alias, distinct_id=distinct_id, event_uuid=event_uuid)
+        self._record_captured(event_uuid, "$create_alias", distinct_id)
         return event_uuid
 
     def merge_dangerously(self, merge_into_distinct_id: str, merge_from_distinct_id: str) -> str:
@@ -202,6 +219,7 @@ class PostHogClient:
         )
 
         logger.info("Merge event captured", event_uuid=event_uuid)
+        self._record_captured(event_uuid, "$merge_dangerously", merge_into_distinct_id)
 
         return event_uuid
 

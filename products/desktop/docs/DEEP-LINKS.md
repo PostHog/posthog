@@ -100,6 +100,10 @@ An **https** bridge also exists for links sent outside the app (e.g. comment Sla
 
 Open Self-driving, or a specific report inside it.
 
+The report "Copy link" action lets users copy this app-only scheme or the
+browser-accessible web URL (`<instance>/project/<projectId>/inbox/<reportId>`).
+The web report can still hand off to Desktop where appropriate.
+
 | Segment | Required | Description |
 |---|---|---|
 | `<reportId>` | No | Inbox report ID. Omit to open the inbox itself. |
@@ -147,6 +151,10 @@ canvas copies an **https** link (`<instance>/code/canvas/<channelId>/<dashboardI
 that resolves to a web interstitial in PostHog Cloud, which fires this scheme
 (or offers the desktop-app download). That way the link works for anyone,
 whether or not they have the app.
+
+Use the link button in the canvas toolbar to copy this link without opening a
+menu. The button has a "Copy link to canvas" tooltip, like the session link
+button. "Copy link" also remains in the canvas options menu.
 
 | Segment | Required | Description |
 |---|---|---|

@@ -12,9 +12,10 @@
  * * `verified` - Verified
  * * `community` - Community
  */
-export type TrustTierEnumApi = (typeof TrustTierEnumApi)[keyof typeof TrustTierEnumApi]
+export type CommunitySkillTrustTierEnumApi =
+    (typeof CommunitySkillTrustTierEnumApi)[keyof typeof CommunitySkillTrustTierEnumApi]
 
-export const TrustTierEnumApi = {
+export const CommunitySkillTrustTierEnumApi = {
     Official: 'official',
     Verified: 'verified',
     Community: 'community',
@@ -65,7 +66,7 @@ export interface CommunitySkillListApi {
      * * `official` - Official
      * * `verified` - Verified
      * * `community` - Community */
-    trust_tier: TrustTierEnumApi
+    trust_tier: CommunitySkillTrustTierEnumApi
     /** GitHub handle (or name) of the contributor who published the skill. */
     readonly author_handle: string
     /** Link to the skill's source directory on GitHub. */
@@ -133,7 +134,7 @@ export interface CommunitySkillApi {
      * * `official` - Official
      * * `verified` - Verified
      * * `community` - Community */
-    trust_tier: TrustTierEnumApi
+    trust_tier: CommunitySkillTrustTierEnumApi
     /** GitHub handle (or name) of the contributor who published the skill. */
     readonly author_handle: string
     /** Link to the skill's source directory on GitHub. */
@@ -239,6 +240,10 @@ export interface LLMSkillFileManifestApi {
     path: string
     /** @maxLength 100 */
     content_type?: string
+    /** Number of lines in the file content. */
+    line_count: number
+    /** Number of characters in the file content. */
+    char_count: number
 }
 
 export interface LLMSkillOutlineEntryApi {
@@ -260,7 +265,7 @@ export interface LLMSkillApi {
      */
     name: string
     /**
-     * What this skill does and when to use it. Max 4096 characters.
+     * What this skill does and when to use it.
      * @maxLength 4096
      */
     description: string
@@ -291,7 +296,7 @@ export interface LLMSkillApi {
     readonly category: string
     /** Users who own this skill, seed-creator first. Ownership is keyed on the logical skill (not a version), so it's stable across edits. Prefer this over created_by to learn who to route reviews or questions to. Set via the owners field on create/update (a list of user UUIDs). Empty for scout sandbox fetches of skills that haven't opted into the report channel. */
     readonly owners: readonly UserBasicApi[]
-    /** Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/. */
+    /** Bundled files manifest. Each entry carries path, content_type, and line/char counts — no content; fetch content via /llm_skills/name/{name}/files/{path}/. */
     readonly files: readonly LLMSkillFileManifestApi[]
     /** Flat list of markdown headings parsed from the skill body. Useful as a lightweight table of contents. */
     readonly outline: readonly LLMSkillOutlineEntryApi[]
@@ -334,7 +339,7 @@ export interface LLMSkillListApi {
      */
     name: string
     /**
-     * What this skill does and when to use it. Max 4096 characters.
+     * What this skill does and when to use it.
      * @maxLength 4096
      */
     description: string
@@ -414,8 +419,8 @@ export interface LLMSkillCreateApi {
      */
     name: string
     /**
-     * What this skill does and when to use it. Max 4096 characters.
-     * @maxLength 4096
+     * What this skill does and when to use it. Max 1024 characters.
+     * @maxLength 1024
      */
     description: string
     /** Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response. */
@@ -577,7 +582,7 @@ export interface PatchedLLMSkillPublishApi {
     edits?: LLMSkillEditOperationApi[]
     /**
      * Updated description for the new version.
-     * @maxLength 4096
+     * @maxLength 1024
      */
     description?: string
     /**
@@ -670,22 +675,14 @@ export interface LLMSkillFileApi {
 }
 
 export interface LLMSkillPublishToCommunityApi {
-    /**
-     * Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message.
-     * @maxLength 64
-     * @pattern ^[^\u0000-\u001f\u007f]*$
-     */
+    /** Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message. */
     display_name?: string
     /**
      * Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage'].
      * @items.maxLength 64
      */
     tags?: string[]
-    /**
-     * The publisher's GitHub username, used for public attribution on the listing and PR. Optional, and self-reported: it is not verified against the publisher's PostHog account.
-     * @maxLength 39
-     * @pattern ^$|^[a-zA-Z0-9](?:-?[a-zA-Z0-9]){0,38}$
-     */
+    /** The publisher's GitHub username, used for public attribution on the listing and PR. Optional, and self-reported: it is not verified against the publisher's PostHog account. */
     author_handle?: string
 }
 
@@ -696,6 +693,14 @@ export interface CommunitySkillPublishResultApi {
     pr_number: number
     /** Name of the branch created in the community-skills repo. */
     branch: string
+}
+
+export interface LLMSkillRenameApi {
+    /**
+     * New name for the skill. Must be unique in the project, and must not start with 'signals-scout-' or 'review-hog-'.
+     * @maxLength 64
+     */
+    new_name: string
 }
 
 export interface LLMSkillVersionSummaryApi {
@@ -712,6 +717,64 @@ export interface LLMSkillResolveResponseApi {
     skill: LLMSkillApi
     versions: LLMSkillVersionSummaryApi[]
     has_more: boolean
+}
+
+/**
+ * * `name` - name
+ * * `description` - description
+ * * `body` - body
+ * * `file_path` - file_path
+ * * `file_content` - file_content
+ */
+export type MatchedFieldEnumApi = (typeof MatchedFieldEnumApi)[keyof typeof MatchedFieldEnumApi]
+
+export const MatchedFieldEnumApi = {
+    Name: 'name',
+    Description: 'description',
+    Body: 'body',
+    FilePath: 'file_path',
+    FileContent: 'file_content',
+} as const
+
+export interface LLMSkillSearchMatchApi {
+    /** Skill field that matched the search query.
+     *
+     * * `name` - name
+     * * `description` - description
+     * * `body` - body
+     * * `file_path` - file_path
+     * * `file_content` - file_content */
+    matched_field: MatchedFieldEnumApi
+    /** Skill-relative file path for body or bundled-file matches. Omitted for name and description matches. */
+    path?: string
+    /**
+     * One-based line containing the match when the result came from a body or bundled file.
+     * @minimum 1
+     */
+    line?: number
+    /** Short excerpt showing why this skill matched. */
+    excerpt: string
+}
+
+export interface LLMSkillSearchResultApi {
+    /** Unique skill name. */
+    name: string
+    /** What this skill does and when to use it. */
+    description: string
+    /** Up to two locations that matched the search query, ordered by field relevance. */
+    matches: LLMSkillSearchMatchApi[]
+}
+
+export interface LLMSkillSearchResponseApi {
+    /** Number of matching skills returned, capped at 10. */
+    count: number
+    /** Matching ordinary skills in relevance order. */
+    results: LLMSkillSearchResultApi[]
+}
+
+export interface LLMSkillSearchErrorApi {
+    /** Explanation of why the skill search could not complete. */
+    detail: string
 }
 
 export type CommunitySkillsListParams = {
@@ -794,6 +857,31 @@ export type LlmSkillsListParams = {
     search?: string
 }
 
+export type LlmSkillsBundleRetrieveParams = {
+    /**
+     * What each skill directory in the zip contains. 'stub' (default) writes a SKILL.md with the name, description and instructions to fetch the skill over the PostHog MCP when it is invoked. 'full' writes the rendered SKILL.md, every bundled file and the Codex sidecar.
+     *
+     * * `stub` - stub
+     * * `full` - full
+     * @minLength 1
+     */
+    content?: LlmSkillsBundleRetrieveContent
+    /**
+     * Maximum number of skills in the zip, newest first; default 50, at most 100. Every skill in the zip costs the agent prompt context on each turn, so pick what the harness can usefully carry. Skills past the limit are reported in X-Skills-Dropped.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
+
+export type LlmSkillsBundleRetrieveContent =
+    (typeof LlmSkillsBundleRetrieveContent)[keyof typeof LlmSkillsBundleRetrieveContent]
+
+export const LlmSkillsBundleRetrieveContent = {
+    Stub: 'stub',
+    Full: 'full',
+} as const
+
 export type LlmSkillsNameRetrieveParams = {
     /**
      * Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
@@ -862,4 +950,13 @@ export type LlmSkillsResolveNameRetrieveParams = {
      * Exact skill version UUID to resolve.
      */
     version_id?: string
+}
+
+export type LlmSkillsSearchRetrieveParams = {
+    /**
+     * Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.
+     * @minLength 1
+     * @maxLength 200
+     */
+    query: string
 }

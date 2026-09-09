@@ -45,6 +45,7 @@ import { fetchAndExtractEntries } from '@/resources/internals'
 import type { ContextMillResource } from '@/resources/manifest-types'
 
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
+import { makeSharedBlobRedisStubs } from './helpers/shared-blob-redis-stubs'
 
 const mockEnv = {
     MCP_APPS_BASE_URL: 'https://apps.test',
@@ -78,6 +79,7 @@ function createMockRedis(): MockRedis {
         }),
         scan: vi.fn(async () => ['0', []] as [string, string[]]),
         ...makeRedisRateLimitStubs(),
+        ...makeSharedBlobRedisStubs(store),
         _store: store,
     }
 }
@@ -95,8 +97,7 @@ function makeEntry(suffix: string): ContextMillResource {
     }
 }
 
-const MANIFEST_BYTES_KEY = 'mcp:shared-blob:context-mill:manifest:bytes'
-const MANIFEST_FRESH_KEY = 'mcp:shared-blob:context-mill:manifest:fresh'
+const MANIFEST_CURRENT_KEY = 'mcp:shared-blob:context-mill:manifest:v2:current'
 
 describe('ResourceCatalog', () => {
     let redis: MockRedis
@@ -161,8 +162,7 @@ describe('ResourceCatalog', () => {
             const catalog = new ResourceCatalog(mockEnv, redis)
             await catalog.warmup()
 
-            redis._store.delete(MANIFEST_BYTES_KEY)
-            redis._store.delete(MANIFEST_FRESH_KEY)
+            redis._store.delete(MANIFEST_CURRENT_KEY)
             vi.mocked(fetchAndExtractEntries).mockResolvedValueOnce([makeEntry('new')])
 
             await catalog.revalidateContextMillResources('initialize')
@@ -186,8 +186,7 @@ describe('ResourceCatalog', () => {
                 const catalog = new ResourceCatalog(mockEnv, redis)
                 await catalog.warmup()
 
-                redis._store.delete(MANIFEST_BYTES_KEY)
-                redis._store.delete(MANIFEST_FRESH_KEY)
+                redis._store.delete(MANIFEST_CURRENT_KEY)
                 vi.mocked(fetchAndExtractEntries).mockRejectedValueOnce(new Error('network'))
 
                 await catalog.revalidateContextMillResources('initialize')

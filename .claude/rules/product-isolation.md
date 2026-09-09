@@ -33,4 +33,6 @@ this product is isolated.
 If you need to extend what's reachable across a boundary, add a function to the relevant
 facade module (or a re-export to its wiring submodule) — not a `depends_on` entry in
 `tach.toml`.
-Run `tach check --dependencies --interfaces` to verify import boundaries are clean.
+Run `hogli lint:tach` to verify import boundaries are clean. It runs the two tach passes CI runs:
+dependencies without test code, interfaces with it, so a test may import any product's public
+surface without a `depends_on` entry but never its internals.

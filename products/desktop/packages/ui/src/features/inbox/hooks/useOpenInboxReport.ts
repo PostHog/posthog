@@ -1,4 +1,3 @@
-import { seedInboxReportDetailCache } from "@posthog/core/inbox/inboxQuery";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
@@ -20,7 +19,7 @@ const log = logger.scope("open-inbox-report");
 
 /**
  * Returns a callback that opens an inbox report by id: fetch it directly
- * (bypassing the paginated list), seed the detail cache, reset inbox-local
+ * (bypassing the paginated list), reset inbox-local
  * filters so it isn't hidden, then navigate to the right tab – Archive when
  * it's suppressed, Pulls when it has an implementation PR, otherwise Reports.
  *
@@ -60,7 +59,6 @@ export function useOpenInboxReport() {
         }
 
         resetFilters();
-        seedInboxReportDetailCache(queryClient, report);
         // With channel reports on, detail lives in the report's owning space
         // (general when unassigned) so the space sidebar keeps its context. The
         // inbox routes stay the fallback while the general space isn't

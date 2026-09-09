@@ -2,9 +2,9 @@ from typing import Any, cast
 
 from posthog.schema import QueryTiming, ResolvedDateRangeResponse, TrendsQuery, TrendsQueryResponse, WebVitalsQuery
 
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.schema_helpers import to_dict
 
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     is_precompute_enabled_for_team,
     is_team_above_volume_floor,

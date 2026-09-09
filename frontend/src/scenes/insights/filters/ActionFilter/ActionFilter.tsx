@@ -34,7 +34,8 @@ import {
 
 import { teamLogic } from '../../../teamLogic'
 import { ActionFilterGroup } from './ActionFilterGroup/ActionFilterGroup'
-import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
+import { ActionFilterRow } from './ActionFilterRow/ActionFilterRow'
+import { MathAvailability } from './ActionFilterRow/types'
 import { LocalFilter, entityFilterLogic, toFilters } from './entityFilterLogic'
 
 export interface ActionFilterProps {
@@ -65,6 +66,9 @@ export interface ActionFilterProps {
     hideDuplicate?: boolean
     /** Whether to show the nested PropertyFilters in popover mode or not */
     propertyFiltersPopover?: boolean
+    /** Opt in the flag-gated "Performed event" behavioral filter on each series. Only insight
+     * query contexts should enable it — realtime contexts (CDP, workflows) reject behavioral filters. */
+    allowBehavioralPropertyFilter?: boolean
     /** A limit of entities (series or funnel steps) beyond which more can't be added */
     entitiesLimit?: number
     /** Custom suffix element to show in each ActionFilterRow */
@@ -131,6 +135,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         hideRename = false,
         hideDuplicate = false,
         propertyFiltersPopover,
+        allowBehavioralPropertyFilter,
         customRowSuffix,
         entitiesLimit,
         showNestedArrow = false,
@@ -203,6 +208,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         actionsTaxonomicGroupTypes,
         propertiesTaxonomicGroupTypes,
         propertyFiltersPopover,
+        allowBehavioralPropertyFilter,
         disabled,
         readOnly,
         renderRow,

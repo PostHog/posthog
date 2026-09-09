@@ -1,4 +1,5 @@
 import { File, Folder, Warning } from "@phosphor-icons/react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@posthog/quill";
 import { unescapeXmlAttr } from "@posthog/shared";
 import { Text } from "@radix-ui/themes";
 import type { ReactNode } from "react";
@@ -26,7 +27,7 @@ const inlineComponents: Components = {
   ),
 };
 
-export const InlineMarkdown = memo(function InlineMarkdown({
+const InlineMarkdown = memo(function InlineMarkdown({
   content,
 }: {
   content: string;
@@ -41,56 +42,80 @@ export const InlineMarkdown = memo(function InlineMarkdown({
   );
 });
 
-export function hasMentionTags(content: string): boolean {
+function hasMentionTags(content: string): boolean {
   return MENTION_TAG_TEST.test(content) || SLASH_COMMAND_START.test(content);
 }
 
 export const hasFileMentions = hasMentionTags;
 
 const chipClass =
-  "inline-flex min-w-0 max-w-full items-center gap-1 rounded-[var(--radius-1)] bg-[var(--accent-a3)] px-1 py-px align-middle font-medium text-[var(--accent-11)]";
+  "inline-block max-w-full truncate rounded-[var(--radius-1)] bg-[var(--accent-a3)] px-1 py-px align-middle font-medium text-[var(--accent-11)]";
 
 export function MentionChip({
   icon,
   label,
   onClick,
+  tooltip,
 }: {
   icon: ReactNode;
   label: string;
   onClick?: () => void;
+  tooltip?: string;
 }) {
   const style = { margin: "0 2px" };
 
   const content = (
     <>
-      {icon}
-      <span className="truncate">{label}</span>
+      {icon && (
+        <span className="mr-1 inline-block align-[-0.125em]">{icon}</span>
+      )}
+      {label}
     </>
   );
 
-  if (onClick) {
-    return (
-      <button
-        type="button"
-        className={`${chipClass} cursor-pointer border-none text-[13px]`}
-        onClick={onClick}
-        style={style}
-      >
-        {content}
-      </button>
-    );
-  }
-
-  return (
-    <span className={`${chipClass} text-[13px]`} style={style}>
+  const chip = onClick ? (
+    <button
+      type="button"
+      className={`${chipClass} cursor-pointer border-none text-[13px]`}
+      onClick={onClick}
+      style={style}
+    >
+      {content}
+    </button>
+  ) : (
+    <span
+      className={`${chipClass} text-[13px]`}
+      style={style}
+      // A span takes no focus of its own, so a keyboard reader would never
+      // reach the tooltip that carries the chip's only explanation.
+      tabIndex={tooltip ? 0 : undefined}
+    >
       {content}
     </span>
   );
+
+  if (!tooltip) return chip;
+  return (
+    <Tooltip>
+      <TooltipTrigger render={chip} />
+      <TooltipContent className="max-w-64">{tooltip}</TooltipContent>
+    </Tooltip>
+  );
 }
 
-export function parseMentionTags(content: string): ReactNode[] {
+function parseMentionTags(content: string): ReactNode[] {
   const parts: ReactNode[] = [];
   let lastIndex = 0;
+
+  const pushText = (text: string, chipFollows: boolean): void => {
+    if (!text.trim()) {
+      if (parts.length > 0) parts.push(" ");
+      return;
+    }
+    if (parts.length > 0 && /^\s/.test(text)) parts.push(" ");
+    parts.push(<InlineMarkdown key={`text-${lastIndex}`} content={text} />);
+    if (chipFollows && /\s$/.test(text)) parts.push(" ");
+  };
 
   const slashMatch = content.match(SLASH_COMMAND_START);
   if (slashMatch) {
@@ -105,12 +130,7 @@ export function parseMentionTags(content: string): ReactNode[] {
     if (matchIndex < lastIndex) continue;
 
     if (matchIndex > lastIndex) {
-      parts.push(
-        <InlineMarkdown
-          key={`text-${lastIndex}`}
-          content={content.slice(lastIndex, matchIndex)}
-        />,
-      );
+      pushText(content.slice(lastIndex, matchIndex), true);
     }
 
     if (match[1]) {
@@ -168,12 +188,7 @@ export function parseMentionTags(content: string): ReactNode[] {
   }
 
   if (lastIndex < content.length) {
-    parts.push(
-      <InlineMarkdown
-        key={`text-${lastIndex}`}
-        content={content.slice(lastIndex)}
-      />,
-    );
+    pushText(content.slice(lastIndex), false);
   }
 
   return parts;

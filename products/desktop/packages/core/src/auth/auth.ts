@@ -1,3 +1,4 @@
+import { isAuthFailureResponse } from "@posthog/api-client/fetcher";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import {
   type IPowerManager,
@@ -14,6 +15,7 @@ import {
   withTimeout,
 } from "@posthog/shared";
 import { inject, injectable, postConstruct, preDestroy } from "inversify";
+import { z } from "zod";
 import {
   AUTH_CONNECTIVITY,
   AUTH_OAUTH_FLOW_SERVICE,
@@ -142,6 +144,32 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   getState(): AuthState {
     return { ...this.state };
   }
+  async getAccountKey(): Promise<string | null> {
+    const generation = this.sessionGeneration;
+    const { apiHost } = await this.getValidAccessToken();
+    if (generation !== this.sessionGeneration) return null;
+    const session = this.session;
+    if (session?.accountKey && !this.tokenOverride) {
+      return JSON.stringify([apiHost, session.accountKey]);
+    }
+    const response = await this.authenticatedFetch(
+      fetch,
+      `${apiHost}/api/users/@me/`,
+      {
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    if ([408, 429, 500, 502, 503, 504].includes(response.status)) {
+      throw new Error("Cannot check your account. Try again.");
+    }
+    if (!response.ok) return null;
+    const user = z
+      .object({ uuid: z.string() })
+      .safeParse(await response.json());
+    if (generation !== this.sessionGeneration) return null;
+    return user.success ? JSON.stringify([apiHost, user.data.uuid]) : null;
+  }
   async login(region: CloudRegion): Promise<AuthState> {
     this.sessionGeneration += 1;
     const sessionGeneration = this.sessionGeneration;
@@ -251,7 +279,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       return response;
     }
 
-    if (response.status === 401 || response.status === 403) {
+    if (await isAuthFailureResponse(response)) {
       const refreshedAuth = await this.refreshAccessToken();
       response = await this.executeAuthenticatedFetch(
         fetchImpl,
@@ -262,29 +290,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     }
 
     return response;
-  }
-  async redeemInviteCode(code: string): Promise<AuthState> {
-    const { apiHost } = await this.getValidAccessToken();
-    const response = await this.authenticatedFetch(
-      fetch,
-      `${apiHost}/api/code/invites/redeem/`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
-      },
-    );
-
-    const data = (await response.json().catch(() => ({}))) as {
-      success?: boolean;
-      error?: string;
-    };
-
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || "Failed to redeem invite code");
-    }
-
-    return this.retryDesktopAccess();
   }
   async retryDesktopAccess(): Promise<AuthState> {
     await this.initialize();
@@ -453,17 +458,14 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     if (this.sessionGeneration !== sessionGeneration) {
       return;
     }
+    const desktopAccess = this.carryDesktopAccessInto(nextSession);
     this.session = nextSession;
     this.persistProjectPreference(nextSession);
     this.updateState({
       orgProjectsMap: next.orgProjectsMap,
       currentOrgId: next.currentOrgId,
       currentProjectId: next.currentProjectId,
-      desktopAccess: {
-        projectId: next.currentProjectId,
-        status: "checking",
-        reason: null,
-      },
+      desktopAccess,
     });
     await this.updateDesktopAccessFromSession(nextSession);
   }
@@ -870,7 +872,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       : null;
     const preferredProjectId =
       options.selectedProjectId ?? lastPrefs?.lastSelectedProjectId ?? null;
-    const selection = this.reconcileInitialSelection({
+    let selection = this.reconcileInitialSelection({
       orgProjectsMap,
       currentOrgId,
       preferredProjectId,
@@ -883,6 +885,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     ) {
       selection.currentProjectId = null;
     }
+    selection = this.retainLiveProjectSelection(selection, preferredProjectId);
 
     const refreshToken =
       tokenResponse.refresh_token ?? options.fallbackRefreshToken ?? null;
@@ -901,6 +904,30 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     };
 
     return session;
+  }
+  // A background rebuild must not move the app off its live project. Partial
+  // map rebuilds omit projects (one per-team or per-org fetch can 4xx or time
+  // out), and adopting the fallback selection here replaces or nulls the
+  // project, which unmounts the whole app and strands the user elsewhere. The
+  // map is picker data; the desktop access check enforces access to the kept
+  // project.
+  private retainLiveProjectSelection(
+    selection: { currentOrgId: string | null; currentProjectId: number | null },
+    preferredProjectId: number | null,
+  ): { currentOrgId: string | null; currentProjectId: number | null } {
+    const liveSession = this.session;
+    if (
+      !liveSession ||
+      liveSession.currentProjectId === null ||
+      preferredProjectId !== liveSession.currentProjectId ||
+      selection.currentProjectId === liveSession.currentProjectId
+    ) {
+      return selection;
+    }
+    return {
+      currentProjectId: liveSession.currentProjectId,
+      currentOrgId: liveSession.currentOrgId ?? selection.currentOrgId,
+    };
   }
   private async buildOrgProjectsMap(
     accessToken: string,
@@ -1127,6 +1154,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       return false;
     }
     this.persistProjectPreference(session);
+    const desktopAccess = this.carryDesktopAccessInto(session);
     this.session = session;
     this.scheduleImpersonationExpiry(session);
     this.updateState({
@@ -1136,11 +1164,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       orgProjectsMap: session.orgProjectsMap,
       currentOrgId: session.currentOrgId,
       currentProjectId: session.currentProjectId,
-      desktopAccess: {
-        projectId: session.currentProjectId,
-        status: "checking",
-        reason: null,
-      },
+      desktopAccess,
       needsScopeReauth: false,
       sessionType: session.sessionType,
       sessionExpiresAt: session.accessTokenExpiresAt,
@@ -1306,11 +1330,63 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       sessionEndReason: partial.sessionEndReason ?? null,
     });
   }
+
+  // Resetting to "checking" on every refresh would unmount the whole app.
+  private carryDesktopAccessInto(session: InMemorySession): DesktopAccess {
+    const previous = this.state.desktopAccess;
+    const previousAccountKey = this.session?.accountKey ?? null;
+    // A failed `/api/users/@me/` lookup leaves accountKey null on either
+    // side. That is an unknown account, not a different one, so it must not
+    // flash the loading screen. Only two resolved keys that differ prove the
+    // refresh landed on another account.
+    const accountChanged =
+      previousAccountKey !== null &&
+      session.accountKey !== null &&
+      session.accountKey !== previousAccountKey;
+    const sameIdentity =
+      !accountChanged && previous.projectId === session.currentProjectId;
+    if (
+      sameIdentity &&
+      (previous.status === "allowed" || previous.status === "blocked")
+    ) {
+      return previous;
+    }
+    return {
+      projectId: session.currentProjectId,
+      status: "checking",
+      reason: null,
+    };
+  }
+
   private async updateDesktopAccessFromSession(
     session: InMemorySession,
   ): Promise<void> {
     const desktopAccess = await this.checkDesktopAccess(session);
-    if (this.session !== session) return;
+    if (this.session !== session) {
+      // The session rotated while the check was in flight. The result is
+      // scoped to (account, project): when the rotation kept both and nothing
+      // newer has answered, an "allowed" result still applies, and dropping
+      // it would leave the published state on "checking" until the rotation's
+      // own check answers. Only "allowed" may apply from a stale check: every
+      // rotation runs its own check, so a stale failure or denial (a timeout
+      // on the old request, a rejected old token) must wait for that newer
+      // check instead of unmounting the app with a result the newer check
+      // will overturn.
+      const current = this.session;
+      const accountChanged =
+        current !== null &&
+        current.accountKey !== null &&
+        session.accountKey !== null &&
+        current.accountKey !== session.accountKey;
+      const stillAnswers =
+        current !== null &&
+        !accountChanged &&
+        current.currentProjectId === session.currentProjectId &&
+        desktopAccess.status === "allowed" &&
+        this.state.desktopAccess.status === "checking" &&
+        this.state.desktopAccess.projectId === session.currentProjectId;
+      if (!stillAnswers) return;
+    }
     this.updateState({ desktopAccess });
   }
 
@@ -1555,16 +1631,20 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
           : null;
         const storedSelected =
           this.authSession.getCurrent()?.selectedProjectId ?? null;
-        const selection = this.reconcileInitialSelection({
-          orgProjectsMap: map,
-          currentOrgId: session.currentOrgId,
-          preferredProjectId:
-            session.currentProjectId ??
-            storedSelected ??
-            lastPrefs?.lastSelectedProjectId ??
-            null,
-          lastSelectedOrgId: lastPrefs?.lastSelectedOrgId ?? null,
-        });
+        const preferredProjectId =
+          session.currentProjectId ??
+          storedSelected ??
+          lastPrefs?.lastSelectedProjectId ??
+          null;
+        const selection = this.retainLiveProjectSelection(
+          this.reconcileInitialSelection({
+            orgProjectsMap: map,
+            currentOrgId: session.currentOrgId,
+            preferredProjectId,
+            lastSelectedOrgId: lastPrefs?.lastSelectedOrgId ?? null,
+          }),
+          preferredProjectId,
+        );
         await this.commitSessionState(session, {
           orgProjectsMap: map,
           currentOrgId: selection.currentOrgId,

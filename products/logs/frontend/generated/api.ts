@@ -62,6 +62,8 @@ import type {
     _LogsFacetValuesResponseApi,
     _LogsGroupByRequestApi,
     _LogsGroupByResponseApi,
+    _LogsImpactRequestApi,
+    _LogsImpactResponseApi,
     _LogsPatternsDiffRequestApi,
     _LogsPatternsDiffResponseApi,
     _LogsPatternsRequestApi,
@@ -335,7 +337,7 @@ export const getLogsAnomaliesSeriesBandsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Returns the last 7 days of log volume for every (namespace, environment, severity) series of one service, with a time-of-week expected band derived from the prior weeks of the volume rollup. Synchronous and read only.
+ * Returns log volume over the requested window for every (namespace, environment, severity) series of one service, with a time-of-week expected band derived from the prior weeks of the volume rollup. The window defaults to the last 7 days and may span at most 7 days. Synchronous and read only.
  * @summary Per-series log volume with expected bands
  */
 export const logsAnomaliesSeriesBandsCreate = async (
@@ -490,6 +492,23 @@ export const logsHasLogsRetrieve = async (
     return apiMutator<LogsHasLogsRetrieve200>(getLogsHasLogsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLogsImpactCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/impact/`
+}
+
+export const logsImpactCreate = async (
+    projectId: string,
+    _logsImpactRequestApi: _LogsImpactRequestApi,
+    options?: RequestInit
+): Promise<_LogsImpactResponseApi> => {
+    return apiMutator<_LogsImpactResponseApi>(getLogsImpactCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsImpactRequestApi),
     })
 }
 
@@ -1148,7 +1167,7 @@ export const getTasksRunsLogsRetrieveUrl = (projectId: string, taskId: string, i
 }
 
 /**
- * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history and can find the most recent git_checkpoint event regardless of which run emitted it.
+ * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history.
  * @summary Get task run logs
  */
 export const tasksRunsLogsRetrieve = async (
