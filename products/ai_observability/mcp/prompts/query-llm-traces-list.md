@@ -1,6 +1,6 @@
 List LLM traces to inspect AI/LLM usage across your application. Returns traces with their events, latency, token usage, costs, errors, and other metadata. Use this tool for AI observability — debugging slow generations, investigating errors, analyzing token spend, and auditing LLM behavior.
 
-Event content is previewed rather than returned in full, because this tool is for picking candidate traces. Read the one you pick with `query-llm-trace`.
+Set `detail: "summary"` to preview event content when picking candidate traces, then read the one you pick with `query-llm-trace`. Omitting `detail` preserves the existing full-detail response, subject to size limits.
 
 Use 'read-data-schema' to discover available event properties for filtering (e.g. `$ai_model`, `$ai_provider`).
 
@@ -96,7 +96,7 @@ Each trace in the results contains:
 - `errorCount` — number of errors in the trace
 - `isSupportTrace` — whether the trace was from a support impersonation session
 - `tools` — list of tool names called during the trace
-- `events` — list of direct child events (generations, metrics, feedback). Each event's `properties` contains the event data, previewed by default and complete under `detail: "full"`. See "Event types and their properties" below.
+- `events` — list of direct child events (generations, metrics, feedback). Each event's `properties` contains the event data, returned in full by default and previewed under `detail: "summary"`, subject to response size limits. See "Event types and their properties" below.
 
 ## Event types and their properties
 
@@ -132,10 +132,10 @@ Generations (`$ai_generation`) and embeddings (`$ai_embedding`) are always leaf 
 
 `detail` controls how much of each event you get back.
 
-- `"summary"` (default) keeps every trace-level field and each event's identity, timing, model, cost, tool, and error properties, and previews prompts, outputs, and any other property. A summarized trace carries `_detail: { "mode": "summary" }`.
-- `"full"` returns every property in full and is much larger.
+- `"full"` (default) returns every property in full, subject to response size limits. Existing callers that omit `detail` keep this behavior.
+- `"summary"` opts into trace and event metadata with previews of prompts, outputs, span states, and other content. A summarized trace carries `_detail: { "mode": "summary" }`.
 
-Leave `detail` alone here. A list is for finding candidate traces from their metadata; read the one you picked with `query-llm-trace`.
+Request `detail: "summary"` when finding candidate traces from their metadata; read the one you picked with `query-llm-trace` and `detail: "full"` when you need its content.
 
 ## Response size
 

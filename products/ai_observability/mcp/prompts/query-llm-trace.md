@@ -1,6 +1,6 @@
 Fetch a single LLM trace by its trace ID for deep inspection. Returns the trace and every nested event, with model parameters, costs, tool calls, and errors. Use after finding a trace via `query-llm-traces-list` to inspect the complete event tree.
 
-By default the response previews prompts and outputs instead of returning them in full. Set `detail` to `"full"` when you need the complete content of a trace you have already identified.
+By default the response returns full event properties, subject to response size limits. Set `detail` to `"summary"` for metadata and short previews when browsing a trace. Omitted `detail` preserves the existing full-detail behavior.
 
 Use cases:
 
@@ -25,7 +25,7 @@ The response contains a single trace in JSON format with:
 - `inputTokens` / `outputTokens` — token counts across all generations
 - `inputCost` / `outputCost` / `totalCost` — costs in USD
 - `inputState` / `outputState` — JSON input/output state from the root `$ai_trace` event (e.g., conversation messages)
-- `events` — **all** child events in the trace at every nesting depth (not just direct children). Each event has `properties`, previewed by default and complete under `detail: "full"`.
+- `events` — **all** child events in the trace at every nesting depth (not just direct children), subject to response size limits. Each event has `properties`, returned in full by default and previewed under `detail: "summary"`.
 
 Unlike `query-llm-traces-list`, this tool does NOT return `errorCount`, `isSupportTrace`, or `tools` — those are summary fields on the list tool only.
 
@@ -83,14 +83,14 @@ If the trace is old, provide a date range to help the query find it efficiently:
 
 `detail` controls how much of each event you get back.
 
-- `"summary"` (default) returns the trace fields, plus each event's `id`, `createdAt`, `event` type, and its navigation properties: `$ai_trace_id`, `$ai_span_id`, `$ai_generation_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_model`, `$ai_provider`, `$ai_latency`, token counts, costs, `$ai_tools_called`, `$ai_is_error`, `$ai_error`, `$ai_http_status`, `$ai_metric_name`, `$ai_metric_value`, and `$ai_feedback_text`. Prompts, outputs, span states, and any other property come back as short previews. A summarized trace carries `_detail: { "mode": "summary" }`.
-- `"full"` returns every property in full, bounded by the response size limit below. Ask for it once you know which trace you need to read, because it is much larger.
+- `"full"` (default) returns every property in full, bounded by the response size limit below. Existing callers that omit `detail` keep this behavior.
+- `"summary"` opts into trace fields, plus each event's `id`, `createdAt`, `event` type, and its navigation properties: `$ai_trace_id`, `$ai_span_id`, `$ai_generation_id`, `$ai_parent_id`, `$ai_span_name`, `$ai_model`, `$ai_provider`, `$ai_latency`, token counts, costs, `$ai_tools_called`, `$ai_is_error`, `$ai_error`, `$ai_http_status`, `$ai_metric_name`, `$ai_metric_value`, and `$ai_feedback_text`. Prompts, outputs, span states, and any other property come back as short previews. A summarized trace carries `_detail: { "mode": "summary" }`.
 
-Start with a summary, find the events that matter from their metadata and previews, then re-run with `detail: "full"` if you still need the content.
+For an overview, explicitly request `detail: "summary"`, find the events that matter from their metadata and previews, then re-run with `detail: "full"` if you still need the content. Keep relevant date and property filters when requesting full detail.
 
 # Response size
 
-To protect the agent's context window, very large traces are compacted before they reach you. Long string values are truncated (with a `… [truncated N chars]` marker), oversized arrays and objects have their tail members dropped (`… [N more items omitted]` / an `_omittedKeys` count), and if a trace is still over the size limit, trailing events are dropped and a `_truncated` object reports how many events were omitted. When you see any of these markers, open the trace in PostHog for the full, untruncated data, or narrow the query to the specific events you need. The underlying trace data is never altered, only this response is bounded. `detail: "full"` raises the amount of content per event, not the size limit, so a full-detail read of a large trace drops more events than a summary of the same trace.
+To protect the agent's context window, very large traces are compacted before they reach you. Long string values are truncated (with a `… [truncated N chars]` marker), oversized arrays and objects have their tail members dropped (`… [N more items omitted]` / an `_omittedKeys` count), and if a trace is still over the size limit, trailing events are dropped and a `_truncated` object reports how many events were omitted. When you see any of these markers, open the trace in PostHog for the full, untruncated data, or narrow the query to the specific events you need. The underlying trace data is never altered, only this response is bounded. Both detail modes enforce size limits; `detail: "full"` does not guarantee that every event or property fits.
 
 # Reminders
 

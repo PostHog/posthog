@@ -6,7 +6,7 @@
  * tens of millions of tokens, which exhausts the calling agent's context window.
  *
  * Two layers keep that in check. `summary` detail replaces event content with
- * short previews so the default response is trace metadata plus enough of each
+ * short previews so the summary response is trace metadata plus enough of each
  * prompt and output to decide what to read next. On top of that, compaction
  * walks the result within a character budget, truncating long string values and
  * dropping content that doesn't fit, and stops traversing once the budget is

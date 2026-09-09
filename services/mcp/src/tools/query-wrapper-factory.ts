@@ -15,9 +15,9 @@ import {
 const TRACE_QUERY_KINDS = new Set(['TraceQuery', 'TracesQuery'])
 
 const TRACE_DETAIL_FIELD = 'detail'
-const DEFAULT_TRACE_DETAIL: TraceDetail = 'summary'
+const DEFAULT_TRACE_DETAIL: TraceDetail = 'full'
 const TRACE_DETAIL_DESCRIPTION =
-    'How much of each event to return. "summary" (default) returns trace and event metadata (IDs, timestamps, model, latency, tokens, cost, tools called, errors) with short previews of prompts and outputs. "full" returns complete event properties and is much larger, so ask for it only once you know which trace you need to read.'
+    'How much of each event to return. "full" (default) returns complete event properties, subject to response size limits, preserving existing behavior when detail is omitted. Set "summary" to browse trace and event metadata (IDs, timestamps, model, latency, tokens, cost, tools called, errors) with short previews of prompts and outputs.'
 
 /**
  * Add the `detail` control to the trace wrappers only. The field is a tool-level

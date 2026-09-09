@@ -450,17 +450,29 @@ describe('createQueryWrapper trace compaction', () => {
         expect(result.results[0].events[0].properties.$ai_input).toBe('x'.repeat(20_000))
     })
 
-    it('previews event content by default and returns it in full only on request', async () => {
-        const tool = createQueryWrapper({ name: 'test', schema, kind: 'TraceQuery' })()
-        const trace = { id: 'trace-1', events: [{ properties: { custom_payload: 'x'.repeat(5_000) } }] }
+    it.each(['TraceQuery', 'TracesQuery'])('%s preserves full content unless summary is requested', async (kind) => {
+        const tool = createQueryWrapper({ name: 'test', schema, kind })()
+        const trace = {
+            id: 'trace-1',
+            inputState: 'input'.repeat(1_000),
+            events: [{ properties: { custom_payload: 'x'.repeat(5_000) } }],
+        }
 
-        const byDefault = (await tool.handler(contextWithResults([trace]), { kind: 'TraceQuery' })) as any
-        // The factory adds `detail` to the advertised schema, so it is not on the
-        // handler's declared param type, which comes from the schema passed in.
-        const full = (await tool.handler(contextWithResults([trace]), fullDetailParams)) as any
+        const byDefault = (await tool.handler(contextWithResults([trace]), tool.schema.parse({ kind }))) as any
+        const full = (await tool.handler(
+            contextWithResults([trace]),
+            tool.schema.parse({ kind, detail: 'full' })
+        )) as any
+        const summary = (await tool.handler(
+            contextWithResults([trace]),
+            tool.schema.parse({ kind, detail: 'summary' })
+        )) as any
 
-        expect(byDefault.results[0].events[0].properties.custom_payload.length).toBeLessThan(1_000)
-        expect(full.results[0].events[0].properties.custom_payload).toBe('x'.repeat(5_000))
+        expect(byDefault.results).toEqual([trace])
+        expect(full.results).toEqual(byDefault.results)
+        expect(summary.results[0]._detail.mode).toBe('summary')
+        expect(summary.results[0].inputState.length).toBeLessThan(1_000)
+        expect(summary.results[0].events[0].properties.custom_payload.length).toBeLessThan(1_000)
     })
 
     it('strips detail from the trace query body, which the backend rejects unknown fields on', async () => {
