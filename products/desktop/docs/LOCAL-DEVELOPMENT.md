@@ -129,12 +129,17 @@ The `dev` region can point at any PostHog instance, for example a self-hosted de
 The sign-in screen offers it in a development build, and in a test build from the **Desktop Build Test** workflow (the `desktop-build-installer` label on a PR).
 A release build does not show it.
 
-1. On the instance, make an OAuth application with these redirect URIs:
-   - `http://localhost:8237/callback` for a development build.
-   - `posthog-code://callback` for a packaged build.
-2. On the sign-in screen, select **Custom cloud** in the region list.
-3. Enter the URL of the instance and the client ID of the OAuth application.
-4. Sign in. The app keeps the values, and applies them to sign-in, API requests, and agent runs.
+1. On the instance, make an OAuth application. Open `https://<your-instance>/admin/posthog/oauthapplication/` as a staff user, click **Add OAuth application**, and set:
+   - **Name**: anything, for example `PostHog Desktop`.
+   - **Client type**: `Public`. The app uses PKCE, so it has no client secret.
+   - **Authorization grant type**: `Authorization code`. The form fixes this, with `RS256`.
+   - **Redirect URIs**: `posthog-code://callback` for a packaged build. Add `http://localhost:8237/callback` for a local development build, and `posthog-code-dev://callback` for a packaged development build.
+   - Leave the scope ceiling empty, which accepts the scopes that the app asks for. `python manage.py seed_oauth_app_scopes --client-id <id> --scopes <list>` sets a ceiling instead.
+   - Token signing needs `OIDC_RSA_PRIVATE_KEY` on the instance. A deployment usually has it.
+2. Copy the client ID from the list page.
+3. On the sign-in screen, select **Custom cloud** in the region list.
+4. Enter the URL of the instance and the client ID of the OAuth application.
+5. Sign in. The app keeps the values, and applies them to sign-in, API requests, and agent runs.
 
 Agent runs need an LLM gateway that accepts your token. Two optional fields cover the two cases:
 
