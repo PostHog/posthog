@@ -6,6 +6,9 @@ export function isAccessDeniedError(error: { status?: number; code?: string | nu
     return error.status === 403 && error.code === 'permission_denied'
 }
 
+/** DRF code for `ClickHouseQueryMemoryLimitExceeded` (posthog/exceptions.py). Keep in sync with the backend. */
+export const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
+
 /**
  * A 409 from the approvals gate: the change was policy-gated and a change request was created,
  * or one is already pending. Approval 409 bodies always carry `change_request_id`
@@ -31,6 +34,25 @@ function isTransientGatewayStatus(status: number | undefined): boolean {
  */
 export function isTransientServerError(error: unknown): boolean {
     return error instanceof ApiError && isTransientGatewayStatus(error.status)
+}
+
+/**
+ * A route the backend does not serve: the path is unknown (404), or it is known but does not accept
+ * the method (405). Both are what a deploy in progress looks like from the browser, since the
+ * frontend bundle can reach a backend that does not have the endpoint yet. A new `detail=False`
+ * DRF action reads as 405 rather than 404, because the router still matches the detail route and
+ * only then refuses the method.
+ *
+ * This is deliberately not part of `shouldReportApiFailure`: a 404 on a resource the app expects to
+ * exist is a real defect, so only a caller that already degrades to a partial view should excuse
+ * one. Use it there, next to the code that renders the degraded state.
+ */
+export function isUnavailableEndpointError(error: unknown): boolean {
+    if (error === null || typeof error !== 'object') {
+        return false
+    }
+    const status = (error as { status?: number }).status
+    return status === 404 || status === 405
 }
 
 /** The 403 gates `apiStatusLogic` recovers from, keyed by the DRF `code` the backend sends. */
