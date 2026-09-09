@@ -98,7 +98,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
         expect(logic.values.breadcrumbs.at(-1)?.name).toBe(account.name)
     })
 
-    it('heartbeats account presence immediately, polls every 10 seconds, and clears it on failure', async () => {
+    it('heartbeats account presence immediately, polls every 30 seconds, and clears it on failure', async () => {
         jest.useFakeTimers()
         const captureException = jest.spyOn(posthog, 'captureException')
         const viewers: AccountPresenceViewerApi[] = [{ user_id: 2, display_name: 'Alex Rivera' }]
@@ -113,7 +113,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
             expect(mockAccountsPresenceCreate).toHaveBeenCalledWith(String(logic.values.currentTeamId), ACCOUNT_ID)
             expect(logic.values.accountPresenceViewers).toEqual(viewers)
 
-            jest.advanceTimersByTime(10_000)
+            jest.advanceTimersByTime(30_000)
             await Promise.resolve()
             await Promise.resolve()
 
@@ -123,7 +123,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
             expect(captureException).not.toHaveBeenCalled()
 
             logic.unmount()
-            jest.advanceTimersByTime(10_000)
+            jest.advanceTimersByTime(30_000)
             expect(mockAccountsPresenceCreate).toHaveBeenCalledTimes(2)
         } finally {
             jest.useRealTimers()

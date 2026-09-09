@@ -38,7 +38,7 @@ import {
 } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi, AccountPresenceViewerApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-const ACCOUNT_PRESENCE_POLL_INTERVAL_MS = 10_000
+const ACCOUNT_PRESENCE_POLL_INTERVAL_MS = 30_000
 
 export interface CustomerAnalyticsAccountSceneLogicProps {
     accountId: string

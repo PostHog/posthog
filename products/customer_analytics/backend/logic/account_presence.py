@@ -9,7 +9,7 @@ from posthog.redis import get_client
 
 from products.customer_analytics.backend.facade.contracts import AccountPresenceViewer
 
-ACCOUNT_PRESENCE_TTL_SECONDS = 30
+ACCOUNT_PRESENCE_TTL_SECONDS = 90
 
 logger = structlog.get_logger(__name__)
 

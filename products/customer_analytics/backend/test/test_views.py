@@ -575,7 +575,7 @@ class TestAccountViewSet(APIBaseTest):
         account = self._create_account()
         teammate = User.objects.create_and_join(self.organization, "presence@posthog.com", "testtest")
         presence_url = f"{self.endpoint_base}{account.id}/presence/"
-        mock_time.time.side_effect = [100.0, 131.0]
+        mock_time.time.side_effect = [100.0, 191.0]
 
         self.client.force_login(teammate)
         self.assertEqual(self.client.post(presence_url, format="json").json(), [])

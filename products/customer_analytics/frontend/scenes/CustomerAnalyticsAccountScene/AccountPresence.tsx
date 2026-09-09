@@ -38,7 +38,7 @@ export function AccountPresence(): JSX.Element | null {
 
     return (
         <Tooltip title={tooltip}>
-            <div className="ProfileBubbles" aria-label={tooltip}>
+            <div className="ProfileBubbles self-center" aria-label={tooltip}>
                 {shownViewers.map((viewer, index) => (
                     <ProfilePicture
                         key={viewer.user_id}
