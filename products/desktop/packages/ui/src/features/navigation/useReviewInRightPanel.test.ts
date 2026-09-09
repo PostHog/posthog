@@ -13,6 +13,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => mocks.channelsLayout,
 }));
 vi.mock("@tanstack/react-router", () => ({
+  useSearch: () => ({}),
   useParams: (opts?: {
     select?: (p: {
       taskId?: string;
