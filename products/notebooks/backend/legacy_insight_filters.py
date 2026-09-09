@@ -24,9 +24,12 @@ Reach and boundaries:
 * An unparseable JSON string is left untouched and counted. The browser replaces such a query
   with an empty data table, which would discard whatever the string holds.
 
-Legacy funnel `exclusions`, which carry a `type` instead of a `kind`, are not converted. No
-stored notebook has one (measured 2026-09-08), and the conversion needs the full legacy entity
-mapping, so implementing it would add untested reach for no stored row.
+Legacy funnel `exclusions`, which carry a `type` instead of a `kind`, are converted in the same
+pass as the funnel filter keys. They have to be, because the browser reaches them through an
+`else if`: while a funnel filter still holds legacy keys, `funnelsFilterToQuery` converts the
+exclusions on its way past, and `isLegacyFunnelsExclusion` never runs. Renaming the filter keys
+without converting the exclusions therefore moves a notebook from the first branch to the
+second rather than off both, which leaves `exlusionEntityToNode` load-bearing.
 
 Running it is idempotent: a rewrite only fires while a legacy key is present, so an interrupted
 run can be repeated.
@@ -221,6 +224,12 @@ def rewrite_source(source: dict[str, Any], shapes: Counter) -> bool:
                 shapes["paths_funnel_keys_dropped"] += 1
                 rewritten = {k: v for k, v in rewritten.items() if k not in dropped}
 
+        if filter_key == "funnelsFilter":
+            converted = _convert_legacy_exclusions(rewritten)
+            if converted is not rewritten:
+                shapes["funnels_exclusion"] += 1
+                rewritten = converted
+
         if rewritten != insight_filter:
             source[filter_key] = rewritten
             shapes[filter_key] += 1
@@ -370,6 +379,42 @@ def _rewrite_hidden_legend_keys(insight_filter: dict, kind: str) -> dict:
     if new_value and new_key not in rewritten:
         rewritten[new_key] = new_value
     return rewritten
+
+
+def _convert_legacy_exclusions(insight_filter: dict) -> dict:
+    exclusions = insight_filter.get("exclusions")
+    if not isinstance(exclusions, list):
+        return insight_filter
+    if not any(isinstance(entity, dict) and "type" in entity for entity in exclusions):
+        return insight_filter
+    return {**insight_filter, "exclusions": [_exclusion_entity_to_node(entity) for entity in exclusions]}
+
+
+def _exclusion_entity_to_node(entity: Any) -> Any:
+    if not isinstance(entity, dict) or "type" not in entity:
+        return entity
+
+    entity_type = entity.get("type")
+    if entity_type == "events":
+        node: dict[str, Any] = {"kind": "EventsNode", "event": entity.get("id")}
+    elif entity_type == "actions":
+        node = {"kind": "ActionsNode", "id": entity.get("id")}
+    else:
+        # A funnel exclusion has no data warehouse member in the current schema, so any other
+        # type has no node to become. Leaving the entity alone keeps the stored value readable.
+        return entity
+
+    # `include_properties` is false and math is unavailable for exclusions, so the browser
+    # converter carries across only these two of the entity's own fields.
+    for key in ("name", "custom_name"):
+        if entity.get(key) is not None:
+            node[key] = entity[key]
+
+    for legacy_key, new_key in (("funnel_from_step", "funnelFromStep"), ("funnel_to_step", "funnelToStep")):
+        if entity.get(legacy_key) is not None:
+            node[new_key] = entity[legacy_key]
+
+    return node
 
 
 def _extract_compare_filter(insight_filter: dict) -> tuple[dict, dict]:

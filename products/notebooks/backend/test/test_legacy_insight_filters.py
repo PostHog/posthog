@@ -210,6 +210,74 @@ def test_paths_funnel_keys_are_dropped():
     assert shapes["paths_funnel_keys_dropped"] == 1
 
 
+def test_legacy_events_exclusion_becomes_an_events_node():
+    source = {
+        "kind": "FunnelsQuery",
+        "funnelsFilter": {
+            "exclusions": [
+                {
+                    "id": "$pageleave",
+                    "name": "$pageleave",
+                    "type": "events",
+                    "order": 0,
+                    "uuid": "abc",
+                    "funnel_from_step": 0,
+                    "funnel_to_step": 1,
+                }
+            ]
+        },
+    }
+    rewritten, shapes = _rewrite(source)
+    assert rewritten["funnelsFilter"]["exclusions"] == [
+        {"kind": "EventsNode", "event": "$pageleave", "name": "$pageleave", "funnelFromStep": 0, "funnelToStep": 1}
+    ]
+    assert shapes["funnels_exclusion"] == 1
+
+
+def test_legacy_actions_exclusion_becomes_an_actions_node():
+    source = {
+        "kind": "FunnelsQuery",
+        "funnelsFilter": {
+            "exclusions": [{"id": 42, "type": "actions", "order": 1, "funnel_from_step": 1, "funnel_to_step": 2}]
+        },
+    }
+    rewritten, _ = _rewrite(source)
+    assert rewritten["funnelsFilter"]["exclusions"] == [
+        {"kind": "ActionsNode", "id": 42, "funnelFromStep": 1, "funnelToStep": 2}
+    ]
+
+
+def test_legacy_filter_keys_and_exclusions_convert_in_one_pass():
+    # The browser reaches exclusions through an `else if`, so renaming the filter keys without
+    # converting the exclusions moves the notebook to the second branch instead of off both,
+    # and leaves `exlusionEntityToNode` load-bearing.
+    source = {
+        "kind": "FunnelsQuery",
+        "funnelsFilter": {
+            "funnel_viz_type": "steps",
+            "exclusions": [{"id": "$pageleave", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1}],
+        },
+    }
+    rewritten, _ = _rewrite(source)
+    assert rewritten["funnelsFilter"] == {
+        "funnelVizType": "steps",
+        "exclusions": [{"kind": "EventsNode", "event": "$pageleave", "funnelFromStep": 0, "funnelToStep": 1}],
+    }
+
+
+def test_current_exclusions_are_left_alone():
+    source = {
+        "kind": "FunnelsQuery",
+        "funnelsFilter": {
+            "funnelVizType": "steps",
+            "exclusions": [{"kind": "EventsNode", "event": "$pageleave", "funnelFromStep": 0, "funnelToStep": 1}],
+        },
+    }
+    shapes: Counter = Counter()
+    assert rewrite_source(source, shapes) is False
+    assert shapes == Counter()
+
+
 def test_string_stored_query_is_rewritten_and_stays_a_string():
     stored = json.dumps(_viz({"kind": "TrendsQuery", "trendsFilter": {"show_legend": True}}), separators=(",", ":"))
     shapes: Counter = Counter()
