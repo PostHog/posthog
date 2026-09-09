@@ -2496,6 +2496,38 @@ class TestForecastSimulateGuards(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert message in response.content.decode()
 
+    @parameterized.expand(
+        [
+            ("impossible calendar date", "2026-02-30"),
+            ("month out of range", "2026-13-01"),
+            ("not a date at all", "banana"),
+            ("blank", ""),
+        ]
+    )
+    def test_simulate_forecast_rejects_a_target_date_that_is_not_a_date(self, _name: str, target_date: str) -> None:
+        insight = self._insight({"interval": "day"})
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": insight["id"],
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "target_by_date",
+                        "target": 100,
+                        "target_direction": "at_least",
+                        "target_date": target_date,
+                    },
+                },
+            )
+        # ForecastConfig types target_date as a plain string, so an unparseable date reaches the
+        # field's own parse. Left unguarded there it answers 500 with no field named.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "forecast_config"
+
 
 class TestAlertTestDelivery(APIBaseTest):
     def setUp(self):

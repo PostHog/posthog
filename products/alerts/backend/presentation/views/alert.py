@@ -253,9 +253,14 @@ class ForecastConfigField(serializers.JSONField):
             raise serializers.ValidationError(f"Invalid forecast config: {e}")
         target_date = getattr(config, "target_date", None)
         if target_date is not None:
-            # Python accepts every ISO 8601 date form, including week dates. Persist the canonical
-            # calendar form so API clients do not need to implement Python's wider parser.
-            value["target_date"] = date.fromisoformat(target_date).isoformat()
+            try:
+                # Python accepts every ISO 8601 date form, including week dates. Persist the
+                # canonical calendar form so API clients do not need to implement Python's wider
+                # parser. ForecastConfig types target_date as a plain string, so an impossible or
+                # malformed date reaches this parse and has to be reported as a field error.
+                value["target_date"] = date.fromisoformat(target_date).isoformat()
+            except ValueError:
+                raise serializers.ValidationError(f"Target date isn't a valid date: {target_date}")
         return value
 
 
