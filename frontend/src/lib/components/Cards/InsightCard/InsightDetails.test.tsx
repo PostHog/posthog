@@ -20,6 +20,14 @@ const trendsViz = (filterTestAccounts?: boolean): any => ({
     },
 })
 
+const dataTable = (sourceKind: NodeKind, filterTestAccounts?: boolean): any => ({
+    kind: NodeKind.DataTableNode,
+    source: {
+        kind: sourceKind,
+        ...(filterTestAccounts === undefined ? {} : { filterTestAccounts }),
+    },
+})
+
 describe('InsightDetails', () => {
     describe('getDateRangeOverrideDisplay', () => {
         it.each([
@@ -297,6 +305,27 @@ describe('InsightDetails', () => {
                 filtersOverride: { filterTestAccounts: false },
                 tileFiltersOverride: { filterTestAccounts: true },
                 expected: { value: true, source: 'tile' },
+            },
+            {
+                label: 'a dashboard override reports nothing on a query kind that has no test account filter',
+                query: { kind: NodeKind.SavedInsightNode, shortId: 'abc' },
+                filtersOverride: { filterTestAccounts: false },
+                tileFiltersOverride: undefined,
+                expected: null,
+            },
+            {
+                label: 'an events table keeps its own setting, which a dashboard override never reaches',
+                query: dataTable(NodeKind.EventsQuery, true),
+                filtersOverride: { filterTestAccounts: false },
+                tileFiltersOverride: undefined,
+                expected: { value: true, source: 'insight' },
+            },
+            {
+                label: 'a sessions table keeps its own setting, which a tile override never reaches',
+                query: dataTable(NodeKind.SessionsQuery, false),
+                filtersOverride: undefined,
+                tileFiltersOverride: { filterTestAccounts: true },
+                expected: { value: false, source: 'insight' },
             },
         ])('$label', ({ query, filtersOverride, tileFiltersOverride, expected }) => {
             expect(
