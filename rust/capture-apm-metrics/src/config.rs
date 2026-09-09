@@ -34,7 +34,7 @@ pub struct Config {
     /// Caps on the local series cache, in entries. Ingestion input drives the
     /// cache, so without them a caller with a valid token shape and changing
     /// labels could grow it without limit.
-    #[envconfig(from = "METRICS_SERIES_CACHE_MAX_ENTRIES", default = "2000000")]
+    #[envconfig(from = "METRICS_SERIES_CACHE_MAX_ENTRIES", default = "20000000")]
     pub metrics_series_cache_max_entries: usize,
 
     #[envconfig(

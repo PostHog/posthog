@@ -14,8 +14,8 @@ This binary is the metrics half of [`capture-logs`](../capture-logs/README.md). 
 | METRICS_SERIES_REDIS_TIMEOUT_MS | 250 | Budget for one Redis write batch |
 | METRICS_SERIES_REDIS_SEED_TIMEOUT_MS | 5000 | Budget for the startup pull and each periodic pull from Redis |
 | METRICS_SERIES_REDIS_PULL_INTERVAL_SECS | 60 | How often the local cache pulls new series from Redis |
-| METRICS_SERIES_CACHE_MAX_ENTRIES | 2000000 | Most series one pod remembers, across all tokens |
-| METRICS_SERIES_CACHE_MAX_ENTRIES_PER_TOKEN | 200000 | Most series one pod remembers for one token |
+| METRICS_SERIES_CACHE_MAX_ENTRIES | 20000000 | Most series one pod remembers, across all tokens |
+| METRICS_SERIES_CACHE_MAX_ENTRIES_PER_TOKEN | 2000000 | Most series one pod remembers for one token |
 
 ### Metric series label gate
 
