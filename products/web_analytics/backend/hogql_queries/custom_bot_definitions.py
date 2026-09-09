@@ -31,7 +31,6 @@ to the API before a rule tightened cannot break every query for the project.
 import re
 from ipaddress import ip_network
 from typing import TYPE_CHECKING, Literal, Union
-from uuid import uuid4
 
 import structlog
 
@@ -270,68 +269,31 @@ def validate_rule(rule: "CustomBotRule") -> None:
         validate_pattern(item.pattern, item.matcher.value, item.key)
 
 
-def upcast_rules(raw: list, strict: bool = False, warn_on_drop: bool = True) -> list["CustomBotRule"]:
-    """Parse stored or submitted definitions into rules, reading the pre-combiner flat shape too.
+def parse_rules(raw: list, strict: bool = False, warn_on_drop: bool = True) -> list["CustomBotRule"]:
+    """Parse stored or submitted rules.
 
-    A flat `{key, matcher, pattern}` entry saved before rules grew conditions becomes a
-    one-condition rule, so old storage keeps working without a migration. By default an entry that
-    does not parse is dropped — one bad entry must not take a project's whole bot list out of every
-    query. `strict` raises instead, for the save paths, where dropping would lose a rule silently.
-
-    A missing id is minted only in strict mode, where the result is persisted once. In lenient mode
-    the id must be deterministic: the parsed rules feed the query cache key, so a per-call uuid
-    would silently zero the team's cache hit rate.
+    By default an entry that does not parse — including one saved by a pre-combiner release — is
+    dropped: one bad entry must not take a project's whole bot list out of every query. `strict`
+    raises instead, for the save paths, where dropping would lose a rule silently.
 
     `warn_on_drop=False` is for the per-query path, where one permanently bad stored entry would
     otherwise log in proportion to the team's query volume.
     """
     from pydantic import ValidationError  # noqa: PLC0415 — keeps pydantic models off the django.setup import path
 
-    from posthog.schema import CustomBotCondition, CustomBotRule  # noqa: PLC0415 — same
-
-    from posthog.schema_enums import FilterLogicalOperator  # noqa: PLC0415 — same
+    from posthog.schema import CustomBotRule  # noqa: PLC0415 — same
 
     rules: list[CustomBotRule] = []
-    for index, entry in enumerate(raw):
+    for entry in raw:
         if isinstance(entry, CustomBotRule):
             rules.append(entry)
             continue
         try:
             if not isinstance(entry, dict):
                 raise ValueError("Each rule must be an object.")
-            if "items" in entry:
-                # A client that learned the shape from the rules API may omit the combiner, which
-                # that API defaults; default it here too so the two write paths agree.
-                if "combiner" not in entry:
-                    entry = {**entry, "combiner": FilterLogicalOperator.AND_}
-                rules.append(CustomBotRule(**entry))
-            else:
-                # The condition id must differ from the rule id: the settings editor registers
-                # rules and conditions in one id-keyed drag-and-drop context, where a shared id
-                # collapses them.
-                rule_id = str(entry.get("id") or "") or (str(uuid4()) if strict else f"legacy-{index}")
-                condition_id = f"{rule_id}-condition"
-                if len(condition_id) > MAX_ID_LENGTH:
-                    condition_id = str(uuid4()) if strict else f"legacy-{index}-condition"
-                condition = CustomBotCondition(
-                    id=condition_id,
-                    key=entry["key"],
-                    matcher=entry["matcher"],
-                    pattern=entry["pattern"],
-                )
-                rules.append(
-                    CustomBotRule(
-                        id=rule_id,
-                        name=entry["name"],
-                        category=entry.get("category"),
-                        combiner=FilterLogicalOperator.AND_,
-                        items=[condition],
-                    )
-                )
-        except (ValidationError, KeyError, ValueError, TypeError) as error:
+            rules.append(CustomBotRule(**entry))
+        except (ValidationError, ValueError, TypeError) as error:
             if strict:
-                if isinstance(error, KeyError):
-                    raise ValueError("Each bot rule needs a name, key, matcher, and pattern.") from error
                 raise ValueError(f"Invalid bot rule: {error}") from error
             if warn_on_drop:
                 # A dropped rule stops classifying with no other trace, so make the drop visible

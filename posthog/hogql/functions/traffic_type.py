@@ -132,12 +132,16 @@ def _composite_branch(group: CompositeGroup, args: list[ast.Expr], attr: str) ->
     for condition in group.conditions:
         property_expr = _property_expr(condition.key, args)
         if property_expr is None:
-            # One unreachable property makes the rule unanswerable as written, so skip the whole
-            # rule rather than evaluate a partial version of it. For OR this under-matches — the
-            # reachable conditions could still fire — but a partial rule answering differently
-            # from its definition is worse than not answering.
-            return None
+            # For AND, one unreachable property makes the rule unanswerable as written, so skip
+            # the whole rule rather than evaluate a partial version that could over-match. For OR,
+            # a reachable condition matching means the full rule would match too, so evaluating
+            # the reachable subset never over-matches and drops fewer events than skipping.
+            if group.combiner != "OR":
+                return None
+            continue
         condition_exprs.append(_condition_expr(condition, property_expr))
+    if not condition_exprs:
+        return None
     matched: ast.Expr
     if len(condition_exprs) == 1:
         matched = condition_exprs[0]

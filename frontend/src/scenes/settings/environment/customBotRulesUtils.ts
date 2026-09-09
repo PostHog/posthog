@@ -330,15 +330,13 @@ function isCondition(value: unknown): value is CustomBotCondition {
     )
 }
 
-/** Read stored rules, upcasting the pre-combiner flat shape into a one-condition rule.
-
-Entries that do not parse are dropped, mirroring the backend: one bad entry must not take down
-the one surface that could be used to fix it. The caller compares lengths against the raw list to
-tell the user when a save would remove dropped entries.
+/** Read stored rules, dropping entries that do not parse — including any saved by a
+pre-combiner release. One bad entry must not take down the one surface that could fix it; the
+caller compares lengths against the raw list to tell the user a save removes dropped entries.
 
 Minted ids must be deterministic (index-based, not random): the saved-rules comparison runs per
 render, and a random id would read as an endless unsaved change. */
-export function upcastCustomBotRules(raw: unknown): CustomBotRule[] {
+export function parseCustomBotRules(raw: unknown): CustomBotRule[] {
     if (!Array.isArray(raw)) {
         return []
     }
@@ -355,50 +353,17 @@ export function upcastCustomBotRules(raw: unknown): CustomBotRule[] {
             return
         }
         const current = entry as CustomBotRule
-        if (Array.isArray(current.items)) {
-            if (typeof current.name !== 'string' || !current.items.every(isCondition)) {
-                return
-            }
-            rules.push({
-                ...current,
-                id: uniqueId(current.id, `legacy-${index}`),
-                combiner: current.combiner === FilterLogicalOperator.Or ? current.combiner : FilterLogicalOperator.And,
-                items: current.items.map((condition, conditionIndex) => ({
-                    ...condition,
-                    id: uniqueId(condition.id, `legacy-${index}-${conditionIndex}`),
-                })),
-            })
+        if (!Array.isArray(current.items) || typeof current.name !== 'string' || !current.items.every(isCondition)) {
             return
         }
-        const flat = entry as {
-            id?: string
-            name?: string
-            key?: CustomBotField
-            matcher?: CustomBotMatcher
-            pattern?: string
-            category?: string
-        }
-        if (
-            !CUSTOM_BOT_FIELD_OPTIONS.some((option) => option.value === flat.key) ||
-            !Object.values(CustomBotMatcher).includes(flat.matcher as CustomBotMatcher) ||
-            typeof flat.pattern !== 'string'
-        ) {
-            return
-        }
-        const id = uniqueId(flat.id ?? '', `legacy-${index}`)
         rules.push({
-            id,
-            name: flat.name ?? '',
-            category: flat.category,
-            combiner: FilterLogicalOperator.And,
-            items: [
-                {
-                    id: uniqueId(`${id}-condition`, `legacy-${index}-condition`),
-                    key: flat.key as CustomBotField,
-                    matcher: flat.matcher as CustomBotMatcher,
-                    pattern: flat.pattern,
-                },
-            ],
+            ...current,
+            id: uniqueId(current.id, `rule-${index}`),
+            combiner: current.combiner === FilterLogicalOperator.Or ? current.combiner : FilterLogicalOperator.And,
+            items: current.items.map((condition, conditionIndex) => ({
+                ...condition,
+                id: uniqueId(condition.id, `rule-${index}-${conditionIndex}`),
+            })),
         })
     })
     return rules

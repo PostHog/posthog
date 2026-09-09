@@ -21,7 +21,7 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
     PATTERN_MATCHERS,
     assert_patterns_compile,
     compiled_patterns,
-    upcast_rules,
+    parse_rules,
     validate_rule,
 )
 
@@ -81,18 +81,6 @@ class WebAnalyticsBotRuleSerializer(serializers.Serializer):
         return value
 
 
-def _upcast_flat_body(data: Any) -> Any:
-    """Read the pre-combiner request body, where the rule itself carried one condition.
-
-    The generated MCP tool sends this shape until it redeploys, so the endpoint keeps accepting it.
-    """
-    if not isinstance(data, dict) or "items" in data or "key" not in data:
-        return data
-    condition = {name: data[name] for name in ("key", "matcher", "pattern") if name in data}
-    rule = {name: value for name, value in data.items() if name not in ("key", "matcher", "pattern")}
-    return {**rule, "items": [condition]}
-
-
 class CustomBotRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """A project's own bot rules, stored on the team and read by `Is bot`, `Bot name`, and the
     traffic-type properties everywhere HogQL runs. A rule extends the built-in bot list rather than
@@ -103,8 +91,7 @@ class CustomBotRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def _rules(self) -> list[dict[str, Any]]:
         raw = (self.team.modifiers or {}).get("customBotDefinitions") or []
-        # Old storage can still hold flat single-condition entries; report one shape.
-        return [rule.model_dump(exclude_none=True) for rule in upcast_rules(raw)]
+        return [rule.model_dump(exclude_none=True) for rule in parse_rules(raw)]
 
     def _require_project_admin(self) -> None:
         # A rule reshapes bot classification across the whole project, and it is stored on the
@@ -141,7 +128,7 @@ class CustomBotRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def create(self, request: Request, **kwargs: Any) -> Response:
         self._require_project_admin()
 
-        serializer = WebAnalyticsBotRuleSerializer(data=_upcast_flat_body(request.data))
+        serializer = WebAnalyticsBotRuleSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
@@ -165,7 +152,7 @@ class CustomBotRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # Validate (and probe ClickHouse) before locking, so the row lock is held only for the
         # read-check-write and never across the ClickHouse round trip.
         try:
-            parsed = upcast_rules([rule], strict=True)[0]
+            parsed = parse_rules([rule], strict=True)[0]
             validate_rule(parsed)
             assert_patterns_compile(compiled_patterns([parsed]))
         except ValueError as error:
@@ -198,7 +185,7 @@ class CustomBotRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             # there is no per-product config row for bot definitions to lock instead.
             team = Team.objects.select_for_update().get(pk=self.team.pk)  # nosemgrep: hot-parent-row-select-for-update
             rules = list((team.modifiers or {}).get("customBotDefinitions") or [])
-            remaining = [rule for rule in rules if rule.get("id") != pk]
+            remaining = [entry for entry in rules if not (isinstance(entry, dict) and entry.get("id") == pk)]
             if len(remaining) == len(rules):
                 raise NotFound("No such bot rule.")
             self._save(team, remaining)

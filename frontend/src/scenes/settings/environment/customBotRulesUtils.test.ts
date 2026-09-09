@@ -4,7 +4,7 @@ import { FilterLogicalOperator } from '~/types'
 import {
     conditionMatchesValue,
     ruleMatchesValues,
-    upcastCustomBotRules,
+    parseCustomBotRules,
     validateCustomBotCondition,
     validateCustomBotRule,
 } from './customBotRulesUtils'
@@ -234,57 +234,37 @@ describe('customBotRulesUtils', () => {
         })
     })
 
-    describe('upcastCustomBotRules', () => {
-        it('reads the pre-combiner flat shape as a one-condition rule', () => {
-            // Storage still holds this shape for rules saved before conditions existed; the editor
-            // must load them instead of showing an empty list.
-            const upcast = upcastCustomBotRules([
-                { id: '1', name: 'Acme', key: '$raw_user_agent', matcher: 'contains', pattern: 'AcmeBot' },
-            ])
+    describe('parseCustomBotRules', () => {
+        it('mints deterministic ids so id-less rules do not collapse in the id-keyed editor', () => {
+            const raw = [rule({ id: '', name: 'One' }), rule({ id: '', name: 'Two' })]
+            const parsed = parseCustomBotRules(raw)
 
-            // The condition id must differ from the rule id: the editor keys both in one
-            // drag-and-drop context, where a shared id collapses them.
-            expect(upcast).toEqual([
-                rule({
-                    name: 'Acme',
-                    items: [condition({ id: '1-condition' })],
-                }),
-            ])
-        })
-
-        it('mints ids so rules without one do not collapse in the id-keyed editor', () => {
-            const raw = [
-                { name: 'One', key: '$raw_user_agent', matcher: 'contains', pattern: 'One' },
-                { name: 'Two', key: '$raw_user_agent', matcher: 'contains', pattern: 'Two' },
-            ]
-            const upcast = upcastCustomBotRules(raw)
-
-            expect(upcast).toHaveLength(2)
-            expect(upcast[0].id).toBeTruthy()
-            expect(upcast[0].id).not.toEqual(upcast[1].id)
-            expect(upcast[0].items[0].id).not.toEqual(upcast[0].id)
+            expect(parsed).toHaveLength(2)
+            expect(parsed[0].id).toBeTruthy()
+            expect(parsed[0].id).not.toEqual(parsed[1].id)
             // Deterministic ids: a random id would read as an endless unsaved change.
-            expect(upcastCustomBotRules(raw)).toEqual(upcast)
+            expect(parseCustomBotRules(raw)).toEqual(parsed)
         })
 
         it('re-mints colliding ids so rules do not collapse in the id-keyed editor', () => {
-            const upcast = upcastCustomBotRules([rule({ id: 'dup' }), rule({ id: 'dup', name: 'Second' })])
+            const parsed = parseCustomBotRules([rule({ id: 'dup' }), rule({ id: 'dup', name: 'Second' })])
 
-            expect(upcast).toHaveLength(2)
-            expect(upcast[0].id).not.toEqual(upcast[1].id)
+            expect(parsed).toHaveLength(2)
+            expect(parsed[0].id).not.toEqual(parsed[1].id)
         })
 
-        it('keeps the current shape and drops what does not parse', () => {
+        it('keeps parseable rules and drops what does not parse', () => {
             const current = rule()
 
-            // A malformed items-shape entry must be dropped, not blind-cast: it would otherwise
-            // throw in validation during render and crash the settings scene. An unknown matcher
-            // must also drop, or the editor calls valid what the server 400s.
+            // A malformed entry must be dropped, not blind-cast: it would otherwise throw in
+            // validation during render and crash the settings scene. An unknown matcher must
+            // also drop, or the editor calls valid what the server 400s. A pre-combiner flat
+            // entry has no items, so it drops too.
             expect(
-                upcastCustomBotRules([
+                parseCustomBotRules([
                     current,
                     'garbage',
-                    { pattern: 'no key' },
+                    { id: '1', name: 'Flat', key: '$raw_user_agent', matcher: 'contains', pattern: 'AcmeBot' },
                     { id: 'x', items: [{}] },
                     { items: [condition()], name: null },
                     { id: 'y', name: 'n', items: [{ ...condition(), matcher: 'startswith' }] },

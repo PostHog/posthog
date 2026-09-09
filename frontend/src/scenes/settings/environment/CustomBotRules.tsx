@@ -33,7 +33,7 @@ import {
     patternPlaceholderFor,
     ruleMatchesValues,
     sanitizeCustomBotRules,
-    upcastCustomBotRules,
+    parseCustomBotRules,
     validateCustomBotCondition,
     validateCustomBotRule,
 } from './customBotRulesUtils'
@@ -104,8 +104,8 @@ export function CustomBotRules(): JSX.Element {
     // The saved state is whatever the server currently holds, so a save that the backend rejects
     // leaves the editor dirty and retryable instead of falsely reading as saved.
     const rawSavedRules = currentTeam?.modifiers?.customBotDefinitions
-    const savedRules = upcastCustomBotRules(rawSavedRules)
-    // A save writes the parsed list back in full, so entries the upcast dropped would be removed
+    const savedRules = parseCustomBotRules(rawSavedRules)
+    // A save writes the parsed list back in full, so entries that did not parse would be removed
     // silently. Tell the user instead of losing them without a trace.
     const droppedCount = (Array.isArray(rawSavedRules) ? rawSavedRules.length : 0) - savedRules.length
     const [rules, setRules] = useState<CustomBotRule[]>(savedRules)

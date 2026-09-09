@@ -125,7 +125,7 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
     MAX_CUSTOM_BOT_DEFINITIONS,
     assert_patterns_compile as assert_custom_bot_patterns_compile,
     compiled_patterns as compiled_custom_bot_patterns,
-    upcast_rules as upcast_custom_bot_rules,
+    parse_rules as parse_custom_bot_rules,
     validate_rule as validate_custom_bot_rule,
 )
 from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
@@ -1891,14 +1891,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 raise exceptions.ValidationError(
                     {"customBotDefinitions": f"You can define at most {MAX_CUSTOM_BOT_DEFINITIONS} bots."}
                 )
-            # A stale client can still send the pre-combiner flat shape; store the upcast rules so
-            # the saved modifiers always hold one shape. Strict, so a malformed rule is rejected
-            # rather than silently dropped from the save.
+            # Strict, so a malformed rule is rejected with a specific error rather than the
+            # generic "Invalid modifier key.", and the stored list is normalized.
             try:
-                upcast = upcast_custom_bot_rules(value["customBotDefinitions"], strict=True)
+                parsed = parse_custom_bot_rules(value["customBotDefinitions"], strict=True)
             except ValueError as error:
                 raise exceptions.ValidationError({"customBotDefinitions": str(error)})
-            value = {**value, "customBotDefinitions": [rule.model_dump(exclude_none=True) for rule in upcast]}
+            value = {**value, "customBotDefinitions": [rule.model_dump(exclude_none=True) for rule in parsed]}
 
         try:
             modifiers = HogQLQueryModifiers(**value)

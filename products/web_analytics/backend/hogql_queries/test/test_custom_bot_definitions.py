@@ -21,7 +21,7 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
     compile_definitions,
     compile_pattern,
     compiled_patterns,
-    upcast_rules,
+    parse_rules,
     validate_rule,
 )
 
@@ -227,59 +227,20 @@ class TestValidation:
             validate_rule(rule(items=[CustomBotCondition.model_construct(**raw)]))
 
 
-class TestUpcastRules:
-    def test_reads_the_flat_shape_as_a_one_condition_rule(self):
-        # Rules saved before conditions existed keep this shape in team.modifiers; they have to
-        # keep classifying without a migration.
-        upcast = upcast_rules(
-            [{"id": "1", "name": "Acme", "key": "$raw_user_agent", "matcher": "contains", "pattern": "AcmeBot"}]
-        )
-
-        assert [(r.name, r.combiner, len(r.items)) for r in upcast] == [("Acme", FilterLogicalOperator.AND_, 1)]
-        assert upcast[0].items[0].pattern == "AcmeBot"
-        # The editor keys rules and conditions by id in one drag-and-drop context; a shared id
-        # collapses them.
-        assert upcast[0].items[0].id != upcast[0].id
-
-    def test_a_flat_rule_without_an_id_gets_one(self):
-        # An id-less rule would otherwise store id "", and several such rules collapse to one
-        # entry in the id-keyed editor, deleting the rest on the next save.
-        upcast = upcast_rules(
-            [{"name": "Acme", "key": "$raw_user_agent", "matcher": "contains", "pattern": "AcmeBot"}], strict=True
-        )
-
-        assert upcast[0].id
-        assert upcast[0].items[0].id != upcast[0].id
-
-    def test_lenient_minted_ids_are_deterministic(self):
-        # The parsed rules feed the query cache key, so a per-call random id would silently zero
-        # the team's cache hit rate.
-        raw = [{"name": "Acme", "key": "$raw_user_agent", "matcher": "contains", "pattern": "AcmeBot"}]
-
-        assert upcast_rules(raw) == upcast_rules(raw)
-
-    def test_an_items_shape_entry_without_a_combiner_defaults_to_and(self):
-        # The rules API defaults the combiner, so a client that learned the shape there must not
-        # 400 on the team save path.
-        upcast = upcast_rules(
-            [{"id": "1", "name": "Acme", "items": [condition().model_dump()]}],
-            strict=True,
-        )
-
-        assert upcast[0].combiner == FilterLogicalOperator.AND_
-
-    def test_keeps_the_current_shape_and_drops_what_does_not_parse(self):
+class TestParseRules:
+    def test_keeps_parseable_rules_and_drops_what_does_not_parse(self):
         current = rule().model_dump(exclude_none=True)
+        # A pre-combiner flat entry has no items, so it is dropped like any other unparseable entry.
+        flat = {"id": "9", "name": "Flat", "key": "$raw_user_agent", "matcher": "contains", "pattern": "AcmeBot"}
 
-        upcast = upcast_rules([current, "garbage", {"pattern": "no key"}, {"items": "not-a-list"}])
+        parsed = parse_rules([current, "garbage", flat, {"items": "not-a-list"}])
 
-        assert [r.name for r in upcast] == ["Acme scraper"]
+        assert [r.name for r in parsed] == ["Acme scraper"]
 
     def test_strict_raises_instead_of_dropping(self):
-        # On the save paths a silently dropped rule reads as saved; the error has to surface, and
-        # a missing key must not leak a bare KeyError repr to the caller.
-        with pytest.raises(ValueError, match="needs a name, key, matcher, and pattern"):
-            upcast_rules([{"pattern": "no key"}], strict=True)
+        # On the save paths a silently dropped rule reads as saved; the error has to surface.
+        with pytest.raises(ValueError, match="Invalid bot rule"):
+            parse_rules([{"pattern": "no items"}], strict=True)
 
 
 class TestCompileDefinitions:

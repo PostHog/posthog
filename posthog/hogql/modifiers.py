@@ -73,16 +73,15 @@ def create_default_modifiers_for_team(
                     except ValidationError:
                         pass
                 elif key == "customBotDefinitions":
-                    # upcast_rules reads both the current and the pre-combiner flat shape, and
-                    # drops the entries that don't parse — one bad entry should not take a
-                    # project's whole bot list out of every query. warn_on_drop=False because this
-                    # runs per query; the API list and save paths report drops instead.
+                    # parse_rules drops the entries that don't parse — one bad entry should not
+                    # take a project's whole bot list out of every query. warn_on_drop=False
+                    # because this runs per query; the API list and save paths report drops.
                     from products.web_analytics.backend.hogql_queries.custom_bot_definitions import (  # noqa: PLC0415
-                        upcast_rules,
+                        parse_rules,
                     )
 
                     if isinstance(value, list):
-                        setattr(modifiers, key, upcast_rules(value, warn_on_drop=False))
+                        setattr(modifiers, key, parse_rules(value, warn_on_drop=False))
                 else:
                     setattr(modifiers, key, value)
 
