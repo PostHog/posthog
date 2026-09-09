@@ -78,6 +78,7 @@ import type {
     SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
     SignalUserAutonomyConfigApi,
+    SignalUserAutonomyConfigCreateApi,
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
     SignalsReportsListParams,
@@ -1709,14 +1710,14 @@ export const getUsersSignalAutonomyCreateUrl = (userId: string) => {
  */
 export const usersSignalAutonomyCreate = async (
     userId: string,
-    signalUserAutonomyConfigApi?: NonReadonly<SignalUserAutonomyConfigApi>,
+    signalUserAutonomyConfigCreateApi?: SignalUserAutonomyConfigCreateApi,
     options?: RequestInit
 ): Promise<SignalUserAutonomyConfigApi> => {
     return apiMutator<SignalUserAutonomyConfigApi>(getUsersSignalAutonomyCreateUrl(userId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(signalUserAutonomyConfigApi),
+        body: JSON.stringify(signalUserAutonomyConfigCreateApi),
     })
 }
 
