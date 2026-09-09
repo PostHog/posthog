@@ -1,3 +1,5 @@
+import { cleanup, render } from '@testing-library/react'
+
 import { dayjs } from 'lib/dayjs'
 
 import {
@@ -9,7 +11,12 @@ import {
 } from '~/queries/schema/schema-general'
 
 import { forecastTargetDateError, forecastTargetValueError } from '../logic/forecastReach'
-import { getDefaultForecastConfig, withConditionDefaults, withEnteredHorizon } from './ForecastSelector'
+import {
+    ForecastSelector,
+    getDefaultForecastConfig,
+    withConditionDefaults,
+    withEnteredHorizon,
+} from './ForecastSelector'
 
 describe('withConditionDefaults', () => {
     const futureBreach: ForecastConfig = {
@@ -121,5 +128,58 @@ describe('getDefaultForecastConfig', () => {
         if (config.condition === ForecastConditionType.FUTURE_BREACH) {
             expect(config.horizon).toBe(expected)
         }
+    })
+})
+
+// The form permits an expired target date the user has not changed, so an alert whose date has
+// passed can still be renamed or turned off. The selector must show the form's verdict on the date
+// instead of its own, or that supported edit reads as invalid.
+describe('ForecastSelector', () => {
+    beforeEach(cleanup)
+
+    const expiredTarget = {
+        type: 'ForecastConfig',
+        engine: ForecastEngineType.PROPHET,
+        condition: ForecastConditionType.TARGET_BY_DATE,
+        target: 100,
+        target_direction: ForecastTargetDirection.AT_LEAST,
+        target_date: dayjs().subtract(1, 'year').format('YYYY-MM-DD'),
+    } as const satisfies ForecastConfig
+
+    const targetOn = (target_date: string): ForecastConfig => ({ ...expiredTarget, target_date })
+
+    // The server accepts every ISO date form and stores what it was sent, so a stored date can be
+    // one dayjs cannot read. The date button has to show it rather than the words "Invalid Date".
+    it.each([
+        ['a week date dayjs cannot read', '2026-W40-1', '2026-W40-1'],
+        ['an ordinary date', '2026-12-01', 'December 1, 2026'],
+    ] as const)('shows %s on the date button', (_name, targetDate, expected) => {
+        const { container } = render(
+            <ForecastSelector
+                value={targetOn(targetDate)}
+                onChange={() => {}}
+                insightInterval="day"
+                targetDateError={null}
+            />
+        )
+
+        expect(container.querySelector('[data-attr="alertForm-forecast-target-date"]')?.textContent).toBe(expected)
+    })
+
+    it.each([
+        ['shows nothing when the form accepts the date', null, null],
+        ['shows the form message when the form rejects it', 'Choose a target date', 'Choose a target date'],
+    ] as const)('%s', (_name, targetDateError, expected) => {
+        const { container } = render(
+            <ForecastSelector
+                value={expiredTarget}
+                onChange={() => {}}
+                insightInterval="day"
+                targetDateError={targetDateError}
+            />
+        )
+
+        const error = container.querySelector('[data-attr="alertForm-forecast-target-error"]')
+        expect(error?.textContent ?? null).toBe(expected)
     })
 })

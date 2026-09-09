@@ -18,7 +18,6 @@ import {
     clampHorizon,
     DEFAULT_FORECAST_HORIZON,
     defaultHorizonForInterval,
-    forecastTargetDateError,
     forecastTargetIntervalError,
     forecastTargetValueError,
     maxHorizonForInterval,
@@ -108,6 +107,10 @@ interface ForecastSelectorProps {
     insightInterval: IntervalType | null | undefined
     projectTimezone?: string
     disabledReason?: string
+    /** The form's message about the target date, or null. The form knows the date the alert was
+     * saved with, which an expired target keeps until it is changed, so it is the only place that
+     * can tell an unreachable new date from a passed one the server still accepts. */
+    targetDateError: string | null
 }
 
 export function ForecastSelector({
@@ -116,6 +119,7 @@ export function ForecastSelector({
     insightInterval,
     projectTimezone,
     disabledReason,
+    targetDateError,
 }: ForecastSelectorProps): JSX.Element {
     const config = value ?? getDefaultForecastConfig(insightInterval)
     const today = projectTimezone ? dayjsNowInTimezone(projectTimezone) : dayjs()
@@ -173,10 +177,9 @@ export function ForecastSelector({
             ) : (
                 <TargetByDateFields
                     config={config}
-                    insightInterval={insightInterval}
-                    today={today}
                     projectTimezone={projectTimezone}
                     disabledReason={disabledReason}
+                    targetDateError={targetDateError}
                     onChange={onChange}
                 />
             )}
@@ -186,21 +189,23 @@ export function ForecastSelector({
 
 function TargetByDateFields({
     config,
-    insightInterval,
-    today,
     projectTimezone,
     disabledReason,
+    targetDateError,
     onChange,
 }: {
     config: Extract<ForecastConfig, { condition: ForecastConditionType.TARGET_BY_DATE }>
-    insightInterval: IntervalType | null | undefined
-    today: dayjs.Dayjs
     projectTimezone?: string
     disabledReason?: string
+    targetDateError: string | null
     onChange: (config: ForecastConfig) => void
 }): JSX.Element {
     const targetValueError = forecastTargetValueError(config.target)
-    const targetDateError = forecastTargetDateError(config.target_date, today, insightInterval)
+    // The server accepts every ISO date form, week dates included, and stores what it was sent.
+    // dayjs reads none of the week forms and prints "Invalid Date" for them, so hand the calendar
+    // nothing and show the stored date until the picker replaces it.
+    const storedTargetDate = config.target_date ? dayjs(config.target_date) : null
+    const pickedTargetDate = storedTargetDate?.isValid() ? storedTargetDate : null
 
     return (
         <div className="space-y-2">
@@ -240,7 +245,8 @@ function TargetByDateFields({
                         'data-attr': 'alertForm-forecast-target-date',
                         disabledReason,
                     }}
-                    value={config.target_date ? dayjs(config.target_date) : null}
+                    value={pickedTargetDate}
+                    placeholder={config.target_date || undefined}
                     onChange={(date) =>
                         onChange({
                             ...config,

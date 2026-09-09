@@ -76,6 +76,9 @@ export interface AlertDefinitionSectionProps {
     supportsAnomalyDetection: boolean
     supportsForecast: boolean
     forecastDisabledReason?: string
+    /** The form's message about the forecast target, or undefined. Computed with the saved alert's
+     * context, so an expired target the user has not changed does not read as invalid. */
+    forecastValidationError?: string
     insightInterval: IntervalType | null | undefined
     projectTimezone: string
     showAnomalyGuidance?: boolean
@@ -106,6 +109,7 @@ export function AlertDefinitionSection({
     supportsAnomalyDetection,
     supportsForecast,
     forecastDisabledReason,
+    forecastValidationError,
     insightInterval,
     projectTimezone,
     showAnomalyGuidance = false,
@@ -235,6 +239,7 @@ export function AlertDefinitionSection({
                             insightInterval={insightInterval}
                             projectTimezone={projectTimezone}
                             disabledReason={forecastDisabledReason}
+                            targetDateError={forecastValidationError ?? null}
                             value={alertForm.forecast_config ?? null}
                             onChange={(config) => {
                                 onSetAlertFormValue('forecast_config', config)

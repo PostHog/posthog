@@ -85,20 +85,36 @@ describe('alertFormSchema', () => {
         expect(errors.threshold).toBe('The “Less than” value must be lower than the “More than” value')
     })
 
-    it('rejects negative thresholds for relative conditions', () => {
-        const errors = getAlertFormValidationErrors({
-            ...baseAlert,
-            condition: { type: AlertConditionType.RELATIVE_DECREASE },
-            threshold: {
-                configuration: {
-                    type: InsightThresholdType.ABSOLUTE,
-                    bounds: { upper: -1 },
-                },
+    const negativeBoundCases: [string, AlertFormType['forecast_config']][] = [
+        ['a threshold alert', null],
+        [
+            'a predicted-breach forecast, which shows the same bounds',
+            {
+                type: 'ForecastConfig',
+                engine: ForecastEngineType.PROPHET,
+                condition: ForecastConditionType.FUTURE_BREACH,
             },
-        })
+        ],
+    ]
 
-        expect(errors.threshold).toBe('Enter zero or a positive change value')
-    })
+    it.each(negativeBoundCases)(
+        'rejects negative thresholds for relative conditions on %s',
+        (_name, forecast_config) => {
+            const errors = getAlertFormValidationErrors({
+                ...baseAlert,
+                condition: { type: AlertConditionType.RELATIVE_DECREASE },
+                forecast_config,
+                threshold: {
+                    configuration: {
+                        type: InsightThresholdType.ABSOLUTE,
+                        bounds: { upper: -1 },
+                    },
+                },
+            })
+
+            expect(errors.threshold).toBe('Enter zero or a positive change value')
+        }
+    )
 
     it('treats cleared threshold inputs as missing bounds', () => {
         expect(
@@ -146,9 +162,13 @@ describe('alertFormSchema', () => {
         ).toBe(true)
     })
 
-    it('ignores stale hidden threshold bounds for a target-by-date forecast', () => {
+    it.each([
+        ['inverted bounds', AlertConditionType.ABSOLUTE_VALUE, { lower: 10, upper: 5 }],
+        ['a negative bound left by a relative condition', AlertConditionType.RELATIVE_DECREASE, { upper: -1 }],
+    ] as const)('ignores %s hidden by a target-by-date forecast', (_name, conditionType, bounds) => {
         const errors = getAlertFormValidationErrors({
             ...baseAlert,
+            condition: { type: conditionType },
             forecast_config: {
                 type: 'ForecastConfig',
                 engine: ForecastEngineType.PROPHET,
@@ -158,7 +178,7 @@ describe('alertFormSchema', () => {
                 target_date: dayjs().add(30, 'day').format('YYYY-MM-DD'),
             },
             threshold: {
-                configuration: { type: InsightThresholdType.ABSOLUTE, bounds: { lower: 10, upper: 5 } },
+                configuration: { type: InsightThresholdType.ABSOLUTE, bounds },
             },
         })
 

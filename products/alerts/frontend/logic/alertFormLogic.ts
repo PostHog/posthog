@@ -50,7 +50,7 @@ import {
     isTrendsAlertConfig,
     supportsOngoingInterval,
 } from '../types'
-import { getAlertFormValidationErrors } from './alertFormSchema'
+import { getAlertFormValidationErrors, hasInvertedThresholdBounds, usesThresholdBounds } from './alertFormSchema'
 import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { getDefaultAnomalyDetectorConfig } from './detectorConfigDefaults'
@@ -737,8 +737,17 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         normalizedForecastConfig(props.alert, props.insightInterval)
                     )
 
+                // The server validates every threshold it receives, while a target alert hides the
+                // bounds and evaluates its target instead. An inverted pair left behind by the
+                // breach path would fail the save on a field the editor does not show.
+                const boundsUnusableAndHidden =
+                    !usesThresholdBounds(alert) && hasInvertedThresholdBounds(alert.threshold?.configuration?.bounds)
+
                 const payload: AlertTypeWrite = {
                     ...alert,
+                    threshold: boundsUnusableAndHidden
+                        ? { ...alert.threshold, configuration: { ...alert.threshold.configuration, bounds: {} } }
+                        : alert.threshold,
                     subscribed_users: alert.subscribed_users?.map(({ id }) => id),
                     insight: props.insightId,
                     // can only skip weekends for sub-daily alerts
