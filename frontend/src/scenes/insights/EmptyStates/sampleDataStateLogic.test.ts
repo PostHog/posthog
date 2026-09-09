@@ -7,7 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ExportType } from '~/exporter/types'
 import { initKeaTests } from '~/test/init'
 
-import { sampleDataStateLogic } from './sampleDataStateLogic'
+import { SAMPLE_DATA_OPT_OUT_SETTING, sampleDataStateLogic } from './sampleDataStateLogic'
 
 describe('sampleDataStateLogic', () => {
     let logic: ReturnType<typeof sampleDataStateLogic.build>
@@ -33,6 +33,15 @@ describe('sampleDataStateLogic', () => {
 
     it('hides the placeholder once a project has ingested', async () => {
         mount({ ...MOCK_DEFAULT_TEAM, ingested_event: true })
+        await expectLogic(logic).toMatchValues({ shouldShowSampleData: false })
+    })
+
+    it('hides the placeholder when the project turned it off', async () => {
+        mount({
+            ...MOCK_DEFAULT_TEAM,
+            ingested_event: false,
+            extra_settings: { [SAMPLE_DATA_OPT_OUT_SETTING]: true },
+        })
         await expectLogic(logic).toMatchValues({ shouldShowSampleData: false })
     })
 

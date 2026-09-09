@@ -4,6 +4,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render } from '@testing-library/react'
 
+import posthog from 'lib/posthog-typed'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -11,6 +12,12 @@ import { initKeaTests } from '~/test/init'
 import { TeamType } from '~/types'
 
 import { InsightEmptyState } from './EmptyStates'
+import { SAMPLE_DATA_OPT_OUT_SETTING } from './sampleDataStateLogic'
+
+jest.mock('lib/posthog-typed', () => ({
+    __esModule: true,
+    default: { capture: jest.fn() },
+}))
 
 describe('EmptyStates', () => {
     describe('<InsightEmptyState />', () => {
@@ -69,12 +76,33 @@ describe('EmptyStates', () => {
                 props: { sampleDataVariant: null },
                 expectSampleData: false,
             },
+            {
+                name: 'the regular empty state when the project turned the placeholder off',
+                team: {
+                    ingested_event: false,
+                    is_demo: false,
+                    extra_settings: { [SAMPLE_DATA_OPT_OUT_SETTING]: true },
+                },
+                props: {},
+                expectSampleData: false,
+            },
         ])('renders $name', ({ team, props, expectSampleData }) => {
             mountWithTeam(team)
             const { container } = render(<InsightEmptyState {...props} />)
 
             expect(!!container.querySelector('[data-attr="insight-sample-data-state"]')).toBe(expectSampleData)
             expect(!!container.querySelector('[data-attr="insight-empty-state"]')).toBe(!expectSampleData)
+        })
+
+        it.each([
+            { name: 'the placeholder', ingestedEvent: false, event: 'insight sample data shown' },
+            { name: 'the regular empty state', ingestedEvent: true, event: 'insight empty state shown' },
+        ])('captures an event when $name renders', ({ ingestedEvent, event }) => {
+            jest.mocked(posthog.capture).mockClear()
+            mountWithTeam({ ingested_event: ingestedEvent, is_demo: false })
+            render(<InsightEmptyState />)
+
+            expect(posthog.capture).toHaveBeenCalledWith(event, expect.any(Object))
         })
     })
 })

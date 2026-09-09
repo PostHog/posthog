@@ -493,6 +493,13 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
                     <>{after[key as keyof typeof after] ? 'enabled' : 'disabled'} Person on Events (v2)</>
                 )
             }
+            if (key === 'sample_data_opt_out') {
+                descriptions.push(
+                    <>
+                        {after[key as keyof typeof after] ? 'disabled' : 'enabled'} sample charts before the first event
+                    </>
+                )
+            }
         }
         return { description: descriptions }
     },

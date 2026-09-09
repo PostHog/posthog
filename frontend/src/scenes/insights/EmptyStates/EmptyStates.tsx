@@ -98,22 +98,24 @@ export function InsightEmptyState({
     const hasCustomCopy = heading !== undefined || detail !== undefined
     const showingSampleData =
         shouldShowSampleData && sampleDataVariant !== null && (sampleDataVariant !== undefined || !hasCustomCopy)
+    const sampleVariant = sampleDataVariant ?? 'line'
 
-    // This empty state used to fire no telemetry at all, so a broken query and a genuinely empty
-    // result were indistinguishable. Capture it so both are measurable.
+    // Without telemetry a broken query and a genuinely empty result are indistinguishable, and the
+    // placeholder's audience is unknown. Each state gets its own event.
     useOnMountEffect(() => {
-        if (showingSampleData) {
-            return
-        }
-        posthog.capture('insight empty state shown', {
-            has_custom_copy: hasCustomCopy,
+        const properties = {
             dashboard_id: insightProps?.dashboardId ?? null,
             insight_short_id: typeof insightProps?.dashboardItemId === 'string' ? insightProps.dashboardItemId : null,
-        })
+        }
+        if (showingSampleData) {
+            posthog.capture('insight sample data shown', { ...properties, variant: sampleVariant })
+            return
+        }
+        posthog.capture('insight empty state shown', { ...properties, has_custom_copy: hasCustomCopy })
     })
 
     if (showingSampleData) {
-        return <SampleDataState variant={sampleDataVariant ?? 'line'} />
+        return <SampleDataState variant={sampleVariant} />
     }
 
     heading = heading ?? 'There are no matching events for this query'

@@ -267,6 +267,7 @@ export type SettingId =
     | 'revenue-analytics-external-data-sources'
     | 'revenue-analytics-filter-test-accounts'
     | 'revenue-base-currency'
+    | 'sample-data'
     | 'saml-configuration'
     | 'scim-configuration'
     | 'session-join-mode'

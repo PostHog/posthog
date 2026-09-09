@@ -35,6 +35,7 @@ import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggregatedTablesSetting'
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
+import { SampleDataSetting } from 'scenes/settings/environment/SampleDataSetting'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
 import {
@@ -345,6 +346,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Set the default currency used for revenue and monetary calculations.',
                 component: <BaseCurrency hideTitle />,
                 keywords: ['money', 'currency', 'usd', 'eur'],
+            },
+            {
+                id: 'sample-data',
+                title: 'Sample data',
+                description:
+                    'Until this project receives its first event, insights and web analytics tiles show a labeled sample chart in place of the empty state. Turn this off to show empty states instead.',
+                component: <SampleDataSetting />,
+                keywords: ['sample', 'placeholder', 'fake', 'demo', 'example', 'empty state', 'onboarding'],
             },
         ],
     },
