@@ -98,6 +98,8 @@ export function ScannerScoutFormModal({
     const {
         createTemplateKey,
         settingsSkillName,
+        settingsConfigId,
+        settingsSaveFailed,
         scoutConfigsForScanner,
         skillPrompt,
         skillPromptLoading,
@@ -115,7 +117,7 @@ export function ScannerScoutFormModal({
         () => (createTemplateKey ? scannerScoutTemplate(createTemplateKey, scannerId, scanner?.scanner_type) : null),
         [createTemplateKey, scannerId, scanner?.scanner_type]
     )
-    const config = scoutConfigsForScanner.find((candidate) => candidate.skill_name === settingsSkillName)
+    const config = scoutConfigsForScanner.find((candidate) => candidate.id === settingsConfigId)
     const [activeTab, setActiveTab] = useState<ScoutFormTab>('instructions')
     const [form, setForm] = useState<ScannerScoutForm>(() => ({
         name: template ? template.defaultName : config ? prettifyScoutSkillName(config.skill_name) : '',
@@ -160,6 +162,7 @@ export function ScannerScoutFormModal({
     const placeholders = scoutBodyPlaceholders(form.body)
     const unchanged =
         !template &&
+        !settingsSaveFailed &&
         !!config &&
         form.name === prettifyScoutSkillName(config.skill_name) &&
         form.body === (skillPrompt?.body ?? '') &&

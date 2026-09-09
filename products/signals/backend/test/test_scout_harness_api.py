@@ -1,19 +1,24 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from threading import Barrier, Event
+from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.apps import apps
+from django.db import connection, connections
 from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIClient
 from social_django.models import UserSocialAuth
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -54,11 +59,12 @@ from products.signals.backend.scout_harness.lazy_seed import (
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
+from products.signals.backend.scout_harness.runner import _create_run_row
 from products.signals.backend.scout_harness.serializers import (
     SignalScoutConfigUpdateSerializer,
     SignalScoutSlackDestinationSerializer,
 )
-from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
+from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX, load_skill_for_run
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
 from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
@@ -2217,6 +2223,99 @@ class TestRunCronScheduleValidation(SimpleTestCase):
         assert serializer.validated_data["run_cron_schedule"] is None
 
 
+class TestScoutRenameConcurrency(NonAtomicAPIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_run_starting_after_history_moves_cannot_use_the_old_name(self) -> None:
+        old_name = "signals-scout-before-rename"
+        new_name = "signals-scout-after-rename"
+        config = SignalScoutConfig.all_teams.create(team=self.team, skill_name=old_name)
+        LLMSkill.objects.create(team=self.team, name=old_name, description="Test scout", body="Check test data.")
+        skill = load_skill_for_run(self.team, old_name)
+        task_run = _make_task_run(self.team)
+        run_id = uuid4()
+        history_moved = Event()
+        run_started = Event()
+
+        def wait_for_run_start(
+            execute: Callable[..., Any], sql: str, params: object, many: bool, context: dict[str, Any]
+        ) -> Any:
+            result = execute(sql, params, many, context)
+            if sql.startswith(f'UPDATE "{SignalScoutRun._meta.db_table}"'):
+                history_moved.set()
+                assert run_started.wait(timeout=20)
+            return result
+
+        def announce_run_start(
+            execute: Callable[..., Any], sql: str, params: object, many: bool, context: dict[str, Any]
+        ) -> Any:
+            run_started.set()
+            return execute(sql, params, many, context)
+
+        def start_run() -> None:
+            try:
+                assert history_moved.wait(timeout=20)
+                with connection.execute_wrapper(announce_run_start):
+                    _create_run_row(run_id=run_id, task_run=task_run, team=self.team, config=config, skill=skill)
+            finally:
+                connections.close_all()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            pending_run = executor.submit(start_run)
+            with connection.execute_wrapper(wait_for_run_start):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/signals/scout/configs/{config.id}/rename/",
+                    {"new_name": new_name},
+                    format="json",
+                )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            with self.assertRaisesRegex(ValueError, "renamed before this run started"):
+                pending_run.result(timeout=20)
+
+        assert not SignalScoutRun.all_teams.filter(pk=run_id).exists()
+        config.refresh_from_db()
+        assert config.skill_name == new_name
+
+    def test_concurrent_renames_return_a_name_conflict(self) -> None:
+        configs = []
+        for name in ["signals-scout-first", "signals-scout-second"]:
+            configs.append(SignalScoutConfig.all_teams.create(team=self.team, skill_name=name))
+            LLMSkill.objects.create(team=self.team, name=name, description="Test scout", body="Check test data.")
+        new_name = "signals-scout-shared-name"
+        before_update = Barrier(2, timeout=20)
+
+        def synchronize_updates(
+            execute: Callable[..., Any], sql: str, params: object, many: bool, context: dict[str, Any]
+        ) -> Any:
+            if sql.startswith('UPDATE "llm_analytics_llmskill"'):
+                before_update.wait()
+            return execute(sql, params, many, context)
+
+        def rename(config: SignalScoutConfig) -> int:
+            try:
+                client = APIClient()
+                client.force_authenticate(user=self.user)
+                with connection.execute_wrapper(synchronize_updates):
+                    response = client.post(
+                        f"/api/projects/{self.team.id}/signals/scout/configs/{config.id}/rename/",
+                        {"new_name": new_name},
+                        format="json",
+                    )
+                return response.status_code
+            finally:
+                connections.close_all()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(rename, configs))
+
+        assert sorted(results) == [status.HTTP_200_OK, status.HTTP_400_BAD_REQUEST]
+        assert SignalScoutConfig.all_teams.filter(team=self.team, skill_name=new_name).count() == 1
+        assert LLMSkill.objects.filter(team=self.team, name=new_name, deleted=False).count() == 1
+        for config in configs:
+            config.refresh_from_db()
+            assert LLMSkill.objects.filter(team=self.team, name=config.skill_name, deleted=False).exists()
+
+
 class TestScoutHarnessConfigAPI(APIBaseTest):
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/"
@@ -2350,6 +2449,16 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             task_run_status=TaskRun.Status.COMPLETED,
         )
         note = SignalScoutNote.objects.create(team=self.team, skill_name=old_name, content="Check the funnel.")
+        memory = SignalScratchpad.objects.create(
+            team=self.team,
+            key=f"{FOLLOWUP_KEY_PREFIX}{old_name}:checkout",
+            content="pending: Check the funnel.",
+            created_by_run=run,
+        )
+        other_memory = SignalScratchpad.objects.create(
+            team=self.team, key=f"{FOLLOWUP_KEY_PREFIX}{old_name}-other:checkout", content="Keep this key."
+        )
+        memory_updated_at = memory.updated_at
 
         response = self.client.post(
             f"{self._detail_url(str(config.id))}rename/",
@@ -2373,6 +2482,13 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.source_id == "scanner-1"
         assert run.skill_name == new_name
         assert note.skill_name == new_name
+        memory.refresh_from_db()
+        other_memory.refresh_from_db()
+        assert memory.key == f"{FOLLOWUP_KEY_PREFIX}{new_name}:checkout"
+        assert memory.content == "pending: Check the funnel."
+        assert memory.created_by_run_id == run.id
+        assert memory.updated_at == memory_updated_at
+        assert other_memory.key == f"{FOLLOWUP_KEY_PREFIX}{old_name}-other:checkout"
 
     def test_rename_rejects_a_canonical_scout(self) -> None:
         name = "signals-scout-general"
@@ -2442,6 +2558,8 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             ("different_prefix", "checkout-renamed", None),
             ("skill_name_taken", "signals-scout-taken", "skill"),
             ("config_name_taken", "signals-scout-taken", "config"),
+            ("memory_key_taken", "signals-scout-taken", "memory"),
+            ("memory_key_too_long", "signals-scout-longer-checkout", "long_memory"),
         ]
     )
     def test_rename_rejects_invalid_targets(self, _label: str, new_name: str, conflict: str | None) -> None:
@@ -2452,6 +2570,15 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             self._make_skill(new_name)
         elif conflict == "config":
             SignalScoutConfig.objects.create(team=self.team, skill_name=new_name)
+        elif conflict in {"memory", "long_memory"}:
+            old_key = f"{FOLLOWUP_KEY_PREFIX}{old_name}:checkout"
+            if conflict == "long_memory":
+                old_key = old_key.ljust(300, "x")
+            SignalScratchpad.objects.create(team=self.team, key=old_key, content="Keep the original memory.")
+            if conflict == "memory":
+                SignalScratchpad.objects.create(
+                    team=self.team, key=f"{FOLLOWUP_KEY_PREFIX}{new_name}:checkout", content="Keep the target memory."
+                )
 
         response = self.client.post(
             f"{self._detail_url(str(config.id))}rename/",
@@ -2462,6 +2589,11 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "new_name"
         assert LLMSkill.objects.filter(team=self.team, name=old_name, deleted=False).exists()
+
+        config.refresh_from_db()
+        assert config.skill_name == old_name
+        if conflict in {"memory", "long_memory"}:
+            assert SignalScratchpad.objects.filter(team=self.team, key=old_key).exists()
 
     @parameterized.expand(
         [

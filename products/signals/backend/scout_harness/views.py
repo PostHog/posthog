@@ -24,7 +24,9 @@ import dataclasses
 from dataclasses import dataclass
 from typing import Any, cast
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
+from django.db.models import Value
+from django.db.models.functions import Concat, Length, Substr
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -61,6 +63,7 @@ from products.signals.backend.models import (
     SignalScoutEmission,
     SignalScoutNote,
     SignalScoutRun,
+    SignalScratchpad,
 )
 from products.signals.backend.pipeline_identity import pipeline_writer_identity
 from products.signals.backend.report_charts import ChartSize
@@ -73,6 +76,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     scout_skill_row_origin,
 )
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
+from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
     ScoutRunRejection,
@@ -2475,57 +2479,88 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         payload.is_valid(raise_exception=True)
         new_name = payload.validated_data["new_name"]
 
-        with transaction.atomic():
-            config = (
-                SignalScoutConfig.objects.unscoped().select_for_update().filter(team_id=team.id, id=config_id).first()
-            )
-            if config is None:
-                raise exceptions.NotFound()
-            self._assert_can_register_scout()
-            old_name = config.skill_name
-            if new_name == old_name:
-                raise exceptions.ValidationError({"new_name": "The scout already has this name."})
-            if (
-                SignalScoutConfig.objects.unscoped()
-                .select_for_update()
-                .filter(team_id=team.id, skill_name=new_name)
-                .exclude(id=config.id)
-                .exists()
-            ):
-                raise exceptions.ValidationError({"new_name": "A scout with this name already exists."})
-            skill = (
-                LLMSkill.objects.filter(team_id=team.id, name=old_name, is_latest=True, deleted=False)
-                .prefetch_related("files")
-                .first()
-            )
-            if skill is None:
-                raise exceptions.NotFound("The scout skill no longer exists.")
-            if scout_skill_row_origin(skill) == "canonical":
-                raise exceptions.ValidationError({"new_name": "Canonical scouts keep the names managed by fleet sync."})
-            if rejection := check_run_in_flight(team.id, old_name):
-                raise Conflict(detail=rejection.detail)
-
-            allowed_prefix = SIGNALS_SCOUT_SKILL_PREFIX if old_name.startswith(SIGNALS_SCOUT_SKILL_PREFIX) else None
-            try:
-                rename_skill(
-                    team,
-                    skill_name=old_name,
-                    new_name=new_name,
-                    _product_owned_prefix=allowed_prefix,
+        try:
+            with transaction.atomic():
+                config = (
+                    SignalScoutConfig.objects.unscoped()
+                    .select_for_update()
+                    .filter(team_id=team.id, id=config_id)
+                    .first()
                 )
-            except LLMSkillDuplicateNameConflictError:
-                raise exceptions.ValidationError({"new_name": "A skill with this name already exists."})
-            except LLMSkillRenameNotAllowedError:
+                if config is None:
+                    raise exceptions.NotFound()
+                self._assert_can_register_scout()
+                old_name = config.skill_name
+                if new_name == old_name:
+                    raise exceptions.ValidationError({"new_name": "The scout already has this name."})
+                if (
+                    SignalScoutConfig.objects.unscoped()
+                    .filter(team_id=team.id, skill_name=new_name)
+                    .exclude(id=config.id)
+                    .exists()
+                ):
+                    raise exceptions.ValidationError({"new_name": "A scout with this name already exists."})
+                skill = (
+                    LLMSkill.objects.filter(team_id=team.id, name=old_name, is_latest=True, deleted=False)
+                    .prefetch_related("files")
+                    .first()
+                )
+                if skill is None:
+                    raise exceptions.NotFound("The scout skill no longer exists.")
+                if scout_skill_row_origin(skill) == "canonical":
+                    raise exceptions.ValidationError(
+                        {"new_name": "Canonical scouts keep the names managed by fleet sync."}
+                    )
+                if rejection := check_run_in_flight(team.id, old_name):
+                    raise Conflict(detail=rejection.detail)
+
+                allowed_prefix = SIGNALS_SCOUT_SKILL_PREFIX if old_name.startswith(SIGNALS_SCOUT_SKILL_PREFIX) else None
+                try:
+                    rename_skill(
+                        team,
+                        skill_name=old_name,
+                        new_name=new_name,
+                        _product_owned_prefix=allowed_prefix,
+                    )
+                except LLMSkillDuplicateNameConflictError:
+                    raise exceptions.ValidationError({"new_name": "A skill with this name already exists."})
+                except LLMSkillRenameNotAllowedError:
+                    raise exceptions.ValidationError(
+                        {"new_name": "The new name must keep the scout's current name prefix."}
+                    )
+                except LLMSkillNotFoundError:
+                    raise exceptions.NotFound("The scout skill no longer exists.")
+
+                old_prefix = f"{FOLLOWUP_KEY_PREFIX}{old_name}:"
+                new_prefix = f"{FOLLOWUP_KEY_PREFIX}{new_name}:"
+                scratchpads = SignalScratchpad.all_teams.filter(team_id=team.id, key__startswith=old_prefix)
+                if (
+                    scratchpads.annotate(key_length=Length("key"))
+                    .filter(key_length__gt=300 - len(new_prefix) + len(old_prefix))
+                    .exists()
+                ):
+                    raise exceptions.ValidationError(
+                        {"new_name": "This name makes a saved memory key too long. Use a shorter name."}
+                    )
+                scratchpads.update(key=Concat(Value(new_prefix), Substr("key", len(old_prefix) + 1)))
+                SignalScoutRun.objects.for_team(team.id).filter(skill_name=old_name).update(skill_name=new_name)
+                SignalScoutNote.objects.for_team(team.id).filter(skill_name=old_name).update(skill_name=new_name)
+                config.skill_name = new_name
+                config.save(update_fields=["skill_name"])
+
+        except IntegrityError as error:
+            constraint = getattr(getattr(error.__cause__, "diag", None), "constraint_name", None)
+            if constraint in {
+                "unique_llm_skill_version_per_team",
+                "unique_llm_skill_latest_per_team",
+                "unique_llm_skill_owner",
+                "unique_scout_config_per_team_skill",
+                "signal_scratchpad_unique_team_key",
+            }:
                 raise exceptions.ValidationError(
-                    {"new_name": "The new name must keep the scout's current name prefix."}
-                )
-            except LLMSkillNotFoundError:
-                raise exceptions.NotFound("The scout skill no longer exists.")
-
-            SignalScoutRun.objects.for_team(team.id).filter(skill_name=old_name).update(skill_name=new_name)
-            SignalScoutNote.objects.for_team(team.id).filter(skill_name=old_name).update(skill_name=new_name)
-            config.skill_name = new_name
-            config.save(update_fields=["skill_name"])
+                    {"new_name": "This name has a scout, skill, or saved memory. Choose another name."}
+                ) from error
+            raise
 
         context = scout_config_context(team, [new_name], request)
         return Response(SignalScoutConfigSerializer(config, context=context).data)

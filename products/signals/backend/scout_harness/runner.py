@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
+from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
@@ -948,6 +949,7 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
             )
 
 
+@transaction.atomic
 def _create_run_row(
     *,
     run_id: Any,
@@ -962,6 +964,10 @@ def _create_run_row(
     business_knowledge_maintained: bool = False,
     triggered_by: str = TRIGGERED_BY_SCHEDULE,
 ) -> SignalScoutRun:
+    current_config = SignalScoutConfig.all_teams.select_for_update().get(pk=config.pk, team_id=team.id)
+    if current_config.skill_name != skill.name:
+        raise ValueError("The scout was renamed before this run started. Start a new run with the current name.")
+
     # Stamp the routed model triple onto the row's `metadata` so "which model ran this?" is a
     # column read on the run API, not an analytics-event join. Keys are omitted (not null-valued)
     # on the default path, so their absence means the agent-server default served the run.

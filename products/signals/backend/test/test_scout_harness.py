@@ -2583,6 +2583,22 @@ class TestRunRowProvenanceStamps(BaseTest):
             authors=[],
         )
 
+    def test_rejects_a_run_loaded_before_the_scout_was_renamed(self) -> None:
+        config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name="signals-scout-general")
+        SignalScoutConfig.all_teams.filter(pk=config.pk).update(skill_name="signals-scout-new-name")
+        run_id = uuid7()
+
+        with pytest.raises(ValueError, match="renamed before this run started"):
+            _create_run_row(
+                run_id=run_id,
+                task_run=_make_task_run(self.team),
+                team=self.team,
+                config=config,
+                skill=self._skill(allowed_tools=["emit_report"], origin="custom"),
+            )
+
+        assert not SignalScoutRun.all_teams.filter(pk=run_id).exists()
+
     @parameterized.expand(
         [
             # emit-only and edit-only are separate prompt builds, not one "report channel" —
