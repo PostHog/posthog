@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -218,3 +219,25 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         # The newer row supersedes the older one, so the person sits in exactly one campaign.
         assert "dup" not in rows_out, f"the superseded campaign is still credited: {rows_out}"
         assert rows_out.get("dup_superseded") == (1, 1), rows_out
+
+    # Both paths hold their own reference to the ceiling, so both have to be lowered for the fixture
+    # to stay small enough to read.
+    @patch("products.marketing_analytics.backend.hogql_queries.attribution_base.MAX_CONVERSIONS_PER_PERSON", 2)
+    @patch("products.marketing_analytics.backend.hogql_queries.attribution_sessions_read.MAX_CONVERSIONS_PER_PERSON", 2)
+    def test_a_person_over_the_conversion_ceiling_is_attributed_the_same_on_both_paths(self) -> None:
+        # The live path caps how many of one person's conversions can earn credit, because the two
+        # downstream ARRAY JOINs multiply without bound otherwise. A precomputed read that skipped the
+        # cap would both diverge here and reopen that growth.
+        create_person(team=self.team, distinct_ids=["heavy"])
+        self._session("heavy", datetime(2023, 1, 11, 9, 0, tzinfo=UTC), campaign="heavy", event_offsets_minutes=[0])
+        for hour in (10, 11, 12):
+            self._conversion("heavy", datetime(2023, 1, 12, hour, 0, tzinfo=UTC))
+        flush_persons_and_events()
+
+        live, live_used = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=False)
+        self._materialize()
+        pre, pre_used = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=True)
+
+        assert not live_used
+        assert pre_used, "the precomputed path was not used, so this proves nothing"
+        assert pre == live, f"precomputed={pre} live={live}"

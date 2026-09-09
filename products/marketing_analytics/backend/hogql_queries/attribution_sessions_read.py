@@ -28,7 +28,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_sessions_preco
     ensure_marketing_sessions_precomputed,
 )
 
-from .attribution_base import MAX_TOUCHPOINTS_PER_PERSON, PERSON_CONVERSION_COUNT
+from .attribution_base import MAX_CONVERSIONS_PER_PERSON, MAX_TOUCHPOINTS_PER_PERSON, PERSON_CONVERSION_COUNT
 from .constants import UNKNOWN_CHANNEL
 from .session_breakdown_base import UNATTRIBUTED_SESSION_VALUES
 
@@ -252,6 +252,16 @@ def _conversions_per_person(runner: "AttributionQueryRunnerBase", date_range: Qu
             args=[ast.Call(name="arraySort", args=[conversions]), ast.Constant(value=1), ast.Constant(value=1)],
         )
         conversion_count = ast.Constant(value=1)
+    else:
+        # The same ceiling the live path applies. Without it the two downstream ARRAY JOINs multiply
+        # without bound, which is the shape this precompute exists to keep out of memory.
+        conversions = ast.Call(
+            name="arraySlice",
+            args=[
+                ast.Call(name="arraySort", args=[conversions]),
+                ast.Constant(value=-MAX_CONVERSIONS_PER_PERSON),
+            ],
+        )
 
     def bound(fn: str) -> ast.Expr:
         return ast.Call(
