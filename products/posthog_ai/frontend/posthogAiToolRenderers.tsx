@@ -38,21 +38,21 @@ const QueryRenderer = lazyWithRetry(() =>
 
 const DATA_TOOLS = [
     {
-        keys: ['insight-create', 'insight-update', 'insight-get', 'create_insight'],
+        keys: ['insight-create', 'insight-update', 'insight-get'],
         displayName: 'Insight',
         icon: <IconGraph />,
         Renderer: InsightRenderer,
     },
 
     {
-        keys: ['dashboard-create', 'dashboard-update', 'upsert_dashboard'],
+        keys: ['dashboard-create', 'dashboard-update'],
         displayName: 'Dashboard',
         icon: <IconDashboard />,
         Renderer: DashboardRenderer,
     },
 
     {
-        keys: ['query-session-recordings-list', 'search_session_recordings', 'filter_session_recordings'],
+        keys: ['query-session-recordings-list'],
         displayName: 'Session recordings',
         icon: <IconRewindPlay />,
         Renderer: SessionRecordingsRenderer,
