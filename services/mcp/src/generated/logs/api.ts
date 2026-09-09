@@ -5803,7 +5803,7 @@ export const LogsCountRangesCreateBody = () => zod.object({
  * ranked below that key's top values. The searched facet's own filter is excluded, so typing
  * in a facet does not narrow it to the value already selected there.
  */
-export const LogsFacetSearchCreateParams = /* @__PURE__ */ zod.object({
+export const LogsFacetSearchCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -5811,7 +5811,7 @@ export const LogsFacetSearchCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const LogsFacetSearchCreateBody = /* @__PURE__ */ zod.object({
+export const LogsFacetSearchCreateBody = () => zod.object({
     query: zod
         .object({
             facetField: zod
