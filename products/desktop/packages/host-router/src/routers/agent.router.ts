@@ -126,6 +126,20 @@ export const agentRouter = router({
         .startCodexSubscriptionLogin(),
     ),
 
+  codexCloudSubscriptionStatus: publicProcedure
+    .output(codexSubscriptionStatusOutput)
+    .query(({ ctx }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .getCodexCloudSubscriptionStatus(),
+    ),
+
+  codexCloudSubscriptionDisconnect: publicProcedure.mutation(({ ctx }) =>
+    ctx.container
+      .get<AgentService>(AGENT_SERVICE)
+      .disconnectCodexCloudSubscription(),
+  ),
+
   codexSubscriptionDeviceLoginStart: publicProcedure
     .output(codexSubscriptionDeviceLoginOutput)
     .mutation(({ ctx }) =>

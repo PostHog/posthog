@@ -325,8 +325,12 @@ Copying `~/.codex/auth.json` into a sandbox would break that: the refresh token 
 Users connect with a device code. Desktop asks codex to start a `chatgptDeviceCode` login, then shows the sign-in link and the code.
 The code stops working after 15 minutes. Device code login must be on in the user's ChatGPT security settings, and a workspace member needs an admin to turn it on.
 
+The cloud account signs in to its own `CODEX_HOME` under the app data directory, with `cli_auth_credentials_store = "file"`.
+It is a separate device authorization from the user's own `~/.codex` login.
+A `codex logout` on the user's machine therefore cannot remove it, and a token rotation inside a sandbox can never reach the login they use themselves.
+
 A subscription run emits a `credential_request` for `codex_subscription_tokens` before it starts codex.
-The reply carries an access token, the workspace id, and the plan type. Codex signs in with `chatgptAuthTokens`, which keeps the token in memory and writes no auth file.
+The reply carries an access token, the workspace id, and the plan type. Codex refuses the login without the workspace id, which comes from the access token claims because `account/read` does not report it. Codex signs in with `chatgptAuthTokens`, which keeps the token in memory and writes no auth file.
 On a 401 codex asks the host for a fresh token and waits ten seconds. The request carries a `force` marker, and Desktop asks codex to rotate the token before it answers.
 The owner check, the run binding, the redirect block, and the retry rules match the Claude path.
 

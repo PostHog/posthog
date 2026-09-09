@@ -111,6 +111,7 @@ import { isScratchPath } from "../workspace/scratch";
 import type { AgentAuthAdapter, McpToolInstallations } from "./auth-adapter";
 import {
   cleanupCodexHome,
+  getCloudAccountCodexHome,
   getCodexHomeDir,
   prepareCodexHome,
 } from "./codex-home";
@@ -537,6 +538,14 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 
   private codexLogin?: CodexLoginSession;
   private codexDeviceLogin?: CodexDeviceLoginSession;
+
+  /**
+   * Cloud tasks sign in to their own CODEX_HOME. A `codex logout` on the user's
+   * machine then cannot remove the credential cloud runs depend on.
+   */
+  private cloudAccountHome(): string {
+    return getCloudAccountCodexHome(this.storagePaths.appDataPath);
+  }
   private codexAuthGeneration = 0;
   private claudeAuthGeneration = 0;
 
@@ -617,10 +626,36 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     return { authUrl: login.authUrl };
   }
 
+  async getCodexCloudSubscriptionStatus(): Promise<CodexSubscriptionStatus> {
+    if (this.codexDeviceLogin) return { loginState: "logged-out" };
+    const status = await hasCodexChatgptLogin({
+      binaryPath: this.getCodexBinaryPath(),
+      accountHome: this.cloudAccountHome(),
+    });
+    return {
+      loginState: status.loggedIn ? "logged-in" : "logged-out",
+      email: status.email,
+      subscriptionType: status.planType,
+    };
+  }
+
+  async disconnectCodexCloudSubscription(): Promise<void> {
+    const login = this.codexDeviceLogin;
+    this.codexDeviceLogin = undefined;
+    await login?.cancel();
+    await signOutCodexChatgpt({
+      binaryPath: this.getCodexBinaryPath(),
+      accountHome: this.cloudAccountHome(),
+    });
+  }
+
   async startCodexSubscriptionDeviceLogin(): Promise<CodexSubscriptionDeviceLogin> {
-    await this.prepareCodexAccountChange();
+    const previous = this.codexDeviceLogin;
+    this.codexDeviceLogin = undefined;
+    await previous?.cancel();
     const login = await startCodexChatgptDeviceCodeLogin({
       binaryPath: this.getCodexBinaryPath(),
+      accountHome: this.cloudAccountHome(),
     });
     this.codexDeviceLogin = login;
     void login.completed.then((loggedIn) => {
@@ -635,13 +670,14 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 
   /**
    * Hands a live access token to the caller that relays it into a cloud run.
-   * The local codex keeps the refresh token and stays the only holder of it.
+   * Desktop keeps the refresh token and stays the only holder of it.
    */
   async readCodexSubscriptionTokens(
     force?: boolean,
   ): Promise<CodexSubscriptionTokensResult> {
     return await readCodexChatgptTokens({
       binaryPath: this.getCodexBinaryPath(),
+      accountHome: this.cloudAccountHome(),
       force,
     });
   }
@@ -649,6 +685,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   async getCodexRateLimits(): Promise<CodexRateLimits | null> {
     return await readCodexRateLimits({
       binaryPath: this.getCodexBinaryPath(),
+      accountHome: this.cloudAccountHome(),
     });
   }
 

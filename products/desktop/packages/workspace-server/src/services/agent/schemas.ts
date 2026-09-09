@@ -307,7 +307,8 @@ export const codexSubscriptionTokensInput = z.object({
 export const codexSubscriptionTokensOutput = z
   .object({
     accessToken: z.string(),
-    chatgptAccountId: z.string().optional(),
+    /** Codex rejects a `chatgptAuthTokens` login without this. */
+    chatgptAccountId: z.string(),
     chatgptPlanType: z.string().optional(),
   })
   .nullable();

@@ -5,7 +5,7 @@ import { setCloudSubscriptionOn } from "@posthog/ui/features/settings/adapterSub
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactElement, useEffect, useState } from "react";
 
 /** OpenAI expires a device code after 15 minutes. */
@@ -33,19 +33,28 @@ export function CodexCloudSection({
   onConnected,
 }: CodexCloudSectionProps): ReactElement {
   const hostTRPC = useHostTRPC();
+  const queryClient = useQueryClient();
   const [awaitingLogin, setAwaitingLogin] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // A second observer of the shared status query: while the user is entering
-  // the code, this one polls, and both cards settle together.
+  // Cloud tasks sign in to their own ChatGPT account, separate from the local
+  // codex login, so this reads a different status from the local card.
+  const statusQuery =
+    hostTRPC.agent.codexCloudSubscriptionStatus.queryOptions();
   const { data: status } = useQuery({
-    ...hostTRPC.agent.codexSubscriptionStatus.queryOptions(),
+    ...statusQuery,
     refetchInterval: (query) =>
       awaitingLogin && query.state.data?.loginState !== "logged-in"
         ? 2_000
         : false,
   });
   const connected = status?.loginState === "logged-in";
+
+  const disconnect = useMutation({
+    ...hostTRPC.agent.codexCloudSubscriptionDisconnect.mutationOptions(),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: statusQuery.queryKey }),
+  });
 
   const rateLimitsQuery = hostTRPC.agent.codexRateLimits.queryOptions();
   const { data: rateLimits } = useQuery({
@@ -108,14 +117,36 @@ export function CodexCloudSection({
         />
       </div>
       <span className="text-muted-foreground text-xs">
-        Keep Desktop open for the whole task. Compute is billed separately.
+        Desktop hands the task a token at the start, and again when the token
+        expires. A task stops if Desktop is closed at that moment. Compute is
+        billed separately.
       </span>
       {connected ? (
-        <span className="text-muted-foreground text-xs">
-          {rateLimits?.primary
-            ? `Plan allowance: ${planWindowLabel(rateLimits.primary)}`
-            : "Cloud tasks share the allowance your local tasks use."}
-        </span>
+        <div className="flex flex-col gap-1">
+          <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
+            <span
+              className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-(--green-9)"
+              aria-hidden
+            />
+            {status?.email
+              ? `Connected as ${status.email}`
+              : "ChatGPT account connected"}
+            <span aria-hidden>&middot;</span>
+            <button
+              type="button"
+              className="cursor-pointer hover:underline"
+              disabled={disconnect.isPending}
+              onClick={() => disconnect.mutate()}
+            >
+              Disconnect
+            </button>
+          </span>
+          <span className="text-muted-foreground text-xs">
+            {rateLimits?.primary
+              ? `Plan allowance: ${planWindowLabel(rateLimits.primary)}`
+              : "Cloud tasks share the allowance your local tasks use."}
+          </span>
+        </div>
       ) : code && verificationUrl ? (
         <div className="flex flex-col gap-3 rounded-md border border-border p-3">
           <span className="text-muted-foreground text-xs">
@@ -150,7 +181,8 @@ export function CodexCloudSection({
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-3">
           <span className="text-muted-foreground text-xs">
-            Connect your ChatGPT account to run cloud tasks on your plan.
+            Connect a ChatGPT account for cloud tasks. This is separate from
+            your local codex login, so signing out there does not affect it.
           </span>
           <Button
             type="button"

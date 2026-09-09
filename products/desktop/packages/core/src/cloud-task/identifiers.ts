@@ -24,7 +24,8 @@ export const CLAUDE_SUBSCRIPTION_TOKEN_STORE = Symbol.for(
 
 export interface CodexSubscriptionTokens {
   accessToken: string;
-  chatgptAccountId?: string;
+  /** Codex rejects a `chatgptAuthTokens` login without this. */
+  chatgptAccountId: string;
   chatgptPlanType?: string;
 }
 

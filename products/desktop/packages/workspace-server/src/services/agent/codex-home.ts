@@ -25,6 +25,16 @@ export function getCodexHomeDir(
 }
 
 /**
+ * CODEX_HOME for the ChatGPT account that cloud tasks bill to. Cloud runs use a
+ * separate device authorization from the user's own `~/.codex` login, so a
+ * `codex logout` on their machine cannot remove it, and a token rotation inside
+ * a sandbox can never reach the login they use themselves.
+ */
+export function getCloudAccountCodexHome(appDataPath: string): string {
+  return path.join(appDataPath, "codex-cloud-account");
+}
+
+/**
  * Empties a task run's private CODEX_HOME except `sessions/`, the thread
  * rollouts `thread/resume` needs after the app relaunches. Safe for any
  * adapter — a no-op when the directory was never created.

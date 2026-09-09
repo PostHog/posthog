@@ -78,6 +78,12 @@ export interface CodexAppServerProcessOptions {
    * the ChatGPT login method and keep an ambient API key from taking over.
    */
   useChatgptAuthTokens?: boolean;
+  /**
+   * CODEX_HOME for the ChatGPT account that cloud tasks use. It is separate
+   * from the user's own `~/.codex`, so a `codex logout` on their machine cannot
+   * remove it, and a rotation in a sandbox cannot reach their own login.
+   */
+  accountHome?: string;
   /** Guidance appended to Codex's base prompt via `developer_instructions`. */
   developerInstructions?: string;
   /**
@@ -181,6 +187,11 @@ export function buildAppServerArgs(
     args.push("-c", `model_provider="openai"`);
     args.push("-c", `forced_login_method="chatgpt"`);
     args.push("-c", `history.persistence="none"`);
+    // Keep the cloud account's tokens in its own home rather than the shared OS
+    // key store, so the two logins never read each other.
+    if (options.accountHome) {
+      args.push("-c", `cli_auth_credentials_store="file"`);
+    }
   } else {
     args.push("-c", `cli_auth_credentials_store="file"`);
     args.push("-c", `mcp_oauth_credentials_store="file"`);
@@ -292,7 +303,10 @@ export function spawnCodexAppServerProcess(
   if (options.apiKey) {
     env.POSTHOG_GATEWAY_API_KEY = options.apiKey;
   }
-  if (options.codexHome) {
+  if (options.accountHome) {
+    env.CODEX_HOME = options.accountHome;
+    env.CODEX_SQLITE_HOME = options.accountHome;
+  } else if (options.codexHome) {
     if (!options.useMachineAuth) env.CODEX_HOME = options.codexHome;
     env.CODEX_SQLITE_HOME = options.codexHome;
   }

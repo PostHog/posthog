@@ -20,6 +20,8 @@ const REQUEST_TIMEOUT_MS = 10_000;
 
 interface CodexAccountOptions {
   binaryPath: string;
+  /** Use the cloud account's own CODEX_HOME instead of the user's `~/.codex`. */
+  accountHome?: string;
   logger?: Logger;
   processCallbacks?: ProcessSpawnedCallback;
 }
@@ -60,7 +62,8 @@ export interface CodexDeviceLoginSession {
  */
 export interface CodexSubscriptionTokens {
   accessToken: string;
-  chatgptAccountId?: string;
+  /** Codex rejects a `chatgptAuthTokens` login without this. */
+  chatgptAccountId: string;
   chatgptPlanType?: string;
 }
 
@@ -161,6 +164,8 @@ export async function readCodexChatgptTokens(
       refreshToken: options.force ?? true,
     });
     if (!status.authToken) return null;
+    const chatgptAccountId = chatgptAccountIdFromToken(status.authToken);
+    if (!chatgptAccountId) return null;
     const account = await requestWithTimeout<{
       account?: { planType?: string } | null;
     }>(client.rpc, APP_SERVER_METHODS.ACCOUNT_READ, {
@@ -168,7 +173,7 @@ export async function readCodexChatgptTokens(
     }).catch(() => ({ account: null }));
     return {
       accessToken: status.authToken,
-      chatgptAccountId: chatgptAccountIdFromToken(status.authToken),
+      chatgptAccountId,
       chatgptPlanType: account.account?.planType,
     };
   } finally {
@@ -196,8 +201,8 @@ export async function readCodexRateLimits(
 
 /**
  * Codex puts the workspace id in the `https://api.openai.com/auth` claim of the
- * access token, so reading it needs no extra request. Returns undefined for a
- * token that carries no claim; codex then falls back to the default workspace.
+ * access token. `account/read` does not report it, so the claim is the only
+ * source. A token without the claim cannot start a `chatgptAuthTokens` login.
  */
 function chatgptAccountIdFromToken(accessToken: string): string | undefined {
   const payload = accessToken.split(".")[1];
@@ -294,6 +299,7 @@ function openCodexAccountClient(
     logger: options.logger,
     processCallbacks: options.processCallbacks,
     useMachineAuth: true,
+    accountHome: options.accountHome,
   });
   const rpc = new AppServerClient(
     {

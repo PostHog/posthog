@@ -281,7 +281,9 @@ export const CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE =
   "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.";
 const chatgptAuthTokensSchema = z.object({
   accessToken: z.string().min(1),
-  chatgptAccountId: z.string().optional(),
+  // Codex rejects the login without this, so a relay that omits it is a failure,
+  // not a token we can use.
+  chatgptAccountId: z.string().min(1),
   chatgptPlanType: z.string().optional(),
 });
 
