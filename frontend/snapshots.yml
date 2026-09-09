@@ -5924,6 +5924,14 @@ snapshots:
         hash: v1.k794b7964.908aa54619e9e4669005bebc9ed7166052200b1613a2f36900bb18af7c74b2ba.PAhdvkGE9vb64e93_Ap6KJohFsSBjwa8BsPKVRT-IXE
     products-workflows-reputation--shared-sending-domain--light:
         hash: v1.k794b7964.95181ed4e0a17456b9e62c3e467ddc605b1a733c81ea6f7c6e0c61928aa3f22d.ZMctRK-G6wUmjfa2paqyxhRtmF0TG_WVyOPLWhFWXyU
+    products-workflows-steps-customer-task-reference-input--account--dark:
+        hash: v1.k794b7964.c83bf0997a28fd49e6d3dbae06e5ee75aa10a76365a5cb39c530324ecf112875.addysRvtjXvOb8pPGo4RZl1HL2_YcGnvqrpSB067bNs
+    products-workflows-steps-customer-task-reference-input--account--light:
+        hash: v1.k794b7964.a373f14a674936c9fd76f26ce8abbf735b977f4a4dbaf90ff3c785cd16eb9ea8.toZvK0UtefEnMcf994SYInWq-s3Vhtju6U-rMzq5E9Q
+    products-workflows-steps-customer-task-reference-input--assignee--dark:
+        hash: v1.k794b7964.6aba25e0cf13e9f0851aab52c7e13e4f849a386bae1e387c9931e5aeb2c1d445.vdRw1Brlx8435mOkTj6OS8IhQslGTaZ2BBExKMLnRNI
+    products-workflows-steps-customer-task-reference-input--assignee--light:
+        hash: v1.k794b7964.636b550779f4281c61e425a0c91ad7e9f58fd6dd1b2a6e70961ac8033b8ff78d.KfkxsuB-QaL4_Na5ZLLCWoN3Pa4cmWXs79McVX3-J-M
     products-workflows-steps-delay--date-not-chosen-yet--dark:
         hash: v1.k794b7964.ec9c913ba6edb54c2b521e3b1913e45fe914dcd4fc5b45febacd543038865cd0.khqeV0deGQR_Ows3heRrRyvzw8fUBJ6KUNQbhb1asas
     products-workflows-steps-delay--date-not-chosen-yet--light:
