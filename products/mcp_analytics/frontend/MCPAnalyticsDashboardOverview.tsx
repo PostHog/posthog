@@ -107,13 +107,11 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                 <div className="flex flex-col gap-[22px]">
                     <div
                         className={cn(
-                            'grid grid-cols-1 gap-[22px] @min-[48rem]/main-content:grid-cols-2',
-                            hasKnownModelData
-                                ? '@min-[72rem]/main-content:grid-cols-4'
-                                : '@min-[72rem]/main-content:grid-cols-3'
+                            'grid grid-cols-1 gap-[22px]',
+                            hasKnownModelData ? 'lg:grid-cols-4' : 'lg:grid-cols-3'
                         )}
                     >
-                        <div className="flex @min-[48rem]/main-content:col-span-2">
+                        <div className="flex lg:col-span-2">
                             <ActivityChart
                                 daily={dailyActivity}
                                 loading={activityRowsLoading}
