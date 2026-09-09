@@ -27,7 +27,7 @@ from social_django.models import UserSocialAuth
 
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_oauth_state, new_state_nonce
-from posthog.api.user import UserSerializer
+from posthog.api.user import MAX_PRODUCT_INTROS_SEEN, UserSerializer
 from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.models import Team, User
@@ -780,6 +780,107 @@ class TestUserAPI(APIBaseTest):
                     "scene": "Group",
                 },
             ],
+        )
+
+    def test_marking_a_product_intro_seen_keeps_the_other_keys(self):
+        # The map is shared by every product intro. A write that replaced it wholesale would re-trigger
+        # every other intro the user has already dismissed.
+        self.user.has_seen_product_intro_for = {"session_replay": True}
+        self.user.save()
+
+        response = self.client.patch(
+            "/api/users/@me/product_intro_seen",
+            {"product_key": "posthog_ai_onboarding"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"session_replay": True, "posthog_ai_onboarding": True}
+
+    def test_marking_a_product_intro_unseen_shows_it_again(self):
+        self.user.has_seen_product_intro_for = {"session_replay": True}
+        self.user.save()
+
+        response = self.client.patch(
+            "/api/users/@me/product_intro_seen",
+            {"product_key": "session_replay", "seen": False},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"session_replay": False}
+
+    @parameterized.expand(
+        [
+            ("missing_key", {}),
+            ("blank_key", {"product_key": ""}),
+            ("oversized_key", {"product_key": "x" * 129}),
+        ]
+    )
+    def test_marking_a_product_intro_seen_rejects_bad_keys(self, _name: str, payload: dict):
+        # This action skips the re-auth gate, so an unbounded key would let a stolen session grow the
+        # blob on the user row without ever re-authenticating.
+        response = self.client.patch("/api/users/@me/product_intro_seen", payload, content_type="application/json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.user.refresh_from_db()
+        assert not self.user.has_seen_product_intro_for
+
+    @parameterized.expand([("user:write", 200), ("user:read", 403)])
+    def test_marking_a_product_intro_seen_over_token_auth(self, scope: str, expected_status: int):
+        # A custom @action resolves to no scopes unless it declares them, and `APIScopePermission` refuses
+        # that outright — so without `required_scopes` every intro dismissal 403s in standalone OAuth mode,
+        # which is the failure this endpoint exists to remove. Session auth skips scopes, so only a token
+        # exercises this.
+        key = self.create_personal_api_key_with_scopes([scope])
+        self.client.logout()
+
+        response = self.client.patch(
+            "/api/users/@me/product_intro_seen",
+            {"product_key": "posthog_ai_onboarding"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {key}",
+        )
+
+        assert response.status_code == expected_status, response.content
+
+    def test_marking_a_product_intro_seen_locks_the_row(self):
+        # The whole map is rewritten on every write, so two concurrent dismissals both read the pre-merge
+        # map and the later save drops the earlier key. Asserting the lock is a proxy for that race, which
+        # a single-threaded test cannot reproduce.
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.patch(
+                "/api/users/@me/product_intro_seen",
+                {"product_key": "posthog_ai_onboarding"},
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        locking_selects = [
+            q["sql"] for q in ctx.captured_queries if "posthog_user" in q["sql"] and "FOR UPDATE" in q["sql"]
+        ]
+        assert locking_selects, "the merge must read the user row FOR UPDATE"
+
+    def test_marking_a_product_intro_seen_caps_the_map(self):
+        self.user.has_seen_product_intro_for = {f"product_{i}": True for i in range(MAX_PRODUCT_INTROS_SEEN)}
+        self.user.save()
+
+        response = self.client.patch(
+            "/api/users/@me/product_intro_seen",
+            {"product_key": "one_too_many"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        # A key already in the map still updates at the cap, or a full map would freeze every intro.
+        assert (
+            self.client.patch(
+                "/api/users/@me/product_intro_seen",
+                {"product_key": "product_0", "seen": False},
+                content_type="application/json",
+            ).status_code
+            == status.HTTP_200_OK
         )
 
     def _assert_set_scene_choice(

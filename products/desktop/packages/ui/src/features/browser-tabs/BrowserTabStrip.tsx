@@ -745,7 +745,11 @@ function BrowserTabStripImpl() {
             });
             break;
           case "agents":
-            navigate({ to: "/agents", state });
+            navigate({
+              to: "/settings/$category",
+              params: { category: "agents" },
+              state,
+            });
             break;
           case "loops":
             navigate({ to: "/loops", state });

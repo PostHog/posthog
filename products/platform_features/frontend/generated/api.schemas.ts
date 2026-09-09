@@ -27,9 +27,10 @@ export const OrganizationMembershipLevelEnumApi = {
  * * `6` - install
  * * `9` - root
  */
-export type PluginsAccessLevelEnumApi = (typeof PluginsAccessLevelEnumApi)[keyof typeof PluginsAccessLevelEnumApi]
+export type OrganizationPluginsAccessLevelEnumApi =
+    (typeof OrganizationPluginsAccessLevelEnumApi)[keyof typeof OrganizationPluginsAccessLevelEnumApi]
 
-export const PluginsAccessLevelEnumApi = {
+export const OrganizationPluginsAccessLevelEnumApi = {
     Number0: 0,
     Number3: 3,
     Number6: 6,
@@ -40,10 +41,10 @@ export const PluginsAccessLevelEnumApi = {
  * * `bayesian` - Bayesian
  * * `frequentist` - Frequentist
  */
-export type DefaultExperimentStatsMethodEnumApi =
-    (typeof DefaultExperimentStatsMethodEnumApi)[keyof typeof DefaultExperimentStatsMethodEnumApi]
+export type OrganizationDefaultExperimentStatsMethodEnumApi =
+    (typeof OrganizationDefaultExperimentStatsMethodEnumApi)[keyof typeof OrganizationDefaultExperimentStatsMethodEnumApi]
 
-export const DefaultExperimentStatsMethodEnumApi = {
+export const OrganizationDefaultExperimentStatsMethodEnumApi = {
     Bayesian: 'bayesian',
     Frequentist: 'frequentist',
 } as const
@@ -71,7 +72,7 @@ export interface OrganizationApi {
     readonly created_at: string
     readonly updated_at: string
     readonly membership_level: OrganizationMembershipLevelEnumApi
-    readonly plugins_access_level: PluginsAccessLevelEnumApi
+    readonly plugins_access_level: OrganizationPluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
     /** @nullable */
@@ -122,13 +123,13 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly is_ai_training_cta_shown: boolean | null
-    /** @nullable */
-    readonly is_hipaa: boolean | null
+    /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
+    readonly has_signed_baa: boolean
     /** Default statistical method for new experiments in this organization.
      *
      * * `bayesian` - Bayesian
      * * `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
+    default_experiment_stats_method?: OrganizationDefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -179,7 +180,7 @@ export interface PatchedOrganizationApi {
     readonly created_at?: string
     readonly updated_at?: string
     readonly membership_level?: OrganizationMembershipLevelEnumApi
-    readonly plugins_access_level?: PluginsAccessLevelEnumApi
+    readonly plugins_access_level?: OrganizationPluginsAccessLevelEnumApi
     readonly teams?: readonly PatchedOrganizationApiTeamsItem[]
     readonly projects?: readonly PatchedOrganizationApiProjectsItem[]
     /** @nullable */
@@ -230,13 +231,13 @@ export interface PatchedOrganizationApi {
      * @nullable
      */
     readonly is_ai_training_cta_shown?: boolean | null
-    /** @nullable */
-    readonly is_hipaa?: boolean | null
+    /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
+    readonly has_signed_baa?: boolean
     /** Default statistical method for new experiments in this organization.
      *
      * * `bayesian` - Bayesian
      * * `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
+    default_experiment_stats_method?: OrganizationDefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -1397,6 +1398,7 @@ export type ActivityLogListParams = {
      * * `DataQualityCheck` - DataQualityCheck
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `StamphogRepoConfig` - StamphogRepoConfig
      * @minLength 1
      */
     scope?: ActivityLogListScope
@@ -1493,6 +1495,7 @@ export const ActivityLogListScope = {
     DataQualityCheck: 'DataQualityCheck',
     Billing: 'Billing',
     Loop: 'Loop',
+    StamphogRepoConfig: 'StamphogRepoConfig',
 } as const
 
 /**
@@ -1576,6 +1579,7 @@ export const ActivityLogListScope = {
  * * `DataQualityCheck` - DataQualityCheck
  * * `Billing` - Billing
  * * `Loop` - Loop
+ * * `StamphogRepoConfig` - StamphogRepoConfig
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1660,6 +1664,7 @@ export const ActivityLogListScopesItem = {
     DataQualityCheck: 'DataQualityCheck',
     Billing: 'Billing',
     Loop: 'Loop',
+    StamphogRepoConfig: 'StamphogRepoConfig',
 } as const
 
 export type AdvancedActivityLogsListParams = {

@@ -211,7 +211,7 @@ function RunSurfaceThread({
                     sessionId={feedbackSessionId}
                     turnIndex={trailer.turnIndex}
                     run={feedbackRun}
-                    isLastTurn={trailer.isLastTurn}
+                    traceId={trailer.traceId}
                     turnText={trailer.turnText}
                 />
             ) : null,
@@ -244,35 +244,46 @@ function RunSurfaceThread({
  * any settled run status (active runs take a follow-up, terminal runs start a fresh run from the typed
  * message), is hidden during bootstrap, and is replaced by the prompt while a request is pending.
  */
-function RunSurfaceComposer({ children }: { children?: ReactNode }): JSX.Element | null {
+function RunSurfaceComposer({
+    children,
+    isStopping = false,
+}: {
+    children?: ReactNode
+    isStopping?: boolean
+}): JSX.Element | null {
     const { interaction, streamKey } = useRunSurfaceContext()
-    const { pendingPermissionRequest, currentRunStatus } = useValues(runStreamLogic)
+    const { pendingPermissionRequest, respondingToPermission, currentRunStatus } = useValues(runStreamLogic)
     if (interaction !== 'live') {
         return null
     }
-    // Pending approval/question takes precedence over the composer.
-    if (pendingPermissionRequest && !isTerminalRunStatus(currentRunStatus)) {
-        const isQuestion = !!pendingPermissionRequest.questions && pendingPermissionRequest.questions.length > 0
-        return (
-            <div className="border-t px-4 py-3">
-                <div className="mx-auto w-full max-w-180">
-                    {isQuestion ? (
-                        <QuestionInput streamKey={streamKey} request={pendingPermissionRequest} />
-                    ) : (
-                        <PermissionInput streamKey={streamKey} request={pendingPermissionRequest} />
-                    )}
-                </div>
-            </div>
-        )
-    }
-    if (!children || currentRunStatus === null) {
-        return null // no composer UI supplied (e.g. ReadonlyRunSurface) or pre-bootstrap
-    }
+    const request = !isTerminalRunStatus(currentRunStatus) ? pendingPermissionRequest : null
+    const showApproval = !!request && !respondingToPermission && !isStopping
+
+    // Both inputs keep their local state through delivery and restoration, including uncommitted draft keystrokes.
     return (
-        <div data-attr="composer" className="px-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))]">
-            <LemonDivider className="mt-0 mb-4" />
-            <div className="mx-auto w-full max-w-180">{children}</div>
-        </div>
+        <>
+            {request && (
+                <div hidden={!showApproval} className="border-t px-4 py-3" data-attr="run-approval">
+                    <div key={`${request.sourceRunId}:${request.requestId}`} className="mx-auto w-full max-w-180">
+                        {request.questions?.length ? (
+                            <QuestionInput streamKey={streamKey} request={request} disabled={isStopping} />
+                        ) : (
+                            <PermissionInput streamKey={streamKey} request={request} disabled={isStopping} />
+                        )}
+                    </div>
+                </div>
+            )}
+            {children && currentRunStatus !== null && (
+                <div
+                    hidden={showApproval}
+                    data-attr="composer"
+                    className="px-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))]"
+                >
+                    <LemonDivider className="mt-0 mb-4" />
+                    <div className="mx-auto w-full max-w-180">{children}</div>
+                </div>
+            )}
+        </>
     )
 }
 

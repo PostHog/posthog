@@ -18,6 +18,7 @@ from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.team.team_caching import set_team_in_cache
 
+from products.messaging.backend.api import push_subscriptions
 from products.messaging.backend.api.push_identity_tokens import sign_push_identity_token, sign_push_identity_token_es256
 from products.messaging.backend.api.push_subscriptions import (
     PUSH_SUBSCRIPTION_DISCARD_COUNTER,
@@ -69,6 +70,7 @@ class TestPushSubscriptionsAPI(BaseTest):
         # every test in the process shares. Tests here reuse one team id, so without this a test that
         # logged a discard would suppress the line another test asserts on.
         cache.clear()
+        push_subscriptions._invalid_token_cache.clear()
 
     def _post(self, data: dict, api_key: str | None = None):
         payload = {**data, "api_key": api_key or self.team.api_token}
@@ -261,6 +263,19 @@ class TestPushSubscriptionsAPI(BaseTest):
         )
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_repeated_invalid_token_is_rejected_without_a_second_team_lookup(self):
+        payload = {"distinct_id": "user-1", "device_token": "t", "platform": "android", "app_id": "proj"}
+
+        with patch.object(
+            Team.objects, "get_team_from_cache_or_token", wraps=Team.objects.get_team_from_cache_or_token
+        ) as lookup:
+            first = self._post(payload, api_key="phc_invalid_token")
+            second = self._post(payload, api_key="phc_invalid_token")
+
+        assert first.status_code == status.HTTP_401_UNAUTHORIZED
+        assert second.status_code == status.HTTP_401_UNAUTHORIZED
+        assert lookup.call_count == 1
 
     def test_missing_required_fields(self):
         response = self._post({"distinct_id": "user-1"})

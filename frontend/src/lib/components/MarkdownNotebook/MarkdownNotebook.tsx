@@ -286,6 +286,8 @@ export type MarkdownNotebookProps = {
     canvasHeader?: ReactNode
     className?: string
     autoFocus?: boolean
+    /** Called on Cmd/Ctrl+S. Without it the key stays with the browser. */
+    onSaveRequested?: () => void
     showDebug?: boolean
     debugOpen?: boolean
     onDebugOpenChange?: (isOpen: boolean) => void
@@ -573,6 +575,18 @@ class MarkdownNotebookCrashReporter extends Component<{ children: ReactNode }, M
     }
 }
 
+function arraysShallowEqual(a: readonly unknown[], b: readonly unknown[]): boolean {
+    if (a.length !== b.length) {
+        return false
+    }
+    for (let index = 0; index < a.length; index++) {
+        if (!Object.is(a[index], b[index])) {
+            return false
+        }
+    }
+    return true
+}
+
 export function MarkdownNotebook(props: MarkdownNotebookProps): JSX.Element {
     return (
         <MarkdownNotebookCrashReporter>
@@ -609,6 +623,7 @@ function MarkdownNotebookEditor({
     canvasHeader,
     className,
     autoFocus = false,
+    onSaveRequested,
     showDebug = false,
     debugOpen,
     onDebugOpenChange,
@@ -627,6 +642,12 @@ function MarkdownNotebookEditor({
     const [activeRowIndex, setActiveRowIndex] = useState<number | null>(null)
     const [activeBoundaryIndex, setActiveBoundaryIndex] = useState<number | null>(null)
     const [focusedRowIndex, setFocusedRowIndex] = useState<number | null>(null)
+    // Mirror for updateActiveBoundaryFromRow: a memoized row keeps its cached hover handlers, so
+    // the handler must read the current suppress state through a ref, not its render's closure.
+    const suppressInsertBoundaryRef = useRef(false)
+    useEffect(() => {
+        suppressInsertBoundaryRef.current = focusedRowIndex !== null || !!insertMenu
+    }, [focusedRowIndex, insertMenu])
     const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null)
     const [dropBoundaryIndex, setDropBoundaryIndex] = useState<number | null>(null)
     const [isExternalDragOver, setIsExternalDragOver] = useState(false)
@@ -652,6 +673,12 @@ function MarkdownNotebookEditor({
     const listItemRefs = useRef<Record<string, HTMLElement | null>>({})
     const tableCellRefs = useRef<Record<string, HTMLElement | null>>({})
     const rootEditableInputHtmlByNodeIdRef = useRef<Record<string, string>>({})
+    // Reuse a row's rendered element while its inputs are unchanged. React skips reconciling a child
+    // whose element keeps the same reference, so a keystroke or a hover frame re-renders only the
+    // rows whose inputs changed, not every row in a long notebook.
+    const rowElementCacheRef = useRef<
+        Map<string, { node: NotebookBlockNode; inputs: readonly unknown[]; element: JSX.Element }>
+    >(new Map())
     const blockDragNodeIdRef = useRef<string | null>(null)
     const isTextSelectionPointerActiveRef = useRef(false)
     const floatingToolbarRevealTimeoutRef = useRef<number | null>(null)
@@ -972,6 +999,17 @@ function MarkdownNotebookEditor({
         }
     }, [setDebugOpen, showDebug])
 
+    useEffect(() => {
+        // Node ids are content-derived, so an edit gives the changed node a new id and orphans its
+        // old cache entry. Drop entries for ids that no longer exist so the map stays bounded.
+        const liveNodeIds = new Set(document.nodes.map((node) => node.id))
+        for (const nodeId of rowElementCacheRef.current.keys()) {
+            if (!liveNodeIds.has(nodeId)) {
+                rowElementCacheRef.current.delete(nodeId)
+            }
+        }
+    }, [document.nodes])
+
     const mapRemoteCaretAnchors = useCallback(
         (previousDocument: NotebookDocument, nextDocument: NotebookDocument, remoteMergeVersion?: number): void => {
             const anchors = remoteCaretAnchorsRef.current
@@ -1108,7 +1146,10 @@ function MarkdownNotebookEditor({
 
         const firstTextNode = getRenderedNodes()[0]
         const firstElement = firstTextNode ? blockRefs.current[firstTextNode.id] : null
-        firstElement?.focus()
+        if (firstElement) {
+            firstElement.focus()
+            restoreSelection(firstElement, 0, 0)
+        }
         // oxlint-disable-next-line exhaustive-deps
     }, [autoFocus, mode])
 
@@ -4794,7 +4835,22 @@ function MarkdownNotebookEditor({
     }
 
     const handleNotebookKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-        if (mode !== 'edit' || event.altKey || !(event.metaKey || event.ctrlKey)) {
+        if (mode !== 'edit') {
+            return
+        }
+
+        // Claimed before the native-editable guard below, so Cmd+S inside a code editor does not
+        // fall through to the browser's "save page" dialog.
+        if (
+            onSaveRequested &&
+            (event.metaKey || event.ctrlKey) &&
+            !event.altKey &&
+            !event.shiftKey &&
+            event.key.toLowerCase() === 's'
+        ) {
+            event.preventDefault()
+            event.stopPropagation()
+            onSaveRequested()
             return
         }
 
@@ -4802,6 +4858,25 @@ function MarkdownNotebookEditor({
             event.target instanceof HTMLElement &&
             (event.target.closest('.MarkdownNotebook__debug-drawer') || isNativeEditableElement(event.target))
         ) {
+            return
+        }
+
+        // Placed after the native-editable guard, so Monaco keeps Alt+Up/Down for moving a line.
+        if (
+            event.altKey &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            !event.shiftKey &&
+            (event.key === 'ArrowUp' || event.key === 'ArrowDown')
+        ) {
+            if (moveActiveBlock(event.key === 'ArrowUp' ? 'previous' : 'next')) {
+                event.preventDefault()
+                event.stopPropagation()
+            }
+            return
+        }
+
+        if (event.altKey || !(event.metaKey || event.ctrlKey)) {
             return
         }
 
@@ -4927,7 +5002,7 @@ function MarkdownNotebookEditor({
     const updateActiveBoundaryFromRow = (event: ReactMouseEvent<HTMLElement>, rowIndex: number): void => {
         setActiveRowIndex(rowIndex)
 
-        if (focusedRowIndex !== null || insertMenu) {
+        if (suppressInsertBoundaryRef.current) {
             setActiveBoundaryIndex(null)
             return
         }
@@ -4986,17 +5061,17 @@ function MarkdownNotebookEditor({
         return Math.max(1, Math.min(boundaryIndex, renderedNodes.length))
     }
 
-    const moveBlockToBoundary = (nodeId: string, boundaryIndex: number): void => {
+    const moveBlockToBoundary = (nodeId: string, boundaryIndex: number): boolean => {
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
         const fromIndex = nodes.findIndex((node) => node.id === nodeId)
         if (fromIndex <= 0) {
-            return
+            return false
         }
 
         const clampedBoundaryIndex = Math.max(1, Math.min(boundaryIndex, nodes.length))
         if (clampedBoundaryIndex === fromIndex || clampedBoundaryIndex === fromIndex + 1) {
-            return
+            return false
         }
 
         const nextNodes = [...nodes]
@@ -5007,6 +5082,57 @@ function MarkdownNotebookEditor({
             movedNode
         )
         commitDocument({ ...currentDocument, nodes: nextNodes })
+        return true
+    }
+
+    // A text block never holds focus, because the canvas is the single editing host, so it has to
+    // be resolved from the caret instead.
+    const getKeyboardActiveNodeId = (): string | null => {
+        const nodes = documentRef.current.nodes
+        const activeElement = window.document.activeElement
+        if (activeElement instanceof HTMLElement) {
+            const nodeIdsByElement = new Map<HTMLElement, string>()
+            for (const node of nodes) {
+                const blockElement = blockRefs.current[node.id]
+                if (blockElement) {
+                    nodeIdsByElement.set(blockElement, node.id)
+                }
+            }
+
+            // Focus often sits on a control inside the block rather than on the block itself, such as
+            // a cell's Run button, so the owning block is the nearest one above the focused element.
+            for (let element: HTMLElement | null = activeElement; element; element = element.parentElement) {
+                const focusedNodeId = nodeIdsByElement.get(element)
+                if (focusedNodeId) {
+                    return focusedNodeId
+                }
+            }
+        }
+
+        const anchorNode = window.getSelection()?.anchorNode ?? null
+        const anchorElement = anchorNode instanceof HTMLElement ? anchorNode : (anchorNode?.parentElement ?? null)
+        const blockElement = anchorElement?.closest('[data-markdown-notebook-node-id]')
+        if (!(blockElement instanceof HTMLElement) || !canvasRef.current?.contains(blockElement)) {
+            return null
+        }
+
+        return blockElement.dataset.markdownNotebookNodeId ?? null
+    }
+
+    // `moveBlockToBoundary` takes an insert boundary rather than an index, which is why moving down
+    // is `+ 2` and not `+ 1`.
+    const moveActiveBlock = (direction: 'previous' | 'next'): boolean => {
+        const nodeId = getKeyboardActiveNodeId()
+        if (!nodeId) {
+            return false
+        }
+
+        const fromIndex = documentRef.current.nodes.findIndex((node) => node.id === nodeId)
+        if (fromIndex < 0) {
+            return false
+        }
+
+        return moveBlockToBoundary(nodeId, direction === 'previous' ? fromIndex - 1 : fromIndex + 2)
     }
 
     const handleBlockDragStart = (event: ReactDragEvent<HTMLDivElement>, nodeId: string): void => {
@@ -5394,7 +5520,7 @@ function MarkdownNotebookEditor({
         }
 
         let responseNodeIndex = -1
-        const keepQuestion = currentPromptNode?.props.keepQuestion === true
+        const keepQuestion = currentPromptNode?.props.keepQuestion !== false
         const nodesWithResponse = nodes.flatMap((currentNode, index): NotebookBlockNode[] => {
             if (currentNode.id !== nodeId || !isPromptComponentNode(currentNode)) {
                 return [currentNode]
@@ -5994,6 +6120,43 @@ function MarkdownNotebookEditor({
         )
     }
 
+    const renderMemoizedNotebookRow = (node: NotebookBlockNode, index: number): JSX.Element => {
+        const rowInsertMenu = insertMenu && insertMenu.nodeId === node.id ? insertMenu : null
+        // Every value renderNotebookRow reads for this row, beyond the node object itself. A reused
+        // row keeps its cached handlers, and each one is safe: it reads refs/state setters/props, or
+        // it reads state captured here (so a change re-renders the row with fresh handlers). Add a
+        // dependency here whenever renderNotebookRow starts reading a new per-row value.
+        const inputs: readonly unknown[] = [
+            index,
+            mode,
+            aiWritingNodeIndexSet.has(index),
+            aiWritingPlaceholderNodeIds.has(node.id),
+            rowInsertMenu ? (rowInsertMenu.mode ?? 'tools') : null,
+            rowInsertMenu ? rowInsertMenu.query : null,
+            rowInsertMenu ? rowInsertMenu.selectedIndex : null,
+            rowInsertMenu ? insertMenuPosition : null,
+            draggingNodeId === node.id,
+            dropIndicatorTarget?.index === index ? dropIndicatorTarget.position : null,
+            selectedComponentNodeIds.has(node.id),
+            activeRowIndex === index,
+            focusAIPromptNodeId === node.id ? (focusAIPromptRequest ?? null) : null,
+            isAIPromptSubmitDisabled,
+            componentPanelCache[node.id],
+            placeholderNodeId === node.id ? placeholder : null,
+            hideResourceLinks,
+            allowViewModeFilters,
+            mergedRegistry,
+            insertCommands,
+        ]
+        const cached = rowElementCacheRef.current.get(node.id)
+        if (cached && cached.node === node && arraysShallowEqual(cached.inputs, inputs)) {
+            return cached.element
+        }
+        const element = renderNotebookRow(node, index)
+        rowElementCacheRef.current.set(node.id, { node, inputs, element })
+        return element
+    }
+
     const firstTextGroupKey = renderedNodeGroups.find((group) => group.type === 'text')?.key
 
     return (
@@ -6080,7 +6243,7 @@ function MarkdownNotebookEditor({
                                                 const chunkLastIndex = chunk.items[chunk.items.length - 1].index
                                                 const rows = chunk.items.map(({ node, index }) => (
                                                     <Fragment key={node.id}>
-                                                        {renderNotebookRow(node, index)}
+                                                        {renderMemoizedNotebookRow(node, index)}
                                                         {chunk.surface === 'text' && index < chunkLastIndex
                                                             ? renderInsertBoundaryButton(index + 1, {
                                                                   isGapClickable: false,
@@ -6116,7 +6279,7 @@ function MarkdownNotebookEditor({
 
                             return (
                                 <Fragment key={group.key}>
-                                    {renderNotebookRow(group.node, group.index)}
+                                    {renderMemoizedNotebookRow(group.node, group.index)}
                                     {renderInsertBoundaryButton(group.index + 1)}
                                 </Fragment>
                             )

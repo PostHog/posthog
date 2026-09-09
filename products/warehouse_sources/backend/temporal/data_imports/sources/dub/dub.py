@@ -1,9 +1,10 @@
-import dataclasses
 from datetime import date, datetime
 from typing import Any, Optional
 
 import requests
 from requests import Request, Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -27,12 +28,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dub.settin
 )
 
 REQUEST_TIMEOUT_SECONDS = 30
+# /folders rejects a larger page with a 422.
+FOLDERS_PAGE_SIZE = 50
 
 
-@dataclasses.dataclass
+@frozen
 class DubResumeConfig:
     page: Optional[int] = None
     starting_after: Optional[str] = None
+    # Which /links scope the cursor belongs to; see DubLinksScopePaginator.
+    scope_index: Optional[int] = None
 
 
 class DubCursorPaginator(BasePaginator):
@@ -86,13 +91,119 @@ class DubCursorPaginator(BasePaginator):
             self._has_next_page = True
 
 
+class DubLinksScopePaginator(BasePaginator):
+    """Cursor paginator that walks the unfiled links, then each folder in turn.
+
+    `GET /links` returns only the links that sit outside a folder unless `folderId` is passed,
+    so paging it once imports a workspace's filed links as nothing at all. Each scope carries
+    its own `startingAfter` cursor: a page shorter than `page_size` ends that scope, and the
+    walk finishes once the last folder is exhausted.
+    """
+
+    def __init__(self, page_size: int, folder_ids: list[str]) -> None:
+        super().__init__()
+        self._page_size = page_size
+        # `None` is the unfiled scope — what a request carrying no `folderId` returns.
+        self._scopes: list[Optional[str]] = [None, *folder_ids]
+        self._scope_index = 0
+        self._starting_after: Optional[str] = None
+
+    def _current_folder_id(self) -> Optional[str]:
+        if self._scope_index >= len(self._scopes):
+            return None
+        return self._scopes[self._scope_index]
+
+    def _inject(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+
+        if self._starting_after is None:
+            # A new scope restarts at its first page, so drop the previous scope's cursor.
+            request.params.pop("startingAfter", None)
+        else:
+            request.params["startingAfter"] = self._starting_after
+
+        folder_id = self._current_folder_id()
+        if folder_id is None:
+            request.params.pop("folderId", None)
+        else:
+            request.params["folderId"] = folder_id
+
+    def init_request(self, request: Request) -> None:
+        self._inject(request)
+
+    def update_request(self, request: Request) -> None:
+        self._inject(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        rows = data if data is not None else response.json()
+        is_full_page = isinstance(rows, list) and len(rows) >= self._page_size
+        last_id = rows[-1].get("id") if is_full_page and isinstance(rows[-1], dict) else None
+
+        if last_id is not None:
+            self._starting_after = str(last_id)
+            self._has_next_page = True
+            return
+
+        self._scope_index += 1
+        self._starting_after = None
+        self._has_next_page = self._scope_index < len(self._scopes)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        if not self._has_next_page:
+            return None
+        return {"scope_index": self._scope_index, "starting_after": self._starting_after}
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        scope_index = state.get("scope_index")
+        starting_after = state.get("starting_after")
+        if scope_index is None and starting_after is None:
+            return
+        if scope_index is not None:
+            # A folder can disappear between runs, which would leave the saved index past the end.
+            self._scope_index = min(int(scope_index), len(self._scopes) - 1)
+        self._starting_after = None if starting_after is None else str(starting_after)
+        self._has_next_page = True
+
+
+def _fetch_folder_ids(api_key: str) -> list[str]:
+    """Every folder in the workspace, so /links can be walked once per folder."""
+    session = _make_session(api_key)
+    folder_ids: list[str] = []
+    page = 1
+
+    while True:
+        res = session.get(
+            f"{DUB_BASE_URL}/folders",
+            params={"page": page, "pageSize": FOLDERS_PAGE_SIZE},
+            headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+        if res.status_code in (401, 403, 404):
+            # Folders are plan-gated. A workspace without them keeps every link unfiled, so
+            # there is nothing for the extra passes to find.
+            return folder_ids
+        res.raise_for_status()
+
+        rows = res.json()
+        if not isinstance(rows, list) or not rows:
+            return folder_ids
+
+        folder_ids.extend(str(row["id"]) for row in rows if isinstance(row, dict) and row.get("id"))
+        if len(rows) < FOLDERS_PAGE_SIZE:
+            return folder_ids
+        page += 1
+
+
 def _format_timestamp(value: Any) -> str:
     if isinstance(value, datetime | date):
         return value.isoformat()
     return str(value)
 
 
-def _build_paginator(config: DubEndpointConfig) -> BasePaginator:
+def _build_paginator(config: DubEndpointConfig, folder_ids: list[str]) -> BasePaginator:
+    if config.folder_scoped:
+        return DubLinksScopePaginator(page_size=config.page_size, folder_ids=folder_ids)
     if config.pagination == "cursor":
         return DubCursorPaginator(page_size=config.page_size)
     return PageNumberPaginator(base_page=1, page_param="page", total_path=None)
@@ -129,6 +240,7 @@ def get_resource(
     endpoint: str,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Optional[Any],
+    folder_ids: Optional[list[str]] = None,
 ) -> EndpointResource:
     config = DUB_ENDPOINTS[endpoint]
 
@@ -148,7 +260,7 @@ def get_resource(
     endpoint_config: Endpoint = {
         "path": config.path,
         "params": params,
-        "paginator": _build_paginator(config),
+        "paginator": _build_paginator(config, folder_ids or []),
     }
 
     return {
@@ -176,6 +288,7 @@ def dub_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     endpoint_config = DUB_ENDPOINTS[endpoint]
+    folder_ids = _fetch_folder_ids(api_key) if endpoint_config.folder_scoped else []
 
     config: RESTAPIConfig = {
         "client": {
@@ -187,7 +300,9 @@ def dub_source(
             "headers": {"Accept": "application/json"},
             "session": _make_session(api_key),
         },
-        "resources": [get_resource(endpoint, should_use_incremental_field, db_incremental_field_last_value)],
+        "resources": [
+            get_resource(endpoint, should_use_incremental_field, db_incremental_field_last_value, folder_ids)
+        ],
     }
 
     # For incremental event syncs the watermark itself is the resume cursor: the pipeline
@@ -202,6 +317,11 @@ def dub_source(
         if resume_config is not None:
             if resume_config.page is not None:
                 initial_paginator_state = {"page": resume_config.page}
+            elif resume_config.scope_index is not None:
+                initial_paginator_state = {
+                    "scope_index": resume_config.scope_index,
+                    "starting_after": resume_config.starting_after,
+                }
             elif resume_config.starting_after is not None:
                 initial_paginator_state = {"starting_after": resume_config.starting_after}
 
@@ -212,6 +332,14 @@ def dub_source(
             return
         if state.get("page") is not None:
             resumable_source_manager.save_state(DubResumeConfig(page=int(state["page"])))
+        elif state.get("scope_index") is not None:
+            starting_after = state.get("starting_after")
+            resumable_source_manager.save_state(
+                DubResumeConfig(
+                    scope_index=int(state["scope_index"]),
+                    starting_after=None if starting_after is None else str(starting_after),
+                )
+            )
         elif state.get("starting_after") is not None:
             resumable_source_manager.save_state(DubResumeConfig(starting_after=str(state["starting_after"])))
 

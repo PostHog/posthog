@@ -93,8 +93,6 @@ export class DashboardPage {
         await expect(addTextTileButton).toBeVisible()
         await addTextTileButton.click()
 
-        await expect(this.page).toHaveURL(/\/dashboard\/\d+\/text-tiles\/new(?:\?.*)?$/, { timeout: 5000 })
-
         // Text card edit UI uses DialogPrimitive, not LemonModal (see TextCardModal.tsx).
         const modal = this.page.getByTestId('text-card-modal')
         await expect(modal).toBeVisible()

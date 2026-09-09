@@ -15,9 +15,13 @@ import pyarrow as pa
 import deltalake
 from parameterized import parameterized
 from stripe import ListObject
+from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_telemetry import (
+    FANOUT_PARENT_ROWS_CONSUMED,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
     ParentTableRef,
 )
@@ -234,6 +238,10 @@ class TestStripeSource:
             # A publishable key was used where a secret/restricted key is required — matched on the
             # stable message text, ignoring the request id prefix.
             "Request req_abc123: This API call cannot be made with a publishable API key. Please use a secret API key. You can find a list of your API keys at https://dashboard.stripe.com/account/apikeys.",
+            # A 400-class InvalidRequestError with no usable Stripe-provided detail, raised when
+            # listing a specific customer's nested resources — every retry replays the same request
+            # against the same customer and fails identically.
+            "Request req_abc123: error_details_unknown",
         ],
     )
     def test_non_retryable_errors_match_permission_failures(self, observed_error):
@@ -462,6 +470,7 @@ def _run_nested_get_rows(
     warehouse_parent=None,
     parent_method=None,
     can_resume=False,
+    logger: FilteringBoundLogger | None = None,
 ):
     if parent_objects is None:
         parent_objects = [{"id": "cus_ok1"}, {"id": "cus_gone"}, {"id": "cus_ok2"}]
@@ -494,7 +503,7 @@ def _run_nested_get_rows(
             account_id=None,
             db_incremental_field_last_value=None,
             db_incremental_field_earliest_value=None,
-            logger=MagicMock(),
+            logger=logger or MagicMock(),
             resumable_source_manager=resumable_source_manager,
             api_version=STRIPE_API_VERSION_ACACIA,
             warehouse_parent=warehouse_parent,
@@ -587,16 +596,21 @@ class TestStripeNestedResourceGetRows:
             return _list_object([])
 
         manager = MagicMock()
+        logger = MagicMock()
         with patch.object(stripe_module, "NESTED_SWEEP_CHECKPOINT_PARENTS", 3):
             rows = _run_nested_get_rows(
                 nested_method,
                 parent_objects=[{"id": f"cus_{i}"} for i in range(8)],
                 resumable_source_manager=manager,
+                logger=logger,
             )
 
         assert rows == []
         # Checkpointed after the 3rd and 6th parent; the 7th and 8th are still in flight.
         assert [call.args[0].starting_after for call in manager.save_state.call_args_list] == ["cus_2", "cus_5"]
+        # The pipeline kills this loop mid-sweep on a worker shutdown, so every checkpoint carries
+        # the running fan-out size instead of leaving the attempt's only line until after the loop.
+        assert [call.kwargs["rows_total"] for call in logger.info.call_args_list] == [3, 6, 8]
 
     def test_query_param_service_receives_parent_in_params(self):
         # Flat Stripe services with a required filter (e.g. entitlements.active_entitlements.list)
@@ -1448,22 +1462,33 @@ class TestSchemaWebhookCapability:
 class TestCreateWebhookPermissionErrorCopy:
     # Regression test: a permission-denied webhook creation used to always tell the user to add
     # the "Write" permission to their API key, even when the source was connected via OAuth and
-    # has no API key to edit.
+    # has no API key to edit. Stripe's connected-account refusal also reads as a permission
+    # error, but neither a wider scope nor a reconnect can lift it.
     @parameterized.expand(
         [
-            ("api_key", "add the 'Write' permission for 'Webhook endpoints' to your API key"),
-            ("oauth", "reconnect your Stripe integration"),
+            (
+                "api_key",
+                "forbidden",
+                "add the 'Write' permission for 'Webhook endpoints' to your API key",
+            ),
+            ("oauth", "forbidden", "reconnect your Stripe integration"),
+            (
+                "oauth",
+                "You do not have permission to configure webhook endpoints on connected accounts.",
+                "on your platform account in Stripe",
+            ),
         ]
     )
-    def test_permission_error_message_matches_auth_method(self, auth_method, expected_phrase):
+    def test_permission_error_message_matches_auth_method(self, auth_method, stripe_message, expected_phrase):
         with patch.object(stripe_module, "StripeClient") as mock_client_cls:
             mock_client = mock_client_cls.return_value
-            mock_client.webhook_endpoints.create.side_effect = stripe_lib.PermissionError("forbidden")
+            mock_client.webhook_endpoints.create.side_effect = stripe_lib.PermissionError(stripe_message)
 
             result = create_webhook(
                 api_key="sk_test_123",
                 stripe_account_id=None,
                 webhook_url="https://example.com/webhook",
+                api_version=STRIPE_API_VERSION_ACACIA,
                 auth_method=auth_method,
             )
 
@@ -1485,6 +1510,7 @@ class TestCreateWebhookLimitErrorCopy:
                 api_key="sk_test_123",
                 stripe_account_id=None,
                 webhook_url="https://example.com/webhook",
+                api_version=STRIPE_API_VERSION_ACACIA,
             )
 
         assert result.success is False
@@ -1560,6 +1586,41 @@ class TestStripeWarehouseParentFanout:
 
         assert warehouse_rows == api_rows
         assert [row["customer"] for row in warehouse_rows] == ["cus_1", "cus_2"]
+
+    def test_both_parent_paths_report_the_fan_out_size_and_where_it_came_from(self, tmp_path):
+        # A webhook-maintained parent holds only what its drains delivered, so it can be missing
+        # customers the API listing still returns. Comparing the fan-out size across the two parent
+        # sources for one schema is the only signal for that, and it needs both a count and the
+        # label naming which source produced it. `cus_zero` is ruled out by the skip predicate and
+        # still counts, because the number has to mean the same thing on both sources.
+        customers = [{"id": "cus_zero", "balance": 0}, {"id": "cus_credit", "balance": -500}]
+        uri = _write_customer_parent_table(tmp_path, customers)
+        api_logger = MagicMock()
+        warehouse_logger = MagicMock()
+
+        api_method, api_probed = _recording_nested_method()
+        warehouse_method, warehouse_probed = _recording_nested_method()
+
+        _run_nested_get_rows(
+            api_method,
+            parent_objects=customers,
+            parent_has_nested=stripe_module._customer_might_have_balance_transactions,
+            logger=api_logger,
+        )
+        _run_nested_get_rows(
+            warehouse_method,
+            parent_has_nested=stripe_module._customer_might_have_balance_transactions,
+            warehouse_parent=ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version()),
+            logger=warehouse_logger,
+        )
+
+        assert api_probed == warehouse_probed == ["cus_credit"]
+        api_logger.info.assert_called_once_with(
+            FANOUT_PARENT_ROWS_CONSUMED, parent_source="api", rows_total=2, resumed=False
+        )
+        warehouse_logger.info.assert_called_once_with(
+            FANOUT_PARENT_ROWS_CONSUMED, parent_source="warehouse", rows_total=2, resumed=False
+        )
 
     def test_the_skip_predicate_reads_the_balance_off_the_warehouse_row(self, tmp_path):
         # The projected `balance` column is what makes this conversion worth doing: without it
@@ -1671,14 +1732,19 @@ class TestStripeWarehouseParentFanout:
         )
 
         nested_method, _ = _recording_nested_method()
+        logger = MagicMock()
         rows = _run_nested_get_rows(
             nested_method,
             resumable_source_manager=manager,
             warehouse_parent=ParentTableRef(uri=uri, version=version),
             can_resume=True,
+            logger=logger,
         )
 
         assert [row["id"] for row in rows] == ["cbt_cus_2", "cbt_cus_3"]
+        # A resumed attempt counts only the parents it walked, so its fan-out size is partial. The
+        # line has to say so, or it reads as a warehouse parent that is missing rows.
+        assert logger.info.call_args.kwargs["resumed"] is True
 
     @parameterized.expand(
         [

@@ -1,11 +1,13 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { MAX_MESSAGE_LENGTH } from '../max-constants'
 import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
@@ -94,19 +96,58 @@ describe('QuestionInput', () => {
     })
 
     it('reopens the popover after Escape dismisses it and a fresh slash is typed', async () => {
+        const user = userEvent.setup()
         const input = screen.getByRole('textbox') as HTMLTextAreaElement
 
-        fireEvent.change(input, { target: { value: '/' } })
+        await user.type(input, '/')
         await waitFor(() => expect(slashCommandItem()).toBeInTheDocument())
 
-        fireEvent.keyDown(document, { key: 'Escape' })
+        await user.keyboard('{Escape}')
         await waitFor(() => expect(slashCommandItem()).not.toBeInTheDocument())
 
-        fireEvent.change(input, { target: { value: '' } })
+        await user.clear(input)
         await waitFor(() => expect(input.value).toBe(''))
 
-        fireEvent.change(input, { target: { value: '/' } })
+        await user.type(input, '/')
         await waitFor(() => expect(slashCommandItem()).toBeInTheDocument())
+    })
+
+    describe('message length limit', () => {
+        const sendButton = (): HTMLElement | null => document.querySelector('[data-attr="max-send-message"]')
+
+        it('blocks a message the server would reject, and counts it in code points', async () => {
+            const input = screen.getByRole('textbox') as HTMLTextAreaElement
+
+            // Emoji are one code point each but two UTF-16 units, so a naive `String.length` check
+            // would block this message even though the server accepts it.
+            fireEvent.change(input, { target: { value: '😀'.repeat(MAX_MESSAGE_LENGTH) } })
+            await waitFor(() => expect(sendButton()).not.toHaveAttribute('aria-disabled', 'true'))
+
+            fireEvent.change(input, { target: { value: 'x'.repeat(MAX_MESSAGE_LENGTH + 1) } })
+            await waitFor(() => expect(sendButton()).toHaveAttribute('aria-disabled', 'true'))
+            expect(screen.getByText('40,001 / 40,000')).toBeInTheDocument()
+        })
+
+        it('leaves the counter out of the way until the message approaches the limit', async () => {
+            const input = screen.getByRole('textbox') as HTMLTextAreaElement
+
+            fireEvent.change(input, { target: { value: 'a short question' } })
+            await waitFor(() => expect(input.value).toBe('a short question'))
+            expect(screen.queryByText(/\/ 40,000$/)).not.toBeInTheDocument()
+        })
+
+        it('sends the whole suggestion when the send lands mid-animation', async () => {
+            const askMaxSpy = jest.spyOn(threadLogicInstance.actions, 'askMax')
+            const suggestion = 'What is the retention in the last two weeks?'
+
+            maxLogicInstance.actions.runSuggestion({ content: suggestion })
+            // The typewriter has only written the first character, so the composer shows a prefix.
+            await waitFor(() => expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('W'))
+
+            fireEvent.click(sendButton() as HTMLElement)
+
+            expect(askMaxSpy).toHaveBeenCalledWith(suggestion)
+        })
     })
 
     describe('stop button cancel state', () => {

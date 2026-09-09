@@ -183,6 +183,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "ignored_in_assistant": True,  # Mostly irrelevant product-wise
             "primary_property": "$feature_flag",
         },
+        "$experiment_exposure": {
+            "label": "Experiment exposure",
+            "description": "When a user is exposed to an experiment variant.",
+            "ignored_in_assistant": True,  # Duplicate of $feature_flag_called; mixing both double-counts exposures
+            "primary_property": "$feature_flag",
+        },
         "$feature_view": {
             "label": "Feature view",
             "description": "When a user views a feature.",
@@ -243,7 +249,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$web_vitals": {
             "label": "Web vitals",
-            "description": "Automatically captured web vitals data.",
+            "description": "Automatically captured web vitals data. One event only carries the metrics that were ready when it was sent, so LCP, FCP, INP, and CLS are spread over different events.",
         },
         "$ai_generation": {
             "label": "AI generation (LLM)",
@@ -468,6 +474,30 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$error_tracking_issue_spiking": {
             "label": "Error tracking issue spiking",
             "description": "Fires when an error tracking issue's volume spikes above its expected rate.",
+        },
+        "$error_tracking_issue_resolved": {
+            "label": "Error tracking issue resolved",
+            "description": "Fires when an error tracking issue is marked as resolved.",
+        },
+        "$error_tracking_issue_suppressed": {
+            "label": "Error tracking issue suppressed",
+            "description": "Fires when an error tracking issue is marked as suppressed.",
+        },
+        "$error_tracking_issue_assigned": {
+            "label": "Error tracking issue assigned",
+            "description": "Fires when an error tracking issue is assigned to a user or role.",
+        },
+        "$error_tracking_issue_unassigned": {
+            "label": "Error tracking issue unassigned",
+            "description": "Fires when an error tracking issue's assignee is removed.",
+        },
+        "$error_tracking_issue_merged": {
+            "label": "Error tracking issue merged",
+            "description": "Fires when error tracking issues are merged into another issue.",
+        },
+        "$error_tracking_issue_split": {
+            "label": "Error tracking issue split",
+            "description": "Fires when fingerprints are split out of an error tracking issue into new issues.",
         },
         "$conversation_message_sent": {
             "label": "Conversation message sent",
@@ -1744,7 +1774,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$feature_flag": {
             "label": "Feature flag",
-            "description": 'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try "Active feature flags".',
+            "description": 'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called and $experiment_exposure events. If you want to filter other events, try "Active feature flags".',
             "examples": ["beta-feature"],
         },
         "$feature_flag_reason": {
@@ -2066,24 +2096,36 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$web_vitals_FCP_value": {
             "label": "Web vitals FCP value",
+            "description": "First contentful paint, in milliseconds: the time until the browser paints the first text or image. Aggregate it with a percentile such as P90, as the web analytics web vitals tab does, rather than a count or an average. Each $web_vitals event only carries the metrics that were ready when it was sent, so the four metrics sit on different sets of events and their counts are not comparable.",
+            "examples": [800, 1500, 3000],
+            "type": "Numeric",
         },
         "$web_vitals_LCP_event": {
             "label": "Web vitals LCP measure event details",
         },
         "$web_vitals_LCP_value": {
             "label": "Web vitals LCP value",
+            "description": "Largest contentful paint, in milliseconds: the time until the largest text or image in the viewport is painted. Aggregate it with a percentile such as P90, as the web analytics web vitals tab does, rather than a count or an average. Each $web_vitals event only carries the metrics that were ready when it was sent, so the four metrics sit on different sets of events and their counts are not comparable.",
+            "examples": [1200, 2500, 4000],
+            "type": "Numeric",
         },
         "$web_vitals_INP_event": {
             "label": "Web vitals INP measure event details",
         },
         "$web_vitals_INP_value": {
             "label": "Web vitals INP value",
+            "description": "Interaction to next paint, in milliseconds: how long the page takes to respond to a user interaction. Aggregate it with a percentile such as P90, as the web analytics web vitals tab does, rather than a count or an average. INP is only final when the page is hidden, so it lands on a later $web_vitals event than LCP and FCP. A page with no user interaction has no INP value at all, so the metric counts are not comparable.",
+            "examples": [50, 200, 500],
+            "type": "Numeric",
         },
         "$web_vitals_CLS_event": {
             "label": "Web vitals CLS measure event details",
         },
         "$web_vitals_CLS_value": {
             "label": "Web vitals CLS value",
+            "description": "Cumulative layout shift, a score without a unit, usually between 0 and 1. Do not plot it on the same axis as the millisecond metrics, and aggregate it with a percentile such as P90 rather than a count or an average. CLS is only final when the page is hidden, so it lands on a later $web_vitals event than LCP and FCP, and the metric counts are not comparable.",
+            "examples": [0.01, 0.1, 0.25],
+            "type": "Numeric",
         },
         "$web_vitals_allowed_metrics": {
             "label": "Web vitals allowed metrics",
@@ -2282,7 +2324,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$ai_cache_creation_input_tokens": {
             "label": "AI cache creation input tokens (LLM)",
-            "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
+            "description": "The number of tokens created in the cache for the input prompt.",
             "examples": [23],
         },
         "$ai_cache_creation_5m_input_tokens": {
@@ -2864,6 +2906,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Full User-Agent string the MCP client sent on the transport. Often includes the agent name, version, and runtime mode — useful when $mcp_client_name and $mcp_client_version alone don't disambiguate the caller.",
             "examples": ["claude-code/2.1.141 (cli)", "Anthropic/ClaudeAI"],
         },
+        "$mcp_vendor_client": {
+            "label": "MCP vendor client",
+            "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",
+            "examples": ["ClaudeCode", "ClaudeAI", "Cowork"],
+        },
         "$mcp_intent": {
             "label": "MCP intent",
             "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or — if none was supplied — from an intentFallback the MCP server provides.",
@@ -3042,41 +3089,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Is error (unprefixed)",
             "description": "Older unprefixed variant of $mcp_is_error. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_is_error for new dashboards.",
         },
-        "source": {
-            "label": "Source",
-            "description": (
-                "Which PostHog surface the work came from. The surface values are 'web' (the app in a "
-                "browser), 'posthog_ai' (Max), 'desktop' (the PostHog Desktop app), 'mobile' (the PostHog "
-                "mobile app), 'slack' (the Slack app), 'mcp' (a third-party agent over MCP), 'cli', and "
-                "'api' (a direct API call). On API events, PostHog's own surfaces report themselves, so "
-                "'mcp' measures other people's agents. The $mcp_* events are stamped by the MCP server "
-                "instead, which cannot read the OAuth grant that identifies the Desktop app, so a Desktop "
-                "request can still show as 'mcp' on those. "
-                "'posthog_code' covers the headless coding agents: the cloud agent and the local agent. "
-                "'self_driving' is Signals: scouts, report implementations, and scout chat. "
-                "'wizard' is the setup agent and 'terraform' is the Terraform provider. "
-                "Four values are machines rather than surfaces: 'cache_warming', 'alert', 'export', and "
-                "'subscription'. "
-                "Two unrelated properties share this name, so filter to a specific event before breaking "
-                "down by it. The app also uses 'source' for which control fired an event, with values "
-                "like 'menu', 'keyboard-shortcut', and 'card_drag_handle'. Some backend paths use it for "
-                "something else again: 'static' on $http_log, 'blob_v2', 'blob', 'listing' and 'realtime' "
-                "on the session replay snapshot events, 'mcpcat' on the legacy MCP events, and 'template' "
-                "or 'custom' on 'mcp_store server installed'. Two "
-                "surface values also collide with older control names: on 'switched site mode', "
-                "'desktop' means the device-mode control rather than the app, and on the AI report "
-                "events, 'slack' means the delivery channel."
-            ),
-            "examples": ["web", "posthog_ai", "mcp", "desktop", "api"],
-        },
         "mcp_runtime": {
             "label": "MCP runtime",
             "description": "Server runtime that handled the MCP request. 'hono' means it was served by the Hono-based MCP server.",
             "examples": ["hono"],
         },
         "mcp_vendor_client": {
-            "label": "MCP vendor client",
-            "description": "Vendor/client identity derived from the request context for the MCP call (e.g. the coding agent or app behind the request).",
+            "label": "MCP vendor client (legacy)",
+            "description": "Older unprefixed variant of $mcp_vendor_client, stamped only by PostHog's hosted MCP server. Coalesce both keys when querying vendor identity directly; the harness resolution in MCP analytics already does.",
             "examples": ["ClaudeCode", "ClaudeAI"],
         },
         "mcp_session_client_name": {
@@ -3178,7 +3198,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$virt_is_bot": {
             "label": "Is bot",
-            "description": "Whether the event was generated by a bot, crawler, or automation tool, detected from the user agent or from operator-published bot IP ranges.",
+            "description": "Whether the event was generated by a bot, crawler, or automation tool, detected from the user agent, from operator-published bot IP ranges, or from a bot the project defined itself in settings.",
             "type": "Boolean",
             "virtual": True,
         },
@@ -3191,7 +3211,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$virt_traffic_category": {
             "label": "Traffic category",
-            "description": "Detailed traffic category: ai_crawler, ai_search, ai_assistant, search_crawler, seo_crawler, etc.",
+            "description": "Detailed traffic category: ai_crawler, ai_search, ai_assistant, search_crawler, seo_crawler, etc. Bots the project defined itself report the category picked in settings.",
             "examples": ["ai_crawler", "ai_search", "ai_assistant", "search_crawler", "regular"],
             "type": "String",
             "virtual": True,
@@ -3581,6 +3601,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$product_tours_activated": {
             "label": "Product tours activated",
             "description": "The product tours that have been activated for this user.",
+            "type": "String",
+        },
+        "$fbc": {
+            "label": "Facebook click ID (fbc)",
+            "description": "The Facebook click ID in the format Meta's Conversions API expects, built when PostHog saw the fbclid so it carries the time of the ad click. Equivalent to the `_fbc` cookie the Meta pixel sets.",
+            "examples": ["fb.1.1735689600000.IwAR2xY9zAbCdEf"],
             "type": "String",
         },
     },
