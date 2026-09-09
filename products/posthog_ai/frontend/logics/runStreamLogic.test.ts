@@ -1991,6 +1991,9 @@ describe('runStreamLogic', () => {
                 expect(logic.values.threadItems.filter((item) => item.text === 'continue')).toHaveLength(2)
                 expect(logic.values.threadItems.some((item) => item.text === 'Earlier answer')).toBe(true)
                 expect(logic.values.streamPhase).toBe(persisted ? 'thinking' : 'provisioning')
+                // The reconciliation must not wipe the successor's seeded status — a null one hides the
+                // composer, and a live run publishes no further state frame until it terminates.
+                expect(logic.values.currentRunStatus).toBe('queued')
                 expect(logic.values.turnComplete).toBe(false)
                 expect(MockStream.latest().options.startLatest).toBe(true)
                 await MockStream.latest().emitOpen()

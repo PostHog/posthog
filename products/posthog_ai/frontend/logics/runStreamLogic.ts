@@ -2062,7 +2062,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // flickering back to queued; only a fresh open (no/terminal status) resets.
                 openSseForRun: (state) => (state && !isTerminalRunStatus(state) ? state : 'queued'),
                 handleTerminalStatus: (_, { status }) => status,
-                prepareResumeRun: () => null,
+                // The boundary drops the status of the run being left behind, which is always a terminal
+                // one. The successor's own seed can already be here — `openSseForRun` runs before the
+                // history this reconciles — and wiping it hides the composer for the rest of the run.
+                prepareResumeRun: (state) => (state && !isTerminalRunStatus(state) ? state : null),
                 reset: () => null,
             },
         ],
