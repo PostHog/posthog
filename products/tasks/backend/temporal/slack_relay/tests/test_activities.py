@@ -135,6 +135,35 @@ class TestRelaySlackMessage(TestCase):
 
         assert mock_post.call_args.args[0].turn_trace_id == trace_id
 
+    _RICH_ANSWER = "## Heading\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n- [ ] todo"
+
+    @parameterized.expand(
+        [
+            ("mrkdwn", False, "*Heading*\n\n```\na  b\n1  2\n```\n\n\u2022 \u2610 todo"),
+            ("markdown", True, _RICH_ANSWER),
+        ]
+    )
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_the_gate_decides_whether_the_answer_is_converted(
+        self, _name, markdown, expected, mock_delete_progress, mock_post
+    ):
+        # The conversion exists to survive Slack's own mrkdwn, and it costs the answer its
+        # headings, its tables, and its task lists. A markdown block renders all three, so
+        # running the conversion under the gate would throw away what the gate is for.
+        with patch(
+            "products.slack_app.backend.slack_thread.SlackThreadHandler.renders_markdown", return_value=markdown
+        ):
+            relay_slack_message(
+                RelaySlackMessageInput(
+                    run_id=str(self.task_run.id),
+                    relay_id=f"relay-conversion-{markdown}",
+                    text=self._RICH_ANSWER,
+                )
+            )
+
+        assert mock_post.call_args.args[0].endswith(expected)
+
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
     def test_relay_does_not_post_when_claim_write_fails(self, mock_delete_progress, mock_post):

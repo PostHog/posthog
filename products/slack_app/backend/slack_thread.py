@@ -6,9 +6,10 @@ import structlog
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
+from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 from posthog.models.integration import Integration, SlackIntegration
 
-from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled, is_slack_app_markdown_enabled
 from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
@@ -149,6 +150,7 @@ class SlackThreadHandler:
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
         self._fork_flag: bool | None = None
+        self._markdown_flag: bool | None = None
         self._code_access: bool | None = None
 
     def _get_integration(self) -> Integration:
@@ -169,6 +171,23 @@ class SlackThreadHandler:
         if self._code_access is None:
             self._code_access = viewer_has_code_access(self._get_integration(), self.actor_slack_user_id)
         return bool(self._code_access)
+
+    def renders_markdown(self) -> bool:
+        """Whether an answer is delivered as a Slack `markdown` block rather than converted to
+        `mrkdwn` first. Memoized like the sibling gates, because the flag is evaluated remotely.
+
+        Public because the relay asks the same question before it prepares the answer: the
+        conversion it runs and the size it chunks to both depend on the block the answer lands in.
+        That call sits outside the try blocks the posting methods wrap themselves in, so a failed
+        integration lookup is answered here rather than left to fail the relay.
+        """
+        if self._markdown_flag is None:
+            try:
+                self._markdown_flag = is_slack_app_markdown_enabled(self._get_integration())
+            except Exception as e:
+                logger.warning("slack_app_markdown_gate_failed", error=str(e))
+                self._markdown_flag = False
+        return bool(self._markdown_flag)
 
     def reader_footer(self) -> RunFooter:
         """`run_footer` with the desktop link withheld where this reply's reader can't
@@ -574,46 +593,78 @@ class SlackThreadHandler:
         except Exception as e:
             logger.warning("slack_app_post_footer_failed", error=str(e))
 
+    def _answer_blocks(
+        self, text: str, footer: dict[str, Any] | None, *, markdown: bool
+    ) -> list[dict[str, Any]] | None:
+        """The blocks carrying one answer, or `None` to post it as plain text instead.
+
+        Under `mrkdwn` a footerless answer needs no blocks, because a plain-text message renders
+        `mrkdwn` on its own, so an ordinary message stays the plain-text post it has always been.
+        A `markdown` block has no such equivalent: without it Slack shows the Markdown source, so
+        the answer always carries one.
+
+        The menu and the thumbs are only asked for once a footer exists, which keeps a reply with
+        nothing to describe off the integration lookup behind their gates.
+        """
+        if markdown:
+            blocks = [slack_markdown_block(text)]
+        elif footer:
+            # `expand` keeps the answer fully visible: a section collapses behind "Show more",
+            # which plain text never did.
+            blocks = [{"type": "section", "expand": True, "text": {"type": "mrkdwn", "text": text}}]
+        else:
+            return None
+        if not footer:
+            return blocks
+        menu = self._fork_menu()
+        if markdown:
+            # A `markdown` block takes no accessory, so the menu follows the answer in an
+            # `actions` block of its own, which is where the streamed replies already put it.
+            blocks.append(footer)
+            if menu:
+                blocks.append(fork_menu_actions_block(menu))
+        else:
+            # The menu hangs off the answer, not the footer: a `context` block rejects
+            # interactive elements, and moving the footer to a `section` to hold one
+            # would cost it the muted styling that makes it read as a footer.
+            if menu:
+                blocks[0]["accessory"] = menu
+            blocks.append(footer)
+        # The thumbs close the message, below the footer, where a reader of any other
+        # AI app already looks for them.
+        feedback = self._feedback_block()
+        if feedback:
+            blocks.append(feedback)
+        return blocks
+
     def post_thread_message(self, text: str, with_footer: bool = False) -> None:
         """Post a plain message in the existing thread.
 
         ``with_footer`` closes the message with the provenance footer, for the last
         chunk of a non-streamed answer — the streamed path appends its own instead.
-        Passing it only adds blocks when there is actually a footer to show, so an
-        ordinary message stays a plain-text post.
+        `_answer_blocks` decides what the answer is carried in.
         """
-        # A section block caps at 3000 characters; over that, dropping the footer costs a
-        # line of provenance, while keeping it would cost the whole message. The menu and
-        # the thumbs go with it: an answer that long can only be posted as plain text,
-        # which carries no blocks at all.
-        footer = self._footer_block() if with_footer and len(text) <= _SECTION_TEXT_LIMIT else None
-        # No footer means no blocks at all, so an ordinary message stays the plain-text
-        # post it has always been. `expand` keeps the answer fully visible: a section
-        # collapses behind "Show more", which plain text never did.
-        blocks: list[dict[str, Any]] | None = None
-        if footer:
-            answer: dict[str, Any] = {"type": "section", "expand": True, "text": {"type": "mrkdwn", "text": text}}
-            # The menu hangs off the answer, not the footer: a `context` block rejects
-            # interactive elements, and moving the footer to a `section` to hold one
-            # would cost it the muted styling that makes it read as a footer.
-            menu = self._fork_menu()
-            if menu:
-                answer["accessory"] = menu
-            blocks = [answer, footer]
-            # The thumbs close the message, below the footer, where a reader of any other
-            # AI app already looks for them.
-            feedback = self._feedback_block()
-            if feedback:
-                blocks.append(feedback)
+        # Text past the block's character cap can only be posted as plain text, which carries
+        # no blocks at all. Dropping the footer there costs a line of provenance, while keeping
+        # it would cost the whole message. The menu and the thumbs go with it.
+        markdown = len(text) <= SLACK_MARKDOWN_TEXT_MAX_LEN and self.renders_markdown()
+        text_limit = SLACK_MARKDOWN_TEXT_MAX_LEN if markdown else _SECTION_TEXT_LIMIT
+        footer = self._footer_block() if with_footer and len(text) <= text_limit else None
+        blocks = self._answer_blocks(text, footer, markdown=markdown)
         try:
             self._post_in_thread(text=text, blocks=blocks)
         except SlackApiError as e:
             # Slack rejects a request whose blocks are invalid outright — the `text`
             # fallback does not rescue it — so the answer would go down with its footer.
-            # Describing a run must never cost the reader the run's answer.
+            # Describing a run must never cost the reader the run's answer. Posting plainly
+            # rather than retrying through this method drops every block at once, so a
+            # rejection Slack repeats cannot loop.
             if blocks and e.response.get("error") == "invalid_blocks":
-                logger.warning("slack_app_footer_blocks_rejected", error=str(e))
-                self.post_thread_message(text)
+                logger.warning("slack_app_answer_blocks_rejected", error=str(e))
+                try:
+                    self._post_in_thread(text=text)
+                except Exception as retry_error:
+                    logger.warning("slack_post_thread_message_failed", error=str(retry_error))
                 return
             logger.warning("slack_post_thread_message_failed", error=str(e))
         except Exception as e:

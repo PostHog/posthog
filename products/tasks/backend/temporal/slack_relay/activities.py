@@ -5,6 +5,7 @@ from markdown_to_mrkdwn import SlackMarkdownConverter
 from temporalio import activity
 
 from posthog.dataclasses import frozen
+from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
@@ -421,18 +422,6 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
             origin_product=mapping.task.origin_product,
         )
 
-    # Pending chart images compose into a single Slack message together with the answer
-    # text (section blocks cap at 3000 chars, tighter than plain messages), so pick the
-    # chunk limit before splitting.
-    compose_with_charts = has_pending_slack_files and has_pending_slack_image_artifacts(task_run)
-    chunk_limit = SLACK_SECTION_TEXT_LIMIT if compose_with_charts else SLACK_MESSAGE_TEXT_LIMIT
-
-    # Split the raw markdown first, then convert each chunk independently. Converting
-    # per-chunk means an inline span broken by a hard char split (e.g. ``**bold**``
-    # halved) stays literal in the output instead of leaving dangling Slack-mrkdwn
-    # markers that would garble the rendering of surrounding text.
-    chunks = [_markdown_to_slack_mrkdwn(chunk) for chunk in _split_markdown_for_slack(text, limit=chunk_limit)]
-
     context = SlackThreadContext(
         integration_id=mapping.integration_id,
         channel=mapping.channel,
@@ -454,6 +443,31 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     handler = SlackThreadHandler(context, actor_slack_user_id=target, turn_trace_id=input.trace_id)
     handler.run_footer = load_run_footer(task_run.id)
     mention_prefix = f"<@{target}> " if target else ""
+
+    # The block the answer lands in decides both how much of it fits and whether it needs
+    # converting, so the gate is read before the answer is prepared.
+    markdown = handler.renders_markdown()
+
+    # Pending chart images compose into a single Slack message together with the answer text,
+    # whose blocks are tighter than a plain message, so pick the chunk limit before splitting.
+    compose_with_charts = has_pending_slack_files and has_pending_slack_image_artifacts(task_run)
+    if markdown:
+        # One `markdown` block per message either way, so composing costs the answer nothing.
+        chunk_limit = SLACK_MARKDOWN_TEXT_MAX_LEN
+    else:
+        chunk_limit = SLACK_SECTION_TEXT_LIMIT if compose_with_charts else SLACK_MESSAGE_TEXT_LIMIT
+
+    # Split the raw markdown first, then convert each chunk independently. Converting
+    # per-chunk means an inline span broken by a hard char split (e.g. ``**bold**``
+    # halved) stays literal in the output instead of leaving dangling Slack-mrkdwn
+    # markers that would garble the rendering of surrounding text.
+    #
+    # A `markdown` block takes the agent's Markdown as written, so the conversion is skipped
+    # wholesale: its repairs all exist to survive Slack's own `mrkdwn`, and applying them
+    # would flatten headings, tables, and task lists the block renders on its own.
+    chunks = _split_markdown_for_slack(text, limit=chunk_limit)
+    if not markdown:
+        chunks = [_markdown_to_slack_mrkdwn(chunk) for chunk in chunks]
 
     def _record_sent_relay(state: dict[str, Any]) -> None:
         sent_relay_ids = state.get("slack_sent_relay_ids") or []
@@ -482,7 +496,9 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         sections = list(chunks)
         if sections:
             sections[0] = f"{mention_prefix}{sections[0]}"
-        answer_posted = deliver_pending_slack_file_artifacts(task_run, answer_sections=sections).answer_posted
+        answer_posted = deliver_pending_slack_file_artifacts(
+            task_run, answer_sections=sections, answer_is_markdown=markdown
+        ).answer_posted
         if answer_posted:
             # The answer went out inside the composed message, whose blocks are the text
             # sections and the chart cards, so the footer follows it as its own message.
