@@ -47,20 +47,26 @@ def check_event_filter(tree: ast.AST, plan: QueryPlan | None = None) -> EventFil
     if not reads:
         return EventFilterOutcome(classification="usable")
 
+    outcomes = [_classify_read(read, collect_conditions(tree, read)) for read in reads]
+    worst = min(outcomes, key=lambda outcome: _CLASS_ORDER.index(outcome.classification))
+
     key_used = plan.event_key_used() if plan is not None else None
-    outcomes = [_check_read(read, collect_conditions(tree, read), key_used) for read in reads]
-    return min(outcomes, key=lambda outcome: _CLASS_ORDER.index(outcome.classification))
-
-
-def _check_read(read: EventsRead, conditions: list[ast.Expr], key_used: bool | None) -> EventFilterOutcome:
-    matched = _classify_from_tree(read, conditions)
-    outcome = matched if matched is not None else EventFilterOutcome(classification="none")
     if key_used is True:
         # ClickHouse reports what it really used, so it overrules anything the tree suggests.
         return EventFilterOutcome(classification="usable")
-    if key_used is False and outcome.classification == "usable":
-        return EventFilterOutcome(classification="not_used", reason="not_pruned", clause=outcome.clause)
-    return outcome
+    if key_used is False and worst.classification == "usable":
+        # The plan says some read did not prune, not which one, so a clause can only be named
+        # when there is one read it could belong to. A read the tree already found fault with
+        # keeps its own reason, which says more than this one.
+        return EventFilterOutcome(
+            classification="not_used", reason="not_pruned", clause=worst.clause if len(reads) == 1 else None
+        )
+    return worst
+
+
+def _classify_read(read: EventsRead, conditions: list[ast.Expr]) -> EventFilterOutcome:
+    matched = _classify_from_tree(read, conditions)
+    return matched if matched is not None else EventFilterOutcome(classification="none")
 
 
 def _classify_from_tree(read: EventsRead, conditions: list[ast.Expr]) -> EventFilterOutcome | None:

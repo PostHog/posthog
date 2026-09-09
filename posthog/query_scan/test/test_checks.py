@@ -25,6 +25,38 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 NOW = "2026-03-15T12:00:00Z"
 
 
+def _plan_read(keys: list[str], selected_granules: int) -> dict[str, object]:
+    return {
+        "Node Type": "ReadFromMergeTree",
+        "Description": "posthog.sharded_events",
+        "Indexes": [
+            {
+                "Type": "PrimaryKey",
+                "Keys": keys,
+                "Initial Granules": 60000,
+                "Selected Granules": selected_granules,
+            }
+        ],
+    }
+
+
+# Two events reads where only the first pruned on `event`. Built here rather than as a fixture:
+# what matters is the disagreement between the reads, not the shape of real EXPLAIN output.
+MIXED_PRUNING_PLAN = parse_query_plan(
+    [
+        {
+            "Plan": {
+                "Node Type": "Union",
+                "Plans": [
+                    {"Plan": _plan_read(["team_id", "toDate(timestamp)", "event"], 800)},
+                    {"Plan": _plan_read(["team_id", "toDate(timestamp)"], 40000)},
+                ],
+            }
+        }
+    ]
+)
+
+
 class QueryScanCheckTest(BaseTest):
     def prepare(
         self,
@@ -175,6 +207,44 @@ class TestEventFilterCheck(QueryScanCheckTest):
 
         self.assertEqual(outcome.classification, expected_class)
         self.assertEqual(outcome.reason, expected_reason)
+
+    @parameterized.expand(
+        [
+            (
+                "the pruning read first",
+                "SELECT count() FROM events WHERE event = 'purchase' "
+                "UNION ALL SELECT count() FROM events WHERE match(event, 'x')",
+            ),
+            (
+                "the wrapped read first",
+                "SELECT count() FROM events WHERE match(event, 'x') "
+                "UNION ALL SELECT count() FROM events WHERE event = 'purchase'",
+            ),
+        ]
+    )
+    @freeze_time(NOW)
+    def test_a_plan_where_one_read_pruned_keeps_the_reason_the_tree_found(self, _name: str, sql: str) -> None:
+        tree, _context = self.prepare(sql)
+
+        outcome = check_event_filter(tree, MIXED_PRUNING_PLAN)
+
+        self.assertEqual(outcome.classification, "not_used")
+        self.assertEqual(outcome.reason, "wrapped")
+        clause = outcome.clause
+        assert isinstance(clause, ast.Call)
+        self.assertEqual(clause.name, "match")
+
+    @freeze_time(NOW)
+    def test_a_plan_that_contradicts_several_usable_filters_names_no_clause(self) -> None:
+        tree, _context = self.prepare(
+            "SELECT count() FROM events WHERE event = 'a' UNION ALL SELECT count() FROM events WHERE event = 'b'"
+        )
+
+        outcome = check_event_filter(tree, MIXED_PRUNING_PLAN)
+
+        self.assertEqual(outcome.classification, "not_used")
+        self.assertEqual(outcome.reason, "not_pruned")
+        self.assertIsNone(outcome.clause)
 
 
 class TestStartDateCheck(QueryScanCheckTest):
