@@ -11,8 +11,8 @@ import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 import { metricsSceneLogic } from '../metricsSceneLogic'
 import { MetricNameFilter } from './MetricNameFilter'
 import { MetricsClauseFilterBar } from './MetricsClauseFilterBar'
-import { MetricsGroupByButton } from './MetricsGroupByButton'
 import { metricsFundamentalsLogic } from './metricsFundamentalsLogic'
+import { MetricsGroupByButton } from './MetricsGroupByButton'
 import {
     MAX_CLAUSES,
     MetricAggregation,

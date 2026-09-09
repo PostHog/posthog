@@ -6,8 +6,8 @@ import { LemonInput, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 
-import { MetricCatalogItem, metricsCatalogLogic } from './metricsCatalogLogic'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
+import { MetricCatalogItem, metricsCatalogLogic } from './metricsCatalogLogic'
 
 // A metric's OTel type says how to read it before it is opened. The one-liner is
 // the catalog's main teaching surface: it turns a bare name into a sentence the
@@ -30,11 +30,7 @@ const describeMetric = (item: MetricCatalogItem): string => {
 }
 
 const typeTagLabel = (metricType: string): string =>
-    metricType === 'sum'
-        ? 'counter'
-        : metricType === 'exponential_histogram'
-          ? 'histogram'
-          : metricType || 'unknown'
+    metricType === 'sum' ? 'counter' : metricType === 'exponential_histogram' ? 'histogram' : metricType || 'unknown'
 
 const CatalogCard = ({ item }: { item: MetricCatalogItem }): JSX.Element => {
     const { openMetric } = useActions(metricsCatalogLogic)

@@ -16,8 +16,20 @@ jest.mock('../generated/api', () => ({
 }))
 
 const CATALOG_ITEMS = [
-    { name: 'http.server.duration', metric_type: 'histogram', unit: 'ms', last_seen: '2026-09-03T10:00:00+00:00', sparkline: [1, 2, 3] },
-    { name: 'queue.depth', metric_type: 'gauge', unit: '', last_seen: '2026-09-03T10:00:00+00:00', sparkline: [3, 2, 1] },
+    {
+        name: 'http.server.duration',
+        metric_type: 'histogram',
+        unit: 'ms',
+        last_seen: '2026-09-03T10:00:00+00:00',
+        sparkline: [1, 2, 3],
+    },
+    {
+        name: 'queue.depth',
+        metric_type: 'gauge',
+        unit: '',
+        last_seen: '2026-09-03T10:00:00+00:00',
+        sparkline: [3, 2, 1],
+    },
     { name: 'jobs.processed', metric_type: 'sum', unit: '', last_seen: '2026-09-03T09:00:00+00:00', sparkline: [0, 1] },
 ]
 
@@ -96,10 +108,7 @@ describe('metricsCatalogLogic', () => {
 
         await expectLogic(logic, () => {
             logic.actions.openMetric(CATALOG_ITEMS[2]) // jobs.processed, a sum
-        }).toDispatchActions([
-            metricsViewerLogic.actionTypes.setMetricName,
-            metricsSceneLogic.actionTypes.setActiveTab,
-        ])
+        }).toDispatchActions([metricsViewerLogic.actionTypes.setMetricName, metricsSceneLogic.actionTypes.setActiveTab])
 
         expect(metricsSceneLogic.values.activeTab).toBe('viewer')
         expect(metricsViewerLogic.values.metricName).toBe('jobs.processed')
