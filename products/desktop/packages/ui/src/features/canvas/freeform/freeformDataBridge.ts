@@ -64,7 +64,6 @@ function cachedRead<T>(
     ] as const,
     meta: AUTH_SCOPED_QUERY_META,
     queryFn: run,
-    meta: method === "connectorCall" ? { authScoped: true } : undefined,
     staleTime: (refreshSeconds ?? 5 * 60) * 1_000,
     // At least the refresh interval, or GC would evict an inactive entry
     // before it goes stale and force an early backend re-read.

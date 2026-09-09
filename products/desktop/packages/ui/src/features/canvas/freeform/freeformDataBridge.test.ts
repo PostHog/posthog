@@ -30,6 +30,7 @@ const capabilities: CanvasCapabilities = {
     actions: ["tasks.create"],
   },
   network: { origins: [] },
+  connectors: [],
 };
 
 describe("assertCanvasCapability", () => {
