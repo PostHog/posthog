@@ -1,7 +1,7 @@
 import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { SendMailOptions } from 'nodemailer'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { HogFlowEmailSendingRateLimit, HogFlowEmailSendingRateLimitSchema } from '~/cdp/schema/hogflow'
@@ -128,6 +128,16 @@ function pickCapRetryDelayMs(retryAfterMs: number | null, refillPerSecond: numbe
     const clampedMs = Math.min(Math.max(retryAfterMs, CAP_RETRY_MIN_MS), CAP_RETRY_MAX_MS)
     return Math.floor(clampedMs * (1 + Math.random()))
 }
+
+// Observations pinned at the top bucket mean a backlog deeper than the reservation
+// horizon: those sends re-contend hourly instead of holding a real slot, so a sustained
+// top-bucket rate is the signal that a team's backlog outruns its sending budget.
+const emailReservedParkMs = new Histogram({
+    name: 'cdp_email_reserved_park_ms',
+    help: 'How far into the future a rate-limit-denied email parked, by limiter.',
+    labelNames: ['limiter'],
+    buckets: [1_000, 5_000, 15_000, 60_000, 300_000, 900_000, 1_800_000, 3_600_000],
+})
 
 function pickReservedRetryDelayMs(retryAfterMs: number | null, refillPerSecond: number): number {
     // A reserved slot is exclusive, so it needs no contention jitter; the small additive
@@ -454,6 +464,7 @@ export class EmailService {
                     // queue-routing paths, which re-attach the same way.
                     result.invocation.queueParameters = params
                     const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, refillPerSecond)
+                    emailReservedParkMs.labels('workflow-email').observe(retryDelayMs)
                     result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
                     addLog(
                         'info',
