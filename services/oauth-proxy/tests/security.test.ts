@@ -23,7 +23,6 @@ describe('cross-client state collision', () => {
             created_at: Date.now(),
         })
 
-        // Flow A: the victim authorizes with client A, using state "shared".
         const requestA = new Request(
             'https://oauth.posthog.com/oauth/authorize/?client_id=clientA&redirect_uri=https://a.example/cb&response_type=code&state=shared&_region=us'
         )
@@ -31,13 +30,11 @@ describe('cross-client state collision', () => {
         const locationA = new URL(responseA.headers.get('location')!)
         const stateSentForA = locationA.searchParams.get('state')!
 
-        // Flow B: an attacker registers client B and authorizes with the same state value.
         const requestB = new Request(
             'https://oauth.posthog.com/oauth/authorize/?client_id=clientB&redirect_uri=https://b.example/cb&response_type=code&state=shared&_region=us'
         )
         await handleAuthorize(requestB, kv)
 
-        // The regional server calls back with the state value the proxy sent for flow A.
         const callbackRequest = new Request(
             `https://oauth.posthog.com/oauth/callback/?code=victim_auth_code&state=${stateSentForA}`
         )

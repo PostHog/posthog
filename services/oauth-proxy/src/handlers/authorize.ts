@@ -78,20 +78,15 @@ async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNames
         return errorResponse(redirectUriError)
     }
 
-    // Region selection is keyed by client_id; the token exchange only has client_id
-    // (state is not sent to the token endpoint).
     const kvWrites: Promise<void>[] = []
     if (clientId) {
         kvWrites.push(putRegionSelection(kv, clientId, region))
     }
 
-    // Intercept the callback only for clients with stored redirect_uris (the proxy
-    // callback URL is only in their registered redirect_uris). Legacy clients without
-    // redirect_uris fall through to regional server validation.
+    // Only proxy-registered clients have the proxy callback in their registered redirect_uris.
     let nonce: string | null = null
     if (mapping?.redirect_uris && originalRedirectUri) {
-        // Keyed by a proxy-generated nonce so nobody who merely knows the client's state
-        // can write or overwrite the record.
+        // A proxy nonce keys the record so knowing the client's state cannot overwrite it.
         nonce = crypto.randomUUID()
         kvWrites.push(putFlowRecord(kv, nonce, { redirect_uri: originalRedirectUri, state: state ?? null }))
         if (clientId) {

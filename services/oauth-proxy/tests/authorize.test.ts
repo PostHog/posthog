@@ -127,7 +127,6 @@ describe('handleAuthorize', () => {
         )
         const response = await handleAuthorize(request, mockKV)
 
-        // The outbound state is a proxy nonce, not the client's own state.
         const location = new URL(response.headers.get('location')!)
         const nonce = location.searchParams.get('state')!
         expect(nonce).not.toBe('abc123')
@@ -137,17 +136,14 @@ describe('handleAuthorize', () => {
         const clientHash = await hashKey('us_id')
         const nonceHash = await hashKey(nonce)
 
-        // Region selection stored by client_id only
         const regionByClient = putCalls.find(([key]) => (key as string) === `region:${clientHash}`)
         expect(regionByClient).toBeTruthy()
         expect(regionByClient![1]).toBe('eu')
 
-        // Callback redirect_uri stored by client_id (used by the token exchange)
         const callbackByClient = putCalls.find(([key]) => (key as string) === `callback:${clientHash}`)
         expect(callbackByClient).toBeTruthy()
         expect(callbackByClient![1]).toBe('http://localhost:3000/callback')
 
-        // Flow record stored by the nonce, holding the client's original redirect_uri and state
         const flowByNonce = putCalls.find(([key]) => (key as string) === `flow:${nonceHash}`)
         expect(flowByNonce).toBeTruthy()
         expect(JSON.parse(flowByNonce![1] as string)).toEqual({
@@ -155,7 +151,6 @@ describe('handleAuthorize', () => {
             state: 'abc123',
         })
 
-        // Nothing is keyed by the client's own state anymore
         const stateHash = await hashKey('abc123')
         expect(putCalls.find(([key]) => (key as string) === `region:${stateHash}`)).toBeUndefined()
         expect(putCalls.find(([key]) => (key as string) === `callback:${stateHash}`)).toBeUndefined()
@@ -184,7 +179,6 @@ describe('handleAuthorize', () => {
 
         expect(response.status).toBe(302)
 
-        // The outbound state is the short proxy nonce, not the large client state.
         const location = new URL(response.headers.get('location')!)
         const nonce = location.searchParams.get('state')!
         expect(nonce).not.toBe(longState)
