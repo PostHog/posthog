@@ -53,6 +53,7 @@ jobs:
                   sparse-checkout: |
                       .github
                       tools/workflow-plan
+                      patches
                       .nvmrc
                       package.json
                       pnpm-lock.yaml
