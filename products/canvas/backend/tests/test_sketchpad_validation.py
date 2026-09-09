@@ -1,3 +1,4 @@
+import json
 from collections.abc import AsyncGenerator
 from typing import Any, cast
 
@@ -12,10 +13,12 @@ from django.test.utils import CaptureQueriesContext
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog import redis
 from posthog.sync import database_sync_to_async
 
 from products.canvas.backend.models import Sketchpad, SketchpadOp, SketchpadRecord
 from products.canvas.backend.presentation.sketchpad.serializers import SketchpadAppendOpsSerializer
+from products.canvas.backend.sketchpad.stream import OPS_STREAM_KEY_PATTERN
 from products.tasks.backend.models import Channel, Task
 
 FRAGMENT = {"id": "note", "x": 0, "y": 0, "w": 360, "h": 240, "code": "export default () => null"}
@@ -228,10 +231,26 @@ class TestSketchpadValidationEndpoint(APIBaseTest):
             for key in ["one", "two"]
         ]
         operations.append({"op_id": "move", "op": {"type": "update_fragment", "id": "one", "patch": {"x": 80}}})
-        response = self.client.post(f"{url}ops/", {"base_seq": 0, "ops": operations, "actor": {"kind": "user"}})
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"{url}ops/", {"base_seq": 0, "ops": operations, "actor": {"kind": "user"}}
+            )
         assert response.status_code == 200
         assert response.json()["replayed"] == []
         task = Task.objects.create(team=self.team, channel=channel, created_by=self.user, title="Edit sketchpad")
+        events = redis.get_client().xrange(
+            OPS_STREAM_KEY_PATTERN.format(team_id=self.team.id, sketchpad_id=str(sketchpad.pk))
+        )
+        page = self.client.get(f"{url}ops/").json()
+        streamed = [json.loads(fields[b"data"]) for _, fields in events]
+        for event, entry in zip(streamed, page["results"], strict=True):
+            assert {key: value for key, value in event.items() if key not in {"type", "op"}} == {
+                key: value for key, value in entry.items() if key != "op"
+            }
+            if entry["op"]["type"] == "add_fragment":
+                assert event["op"]["fragment"]["code"] == page["source_versions"][entry["op"]["fragment"]["codeRef"]]
+            else:
+                assert event["op"] == entry["op"]
         retry = self.client.post(
             f"{url}ops/",
             {
@@ -351,12 +370,14 @@ class TestSketchpadValidationEndpoint(APIBaseTest):
         )
         client = AsyncMock()
         client.xrevrange.return_value = []
+        client.time.return_value = (1_800_000_000, 0)
         client.xread.return_value = [(b"ops", [(b"1-0", {b"data": b'{"type":"op","seq":1}'})])]
         update_board = database_sync_to_async(Sketchpad.objects.for_team(self.team.id).filter(pk=sketchpad.pk).update)
 
         with (
-            patch("products.canvas.backend.sketchpad.presentation.views.SERVER_GATEWAY_INTERFACE", "ASGI"),
-            patch("products.canvas.backend.sketchpad_stream.redis_module.get_async_client", return_value=client),
+            patch("posthog.api.streaming.settings.SERVER_GATEWAY_INTERFACE", "ASGI"),
+            patch("products.canvas.backend.sketchpad.stream.ACCESS_RECHECK_SECONDS", 0),
+            patch("products.canvas.backend.sketchpad.stream.redis_module.get_async_client", return_value=client),
         ):
             response = cast(
                 StreamingHttpResponse,

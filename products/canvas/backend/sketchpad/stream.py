@@ -1,19 +1,17 @@
 import json
 import time
-import asyncio
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
+from contextlib import aclosing
 from typing import Any
 
 import structlog
 import redis.exceptions as redis_exceptions
 
 from posthog import redis as redis_module
+from posthog.api.streaming import sse_frame
+from posthog.collab_stream import STREAM_ERROR_FRAME, tail_streams
 
-from products.canvas.backend.sketchpad_presence import (
-    PRESENCE_BACKFILL_MS,
-    PRESENCE_STREAM_KEY_PATTERN,
-    presence_sse_frame,
-)
+from products.canvas.backend.sketchpad.presence import PRESENCE_STREAM_KEY_PATTERN
 
 logger = structlog.get_logger(__name__)
 
@@ -22,15 +20,10 @@ OPS_STREAM_KEY_PATTERN = "sketchpad:{{{team_id}:{sketchpad_id}}}:ops"
 OPS_STREAM_TTL_SECONDS = 60 * 60 * 24
 OPS_STREAM_MAX_LENGTH = 5000
 OPS_STREAM_MAX_PAYLOAD_BYTES = 64 * 1024
-STREAM_READ_COUNT = 32
 STREAM_BATCH_INTERVAL_SECONDS = 0.1
 
-STREAM_BLOCK_MS = 15_000
+ACCESS_RECHECK_SECONDS = 15.0
 
-STREAM_LIFETIME_SECONDS = 5 * 60
-
-DATA_KEY = b"data"
-KEEPALIVE_COMMENT = b": keepalive\n\n"
 EARLIEST_STREAM_ID = "0-0"
 
 OP_EVENT_TYPE = "op"
@@ -45,7 +38,7 @@ def publish_ops(team_id: int, sketchpad_id: str, entries: Sequence[Mapping[str, 
     try:
         for entry in entries:
             payload = json.dumps({"type": OP_EVENT_TYPE, **entry}, separators=(",", ":"))
-            if len(payload) > OPS_STREAM_MAX_PAYLOAD_BYTES:
+            if len(payload.encode()) > OPS_STREAM_MAX_PAYLOAD_BYTES:
                 payload = json.dumps({"type": RELOAD_EVENT_TYPE, "since": entry["seq"] - 1}, separators=(",", ":"))
             client.xadd(
                 stream_key,
@@ -63,6 +56,18 @@ def publish_ops(team_id: int, sketchpad_id: str, entries: Sequence[Mapping[str, 
             error=str(err),
         )
 
+        try:
+            client.xadd(
+                stream_key,
+                {"data": json.dumps({"type": RELOAD_EVENT_TYPE, "since": entries[0]["seq"] - 1})},
+                id=f"{entries[-1]['seq']}-1",
+                maxlen=OPS_STREAM_MAX_LENGTH,
+                approximate=True,
+            )
+            client.expire(stream_key, OPS_STREAM_TTL_SECONDS)
+        except redis_exceptions.RedisError:
+            pass
+
 
 def seq_from_stream_id(stream_id: str) -> int | None:
     head = stream_id.split("-", 1)[0]
@@ -77,14 +82,13 @@ def resume_position(last_event_id: str, oldest_stream_id: str | None) -> tuple[s
     if last_seq is None:
         return EARLIEST_STREAM_ID, 0
     oldest_seq = seq_from_stream_id(oldest_stream_id) if oldest_stream_id is not None else None
-    if oldest_seq is None or oldest_seq > last_seq + 1:
-        return EARLIEST_STREAM_ID, last_seq
-    return last_event_id, None
+    gap = oldest_seq is None or oldest_seq > last_seq + 1
+    return last_event_id, last_seq if gap else None
 
 
 def reload_sse_frame(since: int) -> bytes:
     payload = {"type": RELOAD_EVENT_TYPE, "since": since}
-    return f"event: reload\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n".encode()
+    return sse_frame(payload, event=RELOAD_EVENT_TYPE)
 
 
 async def stream_sketchpad_sse(
@@ -110,63 +114,40 @@ async def stream_sketchpad_sse(
             ops_id, reload_since = resume_position(last_event_id, oldest[0][0].decode() if oldest else None)
     except redis_exceptions.RedisError as err:
         logger.warning("sketchpad_stream_error", sketchpad_id=sketchpad_id, error=str(err))
-        yield b'event: error\ndata: {"error":"stream error"}\n\n'
+        yield STREAM_ERROR_FRAME
         return
 
     if reload_since is not None:
         yield reload_sse_frame(reload_since)
-    presence_id = f"{max(0, int(time.time() * 1000) - PRESENCE_BACKFILL_MS)}-0"
+    last_access_check = time.monotonic()
 
-    try:
-        async with asyncio.timeout(STREAM_LIFETIME_SECONDS):
-            while True:
-                try:
-                    messages = await client.xread(
-                        {ops_key: ops_id, presence_key: presence_id},
-                        block=STREAM_BLOCK_MS,
-                        count=STREAM_READ_COUNT,
-                    )
-                except redis_exceptions.RedisError as err:
-                    logger.warning("sketchpad_stream_error", sketchpad_id=sketchpad_id, error=str(err))
-                    yield b'event: error\ndata: {"error":"stream error"}\n\n'
-                    return
+    async def should_continue() -> bool:
+        nonlocal last_access_check
+        now = time.monotonic()
+        if now - last_access_check < ACCESS_RECHECK_SECONDS:
+            return True
+        last_access_check = now
+        return await can_read()
 
-                if not await can_read():
-                    return
+    def frame_for_entry(stream_id: str, data: dict[str, Any]) -> bytes | None:
+        if data.get("type") == RELOAD_EVENT_TYPE:
+            return reload_sse_frame(data["since"])
+        if data.get("type") == OP_EVENT_TYPE:
+            return sse_frame(data, event=OP_EVENT_TYPE, event_id=stream_id)
+        logger.warning("sketchpad_unknown_payload", stream_key=ops_key, stream_id=stream_id)
+        return None
 
-                if not messages:
-                    yield KEEPALIVE_COMMENT
-                    continue
-
-                for key, entries in messages:
-                    key_name = key.decode() if isinstance(key, bytes) else key
-                    if key_name == presence_key:
-                        for stream_id, fields in entries:
-                            presence_id = stream_id.decode()
-                            frame = presence_sse_frame(fields, stream_key=presence_key, stream_id=presence_id)
-                            if frame is not None:
-                                yield frame
-                        continue
-
-                    for stream_id, fields in entries:
-                        ops_id = stream_id.decode()
-                        try:
-                            data = json.loads(fields[DATA_KEY])
-                        except json.JSONDecodeError:
-                            logger.warning("sketchpad_invalid_payload", stream_key=ops_key, stream_id=ops_id)
-                            continue
-                        if data.get("type") == RELOAD_EVENT_TYPE:
-                            yield reload_sse_frame(data["since"])
-                            continue
-                        if data.get("type") != OP_EVENT_TYPE:
-                            logger.warning("sketchpad_unknown_payload", stream_key=ops_key, stream_id=ops_id)
-                            continue
-                        yield (f"id: {ops_id}\nevent: op\ndata: {json.dumps(data, separators=(',', ':'))}\n\n").encode()
-
-                await asyncio.sleep(
-                    0
-                    if any(len(entries) >= STREAM_READ_COUNT for _, entries in messages)
-                    else STREAM_BATCH_INTERVAL_SECONDS
-                )
-    except TimeoutError:
-        return
+    async with aclosing(
+        tail_streams(
+            client=client,
+            content_key=ops_key,
+            content_id=ops_id,
+            presence_key=presence_key,
+            log_name="sketchpad",
+            frame_for_entry=frame_for_entry,
+            should_continue=should_continue,
+            batch_interval=STREAM_BATCH_INTERVAL_SECONDS,
+        )
+    ) as frames:
+        async for frame in frames:
+            yield frame

@@ -1,7 +1,9 @@
-from typing import Any
+from functools import partial
+from typing import Any, cast
 from uuid import UUID
 
 from django.contrib.postgres.expressions import ArraySubquery
+from django.db import transaction
 from django.db.models import Count, Func, JSONField, OuterRef, QuerySet, Subquery
 from django.db.models.functions import Coalesce, JSONObject
 from django.http import HttpResponse, StreamingHttpResponse
@@ -19,10 +21,8 @@ from rest_framework.throttling import BaseThrottle
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.streaming import sse_streaming_response
 from posthog.renderers import ServerSentEventRenderer
-from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.sync import database_sync_to_async
 
-from products.canvas.backend import sketchpad_presence, sketchpad_stream
 from products.canvas.backend.models import Sketchpad, SketchpadOp, SketchpadRecord
 from products.canvas.backend.presentation.sketchpad.serializers import (
     MAX_PREVIEW_BOXES,
@@ -31,20 +31,24 @@ from products.canvas.backend.presentation.sketchpad.serializers import (
     SketchpadCompiledResponseSerializer,
     SketchpadCompileSerializer,
     SketchpadCreateSerializer,
+    SketchpadHydratedLogEntrySerializer,
     SketchpadOpsPageSerializer,
     SketchpadOpsQuerySerializer,
     SketchpadPresenceSerializer,
     SketchpadSerializer,
     SketchpadSummarySerializer,
     SketchpadWriteSerializer,
+    sketchpad_actor_person,
 )
 from products.canvas.backend.presentation.views import CanvasAccessMixin, CanvasStateWriteThrottle
-from products.canvas.backend.sketchpad import log as sketchpad_log
+from products.canvas.backend.sketchpad import (
+    log as sketchpad_log,
+    presence as sketchpad_presence,
+    stream as sketchpad_stream,
+)
 from products.canvas.backend.sketchpad.compiler import compiled_fragments
 from products.canvas.backend.sketchpad.records import with_sketchpad_records
 from products.tasks.backend.facade import api as tasks_facade
-
-from ee.hogai.utils.aio import async_to_sync
 
 
 class SketchpadPresenceThrottle(CanvasStateWriteThrottle):
@@ -207,6 +211,10 @@ class SketchpadViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             self._request_user(),
             base_seq=data["base_seq"],
         )
+        events = cast(
+            list[dict[str, Any]], SketchpadHydratedLogEntrySerializer(instance=result.appended, many=True).data
+        )
+        transaction.on_commit(partial(sketchpad_stream.publish_ops, sketchpad.team_id, str(sketchpad.pk), events))
         return Response(SketchpadAppendResultSerializer(instance=result).data)
 
     def _actor_task_id(self, request: Request, claimed_task_id: UUID | None) -> UUID | None:
@@ -245,15 +253,14 @@ class SketchpadViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         sketchpad_presence.publish_presence(
             sketchpad.team_id,
             str(sketchpad.id),
-            client_id=data["client_id"],
-            user_id=user.pk,
-            user_name=user.first_name or user.email,
-            user_uuid=str(user.uuid),
-            user_email=user.email,
-            cursor=data.get("cursor"),
-            viewport=data.get("viewport"),
-            selected_ids=data["selected_ids"],
-            carets=data["carets"],
+            sketchpad_presence.SketchpadPresencePing(
+                client_id=data["client_id"],
+                actor=sketchpad_actor_person(user),
+                cursor=data.get("cursor"),
+                viewport=data.get("viewport"),
+                selected_ids=data["selected_ids"],
+                carets=data["carets"],
+            ),
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -286,12 +293,12 @@ class SketchpadViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         can_read = database_sync_to_async(self.get_queryset().filter(pk=sketchpad.pk).exists)
 
         return sse_streaming_response(
-            sketchpad_stream.stream_sketchpad_sse(team_id, sketchpad_id, can_read=can_read, last_event_id=last_event_id)
-            if SERVER_GATEWAY_INTERFACE == "ASGI"
-            else async_to_sync(
-                lambda: sketchpad_stream.stream_sketchpad_sse(
-                    team_id, sketchpad_id, can_read=can_read, last_event_id=last_event_id
-                )
+            partial(
+                sketchpad_stream.stream_sketchpad_sse,
+                team_id,
+                sketchpad_id,
+                can_read=can_read,
+                last_event_id=last_event_id,
             ),
             endpoint="sketchpad_stream",
         )

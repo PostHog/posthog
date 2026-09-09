@@ -9,6 +9,7 @@ from posthog.models.user import User
 
 from products.canvas.backend.facade.enums import SketchpadActorKind
 from products.canvas.backend.models import Sketchpad, SketchpadOp
+from products.canvas.backend.sketchpad.presence import PRESENCE_MAX_CARETS, PRESENCE_MAX_SELECTED_IDS
 from products.canvas.backend.sketchpad.records import JsonValue, SketchpadRecordAnnotations, hydrate_ops, op_sources
 from products.canvas.backend.sketchpad.schema import (
     MAX_SKETCHPAD_OP_BYTES,
@@ -18,7 +19,6 @@ from products.canvas.backend.sketchpad.schema import (
     SNAPSHOT_SCHEMA,
     validate_op,
 )
-from products.canvas.backend.sketchpad_presence import PRESENCE_MAX_CARETS, PRESENCE_MAX_SELECTED_IDS
 
 MAX_PREVIEW_BOXES = 24
 

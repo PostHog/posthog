@@ -72,6 +72,28 @@ class TestSSEStreamingResponse:
         assert response.headers["X-Accel-Buffering"] == "no"
         assert response.headers["X-Custom"] == "1"
 
+    @parameterized.expand([("ASGI",), ("WSGI",)])
+    def test_factory_uses_gateway_stream_type(self, gateway):
+        async def events():
+            yield b"data: hello\n\n"
+
+        with override_settings(SERVER_GATEWAY_INTERFACE=gateway):
+            response = sse_streaming_response(events)
+        assert isinstance(response, StreamingHttpResponse)
+        assert response.is_async == (gateway == "ASGI")
+        try:
+            if gateway == "ASGI":
+
+                async def consume():
+                    return [chunk async for chunk in cast(AsyncIterator[bytes], response.streaming_content)]
+
+                chunks = asyncio.run(consume())
+            else:
+                chunks = list(cast(Iterator[bytes], response.streaming_content))
+            assert chunks == [b"data: hello\n\n"]
+        finally:
+            response.close()
+
 
 def _sync_content(response: HttpResponseBase) -> Iterator[bytes]:
     # sse_streaming_response returns a union (it can 503); in these non-capped
@@ -221,14 +243,16 @@ class TestSSEConcurrencyCap:
         with mock.patch.object(streaming, "_active_stream_count", 0):
             yield
 
-    def test_over_cap_rejects_with_503_and_jittered_retry_after(self):
+    @parameterized.expand([("iterable", False), ("factory", True)])
+    def test_over_cap_rejects_with_503_and_jittered_retry_after(self, _name, use_factory):
         # The slot is reserved at admission, before any iterator is pulled:
         # two requests admitted back to back must not both pass the cap check.
         with override_settings(SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS=1):
             admitted = sse_streaming_response(_gen(), endpoint="test_cap")
             assert isinstance(admitted, StreamingHttpResponse)
             try:
-                rejected = sse_streaming_response(_gen(), endpoint="test_cap")
+                factory = mock.Mock(side_effect=AssertionError("rejected factory must not run"))
+                rejected = sse_streaming_response(factory if use_factory else _gen(), endpoint="test_cap")
                 assert rejected.status_code == HTTPStatus.SERVICE_UNAVAILABLE
                 assert not isinstance(rejected, StreamingHttpResponse)
                 assert 15 <= int(rejected.headers["Retry-After"]) < 45

@@ -13,17 +13,22 @@ with, and the SSE tailer that fans both event kinds (plus presence, see `presenc
 out to clients.
 """
 
-import json
-import time
-import asyncio
 from collections.abc import AsyncGenerator
+from contextlib import aclosing
+from typing import Any
 
 import structlog
 import redis.exceptions as redis_exceptions
 
 from posthog import redis as redis_module
+from posthog.api.streaming import sse_frame
+from posthog.collab_stream import (
+    DATA_KEY as DATA_KEY,
+    STREAM_ERROR_FRAME,
+    tail_streams,
+)
 
-from products.notebooks.backend.presence import PRESENCE_BACKFILL_MS, PRESENCE_STREAM_KEY_PATTERN, presence_sse_frame
+from products.notebooks.backend.presence import PRESENCE_STREAM_KEY_PATTERN
 
 logger = structlog.get_logger(__name__)
 
@@ -31,16 +36,6 @@ STREAM_KEY_PATTERN = "notebook:collab:{{{team_id}:{notebook_id}}}:stream"
 
 STREAM_TTL_SECONDS = 60 * 60 * 24  # 1 day, refreshed on every XADD
 STREAM_MAX_LENGTH = 5000  # ~hour of heavy editing
-STREAM_READ_COUNT = 32
-
-# Max XREAD wait, proxies idle-kill connections around 60s
-STREAM_BLOCK_MS = 15_000
-
-# SSE lifetime cap - browser auto-reconnects via Last-Event-ID
-STREAM_LIFETIME_SECONDS = 5 * 60
-
-DATA_KEY = b"data"
-KEEPALIVE_COMMENT = b": keepalive\n\n"
 UPDATE_EVENT_TYPE = "update"
 
 # Atomically append N content entries if the current stream version equals last_seen_version.
@@ -132,63 +127,26 @@ async def stream_collab_sse(
             content_id = newest[0][0].decode() if newest else "0-0"
         except redis_exceptions.RedisError as err:
             logger.warning("notebook_collab_stream_error", notebook_short_id=notebook_id, error=str(err))
-            yield b'event: error\ndata: {"error":"stream error"}\n\n'
+            yield STREAM_ERROR_FRAME
             return
-    presence_id = f"{max(0, int(time.time() * 1000) - PRESENCE_BACKFILL_MS)}-0"
 
-    try:
-        async with asyncio.timeout(STREAM_LIFETIME_SECONDS):
-            while True:
-                try:
-                    messages = await client.xread(
-                        {stream_key: content_id, presence_key: presence_id},
-                        block=STREAM_BLOCK_MS,
-                        count=STREAM_READ_COUNT,
-                    )
-                except redis_exceptions.RedisError as err:
-                    logger.warning("notebook_collab_stream_error", notebook_short_id=notebook_id, error=str(err))
-                    yield b'event: error\ndata: {"error":"stream error"}\n\n'
-                    return
+    def frame_for_entry(stream_id: str, data: dict[str, Any]) -> bytes | None:
+        if data.get("type") == UPDATE_EVENT_TYPE:
+            return sse_frame(data, event=UPDATE_EVENT_TYPE, event_id=stream_id)
+        if "step" in data:
+            return sse_frame(data, event="step", event_id=stream_id)
+        logger.warning("notebook_collab_unknown_payload", stream_key=stream_key, stream_id=stream_id)
+        return None
 
-                if not messages:
-                    yield KEEPALIVE_COMMENT
-                    continue
-
-                for key, entries in messages:
-                    key_name = key.decode() if isinstance(key, bytes) else key
-                    if key_name == presence_key:
-                        for stream_id, fields in entries:
-                            presence_id = stream_id.decode()
-                            frame = presence_sse_frame(fields, stream_key=presence_key, stream_id=presence_id)
-                            if frame is not None:
-                                yield frame
-                        continue
-
-                    for stream_id, fields in entries:
-                        content_id = stream_id.decode()
-                        try:
-                            data = json.loads(fields[DATA_KEY])
-                        except json.JSONDecodeError:
-                            logger.warning(
-                                "notebook_collab_invalid_payload", stream_key=stream_key, stream_id=content_id
-                            )
-                            continue
-                        event_type = data.get("type")
-                        if event_type == UPDATE_EVENT_TYPE:
-                            yield (
-                                f"id: {content_id}\nevent: update\ndata: {json.dumps(data, separators=(',', ':'))}\n\n"
-                            ).encode()
-                        elif "step" in data:
-                            yield (
-                                f"id: {content_id}\nevent: step\ndata: {json.dumps(data, separators=(',', ':'))}\n\n"
-                            ).encode()
-                        else:
-                            logger.warning(
-                                "notebook_collab_unknown_payload", stream_key=stream_key, stream_id=content_id
-                            )
-
-                # cooperative yield: prevents tight-loop monopolization when XREAD doesn't block
-                await asyncio.sleep(0)
-    except TimeoutError:
-        # Lifetime cap hit; client reconnects with Last-Event-ID against a fresh worker
-        return
+    async with aclosing(
+        tail_streams(
+            client=client,
+            content_key=stream_key,
+            content_id=content_id,
+            presence_key=presence_key,
+            log_name="notebook_collab",
+            frame_for_entry=frame_for_entry,
+        )
+    ) as frames:
+        async for frame in frames:
+            yield frame
