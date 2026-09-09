@@ -1486,6 +1486,8 @@ export const sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemZMax = 2
 
 export const sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsItemCodeMax = 200000
 
+export const sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsMax = 2000
+
 export const sketchpadsOpsAppendBodyOpsItemOpOneSixExpectedSeqMin = 0
 
 export const sketchpadsOpsAppendBodyOpsItemOpOneSevenKeyMax = 128
@@ -1634,6 +1636,7 @@ export const SketchpadsOpsAppendBody = /* @__PURE__ */ zod.object({
                                             hidden: zod.boolean().optional(),
                                         })
                                     )
+                                    .max(sketchpadsOpsAppendBodyOpsItemOpOneSixSnapshotFragmentsMax)
                                     .optional(),
                                 state: zod.record(zod.string(), zod.unknown()).optional(),
                             }),

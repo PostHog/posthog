@@ -1708,6 +1708,7 @@ export type SketchpadReadSnapshotApiState = { [key: string]: unknown }
 
 export interface SketchpadReadSnapshotApi {
     schemaVersion: CanvasLayoutSchemaVersionEnumApi
+    /** @maxItems 2000 */
     fragments?: SketchpadReadSnapshotApiFragmentsItem[]
     state?: SketchpadReadSnapshotApiState
 }
@@ -1916,6 +1917,7 @@ export type SketchpadReadOperationApi =
           type: 'restore'
           snapshot: {
               schemaVersion: 1
+              /** @maxItems 2000 */
               fragments?: {
                   /**
                    * @minLength 1
@@ -2099,6 +2101,7 @@ export type SketchpadOperationApi =
           type: 'restore'
           snapshot: {
               schemaVersion: 1
+              /** @maxItems 2000 */
               fragments?: {
                   /**
                    * @minLength 1

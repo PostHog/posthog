@@ -87,6 +87,8 @@ class TestSketchpadValidation(SimpleTestCase):
             ("missing_version", {}),
             ("invalid_fragment", {"schemaVersion": 1, "fragments": [{"id": "note"}]}),
             ("invalid_state", {"schemaVersion": 1, "state": []}),
+            ("large_restore_fragments", {"schemaVersion": 1, "fragments": [FRAGMENT] * 2001}),
+            ("large_restore_state", {"schemaVersion": 1, "state": {f"k{index}": {} for index in range(2001)}}),
             (
                 "invalid_field_entries",
                 {"schemaVersion": 1, "state": {"note": {"__field": "text", "entries": [], "removed": []}}},

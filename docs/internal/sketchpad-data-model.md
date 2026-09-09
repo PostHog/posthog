@@ -8,7 +8,7 @@ The implementation lives in `products/canvas/backend/sketchpad/`. Its presentati
 package owns the API views, serializers, and actor formatting. Shared channel and
 sandbox access rules come from `CanvasAccessMixin`.
 
-Append requests accept at most 1000 operations. Clients split larger pending queues
+A snapshot holds at most 2000 fragments and 2000 state keys, the same cap as a field edit. Append requests accept at most 1000 operations. Clients split larger pending queues
 into ordered batches. Sandbox attribution uses the authenticated task binding and
 rejects a conflicting task ID. Desktop callers can name only tasks they can control;
 the operation also records the authenticated user, independently of the claimed actor kind.

@@ -6,6 +6,11 @@ from django.core.exceptions import ValidationError
 
 from jsonschema import Draft202012Validator
 
+# One cap for every collection a single request can carry, so a restore or a
+# field edit cannot make the compiler hold an unbounded number of rows in one
+# locking transaction.
+MAX_COLLECTION_ITEMS = 2000
+
 STATE_KEY_SCHEMA = {
     "type": "string",
     "minLength": 1,
@@ -70,8 +75,17 @@ def snapshot_schema(*, hydrated: bool) -> dict[str, Any]:
         "required": ["schemaVersion"],
         "properties": {
             "schemaVersion": {"type": "integer", "enum": [1]},
-            "fragments": {"type": "array", "items": fragment_schema(hydrated=hydrated)},
-            "state": {"type": "object", "propertyNames": STATE_KEY_SCHEMA, "additionalProperties": STATE_VALUE_SCHEMA},
+            "fragments": {
+                "type": "array",
+                "maxItems": MAX_COLLECTION_ITEMS,
+                "items": fragment_schema(hydrated=hydrated),
+            },
+            "state": {
+                "type": "object",
+                "maxProperties": MAX_COLLECTION_ITEMS,
+                "propertyNames": STATE_KEY_SCHEMA,
+                "additionalProperties": STATE_VALUE_SCHEMA,
+            },
         },
     }
 
@@ -108,14 +122,14 @@ OP_PROPERTIES: dict[str, dict[str, Any]] = {
         "initialValue": {},
         "insert": {
             "type": "array",
-            "maxItems": 2000,
+            "maxItems": MAX_COLLECTION_ITEMS,
             "items": {
                 "type": "object",
                 "required": ["id", "k", "v"],
                 "properties": {"id": FIELD_ID_SCHEMA, **FIELD_ENTRY_PROPERTIES},
             },
         },
-        "remove": {"type": "array", "maxItems": 2000, "items": FIELD_ID_SCHEMA},
+        "remove": {"type": "array", "maxItems": MAX_COLLECTION_ITEMS, "items": FIELD_ID_SCHEMA},
     },
 }
 OP_SCHEMAS: dict[str, dict[str, Any]] = {
