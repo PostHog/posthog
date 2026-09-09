@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 
 import { IconPlayFilled } from '@posthog/icons'
 
+import { usePublishNotebookComponentRunHandler } from 'lib/components/MarkdownNotebook/componentRunHandlers'
 import type { NotebookComponentToolbarProps } from 'lib/components/MarkdownNotebook/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
@@ -112,6 +113,14 @@ function EditableNotebookGeneratedWidgetRunButton({
             updateProps({ nodeId, id: status.widget_id, version, inputs })
         }
     }, [canEditNotebook, nodeId, node.props.id, node.props.inputs, node.props.version, status, updateProps])
+
+    // A refresh in flight blocks the shortcuts, matching the button, which is disabled while it loads.
+    usePublishNotebookComponentRunHandler({
+        run: runDataDependencies,
+        disabledReason: dataRefreshInFlight
+            ? 'This widget is already running'
+            : (runDataDependenciesDisabledReason ?? null),
+    })
 
     return (
         <>

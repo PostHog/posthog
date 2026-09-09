@@ -3935,6 +3935,11 @@ export interface TaskRunRelayMessageRequestApi {
      * @items.maxLength 10000
      */
     text_parts?: string[]
+    /**
+     * AI observability trace id of the turn that wrote this answer, when the sandbox reported one.
+     * @nullable
+     */
+    trace_id?: string | null
 }
 
 export interface TaskRunRelayMessageResponseApi {
@@ -5070,6 +5075,10 @@ export type TasksListParams = {
      * @minLength 1
      */
     archived?: TasksListArchived
+    /**
+     * Return a basic payload with heavy fields dropped, for surfaces that render only a summary of each task. Defaults to false. Currently this omits the description body, which dominates the list payload; the search parameter still matches description text server-side.
+     */
+    basic?: boolean
     /**
      * Filter tasks to a channel's feed.
      */
