@@ -56,7 +56,7 @@ def _cached_search_plan(
         return cached
 
     conditions = "COALESCE(project_id, team_id) = %(project_id)s"
-    params: dict[str, object] = {"project_id": project_id, "limit": PROJECT_SCAN_MAX_DEFINITIONS + 1}
+    params: dict[str, int | str] = {"project_id": project_id, "limit": PROJECT_SCAN_MAX_DEFINITIONS + 1}
     if seen_within_days is not None:
         conditions += f" AND {seen_within_sql('last_seen_at')}"
         params["stale_interval"] = f"{seen_within_days} days"
