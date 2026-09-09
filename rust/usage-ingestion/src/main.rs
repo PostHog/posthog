@@ -17,7 +17,7 @@ use tracing_subscriber::{EnvFilter, Layer};
 use usage_ingestion::config::{Config, TransportMode};
 use usage_ingestion::counters::{spawn_flush_task, CounterAccumulator};
 use usage_ingestion::grpc::GrpcUsageIngestion;
-use usage_ingestion::kafka::run_supervised;
+use usage_ingestion::kafka::KafkaUsageIngestion;
 use usage_ingestion::resolver::PostgresOrganizationResolver;
 use usage_ingestion::service::UsageIngestionService;
 use usage_ingestion_proto::usage_ingestion::v1::usage_ingestion_server::UsageIngestionServer;
@@ -177,31 +177,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let kafka_config = config.kafka_consumer_config();
     let kafka_batch_config = config.kafka_batch_config();
+    // A consumer failure exits the process, like the other consumers in this repo: k8s
+    // restarts the pod, and a permanent fault shows up as CrashLoopBackOff instead of a
+    // green pod that quietly stopped draining the topic.
     let kafka = async {
         tracing::info!(
             topic = %config.kafka_input_topic,
             group = %config.kafka_consumer_group,
             "Starting usage-ingestion Kafka consumer"
         );
-        run_supervised(
+        let result = KafkaUsageIngestion::new(
             &kafka_config,
             &config.kafka_input_topic,
             dead_letter_producer.expect("Kafka modes create the dead-letter producer"),
-            &config.kafka_dead_letter_topic,
+            config.kafka_dead_letter_topic.clone(),
             service,
             kafka_batch_config,
-            Duration::from_millis(config.kafka_consumer_retry_backoff_max_ms.into()),
             consumer_liveness.expect("Kafka modes register consumer health"),
-        )
+        )?
+        .run()
         .await;
+        let error = result.expect_err("the Kafka consumer only exits on failure");
+        tracing::error!(error = %error, "usage ingestion Kafka consumer failed; exiting");
+        Err::<(), Box<dyn std::error::Error>>(error.into())
     };
 
     match config.transport_mode {
         TransportMode::Grpc => grpc.await?,
-        TransportMode::Kafka => kafka.await,
+        TransportMode::Kafka => kafka.await?,
         TransportMode::Both => tokio::select! {
             result = grpc => result?,
-            _ = kafka => unreachable!("the supervised Kafka consumer does not exit"),
+            result = kafka => result?,
         },
     }
     Ok(())
