@@ -43,6 +43,12 @@ with temporalio.workflow.unsafe.imports_passed_through():
     from posthog.temporal.ai.anomaly_investigation import AnomalyInvestigationWorkflowInputs
 
 
+# Temporal reports an activity failure by type name, so the capacity branch matches on names rather
+# than importing the forecast exceptions into the workflow. A full pool and an unreachable capacity
+# store both mean the fit never ran, and a store outage hits every due forecast alert at once.
+_FORECAST_CAPACITY_SKIP_ERROR_TYPES = frozenset({"ForecastEvaluationCapacityExceeded", "ForecastCapacityUnavailable"})
+
+
 @temporalio.workflow.defn(name="schedule-due-alert-checks")
 class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
     @staticmethod
@@ -162,9 +168,10 @@ class CheckAlertWorkflow(PostHogWorkflow):
                 )
             except Exception as evaluation_error:
                 cause = unwrap_temporal_cause(evaluation_error) or evaluation_error
-                if getattr(cause, "type", type(cause).__name__) == "ForecastEvaluationCapacityExceeded":
-                    # Capacity pressure is neither a completed check nor an alert error. Leave
-                    # next_check_at overdue so the next one-minute sweep tries this alert again.
+                if getattr(cause, "type", type(cause).__name__) in _FORECAST_CAPACITY_SKIP_ERROR_TYPES:
+                    # Forecast capacity trouble is neither a completed check nor an alert error, and
+                    # the alerts it stops are healthy. Leave next_check_at overdue so the next
+                    # one-minute sweep tries this alert again.
                     skip_reason = "capacity"
                     return
                 # Transient ClickHouse errors re-raise so the retry policy can get past a busy
