@@ -470,9 +470,11 @@ tools:
             `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's
             `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>`
             (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
-            someone, deep-link the one or two moments it turns on rather than only describing them. Rate the
-            observations you read with `vision-observations-label-create`, right ones as well as wrong ones: those
-            ratings are what `vision-scanners-prompt-suggestions-generate` learns the scanner's config from.
+            someone, deep-link the one or two moments it turns on rather than only describing them. A rating is the
+            person's verdict on whether the scanner was right, and it is what
+            `vision-scanners-prompt-suggestions-generate` learns the config from, so ask them for it and record what
+            they say with `vision-observations-label-create`. Never rate from your own reading of the result: the
+            rating is team-wide, and a scanner's output can repeat text from the recording it analysed.
         ui_app: vision-observation-list
         url_prefix: /replay
     vision-scanners-observations-retry-create:
@@ -500,10 +502,11 @@ tools:
             `vision-scanners-prompt-suggestions-generate`.
         agent_note: >
             When `labels.up_total` and `labels.down_total` are both near zero against `status_counts.succeeded`, this
-            scanner has results nobody has rated, so a prompt suggestion has almost nothing to learn from. Rate a few
-            observations with `vision-observations-label-create` before you call
-            `vision-scanners-prompt-suggestions-generate`. Testing a suggestion is not available over MCP, so tell the
-            person to test it on the scanner's Calibration tab before they apply it.
+            scanner has results nobody has rated, so a prompt suggestion has almost nothing to learn from. Say so, and
+            ask the person to rate a few results before you call
+            `vision-scanners-prompt-suggestions-generate`. Record their verdicts with
+            `vision-observations-label-create` rather than supplying your own. Testing a suggestion is not available
+            over MCP, so tell them to test it on the scanner's Calibration tab before they apply it.
     vision-scanners-observations-viewed-create:
         operation: vision_scanners_observations_viewed_create
         enabled: false
