@@ -3,18 +3,20 @@ import type { MaxErrorTrackingSearchResponse } from '~/queries/schema/schema-ass
 import { parseToolOutputRecord } from 'products/posthog_ai/frontend/api/tools'
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/api/types'
 
+// Fields only a search response carries. `status` is excluded on purpose: an issue detail echoes it
+// too, so matching on it would render that detail as an empty issue list.
 const ERROR_TRACKING_RESPONSE_KEYS: readonly (keyof MaxErrorTrackingSearchResponse)[] = [
     'issues',
     'search_query',
-    'status',
     'date_from',
     'order_by',
 ]
 
 /**
  * Error-tracking search output is a `MaxErrorTrackingSearchResponse` (a filters echo plus issue
- * previews) for `ErrorTrackingFiltersWidget`. Outputs that carry none of its fields — e.g. a raw
- * REST issues list — fall back to the generic card instead of rendering empty filter chips.
+ * previews) for `ErrorTrackingFiltersWidget`. Outputs that carry none of those fields — e.g. a raw
+ * REST issues list, or one issue's details — fall back to the generic card instead of rendering
+ * empty filter chips.
  */
 export function extractErrorTrackingResponse(message: ToolCallMessage): MaxErrorTrackingSearchResponse | null {
     const output = parseToolOutputRecord(message)
