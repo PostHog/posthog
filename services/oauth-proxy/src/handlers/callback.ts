@@ -1,4 +1,4 @@
-import { deleteFlowRecord, getFlowRecord } from '@/lib/kv'
+import { deletePendingCallback, getPendingCallback } from '@/lib/kv'
 
 /**
  * OAuth Callback Interception — proxy receives the regional server's callback
@@ -15,16 +15,16 @@ export async function handleCallback(request: Request, kv: KVNamespace): Promise
         return new Response('Missing state parameter', { status: 400 })
     }
 
-    const record = await getFlowRecord(kv, state)
+    const record = await getPendingCallback(kv, state)
     if (!record) {
         return new Response('State expired or invalid', { status: 400 })
     }
 
     // A transient KV failure here should not turn an already-verified callback into a 500.
     try {
-        await deleteFlowRecord(kv, state)
+        await deletePendingCallback(kv, state)
     } catch {
-        console.warn(JSON.stringify({ handler: 'callback', error: 'flow_record_delete_failed' }))
+        console.warn(JSON.stringify({ handler: 'callback', error: 'pending_callback_delete_failed' }))
     }
 
     const clientUrl = new URL(record.redirect_uri)

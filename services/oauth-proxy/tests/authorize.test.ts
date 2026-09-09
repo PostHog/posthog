@@ -108,7 +108,7 @@ describe('handleAuthorize', () => {
         expect(data.error_description).toBe('redirect_uri is not registered for this client')
     })
 
-    it('stores region selection and callback redirect_uri keyed by client_id, and a flow record keyed by nonce', async () => {
+    it('stores region selection and callback redirect_uri keyed by client_id, and a pending callback keyed by nonce', async () => {
         const mapping = {
             us_client_id: 'us_id',
             eu_client_id: 'eu_id',
@@ -144,9 +144,9 @@ describe('handleAuthorize', () => {
         expect(callbackByClient).toBeTruthy()
         expect(callbackByClient![1]).toBe('http://localhost:3000/callback')
 
-        const flowByNonce = putCalls.find(([key]) => (key as string) === `flow:${nonceHash}`)
-        expect(flowByNonce).toBeTruthy()
-        expect(JSON.parse(flowByNonce![1] as string)).toEqual({
+        const pendingByNonce = putCalls.find(([key]) => (key as string) === `pending_callback:${nonceHash}`)
+        expect(pendingByNonce).toBeTruthy()
+        expect(JSON.parse(pendingByNonce![1] as string)).toEqual({
             redirect_uri: 'http://localhost:3000/callback',
             state: 'abc123',
         })
@@ -191,9 +191,9 @@ describe('handleAuthorize', () => {
         }
 
         const nonceHash = await hashKey(nonce)
-        const flowRecord = putCalls.find(([key]) => (key as string) === `flow:${nonceHash}`)
-        expect(flowRecord).toBeTruthy()
-        expect((JSON.parse(flowRecord![1] as string) as { state: string }).state).toBe(longState)
+        const pendingCallback = putCalls.find(([key]) => (key as string) === `pending_callback:${nonceHash}`)
+        expect(pendingCallback).toBeTruthy()
+        expect((JSON.parse(pendingCallback![1] as string) as { state: string }).state).toBe(longState)
     })
 
     it('passes redirect_uri through without interception for legacy clients (no stored redirect_uris)', async () => {

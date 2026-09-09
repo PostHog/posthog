@@ -56,15 +56,15 @@ Clients registered directly against a region keep their own `redirect_uri` and f
 
 ## KV keys
 
-| Key                 | TTL    | Value                                                                 |
-| ------------------- | ------ | --------------------------------------------------------------------- |
-| `client:<proxy_id>` | none   | US and EU `client_id`s, secrets, and registered `redirect_uris`       |
-| `region:<sha256>`   | 1 hour | `us` or `eu`, stored under `client_id`                                |
-| `callback:<sha256>` | 1 hour | The client's original `redirect_uri`, stored under `client_id`        |
-| `flow:<sha256>`     | 1 hour | The client's original `redirect_uri` and `state`, under a proxy nonce |
+| Key                         | TTL    | Value                                                                 |
+| --------------------------- | ------ | --------------------------------------------------------------------- |
+| `client:<proxy_id>`         | none   | US and EU `client_id`s, secrets, and registered `redirect_uris`       |
+| `region:<sha256>`           | 1 hour | `us` or `eu`, stored under `client_id`                                |
+| `callback:<sha256>`         | 1 hour | The client's original `redirect_uri`, stored under `client_id`        |
+| `pending_callback:<sha256>` | 1 hour | The client's original `redirect_uri` and `state`, under a proxy nonce |
 
 Key material is SHA-256 hashed because `state` and the nonce are opaque and can exceed Cloudflare's 512 byte key limit.
-`flow:` records are deleted once `/oauth/callback` reads them, so a nonce is single-use.
+`pending_callback:` records are deleted once `/oauth/callback` reads them, so a nonce is single-use.
 KV is eventually consistent across Cloudflare's edge locations, so this single-use guarantee is best effort; the authorization code itself is still single-use at the regional server.
 
 ## Development
