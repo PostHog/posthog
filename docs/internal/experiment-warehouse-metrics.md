@@ -16,6 +16,9 @@ When converting it back, prefer `id_field` and `aggregation_target_field` becaus
 Use the metric join fields only as fallbacks when the editor fields are absent.
 This preserves edited joins when selecting a different warehouse table.
 
+When reopening the warehouse picker, combine the table schema with the current filter, giving the filter's selected fields precedence.
+Rebuilding the picker from the table schema alone replaces edited join fields with table defaults.
+
 Funnel conversion includes warehouse steps alongside events and actions, preserving their configured order.
 The shared source converter handles mean metrics, ratio sources, and retention sources.
 
