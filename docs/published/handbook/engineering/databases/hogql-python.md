@@ -126,4 +126,8 @@ In practice, you should avoid both and access `person.properties.$browser`, whic
 
 Nested reads from the person update payload also use the event's `person_properties` snapshot. For example, `properties.$set.email` and `properties.$set_once.email` both read `poe.properties.email`. A `$set_once` read returns the value that was retained on the person, which can differ from the value attempted by that event. Whole-object reads such as `properties.$set` continue to read the raw event payload, so they return no value for events that do not store that object.
 
+Constant bracket reads such as `properties['$set']['email']` and nested reads through aliases in the same query use the same snapshot mapping.
+The snapshot can also contain properties that this event did not set, so a nested read cannot tell you whether the event supplied that property.
+Projecting the raw `properties` or `$set` object through a subquery keeps it raw; nested reads in the outer query do not reconstruct removed payloads.
+
 Add new tables and fields as needed! Just make sure each table has a `team_id` column.

@@ -7,7 +7,7 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -34,10 +34,49 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
+from posthog.hogql.property_metadata import PropertyMetadata
 from posthog.hogql.resolver import ResolutionError, resolve_types
 from posthog.hogql.resolver_utils import extract_base_table_types, lookup_field_by_name
 from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clone_expr
+
+
+class TestPersonUpdatePropertyResolution(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (update, query.format(update=update), table_alias)
+            for update in ("$set", "$set_once")
+            for query, table_alias in (
+                ("SELECT properties.{update}.email FROM events", "events"),
+                ("SELECT properties['{update}']['email'] FROM events", "events"),
+                ("SELECT properties.{update}['email'] FROM events", "events"),
+                ("SELECT e.properties.{update}.email FROM events e", "e"),
+                ("SELECT properties.{update}.email FROM events poe", "poe"),
+                ("SELECT properties AS p, p.{update}.email FROM events", "events"),
+                ("SELECT properties.{update} AS p, p.email FROM events", "events"),
+                ("SELECT properties.{update} AS p, p['email'] FROM events", "events"),
+                ("SELECT properties.{update} AS poe, properties.{update}.email FROM events", "events"),
+                ("SELECT e.properties.{update} AS p, p.email FROM events e", "e"),
+                ("SELECT e.c.{update}.email FROM events AS e(a, b, c)", "e"),
+                ("SELECT e.properties.{update}.email FROM events AS e(a, b)", "e"),
+            )
+        ]
+    )
+    def test_nested_reads_use_person_snapshot(self, update: str, query: str, table_alias: str) -> None:
+        context = HogQLContext(
+            database=Database(),
+            team_id=1,
+            enable_select_queries=True,
+            use_new_events_schema=False,
+            restricted_properties=set(),
+            apply_events_retention_floor=False,
+        )
+        with patch("posthog.hogql.transforms.property_types.load_property_metadata", return_value=PropertyMetadata()):
+            sql, _ = prepare_and_print_ast(parse_select(query), context, "clickhouse")
+
+        self.assertRegex(sql, rf"JSONExtractRaw\({table_alias}\.person_properties, %\(hogql_val_\d+\)s\)")
+        assert "email" in context.values.values()
+        assert " JOIN " not in sql
 
 
 class TestResolver(BaseTest):

@@ -2415,9 +2415,6 @@ class Resolver(CloningVisitor):
                 raise ResolutionError(f"Cannot resolve type {'.'.join(node.chain)}. Unable to resolve {next_chain}.")
         node.type = loop_type
 
-        if rewritten_node := self._rewrite_event_person_update_property(node):
-            return rewritten_node
-
         if isinstance(node.type, ast.ExpressionFieldType):
             # HogQL preserves the virtual field name for display; execution dialects must expand
             # the expression so its child fields resolve before the target printer sees them.
@@ -2462,6 +2459,7 @@ class Resolver(CloningVisitor):
             )
         elif isinstance(node.type, ast.PropertyType):
             property_alias = "__".join(str(s) for s in node.type.chain)
+            self._rewrite_event_person_update_property(node)
             return ast.Alias(
                 alias=property_alias,
                 expr=node,
@@ -2471,9 +2469,9 @@ class Resolver(CloningVisitor):
 
         return node
 
-    def _rewrite_event_person_update_property(self, node: ast.Field) -> ast.Expr | None:
+    def _rewrite_event_person_update_property(self, node: ast.Field) -> None:
         if self.dialect != "clickhouse" or not isinstance(node.type, ast.PropertyType):
-            return None
+            return
 
         property_type = node.type
         database_field = property_type.field_type.resolve_database_field(self.context)
@@ -2481,31 +2479,19 @@ class Resolver(CloningVisitor):
             not self._is_events_table(node)
             or not isinstance(database_field, StringJSONDatabaseField)
             or database_field.name != "properties"
-            or not property_type.chain
+            or len(property_type.chain) < 2
             or property_type.chain[0] not in _PERSON_UPDATE_PROPERTY_KEYS
         ):
-            return None
+            return
 
-        if len(property_type.chain) == 1:
-            return None
-
-        base_field_index = len(node.chain) - len(property_type.chain) - 1
-        rewritten_field = ast.Field(
-            chain=[*node.chain[:base_field_index], "poe", "properties", *property_type.chain[1:]],
-            start=node.start,
-            end=node.end,
-        )
-        rewritten_node = self.visit(rewritten_field)
-
-        if not isinstance(rewritten_node, ast.Alias) or not rewritten_node.hidden:
-            return rewritten_node
-
-        property_alias = "__".join(str(link) for link in property_type.chain)
-        return ast.Alias(
-            alias=property_alias,
-            expr=rewritten_node.expr,
-            hidden=True,
-            type=ast.FieldAliasType(alias=property_alias, type=rewritten_node.expr.type or ast.UnknownType()),
+        table_type = property_type.field_type.table_type
+        if isinstance(table_type, ast.ColumnAliasedTableType):
+            table_type = ast.TableAliasType(alias=table_type.alias, table_type=table_type.table_type)
+        snapshot_field = table_type.get_child("poe", self.context).get_child("properties", self.context)
+        assert isinstance(snapshot_field, ast.FieldType)
+        node.type = ast.PropertyType(
+            chain=property_type.chain[1:],
+            field_type=snapshot_field,
         )
 
     def visit_array_access(self, node: ast.ArrayAccess):
@@ -2517,24 +2503,28 @@ class Resolver(CloningVisitor):
         array = node.array
         while isinstance(array, ast.Alias):
             array = array.expr
+        array_type = array.type
+        while isinstance(array_type, ast.FieldAliasType):
+            array_type = array_type.type
 
         if (
             isinstance(array, ast.Field)
             and isinstance(node.property, ast.Constant)
             and (isinstance(node.property.value, str) or isinstance(node.property.value, int))
             and (
-                (isinstance(array.type, ast.PropertyType))
+                (isinstance(array_type, ast.PropertyType))
                 or (
-                    isinstance(array.type, ast.FieldType)
+                    isinstance(array_type, ast.FieldType)
                     and isinstance(
-                        array.type.resolve_database_field(self.context),
+                        array_type.resolve_database_field(self.context),
                         StringJSONDatabaseField,
                     )
                 )
             )
         ):
             array.chain.append(node.property.value)
-            array.type = array.type.get_child(node.property.value, self.context)
+            array.type = array_type.get_child(node.property.value, self.context)
+            self._rewrite_event_person_update_property(array)
             return array
 
         node.type = infer_array_access_constant_type(
@@ -2551,16 +2541,20 @@ class Resolver(CloningVisitor):
         tuple = node.tuple
         while isinstance(tuple, ast.Alias):
             tuple = tuple.expr
+        tuple_type = tuple.type
+        while isinstance(tuple_type, ast.FieldAliasType):
+            tuple_type = tuple_type.type
 
         if isinstance(tuple, ast.Field) and (
-            (isinstance(tuple.type, ast.PropertyType))
+            (isinstance(tuple_type, ast.PropertyType))
             or (
-                isinstance(tuple.type, ast.FieldType)
-                and isinstance(tuple.type.resolve_database_field(self.context), StringJSONDatabaseField)
+                isinstance(tuple_type, ast.FieldType)
+                and isinstance(tuple_type.resolve_database_field(self.context), StringJSONDatabaseField)
             )
         ):
             tuple.chain.append(node.index)
-            tuple.type = tuple.type.get_child(node.index, self.context)
+            tuple.type = tuple_type.get_child(node.index, self.context)
+            self._rewrite_event_person_update_property(tuple)
             return tuple
 
         node.type = infer_tuple_access_constant_type(
