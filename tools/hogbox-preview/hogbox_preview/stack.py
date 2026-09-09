@@ -130,10 +130,7 @@ class PostHogPreviewStack:
         # into the compose override so every process of THIS preview shares it, and
         # never shared across previews — see the module-level note above.
         self.secret_key = secrets.token_hex(32)
-        # Minted on the box (openssl) the first time, then adopted from the
-        # override. Empty means the box could not mint one: PostHog then refuses
-        # to sign OAuth tokens, and everything else still serves.
-        self.oidc_private_key = ""
+        self.oidc_private_key = ""  # see _ensure_oidc_private_key
         self.branch = branch
         # Default (None) -> the ready-made image; "" -> build-from-checkout escape
         # hatch; any tag -> run that published image.
@@ -244,7 +241,8 @@ class PostHogPreviewStack:
         application without OIDC_RSA_PRIVATE_KEY, so a preview cannot host an
         OAuth client (PostHog Desktop, for one) until this is set. Adopted from
         the override when the box already has one, because rotating it would
-        invalidate every token the preview already issued.
+        invalidate every token the preview already issued. Left empty when the
+        box cannot mint one, which serves everything except OAuth.
         """
         existing = self._override_value("OIDC_RSA_PRIVATE_KEY")
         if existing:
@@ -354,8 +352,6 @@ class PostHogPreviewStack:
             # (compose run --rm web) needs it too. Not shared across previews, so
             # a public preview URL can't be used to forge sessions on another.
             f"      - SECRET_KEY={self.secret_key}",
-            # Without this PostHog refuses to sign OAuth tokens, so an OAuth
-            # application cannot be saved on the preview.
             f"      - OIDC_RSA_PRIVATE_KEY={self.oidc_private_key}",
             # A preview serves one user, and each worker costs a full Django import
             # at boot, so one worker reaches a serving /_health much sooner.

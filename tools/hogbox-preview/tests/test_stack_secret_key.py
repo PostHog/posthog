@@ -1,4 +1,4 @@
-"""Unit tests for the two keys the preview stack pins into the override.
+"""Unit tests for the environment the preview stack pins into the override.
 
 Self-contained: no network, no live box. A recording fake backend is enough,
 because the key paths only write the override and read it back.
