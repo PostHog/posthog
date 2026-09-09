@@ -8,6 +8,7 @@ import {
 } from "@posthog/quill";
 import { type CloudRegion, describeRegion } from "@posthog/shared";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
+import { getSelectableRegions } from "./selectableRegions";
 
 interface RegionSelectProps {
   region: CloudRegion;
@@ -17,20 +18,6 @@ interface RegionSelectProps {
   includeDevRegion?: boolean;
   /** Custom needs a host that can hold the target, so it is a separate flag. */
   includeCustomRegion?: boolean;
-}
-
-const PRODUCTION_REGIONS: CloudRegion[] = ["us", "eu"];
-const DEVELOPMENT_REGIONS: CloudRegion[] = ["dev-cloud", "dev"];
-
-export function getSelectableRegions(
-  includeDevRegion: boolean,
-  includeCustomRegion = false,
-): CloudRegion[] {
-  return [
-    ...PRODUCTION_REGIONS,
-    ...(includeDevRegion ? DEVELOPMENT_REGIONS : []),
-    ...(includeCustomRegion ? (["custom"] as CloudRegion[]) : []),
-  ];
 }
 
 function RegionOptionLabel({ region }: { region: CloudRegion }) {
