@@ -336,6 +336,13 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
           iframe.contentWindow as Window,
         );
         await bridge.connect(transport);
+        // The effect that started this bridge may have torn down while
+        // connect was pending. A stale bridge must not replace the next
+        // effect's bridge in the ref, or a result lands on the old iframe.
+        if (cleanedUp) {
+          bridge.close().catch(() => {});
+          return;
+        }
         bridgeRef.current = bridge;
 
         await bridge.sendSandboxResourceReady({
