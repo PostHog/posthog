@@ -73,4 +73,9 @@ describe('taxonomy.template', () => {
         expect(await rename('snake_case', '$pageview')).toBe('$pageview')
         expect(await rename('snake_case', 'survey sent')).toBe('survey sent')
     })
+
+    it('leaves an oversized event name unchanged', async () => {
+        const oversized = 'aVeryLongEventName'.repeat(20)
+        expect(await rename('snake_case', oversized)).toBe(oversized)
+    })
 })

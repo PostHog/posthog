@@ -18,6 +18,11 @@ if (empty(event.event) or startsWith(event.event, '$')) {
 if (event.event == 'survey shown' or event.event == 'survey sent' or event.event == 'survey dismissed') {
     return event
 }
+// Real event names are short. Leave an oversized one unchanged so a crafted name cannot make the
+// character-by-character tokenizer run long enough to eat the transformation time budget.
+if (length(event.event) > 200) {
+    return event
+}
 
 fun isUpper(ch) {
     return upper(ch) == ch and lower(ch) != ch
