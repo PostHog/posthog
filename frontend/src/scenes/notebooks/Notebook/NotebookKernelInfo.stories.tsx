@@ -1,6 +1,8 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { mswDecorator } from '~/mocks/browser'
 
 import { NotebookType } from '../types'
@@ -94,6 +96,18 @@ export default meta
 type Story = StoryObj<typeof NotebookKernelInfo>
 
 export const RunningOnAPreset: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/notebooks/${SHORT_ID}/kernel/status`]: kernelStatus(),
+                '/api/projects/:team_id/notebooks/kernel/compute_options': COMPUTE_OPTIONS,
+            },
+        }),
+    ],
+}
+
+export const FreeCompute: Story = {
+    parameters: { featureFlags: [FEATURE_FLAGS.NOTEBOOK_SANDBOX_FREE_COMPUTE] },
     decorators: [
         mswDecorator({
             get: {
