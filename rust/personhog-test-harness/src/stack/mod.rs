@@ -7,10 +7,12 @@ use anyhow::{bail, Context, Result};
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::types::HandoffPhase;
 
+mod diagnostics;
 mod etcd;
 mod kafka;
 mod process;
 
+use diagnostics::ProcessView;
 use process::ServiceProcess;
 
 /// Ports sit in their own range so a harness stack can run alongside the
@@ -293,10 +295,13 @@ impl Stack {
         }
 
         let (partitions, leaders) = (stack.config.partitions, stack.config.leaders);
-        stack
-            .wait_ready(partitions, leaders)
-            .await
-            .inspect_err(|_| stack.dump_recent_logs())?;
+        // Bring-up asks the same question a post-chaos wait does, so it
+        // gets the same answer alongside the service logs.
+        if let Err(e) = stack.wait_ready(partitions, leaders).await {
+            stack.dump_recent_logs();
+            let dump = stack.dump_coordination_state("bring-up").await;
+            bail!("{e:#}\n{dump}");
+        }
 
         Ok(stack)
     }
@@ -624,6 +629,21 @@ impl Stack {
     /// that cannot converge is itself a violation, independent of any
     /// data-visibility check.
     pub async fn wait_converged(&mut self, deadline: Duration) -> Result<Duration> {
+        match self.converge(deadline).await {
+            Ok(settled) => Ok(settled),
+            // Both exits get the dump: a leader that dies inside the
+            // wait fails through check_alive, and that is the starvation
+            // half of the question the dump answers.
+            Err(e) => {
+                let dump = self
+                    .dump_coordination_state("post-traffic convergence")
+                    .await;
+                bail!("{e:#}\n{dump}")
+            }
+        }
+    }
+
+    async fn converge(&mut self, deadline: Duration) -> Result<Duration> {
         let start = Instant::now();
         let mut last_report = String::new();
 
@@ -661,6 +681,29 @@ impl Stack {
             }
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
+    }
+
+    /// A coordination dump (see `diagnostics::dump`) carrying what only
+    /// the harness knows: which processes it still holds.
+    async fn dump_coordination_state(&self, reason: &str) -> String {
+        let view = ProcessView {
+            live_leaders: self.leaders.iter().map(|(name, _)| name.clone()).collect(),
+            paused_leaders: self.paused.iter().map(|(name, _)| name.clone()).collect(),
+            routers: self.routers.iter().map(|(name, _)| name.clone()).collect(),
+            retired: self
+                .retired
+                .iter()
+                .map(|proc| proc.name().to_string())
+                .collect(),
+        };
+        diagnostics::dump(
+            &self.store,
+            self.config.partitions,
+            &view,
+            reason,
+            &self.log_dir,
+        )
+        .await
     }
 
     /// One-line snapshot of coordination state, for chaos event logging.

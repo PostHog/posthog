@@ -297,6 +297,12 @@ impl PersonhogStore {
         Ok(self.inner.put(&key, router, Some(lease_id)).await?)
     }
 
+    /// The exact key `register_router` writes for a router, for callers
+    /// that must read the registration itself rather than its value.
+    pub fn router_registration_key(&self, router_name: &str) -> String {
+        self.key(StoreKey::Router(router_name))
+    }
+
     pub async fn list_routers(&self) -> Result<Vec<RegisteredRouter>> {
         count_call("list_routers");
         let key = self.key(StoreKey::RoutersPrefix);

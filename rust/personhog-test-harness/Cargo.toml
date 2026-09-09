@@ -32,5 +32,10 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 
+[dev-dependencies]
+# Lets the coordination-dump test construct a stuck topology directly
+# instead of racing a real coordinator into one.
+personhog-coordination = { path = "../personhog-coordination", features = ["test-support"] }
+
 [lints]
 workspace = true
