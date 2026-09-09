@@ -213,6 +213,39 @@ describe('scannerScoutLogic', () => {
         expect(secondName).toBe('signals-scout-rage-clicks-on-checkout-daily-digest-2')
     })
 
+    it('drops a closed scout cache so a reused name cannot inherit its prompt and delivery', async () => {
+        // A rename frees the old skill name, and a later scout can be created straight onto it.
+        // The settings modal decides its draft has loaded by comparing the cached prompt's skill
+        // name to the open scout's, so a cache left behind under that name reads as this scout's
+        // own. It then seeds the previous scout's instructions and webhook, and the next save
+        // writes them over the new scout.
+        await mountWithReports([])
+        const fleet = scoutFleetLogic.findMounted()!
+        fleet.actions.loadScoutConfigsSuccess([makeConfig()])
+        mockSkillRetrieve.mockResolvedValue({ body: 'The first scout instructions.' } as any)
+        mockHogFunctionsRetrieve.mockResolvedValue({
+            id: WEBHOOK_ID,
+            name: 'Replay Vision · Daily digest',
+            deleted: false,
+            template: { id: 'template-webhook' },
+            filters: {
+                events: [{ id: '$scout_report_emitted' }],
+                properties: [{ key: 'skill_name', value: SKILL_NAME }],
+            },
+            inputs: { url: { value: 'https://example.com/first-scout' } },
+        } as any)
+
+        logic.actions.openScoutSettings(SKILL_NAME)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.skillPrompt?.body).toBe('The first scout instructions.')
+        expect(logic.values.scoutDelivery?.webhook?.url).toBe('https://example.com/first-scout')
+
+        logic.actions.closeScoutSettings()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.skillPrompt).toBeNull()
+        expect(logic.values.scoutDelivery).toBeNull()
+    })
+
     it('changes only the schedule when a suffixed scout keeps its name', async () => {
         // The settings form seeds its name field from the stored skill name, so a save that only
         // touches the schedule must derive that same name back and skip the rename entirely.

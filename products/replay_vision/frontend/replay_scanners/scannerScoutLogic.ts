@@ -561,6 +561,15 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                 closeScoutSettings: () => null,
             },
         ],
+        // Both caches are stamped with the scout's skill name, and the settings form reads a cache
+        // under the open scout's name as its own. A rename frees the old name for a later scout, so
+        // a cache left behind would seed that scout with the previous one's prompt and webhook.
+        skillPrompt: {
+            closeScoutSettings: () => null,
+        },
+        scoutDelivery: {
+            closeScoutSettings: () => null,
+        },
         settingsSaveFailed: [
             false,
             {
