@@ -37,6 +37,7 @@ from posthog.temporal.ai_observability.eval_reports.constants import (
     COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR,
+    COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS,
 )
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import EvalReportContent, EvalReportMetrics
@@ -765,6 +766,9 @@ class TestCountEvalResultsForReportsSplitRetry(BaseTest):
             counts = _count_eval_results_for_reports_with_split_retry(self.team, self._entries(2, since), until=until)
 
         self.assertEqual(counts, {"r0": 31, "r1": 42})
+        self.assertEqual(
+            [call.kwargs["settings"].max_execution_time for call in execute_hogql_query.call_args_list], [30, 15, 15]
+        )
         midpoint = since + (until - since) / 2
         self.assertEqual(
             [_scanned_window(call.kwargs["query"]) for call in execute_hogql_query.call_args_list],
@@ -812,7 +816,7 @@ class TestCountEvalResultsForReportsSplitRetry(BaseTest):
         # kill the split midway.
         clock = [0.0]
         until = timezone.now()
-        remaining_after_first_attempt = COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS * 1.5
+        remaining_after_first_attempt = COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS * 1.5
         execution_limits: list[int] = []
 
         def record_limit_then_time_out_once(*args, **kwargs):

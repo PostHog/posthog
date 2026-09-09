@@ -14,6 +14,7 @@ If a query times out, the check divides its time range and adds the counts from 
 The check requests an error on timeout so partial counts cannot be mistaken for complete results.
 
 Queries and their split retries share a 100-second execution budget within a 120-second activity timeout.
-Each attempt requests at most 15 seconds and reserves room for a twofold overrun.
+The initial query keeps its 30-second limit; split retries request at most 15 seconds each.
+Each attempt reserves room for a twofold overrun and reduces its limit when the remaining budget requires it.
 If the remaining budget cannot support another attempt, the activity fails and follows its retry policy.
 The execution budget limits query work; it does not discard older results or guarantee that every report can be checked within that budget.

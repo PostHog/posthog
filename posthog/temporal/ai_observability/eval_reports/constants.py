@@ -37,16 +37,16 @@ COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT = timedelta(seconds=120)
 # Per-attempt ClickHouse budget. A too-slow count query fails with a catchable
 # ClickHouseQueryTimeOut the activity can split-and-retry, unlike a Temporal activity
 # timeout, which kills the split midway and replays the same sequence on every retry.
-COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS = 15
+COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS = 30
+# Keep the full-window allowance; smaller retries leave time to check both halves.
+COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS = 15
 # ClickHouse checks max_execution_time between blocks rather than stopping at it exactly, so an
 # attempt can run past its own limit. Every attempt reserves this multiple of its limit against
 # the shared budget, so an overshooting query cannot eat the share of the retries after it.
 COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR = 2.0
 # Wall-clock budget shared by all of one activity's count queries, split retries included.
-# Sized so a complete first-level split fits (a full-range timeout, then both halves running to
-# their full per-attempt budget, each allowed to overshoot), and kept below
-# COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT with headroom for the Postgres gate and per-query
-# overhead, so the split tree concludes inside the activity instead of racing its timeout.
+# Kept below COUNT_TRIGGER_CHECK_ACTIVITY_TIMEOUT with headroom for the Postgres gate and
+# per-query overhead. Retries reduce their allowance when earlier attempts consume the budget.
 COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS = 100
 # With less remaining budget than this a retry can't do useful work (and a zero budget would
 # mean "unlimited" to ClickHouse), so the split re-raises the timeout instead of querying.

@@ -23,6 +23,7 @@ from posthog.temporal.ai_observability.eval_reports.constants import (
     COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_MIN_SPLIT_RANGE,
     COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR,
+    COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS,
     COUNT_TRIGGER_QUERY_WIDTH,
 )
@@ -443,6 +444,7 @@ def _count_eval_results_for_reports_with_split_retry(
     until: dt.datetime,
     since: dt.datetime | None = None,
     deadline: float | None = None,
+    max_execution_time: int = COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS,
 ) -> dict[str, int]:
     """Run the batched count query, halving the time range and retrying over each half if
     ClickHouse can't finish it inside its own execution-time budget.
@@ -466,7 +468,7 @@ def _count_eval_results_for_reports_with_split_retry(
     if deadline is None:
         deadline = time.monotonic() + COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS
     affordable_execution_time = int((deadline - time.monotonic()) / COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR)
-    budget = min(COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS, affordable_execution_time)
+    budget = min(max_execution_time, affordable_execution_time)
     if budget < COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS:
         raise ClickHouseQueryTimeOut("Count query budget exhausted before the split could finish.")
     try:
@@ -476,12 +478,22 @@ def _count_eval_results_for_reports_with_split_retry(
             raise
         midpoint = since + (until - since) / 2
         counts = _count_eval_results_for_reports_with_split_retry(
-            team, entries, since=since, until=midpoint, deadline=deadline
+            team,
+            entries,
+            since=since,
+            until=midpoint,
+            deadline=deadline,
+            max_execution_time=COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS,
         )
         # The events table stores timestamps as DateTime64(6), so one microsecond past the
         # midpoint is the next representable instant and the halves cannot overlap.
         later_half = _count_eval_results_for_reports_with_split_retry(
-            team, entries, since=midpoint + dt.timedelta(microseconds=1), until=until, deadline=deadline
+            team,
+            entries,
+            since=midpoint + dt.timedelta(microseconds=1),
+            until=until,
+            deadline=deadline,
+            max_execution_time=COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS,
         )
         for key, count in later_half.items():
             counts[key] = counts.get(key, 0) + count
