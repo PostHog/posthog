@@ -745,7 +745,10 @@ function buildMergedSubmissionsSubquery(
     survey: Survey,
     filters: SurveyQueryFilters,
     questions: QuestionWithIndex[],
-    { includeRespondentMetadata = false }: { includeRespondentMetadata?: boolean } = {}
+    {
+        includeRespondentMetadata = false,
+        includeCurrentUrl = false,
+    }: { includeRespondentMetadata?: boolean; includeCurrentUrl?: boolean } = {}
 ): string {
     const completedEventExpr = `event = '${SurveyEventName.SENT}' AND ${buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_COMPLETED, 'false')}`
 
@@ -757,11 +760,14 @@ function buildMergedSubmissionsSubquery(
             ? [
                   'distinct_id',
                   'properties.`$session_id` AS session_id',
-                  'properties.`$current_url` AS current_url',
                   'properties AS event_properties',
                   'person.properties AS person_properties',
               ]
             : []),
+        // No caller selects `current_url` unless the user turns its column on. An unconditional
+        // read costs every responses query a property read and an argMax. The other metadata
+        // columns above always reach a caller, so they stay unconditional.
+        ...(includeCurrentUrl ? ['properties.`$current_url` AS current_url'] : []),
         `${completedEventExpr} AS is_completed_event`,
         'event',
         ...questions.map(({ question, index }) => `${getSurveyResponse(question, index)} AS ${rawAnswerAlias(index)}`),
@@ -779,12 +785,12 @@ function buildMergedSubmissionsSubquery(
             ? [
                   'argMax(distinct_id, tuple(timestamp, event_uuid)) AS distinct_id',
                   'argMax(session_id, tuple(timestamp, event_uuid)) AS session_id',
-                  'argMax(current_url, tuple(timestamp, event_uuid)) AS current_url',
                   'argMax(event_properties, tuple(timestamp, event_uuid)) AS event_properties',
                   'argMax(person_properties, tuple(timestamp, event_uuid)) AS person_properties',
                   'argMax(event, tuple(timestamp, event_uuid)) AS latest_event',
               ]
             : []),
+        ...(includeCurrentUrl ? ['argMax(current_url, tuple(timestamp, event_uuid)) AS current_url'] : []),
         ...questions.map(({ question, index }) => {
             const raw = rawAnswerAlias(index)
             return `argMaxIf(${raw}, tuple(timestamp, event_uuid), ${buildAnswerPresenceExpr(raw, question)}) AS ${mergedAnswerAlias(index)}`
@@ -911,7 +917,10 @@ export function buildSurveyResponsesQuery(
     contextColumns: SurveyResponseContextColumn[] = []
 ): string {
     const questions = getAnswerableQuestions(survey)
-    const merged = buildMergedSubmissionsSubquery(survey, filters, questions, { includeRespondentMetadata: true })
+    const merged = buildMergedSubmissionsSubquery(survey, filters, questions, {
+        includeRespondentMetadata: true,
+        includeCurrentUrl: contextColumns.includes('current_url'),
+    })
     const answers = survey.questions.map((question, index) =>
         question.type !== SurveyQuestionType.Link ? mergedAnswerAlias(index) : 'NULL'
     )
