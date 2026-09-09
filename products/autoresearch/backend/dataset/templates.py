@@ -118,7 +118,7 @@ TEMPLATES: dict[str, AutoresearchTemplate] = {
             "Uses the person's first-seen date, so it does not need a signup event."
         ),
         default_horizon_days=7,
-        output_property_prefix="predicted_p_return_after_signup",
+        output_property_prefix="predicted_p_return_after_first_use",
         requires_user_event=False,
         requires_activity_resolution=True,
         training_population_spec={"kind": "person_first_seen_within_days", "days": 14},
@@ -250,7 +250,10 @@ class ResolvedTemplate:
 def _target_digest(target_event: str) -> str:
     # Upper case on purpose: a normalized name is all lower case, so a name that carries a
     # digest can never equal an event name that needed no normalization.
-    return hashlib.sha256(target_event.encode()).hexdigest()[:6].upper()
+    # Twelve hex characters give 48 bits, so two distinct targets that normalize alike do not
+    # share one person property in practice. A six-character prefix collides within a few
+    # thousand names.
+    return hashlib.sha256(target_event.encode()).hexdigest()[:12].upper()
 
 
 def _safe_target_name(target_event: str) -> str:

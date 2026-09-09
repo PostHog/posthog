@@ -204,6 +204,10 @@ class TestResolveTemplate(SimpleTestCase):
         encoded = lossy.output_person_property.removeprefix("predicted_p_adopt_").removesuffix("_14d")
         literal = resolve_template(self._make_team(), "feature_adoption", target_event_override=encoded)
         self.assertNotEqual(literal.output_person_property, lossy.output_person_property)
+        # Two lossy names that normalize to the same string rely on the digest alone to stay apart.
+        first = resolve_template(self._make_team(), "feature_adoption", target_event_override="CHEckOUTstARted")
+        second = resolve_template(self._make_team(), "feature_adoption", target_event_override="ChecKoutStARted")
+        self.assertNotEqual(first.output_person_property, second.output_person_property)
 
     def test_overlong_target_override_raises(self) -> None:
         with self.assertRaises(ValueError, msg="target_event must be at most 255 characters"):
