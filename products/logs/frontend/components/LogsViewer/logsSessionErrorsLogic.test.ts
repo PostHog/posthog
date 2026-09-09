@@ -101,6 +101,12 @@ describe('logsSessionErrorsLogic', () => {
         expect(queryBodies[0].query.query.match(/'session-a'/g)).toHaveLength(1)
     })
 
+    it('asks only about exceptions that error tracking linked to an issue', async () => {
+        await loadPage([makeLog('log-1', 'session-a')])
+
+        expect(queryBodies[0].query.query).toContain('isNotNull(properties.$exception_issue_id)')
+    })
+
     it('still builds a window when timestamps arrive as epoch numbers', async () => {
         await loadPage([
             { ...BASE_LOG, uuid: 'log-1', attributes: { sessionId: 'session-a' }, timestamp: '1788474031592' },
