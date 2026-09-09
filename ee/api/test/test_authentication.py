@@ -25,6 +25,7 @@ from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingP
 from social_django.models import UserSocialAuth
 from social_django.utils import load_strategy
 
+from posthog.api.oidc import MultitenantOIDCAuth
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -33,7 +34,6 @@ from posthog.models.linked_identity_provider_config import LinkedIdentityProvide
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.authentication import CustomGoogleOAuth2, MultitenantSAMLAuth
-from ee.api.oidc import MultitenantOIDCAuth
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
 
