@@ -147,6 +147,43 @@ export function buildHtmlWrapDesign(html: string): JSONTemplate {
     } as unknown as JSONTemplate
 }
 
+// Bounds the designs held for a host that never echoes them back.
+const MAX_UNACKNOWLEDGED_DESIGNS = 10
+
+function rememberSentDesign(cache: Record<string, any>, design: JSONTemplate): void {
+    const sent: JSONTemplate[] = cache.sentDesigns ?? []
+    cache.sentDesigns = [...sent, design].slice(-MAX_UNACKNOWLEDGED_DESIGNS)
+}
+
+// A recognized design is dropped together with every design older than it. One still ahead of it
+// is an edit the parent has not returned yet, so a later response must not load over that either.
+function takeSentDesign(cache: Record<string, any>, design: JSONTemplate): boolean {
+    const sent: JSONTemplate[] = cache.sentDesigns ?? []
+    const index = sent.findIndex((sentDesign) => objectsEqual(design, sentDesign))
+    if (index === -1) {
+        return false
+    }
+    cache.sentDesigns = sent.slice(index + 1)
+    return true
+}
+
+/**
+ * The design an external editor changed and the mounted canvas must load, or null for nothing to
+ * load. Our own output coming back is never loaded, however stale: a host that saves on its own
+ * debounce answers with the design its request carried, and reloading over the edit the user made
+ * meanwhile resets the canvas, because unlayer drops the undo stack and the selection every load.
+ */
+function externalDesignToLoad(cache: Record<string, any>, value: EmailTemplate): JSONTemplate | null {
+    const design = value.design ?? (value.html ? buildHtmlWrapDesign(value.html) : null)
+    if (!design || takeSentDesign(cache, design)) {
+        return null
+    }
+    if (objectsEqual(design, cache.lastEditorDesign) || objectsEqual(design, cache.lastLoadedExternalDesign)) {
+        return null
+    }
+    return design
+}
+
 // URL reflection for the fullscreen editor (?editor=email), so back, Escape, and deep links work.
 const EMAIL_EDITOR_URL_PARAM = 'editor'
 const EMAIL_EDITOR_URL_VALUE = 'email'
@@ -645,6 +682,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 return
             }
             cache.lastEditorDesign = htmlData.design
+            rememberSentDesign(cache, htmlData.design)
             // The user now owns the canvas: if an external editor later reverts to a design we once
             // pushed in, it must load again rather than be skipped as already applied.
             cache.lastLoadedExternalDesign = null
@@ -701,6 +739,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             // Load the design into the editor if it's ready and has a design
             if (values.isEmailEditorReady && emailTemplateContent.design) {
                 cache.lastEditorDesign = emailTemplateContent.design
+                rememberSentDesign(cache, emailTemplateContent.design)
                 values.emailEditorRef?.editor?.loadDesign(emailTemplateContent.design)
             }
         },
@@ -739,6 +778,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     cache.pendingDesignEdit = false
                     if (!objectsEqual(htmlData.design, cache.lastEditorDesign)) {
                         cache.lastEditorDesign = htmlData.design
+                        rememberSentDesign(cache, htmlData.design)
                         cache.lastLoadedExternalDesign = null
                         props.onChange({
                             ...values.emailTemplate,
@@ -867,12 +907,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 values.isEmailEditorReady &&
                 !cache.pendingDesignEdit
             ) {
-                const design = props.value.design ?? (props.value.html ? buildHtmlWrapDesign(props.value.html) : null)
-                if (
-                    design &&
-                    !objectsEqual(design, cache.lastEditorDesign) &&
-                    !objectsEqual(design, cache.lastLoadedExternalDesign)
-                ) {
+                const design = externalDesignToLoad(cache, props.value)
+                if (design) {
                     // lastEditorDesign is set pre-load so the design:updated echo of this load is
                     // filtered; design:loaded then rebaselines it to the editor's normalized export.
                     // lastLoadedExternalDesign keeps the raw incoming form, which the normalized
