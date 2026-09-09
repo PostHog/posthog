@@ -1,7 +1,10 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { tagsModel } from '~/models/tagsModel'
@@ -65,6 +68,9 @@ describe('replayScannersLogic', () => {
     let logic: ReturnType<typeof replayScannersLogic.build>
 
     beforeEach(() => {
+        // featureFlagLogic persists to localStorage, so a variant set in one test would leak
+        // into the next test's fresh kea context.
+        localStorage.clear()
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/': { results: [], count: 0 },
@@ -325,6 +331,60 @@ describe('replayScannersLogic', () => {
             }).toFinishAllListeners()
             expect(router.values.searchParams.page).toBeUndefined()
             expect(router.values.searchParams.sort).toBeUndefined()
+        })
+    })
+
+    describe('view mode', () => {
+        const setVariant = (variant: string): void => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT], {
+                [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: variant,
+            })
+        }
+
+        it('defaults to highlights on the test variant and list on control', () => {
+            setVariant('control')
+            expect(logic.values.listViewMode).toBe('list')
+            setVariant('test')
+            expect(logic.values.listViewMode).toBe('highlights')
+        })
+
+        it('control ignores an explicit highlights choice from a shared URL', () => {
+            setVariant('control')
+            logic.actions.restoreListViewMode('highlights')
+            expect(logic.values.listViewMode).toBe('list')
+            expect(logic.values.scannersPageSize).toBe(50)
+        })
+
+        it('toggling captures the event, resets the page, and lands in the URL', async () => {
+            setVariant('test')
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            logic.actions.setScannersFilters({ page: 3 })
+            await expectLogic(logic, () => {
+                logic.actions.setListViewMode('list')
+            })
+                .toMatchValues({ listViewMode: 'list', scannersPage: 1 })
+                .toFinishAllListeners()
+            const toggleCalls = captureSpy.mock.calls.filter((call) => call[0] === 'replay_vision_home_view_toggled')
+            expect(toggleCalls).toHaveLength(1)
+            expect(toggleCalls[0][1]).toEqual({ view: 'list', variant: 'test' })
+            expect(router.values.searchParams.view).toBe('list')
+        })
+
+        it('restores an explicit view from the URL without reporting a toggle', async () => {
+            setVariant('test')
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+            await expectLogic(logic, () => {
+                router.actions.push('/replay-vision', { view: 'list' })
+            }).toFinishAllListeners()
+            expect(logic.values.listViewMode).toBe('list')
+            const toggleCalls = captureSpy.mock.calls.filter((call) => call[0] === 'replay_vision_home_view_toggled')
+            expect(toggleCalls).toHaveLength(0)
+        })
+
+        it('highlights mode shrinks the page size used for loading', async () => {
+            setVariant('test')
+            expect(logic.values.scannersPageSize).toBe(20)
         })
     })
 

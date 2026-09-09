@@ -7,6 +7,7 @@ import {
     LemonButton,
     LemonDivider,
     LemonInput,
+    LemonSegmentedButton,
     LemonSwitch,
     LemonTable,
     LemonTabs,
@@ -42,6 +43,7 @@ import { ObservationSearchTab } from '../search/ObservationSearchTab'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../utils/credits'
 import { CreateScannerButton } from './components/CreateScannerButton'
+import { ScannerHighlightsView } from './components/ScannerHighlightsView'
 import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
 import { ReplayScannerTab } from './replayScannerSceneLogic'
@@ -148,8 +150,10 @@ export function ReplayScannersScene(): JSX.Element {
         hasActiveFilters,
         scannerStats,
         scannerStatsLoading,
+        listViewMode,
     } = useValues(replayScannersLogic)
-    const { loadScanners, toggleScannerEnabled, setScannersFilters, clearFilters } = useActions(replayScannersLogic)
+    const { loadScanners, toggleScannerEnabled, setScannersFilters, clearFilters, setListViewMode } =
+        useActions(replayScannersLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
     const { showUsd } = useValues(visionQuotaLogic)
@@ -323,6 +327,18 @@ export function ReplayScannersScene(): JSX.Element {
                     <div className="flex flex-col gap-3">
                         <div className="flex flex-wrap items-center gap-2">
                             <h3 className="font-semibold text-base m-0">Scanners</h3>
+                            {isRedesign && (
+                                <LemonSegmentedButton
+                                    value={listViewMode}
+                                    onChange={(view) => setListViewMode(view)}
+                                    options={[
+                                        { value: 'highlights' as const, label: 'Highlights' },
+                                        { value: 'list' as const, label: 'List' },
+                                    ]}
+                                    size="small"
+                                    data-attr="vision-home-view-toggle"
+                                />
+                            )}
                             <div className="ml-auto flex flex-wrap items-center gap-2">
                                 <LemonInput
                                     type="search"
@@ -373,45 +389,49 @@ export function ReplayScannersScene(): JSX.Element {
                             </div>
                         </div>
 
-                        <LemonTable
-                            columns={columns}
-                            dataSource={scanners}
-                            loading={scannersLoading}
-                            rowKey="id"
-                            pagination={{
-                                controlled: true,
-                                pageSize: SCANNERS_PAGE_SIZE,
-                                currentPage: scannersPage,
-                                entryCount: scannersTotal,
-                                onForward: () => setScannersFilters({ page: scannersPage + 1 }),
-                                onBackward: () => setScannersFilters({ page: scannersPage - 1 }),
-                            }}
-                            sorting={scannersSort}
-                            onSort={(next) => setScannersFilters({ sort: next as ScannersSorting | null })}
-                            noSortingCancellation
-                            useURLForSorting={false}
-                            nouns={['scanner', 'scanners']}
-                            emptyState={
-                                scannersTotal === 0 && !hasActiveFilters ? (
-                                    <div className="flex flex-col items-center gap-3 p-8 text-center">
-                                        <div className="text-muted">No scanners yet.</div>
-                                        <CreateScannerButton
-                                            acceptedLabel="Create your first scanner"
-                                            dataAttr="vision-scanner-create-empty"
-                                            size="medium"
-                                        />
-                                        <VisionDocsLink
-                                            page="creating-scanners"
-                                            dataAttr="vision-empty-docs-link-scanners"
-                                        >
-                                            Learn how scanners work
-                                        </VisionDocsLink>
-                                    </div>
-                                ) : (
-                                    <span className="text-muted">No scanners match your filters.</span>
-                                )
-                            }
-                        />
+                        {isRedesign && listViewMode === 'highlights' ? (
+                            <ScannerHighlightsView />
+                        ) : (
+                            <LemonTable
+                                columns={columns}
+                                dataSource={scanners}
+                                loading={scannersLoading}
+                                rowKey="id"
+                                pagination={{
+                                    controlled: true,
+                                    pageSize: SCANNERS_PAGE_SIZE,
+                                    currentPage: scannersPage,
+                                    entryCount: scannersTotal,
+                                    onForward: () => setScannersFilters({ page: scannersPage + 1 }),
+                                    onBackward: () => setScannersFilters({ page: scannersPage - 1 }),
+                                }}
+                                sorting={scannersSort}
+                                onSort={(next) => setScannersFilters({ sort: next as ScannersSorting | null })}
+                                noSortingCancellation
+                                useURLForSorting={false}
+                                nouns={['scanner', 'scanners']}
+                                emptyState={
+                                    scannersTotal === 0 && !hasActiveFilters ? (
+                                        <div className="flex flex-col items-center gap-3 p-8 text-center">
+                                            <div className="text-muted">No scanners yet.</div>
+                                            <CreateScannerButton
+                                                acceptedLabel="Create your first scanner"
+                                                dataAttr="vision-scanner-create-empty"
+                                                size="medium"
+                                            />
+                                            <VisionDocsLink
+                                                page="creating-scanners"
+                                                dataAttr="vision-empty-docs-link-scanners"
+                                            >
+                                                Learn how scanners work
+                                            </VisionDocsLink>
+                                        </div>
+                                    ) : (
+                                        <span className="text-muted">No scanners match your filters.</span>
+                                    )
+                                }
+                            />
+                        )}
                     </div>
                 </>
             )}

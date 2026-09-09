@@ -13,8 +13,11 @@ import {
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import posthog from 'lib/posthog-typed'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -33,6 +36,7 @@ import type { ScannerStatsResponseApi, UserBasicApi, VisionScannersListParams } 
 import type { ScannerTypeEnumApi } from '../generated/api.schemas'
 import { refreshVisionQuota, visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { csvParam, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
+import { ReplayScannerTab } from './replayScannerSceneLogic'
 import {
     ENABLED_OPTIONS,
     EnabledFilter,
@@ -40,6 +44,7 @@ import {
     ScannerType,
     ReplayScanner,
     createdByLabel,
+    homeRedesignVariant,
     scannersFromApi,
 } from './types'
 
@@ -72,6 +77,10 @@ export interface ScannersSorting {
 }
 
 export const SCANNERS_PAGE_SIZE = 50
+// Every scanner is a section with a card rail in highlights mode, so a 50-row page is too long.
+export const HIGHLIGHTS_PAGE_SIZE = 20
+
+export type ScannersViewMode = 'list' | 'highlights'
 const ALL_ENABLED: EnabledFilter[] = ENABLED_OPTIONS.map((o) => o.value)
 const ALL_SCANNER_TYPES: ScannerType[] = SCANNER_TYPE_OPTIONS.map((o) => o.value)
 const DEFAULT_SORT: ScannersSorting = { columnKey: 'created_at', order: -1 }
@@ -159,14 +168,17 @@ export interface replayScannersLogicValues {
     deletingIds: string[]
     duplicatingIds: string[]
     enabledFilter: EnabledFilter[]
+    explicitViewMode: ScannersViewMode | null
     filters: ScannersFilters
     hasActiveFilters: boolean
+    listViewMode: ScannersViewMode
     scannerStats: ScannerStatsResponseApi | null
     scannerStatsLoading: boolean
     scannerTypeFilter: ScannerTypeEnumApi[]
     scanners: ReplayScanner[]
     scannersLoading: boolean
     scannersPage: number
+    scannersPageSize: 20 | 50
     scannersSort: ScannersSorting | null
     scannersTotal: number
     search: string
@@ -248,6 +260,9 @@ export interface replayScannersLogicActions {
         scanners: ReplayScanner[]
         total: number
     }
+    restoreListViewMode: (view: ScannersViewMode) => {
+        view: ScannersViewMode
+    }
     revertScannerEnabled: (id: string) => {
         id: string
     }
@@ -257,6 +272,9 @@ export interface replayScannersLogicActions {
     ) => {
         dateFrom: string | null
         dateTo: string | null
+    }
+    setListViewMode: (view: ScannersViewMode) => {
+        view: ScannersViewMode
     }
     setScannerDeleting: (
         id: string,
@@ -307,6 +325,12 @@ export interface replayScannersLogicMeta {
         }[]
         scannersPage: (filters: ScannersFilters) => number
         scannersSort: (filters: ScannersFilters) => ScannersSorting | null
+        listViewMode: (
+            explicitViewMode: ScannersViewMode | null,
+            featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
+            searchParams: Record<string, any>
+        ) => ScannersViewMode
+        scannersPageSize: (listViewMode: ScannersViewMode) => 20 | 50
         hasActiveFilters: (
             search: string,
             enabledFilter: EnabledFilter[],
@@ -358,6 +382,9 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         setChartDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setScannersFilters: (filters: Partial<ScannersFilters>, replace: boolean = false) => ({ filters, replace }),
         clearFilters: true,
+        setListViewMode: (view: ScannersViewMode) => ({ view }),
+        // URL restores share the reducer but must not report a user toggle or reset the page.
+        restoreListViewMode: (view: ScannersViewMode) => ({ view }),
     }),
 
     loaders(({ values }) => ({
@@ -479,6 +506,13 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 setChartDateRange: (_, { dateTo }) => dateTo,
             },
         ],
+        explicitViewMode: [
+            null as ScannersViewMode | null,
+            {
+                setListViewMode: (_, { view }) => view,
+                restoreListViewMode: (_, { view }) => view,
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -489,8 +523,8 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 return
             }
             try {
-                const { filters } = values
-                const offset = (filters.page - 1) * SCANNERS_PAGE_SIZE
+                const { filters, scannersPageSize } = values
+                const offset = (filters.page - 1) * scannersPageSize
                 const params = buildScannerListParams(
                     {
                         search: filters.search,
@@ -500,7 +534,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                         tagsFilter: filters.tagsFilter,
                         scannersSort: filters.sort,
                     },
-                    SCANNERS_PAGE_SIZE,
+                    scannersPageSize,
                     offset
                 )
                 const response = await visionScannersList(String(teamId), params)
@@ -509,8 +543,11 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 const results = response.results ?? []
                 const count = response.count ?? 0
                 // A shrunken set (delete, narrowed filter, concurrent change) can strand an out-of-range page.
-                if (results.length === 0 && count > 0 && filters.page > 1) {
-                    actions.setScannersFilters({ page: Math.ceil(count / SCANNERS_PAGE_SIZE) })
+                // Only clamp to a different page: re-requesting the same page on an
+                // empty-but-counted response would loop forever.
+                const lastPage = Math.ceil(count / scannersPageSize)
+                if (results.length === 0 && count > 0 && filters.page > 1 && lastPage !== filters.page) {
+                    actions.setScannersFilters({ page: lastPage })
                     return
                 }
                 actions.loadScannersSuccess(scannersFromApi(results), count)
@@ -531,6 +568,17 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             actions.loadScanners()
         },
         clearFilters: () => actions.loadScanners(),
+
+        setListViewMode: ({ view }) => {
+            posthog.capture('replay_vision_home_view_toggled', {
+                view,
+                variant: homeRedesignVariant(
+                    featureFlagLogic.values.featureFlags[FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]
+                ),
+            })
+            // The two views paginate differently, so a kept page number could point past the end.
+            actions.setScannersFilters({ page: 1 })
+        },
 
         deleteScanner: async ({ id }) => {
             const teamId = teamLogic.values.currentTeamId
@@ -633,6 +681,33 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         ],
         scannersPage: [(s) => [s.filters], (filters: ScannersFilters) => filters.page],
         scannersSort: [(s) => [s.filters], (filters: ScannersFilters) => filters.sort],
+        listViewMode: [
+            (s) => [s.explicitViewMode, featureFlagLogic.selectors.featureFlags, router.selectors.searchParams],
+            (
+                explicitViewMode: ScannersViewMode | null,
+                featureFlags: Record<string, boolean | string | undefined>,
+                searchParams: Record<string, any>
+            ): ScannersViewMode => {
+                // Reading the flags proxy reports exposure, so only read it on the scanners tab,
+                // where the experiment arms actually diverge.
+                if ([ReplayScannerTab.Search, 'usage'].includes(searchParams.tab)) {
+                    return 'list'
+                }
+                // Control ignores an explicit choice too: a shared ?view=highlights link must not
+                // pull the other arm's layout into a control user's session.
+                if (
+                    homeRedesignVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]) !== 'test'
+                ) {
+                    return 'list'
+                }
+                return explicitViewMode ?? 'highlights'
+            },
+        ],
+        scannersPageSize: [
+            (s) => [s.listViewMode],
+            (listViewMode: ScannersViewMode) =>
+                listViewMode === 'highlights' ? HIGHLIGHTS_PAGE_SIZE : SCANNERS_PAGE_SIZE,
+        ],
         hasActiveFilters: [
             (s) => [s.search, s.enabledFilter, s.scannerTypeFilter, s.createdByFilter, s.tagsFilter],
             (
@@ -683,6 +758,9 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                     tags: csvParam(filters.tagsFilter),
                     page: filters.page > 1 ? String(filters.page) : undefined,
                     sort: sortParam,
+                    // Only an explicit choice goes in the URL, so a shared link doesn't pin the
+                    // other arm's default on whoever opens it.
+                    view: values.explicitViewMode ?? undefined,
                 },
                 undefined,
                 { replace: true },
@@ -691,6 +769,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         return {
             setScannersFilters: buildUrl,
             clearFilters: buildUrl,
+            setListViewMode: buildUrl,
         }
     }),
 
@@ -705,6 +784,10 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 tagsFilter: parseCsvParam(searchParams.tags),
                 page: Number.isFinite(pageRaw) ? Math.max(1, pageRaw) : 1,
                 sort: parseSortParam(searchParams.sort, resolveScannerOrderByKey) ?? DEFAULT_SORT,
+            }
+            const viewParam = searchParams.view
+            if ((viewParam === 'list' || viewParam === 'highlights') && viewParam !== values.explicitViewMode) {
+                actions.restoreListViewMode(viewParam)
             }
             const changed = !objectsEqual(parsed, values.filters)
             if (changed) {

@@ -474,6 +474,18 @@ const meta: Meta = {
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/scanners/creators/': { creators: [alice, bob] },
+                // The last scanner gets no rows, so the highlights story also renders the empty rail.
+                '/api/projects/:team_id/vision/scanners/recent_observations/': {
+                    results: scanners.results.slice(0, 3).flatMap((s, i) => [
+                        observation({ id: `00000000-0000-0000-0000-0000000000c${i * 2}`, scanner_id: s.id }),
+                        observation({
+                            id: `00000000-0000-0000-0000-0000000000c${i * 2 + 1}`,
+                            scanner_id: s.id,
+                            session_id: '01966b3f-70a1-7c52-a4d5-3f9b2e8c1d08',
+                            recording_subject_email: 'bob@example.com',
+                        }),
+                    ]),
+                },
                 '/api/projects/:team_id/vision/quota/': quota,
                 '/api/projects/:team_id/vision/quota/spend_series/': spendSeries,
                 '/api/projects/:team_id/vision/scanners/:id/': summarizerScanner,
@@ -558,6 +570,21 @@ export const ScannersListEmpty: StoryObj = {
 
 export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
+}
+
+// The home-redesign experiment's test arm: highlights view by default, no metrics block.
+export const ScannersListHighlights: StoryObj = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
+    },
+}
+
+// Test arm of the Usage tab: absorbs the observations chart and enabled-scanners card.
+export const UsageTabRedesigned: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision()}?tab=usage`,
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
+    },
 }
 
 export const SummarizerOverview: StoryObj = {
