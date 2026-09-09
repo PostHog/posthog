@@ -123,7 +123,9 @@ def get_v3_pipeline_lock_holder(team_id: int, schema_id: str) -> str | None:
 
 def release_v3_pipeline_lock(team_id: int, schema_id: str, token: str) -> bool:
     """Release the lock only if held by this token. Fail-silent on errors."""
-    with get_redis_client() as client:
+    # A job releases once and never retries a false result, so a skipped release strands the
+    # lock until a later takeover. That is worth a dead connect, unlike the per-batch callers.
+    with get_redis_client(bypass_cooldown=True) as client:
         if client is None:
             return False
 

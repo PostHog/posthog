@@ -1,6 +1,9 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+import redis
+
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import redis_client
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     LOCK_TTL_SECONDS,
     _lock_key,
@@ -122,3 +125,19 @@ class TestReleaseV3PipelineLock:
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
         assert release_v3_pipeline_lock(1, "s-1", "tok-1") is False
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.redis_client.get_client")
+    def test_release_bypasses_the_connect_cooldown(
+        self, mock_get_client: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(redis_client, "_cooldown_until", 0.0)
+        mock_redis = MagicMock()
+        mock_redis.ping.side_effect = [redis.exceptions.TimeoutError("Timeout connecting to server")] * 3 + [None]
+        mock_redis.eval.return_value = 1
+        mock_get_client.return_value = mock_redis
+
+        # A per-batch caller fails its connect and opens the process-wide cooldown.
+        with redis_client.get_redis_client() as client:
+            assert client is None
+
+        assert release_v3_pipeline_lock(1, "s-1", "tok-1") is True

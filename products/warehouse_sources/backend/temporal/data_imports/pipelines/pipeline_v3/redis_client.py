@@ -32,17 +32,21 @@ def _connect_and_ping(redis_client: redis.Redis) -> None:
 
 
 @contextmanager
-def get_redis_client() -> Generator[redis.Redis | None]:
+def get_redis_client(*, bypass_cooldown: bool = False) -> Generator[redis.Redis | None]:
     """Yield a client for the warehouse Redis instance, or None when it is unreachable.
 
     Callers that hold the lock run with a single Temporal attempt (see
     external_data_job.py), so a bare DNS/connection blip has no outer retry and would
     skip the whole scheduled sync run. Absorb a few quick retries before falling back to
     the fail-closed/fail-silent behavior every caller relies on.
+
+    Set bypass_cooldown for a one-shot call that leaves state behind when it is skipped.
+    The cooldown is process-wide, so a per-batch call that fails its connect would
+    otherwise suppress the single attempt such a caller makes.
     """
     global _cooldown_until
 
-    if time.monotonic() < _cooldown_until:
+    if not bypass_cooldown and time.monotonic() < _cooldown_until:
         yield None
         return
 
