@@ -39,8 +39,26 @@ export function OIDCConfigFields({
                 />
             </LemonField>
             <LemonBanner type="info">
-                Request the openid, profile, and email scopes. Your provider must include a verified email address in
-                the ID token. The email must match a verified domain in this configuration.
+                <p>
+                    In your identity provider, allow this OIDC application to request the <code>openid</code>,{' '}
+                    <code>profile</code>, and <code>email</code> scopes. PostHog requests these scopes when a user signs
+                    in.
+                </p>
+                <p>The ID token must include these claims:</p>
+                <ul className="list-disc pl-4">
+                    <li>
+                        <code>sub</code>: a stable identifier for the user
+                    </li>
+                    <li>
+                        <code>email</code>: the user's email address
+                    </li>
+                    <li>
+                        <code>email_verified</code>: <code>true</code>
+                    </li>
+                </ul>
+                <p>
+                    The email address in the <code>email</code> claim must use a domain verified in this configuration.
+                </p>
             </LemonBanner>
         </div>
     )
