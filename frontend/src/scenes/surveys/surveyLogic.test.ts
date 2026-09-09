@@ -1329,6 +1329,30 @@ describe('survey filters', () => {
         expect(query).not.toContain('HAVING countIf(is_completed_event) > 0')
     })
 
+    it('selects only the respondent context columns that are turned on', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+        }).toDispatchActions(['loadSurveySuccess'])
+
+        const queryFor = (): string => (logic.values.dataTableQuery?.source as { query: string }).query
+        expect(queryFor()).not.toContain('current_url AS current_url')
+
+        await expectLogic(logic, () => {
+            logic.actions.setResponseContextColumn('current_url', true)
+        }).toDispatchActions(['setResponseContextColumn'])
+
+        const query = queryFor()
+        expect(query).toContain('current_url AS current_url')
+        expect(query).not.toContain('person_id AS person_id')
+        // The row actions column has to stay rightmost, so context columns go before it.
+        expect(query.indexOf('current_url AS current_url')).toBeLessThan(query.indexOf('uuid AS actions'))
+
+        await expectLogic(logic, () => {
+            logic.actions.setResponseContextColumn('current_url', false)
+        }).toDispatchActions(['setResponseContextColumn'])
+        expect(queryFor()).not.toContain('current_url AS current_url')
+    })
+
     it('keeps question text out of the generated HogQL', async () => {
         // Regression for the "Unexpected character U+00E9" crash on the Survey Results tab: a question
         // whose text spans multiple lines used to leak past the `--` comment appended per response

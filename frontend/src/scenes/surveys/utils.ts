@@ -757,6 +757,7 @@ function buildMergedSubmissionsSubquery(
             ? [
                   'distinct_id',
                   'properties.`$session_id` AS session_id',
+                  'properties.`$current_url` AS current_url',
                   'properties AS event_properties',
                   'person.properties AS person_properties',
               ]
@@ -778,6 +779,7 @@ function buildMergedSubmissionsSubquery(
             ? [
                   'argMax(distinct_id, tuple(timestamp, event_uuid)) AS distinct_id',
                   'argMax(session_id, tuple(timestamp, event_uuid)) AS session_id',
+                  'argMax(current_url, tuple(timestamp, event_uuid)) AS current_url',
                   'argMax(event_properties, tuple(timestamp, event_uuid)) AS event_properties',
                   'argMax(person_properties, tuple(timestamp, event_uuid)) AS person_properties',
                   'argMax(event, tuple(timestamp, event_uuid)) AS latest_event',
@@ -891,7 +893,23 @@ export function transformSurveyResponseRows(rows: DataTableRow[], survey: Pick<S
     })
 }
 
-export function buildSurveyResponsesQuery(survey: Survey, filters: SurveyQueryFilters): string {
+/**
+ * Optional respondent context columns for the responses table. The table selects only the ones
+ * the user turned on, so the export carries the same columns the table shows.
+ */
+export const SURVEY_RESPONSE_CONTEXT_COLUMNS = [
+    { key: 'person_id', label: 'Person ID', expression: 'person_id AS person_id' },
+    { key: 'session_id', label: 'Session ID', expression: 'session_id AS session_id' },
+    { key: 'current_url', label: 'Current URL', expression: 'current_url AS current_url' },
+] as const
+
+export type SurveyResponseContextColumn = (typeof SURVEY_RESPONSE_CONTEXT_COLUMNS)[number]['key']
+
+export function buildSurveyResponsesQuery(
+    survey: Survey,
+    filters: SurveyQueryFilters,
+    contextColumns: SurveyResponseContextColumn[] = []
+): string {
     const questions = getAnswerableQuestions(survey)
     const merged = buildMergedSubmissionsSubquery(survey, filters, questions, { includeRespondentMetadata: true })
     const answers = survey.questions.map((question, index) =>
@@ -906,6 +924,10 @@ export function buildSurveyResponsesQuery(survey: Survey, filters: SurveyQueryFi
         'outcome AS status',
         'submitted_at AS timestamp',
         'distinct_id AS respondent',
+        ...SURVEY_RESPONSE_CONTEXT_COLUMNS.filter((column) => contextColumns.includes(column.key)).map(
+            (column) => column.expression
+        ),
+        // Last, so the row actions stay in the rightmost column.
         'uuid AS actions',
     ]
     return `SELECT ${columns.join(',\n')} FROM (${merged}) ORDER BY submitted_at DESC`

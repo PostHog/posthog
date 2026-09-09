@@ -6,7 +6,7 @@ import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { getSurveyResponseStatus, isScaleTwoRating } from 'scenes/surveys/utils'
+import { SURVEY_RESPONSE_CONTEXT_COLUMNS, getSurveyResponseStatus, isScaleTwoRating } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
@@ -58,6 +58,9 @@ export function useSurveyResponseColumns(): Record<string, QueryContextColumn> {
                 title: 'Person',
                 render: ({ record }) => <PersonDisplay person={(record as EventType[])[0].person} />,
             },
+            ...Object.fromEntries(
+                SURVEY_RESPONSE_CONTEXT_COLUMNS.map((column) => [column.key, { title: column.label }])
+            ),
             actions: {
                 title: ' ',
                 render: ({ record }) => <EventRowActions event={(record as EventType[])[0]} />,

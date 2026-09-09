@@ -132,6 +132,7 @@ import {
     DATE_FORMAT,
     type OpenEndedColumnMap,
     type SurveyQueryFilters,
+    type SurveyResponseContextColumn,
     type SurveyResponseOutcome,
     buildAggregateQuery,
     buildOpenEndedQuery,
@@ -716,6 +717,7 @@ export interface surveyLogicValues {
     processedSurveyStats: SurveyStats | null
     projectTreeRef: ProjectTreeRef
     propertyFilters: AnyPropertyFilter[]
+    responseContextColumns: SurveyResponseContextColumn[]
     resultsRequeryInProgress: boolean
     reusableSurveyNotifications: HogFunctionType[]
     reusableSurveyNotificationsLoading: boolean
@@ -1258,6 +1260,13 @@ export interface surveyLogicActions {
         responseValue: any
         specificQuestionIndex: any
     }
+    setResponseContextColumn: (
+        column: SurveyResponseContextColumn,
+        show: boolean
+    ) => {
+        column: SurveyResponseContextColumn
+        show: boolean
+    }
     setResponseExpanded: (
         uuid: string,
         expanded: boolean
@@ -1427,7 +1436,8 @@ export interface surveyLogicMeta {
             propertyFilters: AnyPropertyFilter[],
             answerFilters: EventPropertyFilter[],
             timestampFilter: string,
-            archivedResponsesFilter: string
+            archivedResponsesFilter: string,
+            responseContextColumns: SurveyResponseContextColumn[]
         ) => DataTableNode | null
         targetingFlagFilters: (survey: NewSurvey | Survey) => FeatureFlagFilters | undefined
         urlMatchTypeValidationError: (survey: NewSurvey | Survey) => string | null
@@ -1581,6 +1591,7 @@ export const surveyLogic = kea<surveyLogicType>([
         setBaseStatsResults: (results: SurveyBaseStatsResult) => ({ results }),
         setDismissedAndSentCount: (count: DismissedAndSentCountResult) => ({ count }),
         setShowArchivedResponses: (show: boolean) => ({ show }),
+        setResponseContextColumn: (column: SurveyResponseContextColumn, show: boolean) => ({ column, show }),
         archiveResponse: (responseUuid: string) => ({ responseUuid }),
         unarchiveResponse: (responseUuid: string) => ({ responseUuid }),
         startResultsRequery: true,
@@ -2455,6 +2466,18 @@ export const surveyLogic = kea<surveyLogicType>([
                 setShowArchivedResponses: (_, { show }) => show,
             },
         ],
+        responseContextColumns: [
+            [] as SurveyResponseContextColumn[],
+            { persist: true },
+            {
+                setResponseContextColumn: (state, { column, show }) => {
+                    if (show === state.includes(column)) {
+                        return state
+                    }
+                    return show ? [...state, column] : state.filter((key) => key !== column)
+                },
+            },
+        ],
         filterSurveyStatsByDistinctId: [
             true,
             { persist: true },
@@ -3035,13 +3058,21 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         dataTableQuery: [
-            (s) => [s.survey, s.propertyFilters, s.answerFilters, s.timestampFilter, s.archivedResponsesFilter],
+            (s) => [
+                s.survey,
+                s.propertyFilters,
+                s.answerFilters,
+                s.timestampFilter,
+                s.archivedResponsesFilter,
+                s.responseContextColumns,
+            ],
             (
                 survey: Survey,
                 propertyFilters: AnyPropertyFilter[],
                 answerFilters: EventPropertyFilter[],
                 timestampFilter: string,
-                archivedResponsesFilter: string
+                archivedResponsesFilter: string,
+                responseContextColumns: SurveyResponseContextColumn[]
             ): DataTableNode | null => {
                 if (survey.id === 'new') {
                     return null
@@ -3050,11 +3081,15 @@ export const surveyLogic = kea<surveyLogicType>([
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.HogQLQuery,
-                        query: buildSurveyResponsesQuery(survey, {
-                            answerFilters,
-                            timestampFilter,
-                            archivedResponsesFilter,
-                        }),
+                        query: buildSurveyResponsesQuery(
+                            survey,
+                            {
+                                answerFilters,
+                                timestampFilter,
+                                archivedResponsesFilter,
+                            },
+                            responseContextColumns
+                        ),
                         filters: { properties: propertyFilters },
                     },
                     hiddenColumns: ['response'],

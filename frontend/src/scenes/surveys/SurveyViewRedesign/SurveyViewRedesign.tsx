@@ -70,6 +70,8 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import { SurveyResponseColumnsMenu } from 'products/surveys/frontend/components/SurveyResponseColumnsMenu'
+
 import { SurveyResultsRefreshStatus } from '../components/SurveyResultsRefreshStatus'
 import { NEW_SURVEY } from '../constants'
 import { SurveyDraftContent } from './SurveyDraftContent'
@@ -706,6 +708,7 @@ function SurveyResponsesContent(): JSX.Element {
                         query={dataTableQuery}
                         context={{
                             columns: surveyColumnRenderers,
+                            customActions: <SurveyResponseColumnsMenu key="survey-response-columns" />,
                             dataTableExportExcludedColumns: ['response', 'actions'],
                             dataTableRowsTransformer: (rows) => transformSurveyResponseRows(rows, survey),
                             rowProps: (record: unknown) => {

@@ -61,6 +61,8 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import { SurveyResponseColumnsMenu } from 'products/surveys/frontend/components/SurveyResponseColumnsMenu'
+
 import { SurveyResultsRefreshStatus } from './components/SurveyResultsRefreshStatus'
 import { NEW_SURVEY } from './constants'
 import { useSurveyResponseColumns } from './hooks/useSurveyResponseColumns'
@@ -418,6 +420,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                         query={dataTableQuery}
                                         context={{
                                             columns: surveyColumnRenderers,
+                                            customActions: <SurveyResponseColumnsMenu key="survey-response-columns" />,
                                             expandable: {
                                                 expandedRowRender: ({ result }) => (
                                                     <SurveyResponseExpandedRow result={result} />
