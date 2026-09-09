@@ -116,7 +116,6 @@ import {
     type DashboardSettingsChange,
     type DashboardFilterChange,
 } from 'products/dashboards/frontend/dashboardSettings/dashboardChanges'
-import type { DashboardAddTileType } from 'products/dashboards/frontend/types'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { Node } from '../../queries/schema/schema-general'
@@ -399,6 +398,10 @@ export interface dashboardLogicValues {
     textTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
     tiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
     urlFilters: DashboardFilter
+    urlSearchParamsAtEditModeEntry: {
+        filters?: unknown
+        variables?: unknown
+    } | null
     urlVariables: Record<string, HogQLVariable>
     variablesDirty: boolean
     widgetRefreshStatus: Record<
@@ -440,12 +443,6 @@ export interface dashboardLogicActions {
             config: Record<string, unknown>
             widgetType: string
         }[]
-    }
-    applyFilters: () => {
-        value: true
-    }
-    applyPendingInsertion: () => {
-        value: true
     }
     applyWidgetIssueMetadataChange: (payload: {
         context: WidgetIssueMetadataContext
@@ -894,9 +891,6 @@ export interface dashboardLogicActions {
     setPageVisibility: (visible: boolean) => {
         visible: boolean
     }
-    setPendingInsertion: (pendingInsertion: PendingInsertion | null) => {
-        pendingInsertion: PendingInsertion | null
-    }
     setPreviewedDashboardSettings: (settings: DashboardSettings | null) => {
         settings: DashboardSettings | null
     }
@@ -1280,7 +1274,7 @@ export interface dashboardLogicMeta {
         ) => number | null
         dataColorTheme: (
             dataColorThemeId: number | null,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
         ) => DataColorTheme | null
         autoBreakdownColorsEnabled: (featureFlags: FeatureFlagsSet) => boolean
         breakdownValuesIncomplete: (

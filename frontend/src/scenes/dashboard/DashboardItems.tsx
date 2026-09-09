@@ -114,13 +114,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         moveToDashboard,
         copyToDashboard,
         setTileOverride,
-        setDashboardMode,
         setDashboardEditing,
-        setAddWidgetModalOpen,
-        setPendingInsertion,
-        openTextTileModal,
-        openImageTileModal,
-        openButtonTileModal,
     } = useActions(dashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
@@ -257,33 +251,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const margin = useMemo(
         () => BASE_MARGIN.map(() => gridGap * spacingFactor) as [number, number],
         [gridGap, spacingFactor]
-    )
-
-    const getInsertMenuItems = useCallback(
-        (targetX: number, targetY: number, targetW?: number): LemonMenuItems =>
-            dashboard
-                ? getAddTileMenuItems({
-                      dashboardWidgetsEnabled,
-                      onAddInsight: showAddInsightToDashboardModal,
-                      onAddText: openTextTileModal,
-                      onAddImage: openImageTileModal,
-                      onAddButton: openButtonTileModal,
-                      push,
-                      setAddWidgetModalOpen,
-                      onBeforeSelect: () => setPendingInsertion({ x: targetX, y: targetY, w: targetW ?? null }),
-                  })
-                : [],
-        [
-            dashboard,
-            dashboardWidgetsEnabled,
-            showAddInsightToDashboardModal,
-            push,
-            setAddWidgetModalOpen,
-            setPendingInsertion,
-            openTextTileModal,
-            openImageTileModal,
-            openButtonTileModal,
-        ]
     )
 
     const showResizeHandles = layoutEditMode && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
