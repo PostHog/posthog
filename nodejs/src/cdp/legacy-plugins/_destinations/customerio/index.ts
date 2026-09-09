@@ -196,14 +196,28 @@ function statelessCustomer(meta: CustomerIoMeta, event: ProcessedPluginEvent): C
     if (email) {
         status.add('with_email')
     }
-    // posthog-js keeps the anonymous id in $device_id, so a differing distinct_id means an identify happened
-    const deviceId = event.properties?.$device_id
-    if (event.event === '$identify' || (typeof deviceId === 'string' && deviceId !== event.distinct_id)) {
+    if (isIdentified(event)) {
         status.add('identified')
     }
 
     // No event-derived signal for this, and it only drives the `_update` flag
     return { status, existsAlready: true, email }
+}
+
+// The native Customer.io template gates on $is_identified, so match it rather than inventing a second rule
+function isIdentified(event: ProcessedPluginEvent): boolean {
+    if (event.event === '$identify') {
+        return true
+    }
+
+    const flag = event.properties?.$is_identified
+    if (flag !== undefined && flag !== null) {
+        return String(flag) === 'true'
+    }
+
+    // Roughly 40% of events carry no $is_identified, so fall back to the anonymous id posthog-js keeps in $device_id
+    const deviceId = event.properties?.$device_id
+    return typeof deviceId === 'string' && deviceId !== event.distinct_id
 }
 
 function compareAgainstStatelessCustomer(meta: CustomerIoMeta, event: ProcessedPluginEvent, stored: Customer): void {

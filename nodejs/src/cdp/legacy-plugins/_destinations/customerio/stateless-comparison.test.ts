@@ -69,24 +69,28 @@ describe('customer.io stateless status comparison', () => {
         ).resolves.toMatchObject({ with_email: 'stateless_only', tracked: 'stateless_only' })
     })
 
-    it('derives identified from a distinct_id that differs from $device_id', async () => {
+    it.each([
+        ['$is_identified is true', { $is_identified: true }, 'stateless_only'],
+        ['$is_identified is the string true', { $is_identified: 'true' }, 'stateless_only'],
+        [
+            '$is_identified is false, despite a differing $device_id',
+            { $is_identified: false, $device_id: 'a' },
+            'match',
+        ],
+        [
+            '$is_identified is absent and distinct_id differs from $device_id',
+            { $device_id: 'anon-1' },
+            'stateless_only',
+        ],
+        ['$is_identified is absent and distinct_id equals $device_id', { $device_id: 'user-1' }, 'match'],
+    ])('derives identified when %s', async (_name, properties, expected) => {
         await expect(
             run({
                 mode: 'Only send events from users that have been identified',
                 stored: ['seen'],
-                event: { properties: { $device_id: 'anon-1' } },
+                event: { properties },
             })
-        ).resolves.toMatchObject({ identified: 'stateless_only' })
-    })
-
-    it('does not derive identified for an anonymous distinct_id', async () => {
-        await expect(
-            run({
-                mode: 'Only send events from users that have been identified',
-                stored: ['seen'],
-                event: { distinct_id: 'anon-1', properties: { $device_id: 'anon-1' } },
-            })
-        ).resolves.toMatchObject({ identified: 'match' })
+        ).resolves.toMatchObject({ identified: expected })
     })
 
     it('flags exists_already for a customer the storage has not seen before', async () => {
