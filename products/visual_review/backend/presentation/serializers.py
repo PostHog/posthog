@@ -35,8 +35,10 @@ from ..facade.contracts import (
     QuarantineSourceRun,
     RecomputeResult,
     Repo,
+    RowShift,
     Run,
     RunSummary,
+    ShiftBand,
     Snapshot,
     SnapshotHistoryEntry,
     SnapshotManifestItem,
@@ -45,7 +47,7 @@ from ..facade.contracts import (
     UploadTarget,
     UserBasicInfo,
 )
-from ..facade.enums import FlakinessState
+from ..facade.enums import FlakinessState, ShiftBandKind
 
 # --- Output Serializers ---
 
@@ -84,6 +86,44 @@ class ClusterSummarySerializer(DataclassSerializer):
         dataclass = ClusterSummary
 
 
+class ShiftBandSerializer(DataclassSerializer):
+    y = serializers.IntegerField(help_text="First row of the band, in current-image coordinates.")
+    rows = serializers.IntegerField(help_text="How many rows the band covers.")
+    kind = serializers.ChoiceField(
+        choices=[(kind.value, kind.value) for kind in ShiftBandKind],
+        help_text=(
+            "'inserted' when the current image gained these rows, 'deleted' when it lost them. "
+            "A deleted band has no rows of its own in the current image, so its y is the seam "
+            "the removed rows left behind."
+        ),
+    )
+
+    class Meta:
+        dataclass = ShiftBand
+
+
+class RowShiftSerializer(DataclassSerializer):
+    bands = ShiftBandSerializer(
+        many=True,
+        help_text="Where the shift happened, in current-image coordinates.",
+    )
+    inserted_rows = serializers.IntegerField(help_text="Rows the current image gained.")
+    deleted_rows = serializers.IntegerField(help_text="Rows the current image lost.")
+    residual_percentage = serializers.FloatField(
+        help_text=(
+            "Percentage of pixels that differ inside the rows present in both images, 0 to 100. "
+            "Excludes the shift itself. The stored diff_percentage adds the area of the rows the shift "
+            "added or removed, and that combined number is what the pixel threshold judges."
+        )
+    )
+    raw_diff_percentage = serializers.FloatField(
+        help_text="Percentage of pixels that differ without alignment, which is what the shift would have cost."
+    )
+
+    class Meta:
+        dataclass = RowShift
+
+
 class SnapshotSerializer(DataclassSerializer):
     # Explicitly mark artifact fields as nullable for OpenAPI schema
     current_artifact = ArtifactSerializer(allow_null=True, required=False)
@@ -91,6 +131,7 @@ class SnapshotSerializer(DataclassSerializer):
     diff_artifact = ArtifactSerializer(allow_null=True, required=False)
     reviewed_by = UserBasicInfoSerializer(allow_null=True, required=False)
     cluster_summary = ClusterSummarySerializer(allow_null=True, required=False)
+    row_shift = RowShiftSerializer(allow_null=True, required=False)
 
     class Meta:
         dataclass = Snapshot
@@ -233,6 +274,7 @@ class FinalizeRunInputSerializer(DataclassSerializer):
 
 class SnapshotHistoryEntrySerializer(DataclassSerializer):
     current_artifact = ArtifactSerializer(allow_null=True, required=False)
+    row_shift = RowShiftSerializer(allow_null=True, required=False)
 
     class Meta:
         dataclass = SnapshotHistoryEntry

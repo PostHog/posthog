@@ -24,6 +24,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
     ProcessTaskError,
+    ProcessTaskFatalError,
     SandboxExecutionError,
     SandboxMissingRepositoryError,
 )
@@ -436,6 +437,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         project_id=ctx.team_id,
         scopes=scopes,
         interaction_origin=ctx.interaction_origin,
+        slack_reply_context=ctx.slack_reply_context,
         task_id=str(ctx.task_id),
         origin_product=task.origin_product,
     )
@@ -446,6 +448,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         user_id=actor_user.id if actor_user else None,
         include_personal=include_personal,
         interaction_origin=ctx.interaction_origin,
+        slack_reply_context=ctx.slack_reply_context,
         allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
         origin_product=task.origin_product,
         task_agent_key=task.mcp_builtin_agent_key,
@@ -527,6 +530,7 @@ def _invoke_start_agent_server(
     wait_for_health: bool = False,
 ) -> int | None:
     try:
+        _enforce_claude_subscription_support(sandbox, ctx)
         health_duration_ms = sandbox.start_agent_server(
             repository=ctx.repository if len(ctx.repositories) <= 1 else None,
             task_id=ctx.task_id,
@@ -556,6 +560,7 @@ def _invoke_start_agent_server(
             rtk_enabled=ctx.rtk_enabled,
             benjamin_enabled=ctx.benjamin_enabled,
             peer_messaging=ctx.peer_messaging_enabled,
+            claude_model_access=ctx.claude_model_access,
         )
         return health_duration_ms if isinstance(health_duration_ms, int) else None
 
@@ -577,6 +582,23 @@ def _invoke_start_agent_server(
                 "error": str(e),
             },
             cause=e,
+        )
+
+
+def _enforce_claude_subscription_support(sandbox: SandboxBase, ctx: TaskProcessingContext) -> None:
+    if ctx.claude_model_access != "own-subscription":
+        return
+    result = sandbox.execute(
+        "grep -q -- --claudeSubscription /scripts/node_modules/.bin/agent-server",
+        timeout_seconds=10,
+    )
+    if result.exit_code != 0:
+        raise ProcessTaskFatalError(
+            "This sandbox build cannot use your Claude plan yet. Start a new task. "
+            'To use PostHog credits instead, turn off "Use your Claude plan for cloud tasks".',
+            {"task_id": ctx.task_id, "run_id": ctx.run_id},
+            cause=RuntimeError("agent-server lacks --claudeSubscription"),
+            capture=False,
         )
 
 
@@ -734,7 +756,14 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                     origin_product=ctx.origin_product,
                     runtime=runtime,
                 ) as health_timer:
-                    sandbox.wait_for_agent_server_ready(params.agentsh_domains)
+                    sandbox.wait_for_agent_server_ready(
+                        params.agentsh_domains,
+                        **(
+                            {"claude_model_access": ctx.claude_model_access}
+                            if ctx.claude_model_access == "own-subscription"
+                            else {}
+                        ),
+                    )
                 invoke_ms = invoke_timer.elapsed_ms
                 health_poll_ms = health_timer.elapsed_ms
             _record_agent_server_launch(sandbox, ctx, params)
@@ -859,7 +888,14 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                         origin_product=ctx.origin_product,
                         runtime=runtime,
                     ) as health_timer:
-                        sandbox.wait_for_agent_server_ready(agentsh_domains)
+                        sandbox.wait_for_agent_server_ready(
+                            agentsh_domains,
+                            **(
+                                {"claude_model_access": ctx.claude_model_access}
+                                if ctx.claude_model_access == "own-subscription"
+                                else {}
+                            ),
+                        )
                 else:
                     logger.warning(
                         "agent_server_readiness_retry_recovery",
@@ -891,7 +927,14 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
                         origin_product=ctx.origin_product,
                         runtime=runtime,
                     ) as health_timer:
-                        sandbox.wait_for_agent_server_ready(agentsh_domains)
+                        sandbox.wait_for_agent_server_ready(
+                            agentsh_domains,
+                            **(
+                                {"claude_model_access": ctx.claude_model_access}
+                                if ctx.claude_model_access == "own-subscription"
+                                else {}
+                            ),
+                        )
                     _record_agent_server_launch(sandbox, ctx, params)
         except Exception:
             if attempt > 1:

@@ -83,6 +83,7 @@ import {
     GroupedAssetErrors,
     ResourceErrorDetails,
 } from './utils/asset-error-grouping'
+import { parseDeepLinkTime } from './utils/deep-link-time'
 import { makeLogger, makeNoOpLogger } from './utils/player-logging'
 import { deleteRecording } from './utils/playerUtils'
 import { initialFrameState, resolveFrameTimestamp } from './utils/resolve-frame-timestamp'
@@ -1681,7 +1682,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return 0
                 }
                 const time = currentTimestamp - sessionPlayerData.start.valueOf()
-                return clamp(time, 0, sessionPlayerData.durationMs || Infinity)
+                // durationMs is 0 until the recording loads; the clock must read 0 then, not run unbounded
+                return clamp(time, 0, sessionPlayerData.durationMs)
             },
         ],
 
@@ -1875,7 +1877,24 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return 0
                 }
                 const renderability = seekRenderability(firstWindowSegment.startTimestamp)
-                return renderability.kind === 'clampToFullSnapshot' ? Math.max(0, renderability.timestamp - start) : 0
+                if (renderability.kind !== 'clampToFullSnapshot') {
+                    return 0
+                }
+                // A backdated `sessionIdle` Custom event pulls `start` back over the idle span, and the SDK
+                // drops everything else while idle, so a Custom-only span is empty rather than lost.
+                // Anything else before the recovery point means the FullSnapshot was dropped.
+                const recoveryTimestamp = renderability.timestamp
+                for (const events of Object.values(sessionPlayerData.snapshotsByWindowId)) {
+                    for (const event of events) {
+                        if (event.timestamp >= recoveryTimestamp) {
+                            break
+                        }
+                        if (event.type !== EventType.Custom) {
+                            return recoveryTimestamp - start
+                        }
+                    }
+                }
+                return 0
             },
         ],
 
@@ -2507,13 +2526,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     if (searchParams.fullscreen) {
                         actions.setIsFullScreen(true)
                     }
-                    const timestampParam = Number(searchParams.timestamp)
-                    const tParam = Number(searchParams.t) * 1000
-                    if (searchParams.timestamp && Number.isFinite(timestampParam)) {
-                        actions.seekToTimestamp(timestampParam, true)
-                    } else if (searchParams.t && Number.isFinite(tParam)) {
-                        actions.seekToTime(tParam)
+                    const deepLinkTime = parseDeepLinkTime(searchParams.timestamp, searchParams.t)
+                    if (deepLinkTime?.kind === 'timestamp') {
+                        actions.seekToTimestamp(deepLinkTime.valueMs, true)
+                    } else if (deepLinkTime?.kind === 'offset') {
+                        actions.seekToTime(deepLinkTime.valueMs)
                     } else {
+                        if (searchParams.timestamp || searchParams.t) {
+                            lemonToast.warning(
+                                "Couldn't read the time in this link, so the recording starts from the beginning."
+                            )
+                        }
                         actions.setSkipToFirstMatchingEvent(true)
                     }
                 }
@@ -3454,21 +3477,28 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     }),
 
     urlToAction(({ actions, values }) => ({
-        '*': (_, searchParams, hashParams) => {
+        '*': (_, searchParams, hashParams, { pathname, search, hash }, previousLocation) => {
             const shouldPause = searchParams.pause || hashParams.pause
             if (shouldPause && !values.pauseForced) {
                 actions.forcePause()
             }
-            if (searchParams.timestamp) {
-                const desiredStartTime = Number(searchParams.timestamp)
-                if (!isNaN(desiredStartTime)) {
-                    actions.seekToTimestamp(desiredStartTime, true)
-                }
-            } else if (searchParams.t) {
-                const desiredStartTime = Number(searchParams.t) * 1000
-                if (!isNaN(desiredStartTime)) {
-                    actions.seekToTime(desiredStartTime)
-                }
+            // Unrelated param changes (inspector toggle, sidebar tab) keep `t`. Seek only when the
+            // linked time changed, or the same URL was pushed again so a repeat click still seeks.
+            const linkedTimeUnchanged =
+                previousLocation.searchParams.timestamp === searchParams.timestamp &&
+                previousLocation.searchParams.t === searchParams.t
+            const sameUrl =
+                previousLocation.pathname === pathname &&
+                previousLocation.search === search &&
+                previousLocation.hash === hash
+            if (linkedTimeUnchanged && !sameUrl) {
+                return
+            }
+            const deepLinkTime = parseDeepLinkTime(searchParams.timestamp, searchParams.t)
+            if (deepLinkTime?.kind === 'timestamp') {
+                actions.seekToTimestamp(deepLinkTime.valueMs, true)
+            } else if (deepLinkTime?.kind === 'offset') {
+                actions.seekToTime(deepLinkTime.valueMs)
             }
         },
     })),

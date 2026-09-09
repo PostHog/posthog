@@ -20,9 +20,22 @@ DevStackImageBakeOutcome = Literal["succeeded", "bake_failed", "failed", "dispat
 #   completed         — stream reached its completion sentinel
 #   stream_error      — Redis/stream error sentinel ended the connection
 #   unavailable       — stream key never appeared within the wait timeout
+#   drained           — terminal run whose stream key already expired; ended immediately
 #   client_disconnect — client went away (GeneratorExit) before completion
 #   rotated           — per-connection cap reached; clean EOF, client resumes
-StreamConnectionOutcome = Literal["completed", "stream_error", "unavailable", "client_disconnect", "rotated"]
+#   backlog_error     — run-log read for connect-time backlog failed; client retries
+#   backlog_busy      — worker at its in-flight replay byte budget; client retries
+StreamConnectionOutcome = Literal[
+    "completed",
+    "stream_error",
+    "unavailable",
+    "drained",
+    "client_disconnect",
+    "rotated",
+    "backlog_error",
+    "backlog_busy",
+]
+StreamWriteSkippedPath = Literal["ingest", "mirror", "relay"]
 _ALLOWED_MODES = {"background", "interactive"}
 _ALLOWED_RUN_SOURCES = {"manual", "signal_report"}
 _ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex"}
@@ -220,6 +233,48 @@ TASK_RUN_STREAM_CONNECTIONS_OPENED_TOTAL = Counter(
     labelnames=["origin_product"],
 )
 
+TASK_RUN_STREAM_BACKLOG_ENTRIES_TOTAL = Counter(
+    "posthog_tasks_task_run_stream_backlog_entries_total",
+    "Run-log entries served as connect-time backlog on thin-tail SSE stream connections",
+    labelnames=["origin_product"],
+)
+
+TASK_RUN_STREAM_BACKLOG_GAP_TOTAL = Counter(
+    "posthog_tasks_task_run_stream_backlog_gap_total",
+    "Thin-tail SSE connections whose first uncovered live entry was not contiguous with the log backlog",
+    labelnames=["origin_product"],
+)
+
+STREAM_BACKLOG_BYTES_BUCKETS = [
+    65_536.0,
+    262_144.0,
+    1_048_576.0,
+    4_194_304.0,
+    16_777_216.0,
+    52_428_800.0,
+    134_217_728.0,
+    536_870_912.0,
+]
+
+TASK_RUN_STREAM_BACKLOG_BYTES = Histogram(
+    "posthog_tasks_task_run_stream_backlog_bytes",
+    "Run-log byte size measured before a connect-time backlog replay on thin-tail SSE stream connections",
+    labelnames=["origin_product"],
+    buckets=STREAM_BACKLOG_BYTES_BUCKETS,
+)
+
+TASK_RUN_STREAM_BACKLOG_OVERSIZED_TOTAL = Counter(
+    "posthog_tasks_task_run_stream_backlog_oversized_total",
+    "Thin-tail SSE connections whose run log exceeded the backlog byte cap and degraded to the Redis window",
+    labelnames=["origin_product"],
+)
+
+TASK_RUN_STREAM_BACKLOG_THROTTLED_TOTAL = Counter(
+    "posthog_tasks_task_run_stream_backlog_throttled_total",
+    "Thin-tail SSE connections refused a backlog replay because the worker's in-flight replay byte budget was full",
+    labelnames=["origin_product"],
+)
+
 TASK_RUN_STREAM_CONNECTIONS_CLOSED_TOTAL = Counter(
     "posthog_tasks_task_run_stream_connections_closed_total",
     "SSE task-run stream connections closed, labeled by how they ended",
@@ -243,6 +298,12 @@ TASK_RUN_STREAM_RESUME_GAP_TOTAL = Counter(
     "posthog_tasks_task_run_stream_resume_gap_total",
     "SSE reconnects whose Last-Event-ID was already trimmed from Redis (events lost for that client)",
     labelnames=["origin_product"],
+)
+
+TASK_RUN_STREAM_WRITE_SKIPPED_TOTAL = Counter(
+    "posthog_tasks_task_run_stream_write_skipped_total",
+    "Task-run events not mirrored into Redis because presence gating found no attached reader",
+    labelnames=["path", "origin_product"],
 )
 
 TASK_RUN_AGENT_FAILURE_TOTAL = Counter(
@@ -569,6 +630,27 @@ def observe_stream_connection_opened(origin_product: str) -> None:
     TASK_RUN_STREAM_CONNECTIONS_OPENED_TOTAL.labels(origin_product=origin_product).inc()
 
 
+def observe_stream_backlog_served(origin_product: str, entries: int) -> None:
+    if entries > 0:
+        TASK_RUN_STREAM_BACKLOG_ENTRIES_TOTAL.labels(origin_product=origin_product).inc(entries)
+
+
+def observe_stream_backlog_gap(origin_product: str) -> None:
+    TASK_RUN_STREAM_BACKLOG_GAP_TOTAL.labels(origin_product=origin_product).inc()
+
+
+def observe_stream_backlog_bytes(origin_product: str, size_bytes: int) -> None:
+    TASK_RUN_STREAM_BACKLOG_BYTES.labels(origin_product=origin_product).observe(size_bytes)
+
+
+def observe_stream_backlog_oversized(origin_product: str) -> None:
+    TASK_RUN_STREAM_BACKLOG_OVERSIZED_TOTAL.labels(origin_product=origin_product).inc()
+
+
+def observe_stream_backlog_throttled(origin_product: str) -> None:
+    TASK_RUN_STREAM_BACKLOG_THROTTLED_TOTAL.labels(origin_product=origin_product).inc()
+
+
 def observe_stream_connection_closed(
     origin_product: str, outcome: StreamConnectionOutcome, duration_seconds: float
 ) -> None:
@@ -584,6 +666,10 @@ def observe_stream_length_on_connect(length: int) -> None:
 
 def observe_stream_resume_gap(origin_product: str) -> None:
     TASK_RUN_STREAM_RESUME_GAP_TOTAL.labels(origin_product=origin_product).inc()
+
+
+def observe_stream_write_skipped(path: StreamWriteSkippedPath, origin_product: str | None = None) -> None:
+    TASK_RUN_STREAM_WRITE_SKIPPED_TOTAL.labels(path=path, origin_product=_metric_label(origin_product)).inc()
 
 
 def observe_task_run_failed(properties: dict[str, object]) -> None:

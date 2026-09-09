@@ -1,10 +1,15 @@
-from django.db.models import F, Q
+from django.db.models import Q
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from temporalio import activity
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
-from products.replay_vision.backend.queries import DISABLED_ESTIMATE_STALE_AFTER, ESTIMATE_STALE_AFTER
+from products.replay_vision.backend.queries import (
+    DISABLED_ESTIMATE_STALE_AFTER,
+    ESTIMATE_RETRY_BACKOFF,
+    ESTIMATE_STALE_AFTER,
+)
 from products.replay_vision.backend.temporal.constants import ESTIMATES_MAX_PER_RUN
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.estimates_types import RefreshScannerEstimateInputs
@@ -25,9 +30,12 @@ def list_stale_scanner_estimates_activity() -> list[RefreshScannerEstimateInputs
         | Q(enabled=True, estimated_at__lt=now - ESTIMATE_STALE_AFTER)
         | Q(enabled=False, estimated_at__lt=now - DISABLED_ESTIMATE_STALE_AFTER)
     )
+    # A recent failed attempt is skipped, and a never-computed estimate sorts by that attempt rather
+    # than unconditionally first, so one always-failing scanner can't hog the head of every batch.
+    backoff = Q(estimate_attempted_at__isnull=True) | Q(estimate_attempted_at__lt=now - ESTIMATE_RETRY_BACKOFF)
     rows = (
-        ReplayScanner.objects.filter(stale)
-        .order_by("-enabled", F("estimated_at").asc(nulls_first=True))
+        ReplayScanner.objects.filter(stale, backoff)
+        .order_by("-enabled", Coalesce("estimated_at", "estimate_attempted_at").asc(nulls_first=True))
         .values_list("id", "team_id")[:ESTIMATES_MAX_PER_RUN]
     )
     return [RefreshScannerEstimateInputs(scanner_id=scanner_id, team_id=team_id) for scanner_id, team_id in rows]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from typing import Literal
 
@@ -15,11 +16,11 @@ from posthog.models.scoping.manager import TeamScopeError
 from posthog.models.utils import hash_key_value
 from posthog.user_permissions import UserPermissions
 
-from .models import MCPServiceAccount
+from .models import MCPServiceAccount, MCPServiceAccountServerAccess
 
 logger = structlog.get_logger(__name__)
 
-BuiltInAgentKey = Literal["support", "scout"]
+BuiltInAgentKey = Literal["support", "scout", "workflow"]
 
 GATEWAY_AGENT_TOKEN_PREFIX = "mcp_gw_"
 GATEWAY_AGENT_TOKEN_SALT = "mcp_store.gateway_agent"
@@ -47,6 +48,12 @@ BUILT_IN_AGENTS: tuple[BuiltInAgentSpec, ...] = (
         description="Proactively investigates your product and reports useful findings.",
         handle="posthog-scout",
     ),
+    BuiltInAgentSpec(
+        key="workflow",
+        name="Workflow agent",
+        description="Runs the AI tasks that workflows start.",
+        handle="posthog-workflow",
+    ),
 )
 
 _SPEC_BY_KEY = {spec.key: spec for spec in BUILT_IN_AGENTS}
@@ -58,6 +65,7 @@ _TASK_ORIGIN_TO_AGENT: dict[str, BuiltInAgentKey] = {
     # The headless suggestion scan runs as the Scout agent with an empty server allowlist, so it
     # mounts nothing from the Store rather than the team's shared connectors.
     "scout_suggestions": "scout",
+    "workflow": "workflow",
 }
 # Signal report tasks may be created through the public Tasks API, so they
 # remain member-scoped instead of inheriting Scout's MCP grants.
@@ -113,6 +121,7 @@ def get_built_in_agent_spec(account: MCPServiceAccount) -> BuiltInAgentSpec | No
 def sync_built_in_agents(team: Team) -> list[MCPServiceAccount]:
     accounts: list[MCPServiceAccount] = []
     changed: list[MCPServiceAccount] = []
+    created_accounts: list[MCPServiceAccount] = []
 
     for spec in BUILT_IN_AGENTS:
         token_hash = hash_key_value(f"built-in-mcp-agent:{team.id}:{spec.key}")
@@ -126,7 +135,9 @@ def sync_built_in_agents(team: Team) -> list[MCPServiceAccount]:
                 "status": "active",
             },
         )
-        if not created:
+        if created:
+            created_accounts.append(account)
+        else:
             account_changed = False
             if account.handle != spec.handle:
                 account.handle = spec.handle
@@ -148,7 +159,57 @@ def sync_built_in_agents(team: Team) -> list[MCPServiceAccount]:
             ["name", "description", "handle", "updated_at"],
         )
 
+    existing_accounts = [account for account in accounts if account not in created_accounts]
+    for account in created_accounts:
+        _seed_grants_from_existing_agents(team.id, account, existing_accounts)
+
     return accounts
+
+
+def _seed_grants_from_existing_agents(
+    team_id: int, account: MCPServiceAccount, existing_accounts: list[MCPServiceAccount]
+) -> None:
+    """Give a built-in agent that is new to this team the grants its siblings already hold.
+
+    Installing a connection grants every built-in agent at once, so an agent added to the
+    catalog later would otherwise start with nothing on teams that connected servers before
+    it existed, and every member would have to share their connections again. Copying the
+    sibling grants puts the new agent where it would be had it existed at install time. One
+    grant per (server, member): a team share on any sibling wins over a personal one, because
+    that member already chose to lend the connection to every agent run in the project.
+    """
+    if not existing_accounts:
+        return
+    sibling_grants = (
+        MCPServiceAccountServerAccess.objects.for_team(team_id)
+        .filter(service_account__in=existing_accounts, user__isnull=False)
+        .order_by("created_at", "id")
+    )
+    seeds: dict[tuple[uuid.UUID, int], MCPServiceAccountServerAccess] = {}
+    for grant in sibling_grants:
+        if grant.user_id is None:
+            continue
+        key = (grant.gateway_server_id, grant.user_id)
+        current = seeds.get(key)
+        if current is None or (current.scope != "team" and grant.scope == "team"):
+            seeds[key] = grant
+    if not seeds:
+        return
+    MCPServiceAccountServerAccess.objects.for_team(team_id).bulk_create(
+        [
+            MCPServiceAccountServerAccess(
+                team_id=team_id,
+                service_account=account,
+                gateway_server_id=grant.gateway_server_id,
+                user_id=grant.user_id,
+                scope=grant.scope,
+                installation_id=grant.installation_id,
+                granted_by_id=grant.granted_by_id,
+            )
+            for grant in seeds.values()
+        ],
+        ignore_conflicts=True,
+    )
 
 
 def get_built_in_agent(team_id: int, agent_key: str) -> MCPServiceAccount | None:

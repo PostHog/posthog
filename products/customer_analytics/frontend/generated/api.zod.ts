@@ -250,9 +250,9 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
 export const AccountsCustomPropertyValuesCreateBody = /* @__PURE__ */ zod.object({
     definition: zod.uuid().describe('UUID of the custom property definition whose value to set for this account.'),
     value: zod
-        .union([zod.string(), zod.number(), zod.boolean()])
+        .union([zod.string(), zod.number(), zod.boolean(), zod.null()])
         .describe(
-            "Value to store, matching the definition's type: a number for number\/currency\/percent, a boolean for boolean, an ISO-8601 string for date\/datetime, an HTTP or HTTPS URL for link properties, or text for text properties."
+            "Value to store, matching the definition's type: a number for number\/currency\/percent, a boolean for boolean, an ISO-8601 string for date\/datetime, an HTTP or HTTPS URL for link properties, or text for text properties. Null clears the current value while preserving its history."
         ),
 })
 
@@ -408,6 +408,13 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('When the account churned. Null means the account has not churned.'),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
+
+/**
+ * Run a Customer Analytics accounts table query.
+ */
+export const CustomerAnalyticsAccountsTableQueryCreateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 export const AnnouncementsCreateBody = /* @__PURE__ */ zod.object({
     message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
@@ -854,6 +861,71 @@ export const CustomerProfileConfigsPartialUpdateBody = /* @__PURE__ */ zod.objec
         ),
     content: zod.unknown().optional(),
     sidebar: zod.unknown().optional(),
+})
+
+export const customerTasksCreateBodyNameMax = 400
+
+export const customerTasksCreateBodyStatusDefault = `open`
+
+export const CustomerTasksCreateBody = /* @__PURE__ */ zod.object({
+    account_id: zod.uuid().nullish().describe('UUID of a visible account, or null for an accountless task.'),
+    name: zod.string().max(customerTasksCreateBodyNameMax).describe('Task name.'),
+    description: zod.string().nullish().describe('Task description, or null to leave it empty.'),
+    assigned_to_id: zod.number().nullish().describe('PostHog user ID to assign, or null to leave unassigned.'),
+    due_at: zod.iso.datetime({ offset: true }).nullish().describe('ISO 8601 deadline, or null for no deadline.'),
+    status: zod
+        .enum(['open', 'in_progress', 'completed', 'canceled'])
+        .describe(
+            '\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+        )
+        .default(customerTasksCreateBodyStatusDefault)
+        .describe(
+            'Initial task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+        ),
+})
+
+export const customerTasksUpdateBodyNameMax = 400
+
+export const CustomerTasksUpdateBody = /* @__PURE__ */ zod.object({
+    account_id: zod.uuid().nullish().describe('UUID of a visible account, or null to remove the account link.'),
+    name: zod.string().max(customerTasksUpdateBodyNameMax).describe('Replacement task name.'),
+    description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
+    assigned_to_id: zod.number().nullish().describe('Replacement assignee ID, or null to unassign.'),
+    due_at: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('Replacement ISO 8601 deadline, or null to clear it.'),
+    status: zod
+        .enum(['open', 'in_progress', 'completed', 'canceled'])
+        .describe(
+            '\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+        )
+        .optional()
+        .describe(
+            'Replacement task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+        ),
+})
+
+export const customerTasksPartialUpdateBodyNameMax = 400
+
+export const CustomerTasksPartialUpdateBody = /* @__PURE__ */ zod.object({
+    account_id: zod.uuid().nullish().describe('UUID of a visible account, or null to remove the account link.'),
+    name: zod.string().max(customerTasksPartialUpdateBodyNameMax).optional().describe('Replacement task name.'),
+    description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
+    assigned_to_id: zod.number().nullish().describe('Replacement assignee ID, or null to unassign.'),
+    due_at: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('Replacement ISO 8601 deadline, or null to clear it.'),
+    status: zod
+        .enum(['open', 'in_progress', 'completed', 'canceled'])
+        .describe(
+            '\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+        )
+        .optional()
+        .describe(
+            'Replacement task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+        ),
 })
 
 /**
@@ -1557,5 +1629,28 @@ export const GroupsTypesMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.'
+        ),
+})
+
+/**
+ * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided. Omitting pinned_properties leaves the configuration unchanged. At most 50 account custom properties and relationships can be pinned.
+ * @summary Update account sidebar configuration
+ */
+export const UserCustomerAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
+    pinned_properties: zod
+        .array(
+            zod.object({
+                kind: zod
+                    .enum(['custom_property', 'relationship'])
+                    .describe('\* `custom_property` - Custom property\n\* `relationship` - Relationship')
+                    .describe(
+                        'Definition type for this pinned account property.\n\n\* `custom_property` - Custom property\n\* `relationship` - Relationship'
+                    ),
+                id: zod.uuid().describe('Team-scoped custom property or relationship definition UUID.'),
+            })
+        )
+        .optional()
+        .describe(
+            'Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them.'
         ),
 })
