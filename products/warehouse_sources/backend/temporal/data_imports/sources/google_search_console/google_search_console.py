@@ -6,7 +6,6 @@ import collections.abc
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse, urlunparse
 
-from django.conf import settings
 from django.db import OperationalError, close_old_connections
 
 import requests
@@ -18,6 +17,7 @@ from google.oauth2.credentials import Credentials as OAuthCredentials
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -207,11 +207,14 @@ def _get_integration(integration_id: int, team_id: int) -> Integration:
 
 def _credentials(integration_id: int, team_id: int) -> OAuthCredentials:
     integration = _get_integration(integration_id, team_id)
+    resolved = integration_secrets.get_secrets(
+        ["GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID", "GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET"]
+    )
     return OAuthCredentials(
         token=None,
         refresh_token=integration.refresh_token,
-        client_id=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID,
-        client_secret=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET,
+        client_id=resolved["GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID"],
+        client_secret=resolved["GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET"],
         token_uri="https://oauth2.googleapis.com/token",
         # No `scopes=` on purpose. With a refresh-token grant, google-auth forwards the
         # requested scopes to Google's token endpoint, which rejects anything that isn't an

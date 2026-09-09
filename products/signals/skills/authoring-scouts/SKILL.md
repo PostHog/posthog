@@ -28,9 +28,11 @@ A scout's output is the **report channel**: it lists `emit_report` / `edit_repor
 The canonical fleet runs this way, and **every new scout should too** — always include the `allowed_tools` opt-in when authoring one.
 (A historical signal-emitting channel — weak `emit-signal` findings a pipeline consolidated — still exists in the harness for scouts that never opted in, but it is deprecated: don't author new scouts on it, and opt an old one in rather than extending it.)
 
-A scout is just an `LLMSkill` whose name starts with `signals-scout-`.
-The harness discovers scouts by globbing `signals-scout-*` over the project's skills, loads the body **verbatim** as the agent's system prompt, and progressively reads any bundled reference files on demand.
-**The `signals-scout-` name prefix is load-bearing: a skill named anything else will never run as a scout.**
+A scout is an `LLMSkill` that holds a `SignalScoutConfig`.
+The harness loads the body **verbatim** as the agent's system prompt, and progressively reads any bundled reference files on demand.
+**The config row is what makes a skill a scout.** Any valid skill name works, so the `signals-scout-` prefix is optional.
+The prefix controls one thing: the coordinator globs `signals-scout-*` to auto-register a config for a skill that has none.
+A skill with any other name needs its config created alongside it, which is what `scout-create-prepare` / `-execute` does.
 
 ## The job before the writing
 

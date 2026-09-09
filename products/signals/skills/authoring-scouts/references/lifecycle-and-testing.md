@@ -4,11 +4,11 @@ How scouts get discovered, scheduled, and dispatched; the two distribution paths
 
 ## How a scout runs
 
-- **Discovery.** The harness globs `signals-scout-*` over the project's skills (`LLMSkill` rows).
-  Any matching skill is a scout.
-  No registration step.
+- **Discovery.** A scout is a skill that holds a `SignalScoutConfig`, and the coordinator dispatches from those config rows.
+  The `signals-scout-` name prefix is optional; it controls only auto-registration, below.
 - **Config.** Each scout has one `SignalScoutConfig` per `(project, skill_name)` carrying `run_interval_minutes` (default 1440), `enabled`, `emit`, `network_access` (`trusted` default, `full` for scouts that read arbitrary external sites), and a `last_run_at` stamp.
-  A config is **auto-registered** the first time the coordinator sees a `signals-scout-*` skill without one — authoring the skill is enough to get a scout.
+  A config is **auto-registered** the first time the coordinator sees a `signals-scout-*` skill without one, so authoring a prefixed skill is enough to get a scout.
+  A skill named anything else needs its config created with it.
   Prepare a fresh per-team scout and its config together with `posthog:scout-create-prepare`; the nested `config` object sets its schedule, emit posture, and destinations before it can run.
   Show the returned confirmation message, wait for the user to type `confirm`, then call `posthog:scout-create-execute` with the returned `confirmation_hash` and that literal confirmation.
   The lower-level `posthog:scout-config-create` remains available when a skill already exists without a config.
