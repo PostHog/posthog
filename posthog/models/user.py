@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, NoReturn, Optional, TypedDict, cast
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.core.management.base import CommandError
-from django.db import models, transaction
+from django.db import DatabaseError, models, transaction
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
 from django.utils.translation import gettext_lazy as _
@@ -464,6 +464,15 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
 
         return teams.order_by("id")
 
+    def _persist_current_selection(self, field: str) -> None:
+        # Reads of `organization` and `team` happen while the app shell renders, so a failed write
+        # here must not fail the read. The savepoint keeps an enclosing transaction usable.
+        try:
+            with transaction.atomic():
+                self.save(update_fields=[field])
+        except DatabaseError as e:
+            capture_exception(e, {"user_id": self.pk, "field": field})
+
     @cached_property
     def organization(self) -> Optional[Organization]:
         if self.current_organization is None:
@@ -471,7 +480,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                 self.current_organization_id = self.current_team.organization_id
             self.current_organization = self.organizations.first()
             if self.current_organization is not None:
-                self.save(update_fields=["current_organization"])
+                self._persist_current_selection("current_organization")
         return self.current_organization
 
     @cached_property
@@ -479,7 +488,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         if self.current_team is None and self.organization is not None:
             self.current_team = self.teams.filter(organization=self.current_organization).first()
             if self.current_team:
-                self.save(update_fields=["current_team"])
+                self._persist_current_selection("current_team")
         return self.current_team
 
     def get_github_login(self) -> str | None:

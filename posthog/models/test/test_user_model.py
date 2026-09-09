@@ -1,9 +1,11 @@
 import datetime
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.db import DatabaseError
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
@@ -200,3 +202,19 @@ class TestUser(BaseTest):
 
         # When the typed casing matches no row exactly, fallback picks the most recent login.
         self.assertEqual(User.objects.get_by_natural_key("DUP@example.com"), newer)
+
+    def test_team_still_resolves_when_the_backfill_write_fails(self):
+        org = Organization.objects.create(name="Backfill Org")
+        team = Team.objects.create(organization=org, name="T1")
+        user = User.objects.create(email="backfill@example.com")
+        user.join(organization=org, level=OrganizationMembership.Level.MEMBER)
+        User.objects.filter(pk=user.pk).update(current_team=None, current_organization=None)
+        loaded = User.objects.get(pk=user.pk)
+
+        with patch.object(User, "save", side_effect=DatabaseError("canceling statement due to lock timeout")):
+            self.assertEqual(loaded.organization, org)
+            self.assertEqual(loaded.team, team)
+
+        loaded.refresh_from_db()
+        self.assertIsNone(loaded.current_team_id)
+        self.assertIsNone(loaded.current_organization_id)
