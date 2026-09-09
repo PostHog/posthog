@@ -15,22 +15,31 @@ const getCustomerTasksJwt = (): ScopedServiceJwt =>
         defaultConfig.CUSTOMER_TASKS_CREATE_JWT_SECRET
     ))
 
+// The workflow step test panel mocks async functions by default, so `mock` runs these checks too.
+// A payload the mock accepts but the endpoint rejects lets an author ship a step that only ever
+// worked in the test panel.
+const parseTaskPayload = (args: any[]): { payload: Record<string, unknown>; assigneeId: number | undefined } => {
+    const [payload] = args as [Record<string, unknown> | undefined]
+    if (typeof payload?.name !== 'string' || !payload.name.trim()) {
+        throw new Error('Enter a task name')
+    }
+
+    const assigneeId = payload.assigned_to_id === undefined ? undefined : Number(payload.assigned_to_id)
+    if (
+        assigneeId !== undefined &&
+        (!['number', 'string'].includes(typeof payload.assigned_to_id) ||
+            !Number.isSafeInteger(assigneeId) ||
+            assigneeId <= 0)
+    ) {
+        throw new Error('Enter a valid numeric assignee user ID')
+    }
+
+    return { payload, assigneeId }
+}
+
 registerAsyncFunction('postHogCreateCustomerTask', {
     execute: async (args, context, result) => {
-        const [payload] = args as [Record<string, unknown> | undefined]
-        if (typeof payload?.name !== 'string' || !payload.name.trim()) {
-            throw new Error('Enter a task name')
-        }
-
-        const assigneeId = payload.assigned_to_id === undefined ? undefined : Number(payload.assigned_to_id)
-        if (
-            assigneeId !== undefined &&
-            (!['number', 'string'].includes(typeof payload.assigned_to_id) ||
-                !Number.isSafeInteger(assigneeId) ||
-                assigneeId <= 0)
-        ) {
-            throw new Error('Enter a valid numeric assignee user ID')
-        }
+        const { payload, assigneeId } = parseTaskPayload(args)
 
         const hogFlow = (context.invocation as { hogFlow?: HogFlow }).hogFlow
         const actionId = context.invocation.state.actionId
@@ -53,11 +62,14 @@ registerAsyncFunction('postHogCreateCustomerTask', {
         })
     },
     mock: (args, logs) => {
+        parseTaskPayload(args)
         logs.push({
             level: 'info',
             timestamp: DateTime.now(),
             message: 'Customer task creation was mocked. No task was created or permissions checked.',
         })
-        return { status: 201, body: { ...args[0], id: '00000000-0000-4000-8000-000000000000', status: 'open' } }
+        // Only the field the endpoint returns, so a mapping built against a mocked test still
+        // resolves live. The template checks the ID is a UUID, so the placeholder must be one.
+        return { status: 201, body: { id: '00000000-0000-4000-8000-000000000000' } }
     },
 })
