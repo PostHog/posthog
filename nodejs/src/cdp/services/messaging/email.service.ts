@@ -110,6 +110,22 @@ function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
     return Math.floor(baseMs * (1 + Math.random()))
 }
 
+// Bounds for the tier-cap retry delay. The floor keeps second-scale refills from churning
+// the queue. The ceiling bounds how stale the computed wake time can get: capacity can
+// appear earlier than computed (a tier raise, or an idle bucket expiring back to full
+// capacity), and a parked job only notices when it wakes.
+const TEAM_CAP_RETRY_MIN_MS = 1_000
+const TEAM_CAP_RETRY_MAX_MS = 60 * 60 * 1_000
+
+function pickCapRetryDelayMs(retryAfterMs: number | null, refillPerSecond: number): number {
+    // The 1x-2x jitter spreads re-claims so a parked backlog does not wake on the same
+    // instant. Falls back to one token interval when the limiter reported no horizon
+    // (an error-path denial).
+    const baseMs = retryAfterMs ?? 1000 / refillPerSecond
+    const clampedMs = Math.min(Math.max(baseMs, TEAM_CAP_RETRY_MIN_MS), TEAM_CAP_RETRY_MAX_MS)
+    return Math.floor(clampedMs * (1 + Math.random()))
+}
+
 const teamEmailCapDelayedTotal = new Counter({
     name: 'cdp_team_email_cap_delayed_total',
     help: 'Workflow email sends delayed by the team trust-tier sending cap (or that would have been, in shadow mode).',
@@ -618,7 +634,7 @@ export class EmailService {
             const denied = buckets[claim.deniedIndex ?? 1]
             teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: denied.name, mode })
             return {
-                retryDelayMs: pickTokenBucketRetryDelayMs(denied.refillPerSecond),
+                retryDelayMs: pickCapRetryDelayMs(claim.retryAfterMs, denied.refillPerSecond),
                 label: denied.label,
             }
         }

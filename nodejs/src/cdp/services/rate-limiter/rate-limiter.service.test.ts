@@ -209,7 +209,7 @@ describe('RateLimiterService', () => {
                 ],
                 30
             )
-            expect(claim).toEqual({ granted: true, deniedIndex: null })
+            expect(claim).toEqual({ granted: true, deniedIndex: null, retryAfterMs: null })
             // Both pools were charged: the remainder is all that is left to claim.
             expect(await limiter.claimUpTo({ key: KEY_A, requested: 50, capacity: 50, refillPerSecond: 0 })).toBe(20)
             expect(await limiter.claimUpTo({ key: KEY_B, requested: 100, capacity: 100, refillPerSecond: 0 })).toBe(70)
@@ -226,9 +226,23 @@ describe('RateLimiterService', () => {
                 ],
                 30
             )
-            expect(claim).toEqual({ granted: false, deniedIndex: 1 })
+            // refillPerSecond 0 means the missing tokens never accrue, so no horizon is reported.
+            expect(claim).toEqual({ granted: false, deniedIndex: 1, retryAfterMs: null })
             expect(await limiter.claimUpTo({ key: KEY_A, requested: 50, capacity: 50, refillPerSecond: 0 })).toBe(50)
             expect(await limiter.claimUpTo({ key: KEY_B, requested: 10, capacity: 10, refillPerSecond: 0 })).toBe(10)
+        })
+
+        it('reports on denial how long until the missing tokens accrue', async () => {
+            // Cold start: the denying bucket holds exactly its capacity of 10, so the request
+            // for 30 is missing 20 tokens. At 2 tokens/s that is 10 seconds.
+            const claim = await limiter.claimAllOrNothingPair(
+                [
+                    { key: KEY_A, capacity: 50, refillPerSecond: 0 },
+                    { key: KEY_B, capacity: 10, refillPerSecond: 2 },
+                ],
+                30
+            )
+            expect(claim).toEqual({ granted: false, deniedIndex: 1, retryAfterMs: 10_000 })
         })
 
         it('fails closed when the Lua call throws', async () => {
@@ -244,7 +258,7 @@ describe('RateLimiterService', () => {
                 ],
                 5
             )
-            expect(claim).toEqual({ granted: false, deniedIndex: null })
+            expect(claim).toEqual({ granted: false, deniedIndex: null, retryAfterMs: null })
         })
     })
 })

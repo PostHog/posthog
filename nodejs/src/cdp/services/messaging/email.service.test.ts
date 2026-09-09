@@ -565,6 +565,72 @@ describe('EmailService', () => {
                 expect(limitedSendSpy).toHaveBeenCalled()
             })
         })
+
+        describe('team sending cap (enforce mode)', () => {
+            let claimAllOrNothingPair: jest.Mock
+            let cappedService: EmailService
+            let cappedSendSpy: jest.SpyInstance
+
+            beforeEach(() => {
+                claimAllOrNothingPair = jest.fn()
+                const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
+                jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
+                cappedService = new EmailService(
+                    {
+                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                        sesRegion: hub.SES_REGION,
+                        sesEndpoint: hub.SES_ENDPOINT,
+                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                        teamEmailCapMode: 'enforce',
+                        teamEmailTierHourlyCaps: [100],
+                        teamEmailTierDailyCaps: [200],
+                    },
+                    hub.integrationManager,
+                    configService,
+                    hub.ENCRYPTION_SALT_KEYS,
+                    hub.SITE_URL,
+                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                    new RecipientsManagerService(hub.postgres),
+                    undefined,
+                    null,
+                    { claimAllOrNothingPair } as unknown as RateLimiterService
+                )
+                cappedSendSpy = jest.spyOn(cappedService.sesV2Client!, 'send') as any
+                cappedSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            })
+
+            it.each([
+                ['parks the send until the reported refill horizon', 30 * 60 * 1000, 30 * 60 * 1000],
+                ['clamps the wake to one hour on a longer horizon', 24 * 60 * 60 * 1000, 60 * 60 * 1000],
+            ])('%s', async (_name, retryAfterMs, clampedBaseMs) => {
+                claimAllOrNothingPair.mockResolvedValue({ granted: false, deniedIndex: 1, retryAfterMs })
+
+                const before = Date.now()
+                const result = await cappedService.executeSendEmail(invocation)
+
+                expect(cappedSendSpy).not.toHaveBeenCalled()
+                expect(result.error).toBeUndefined()
+                expect(result.finished).toBe(false)
+                // The reschedule must carry the email payload forward, same as the workflow limit.
+                expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
+                const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
+                // Jitter is 1x-2x the clamped horizon; the slack absorbs scheduler overhead.
+                expect(scheduledMs).toBeGreaterThanOrEqual(before + clampedBaseMs)
+                expect(scheduledMs).toBeLessThan(before + 2 * clampedBaseMs + 5000)
+            })
+
+            it('sends when the claim is granted', async () => {
+                claimAllOrNothingPair.mockResolvedValue({ granted: true, deniedIndex: null, retryAfterMs: null })
+
+                const result = await cappedService.executeSendEmail(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(cappedSendSpy).toHaveBeenCalled()
+            })
+        })
     })
     describe('native email sending with maildev', () => {
         let invocation: CyclotronJobInvocationHogFunction
