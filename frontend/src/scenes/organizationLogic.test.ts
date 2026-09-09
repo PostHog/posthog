@@ -5,7 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { AppContext, OrganizationType } from '../types'
+import { AppContext, AvailableFeature, OrganizationType } from '../types'
 import { organizationLogic } from './organizationLogic'
 
 describe('organizationLogic', () => {
@@ -79,6 +79,34 @@ describe('organizationLogic', () => {
             })
         })
     })
+    describe('projectCreationUpgradeReason', () => {
+        // Guards the dead end this selector exists to prevent: without the entitlement check the
+        // create-project scene renders the form to an org at its plan limit, and the submit 403s.
+        const cases: [string, number, number | undefined, boolean][] = [
+            ['plan has room', 1, 2, false],
+            ['plan limit reached', 2, 2, true],
+            ['plan has no limit', 12, undefined, false],
+        ]
+        test.each(cases)('%s', (_name, projectCount, limit, expectsUpgrade) => {
+            window.POSTHOG_APP_CONTEXT = {
+                current_user: {
+                    organization: {
+                        ...MOCK_DEFAULT_ORGANIZATION,
+                        projects: Array.from({ length: projectCount }, (_, index) => ({ id: index + 1 })),
+                        available_product_features: [{ key: AvailableFeature.ORGANIZATIONS_PROJECTS, limit }],
+                    },
+                },
+            } as unknown as AppContext
+            initKeaTests()
+            logic = organizationLogic()
+            logic.mount()
+
+            expect(logic.values.projectCreationUpgradeReason).toEqual(
+                expectsUpgrade ? expect.stringContaining('Upgrade') : null
+            )
+        })
+    })
+
     describe('when a refresh of the organization fails', () => {
         const ORGANIZATION_WITH_TEAMS = {
             ...MOCK_DEFAULT_ORGANIZATION,
