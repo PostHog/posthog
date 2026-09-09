@@ -45,7 +45,7 @@ Each dataset item must use this shape:
 }
 ```
 
-`agent_mode` accepts `product_analytics` or `sql` as expectation metadata for existing dataset revisions. The task-backed runtime chooses its own tools, so the runner does not send this legacy field to the Conversations API. A negative control can set `expected_metric` to `null`. `case_id` must be unique within the selected revision. Disabled items remain in the versioned dataset but do not run.
+`agent_mode` accepts `product_analytics` or `sql` as expectation metadata for existing dataset revisions. The task-backed runtime chooses its own tools, so the runner does not send this legacy field to the Conversations API. A negative control can set `expected_metric` to `null`. `case_id` must be unique among the enabled items of the selected revision. Disabled items remain in the versioned dataset but do not run.
 
 ### Run from local ChatGPT
 
@@ -73,7 +73,7 @@ The command exits with zero only when every case completes. It exits with one fo
 
 ### Output and inspection
 
-The JSON output contains the run ID, pinned dataset revision, expected routing metadata, duration, status, conversation/trace correlation IDs, task ID, task-run ID, and direct task URLs. Failed attempts retain their task correlation when the open request succeeded. An agent failure starts a fresh attempt with new correlation and task IDs. Stream rotation or a dropped connection resumes the same task run with `Last-Event-ID` and never resends the question.
+The JSON output contains the run ID, pinned dataset revision, expected routing metadata, duration, status, conversation/trace correlation IDs, task ID, task-run ID, and direct task URLs. Failed attempts retain their task correlation when the open request succeeded. An agent failure starts a fresh attempt with new correlation and task IDs. An open request that fails before it returns a response is different: the retry reuses the same conversation ID, so a task the server created before the failure is resumed instead of duplicated. Stream rotation or a dropped connection resumes the same task run with `Last-Event-ID` and never resends the question.
 
 A turn completes when the task stream emits `_posthog/turn_complete`, asks a structured clarification question, or reaches a terminal completed state. Other permission requests and terminal failed/cancelled states fail the attempt. PostHog AI tasks remain open briefly for interactive follow-ups after a successful turn; the runner does not cancel them.
 

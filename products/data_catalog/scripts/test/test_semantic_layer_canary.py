@@ -257,6 +257,53 @@ async def test_execute_canary_retries_with_new_correlation_ids_without_leaking_c
     assert "private failure" not in serialized
 
 
+@pytest.mark.asyncio
+async def test_execute_canary_reuses_the_conversation_after_an_ambiguous_open_failure() -> None:
+    post_paths: list[str] = []
+    post_payloads: list[dict[str, object]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path.endswith("/datasets/"):
+            return _dataset_response()
+        if request.method == "GET" and request.url.path.endswith("/dataset_items/"):
+            return _items_response([_dataset_item("revenue")])
+        if request.method == "GET" and "/runs/task-run-completed/stream/" in request.url.path:
+            return _turn_complete_response()
+
+        post_paths.append(request.url.path)
+        post_payloads.append(json.loads(request.content))
+        if len(post_paths) == 1:
+            raise httpx.ConnectError("connection reset", request=request)
+        return _open_response(task_id="task-completed", task_run_id="task-run-completed", trace_id=identifiers[2])
+
+    identifiers = [
+        "00000000-0000-0000-0000-000000000001",
+        "00000000-0000-0000-0000-000000000002",
+        "00000000-0000-0000-0000-000000000003",
+    ]
+    async with PostHogCanaryClient(
+        host="https://us.posthog.test",
+        project_id=2,
+        browser_credentials=_browser_credentials(),
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        result = await execute_canary(
+            client,
+            CanaryRunConfig(dataset_name="semantic-layer-canaries-v1", run_id="run-1", max_attempts=2),
+            id_factory=_id_factory(identifiers),
+        )
+
+    assert post_paths == [
+        f"/api/projects/2/conversations/{identifiers[0]}/open/",
+        f"/api/projects/2/conversations/{identifiers[0]}/open/",
+    ]
+    assert [payload["trace_id"] for payload in post_payloads] == [identifiers[1], identifiers[2]]
+    case_result = result.cases[0]
+    assert case_result.status == "completed"
+    assert case_result.conversation_id == identifiers[0]
+    assert case_result.task_id == "task-completed"
+
+
 @pytest.mark.parametrize("disconnect_kind", ["rotation", "transport"])
 @pytest.mark.asyncio
 async def test_execute_canary_resumes_an_open_stream_without_resending_the_question(disconnect_kind: str) -> None:

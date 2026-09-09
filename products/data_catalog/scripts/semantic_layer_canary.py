@@ -582,9 +582,10 @@ async def _execute_case(
 ) -> CanaryCaseResult:
     started_at = time.monotonic()
     attempts: list[CanaryAttemptResult] = []
+    unconfirmed_conversation_id: str | None = None
 
     for attempt_number in range(1, config.max_attempts + 1):
-        conversation_id = str(id_factory())
+        conversation_id = unconfirmed_conversation_id or str(id_factory())
         trace_id = str(id_factory())
         attempt_started_at = time.monotonic()
         opened: _ConversationOpenResponse | None = None
@@ -597,6 +598,7 @@ async def _execute_case(
             )
             await client.wait_for_turn(opened)
         except CanaryError as error:
+            unconfirmed_conversation_id = conversation_id if opened is None else None
             attempts.append(
                 CanaryAttemptResult(
                     attempt=attempt_number,
