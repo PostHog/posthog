@@ -2456,17 +2456,72 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].properties["error"] == expected_error
         assert expected_error[:80] in mocked_email_messages[0].html_body
 
+    def test_send_matview_failure_digest_splits_by_view_access(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        for user in (self.user, self._create_user("restricted@posthog.com")):
+            user.partial_notification_settings = {"materialized_view_sync_failed": True}
+            user.save()
+
+        for name in ("shared_view", "restricted_view"):
+            sq = DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=name,
+                query={"query": "SELECT 1", "kind": "HogQLQuery"},
+                sync_frequency_interval=dt.timedelta(hours=1),
+            )
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=sq,
+                status=DataModelingJob.Status.FAILED,
+                error=f"{name} broke",
+                last_run_at=timezone.now(),
+            )
+
+        class FakeUserAccessControl:
+            def __init__(self, user: User, team: object) -> None:
+                self.user = user
+
+            access_controls_supported = True
+            is_organization_admin = False
+
+            def check_access_level_for_resource(self, resource: str, level: str) -> bool:
+                return True
+
+            def check_access_level_for_object(self, obj: DataWarehouseSavedQuery, required_level: str) -> bool:
+                return not (self.user.email == "restricted@posthog.com" and obj.name == "restricted_view")
+
+        with patch("posthog.tasks.email.UserAccessControl", FakeUserAccessControl):
+            send_matview_failure_digest()
+
+        assert len(mocked_email_messages) == 2
+        named = sorted(tuple(sorted(v["name"] for v in m.properties["views"])) for m in mocked_email_messages)
+        assert named == [("restricted_view", "shared_view"), ("shared_view",)]
+
+        restricted_email = next(m for m in mocked_email_messages if len(m.properties["views"]) == 1)
+        assert "restricted_view" not in restricted_email.html_body
+        assert "restricted_view broke" not in restricted_email.html_body
+
     @parameterized.expand(
         [
             (
                 "enforced",
                 True,
                 DataModelingJobEngine.CLICKHOUSE,
+                True,
                 [("suspended_view", True), ("retrying_view", False)],
                 True,
             ),
-            ("not_enforced", False, DataModelingJobEngine.CLICKHOUSE, [("retrying_view", False)], False),
-            ("shadow_marker_only", True, DataModelingJobEngine.DUCKGRES, [("retrying_view", False)], False),
+            ("not_enforced", False, DataModelingJobEngine.CLICKHOUSE, True, [("retrying_view", False)], False),
+            ("shadow_marker_only", True, DataModelingJobEngine.DUCKGRES, True, [("retrying_view", False)], False),
+            (
+                "reverted_after_suspension",
+                True,
+                DataModelingJobEngine.CLICKHOUSE,
+                False,
+                [("retrying_view", False)],
+                False,
+            ),
         ]
     )
     def test_send_matview_failure_digest_suspended_rows_follow_enforcement(
@@ -2475,6 +2530,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         _name: str,
         enforced: bool,
         marker_engine: str,
+        materialized: bool,
         expected_rows: list[tuple[str, bool]],
         expected_has_suspended: bool,
     ) -> None:
@@ -2488,6 +2544,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             name="suspended_view",
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
             sync_frequency_interval=dt.timedelta(hours=1),
+            is_materialized=materialized,
         )
         DataModelingJob.objects.create(
             team=self.team,

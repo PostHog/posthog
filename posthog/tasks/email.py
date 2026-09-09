@@ -173,6 +173,58 @@ def filter_members_by_warehouse_access(
         return memberships
 
 
+def group_members_by_visible_views(
+    memberships: list[OrganizationMembership],
+    team: Team,
+    views: list[dict],
+    queries: dict[str, DataWarehouseSavedQuery],
+) -> list[tuple[list[OrganizationMembership], list[dict]]]:
+    """Split a digest into one audience per set of views its members may open.
+
+    `filter_members_by_warehouse_access` takes one view, so a digest naming many of them can only
+    use its resource gate. A deny on a single view would then still reach every subscriber as a
+    name, an error and a link. Grouping repeats the object check `Database._is_warehouse_view_denied`
+    makes when the same member opens that view.
+
+    Each member lands in exactly one group, so every audience can share one campaign key.
+
+    Falls back to one audience holding every view when access controls are unavailable: not being
+    able to check must not silently stop the whole digest.
+    """
+    if not memberships:
+        return []
+
+    try:
+        if not UserAccessControl(memberships[0].user, team).access_controls_supported:
+            return [(memberships, views)]
+    except Exception:
+        logger.exception("Warehouse access check failed, sending one digest to all members", team_id=team.id)
+        return [(memberships, views)]
+
+    audiences: dict[tuple[str, ...], list[OrganizationMembership]] = {}
+    for membership in memberships:
+        try:
+            access = UserAccessControl(membership.user, team)
+            if access.is_organization_admin:
+                visible = tuple(str(view["id"]) for view in views)
+            else:
+                visible = tuple(
+                    str(view["id"])
+                    for view in views
+                    if access.check_access_level_for_object(queries[str(view["id"])], required_level="viewer")
+                )
+        except Exception:
+            # Dropping only the member whose check failed. Admitting them instead would name a view,
+            # its error and its link to someone the same check may be about to deny.
+            logger.exception("Warehouse access check failed for one member", team_id=team.id)
+            continue
+        if visible:
+            audiences.setdefault(visible, []).append(membership)
+
+    by_id = {str(view["id"]): view for view in views}
+    return [(members, [by_id[view_id] for view_id in visible]) for visible, members in audiences.items()]
+
+
 def get_members_to_notify_for_pipeline_error(
     team: Team, failure_rate: float = 1.0, pipeline_id: Optional[str] = None
 ) -> list[OrganizationMembership]:
@@ -1140,36 +1192,37 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
     for v in views:
         v.pop("last_run_at_ts", None)
 
-    omitted_count = max(0, len(views) - MAX_VIEWS_PER_DIGEST_EMAIL)
-    views = views[:MAX_VIEWS_PER_DIGEST_EMAIL]
-
     today = datetime.date.today().strftime("%Y-%m-%d")
     campaign_key = f"matview_failure_digest_{team_id}_{today}"
 
-    message = EmailMessage(
-        campaign_key=campaign_key,
-        subject=f"PostHog: Materialized view failures in {team.name}",
-        template_name="matview_failure_digest",
-        template_context={
-            "team": team,
-            "views": views,
-            "has_suspended": any(v["suspended"] for v in views),
-            "omitted_count": omitted_count,
-            "views_url": f"{settings.SITE_URL}/project/{team_id}/models",
-        },
-    )
+    for memberships, visible_views in group_members_by_visible_views(memberships_to_email, team, views, queries):
+        omitted_count = max(0, len(visible_views) - MAX_VIEWS_PER_DIGEST_EMAIL)
+        listed_views = visible_views[:MAX_VIEWS_PER_DIGEST_EMAIL]
 
-    for membership in memberships_to_email:
-        message.add_user_recipient(membership.user)
-    message.send()
+        message = EmailMessage(
+            campaign_key=campaign_key,
+            subject=f"PostHog: Materialized view failures in {team.name}",
+            template_name="matview_failure_digest",
+            template_context={
+                "team": team,
+                "views": listed_views,
+                "has_suspended": any(v["suspended"] for v in listed_views),
+                "omitted_count": omitted_count,
+                "views_url": f"{settings.SITE_URL}/project/{team_id}/models",
+            },
+        )
 
-    suspended_count = sum(1 for v in views if v["suspended"])
-    logger.info(
-        "Sent materialized view failure digest email for team %d: %d views (%d suspended)",
-        team_id,
-        len(views),
-        suspended_count,
-    )
+        for membership in memberships:
+            message.add_user_recipient(membership.user)
+        message.send()
+
+        logger.info(
+            "Sent materialized view failure digest email for team %d: %d views (%d suspended) to %d members",
+            team_id,
+            len(listed_views),
+            sum(1 for v in listed_views if v["suspended"]),
+            len(memberships),
+        )
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
