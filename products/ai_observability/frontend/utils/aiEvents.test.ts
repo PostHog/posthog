@@ -189,6 +189,28 @@ describe('aiEventsUtils', () => {
             expect(result).toBe(false)
         })
 
+        // Callers re-run this on a timer, so a rejection files one error tracking issue per
+        // tick. Both requests the check makes have to answer "cannot tell" instead.
+        it.each([
+            [
+                'the event definitions request fails',
+                (): void => {
+                    jest.spyOn(api.eventDefinitions, 'list').mockRejectedValue(new Error('Failed to fetch'))
+                },
+            ],
+            [
+                'the ClickHouse probe fails',
+                (): void => {
+                    jest.spyOn(api.eventDefinitions, 'list').mockResolvedValue({ results: [], count: 0 } as any)
+                    jest.spyOn(api, 'query').mockRejectedValue(new Error('Failed to fetch'))
+                },
+            ],
+        ])('answers null rather than rejecting when %s', async (_, arrange) => {
+            arrange()
+
+            await expect(hasRecentAIEvents()).resolves.toBeNull()
+        })
+
         it('handles undefined results from ClickHouse gracefully', async () => {
             useMocks({
                 get: {

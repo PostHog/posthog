@@ -118,6 +118,9 @@ describe('aiObservabilitySharedLogic', () => {
         it.each([
             [true, 'has-data'],
             [false, 'needs-setup'],
+            // A check that could not run says nothing about the team, so the gate fails open to
+            // the real scene instead of showing the setup screen to a team that has AI events.
+            [null, 'unknown'],
         ])('pushes hasSentAiEvent=%s into productSetupStatusLogic as %s', async (hasEvents, expected) => {
             mockHasRecentAIEvents.mockResolvedValue(hasEvents)
             const logic = aiObservabilitySharedLogic()
@@ -137,15 +140,47 @@ describe('aiObservabilitySharedLogic', () => {
             expect(productSetupStatusLogic({ productKey: ProductKey.AI_OBSERVABILITY }).values.status).toBe('unknown')
         })
 
-        it('a failing re-check never downgrades an existing answer', async () => {
+        it.each([
+            ['rejects', (): void => void mockHasRecentAIEvents.mockRejectedValue(new Error('query failed'))],
+            ['cannot answer', (): void => void mockHasRecentAIEvents.mockResolvedValue(null)],
+        ])('a re-check that %s never downgrades an existing answer', async (_, breakTheCheck) => {
             mockHasRecentAIEvents.mockResolvedValue(true)
             const logic = aiObservabilitySharedLogic()
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
-            mockHasRecentAIEvents.mockRejectedValue(new Error('query failed'))
+            breakTheCheck()
             logic.actions.loadAIEventDefinition()
             await expectLogic(logic).toFinishAllListeners()
             expect(productSetupStatusLogic({ productKey: ProductKey.AI_OBSERVABILITY }).values.status).toBe('has-data')
+        })
+
+        // A user parked on the empty state behind a broken connection used to re-check every 20
+        // seconds for as long as the tab stayed open. The cadence has to recover too, or a team
+        // that regains access waits minutes for the screen to flip on their first event.
+        it('doubles the re-check delay while the check cannot answer, and restores it once it can', async () => {
+            mockHasRecentAIEvents.mockResolvedValue(null)
+            jest.useFakeTimers()
+            try {
+                const logic = aiObservabilitySharedLogic()
+                logic.mount()
+                // `toFinishAllListeners` waits on a real timer, so it never settles here.
+                await jest.advanceTimersByTimeAsync(0)
+                expect(mockHasRecentAIEvents).toHaveBeenCalledTimes(1)
+
+                await jest.advanceTimersByTimeAsync(20000)
+                expect(mockHasRecentAIEvents).toHaveBeenCalledTimes(1)
+                await jest.advanceTimersByTimeAsync(20000)
+                expect(mockHasRecentAIEvents).toHaveBeenCalledTimes(2)
+
+                mockHasRecentAIEvents.mockResolvedValue(false)
+                await jest.advanceTimersByTimeAsync(80000)
+                expect(mockHasRecentAIEvents).toHaveBeenCalledTimes(3)
+
+                await jest.advanceTimersByTimeAsync(20000)
+                expect(mockHasRecentAIEvents).toHaveBeenCalledTimes(4)
+            } finally {
+                jest.useRealTimers()
+            }
         })
     })
 

@@ -27,7 +27,13 @@ export const clustersSetupLogic = createSetupDetectionLogic({
         if ((response.results?.length ?? 0) > 0) {
             return 'has-data'
         }
-        return (await hasRecentAIEvents()) ? 'waiting-for-data' : 'needs-setup'
+        const seenAiEvents = await hasRecentAIEvents()
+        if (seenAiEvents === null) {
+            // The AI-events check could not run, so the screen must not claim the product is
+            // unset up. `unknown` fails the gate open to the real scene.
+            return 'unknown'
+        }
+        return seenAiEvents ? 'waiting-for-data' : 'needs-setup'
     },
     // Runs are emitted about once a day, so a slow poll is enough to flip the
     // screen; the wizard flow is what needs the needs-setup → waiting flip.

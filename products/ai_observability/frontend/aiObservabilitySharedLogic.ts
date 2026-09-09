@@ -79,6 +79,10 @@ export interface SortState {
 
 // Cadence of the setup-detection re-check while the team has no AI events yet.
 const SETUP_POLL_INTERVAL_MS = 20000
+// Ceiling for that cadence once the check can no longer answer. A blocked connection, or a
+// project the user cannot read, does not clear within one tick, so re-asking every 20 seconds
+// for the rest of the session only burns requests.
+const SETUP_POLL_MAX_INTERVAL_MS = 5 * 60 * 1000
 
 const INITIAL_DASHBOARD_DATE_FROM = '-7d' as string | null
 const INITIAL_EVENTS_DATE_FROM = '-1h' as string | null
@@ -162,7 +166,7 @@ export interface aiObservabilitySharedLogicValues {
         dateFrom: string | null
         dateTo: string | null
     }
-    hasSentAiEvent: boolean | undefined
+    hasSentAiEvent: boolean | null | undefined
     hasSentAiEventLoading: boolean
     instrumentationVerdictApplies: (windowDays: number | null) => boolean
     propertyFilters: AnyPropertyFilter[]
@@ -201,10 +205,10 @@ export interface aiObservabilitySharedLogicActions {
         errorObject?: any
     }
     loadAIEventDefinitionSuccess: (
-        hasSentAiEvent: boolean,
+        hasSentAiEvent: boolean | null,
         payload?: any
     ) => {
-        hasSentAiEvent: boolean
+        hasSentAiEvent: boolean | null
         payload?: any
     }
     restoreSavedDashboardDates: (
@@ -414,8 +418,8 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
 
     loaders(() => ({
         hasSentAiEvent: {
-            __default: undefined as boolean | undefined,
-            loadAIEventDefinition: async (): Promise<boolean> => {
+            __default: undefined as boolean | null | undefined,
+            loadAIEventDefinition: async (): Promise<boolean | null> => {
                 return hasRecentAIEvents()
             },
         },
@@ -428,12 +432,26 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             }
         },
         loadAIEventDefinitionSuccess: ({ hasSentAiEvent }) => {
+            if (hasSentAiEvent === null) {
+                // The check could not run, so it says nothing about this team. Publish `unknown`
+                // if nothing has answered yet, which fails the gate open to the real scene, and
+                // never downgrade an answer we already have to the setup screen.
+                if (values.setupStatus === 'loading') {
+                    actions.setDetectedStatus('unknown')
+                }
+                cache.setSetupPollInterval(Math.min(cache.setupPollIntervalMs * 2, SETUP_POLL_MAX_INTERVAL_MS))
+                return
+            }
             // Feed the app-wide setup-status layer (drives the scene empty-state gate).
             actions.setDetectedStatus(hasSentAiEvent ? 'has-data' : 'needs-setup')
             if (hasSentAiEvent) {
                 cache.disposables.dispose('setupPoll')
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.IngestFirstLlmEvent)
+                return
             }
+            // The check works again, so a user still waiting on their first event gets the fast
+            // cadence back rather than staying on a backed-off one for the rest of the session.
+            cache.setSetupPollInterval(SETUP_POLL_INTERVAL_MS)
         },
         loadAIEventDefinitionFailure: () => {
             // A failing detection query must not strand the empty-state gate on its
@@ -787,14 +805,29 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             }
         }
 
-        detectAIEventsIfProjectKnown()
         // While the empty state (or its post-skip reminder banner) is up, re-check on a
         // timer so the page flips to the real product on its own once events land.
         // Disposed as soon as data is detected; paused automatically on hidden tabs.
-        cache.disposables.add(() => {
-            const id = window.setInterval(detectAIEventsIfProjectKnown, SETUP_POLL_INTERVAL_MS)
-            return () => clearInterval(id)
-        }, 'setupPoll')
+        const registerSetupPoll = (): void => {
+            cache.disposables.add(() => {
+                const id = window.setInterval(detectAIEventsIfProjectKnown, cache.setupPollIntervalMs)
+                return () => clearInterval(id)
+            }, 'setupPoll')
+        }
+        // Changing the cadence means replacing the timer, so the detection listeners go through
+        // here to back the poll off when the check cannot answer, and to restore it once it can.
+        // A call at the interval already in force leaves the running timer alone.
+        cache.setupPollIntervalMs = SETUP_POLL_INTERVAL_MS
+        cache.setSetupPollInterval = (intervalMs: number): void => {
+            if (cache.setupPollIntervalMs === intervalMs) {
+                return
+            }
+            cache.setupPollIntervalMs = intervalMs
+            registerSetupPoll()
+        }
+
+        detectAIEventsIfProjectKnown()
+        registerSetupPoll()
         globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.TrackCosts)
 
         const urlHasTestAccountsParam = 'filter_test_accounts' in router.values.searchParams
