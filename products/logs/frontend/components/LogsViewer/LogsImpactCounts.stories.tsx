@@ -24,6 +24,16 @@ function makeImpact(overrides: Partial<_LogsImpactResponseApi> = {}): _LogsImpac
         sessions: 214,
         logsWithDistinctId: 9600,
         users: 96,
+        topSessions: [
+            { value: '01936d3a-5983-7e70-b287-2f21ab1a70c1', count: 3200 },
+            { value: '01936d3a-72aa-7c3e-8f10-4a5f0d9be2d4', count: 1900 },
+            { value: '01936d3a-9c41-7b52-a6e3-1d8c27f4e0b9', count: 450 },
+        ],
+        topUsers: [
+            { value: 'user-482@example.com', count: 4100 },
+            { value: 'user-191@example.com', count: 2600 },
+        ],
+        sessionGroupKey: { source: 'log', key: 'sessionId' },
         ...overrides,
     }
 }

@@ -1,14 +1,20 @@
-import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
 
 import { UniversalFiltersGroup } from '~/types'
 
+import {
+    LogsViewerGroupBy,
+    LogsViewerViewMode,
+    logsViewerConfigLogic,
+} from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsImpactCreate } from 'products/logs/frontend/generated/api'
 import type { _LogsCountBodyApi, _LogsImpactResponseApi } from 'products/logs/frontend/generated/api.schemas'
+import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 
 import type { LogsQuery } from '../../../../../frontend/src/queries/schema/schema-general'
 
@@ -27,6 +33,7 @@ export interface logsImpactLogicValues {
         explicitDate: boolean | null | undefined
     } // logsViewerFiltersLogic
     currentTeamId: number | null // teamLogic
+    configuredSessionIdKeys: string[] | undefined // logsConfigLogic
     impact: _LogsImpactResponseApi | null
     impactLoading: boolean
 }
@@ -36,6 +43,11 @@ export interface logsImpactLogicActions {
     runQuery: (debounce?: number | undefined) => {
         debounce: number | undefined
     } // logsViewerDataLogic
+    setViewMode: (viewMode: LogsViewerViewMode) => any // logsViewerConfigLogic
+    setGroupBys: (groupBys: LogsViewerGroupBy[]) => any // logsViewerConfigLogic
+    groupBySessions: () => {
+        value: boolean
+    }
     loadImpact: (_: any) => any
     loadImpactFailure: (
         error: string,
@@ -75,9 +87,19 @@ export const logsImpactLogic = kea<logsImpactLogicType>([
             ['utcDateRange', 'queryFilterGroup', 'searchTerm', 'personId'],
             teamLogic,
             ['currentTeamId'],
+            logsConfigLogic,
+            ['configuredSessionIdKeys'],
         ],
-        actions: [logsViewerDataLogic({ id }), ['runQuery']],
+        actions: [
+            logsViewerDataLogic({ id }),
+            ['runQuery'],
+            logsViewerConfigLogic({ id }),
+            ['setViewMode', 'setGroupBys'],
+        ],
     })),
+    actions({
+        groupBySessions: true,
+    }),
     loaders(({ cache, values }) => ({
         impact: [
             null as _LogsImpactResponseApi | null,
@@ -129,11 +151,23 @@ export const logsImpactLogic = kea<logsImpactLogicType>([
             loadImpact: () => null,
         },
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         // runQuery is the viewer's execute-this-query entrypoint, so the strip refreshes with
         // the query rather than coupling to the sparkline loader's schedule. Bursts (typing)
         // collapse in loadImpact's own breakpoint.
         runQuery: () => actions.loadImpact(null),
+        groupBySessions: () => {
+            // The backend names the (source, key) dimension that carries the session ID on
+            // most matching logs, so the pivot groups by the key the data actually uses. The
+            // fallback covers a stale response: the team's first configured key, then the
+            // default the SDKs emit.
+            const groupKey = values.impact?.sessionGroupKey
+            const dimension: LogsViewerGroupBy = groupKey
+                ? { key: groupKey.key, source: groupKey.source }
+                : { key: values.configuredSessionIdKeys?.[0] ?? 'sessionId', source: 'log' }
+            actions.setGroupBys([dimension])
+            actions.setViewMode('group')
+        },
     })),
     afterMount(({ actions }) => {
         // The data logic usually mounts (and fires its initial runQuery) before this logic
