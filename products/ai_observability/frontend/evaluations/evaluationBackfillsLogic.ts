@@ -94,7 +94,10 @@ export interface evaluationBackfillsLogicValues {
     backfills: EvaluationBackfillApi[]
     backfillsError: string | null
     backfillsLoading: boolean
-    clampedWindow: { start: string; end: string } | null
+    clampedWindow: {
+        end: string
+        start: string
+    } | null
     conditions: EvaluationConditionSet[]
     conditionsDirty: boolean
     creatingBackfill: boolean
@@ -197,7 +200,10 @@ export interface evaluationBackfillsLogicMeta {
             estimate: EvaluationBackfillEstimateApi | null,
             requestedWindow: BackfillWindow | null,
             timezone: string
-        ) => { start: string; end: string } | null
+        ) => {
+            end: string
+            start: string
+        } | null
     }
 }
 
@@ -219,7 +225,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
     })),
 
     actions({
-        loadBackfills: (background = false) => ({ background }),
+        loadBackfills: (background: boolean = false) => ({ background }),
         loadBackfillsSuccess: (backfills: EvaluationBackfillApi[]) => ({ backfills }),
         loadBackfillsFailure: (error: string) => ({ error }),
         requestEstimate: true,
