@@ -15,17 +15,24 @@ def _trends_call(
     breakdown: str | None = None,
     events: list[str] | None = None,
     status: str = "completed",
+    compare: bool | None = None,
 ) -> tuple:
     query: dict = {"series": [{"kind": "EventsNode", "event": e} for e in (events or ["$pageview"])]}
     if display is not None:
         query["trendsFilter"] = {"display": display}
     if breakdown is not None:
         query["breakdownFilter"] = {"breakdowns": [{"property": breakdown, "type": "event"}]}
+    if compare is not None:
+        query["compareFilter"] = {"compare": compare}
     return ("mcp__posthog__query-trends", query, "ok", status)
 
 
-def _funnel_call(events: list[str], breakdown: str | None = None, viz: str | None = None) -> tuple:
-    query: dict = {"series": [{"kind": "EventsNode", "event": e} for e in events], "funnelsFilter": {}}
+def _funnel_call(
+    events: list[str], breakdown: str | None = None, viz: str | None = None, include_filter: bool = True
+) -> tuple:
+    query: dict = {"series": [{"kind": "EventsNode", "event": e} for e in events]}
+    if include_filter or viz is not None:
+        query["funnelsFilter"] = {}
     if viz is not None:
         query["funnelsFilter"]["funnelVizType"] = viz
     if breakdown is not None:
@@ -61,10 +68,16 @@ PAGEVIEWS_BY_BROWSER = {
             [],
         ),
         (
+            [_trends_call("ActionsLineGraph", "$browser"), _trends_call("BoldNumber", "$browser")],
+            PAGEVIEWS_BY_BROWSER,
+            0.0,
+            ["display"],
+        ),
+        (
             [_funnel_call(["signed_up", "uploaded_file"], viz="trends"), _funnel_call(["signed_up", "uploaded_file"])],
             {"tool": "query-funnel", "funnel_viz": "trends"},
-            1.0,
-            [],
+            0.0,
+            ["funnel_viz"],
         ),
         ([_sql_call()], PAGEVIEWS_BY_BROWSER, 0.0, ["tool"]),
         ([_trends_call("ActionsLineGraph", "$browser"), _sql_call()], {"tool": "execute-sql"}, 0.0, ["tool"]),
@@ -99,7 +112,24 @@ PAGEVIEWS_BY_BROWSER = {
         ([_funnel_call(["signed_up", "uploaded_file"], viz="trends")], {"funnel_viz": "trends"}, 1.0, []),
         ([_funnel_call(["signed_up", "uploaded_file"])], {"funnel_viz": "trends"}, 0.0, ["funnel_viz"]),
         ([_funnel_call(["signed_up", "uploaded_file"])], {"funnel_viz": "steps"}, 1.0, []),
+        (
+            [_funnel_call(["signed_up", "uploaded_file"], include_filter=False)],
+            {"funnel_viz": "steps"},
+            1.0,
+            [],
+        ),
+        ([_trends_call("Metric", compare=True)], {"compare": True}, 1.0, []),
+        ([_trends_call("Metric")], {"compare": True}, 0.0, ["compare"]),
         ([_sql_call()], {"tool": "execute-sql"}, 1.0, []),
+        (
+            [
+                _sql_call(),
+                ("mcp__posthog__execute-sql", {"query": "SELECT * FROM system.information_schema.tables"}, "ok"),
+            ],
+            {"tool": "execute-sql"},
+            1.0,
+            [],
+        ),
         (
             [("mcp__posthog__read-data-schema", {"query": {"kind": "events"}}, "ok")],
             {"tool": "query-trends"},

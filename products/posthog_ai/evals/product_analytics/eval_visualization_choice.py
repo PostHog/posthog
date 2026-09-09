@@ -3,8 +3,8 @@
 Two preferences the tool descriptions steer toward: a single number over a period
 gets the ``Metric`` display rather than ``BoldNumber``, and a question about how
 conversion changes over time gets a funnel with ``funnelVizType: trends`` rather
-than ``steps``. ``InsightShape`` checks the tool, display, and funnel viz of the
-typed query the agent ran.
+than ``steps``. ``InsightShape`` checks the answer query's tool, display,
+comparison, funnel view, and events.
 
 To run:
     flox activate -- bash -c "set -a; source .env; set +a; hogli evals eval_visualization_choice --max-sandboxes 1"
@@ -32,6 +32,7 @@ async def eval_visualization_choice(ctx: EvalContext) -> None:
             "What's the total number of signups in the last 30 days?",
             tool="query-trends",
             display="Metric",
+            compare=True,
             events=["signed_up"],
         ),
         _case(
@@ -39,6 +40,7 @@ async def eval_visualization_choice(ctx: EvalContext) -> None:
             "How many files were uploaded in the last 24 hours?",
             tool="query-trends",
             display="Metric",
+            compare=True,
             events=["uploaded_file"],
         ),
         _case(

@@ -20,7 +20,12 @@ from pydantic import BaseModel
 
 from posthog.schema import AssistantFunnelsQuery, AssistantRetentionQuery, AssistantTrendsQuery
 
-from products.posthog_ai.eval_harness.log_parser import INFO_SYNTHETIC_PREFIX, LogParser, ToolCall
+from products.posthog_ai.eval_harness.log_parser import (
+    INFO_SYNTHETIC_PREFIX,
+    LogParser,
+    ToolCall,
+    is_schema_discovery_call,
+)
 from products.posthog_ai.eval_harness.scorers import (
     BINARY_CHOICE_SCORES,
     GRADED_ALIGNMENT_CHOICE_SCORES,
@@ -720,20 +725,18 @@ _ANSWER_TOOL_SCHEMAS: dict[str, type[BaseModel]] = {
 
 
 class InsightShape(Scorer):
-    """Binary: did the agent run an insight query with the expected skeleton?
+    """Binary: did the agent's answer query have the expected skeleton?
 
-    Candidates are the successful ``TYPED_QUERY_TOOLS`` calls to an accepted tool, or
-    the ``execute-sql`` calls when the agent never ran a typed tool. The case passes
-    when any candidate matches, so a validation query after the answer (a ``steps``
-    funnel to double-check a ``trends`` one) does not fail it. SQL after a typed query
-    is ignored: the desktop agent can only chart an unsaved answer as a ``<hogql>``
-    block, so it re-runs its typed query as SQL to render it.
+    The most recent successful typed query is the answer query. A later SQL call is
+    ignored because the desktop agent can rerun a typed query as SQL to render it.
+    When no typed query ran, the most recent non-discovery SQL call is the answer.
 
     Reads ``expected["insight_shape"]`` and checks only the keys it sets:
 
     - ``tool``: accepted names for the chosen query tool.
     - ``display``: accepted ``trendsFilter.display`` values; an omitted display counts as
       the tool default (``ActionsLineGraph``).
+    - ``compare``: whether a trends query compares with the previous period.
     - ``funnel_viz``: accepted ``funnelsFilter.funnelVizType`` values; omitted counts as ``steps``.
     - ``breakdown``: the breakdown property name, or ``None`` to require no breakdown.
     - ``events``: the multiset of series events, in any order.
@@ -754,38 +757,39 @@ class InsightShape(Scorer):
         parser = parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
-        successful = [c for c in parser.get_tool_calls() if not c.is_error]
-        typed = [c for c in successful if c.name in TYPED_QUERY_TOOLS]
-        sql = [c for c in successful if c.name == "execute-sql"]
-        candidates = typed or sql
-        if not candidates:
+        successful = [
+            call
+            for call in parser.get_tool_calls()
+            if not call.is_error
+            and (call.name in TYPED_QUERY_TOOLS or call.name == "execute-sql")
+            and not is_schema_discovery_call(call)
+        ]
+        if not successful:
             return Score(name=self._name(), score=0.0, metadata={"reason": "Agent never ran an insight tool"})
-        results = [(call.name, self._mismatches(call, shape)) for call in candidates]
-        best_actual, best_mismatches = min((m for _, m in results), key=lambda m: len(m[1]))
-        return Score(
-            name=self._name(),
-            score=0.0 if best_mismatches else 1.0,
-            metadata={
-                "actual": best_actual,
-                "expected": shape,
-                "mismatches": best_mismatches,
-                "candidates": [{"tool": name, "mismatches": sorted(m[1])} for name, m in results],
-            },
-        )
+        typed = [call for call in successful if call.name in TYPED_QUERY_TOOLS]
+        answer = typed[-1] if typed else successful[-1]
 
-    @staticmethod
-    def _mismatches(call: ToolCall, shape: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-        query = _query_of(call)
-        actual = {
-            "tool": call.name,
-            "display": _actual_display(query),
-            "funnel_viz": _actual_funnel_viz(query),
+        query = _query_of(answer)
+        actual: dict[str, Any] = {
+            "tool": answer.name,
+            "display": _actual_display(query, answer.name),
+            "compare": _actual_compare(query, answer.name),
+            "funnel_viz": _actual_funnel_viz(query, answer.name),
             "breakdown": _actual_breakdown(query),
             "event_sequence": _actual_events(query),
         }
         actual["events"] = sorted(actual["event_sequence"], key=str)
-        checked = shape if call.name in SERIES_QUERY_TOOLS else {"tool": shape.get("tool")}
-        return actual, {key: actual[key] for key in checked if not _shape_field_matches(key, checked[key], actual)}
+        checked = shape if answer.name in SERIES_QUERY_TOOLS else {"tool": shape.get("tool")}
+        mismatches = {
+            key: actual.get(key)
+            for key, expected_value in checked.items()
+            if not _shape_field_matches(key, expected_value, actual)
+        }
+        return Score(
+            name=self._name(),
+            score=0.0 if mismatches else 1.0,
+            metadata={"actual": actual, "expected": shape, "mismatches": mismatches},
+        )
 
 
 def _query_of(call: ToolCall) -> dict[str, Any]:
@@ -804,28 +808,35 @@ def _shape_field_matches(key: str, expected_value: Any, actual: dict[str, Any]) 
     if key in ("tool", "display", "funnel_viz"):
         accepted = expected_value if isinstance(expected_value, list | tuple | set) else [expected_value]
         return actual[key] in {str(item) for item in accepted}
-    if key == "breakdown":
-        return actual["breakdown"] == expected_value
+    if key in ("compare", "breakdown"):
+        return actual[key] == expected_value
     if key == "events":
-        return sorted(expected_value, key=str) == actual["events"]
+        return isinstance(expected_value, list) and sorted(expected_value, key=str) == actual["events"]
     if key == "event_sequence":
-        return list(expected_value) == actual["event_sequence"]
+        return isinstance(expected_value, list) and expected_value == actual["event_sequence"]
     return False
 
 
-def _actual_display(query: dict[str, Any]) -> str | None:
-    if "series" not in query or "funnelsFilter" in query:
+def _actual_display(query: dict[str, Any], tool_name: str) -> str | None:
+    if tool_name != QUERY_TRENDS_TOOL_NAME:
         return None
     trends_filter = query.get("trendsFilter")
     display = trends_filter.get("display") if isinstance(trends_filter, dict) else None
     return display if isinstance(display, str) and display else DEFAULT_TRENDS_DISPLAY
 
 
-def _actual_funnel_viz(query: dict[str, Any]) -> str | None:
-    funnels_filter = query.get("funnelsFilter")
-    if not isinstance(funnels_filter, dict):
+def _actual_compare(query: dict[str, Any], tool_name: str) -> bool | None:
+    if tool_name != QUERY_TRENDS_TOOL_NAME:
         return None
-    viz = funnels_filter.get("funnelVizType")
+    compare_filter = query.get("compareFilter")
+    return isinstance(compare_filter, dict) and compare_filter.get("compare") is True
+
+
+def _actual_funnel_viz(query: dict[str, Any], tool_name: str) -> str | None:
+    if tool_name != QUERY_FUNNEL_TOOL_NAME:
+        return None
+    funnels_filter = query.get("funnelsFilter")
+    viz = funnels_filter.get("funnelVizType") if isinstance(funnels_filter, dict) else None
     return str(viz) if viz else DEFAULT_FUNNEL_VIZ
 
 

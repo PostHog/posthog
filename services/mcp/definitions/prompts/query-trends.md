@@ -221,7 +221,7 @@ Examples of using breakdowns:
 
 # Examples
 
-## How many users signed up in the last 30 days?
+## How many signups were there in the last 30 days?
 
 A single number over a period gets the `Metric` display: the headline plus how it moved against the previous period.
 
@@ -342,4 +342,4 @@ A single number over a period gets the `Metric` display: the headline plus how i
 - Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.
 - Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.
 - When using group aggregations (unique groups), always set `math_group_type_index` to the appropriate group type index from the group mapping.
-- Visualization settings (display type, axis format, etc.) should only be specified when explicitly requested or when they significantly improve the answer. The one exception is a single-number answer: set `trendsFilter.display` to `Metric`, and use `BoldNumber` only when a trend is meaningless.
+- Visualization settings (display type, axis format, etc.) should only be specified when explicitly requested or when they significantly improve the answer. The one exception is a single-number answer: set `trendsFilter.display` to `Metric` and `compareFilter.compare` to `true`. Use `BoldNumber` only when a trend is meaningless.
