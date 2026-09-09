@@ -27,6 +27,15 @@ const SATURATION_FLOOR = 0.2
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
 const WORLD_MAP_TOOLTIP_OFFSET_PX = 8
 
+function CountryLabel({ countryCode }: { countryCode: string }): JSX.Element {
+    return (
+        <div className="flex items-center font-semibold">
+            <span className="text-xl mr-2">{countryCodeToFlag(countryCode)}</span>
+            <span className="whitespace-nowrap">{COUNTRY_CODE_TO_LONG_NAME[countryCode]}</span>
+        </div>
+    )
+}
+
 function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGElement> {
     const { insightProps } = useValues(insightLogic)
     const { series, trendsFilter, breakdownFilter, isTooltipShown, currentTooltip, tooltipCoordinates } = useValues(
@@ -54,7 +63,13 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
         const [tooltipRoot] = getTooltip()
         tooltipRoot.render(
             <>
-                {currentTooltip && (
+                {currentTooltip && !currentTooltip[1] && (
+                    <div className="InsightTooltip p-2">
+                        <CountryLabel countryCode={currentTooltip[0]} />
+                        <div className="text-secondary">No data for this country in this date range</div>
+                    </div>
+                )}
+                {currentTooltip && currentTooltip[1] && (
                     <InsightTooltip
                         seriesData={[
                             {
@@ -63,18 +78,13 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                                 id: 1,
                                 order: 1,
                                 breakdown_value: currentTooltip[0],
-                                count: currentTooltip[1]?.aggregated_value || 0,
+                                count: currentTooltip[1].aggregated_value,
                             },
                         ]}
                         breakdownFilter={breakdownFilter}
                         renderSeries={(_: React.ReactNode, datum: SeriesDatum) =>
                             typeof datum.breakdown_value === 'string' && (
-                                <div className="flex items-center font-semibold">
-                                    <span className="text-xl mr-2">{countryCodeToFlag(datum.breakdown_value)}</span>
-                                    <span className="whitespace-nowrap">
-                                        {COUNTRY_CODE_TO_LONG_NAME[datum.breakdown_value]}
-                                    </span>
-                                </div>
+                                <CountryLabel countryCode={datum.breakdown_value} />
                             )
                         }
                         renderCount={(value: number) => (
@@ -82,7 +92,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                         )}
                         showHeader={false}
                         hideColorCol
-                        hideInspectActorsSection={!showPersonsModal || !currentTooltip[1]}
+                        hideInspectActorsSection={!showPersonsModal}
                         groupTypeLabel={aggregationLabel(series?.[0]?.math_group_type_index).plural}
                     />
                 )}

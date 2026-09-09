@@ -3003,11 +3003,11 @@ const handleQuerySourceUpdateSideEffects = (
         display !== maybeChangedDisplay &&
         maybeChangedDisplay === ChartDisplayType.WorldMap
     ) {
-        const math = (maybeChangedSeries || (currentState as TrendsQuery).series)?.[0]?.math
-
+        // Always break down by the event-level country code. The person-level GeoIP properties are much sparser,
+        // so a person breakdown makes countries that have users read as zero on the map.
         ;(mergedUpdate as TrendsQuery).breakdownFilter = {
             breakdown: '$geoip_country_code',
-            breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math || '') ? 'person' : 'event',
+            breakdown_type: 'event',
         }
     }
 

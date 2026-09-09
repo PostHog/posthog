@@ -715,6 +715,28 @@ describe('insightVizDataLogic', () => {
             })
             expect((builtInsightVizDataLogic.values.querySource as TrendsQuery).breakdownFilter).toBeUndefined()
         })
+
+        test.each([
+            BaseMathType.TotalCount,
+            BaseMathType.UniqueUsers,
+            BaseMathType.WeeklyActiveUsers,
+            BaseMathType.MonthlyActiveUsers,
+        ])('breaks the world map down by the event-level country code for %s math', async (math) => {
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [{ kind: NodeKind.EventsNode, event: '$pageview', math }],
+                } as Partial<TrendsQuery>)
+            }).toFinishAllListeners()
+
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateInsightFilter({ display: ChartDisplayType.WorldMap })
+            }).toFinishAllListeners()
+
+            expect((builtInsightVizDataLogic.values.querySource as TrendsQuery).breakdownFilter).toEqual({
+                breakdown: '$geoip_country_code',
+                breakdown_type: 'event',
+            })
+        })
     })
 
     describe('activeUsersMath', () => {
