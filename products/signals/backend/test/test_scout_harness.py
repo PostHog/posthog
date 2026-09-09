@@ -2736,6 +2736,8 @@ async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_canno
         assert resume.call_args.kwargs["origin_key"] == workflow_origin_key
         assert resume.call_args.kwargs["status"] == (outcome if outcome in ("completed", "cancelled") else "failed")
         assert resume.call_args.kwargs["raise_on_error"] is True
+
+
 class TestScoutCosts(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -2854,6 +2856,8 @@ class TestScoutCosts(BaseTest):
         assert costs.available
         assert costs.scouts == []
         query.assert_not_called()
+
+
 class TestScoutRunTokenCosts(BaseTest):
     """The staff-only per-run cost read behind the roster's run tooltips."""
 

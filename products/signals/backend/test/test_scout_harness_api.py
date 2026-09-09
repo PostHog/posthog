@@ -575,6 +575,31 @@ class TestScoutHarnessScoutCostsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         query.assert_not_called()
 
+    def test_child_scoped_api_key_cannot_read_parent_costs(self) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        self._make_staff()
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="child-scoped",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=["signal_scout:read"],
+            scoped_teams=[child.id],
+        )
+        self.client.logout()
+
+        with patch(_SCOUT_COSTS_QUERY) as query:
+            response = self.client.get(
+                f"/api/projects/{child.id}/signals/scout/runs/costs/",
+                HTTP_AUTHORIZATION=f"Bearer {raw}",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        query.assert_not_called()
+
     def test_unsupported_window_is_refused_rather_than_silently_widened(self) -> None:
         # The parameter exists so a detail page can ask for 30 days later. Until it can, a request
         # for 30 must not come back as a 7-day number labelled 30.

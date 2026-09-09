@@ -62,6 +62,37 @@ class TestTaskUsageQueryTagging(SimpleTestCase):
 
         assert team_get.call_args.kwargs["pk"] == expected_team_id
 
+    def test_costs_are_unavailable_outside_a_billing_region(self) -> None:
+        with (
+            self.settings(CLOUD_DEPLOYMENT="DEV", TEST=False),
+            patch.object(task_usage.Team.objects, "get") as team_get,
+        ):
+            with self.assertRaises(task_usage.TaskTokenUsageUnavailable):
+                task_usage.get_local_task_run_token_costs(
+                    team_id=1,
+                    origin_product="signals_scout",
+                    generated_after=datetime(2026, 8, 1, tzinfo=UTC),
+                    product=Product.SIGNALS,
+                )
+
+        team_get.assert_not_called()
+
+    def test_window_costs_fail_when_the_safe_row_limit_is_exceeded(self) -> None:
+        rows = [("run-1", 1), ("run-2", 2), ("run-3", 3)]
+        with (
+            self.settings(CLOUD_DEPLOYMENT="US"),
+            patch.object(task_usage, "MAX_TASK_RUN_COST_ROWS", 2),
+            patch.object(task_usage.Team.objects, "get", return_value=object()),
+            patch.object(task_usage, "execute_hogql_query", return_value=SimpleNamespace(results=rows)),
+        ):
+            with self.assertRaises(task_usage.TaskTokenUsageUnavailable):
+                task_usage.get_local_task_run_token_costs(
+                    team_id=1,
+                    origin_product="signals_scout",
+                    generated_after=datetime(2026, 8, 1, tzinfo=UTC),
+                    product=Product.SIGNALS,
+                )
+
 
 class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:

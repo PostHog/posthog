@@ -127,7 +127,7 @@ def _get_cross_region_task_token_cost(*, team_id: int, task_id: UUID, task_creat
 # generations land in that region's own project. Same mapping AI credit billing reads
 # (`CLOUD_REGION_TO_TEAM_ID` in `posthog/tasks/usage_report.py`), kept separately because that
 # module imports this product's facade. `LLM_ANALYTICS_INTERNAL_TEAM_ID` is 2 in every region, so
-# it can't answer this on its own — it stays the fallback for a deployment that isn't US or EU.
+# it cannot identify a billing project outside US or EU Cloud.
 INTERNAL_LLM_ANALYTICS_TEAM_ID_BY_REGION = {"EU": 1, "US": 2}
 
 
@@ -137,9 +137,15 @@ def _internal_llm_analytics_team() -> Team:
     A deployment with no such project has nothing to read, and callers must surface that as
     unknown rather than as zero spend.
     """
-    team_id = INTERNAL_LLM_ANALYTICS_TEAM_ID_BY_REGION.get(
-        settings.CLOUD_DEPLOYMENT or "", settings.LLM_ANALYTICS_INTERNAL_TEAM_ID
-    )
+    region = (settings.CLOUD_DEPLOYMENT or "").upper()
+    team_id = INTERNAL_LLM_ANALYTICS_TEAM_ID_BY_REGION.get(region)
+    if team_id is None:
+        # Tests override this value with their fixture project. Other deployments do not have a
+        # configured region-local billing project, so project 2 can be an unrelated project.
+        if settings.TEST:
+            team_id = settings.LLM_ANALYTICS_INTERNAL_TEAM_ID
+        else:
+            raise TaskTokenUsageUnavailable("This deployment has no internal AI observability project")
     try:
         return Team.objects.get(pk=team_id)
     except Team.DoesNotExist as error:
@@ -217,7 +223,7 @@ def get_local_task_run_token_costs(
         "team_id": ast.Constant(value=str(team_id)),
         # The group-by yields at most one row per run, but a limit-less select is capped at 100
         # rows, and both paths can cover more runs than that.
-        "row_limit": ast.Constant(value=len(task_run_ids) if task_run_ids is not None else MAX_TASK_RUN_COST_ROWS),
+        "row_limit": ast.Constant(value=len(task_run_ids) if task_run_ids is not None else MAX_TASK_RUN_COST_ROWS + 1),
         "run_filter": (
             parse_expr(
                 "in(toString(properties.task_run_id), {task_run_ids})",
@@ -248,7 +254,10 @@ def get_local_task_run_token_costs(
             team=_internal_llm_analytics_team(),
             query_type="TaskRunUsageTokenCost",
         )
-    return {str(row[0]): Decimal(str(row[1])) for row in (result.results or []) if row[0] and row[1] is not None}
+    rows = result.results or []
+    if task_run_ids is None and len(rows) > MAX_TASK_RUN_COST_ROWS:
+        raise TaskTokenUsageUnavailable("The task-run cost result exceeded its safe row limit")
+    return {str(row[0]): Decimal(str(row[1])) for row in rows if row[0] and row[1] is not None}
 
 
 def _get_task_compute_cost(*, team_id: int, task_id: UUID) -> Decimal:

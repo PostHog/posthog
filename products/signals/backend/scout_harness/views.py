@@ -446,12 +446,35 @@ def _resolve_emission_report_links(
     return links
 
 
+class ScoutCanonicalTeamAccessPermission(BasePermission):
+    """Authorize requests against the project that owns the scout data."""
+
+    message = "You don't have access to the project that owns this data."
+
+    def has_permission(self, request: Request, view) -> bool:
+        if not request.user.is_authenticated:
+            return True
+        team = view.team
+        if team.parent_team_id is None or team.parent_team_id == team.id or team.parent_team is None:
+            return True
+        authenticator = request.successful_authenticator
+        scoped_teams = None
+        if isinstance(authenticator, OAuthAccessTokenAuthentication):
+            scoped_teams = authenticator.access_token.scoped_teams
+        elif isinstance(authenticator, PersonalAPIKeyAuthentication):
+            scoped_teams = authenticator.personal_api_key.scoped_teams
+        if scoped_teams and team.parent_team_id not in scoped_teams:
+            return False
+        level = view.user_permissions.team(team.parent_team).effective_membership_level
+        return level is not None
+
+
 class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Run history + finding emission for the headless agent."""
 
     serializer_class = SignalScoutRunSummarySerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "signal_scout"
     # `.unscoped()` bypasses the fail-closed TeamScopedManager; this class-attribute queryset
     # evaluates at module-load time (before any request → no team context). All read paths
@@ -1386,42 +1409,6 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = request.validated_data
         removed = forget(team_id=_canonical_team_id(self), key=data["key"])
         return Response(ForgetResponseSerializer({"deleted": removed}).data)
-
-
-class ScoutCanonicalTeamAccessPermission(BasePermission):
-    """Authorize against the canonical (data-owning) team, not just the URL environment team.
-
-    Scout notes are `TeamScopedRootMixin` rows that canonicalize to the parent (project-root)
-    team on save, so a request made against a child environment reads and writes the PARENT's
-    rows (`_canonical_team_id`). The default team gate only checks membership / token
-    team-scope for the URL team, so a user or key scoped solely to a child environment would
-    be authorized against one team while touching another's rows. Re-anchor both checks to
-    the canonical team. Mirrors `StamphogCanonicalTeamAccessPermission`. Root teams (no
-    parent) are unaffected — the default checks already cover them.
-    """
-
-    message = "You don't have access to the project that owns this data."
-
-    def has_permission(self, request: Request, view) -> bool:
-        if not request.user.is_authenticated:
-            return True  # IsAuthenticated handles the unauthenticated case first
-        team = view.team
-        if team.parent_team_id is None or team.parent_team_id == team.id or team.parent_team is None:
-            return True
-        # A team-scoped token must cover the CANONICAL team too: the default scope check
-        # accepted the URL (child) team, but the rows read and written belong to the parent.
-        authenticator = request.successful_authenticator
-        scoped_teams = None
-        if isinstance(authenticator, OAuthAccessTokenAuthentication):
-            scoped_teams = authenticator.access_token.scoped_teams
-        elif isinstance(authenticator, PersonalAPIKeyAuthentication):
-            scoped_teams = authenticator.personal_api_key.scoped_teams
-        if scoped_teams and team.parent_team_id not in scoped_teams:
-            return False
-        # Same helper the default gate uses, re-pointed at the parent. It accounts for a
-        # private parent team, so None means genuinely no access -> 403.
-        level = view.user_permissions.team(team.parent_team).effective_membership_level
-        return level is not None
 
 
 class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
