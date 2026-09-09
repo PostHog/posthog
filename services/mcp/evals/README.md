@@ -47,7 +47,8 @@ LIVE_POSTHOG_URL=http://localhost:8000 LIVE_MCP_TOKEN=phx_... \
 ```
 
 Run it before every agent-mode run.
-It is idempotent, and it also clears the keys the create tasks write, so running it again resets the project and a second benchmark run starts where the first one did.
+It is idempotent over the keys it owns: it rewrites every flag in `fixtures.feature_flags` and clears the keys in `fixtures.absent_feature_flags`, so those tasks start a second run where they started the first.
+`flag-create-routes-to-experiment` is the exception. The agent picks the key of the flag its experiment manages, so the seeder cannot name that key in `absent_feature_flags`, and the experiment and flag from an earlier run are still there on the next one. Delete them by hand when a rerun needs a clean project.
 Probe mode needs no seeding — probes are read-only.
 
 Two things to get right:

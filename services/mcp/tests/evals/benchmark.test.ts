@@ -93,6 +93,25 @@ describe('MCP eval benchmark fixtures', () => {
             fixtures: { feature_flags: [{ ...FLAG_FIXTURE, activee: true }] },
             parses: false,
         },
+        // `clearFlag` soft-deletes whatever key it is handed, so a fixture key without
+        // the prefix would delete one of the project's real flags rather than a fixture.
+        {
+            name: 'a fixture key missing the mcp-eval- prefix',
+            fixtures: { feature_flags: [{ ...FLAG_FIXTURE, key: 'billing-killswitch' }] },
+            parses: false,
+        },
+        {
+            name: 'an absent-flag key missing the mcp-eval- prefix',
+            fixtures: { ...FIXTURES_BLOCK, absent_feature_flags: ['billing-killswitch'] },
+            parses: false,
+        },
+        // The API disables a flag on the way to archiving it, so the seeder cannot leave
+        // a flag in both states and a fixture asking for both describes nothing.
+        {
+            name: 'a fixture that is both archived and active',
+            fixtures: { feature_flags: [{ ...FLAG_FIXTURE, active: true, archived: true }] },
+            parses: false,
+        },
     ])('the schema accepts $name: $parses', ({ fixtures, parses }) => {
         expect(BenchmarkFileSchema.safeParse({ version: 2, fixtures, tasks: [TASK] }).success).toBe(parses)
     })

@@ -4,9 +4,14 @@
  *
  * Run it before every agent-mode run. Without it the feature-flag tasks score tool
  * selection only: the flags they name do not exist, so the state change half of each
- * `success_criteria` cannot be judged. Run it again after a run to reset — it is
- * idempotent, and it clears the keys the create tasks write, so a second run starts
- * where the first one did.
+ * `success_criteria` cannot be judged. Run it again after a run to reset. It is
+ * idempotent over the keys it owns: every flag in `fixtures.feature_flags` is rewritten
+ * and every key in `fixtures.absent_feature_flags` is cleared, so those tasks start a
+ * second run where they started the first.
+ *
+ * `flag-create-routes-to-experiment` is the exception. The agent picks the key of the
+ * flag its experiment manages, so the seeder cannot name that key in
+ * `absent_feature_flags`, and that task's experiment and flag accumulate across runs.
  *
  * It talks to the REST API rather than to the MCP server on purpose: the tools under
  * test must not also be the thing that builds the state they are measured against.
@@ -26,6 +31,7 @@
  */
 
 import process from 'node:process'
+import { parseArgs } from 'node:util'
 
 import { type BenchmarkFlagFixture, FIXTURE_TAG, loadBenchmark } from '../benchmark/schema'
 
@@ -150,32 +156,25 @@ const PROJECT_FLAG = '--project'
  * through to the token's current project, so a typo would seed a project nobody named.
  */
 function parseProjectFlag(args: string[]): number | null {
-    const values: string[] = []
-    let expectValue = false
-    for (const arg of args) {
-        if (expectValue) {
-            values.push(arg)
-            expectValue = false
-        } else if (arg === PROJECT_FLAG) {
-            expectValue = true
-        } else if (arg.startsWith(`${PROJECT_FLAG}=`)) {
-            values.push(arg.slice(PROJECT_FLAG.length + 1))
-        } else {
-            throw new Error(`unknown argument "${arg}" — usage: seed.ts [${PROJECT_FLAG} <id>]`)
-        }
-    }
-    if (expectValue) {
-        values.push('')
-    }
-    if (values.length === 0) {
+    // `strict` rejects an unknown argument, a stray positional and a missing value, so a
+    // typo stops the run instead of falling through to the token's current project. The
+    // seeder writes six flags and soft-deletes one, so the wrong project is not
+    // recoverable by rerunning it.
+    const { values } = parseArgs({
+        args,
+        options: { project: { type: 'string', multiple: true } },
+        strict: true,
+        allowPositionals: false,
+    })
+    const given = values.project ?? []
+    if (given.length === 0) {
         return null
     }
-    if (values.length > 1) {
-        throw new Error(`${PROJECT_FLAG} was given ${values.length} times`)
+    if (given.length > 1) {
+        throw new Error(`${PROJECT_FLAG} was given ${given.length} times`)
     }
-    const raw = values[0]
-    const id = Number(raw)
-    if (!raw || !Number.isInteger(id) || id <= 0) {
+    const id = Number(given[0])
+    if (!given[0] || !Number.isInteger(id) || id <= 0) {
         throw new Error(`${PROJECT_FLAG} requires a positive integer project id`)
     }
     return id
