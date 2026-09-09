@@ -44,6 +44,7 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
 )
 from posthog.models import User
+from posthog.models.integration import Integration
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.permissions import get_authenticator_scopes
@@ -59,8 +60,6 @@ from posthog.tasks.alerts.utils import (
 )
 from posthog.utils import relative_date_parse
 
-from products.alerts.backend.destination_configs import DestinationType
-from products.alerts.backend.destinations import count_active_alert_destinations
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.evaluation.validation import (
@@ -69,9 +68,21 @@ from products.alerts.backend.evaluation.validation import (
     validate_alert_config,
 )
 from products.alerts.backend.facade.api import (
+    INSIGHT_ALERT_DESTINATION_TYPES,
+    INSIGHT_ALERT_EVENT_IDS,
+    MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
+    MAX_DESTINATIONS_PER_ALERT,
+    AlertDestinationData,
+    AlertDestinationValidationError,
+    DestinationType,
     ForecastCapacityUnavailable,
     ForecastSimulationCapacityExceeded,
+    build_insight_alert_slack_config,
+    count_active_alert_destinations,
+    create_alert_destination_hog_functions,
     simulate_forecast_on_insight,
+    soft_delete_alert_destinations,
+    validate_destination_data,
     validate_forecast_horizon,
 )
 from products.alerts.backend.insight_alert_state_machine import (
@@ -88,8 +99,6 @@ from products.product_analytics.backend.facade.models import (
     insight_queryset,
     resolve_insight_by_id_or_short_id,
 )
-
-INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 
 
 def _requires_future_target_date(
@@ -1098,6 +1107,56 @@ class AlertTestDeliveryResponseSerializer(serializers.Serializer):
     )
 
 
+class AlertCreateDestinationSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=INSIGHT_ALERT_DESTINATION_TYPES,
+        default=DestinationType.SLACK,
+        help_text="Destination type. Slack is the only type this endpoint creates.",
+    )
+    slack_workspace_id = serializers.IntegerField(
+        help_text="Integration ID of the Slack workspace to post in. List them with the integrations endpoint."
+    )
+    slack_channel_id = serializers.CharField(help_text="Slack channel ID to post in, for example C0123456789.")
+    slack_channel_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Channel name shown on the destination, for example product-alerts.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        data = cast(AlertDestinationData, attrs)
+        data["type"] = DestinationType(attrs["type"])
+        try:
+            validate_destination_data(data, allowed_destination_types=INSIGHT_ALERT_DESTINATION_TYPES)
+        except AlertDestinationValidationError as error:
+            if error.field:
+                raise ValidationError({error.field: error.message})
+            raise ValidationError(error.message)
+
+        # The runtime refuses another team's integration anyway, so without this the destination
+        # is created and then silently never posts.
+        team = self.context["get_team"]()
+        if not Integration.objects.filter(team=team, id=attrs["slack_workspace_id"], kind="slack").exists():
+            raise ValidationError({"slack_workspace_id": "Connect this Slack workspace to PostHog first."})
+        return attrs
+
+
+class AlertDestinationResponseSerializer(serializers.Serializer):
+    hog_function_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="IDs of the created destination. Pass them to destinations/delete to remove it.",
+    )
+
+
+class AlertDeleteDestinationSerializer(serializers.Serializer):
+    hog_function_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
+        help_text="Destination IDs to delete, as returned when the destination was created.",
+    )
+
+
 class AlertListFiltersSerializer(serializers.Serializer):
     insight_tag = serializers.CharField(required=False, max_length=255)
     has_detector = OptionalBooleanField(required=False)
@@ -1440,7 +1499,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         destination_count = count_active_alert_destinations(
             team_id=alert.team_id,
             alert_id=str(alert.id),
-            allowed_event_ids=(INSIGHT_ALERT_FIRING_EVENT,),
+            allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
         )
         email_targets = alert.get_subscribed_users_emails()
         if destination_count == 0 and not email_targets:
@@ -1505,6 +1564,84 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             },
             status=status.HTTP_202_ACCEPTED,
         )
+
+    @extend_schema(
+        request=AlertCreateDestinationSerializer,
+        responses={201: AlertDestinationResponseSerializer},
+        description=(
+            "Send this alert to a Slack channel as well as by email. The workspace must already be "
+            "connected to the project. The returned IDs identify the destination."
+        ),
+    )
+    @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["alert:write"])
+    def create_destination(self, request, *args, **kwargs):
+        alert = self.get_object()
+        serializer = AlertCreateDestinationSerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        data = cast(AlertDestinationData, serializer.validated_data)
+
+        existing = count_active_alert_destinations(
+            team_id=self.team_id, alert_id=str(alert.id), allowed_event_ids=INSIGHT_ALERT_EVENT_IDS
+        )
+        if existing >= MAX_DESTINATIONS_PER_ALERT:
+            raise ValidationError(
+                f"This alert already has {MAX_DESTINATIONS_PER_ALERT} destinations. Remove one to add another."
+            )
+
+        hog_functions = create_alert_destination_hog_functions(
+            [
+                build_insight_alert_slack_config(
+                    team=alert.team, alert_id=str(alert.id), alert_name=alert.name, data=data
+                )
+            ],
+            request=self.request,
+            alert_id=str(alert.id),
+            allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
+        )
+
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="insight alert destination created",
+            properties={
+                **get_request_analytics_properties(request),
+                "alert_id": str(alert.id),
+                "team_id": alert.team_id,
+                "type": data["type"],
+            },
+        )
+        response = AlertDestinationResponseSerializer({"hog_function_ids": [hf.id for hf in hog_functions]})
+        return Response(response.data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=AlertDeleteDestinationSerializer,
+        responses={204: None},
+        description="Stop sending this alert to a destination. The alert keeps its email recipients.",
+    )
+    @action(detail=True, methods=["POST"], url_path="destinations/delete", required_scopes=["alert:write"])
+    def delete_destination(self, request, *args, **kwargs):
+        alert = self.get_object()
+        serializer = AlertDeleteDestinationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        hog_function_ids = serializer.validated_data["hog_function_ids"]
+
+        soft_delete_alert_destinations(
+            team_id=self.team_id,
+            alert_id=str(alert.id),
+            allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
+            hog_function_ids=hog_function_ids,
+        )
+
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="insight alert destination deleted",
+            properties={
+                **get_request_analytics_properties(request),
+                "alert_id": str(alert.id),
+                "count": len(hog_function_ids),
+                "team_id": alert.team_id,
+            },
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         request=AlertSimulateSerializer,

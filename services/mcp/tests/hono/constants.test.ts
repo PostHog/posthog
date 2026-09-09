@@ -153,6 +153,7 @@ describe('Hono Constants', () => {
             expect(env).toHaveProperty('POSTHOG_UI_APPS_TOKEN')
             expect(env).toHaveProperty('POSTHOG_ANALYTICS_API_KEY')
             expect(env).toHaveProperty('POSTHOG_ANALYTICS_HOST')
+            expect(env).toHaveProperty('POSTHOG_MCP_SKILLS_URL')
         })
     })
 })
