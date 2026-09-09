@@ -199,4 +199,4 @@ class TestCustomAgentLogArtefacts(BaseTest):
             )
 
         assert capture.call_args.kwargs["github_logins"] == []
-        assert capture.call_args.kwargs["user_uuid_only_count"] == 1
+        assert capture.call_args.kwargs["user_uuids"] == [str(reviewer_uuid)]

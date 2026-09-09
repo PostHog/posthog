@@ -1628,16 +1628,16 @@ class TestBuildSuggestedReviewers(APIBaseTest):
         assert result is not None
         assert [e.github_login for e in result.root] == ["dupe"]
 
-    @parameterized.expand([("not_an_org_member",), ("member_without_github_identity",)])
-    def test_unresolvable_user_uuid_raises(self, case: str) -> None:
-        if case == "member_without_github_identity":
-            orphan = User.objects.create(email="nogh@example.com")
-            OrganizationMembership.objects.create(user=orphan, organization=self.organization)
-            target = str(orphan.uuid)
-        else:
-            target = str(uuid4())
+    def test_non_member_user_uuid_raises(self) -> None:
         with pytest.raises(InvalidScoutReportError):
-            _build_suggested_reviewers(self.team, [ReviewerInput(user_uuid=target)])
+            _build_suggested_reviewers(self.team, [ReviewerInput(user_uuid=str(uuid4()))])
+
+    def test_member_without_github_identity_is_stored_by_uuid(self) -> None:
+        member = User.objects.create(email="nogh@example.com")
+        OrganizationMembership.objects.create(user=member, organization=self.organization)
+        result = _build_suggested_reviewers(self.team, [ReviewerInput(user_uuid=str(member.uuid))])
+        assert result is not None
+        assert [(e.user_uuid, e.github_login) for e in result.root] == [(str(member.uuid), None)]
 
     @parameterized.expand([("none", None), ("empty", [])])
     def test_no_entries_yields_none(self, _name: str, reviewers: list | None) -> None:

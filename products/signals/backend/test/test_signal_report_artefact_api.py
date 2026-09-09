@@ -542,8 +542,9 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         stored = self._latest_reviewers(report)
         assert stored[0]["github_login"] == "alicecase"
 
-    def test_put_user_uuid_without_github_login_returns_400(self):
-        # Org member without any linked GitHub identity.
+    def test_put_user_uuid_without_github_login_is_stored_by_uuid(self):
+        # Org member without any linked GitHub identity still routes: stored by uuid with a null
+        # login, and the response resolves them to their PostHog user.
         member = self._create_org_member("nogh@example.com", github_login=None)
         report = self._create_report()
         artefact = self._create_artefact(report, content=[])
@@ -551,6 +552,20 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         response = self.client.put(
             self._detail_url(str(report.id), str(artefact.id)),
             data=json.dumps({"content": [{"user_uuid": str(member.uuid)}]}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        stored = self._latest_reviewers(report)
+        assert [(e["user_uuid"], e["github_login"]) for e in stored] == [(str(member.uuid), None)]
+        assert response.json()["content"][0]["user"]["uuid"] == str(member.uuid)
+
+    def test_put_non_member_user_uuid_returns_400(self):
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[])
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"user_uuid": str(uuid.uuid4())}]}),
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST

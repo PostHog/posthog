@@ -260,9 +260,11 @@ def create_scout_report(
                     team_id=team_id,
                     report_id=report_id,
                     github_logins=[entry.github_login for entry in suggested_reviewers.root if entry.github_login],
-                    user_uuid_only_count=sum(
-                        1 for entry in suggested_reviewers.root if entry.user_uuid and not entry.github_login
-                    ),
+                    user_uuids=[
+                        entry.user_uuid
+                        for entry in suggested_reviewers.root
+                        if entry.user_uuid and not entry.github_login
+                    ],
                     source="scout",
                 )
             )
@@ -771,7 +773,7 @@ def set_scout_report_reviewers(
                 team_id=team_id,
                 report_id=report_id,
                 github_logins=[entry.github_login for entry in merged.root if entry.github_login],
-                user_uuid_only_count=sum(1 for entry in merged.root if entry.user_uuid and not entry.github_login),
+                user_uuids=[entry.user_uuid for entry in merged.root if entry.user_uuid and not entry.github_login],
                 source="scout_edit",
             )
         )

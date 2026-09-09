@@ -1565,8 +1565,9 @@ class SignalReportViewSet(
         # Failed reports are excluded too — pipelines that errored should not bubble as "needs your review".
         # Match the user's own uuid as well as their login: a reviewer with no linked GitHub
         # account is stored by uuid alone, and entries predating `user_uuid` carry only a login.
-        github_login = self._get_github_login(self.request.user)
-        identity_filters = [json.dumps([{"user_uuid": str(self.request.user.uuid)}])]
+        user = cast(User, self.request.user)
+        github_login = self._get_github_login(user)
+        identity_filters = [json.dumps([{"user_uuid": str(user.uuid)}])]
         if github_login:
             # github_login comes from our own UserSocialAuth DB, not user input.
             identity_filters.append(json.dumps([{"github_login": github_login}]))
@@ -3959,11 +3960,12 @@ def append_suggested_reviewers(
             # A human added reviewers: ping the newly-added ones on their own Slack channel so
             # someone added after generation still hears about an actionable report, mirroring
             # the notification sent when it first went ready. Removals aren't notified.
+            added_github_logins = [e["github_login"] for e in added_entries if e["github_login"]]
             if added_entries:
                 _schedule_reviewer_added_slack_notifications(
                     team_id=team.id,
                     report_id=str(report_id),
-                    added_logins=[e["github_login"] for e in added_entries if e["github_login"]],
+                    added_logins=added_github_logins,
                     added_user_uuids=[
                         e["user_uuid"] for e in added_entries if e["user_uuid"] and not e["github_login"]
                     ],
@@ -3971,7 +3973,8 @@ def append_suggested_reviewers(
                 )
 
             # Only on an add: assignment is additive, so a removal leaves the pull request alone.
-            if added_logins:
+            # GitHub assignment needs a login, so an add that only carries a user uuid queues nothing.
+            if added_github_logins:
                 assignment = SignalReportAssignment.all_teams.filter(team_id=team.id, report_id=report_id).first()
                 if assignment is not None:
                     schedule_reviewer_pr_assignment(
@@ -3990,7 +3993,7 @@ def append_suggested_reviewers(
             if not was_impersonated:
                 correction = ReviewerCorrection(
                     report_id=str(report_id),
-                    added_logins=tuple(e["github_login"] for e in added_entries if e["github_login"]),
+                    added_logins=tuple(added_github_logins),
                     removed_logins=tuple(
                         login
                         for login in (
@@ -4010,9 +4013,9 @@ def append_suggested_reviewers(
                 team=team,
                 report_id=str(report_id),
                 github_logins=[entry["github_login"] for entry in new_content if entry["github_login"]],
-                user_uuid_only_count=sum(
-                    1 for entry in new_content if entry["user_uuid"] and not entry["github_login"]
-                ),
+                user_uuids=[
+                    entry["user_uuid"] for entry in new_content if entry["user_uuid"] and not entry["github_login"]
+                ],
                 correction=correction,
             )
         )
@@ -4025,7 +4028,7 @@ def _record_reviewer_edit(
     team: Team,
     report_id: str,
     github_logins: list[str],
-    user_uuid_only_count: int,
+    user_uuids: list[str],
     correction: ReviewerCorrection | None,
 ) -> None:
     """The post-commit tail of a reviewer edit: steer the scouts, then record what the edit did.
@@ -4038,7 +4041,7 @@ def _record_reviewer_edit(
         team_id=team.id,
         report_id=report_id,
         github_logins=github_logins,
-        user_uuid_only_count=user_uuid_only_count,
+        user_uuids=user_uuids,
         source="user_edit",
         correction_notes_written=len(forwarded.note_ids) if forwarded else None,
         correction_note_targets=forwarded.targets_resolved if forwarded else None,
@@ -4360,9 +4363,9 @@ class SignalReportArtefactViewSet(
                     team_id=self.team.id,
                     report_id=report_id,
                     github_logins=[entry.github_login for entry in parsed_content.root if entry.github_login],
-                    user_uuid_only_count=sum(
-                        1 for entry in parsed_content.root if entry.user_uuid and not entry.github_login
-                    ),
+                    user_uuids=[
+                        entry.user_uuid for entry in parsed_content.root if entry.user_uuid and not entry.github_login
+                    ],
                     source="api",
                 )
             )
@@ -4389,7 +4392,7 @@ class SignalReportArtefactViewSet(
                 .first()
             )
             logins: list[str] = []
-            user_uuid_only_count = 0
+            user_uuids: list[str] = []
             if latest is not None:
                 try:
                     parsed = json.loads(latest.content)
@@ -4398,14 +4401,16 @@ class SignalReportArtefactViewSet(
                 if isinstance(parsed, list):
                     rows = [entry for entry in parsed if isinstance(entry, dict)]
                     logins = [str(entry["github_login"]) for entry in rows if entry.get("github_login")]
-                    user_uuid_only_count = sum(
-                        1 for entry in rows if entry.get("user_uuid") and not entry.get("github_login")
-                    )
+                    user_uuids = [
+                        str(entry["user_uuid"])
+                        for entry in rows
+                        if entry.get("user_uuid") and not entry.get("github_login")
+                    ]
             capture_suggested_reviewers_resolved(
                 team_id=self.team.id,
                 report_id=report_id,
                 github_logins=logins,
-                user_uuid_only_count=user_uuid_only_count,
+                user_uuids=user_uuids,
                 source="api",
             )
         except Exception:

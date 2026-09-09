@@ -476,7 +476,7 @@ async def _persist_agentic_report_artefacts(
         await database_sync_to_async(capture_suggested_reviewers_resolved, thread_sensitive=False)(
             team_id=team_id,
             report_id=report_id,
-            github_logins=[reviewer["github_login"] for reviewer in reviewers_content],
+            github_logins=[login for reviewer in reviewers_content if (login := reviewer["github_login"])],
             source="pipeline",
         )
     elif not reviewers_content:
