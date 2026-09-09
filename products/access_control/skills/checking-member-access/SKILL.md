@@ -89,14 +89,22 @@ All access control tools take an optional project id and default to the active p
    is the complete answer. It already includes the member's roles, the project default and the bypasses.
 3. **Explain the level from `inherited_access`.** See the table below. Only mention the stored
    `access_level` when it differs from the enforced level.
-4. **Object and property questions need more calls.** "Can this member open dashboard 42?" or "Can this
-   member see `email`?" cannot be answered from the tool level alone. The member tools return only the
-   rules set for that member. A role can set a rule on the same object or property, and the default lists
-   hold the rules for everyone in the project. So call `member-objects-list`, `default-objects-list`, and
-   `role-objects-list` for each id in the member's `role_ids` from `members-list`. Properties work the
-   same way with the properties tools. Tell the user how many roles you would walk and ask before doing it
-   for a member in many roles.
-5. **No rule on the object or property** means the tool-level answer from step 2 applies.
+4. **Object questions need the object and its rules.** "Can this member open dashboard 42?" cannot be
+   answered from the tool level alone. Check in this order, and stop at the first hit:
+   1. `organization_level` is 8 or 15 on the member's entry: full access, no rule applies.
+   2. The member created the object: full access, no rule applies. The rule tools do not say who created
+      an object, so fetch it with its own get tool, for example `dashboard-get` or `insight-get`, and
+      compare `created_by.uuid` with `user.uuid` on the member's entry.
+   3. A rule on that object. The member tools return only the rules set for that member, so collect
+      `member-objects-list`, `role-objects-list` for each id in the member's `role_ids`, and
+      `default-objects-list`, and pick out the rows for this object. Tell the user how many roles you
+      would walk and ask before doing it for a member in many roles.
+   4. No rule on the object: the tool-level answer from step 2 applies.
+5. **Several rules on one object.** When the member, a role and the default each set a level on the
+   same object, the server picks one by the organization's resolution mode, and no tool returns that
+   pick for another member. Report every rule you found with its subject, say the enforced one depends
+   on the mode, and do not guess. Property questions work like step 4 with the properties tools, minus
+   the creator check, since properties have no creator.
 6. **"Who can ..." questions** are `members-list` without `member_id`, filtered on
    `resources.<tool>.effective_access_level`. The response is every member times every tool and has no
    pagination. For a large organization, ask which people the user cares about first, or answer per
