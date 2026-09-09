@@ -673,7 +673,12 @@ class SignalReportBulkStateResponseSerializer(serializers.Serializer):
         many=True,
         help_text="One result per requested id, in request order (after de-duplication).",
     )
-    transitioned_count = serializers.IntegerField(help_text="Number of reports whose state was changed.")
+    transitioned_count = serializers.IntegerField(
+        help_text=(
+            "Number of reports the call accepted. A report that already had the requested state counts "
+            "here too, because a repeat dismiss or resolve still records its feedback."
+        )
+    )
     skipped_count = serializers.IntegerField(help_text="Number of reports whose transition was not allowed.")
     failed_count = serializers.IntegerField(help_text="Number of reports that failed on invalid request data.")
     not_found_count = serializers.IntegerField(help_text="Number of requested ids not visible to the caller.")
