@@ -1229,16 +1229,23 @@ class TestAzureBlobIntegration:
             self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
         )
 
-    def test_create_azure_blob_integration(self, client: HttpClient):
+    @pytest.mark.parametrize(
+        "connection_string",
+        [
+            "DefaultEndpointsProtocol=https;AccountName=my-storage-account;AccountKey=my-key;EndpointSuffix=core.windows.net",
+            "DefaultEndpointsProtocol=https;AccountName=my-storage-account;AccountKey=my-key;EndpointSuffix=core.usgovcloudapi.net",
+            "AccountName=my-storage-account;AccountKey=my-key",
+        ],
+    )
+    @override_settings(FORCE_URL_VALIDATION=True)
+    def test_create_azure_blob_integration(self, connection_string, client: HttpClient):
         client.force_login(self.user)
 
         response = client.post(
             f"/api/environments/{self.team.pk}/integrations",
             {
                 "kind": "azure-blob",
-                "config": {
-                    "connection_string": "DefaultEndpointsProtocol=https;AccountName=my-storage-account;AccountKey=my-key;EndpointSuffix=core.windows.net"
-                },
+                "config": {"connection_string": connection_string},
             },
             content_type="application/json",
         )
@@ -1252,6 +1259,9 @@ class TestAzureBlobIntegration:
         [
             "UseDevelopmentStorage=true;AccountName=devstoreaccount1",
             "AccountName=my-storage-account;AccountKey=my-key;BlobEndpoint=http://169.254.169.254/",
+            # Attacker-controlled DefaultEndpointsProtocol is interpolated raw into the derived
+            # endpoint by the SDK, so the derived URL must be validated, not assumed https.
+            "DefaultEndpointsProtocol=http://169.254.169.254/latest/meta-data?x=;AccountName=a;AccountKey=YQ==;EndpointSuffix=core.windows.net",
         ],
     )
     @override_settings(FORCE_URL_VALIDATION=True)

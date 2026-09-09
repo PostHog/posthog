@@ -90,14 +90,7 @@ def validate_azure_blob_connection_string(connection_string: str) -> None:
     Extract its parts, evaluate all required settings are included, and check
     that values are supported.
     """
-    # For azure blob, we only care about BlobEndpoint.
-    # But the docs also mention all these other ones, so we check all of
-    # them if present.
-    endpoint_keys = {"blobendpoint", "fileendpoint", "tableendpoint", "queueendpoint"}
-
-    endpoint_suffix: str | None = None
-    account_name: str | None = None
-
+    settings: dict[str, str] = {}
     for part in connection_string.split(";"):
         part = part.strip()
         if not part:
@@ -106,32 +99,41 @@ def validate_azure_blob_connection_string(connection_string: str) -> None:
 
         try:
             key, value = part.split("=", maxsplit=1)
-            key, value = key.lower(), value.lower()
         except Exception:
             raise ValueError("Malformed connection string")
 
-        if key == "usedevelopmentstorage" and value == "true":
-            raise ValueError("Emulator account not supported")
+        settings[key.lower()] = value
 
-        if key in endpoint_keys:
-            allowed, error = is_url_allowed(value)
-            if not allowed:
-                raise ValueError(f"Invalid endpoint found in connection string: {error}")
+    if settings.get("usedevelopmentstorage", "").lower() == "true":
+        raise ValueError("Emulator account not supported")
 
-        if key == "endpointsuffix":
-            endpoint_suffix = value
+    protocol = settings.get("defaultendpointsprotocol", "https").lower()
+    if protocol not in ("http", "https"):
+        raise ValueError("'DefaultEndpointsProtocol' must be 'http' or 'https'")
 
-        if key == "accountname":
-            account_name = value
-
+    account_name = settings.get("accountname")
     if not account_name:
         raise ValueError(
             "Could not extract AccountName from connection string. "
             "Ensure it contains 'AccountName=<your-account-name>;'"
         )
 
-    if endpoint_suffix:
-        derived = f"https://{account_name}.blob.{endpoint_suffix}"
-        allowed, error = is_url_allowed(derived)
+    explicit_endpoints: list[str] = []
+    derived_endpoints: list[str] = []
+
+    # For azure blob, we only care about BlobEndpoint.
+    # But the docs also mention all these other ones, so we check all of
+    # them if present.
+    for key in ("blobendpoint", "blobsecondaryendpoint", "fileendpoint", "tableendpoint", "queueendpoint"):
+        if key in settings:
+            explicit_endpoints.append(settings[key])
+
+    if "blobendpoint" not in settings:
+        suffix = settings.get("endpointsuffix") or "core.windows.net"
+        derived_endpoints.append(f"{protocol}://{account_name}.blob.{suffix}")
+        derived_endpoints.append(f"https://{account_name}-secondary.blob.{suffix}")
+
+    for endpoint in explicit_endpoints + derived_endpoints:
+        allowed, error = is_url_allowed(endpoint)
         if not allowed:
-            raise ValueError(f"Invalid 'EndpointSuffix' found in connection string: {error}")
+            raise ValueError(f"Invalid endpoint found in connection string: {error}")
