@@ -748,19 +748,84 @@ continued line
         expect(serializeMarkdownNotebook(document)).toEqual(markdown)
     })
 
-    it('round-trips multiline string component props', () => {
-        const markdown = `<SummaryCard id="${TEST_AI_CONVERSATION_ID}" summary=${JSON.stringify('## Summary\nDone')} />`
+    it.each([
+        [
+            'escaped line breaks',
+            `<SummaryCard id="${TEST_AI_CONVERSATION_ID}" summary=${JSON.stringify('## Summary\nDone')} />`,
+            'SummaryCard',
+            { id: TEST_AI_CONVERSATION_ID, summary: '## Summary\nDone' },
+        ],
+        [
+            'literal line breaks',
+            `<PythonV2 title="Event galaxy" code="import pandas as pd
+
+points = pd.DataFrame()" />`,
+            'PythonV2',
+            { title: 'Event galaxy', code: 'import pandas as pd\n\npoints = pd.DataFrame()' },
+        ],
+    ])('round-trips component string props with %s', (_name, markdown, tagName, props) => {
         const document = parseMarkdownNotebook(markdown)
 
         expect(document.nodes[0]).toMatchObject({
             type: 'component',
-            tagName: 'SummaryCard',
-            props: {
-                id: TEST_AI_CONVERSATION_ID,
-                summary: '## Summary\nDone',
-            },
+            tagName,
+            props,
         })
         expect(serializeMarkdownNotebook(document)).toEqual(markdown)
+    })
+
+    it.each([
+        ['an escaped tag', '\\<'],
+        ['an unescaped tag with escaped prop source', '<'],
+    ])('recovers a multiline component produced by the prose serializer with %s', (_name, tagStart) => {
+        const markdown = `${tagStart}PythonV2 title="Chart" code="import pandas as pd
+
+\\# Prepare values
+labels = \\[f\\\\"<b>{row}</b>\\\\" for row in rows\\]
+values = rows\\[0\\] \\* 2" />`
+        const recoveredMarkdown = `<PythonV2 title="Chart" code="import pandas as pd
+
+# Prepare values
+labels = [f\\"<b>{row}</b>\\" for row in rows]
+values = rows[0] * 2" />`
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.nodes[0]).toMatchObject({
+            type: 'component',
+            tagName: 'PythonV2',
+            props: {
+                title: 'Chart',
+                code: 'import pandas as pd\n\n# Prepare values\nlabels = [f"<b>{row}</b>" for row in rows]\nvalues = rows[0] * 2',
+            },
+        })
+        expect(serializeMarkdownNotebook(document)).toEqual(recoveredMarkdown)
+    })
+
+    it.each([
+        [
+            'an unquoted prop',
+            `<PythonV2 nodeId=p
+
+code=print(1) />`,
+        ],
+        [
+            'an unterminated quoted prop',
+            `<PythonV2 nodeId="p
+
+Following paragraph`,
+        ],
+    ])('does not cross a blank-line boundary for a malformed component with %s', (_name, markdown) => {
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.nodes).not.toContainEqual(expect.objectContaining({ type: 'component' }))
+        expect(serializeMarkdownNotebook(document)).toEqual(`\\${markdown}`)
+    })
+
+    it('does not scan past the multiline component limit', () => {
+        const markdown = [`<PythonV2 nodeId="p" code="`, ...Array.from({ length: 1_001 }, () => 'x'), `" />`].join('\n')
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.nodes).not.toContainEqual(expect.objectContaining({ type: 'component' }))
     })
 
     it('serializes bold links in a stable mark order', () => {
@@ -1240,15 +1305,20 @@ Last paragraph`)
         expect(result.mergedMarkdown).toEqual(localMarkdown)
     })
 
-    it('normalizes the first rendered row into a notebook title', () => {
+    it('normalizes the first rendered row into a notebook title and places the autofocus caret there', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: `Notebook name\n\nBody line`, onChange }))
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: `Notebook name\n\nBody line`, onChange, autoFocus: true })
+        )
         const title = container.querySelector('h1.MarkdownNotebook__text-block') as HTMLElement
         const body = container.querySelector('p.MarkdownNotebook__text-block') as HTMLElement
 
         expect(title).toBeInstanceOf(HTMLElement)
         expect(title.textContent).toEqual('Notebook name')
         expect(body.textContent).toEqual('Body line')
+        expect(title.contains(window.getSelection()?.anchorNode ?? null)).toBe(true)
+        expect(window.getSelection()?.isCollapsed).toBe(true)
+        expect(window.getSelection()?.anchorOffset).toBe(0)
 
         title.textContent = 'Updated name'
         fireEvent.input(title)
@@ -3481,7 +3551,23 @@ ${queryMarkdown}`)
 
     it('moves slash menu selection with arrow keys', () => {
         const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Widget',
+                label: 'Widget',
+                category: 'Code',
+                insertCommand: { category: 'Common' },
+                ViewComponent: () => createElement('div'),
+            },
+        ])
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(' '),
+                registry,
+                onAskAI: jest.fn(),
+                onChange,
+            })
+        )
         const row = getBodyTextBlock(container).closest('.MarkdownNotebook__row')
 
         expect(row).toBeInstanceOf(HTMLElement)
@@ -3492,9 +3578,9 @@ ${queryMarkdown}`)
         const getSelectedLabel = (): string | null =>
             container.querySelector('.MarkdownNotebook__insert-item[aria-selected="true"]')?.textContent ?? null
 
-        expect(getSelectedLabel()).toEqual('Text')
+        expect(getSelectedLabel()).toEqual('Ask AI')
 
-        for (const label of ['SQL', 'Trend', 'Funnel']) {
+        for (const label of ['Text', 'SQL', 'Widget', 'Trend', 'Funnel']) {
             fireEvent.keyDown(textBlock, { key: 'ArrowDown' })
             expect(getSelectedLabel()).toEqual(label)
         }
@@ -3664,7 +3750,9 @@ ${queryMarkdown}`)
         fireEvent.keyDown(editableTextBlock, { key: 'Enter' })
 
         expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')).toBeNull()
-        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...`)
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**You:** Add a summary here\n\nThinking...`
+        )
         const aiRequest = onAskAI.mock.calls[0][0]
 
         expect(aiRequest).toEqual(
@@ -3673,10 +3761,10 @@ ${queryMarkdown}`)
                 query: expect.stringContaining('User request:\nAdd a summary here'),
                 source: 'slash',
                 responseNodeId: expect.any(String),
-                responseNodeIndex: 1,
+                responseNodeIndex: 2,
                 responseMarker: 'Thinking...',
-                markdown: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...`,
-                markdownWithResponse: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...`,
+                markdown: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**You:** Add a summary here\n\nThinking...`,
+                markdownWithResponse: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**You:** Add a summary here\n\nThinking...`,
                 selectedMarkdown: undefined,
             })
         )
@@ -3956,10 +4044,12 @@ Current AI paragraph`),
                 source: 'slash',
             })
         )
-        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...`)
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**You:** Summarize this notebook\n\nThinking...`
+        )
     })
 
-    it('keeps the named question above the AI response when enabled', () => {
+    it('keeps the named question above the AI response by default and persists bookmark changes', () => {
         const onAskAI = jest.fn()
         const onChange = jest.fn()
         const { container } = render(
@@ -3976,24 +4066,22 @@ Current AI paragraph`),
         ) as HTMLButtonElement
 
         expect(keepQuestionButton).toBeInstanceOf(HTMLButtonElement)
-        expect(keepQuestionButton.getAttribute('aria-pressed')).toEqual('false')
+        expect(keepQuestionButton.getAttribute('aria-pressed')).toEqual('true')
+        expect(keepQuestionButton.classList.contains('LemonButton--active')).toBe(true)
+        expect(onChange).not.toHaveBeenCalled()
 
         fireEvent.click(keepQuestionButton)
 
+        expect(keepQuestionButton.getAttribute('aria-pressed')).toEqual('false')
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="What is PostHog?" keepQuestion={false} />`
+        )
+
+        fireEvent.click(keepQuestionButton)
         expect(keepQuestionButton.getAttribute('aria-pressed')).toEqual('true')
-        expect(keepQuestionButton.classList.contains('LemonButton--active')).toBe(true)
         expect(onChange).toHaveBeenLastCalledWith(
             `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="What is PostHog?" keepQuestion />`
         )
-
-        fireEvent.click(keepQuestionButton)
-
-        expect(keepQuestionButton.getAttribute('aria-pressed')).toEqual('false')
-        expect(onChange).toHaveBeenLastCalledWith(
-            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="What is PostHog?" />`
-        )
-
-        fireEvent.click(keepQuestionButton)
         fireEvent.click(container.querySelector('[aria-label="Send prompt"]') as HTMLButtonElement)
 
         const markdownWithResponse = `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n**Avery:** What is PostHog?\n\nThinking...`
@@ -4007,18 +4095,21 @@ Current AI paragraph`),
         )
     })
 
-    it('submits a persisted Ask AI prompt from the prompt textarea', () => {
+    it('submits a persisted Ask AI prompt without retaining the question when explicitly disabled', () => {
         const onAskAI = jest.fn()
         const onChange = jest.fn()
         const { container } = render(
             createElement(MarkdownNotebook, {
-                value: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="we" />`,
+                value: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="we" keepQuestion={false} />`,
                 onAskAI,
                 onChange,
                 createAIConversationId: () => TEST_AI_CONVERSATION_ID,
             })
         )
         const promptBlock = getAIPromptInput(container)
+        expect(
+            container.querySelector('[data-attr="markdown-notebook-ai-keep-question"]')?.getAttribute('aria-pressed')
+        ).toEqual('false')
 
         updateAIPromptInput(promptBlock, 'What happened here?')
         fireEvent.keyDown(promptBlock, { key: 'Enter' })
@@ -5805,9 +5896,11 @@ First paragraph
         expect(aiRequest.selectedRefId).toEqual(selectedRefId)
         expect(aiRequest.selectedMarkdown).toContain('# First paragraph\n\nSecond')
         expect(aiRequest.markdown).toContain('<ref id=')
-        expect(aiRequest.markdown).toContain('</ref> paragraph\n\nThinking...')
+        expect(aiRequest.markdown).toContain('</ref> paragraph\n\n**You:** Explain what this means\n\nThinking...')
         expect(aiRequest.responseMarker).toEqual('Thinking...')
-        expect(aiRequest.markdownWithResponse).toContain('</ref> paragraph\n\nThinking...')
+        expect(aiRequest.markdownWithResponse).toContain(
+            '</ref> paragraph\n\n**You:** Explain what this means\n\nThinking...'
+        )
     })
 
     it('opens a selection Ask AI prompt when another Ask AI prompt is already open', () => {
@@ -6304,7 +6397,7 @@ Second paragraph`,
         fireEvent.keyDown(aiPromptBlock, { key: 'Enter' })
 
         expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeNull()
-        expect(getBodyTextBlock(container, 1).textContent).toEqual('Thinking...')
+        expect(getBodyTextBlock(container, 2).textContent).toEqual('Thinking...')
     })
 
     it('syncs text edits when native input is dispatched from the root editable surface', () => {
@@ -6519,7 +6612,7 @@ second line
 
         expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')).toBeNull()
         expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeNull()
-        expect(getBodyTextBlock(container).textContent).toEqual('Thinking...')
+        expect(getBodyTextBlock(container, 1).textContent).toEqual('Thinking...')
         expect(onAskAI).toHaveBeenCalledWith(
             expect.objectContaining({
                 conversationId: TEST_AI_CONVERSATION_ID,

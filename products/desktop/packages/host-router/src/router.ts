@@ -9,11 +9,13 @@ import { canvasDataRouter } from "./routers/canvas-data.router";
 import { canvasTemplatesRouter } from "./routers/canvas-templates.router";
 import { channelTasksRouter } from "./routers/channel-tasks.router";
 import { claudeCliSessionsRouter } from "./routers/claude-cli-sessions.router";
+import { claudeSubscriptionTokenRouter } from "./routers/claude-subscription-token.router";
 import { cloudTaskRouter } from "./routers/cloud-task.router";
 import { connectivityRouter } from "./routers/connectivity.router";
 import { contextMenuRouter } from "./routers/context-menu.router";
 import { dashboardsRouter } from "./routers/dashboards.router";
 import { deepLinkRouter } from "./routers/deep-link.router";
+import { diskCacheRouter } from "./routers/disk-cache.router";
 import { enrichmentRouter } from "./routers/enrichment.router";
 import { environmentRouter } from "./routers/environment.router";
 import { externalAppsRouter } from "./routers/external-apps.router";
@@ -66,6 +68,7 @@ export const hostRouter = router({
   contextMenu: contextMenuRouter,
   dashboards: dashboardsRouter,
   deepLink: deepLinkRouter,
+  diskCache: diskCacheRouter,
   enrichment: enrichmentRouter,
   environment: environmentRouter,
   externalApps: externalAppsRouter,
@@ -91,6 +94,7 @@ export const hostRouter = router({
   processTracking: processTrackingRouter,
   provisioning: provisioningRouter,
   secureStore: secureStoreRouter,
+  claudeSubscriptionToken: claudeSubscriptionTokenRouter,
   shell: shellRouter,
   speech: speechRouter,
   skills: skillsRouter,

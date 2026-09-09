@@ -6,10 +6,9 @@ import {
 import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
-import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useReportsInboxEnabled } from "@posthog/ui/features/feature-flags/useReportsInboxEnabled";
+import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useInboxDecisionCount } from "@posthog/ui/features/inbox/hooks/useInboxDecisionCount";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import {
@@ -71,14 +70,10 @@ export function SidebarNavSection({
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
-  // With channel reports on, spaces own reports (sidebar tab + feed) and the
-  // inbox disappears as a destination.
-  const channelReportsEnabled = useChannelReportsEnabled();
-  const reportsInboxEnabled = useReportsInboxEnabled();
+  const inboxAvailable = useInboxAvailable();
   const mentionsEnabled = useActivityFilterStore(
     (state) => state.mentionsEnabled,
   );
-  const inboxAvailable = !channelReportsEnabled || reportsInboxEnabled;
   const inboxVisible = inboxAvailable;
   const inboxDecisionCount = useInboxDecisionCount({ enabled: inboxVisible });
   const contextEnabled = useContextLayerFlag();
@@ -90,8 +85,7 @@ export function SidebarNavSection({
 
   // Active flags are pure functions of the current view — mirror what
   // useSidebarData derives, without pulling in its task-loading.
-  const isHomeActive =
-    view.type === "task-input" || view.type === "task-pending";
+  const isHomeActive = view.type === "task-input";
   const isActivityActive = view.type === "activity";
   const isInboxActive = view.type === "inbox";
   const isLoopsActive = view.type === "loops";

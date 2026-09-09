@@ -4,13 +4,20 @@ export function makeDelay(ms: number): () => Promise<void> {
 
 export function delay(ms: number, signal?: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
-        const timeoutId = setTimeout(resolve, ms)
-        if (signal) {
-            signal.addEventListener('abort', () => {
-                clearTimeout(timeoutId)
-                reject(new DOMException('Aborted', 'AbortError'))
-            })
+        if (signal?.aborted) {
+            reject(new DOMException('Aborted', 'AbortError'))
+            return
         }
+        const onAbort = (): void => {
+            clearTimeout(timeoutId)
+            reject(new DOMException('Aborted', 'AbortError'))
+        }
+        // Remove the listener on resolve: pollForResults reuses one signal across many delay() calls
+        const timeoutId = setTimeout(() => {
+            signal?.removeEventListener('abort', onAbort)
+            resolve()
+        }, ms)
+        signal?.addEventListener('abort', onAbort, { once: true })
     })
 }
 
@@ -162,5 +169,30 @@ export function debounce<F extends (...args: Parameters<F>) => ReturnType<F>>(
     return (...args: Parameters<F>): void => {
         clearTimeout(timeout)
         timeout = setTimeout(() => func(...args), waitFor)
+    }
+}
+
+export function yieldToMain(): Promise<void> {
+    return new Promise((resolve) => {
+        if (typeof (window as any).scheduler?.yield === 'function') {
+            ;(window as any).scheduler.yield().then(resolve)
+        } else if (typeof window.requestIdleCallback === 'function') {
+            window.requestIdleCallback(() => resolve(), { timeout: 50 })
+        } else {
+            setTimeout(resolve, 0)
+        }
+    })
+}
+
+export function createSliceYielder(budgetMs: number = 10): (beforeYield?: () => void) => Promise<boolean> {
+    let sliceStart = performance.now()
+    return async (beforeYield?: () => void): Promise<boolean> => {
+        if (performance.now() - sliceStart <= budgetMs) {
+            return false
+        }
+        beforeYield?.()
+        await yieldToMain()
+        sliceStart = performance.now()
+        return true
     }
 }

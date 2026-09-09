@@ -164,6 +164,12 @@ export function isDataVisualizationNode(node?: Record<string, any> | null): node
     return node?.kind === NodeKind.DataVisualizationNode
 }
 
+export function isDataVisualizationNodeWithHogQLQuery(
+    node?: Record<string, any> | null
+): node is DataVisualizationNode & { source: HogQLQuery } {
+    return isDataVisualizationNode(node) && isHogQLQuery(node.source)
+}
+
 export function convertDataTableNodeToDataVisualizationNode(node: Node | null): Node | null {
     if (!isDataTableNodeWithHogQLQuery(node)) {
         return node
@@ -884,6 +890,24 @@ export function taxonomicPersonFilterToHogQL(
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
     }
+    return null
+}
+
+export function taxonomicSessionFilterToHogQL(
+    groupType: TaxonomicFilterGroupType,
+    value: TaxonomicFilterValue
+): string | null {
+    if (groupType === TaxonomicFilterGroupType.SessionProperties) {
+        return `session.${escapePropertyAsHogQLIdentifier(String(value))}`
+    }
+    if (groupType === TaxonomicFilterGroupType.PersonProperties) {
+        return `person.properties.${escapePropertyAsHogQLIdentifier(String(value))}`
+    }
+    if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
+        return String(value)
+    }
+    // Event-scoped picks (e.g. a suggested or recent event property) have no
+    // equivalent on the sessions table — adding one would fail resolution.
     return null
 }
 

@@ -13,6 +13,8 @@ import { CopySurveyLink } from 'scenes/surveys/CopySurveyLink'
 
 import { SurveyEventName, SurveyRates, SurveyStats, SurveyType } from '~/types'
 
+import { SurveyResponseBreakdown } from 'products/surveys/frontend/components/SurveyResponseBreakdown'
+
 import { surveyLogic } from './surveyLogic'
 
 interface StatRowItem {
@@ -159,13 +161,13 @@ function SurveyStatsStackedBar({
     const segments: StackedBarSegment[] = [
         {
             count: sent,
-            label: 'Submitted',
+            label: 'Responses',
             colorClass: 'bg-success',
             tooltip: getTooltip(sent, total, filterByDistinctId),
         },
         {
             count: dismissed,
-            label: 'Dismissed',
+            label: 'Dismissed without answers',
             colorClass: 'bg-warning',
             tooltip: getTooltip(dismissed, total, filterByDistinctId),
         },
@@ -308,6 +310,7 @@ export const SurveyStatsSummary = memo(function SurveyStatsSummary(): JSX.Elemen
         surveyBaseStatsLoading,
         surveyDismissedAndSentCountLoading,
         resultsRequeryInProgress,
+        surveyResponseOutcomes,
     } = useValues(surveyLogic)
 
     if (
@@ -337,6 +340,7 @@ export const SurveyStatsSummary = memo(function SurveyStatsSummary(): JSX.Elemen
                 </>
             )}
             <SurveyStatsStackedBar stats={processedSurveyStats} filterByDistinctId={filterSurveyStatsByDistinctId} />
+            {surveyResponseOutcomes && <SurveyResponseBreakdown outcomes={surveyResponseOutcomes} />}
         </SurveyStatsContainer>
     )
 })

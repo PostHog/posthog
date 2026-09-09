@@ -8,7 +8,7 @@ use crate::{
     error::EventError,
     fingerprinting::{Fingerprint, FingerprintRecordPart, FingerprintVersion},
     frames::releases::{ReleaseInfo, ReleaseRecord},
-    issue_resolution::Issue,
+    issue_resolution::{Issue, IssueSeverity},
     langs::native::DebugImage,
     modes::processing::normalization::normalize_wire_order,
     recursively_sanitize_properties,
@@ -179,6 +179,7 @@ pub struct ExceptionEvent<S> {
     pub(crate) props: HashMap<String, Value>,
     pub(crate) proposed_issue_name: Option<String>,
     pub(crate) proposed_issue_description: Option<String>,
+    pub(crate) proposed_issue_severity: Option<IssueSeverity>,
     pub(crate) state: S,
 }
 
@@ -193,6 +194,7 @@ impl<S> ExceptionEvent<S> {
             props: self.props,
             proposed_issue_name: self.proposed_issue_name,
             proposed_issue_description: self.proposed_issue_description,
+            proposed_issue_severity: self.proposed_issue_severity,
             state: transform(self.state),
         }
     }
@@ -244,6 +246,10 @@ impl<S> ExceptionEvent<S> {
 
     pub fn proposed_issue_description(&self) -> Option<&str> {
         self.proposed_issue_description.as_deref()
+    }
+
+    pub fn proposed_issue_severity(&self) -> Option<IssueSeverity> {
+        self.proposed_issue_severity
     }
 }
 
@@ -402,6 +408,7 @@ impl ExceptionEvent<Finalized> {
             props,
             proposed_issue_name,
             proposed_issue_description,
+            proposed_issue_severity,
             state,
             ..
         } = self;
@@ -463,6 +470,12 @@ impl ExceptionEvent<Finalized> {
         if let Some(description) = proposed_issue_description {
             map.insert("$issue_description".into(), Value::String(description));
         }
+        if let Some(severity) = proposed_issue_severity {
+            map.insert(
+                "$issue_severity".into(),
+                Value::String(severity.to_string()),
+            );
+        }
         if !debug_images.is_empty() {
             map.insert(
                 "$debug_images".into(),
@@ -514,6 +527,12 @@ impl<S> ExceptionEvent<S> {
                 Value::String(description.clone()),
             );
         }
+        if let Some(severity) = self.proposed_issue_severity {
+            map.insert(
+                "$issue_severity".into(),
+                Value::String(severity.to_string()),
+            );
+        }
         if !self.debug_images.is_empty() {
             map.insert(
                 "$debug_images".into(),
@@ -558,13 +577,20 @@ impl<S> ExceptionEvent<S> {
         fingerprint: &SelectedFingerprint,
         issue_id: Uuid,
     ) -> ProcessedExceptionProperties {
+        let mut other = self.props.clone();
+        if let Some(severity) = self.proposed_issue_severity {
+            other.insert(
+                "$issue_severity".into(),
+                Value::String(severity.to_string()),
+            );
+        }
         ProcessedExceptionProperties(ProcessedExceptionPropertiesWire {
             exception_list: self.exception_list.clone(),
             fingerprint: fingerprint.value.clone(),
             fingerprint_version: fingerprint.version,
             fingerprint_record: fingerprint.record.clone(),
             issue_id,
-            other: self.props.clone(),
+            other,
             handled: metadata.handled,
             release: metadata.release.clone(),
             types: metadata.types.clone(),
@@ -628,6 +654,17 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
         let lib_version = raw.other.get("$lib_version").and_then(Value::as_str);
         let legacy_order_exception_list =
             normalize_wire_order(&mut raw.exception_list, lib, lib_version);
+        let proposed_issue_severity: Option<IssueSeverity> = raw
+            .other
+            .get("$issue_severity")
+            .and_then(Value::as_str)
+            .and_then(|severity| severity.parse().ok());
+        if let Some(severity) = proposed_issue_severity {
+            raw.other.insert(
+                "$issue_severity".to_string(),
+                Value::String(severity.to_string()),
+            );
+        }
 
         Ok(ExceptionEvent {
             uuid: event.uuid,
@@ -638,6 +675,7 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
             props: raw.other,
             proposed_issue_name: raw.issue_name,
             proposed_issue_description: raw.issue_description,
+            proposed_issue_severity,
             state: Parsed {
                 client_fingerprint: raw.fingerprint,
                 legacy_order_exception_list,
@@ -687,6 +725,7 @@ mod tests {
             props: HashMap::from([("passthrough".to_string(), Value::Bool(true))]),
             proposed_issue_name: None,
             proposed_issue_description: None,
+            proposed_issue_severity: None,
             state: Resolved {
                 metadata: ResolvedMetadata {
                     sources: vec![],
@@ -787,7 +826,7 @@ mod tests {
     }
 
     #[test]
-    fn exception_release_emitted_only_when_a_release_resolves() {
+    fn exception_release_is_sanitized_and_emitted_only_when_a_release_resolves() {
         let issue = Issue {
             id: Uuid::now_v7(),
             team_id: 42,
@@ -797,7 +836,13 @@ mod tests {
             description: None,
             created_at: chrono::Utc::now(),
         };
-        let record = release_record("hash-abc");
+        let mut record = release_record("hash-abc");
+        record.metadata = Some(serde_json::json!({
+            "git": {
+                "commit_id": "abc123",
+                "remote_url": "https://x-access-token:secret@github.com/example/repo.git?token=query-secret#access_token=fragment-secret"
+            }
+        }));
         let expected = serde_json::to_value(record.to_info()).unwrap();
 
         // A resolved release surfaces as `$exception_release` on both the grouping-rule projection
@@ -806,10 +851,21 @@ mod tests {
         resolved.state.metadata.release = Some(record.to_info());
         let grouping = resolved.grouping_rule_properties();
         assert_eq!(grouping["$exception_release"], expected);
+        assert_eq!(
+            grouping["$exception_release"]["metadata"]["git"],
+            serde_json::json!({
+                "commit_id": "abc123",
+                "remote_url": "https://github.com/example/repo.git"
+            })
+        );
         let fingerprinted =
             resolved.into_fingerprinted(SelectedFingerprint::manual("fp".to_string()));
         let wire = serde_json::to_value(fingerprinted.processed_properties(&issue)).unwrap();
         assert_eq!(wire["$exception_release"], expected);
+        assert_eq!(
+            wire["$exception_release"]["metadata"]["git"]["remote_url"],
+            "https://github.com/example/repo.git"
+        );
 
         // No release resolved: the property is omitted.
         let mut resolved = resolved_event();

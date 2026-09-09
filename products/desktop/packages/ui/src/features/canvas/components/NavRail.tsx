@@ -10,7 +10,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@posthog/quill";
-import { DESKTOP_HOME_FLAG, LOOPS_FLAG } from "@posthog/shared";
+import {
+  DESKTOP_HOME_FLAG,
+  LOOPS_FLAG,
+  SAVED_SEARCHES_RAIL_FLAG,
+} from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import { useSpacesTabs } from "@posthog/ui/features/browser-tabs/useSpacesTabs";
@@ -21,6 +25,7 @@ import {
   type RailDestination,
   visibleRailDestinations,
 } from "@posthog/ui/features/canvas/components/railDestinations";
+import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
@@ -29,10 +34,9 @@ import {
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
-import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useReportsInboxEnabled } from "@posthog/ui/features/feature-flags/useReportsInboxEnabled";
+import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useInboxDecisionCount } from "@posthog/ui/features/inbox/hooks/useInboxDecisionCount";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
@@ -43,6 +47,7 @@ import { useCommandMenuStore } from "@posthog/ui/shell/commandMenuStore";
 import {
   type ComponentPropsWithRef,
   type MouseEventHandler,
+  memo,
   type ReactElement,
   type ReactNode,
   useState,
@@ -179,25 +184,32 @@ function ActivityNavItem({
  * The app's leftmost column. Sits outside the resizable sidebar, so collapsing
  * that sidebar leaves the destinations reachable.
  */
-export function NavRail() {
+function NavRailImpl() {
   const homeEnabled = useFeatureFlag(DESKTOP_HOME_FLAG);
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
   const contextEnabled = useContextLayerFlag();
-  const channelReportsEnabled = useChannelReportsEnabled();
-  const reportsInboxEnabled = useReportsInboxEnabled();
+  const inboxAvailable = useInboxAvailable();
   const tabsEnabled = useSpacesTabs();
   const openBrowserTab = useOpenBrowserTab();
   const mentionsEnabled = useActivityFilterStore(
     (state) => state.mentionsEnabled,
   );
 
-  const inboxAvailable = !channelReportsEnabled || reportsInboxEnabled;
+  const savedSearchesRailEnabled = useFeatureFlag(SAVED_SEARCHES_RAIL_FLAG);
+  const hasSavedSearches = useProjectTaskFeeds().length > 0;
   const destinations = visibleRailDestinations({
     home: homeEnabled,
     inbox: inboxAvailable,
     loops: loopsEnabled,
     context: contextEnabled,
+    savedSearches: savedSearchesRailEnabled && hasSavedSearches,
   });
+  const topDestinations = destinations.filter(
+    ({ placement }) => placement !== "bottom",
+  );
+  const bottomDestinations = destinations.filter(
+    ({ placement }) => placement === "bottom",
+  );
   const inboxVisible = destinations.some(({ pane }) => pane === "inbox");
   const inboxDecisionCount = useInboxDecisionCount({
     enabled: inboxVisible,
@@ -233,6 +245,61 @@ export function NavRail() {
       pickRailDestination(destination, railPane);
     };
 
+  const renderDestination = (destination: RailDestination): ReactNode => {
+    const { pane, label, Icon, count, countTone } = destination;
+    const isActive = railPane === pane;
+    const destinationCount = count?.(counts) ?? 0;
+    const usesNotificationDot = pane === "activity" || pane === "inbox";
+    let badge: ReactNode;
+    if (usesNotificationDot) {
+      badge =
+        destinationCount > 0 ? (
+          <span
+            data-slot="dot"
+            className={NOTIFICATION_DOT_CLASS}
+            aria-hidden
+          />
+        ) : null;
+    } else {
+      badge = (
+        <CountBadge
+          count={destinationCount}
+          tone={countTone}
+          className={ICON_BADGE_CLASS}
+        />
+      );
+    }
+    const onClick = pick(destination);
+
+    if (pane === "activity") {
+      return (
+        <ActivityNavItem
+          key={pane}
+          isActive={isActive}
+          badge={badge}
+          onClick={onClick}
+        />
+      );
+    }
+    return (
+      <NavIcon
+        key={pane}
+        icon={
+          <Icon
+            className={pane === "spaces" ? "size-5" : undefined}
+            size={pane === "spaces" ? 20 : 16}
+            weight={isActive ? "fill" : "regular"}
+          />
+        }
+        label={label}
+        shortcut={destination.shortcut}
+        isActive={isActive}
+        onClick={onClick}
+        badge={badge}
+      />
+    );
+  };
+
   return (
     // One provider for the whole rail: the tooltip skip window is provider
     // state, so isolated providers never share it.
@@ -242,61 +309,9 @@ export function NavRail() {
         className="relative z-[60] flex h-full shrink-0 flex-col items-center gap-1.5 bg-chrome py-2"
         style={{ width: NAV_RAIL_WIDTH }}
       >
-        {destinations.map((destination) => {
-          const { pane, label, Icon, count, countTone } = destination;
-          const isActive = railPane === pane;
-          const destinationCount = count?.(counts) ?? 0;
-          const usesNotificationDot = pane === "activity" || pane === "inbox";
-          let badge: ReactNode;
-          if (usesNotificationDot) {
-            badge =
-              destinationCount > 0 ? (
-                <span
-                  data-slot="dot"
-                  className={NOTIFICATION_DOT_CLASS}
-                  aria-hidden
-                />
-              ) : null;
-          } else {
-            badge = (
-              <CountBadge
-                count={destinationCount}
-                tone={countTone}
-                className={ICON_BADGE_CLASS}
-              />
-            );
-          }
-          const onClick = pick(destination);
-
-          if (pane === "activity") {
-            return (
-              <ActivityNavItem
-                key={pane}
-                isActive={isActive}
-                badge={badge}
-                onClick={onClick}
-              />
-            );
-          }
-          return (
-            <NavIcon
-              key={pane}
-              icon={
-                <Icon
-                  className={pane === "spaces" ? "size-5" : undefined}
-                  size={pane === "spaces" ? 20 : 16}
-                  weight={isActive ? "fill" : "regular"}
-                />
-              }
-              label={label}
-              shortcut={destination.shortcut}
-              isActive={isActive}
-              onClick={onClick}
-              badge={badge}
-            />
-          );
-        })}
+        {topDestinations.map(renderDestination)}
         <div className="mt-auto flex flex-col items-center gap-1.5">
+          {bottomDestinations.map(renderDestination)}
           <NavIcon
             icon={<MagnifyingGlass size={16} />}
             label="Search"
@@ -325,3 +340,6 @@ export function NavRail() {
     </TooltipProvider>
   );
 }
+
+// The root layout re-renders on every navigation; this keeps that from cascading here.
+export const NavRail = memo(NavRailImpl);
