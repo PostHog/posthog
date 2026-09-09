@@ -20,6 +20,21 @@ The option defaults to 8001, which the shared development worker already binds, 
 The shared development worker does not poll these queues.
 See [Temporal development guidance](../../posthog/temporal/README.md) for worker setup.
 
+No schedule exists yet, so start an evaluation run by hand.
+The `execute_temporal_workflow` and `start_temporal_workflow` commands do not know these workflows and reject the name, so use the Temporal CLI in the dev stack:
+
+```bash
+docker exec posthog-temporal-admin-tools-1 \
+    temporal workflow start --address temporal:7233 --namespace default \
+    --task-queue alerts-product-evaluation-task-queue \
+    --type alerts-product-check-due \
+    --workflow-id "alerts-product-check-due-manual-$(date +%Y%m%d%H%M%S)" \
+    --input '{}'
+```
+
+The empty `--input '{}'` becomes the empty `AlertsProductInputs`.
+Watch the evaluation run and its delivery child in the Temporal UI at <http://localhost:8081>.
+
 Both workflows accept an empty `AlertsProductInputs` dataclass and run an empty activity with no I/O.
 Each activity has a 10-second start-to-close timeout, a 30-second schedule-to-close timeout, and at most three attempts.
 Evaluation starts one delivery child on the delivery queue and waits for confirmation that it started, without waiting for completion.
