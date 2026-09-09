@@ -31,6 +31,7 @@ import {
 } from "@posthog/ui/features/canvas/stores/taskFeedSelectionStore";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { toast } from "@posthog/ui/primitives/toast";
+import { getRouterOrNull } from "@posthog/ui/router/routerRef";
 import { track } from "@posthog/ui/shell/analytics";
 import { useEffect, useMemo } from "react";
 
@@ -68,12 +69,27 @@ export function TaskFeedPane({
 
   const actions = useMemo<ChannelItemActions>(
     () => ({
-      open: (item) =>
+      open: (item) => {
         select({
           feedId,
           taskId: item.id,
           channelId: item.task?.channel ?? null,
-        }),
+        });
+        // Name the picked task in the URL, as Activity does, so a tab, a
+        // reload or a report detour all return to the same task. On the feed
+        // route itself this replaces the entry — a push per click would spam
+        // history.
+        const onFeedRoute =
+          getRouterOrNull()?.state.location.pathname.startsWith(
+            `/feeds/${feedId}`,
+          );
+        void getRouterOrNull()?.navigate({
+          to: "/feeds/$feedId",
+          params: { feedId },
+          search: { task: item.id },
+          replace: onFeedRoute,
+        });
+      },
       togglePin: (item) => {
         togglePin(item.id).catch(() => toast.error("Couldn't update pin"));
       },
