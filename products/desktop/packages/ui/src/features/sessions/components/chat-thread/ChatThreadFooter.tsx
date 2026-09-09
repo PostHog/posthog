@@ -71,7 +71,6 @@ export function ChatThreadFooter({
   return (
     <div className="pt-1">
       {taskId && task && (
-        // Cancels the footer's inset so the row lines up with the messages.
         <div className="-mx-2.5 pb-1">
           <SessionStartupRow taskId={taskId} task={task} />
         </div>

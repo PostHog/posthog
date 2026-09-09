@@ -4,14 +4,6 @@ import { useProvisioningStore } from "@posthog/ui/features/provisioning/store";
 import { useEffect, useRef, useState } from "react";
 import { SessionStartupStatus } from "./SessionStartupStatus";
 
-function latestNonEmptyLine(lines: string[] | undefined): string | undefined {
-  for (let i = (lines?.length ?? 0) - 1; i >= 0; i--) {
-    const line = lines?.[i]?.trim();
-    if (line) return line;
-  }
-  return undefined;
-}
-
 export function SessionProvisioningStatus({
   taskId,
   executionTarget,
@@ -22,7 +14,7 @@ export function SessionProvisioningStatus({
   const lines = useProvisioningStore((s) => s.output[taskId]);
   const [open, setOpen] = useState(false);
   const logRef = useRef<HTMLPreElement>(null);
-  const detail = latestNonEmptyLine(lines);
+  const detail = lines?.findLast((line) => line.trim())?.trim();
   const hasLog = !!lines && lines.length > 0;
 
   useEffect(() => {

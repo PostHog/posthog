@@ -168,10 +168,6 @@ export interface ItemBuilder {
    *  permission request — and the resolving tool_call_update replays the raw
    *  plan-less input, so the plan is re-applied after every merge. */
   recoveredPlans: Map<string, string>;
-  /** Start of a `setup_hooks` / `sdk_initialization` burst that no content has
-   *  followed yet. One "Agent started" row stands for the whole burst, and it
-   *  is drawn only once content follows, so a start still under way is left to
-   *  the thread's live startup row. */
   pendingAgentStart: number | null;
 }
 
@@ -285,17 +281,9 @@ function markThoughtCompletionInItems(
 
 function flushAgentStart(b: ItemBuilder) {
   const ts = b.pendingAgentStart;
-  const turn = b.currentTurn;
-  if (ts === null || !turn) return;
+  if (ts === null) return;
   b.pendingAgentStart = null;
-  turn.itemCount++;
-  b.items.push({
-    type: "session_update",
-    id: `${turn.id}-item-${turn.nextItemId++}`,
-    update: { sessionUpdate: "status", status: "agent_started" },
-    turnContext: turn.context,
-    timestamp: ts,
-  });
+  pushItem(b, { sessionUpdate: "status", status: "agent_started" }, ts);
 }
 
 function pushItem(b: ItemBuilder, update: RenderItem, ts?: number) {
