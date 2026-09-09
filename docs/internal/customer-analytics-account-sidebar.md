@@ -1,6 +1,13 @@
 # Account detail sidebar properties
 
 Each user can pin up to 50 account custom properties and relationships in their project.
+When `customer-analytics-account-scene` is enabled, the Accounts list also shows these pins in expanded rows.
+The left arrow expands or collapses the row. The account name opens account details.
+Expanded pins are read-only, follow the saved order, and wrap horizontally within the table container.
+If no properties are pinned, the row links to account details to set them.
+Only expanded accounts load property values. The list does not load the legacy detail tabs while this flag is enabled.
+With the flag disabled, the existing row expansion and account-name behavior remain unchanged.
+
 The Pin properties button and the Properties gear open the same ordered selector.
 Dragging entries changes their saved display order. The sidebar scrolls independently of
 the main account content on wide account scenes.
