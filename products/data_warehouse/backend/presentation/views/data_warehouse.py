@@ -3,7 +3,7 @@ from typing import cast
 from zoneinfo import ZoneInfo
 
 from django.db import connection
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, OuterRef, Q, Subquery, Sum
 from django.db.models.functions import TruncDate, TruncHour
 
 import structlog
@@ -32,7 +32,7 @@ from posthog.utils import convert_property_value, flatten
 
 from products.batch_exports.backend.facade.models import BatchExportRun
 from products.cdp.backend.facade.models import HogFunction, HogFunctionState, HogFunctionType
-from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 from products.data_quality.backend.presentation.serializers import DataQualityGateConfigSerializer
 from products.data_quality.backend.presentation.views import data_quality_gate_response
 from products.data_warehouse.backend.facade.api import get_managed_warehouse_data_status, get_source_schema_statuses
@@ -659,13 +659,22 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             results = []
 
-            # Get failed materializations from DataWarehouseSavedQuery
-            # Only show views that are actively materialized but failing
-            failed_materializations = DataWarehouseSavedQuery.objects.filter(
-                team_id=self.team_id,
-                deleted=False,
-                is_materialized=True,
-                status=DataWarehouseSavedQuery.Status.FAILED,
+            # A view is failing when its newest run failed. The duckgres shadow shares the saved query
+            # and finalizes after the serving run, so it is excluded from the verdict.
+            serving_run = (
+                DataModelingJob.objects.filter(saved_query_id=OuterRef("id"))
+                .exclude(engine=DataModelingJobEngine.DUCKGRES)
+                .order_by("-last_run_at")
+            )
+            failed_materializations = (
+                DataWarehouseSavedQuery.objects.exclude(deleted=True)
+                .filter(team_id=self.team_id, is_materialized=True)
+                .annotate(
+                    latest_run_status=Subquery(serving_run.values("status")[:1]),
+                    latest_run_error=Subquery(serving_run.values("error")[:1]),
+                    latest_run_at=Subquery(serving_run.values("last_run_at")[:1]),
+                )
+                .filter(latest_run_status=DataModelingJob.Status.FAILED)
             )
 
             for query in failed_materializations:
@@ -675,8 +684,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         "name": query.name,
                         "type": "materialized_view",
                         "status": "failed",
-                        "error": query.latest_error,
-                        "failed_at": query.last_run_at.isoformat() if query.last_run_at else None,
+                        "error": query.latest_run_error,
+                        "failed_at": query.latest_run_at.isoformat() if query.latest_run_at else None,
                         "url": f"/data-warehouse/view/{query.id}",
                     }
                 )

@@ -8,7 +8,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration, SlackIntegration
 
-from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled, is_slack_app_turn_feedback_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
 from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_messages import (
     RunFooter,
@@ -135,9 +135,13 @@ class SlackThreadHandler:
         context: SlackThreadContext,
         run_footer: RunFooter | None = None,
         actor_slack_user_id: str | None = None,
+        turn_trace_id: str | None = None,
     ) -> None:
         self.context = context
         self.run_footer = run_footer or RunFooter()
+        # Beside the footer rather than in it: a trace id belongs to one turn, and the
+        # next turn in the same thread has its own.
+        self.turn_trace_id = turn_trace_id
         # Who this reply is for. Links are gated on their access, not the task creator's:
         # a thread outlives its opener, and a link only helps the person looking at it.
         self.actor_slack_user_id = actor_slack_user_id or context.mentioning_slack_user_id
@@ -145,7 +149,6 @@ class SlackThreadHandler:
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
         self._fork_flag: bool | None = None
-        self._feedback_flag: bool | None = None
         self._code_access: bool | None = None
 
     def _get_integration(self) -> Integration:
@@ -218,18 +221,12 @@ class SlackThreadHandler:
         """The thumbs for this reply, or `None` when there is nothing to rate.
 
         A reply with no run behind it — a note, a card posted before the run existed —
-        has nothing a rating could be attributed to, which is what keeps those replies
-        off the flag lookup here.
+        has nothing a rating could be attributed to.
         """
         run_id = self.run_footer.run_id
         if not run_id:
             return None
-        integration = self._get_integration()
-        if self._feedback_flag is None:
-            self._feedback_flag = is_slack_app_turn_feedback_enabled(integration)
-        if not self._feedback_flag:
-            return None
-        return turn_feedback_block(integration.id, run_id)
+        return turn_feedback_block(self._get_integration().id, run_id, self.turn_trace_id)
 
     def _append_trailing_blocks(self, ts: str) -> None:
         """Add the fork menu and the thumbs to a streamed reply, which has no section to

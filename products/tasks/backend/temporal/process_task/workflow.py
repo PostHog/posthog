@@ -1761,6 +1761,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "agent_session_init_ms": agent_server_output.session_init_ms,
                 "agent_server_total_ms": agent_server_output.boot_phases_ms.get("server_total"),
                 "agent_server_http_ready_ms": agent_server_output.boot_phases_ms.get("http_ready"),
+                "agent_launcher_to_process_ms": agent_server_output.boot_phases_ms.get("launcher_to_process"),
                 "agent_context_fetch_ms": agent_server_output.boot_phases_ms.get("context_fetch"),
                 "agent_acp_initialize_ms": agent_server_output.boot_phases_ms.get("acp_initialize"),
                 "agent_repository_ready_ms": agent_server_output.boot_phases_ms.get("repository_ready"),
@@ -3225,14 +3226,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
     @temporalio.workflow.signal
-    async def turn_completed(self) -> None:
+    async def turn_completed(self, trace_id: str | None = None) -> None:
         if not self._is_agent_design_enabled or not self._current_slack_relay_workflow_id:
             return
         relay_id = self._current_slack_relay_workflow_id
         self._current_slack_relay_workflow_id = None
         try:
             handle = workflow.get_external_workflow_handle(relay_id)
-            await handle.signal(SlackAgentDesignRelayWorkflow.complete_turn)
+            await handle.signal(SlackAgentDesignRelayWorkflow.complete_turn, trace_id)
         except Exception as e:
             workflow.logger.debug(
                 "slack_status_complete_failed",

@@ -194,6 +194,46 @@ describe("createPiMessageTranslator", () => {
     ]);
   });
 
+  it("adds canonical metadata to a bridged MCP tool result", () => {
+    const translator = createPiMessageTranslator();
+    const content: ToolResultMessage["content"] = [
+      { type: "text", text: "ok" },
+    ];
+
+    expect(
+      translator.translateToolExecutionEnd(
+        "action-1",
+        "mcp_posthog_code_tools_show_actions",
+        {
+          content,
+          details: {
+            posthog: {
+              mcp: { server: "posthog-code-tools", tool: "show_actions" },
+            },
+          },
+        },
+        false,
+        false,
+        12,
+      ),
+    ).toMatchObject([
+      {
+        type: "tool_call_updated",
+        toolCall: {
+          _meta: {
+            posthog: {
+              toolName: "mcp__posthog-code-tools__show_actions",
+              mcp: {
+                server: "posthog-code-tools",
+                tool: "show_actions",
+              },
+            },
+          },
+        },
+      },
+    ]);
+  });
+
   it("classifies ls as a directory listing", () => {
     const translator = createPiMessageTranslator();
     const message = makeAssistant([
@@ -235,6 +275,7 @@ describe("createPiMessageTranslator", () => {
         "read-1",
         "read",
         { content },
+        false,
         false,
         2,
       ),

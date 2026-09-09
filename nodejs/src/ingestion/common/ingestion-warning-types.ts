@@ -43,6 +43,12 @@ export const INGESTION_WARNING_TYPES = {
     cannot_merge_already_identified: { category: 'merge', severity: 'warning' },
     cannot_merge_with_illegal_distinct_id: { category: 'merge', severity: 'warning' },
     merge_race_condition: { category: 'merge', severity: 'error' },
+    // A source person held more distinct ids than the merge is allowed to
+    // move, so its merge did not happen.
+    merge_move_limit_exceeded: { category: 'merge', severity: 'error' },
+    // The merge backend settled on a verdict that merged nothing, and the
+    // verdict is recorded, so this event cannot reach a different answer.
+    merge_settled_failure: { category: 'merge', severity: 'error' },
 
     // Event validation — malformed or rejected event data
     client_ingestion_warning: { category: 'event', severity: 'info' },

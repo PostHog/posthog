@@ -1,8 +1,9 @@
 import {
+    AIQueryPlanStatusEnumApi,
     RecurrenceIntervalEnumApi,
-    ResourceTypeEnumApi,
+    SubscriptionResourceTypeEnumApi,
     SubscriptionDeliveryStatusEnumApi,
-    TargetTypeEnumApi,
+    SubscriptionTargetEnumApi,
     type SubscriptionApi,
     type SubscriptionDeliveryApi,
 } from 'products/subscriptions/frontend/generated/api.schemas'
@@ -18,14 +19,14 @@ export const MOCK_SUBSCRIPTION_USER = {
 
 export const MOCK_SUBSCRIPTION_INSIGHT: SubscriptionApi = {
     id: 1,
-    resource_type: ResourceTypeEnumApi.Insight,
+    resource_type: SubscriptionResourceTypeEnumApi.Insight,
     insight: 101,
     dashboard: null,
     insight_short_id: 'abc123',
     resource_name: 'North star metric',
     title: 'Weekly rollup',
     dashboard_export_insights: [],
-    target_type: TargetTypeEnumApi.Email,
+    target_type: SubscriptionTargetEnumApi.Email,
     target_value: 'matt.p@posthog.com',
     frequency: RecurrenceIntervalEnumApi.Weekly,
     interval: 1,
@@ -36,6 +37,7 @@ export const MOCK_SUBSCRIPTION_INSIGHT: SubscriptionApi = {
     next_delivery_date: '2026-04-07T17:00:00Z',
     deleted: false,
     enabled: true,
+    ai_query_plan_status: null,
 }
 
 /** Insight subscription with several email recipients so Resource shows the type label, not the long name. */
@@ -49,14 +51,14 @@ export const MOCK_SUBSCRIPTION_INSIGHT_MANY_DESTINATIONS: SubscriptionApi = {
 
 export const MOCK_SUBSCRIPTION_DASHBOARD: SubscriptionApi = {
     id: 2,
-    resource_type: ResourceTypeEnumApi.Dashboard,
+    resource_type: SubscriptionResourceTypeEnumApi.Dashboard,
     insight: null,
     dashboard: 501,
     insight_short_id: null,
     resource_name: 'Company overview',
     title: 'Dashboard digest',
     dashboard_export_insights: [101],
-    target_type: TargetTypeEnumApi.Slack,
+    target_type: SubscriptionTargetEnumApi.Slack,
     target_value: 'C12345|#alerts-analytics-platform',
     frequency: RecurrenceIntervalEnumApi.Daily,
     interval: 1,
@@ -68,6 +70,7 @@ export const MOCK_SUBSCRIPTION_DASHBOARD: SubscriptionApi = {
     deleted: false,
     enabled: true,
     integration_id: 1,
+    ai_query_plan_status: null,
 }
 
 /** Dashboard subscription with several Slack channels. */
@@ -95,6 +98,7 @@ export const MOCK_SUBSCRIPTION_DELIVERIES: SubscriptionDeliveryApi[] = [
         ai_report_charts: null,
         ai_report_diagnostics: null,
         ai_report_prompt: null,
+        ai_query_plan_status: null,
         recipient_results: [],
         status: SubscriptionDeliveryStatusEnumApi.Starting,
         error: null,
@@ -123,6 +127,7 @@ export const MOCK_SUBSCRIPTION_DELIVERIES: SubscriptionDeliveryApi[] = [
             '## Weekly Hedgebox report\n\n| Metric | Value |\n| --- | --- |\n| Daily active users | 89 |\n| New signups | 56 |\n| File uploads | 429 |\n| File downloads | 324 |\n\nEngagement is up week-over-week, led by uploads.\n\n![Trend chart](https://example.com/trend.png)',
         ai_report_prompt:
             'Summarize weekly Hedgebox engagement: daily active users, new signups, file uploads and downloads, and call out any week-over-week movement.',
+        ai_query_plan_status: AIQueryPlanStatusEnumApi.Frozen,
         ai_report_charts: [{ export_asset_id: 4321, title: 'Daily active users (7-day total)', step_index: 0 }],
         ai_report_diagnostics: [
             {
@@ -171,6 +176,7 @@ export const MOCK_SUBSCRIPTION_DELIVERIES: SubscriptionDeliveryApi[] = [
         ai_report_charts: null,
         ai_report_diagnostics: null,
         ai_report_prompt: null,
+        ai_query_plan_status: null,
         recipient_results: [],
         status: SubscriptionDeliveryStatusEnumApi.Completed,
         error: null,
@@ -195,6 +201,7 @@ export const MOCK_SUBSCRIPTION_DELIVERIES: SubscriptionDeliveryApi[] = [
         ai_report_charts: null,
         ai_report_diagnostics: null,
         ai_report_prompt: null,
+        ai_query_plan_status: null,
         recipient_results: [],
         status: SubscriptionDeliveryStatusEnumApi.Skipped,
         error: null,
@@ -218,6 +225,7 @@ export const MOCK_SUBSCRIPTION_DELIVERIES: SubscriptionDeliveryApi[] = [
         ai_report_charts: null,
         ai_report_diagnostics: null,
         ai_report_prompt: null,
+        ai_query_plan_status: null,
         recipient_results: [],
         status: SubscriptionDeliveryStatusEnumApi.Failed,
         error: { message: 'SMTP timeout' },
@@ -241,6 +249,7 @@ export const MOCK_SUBSCRIPTION_DELIVERIES: SubscriptionDeliveryApi[] = [
         ai_report_charts: null,
         ai_report_diagnostics: null,
         ai_report_prompt: null,
+        ai_query_plan_status: null,
         recipient_results: [],
         status: SubscriptionDeliveryStatusEnumApi.Completed,
         error: null,
@@ -265,6 +274,7 @@ export const MOCK_SUBSCRIPTION_DELIVERIES: SubscriptionDeliveryApi[] = [
         ai_report_charts: null,
         ai_report_diagnostics: null,
         ai_report_prompt: null,
+        ai_query_plan_status: null,
         recipient_results: [],
         status: SubscriptionDeliveryStatusEnumApi.Failed,
         error: { message: 'HTTP 502 from webhook' },
@@ -288,6 +298,7 @@ export const MOCK_SUBSCRIPTION_DELIVERIES: SubscriptionDeliveryApi[] = [
         ai_report_charts: null,
         ai_report_diagnostics: null,
         ai_report_prompt: null,
+        ai_query_plan_status: null,
         recipient_results: [],
         status: SubscriptionDeliveryStatusEnumApi.Completed,
         error: null,
@@ -311,6 +322,7 @@ export const MOCK_SUBSCRIPTION_DELIVERIES: SubscriptionDeliveryApi[] = [
         ai_report_charts: null,
         ai_report_diagnostics: null,
         ai_report_prompt: null,
+        ai_query_plan_status: null,
         recipient_results: [],
         status: SubscriptionDeliveryStatusEnumApi.Completed,
         error: null,
@@ -334,6 +346,7 @@ export const MOCK_SUBSCRIPTION_DELIVERIES: SubscriptionDeliveryApi[] = [
         ai_report_charts: null,
         ai_report_diagnostics: null,
         ai_report_prompt: null,
+        ai_query_plan_status: null,
         recipient_results: [],
         status: SubscriptionDeliveryStatusEnumApi.Failed,
         error: { message: 'Export timed out' },
@@ -357,6 +370,7 @@ export const MOCK_SUBSCRIPTION_DELIVERIES: SubscriptionDeliveryApi[] = [
         ai_report_charts: null,
         ai_report_diagnostics: null,
         ai_report_prompt: null,
+        ai_query_plan_status: null,
         recipient_results: [],
         status: SubscriptionDeliveryStatusEnumApi.Completed,
         error: null,

@@ -72,7 +72,7 @@ class TestContextLayerAPI(APIBaseTest):
         self._enable()
         bundle_bytes = self._bundle_with_edit("areas/from-agent.md", _page("From an agent"))
         # Minted the way production mints one: bound to a task, scoped to a team.
-        token = self._bearer("task:write internal_run:read", scoped_teams=[self.team.id])
+        token = self._bearer("task:write internal_run:read context_layer_internal:write", scoped_teams=[self.team.id])
         self.client.logout()
 
         def post(base: str):
@@ -382,7 +382,13 @@ class TestContextLayerAPI(APIBaseTest):
         )
 
     def test_commits_accepts_a_sandbox_run_token(self, _flag) -> None:
-        assert self._post_bundle_with_bearer("task:write internal_run:read").status_code == 200
+        assert (
+            self._post_bundle_with_bearer("task:write internal_run:read context_layer_internal:write").status_code
+            == 200
+        )
+
+    def test_commits_rejects_read_only_sandbox_run_token(self, _flag) -> None:
+        assert self._post_bundle_with_bearer("task:write internal_run:read").status_code == 403
 
     def test_commits_rejects_task_write_without_run_provenance(self, _flag) -> None:
         # task:write is user-grantable; without the server-minted internal_run:read
@@ -455,6 +461,109 @@ class TestContextLayerAPI(APIBaseTest):
         assert proposed.status_code == 200, proposed.content
         assert proposed.json() == {"path": f"projects/{self.team.id}/spaces/growth.md", "exists": False}
 
+    def test_agent_route_accepts_task_scopes_from_an_interactive_task(self, _flag) -> None:
+        self._enable()
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
+            assert channel is not None
+            other_channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="sales", star=False)
+            assert other_channel is not None
+        task = apps.get_model("tasks", "Task").objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Build the space context",
+            channel_id=channel.id,
+        )
+        token = self._bearer(
+            "task:read task:write internal_run:read context_layer_internal:write",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task.id,
+        )
+        self.client.logout()
+
+        moved = self.client.patch(
+            f"/api/projects/{self.team.id}/tasks/{task.id}/",
+            {"channel": str(other_channel.id)},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert moved.status_code == 403, moved.content
+
+        proposed = self.client.get(
+            f"{self.agent_url}/channel-pages/{channel.id}/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert proposed.status_code == 200, proposed.content
+        assert proposed.json() == {"path": f"projects/{self.team.id}/spaces/growth.md", "exists": False}
+
+        created = self.client.put(
+            f"{self.agent_url}/pages/",
+            {
+                "path": proposed.json()["path"],
+                "content": f"---\nteam_id: {self.team.id}\nchannel_id: {channel.id}\nsummary: Growth channel context.\nstatus: active\n---\n\n# Growth (project {self.team.id})\n",
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert created.status_code == 200, created.content
+
+        changed_frontmatter = self.client.put(
+            f"{self.agent_url}/pages/",
+            {
+                "path": proposed.json()["path"],
+                "content": f"---\nteam_id: {self.team.id}\nchannel_id: {other_channel.id}\nsummary: Sales channel context.\nstatus: active\n---\n\n# Sales\n",
+                "base_head": created.json()["head_sha"],
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert changed_frontmatter.status_code == 403, changed_frontmatter.content
+
+        outside_channel = self.client.put(
+            f"{self.agent_url}/pages/",
+            {"path": "AGENTS.md", "content": "# Owned\n", "base_head": created.json()["head_sha"]},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert outside_channel.status_code == 403, outside_channel.content
+
+    def test_read_only_task_token_cannot_update_its_channel_page(self, _flag) -> None:
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
+            assert channel is not None
+        head = self._enable()
+        task = apps.get_model("tasks", "Task").objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Read the space context",
+            channel_id=channel.id,
+        )
+        token = self._bearer(
+            "organization:read task:read task:write internal_run:read",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task.id,
+        )
+        self.client.logout()
+
+        read = self.client.get(
+            f"{self.agent_url}/pages/",
+            {"path": f"projects/{self.team.id}/spaces/growth.md"},
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert read.status_code == 200, read.content
+
+        updated = self.client.put(
+            f"{self.agent_url}/pages/",
+            {
+                "path": f"projects/{self.team.id}/spaces/growth.md",
+                "content": read.json()["content"],
+                "base_head": head,
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert updated.status_code == 403, updated.content
+
     def test_loop_token_creates_its_channels_missing_page_at_the_proposed_path(self, _flag) -> None:
         self._enable()
         with team_scope(self.team.id):
@@ -511,7 +620,11 @@ class TestContextLayerAPI(APIBaseTest):
     def test_run_commit_landings_are_capped_per_day(self, _flag) -> None:
         self._enable()
         task = apps.get_model("tasks", "Task").objects.create(team=self.team, created_by=self.user, title="agent work")
-        token = self._bearer("task:write internal_run:read", scoped_teams=[self.team.id], sandbox_task_id=task.id)
+        token = self._bearer(
+            "task:write internal_run:read context_layer_internal:write",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task.id,
+        )
         self.client.logout()
 
         def land(path: str):
@@ -546,32 +659,41 @@ class TestContextLayerAPI(APIBaseTest):
         assert response.status_code == 403, response.content
 
     def test_run_page_writes_share_the_daily_landing_cap(self, _flag) -> None:
+        with team_scope(self.team.id):
+            channel = tasks_facade.resolve_channel(self.team.id, self.user.id, name="growth", star=False)
+            assert channel is not None
         head = self._enable()
-        task = apps.get_model("tasks", "Task").objects.create(team=self.team, created_by=self.user, title="agent work")
+        task = apps.get_model("tasks", "Task").objects.create(
+            team=self.team, created_by=self.user, title="agent work", channel_id=channel.id
+        )
         token = self._bearer(
-            "task:read task:write internal_run:read organization:write",
+            "task:read task:write internal_run:read context_layer_internal:write",
             scoped_teams=[self.team.id],
             sandbox_task_id=task.id,
         )
         self.client.logout()
 
-        def write(path: str, base_head: str):
+        def write(base_head: str):
             return self.client.put(
                 f"{self.agent_url}/pages/",
-                {"path": path, "content": _page(path), "base_head": base_head},
+                {
+                    "path": f"projects/{self.team.id}/spaces/growth.md",
+                    "content": f"---\nteam_id: {self.team.id}\nchannel_id: {channel.id}\nsummary: Growth channel context.\nstatus: active\n---\n\n# Growth\n",
+                    "base_head": base_head,
+                },
                 format="json",
                 HTTP_AUTHORIZATION=f"Bearer {token}",
             )
 
         with patch.object(views, "RUN_COMMITS_PER_DAY_CAP", 1):
-            first = write("areas/first.md", head)
+            first = write(head)
             assert first.status_code == 200, first.content
-            capped = write("areas/second.md", first.json()["head_sha"])
+            capped = write(first.json()["head_sha"])
         assert capped.status_code == 429
 
     def test_pages_reject_task_scopes_without_run_provenance(self, _flag) -> None:
         self._enable()
-        token = self._bearer("task:read task:write internal_run:read", scoped_teams=[self.team.id])
+        token = self._bearer("task:read task:write", scoped_teams=[self.team.id])
         self.client.logout()
         response = self.client.get(
             f"{self.agent_url}/pages/",

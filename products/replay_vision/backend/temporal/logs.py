@@ -21,7 +21,6 @@ VISION_LOG_ATTRIBUTE_ALLOWLIST = frozenset(
         "observation_id",
         "scanner_id",
         "scanner_type",
-        "vision_action_id",
         "schedule_id",
         "team_id",
         "session_id",

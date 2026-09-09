@@ -79,6 +79,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import { FeatureFlagStaleBanner } from 'products/feature_flags/frontend/FeatureFlagStaleBanner'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { featureFlagContextItems } from './featureFlagAiContext'
@@ -478,6 +479,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             experiments and surveys keep their data.
                         </LemonBanner>
                     )}
+                    <FeatureFlagStaleBanner />
                     {earlyAccessFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && (
                         <LemonBanner type="info">
                             This feature flag is assigned to an early access feature in the{' '}

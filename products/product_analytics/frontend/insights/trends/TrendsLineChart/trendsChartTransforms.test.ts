@@ -150,11 +150,15 @@ describe('trendsChartTransforms', () => {
             expect(series.map((s) => s.key)).toEqual(['a', 'b'])
         })
 
-        it('assigns yAxisIds [left, y1, y2] across three results when showMultipleYAxes is true', () => {
-            const results = [makeResult({ id: 'a' }), makeResult({ id: 'b' }), makeResult({ id: 'c' })]
+        it('groups series onto shared y-axes by magnitude when showMultipleYAxes is true', () => {
+            const results = [
+                makeResult({ id: 'a', data: [1, 2, 3] }),
+                makeResult({ id: 'b', data: [1000, 2000, 3000] }),
+                makeResult({ id: 'c', data: [2, 4, 6] }),
+            ]
             const series = buildTrendsSeries(results, { getColor: () => RED, showMultipleYAxes: true })
 
-            expect(series.map((s) => s.yAxisId)).toEqual([DEFAULT_Y_AXIS_ID, 'y1', 'y2'])
+            expect(series.map((s) => s.yAxisId)).toEqual([DEFAULT_Y_AXIS_ID, 'y1', DEFAULT_Y_AXIS_ID])
         })
     })
 
