@@ -39,12 +39,6 @@ if [ -f "$CACHE_FILE" ] && [ -n "$MANIFEST_HASH" ]; then
   fi
 fi
 
-if [ -f "$PROJECT_DIR/.git" ] && \
-  [ "$(git -C "$PROJECT_DIR" rev-parse --git-dir 2>/dev/null)" != "$(git -C "$PROJECT_DIR" rev-parse --git-common-dir 2>/dev/null)" ]; then
-  echo "This worktree has no valid cached Flox environment. Start editing without installing dependencies. When you need project tools, run flox activate -- bash -c '<command>' from this worktree. The first activation can install dependencies and build tools. Do not borrow another checkout's .flox directory."
-  exit 0
-fi
-
 # Slow path: capture the flox activation environment
 FLOX_ENV_SNAPSHOT=$(flox activate --dir "$PROJECT_DIR" -- bash -c 'printenv' 2>/dev/null)
 

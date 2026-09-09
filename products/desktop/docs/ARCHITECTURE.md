@@ -67,15 +67,12 @@ shows either "Starting local agent" or "Running repository setup". The submitted
 prompt stays visible, with a reminder that it does not need to be submitted again.
 These are observed phases, not estimated progress percentages.
 
-In this repository, `.claude/hooks/setup-flox.sh` does not activate Flox for a
-worktree without a valid cached environment. This keeps dependency installation
-out of the agent connection step. The hook tells the agent to use
-`flox activate -- bash -c '<command>'` from that worktree when it needs project
-tools. That explicit activation can install dependencies and build tools.
-Editing does not require a full environment install. Valid worktree caches and
-ordinary checkouts retain their existing setup behavior. Do not share `.flox`
-between worktrees. Other repositories can still have slow startup hooks; the
-bounded hook wait and visible setup phase apply to those hooks too.
+Desktop does not disable repository hooks, change repository settings, or share
+ignored dependency files between worktrees. Each worktree runs its configured
+setup in its own directory. A new worktree can need setup that an existing
+checkout has already completed. Setup time is not a connection failure while an
+observed hook remains within its deadline. The same rule applies to ordinary
+checkouts with slow hooks; it does not depend on a repository name or toolchain.
 
 A connected local session only waits for its first prompt when the session still
 has a prompt to send. A task description or an existing run does not imply that a
