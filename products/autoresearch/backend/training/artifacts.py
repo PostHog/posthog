@@ -23,6 +23,9 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.storage import object_storage
+from posthog.storage.object_storage import ObjectStorageError
+
+from products.autoresearch.backend.training.recipe_validation import RecipeValidationError, validate_feature_sql
 
 logger = structlog.get_logger(__name__)
 
@@ -43,10 +46,20 @@ MODEL_PKL = "model.pkl"
 _SAFE_PATH_SEGMENT = re.compile(r"^[\w.\-]+$")
 # A single file upload caps here so one base64 MCP payload can't blow memory.
 MAX_ARTIFACT_BYTES = 10 * 1024 * 1024
+# S3 rejects object keys longer than this many UTF-8 bytes.
+MAX_OBJECT_KEY_BYTES = 1024
 
 
-class InvalidArtifactPath(ValueError):
+class InvalidArtifact(ValueError):
+    """Raised when an agent-supplied artifact is refused before it reaches storage."""
+
+
+class InvalidArtifactPath(InvalidArtifact):
     """Raised when an upload/get path would escape the run prefix or is malformed."""
+
+
+class InvalidArtifactContent(InvalidArtifact):
+    """Raised when an upload is too large, or a bundle file is empty, not UTF-8, or fails validation."""
 
 
 def normalize_artifact_path(path: str) -> str:
@@ -64,6 +77,54 @@ def normalize_artifact_path(path: str) -> str:
                 f"Invalid artifact path {path!r}: each segment must match [A-Za-z0-9_.-] and not be '.' or '..'."
             )
     return "/".join(segments)
+
+
+def _artifact_key(prefix: str, path: str) -> tuple[str, str]:
+    """The (relative path, object key) for ``path`` under ``prefix``, both validated."""
+    rel = normalize_artifact_path(path)
+    key = f"{prefix}/{rel}"
+    if len(key.encode("utf-8")) > MAX_OBJECT_KEY_BYTES:
+        raise InvalidArtifactPath(
+            f"Artifact path {rel!r} is too long: the storage key is limited to {MAX_OBJECT_KEY_BYTES} bytes."
+        )
+    return rel, key
+
+
+def _require_storage() -> None:
+    # The shared storage layer swaps in a client whose write() is a silent no-op when object
+    # storage is disabled. Acknowledging an upload that was never stored makes the bundle
+    # vanish on its next read, so refuse the write up front.
+    if not settings.OBJECT_STORAGE_ENABLED:
+        raise ObjectStorageError(
+            "Object storage is disabled (OBJECT_STORAGE_ENABLED), so the artifact cannot be stored."
+        )
+
+
+def _bundle_text(name: str, content: bytes) -> str:
+    """Decode one bundle file, refusing empty or non-UTF-8 content."""
+    if not content.strip():
+        raise InvalidArtifactContent(f"Bundle file {name!r} is empty.")
+    try:
+        return content.decode("utf-8")
+    except UnicodeDecodeError as e:
+        raise InvalidArtifactContent(f"Bundle file {name!r} is not valid UTF-8 text.") from e
+
+
+def _validate_bundle_file(name: str, content: bytes) -> None:
+    """
+    Check a bundle file at upload time, so a broken bundle is refused before it is acknowledged.
+
+    ``features.sql`` gets the same static checks as a recorded recipe: fitting and inference run
+    the uploaded query, not the recorded snapshot, so an upload that skipped validation could
+    read the wall clock or drop the ``{anchors}`` cutoff and leak the outcome window.
+    """
+    text = _bundle_text(name, content)
+    if name != FEATURES_SQL:
+        return
+    try:
+        validate_feature_sql(text)
+    except RecipeValidationError as e:
+        raise InvalidArtifactContent(f"Bundle file {name!r} was rejected: {e}") from e
 
 
 @frozen
@@ -87,9 +148,9 @@ class ArtifactBundle:
         if missing:
             raise BundleNotFound(f"Bundle is missing required files: {', '.join(missing)}")
         return cls(
-            train_py=files[TRAIN_PY].decode("utf-8"),
-            predict_py=files[PREDICT_PY].decode("utf-8"),
-            features_sql=files[FEATURES_SQL].decode("utf-8"),
+            train_py=_bundle_text(TRAIN_PY, files[TRAIN_PY]),
+            predict_py=_bundle_text(PREDICT_PY, files[PREDICT_PY]),
+            features_sql=_bundle_text(FEATURES_SQL, files[FEATURES_SQL]),
         )
 
     @classmethod
@@ -111,9 +172,9 @@ def bundle_prefix(*, team_id: int, pipeline_id: str, training_run_id: str) -> st
 
 
 def write_bundle(prefix: str, bundle: ArtifactBundle) -> None:
-    """Write all bundle files under ``prefix``."""
+    """Write all bundle files under ``prefix``, with the same checks as a per-file upload."""
     for name, content in bundle.as_files().items():
-        object_storage.write(f"{prefix}/{name}", content)
+        write_artifact(prefix, name, content.encode("utf-8"))
     logger.info("autoresearch_bundle_written", prefix=prefix, files=len(BUNDLE_FILES))
 
 
@@ -129,6 +190,7 @@ def read_bundle(prefix: str) -> ArtifactBundle:
 
 def write_model(prefix: str, content: bytes) -> None:
     """Persist the fitted champion model (``model.pkl``) under ``prefix``."""
+    _require_storage()
     object_storage.write(f"{prefix}/{MODEL_PKL}", content)
     logger.info("autoresearch_model_written", prefix=prefix, size=len(content))
 
@@ -150,18 +212,23 @@ class StoredArtifact:
 
 def write_artifact(prefix: str, path: str, content: bytes) -> StoredArtifact:
     """Write one file under ``prefix`` at the validated relative ``path``."""
-    rel = normalize_artifact_path(path)
+    rel, key = _artifact_key(prefix, path)
     if len(content) > MAX_ARTIFACT_BYTES:
-        raise InvalidArtifactPath(f"Artifact {rel!r} is {len(content)} bytes; the limit is {MAX_ARTIFACT_BYTES} bytes.")
-    object_storage.write(f"{prefix}/{rel}", content)
+        raise InvalidArtifactContent(
+            f"Artifact {rel!r} is {len(content)} bytes; the limit is {MAX_ARTIFACT_BYTES} bytes."
+        )
+    if rel in BUNDLE_FILES:
+        _validate_bundle_file(rel, content)
+    _require_storage()
+    object_storage.write(key, content)
     logger.info("autoresearch_artifact_written", prefix=prefix, path=rel, size=len(content))
     return StoredArtifact(path=rel, size_bytes=len(content), sha256=hashlib.sha256(content).hexdigest())
 
 
 def read_artifact(prefix: str, path: str) -> bytes:
     """Read one file under ``prefix``. Raises ``BundleNotFound`` if absent."""
-    rel = normalize_artifact_path(path)
-    content = object_storage.read_bytes(f"{prefix}/{rel}", missing_ok=True)
+    rel, key = _artifact_key(prefix, path)
+    content = object_storage.read_bytes(key, missing_ok=True)
     if content is None:
         raise BundleNotFound(f"Artifact {rel!r} not found under {prefix}.")
     return content
@@ -169,10 +236,10 @@ def read_artifact(prefix: str, path: str) -> bytes:
 
 def delete_artifact(prefix: str, path: str) -> bool:
     """Delete one file under ``prefix``. Returns False if it was not present."""
-    rel = normalize_artifact_path(path)
-    if object_storage.read_bytes(f"{prefix}/{rel}", missing_ok=True) is None:
+    rel, key = _artifact_key(prefix, path)
+    if object_storage.read_bytes(key, missing_ok=True) is None:
         return False
-    object_storage.delete(f"{prefix}/{rel}")
+    object_storage.delete(key)
     logger.info("autoresearch_artifact_deleted", prefix=prefix, path=rel)
     return True
 

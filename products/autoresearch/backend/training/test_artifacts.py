@@ -1,12 +1,15 @@
-from posthog.test.base import BaseTest
 from unittest.mock import patch
+
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from products.autoresearch.backend.testing import TeamScopedTestMixin
+from posthog.storage.object_storage import ObjectStorageError
+
 from products.autoresearch.backend.training import artifacts
 from products.autoresearch.backend.training.artifacts import (
     BundleNotFound,
+    InvalidArtifactContent,
     InvalidArtifactPath,
     bundle_prefix,
     delete_artifact,
@@ -15,6 +18,8 @@ from products.autoresearch.backend.training.artifacts import (
     read_artifact,
     write_artifact,
 )
+
+ANCHORED_SQL = b"SELECT a.person_id AS distinct_id, count() AS c FROM {anchors} a GROUP BY a.person_id"
 
 
 class _InMemoryStorage:
@@ -41,7 +46,7 @@ class _InMemoryStorage:
         return keys or None
 
 
-class TestNormalizeArtifactPath(TeamScopedTestMixin, BaseTest):
+class TestNormalizeArtifactPath(SimpleTestCase):
     @parameterized.expand(
         [
             ("plain", "train.py", "train.py"),
@@ -68,7 +73,8 @@ class TestNormalizeArtifactPath(TeamScopedTestMixin, BaseTest):
             normalize_artifact_path(path)
 
 
-class TestArtifactStorage(TeamScopedTestMixin, BaseTest):
+@override_settings(OBJECT_STORAGE_ENABLED=True)
+class TestArtifactStorage(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.fake = _InMemoryStorage()
@@ -99,9 +105,38 @@ class TestArtifactStorage(TeamScopedTestMixin, BaseTest):
         self.assertFalse(delete_artifact(self.prefix, "train.py"))
 
     def test_oversize_upload_rejected(self) -> None:
-        with self.assertRaises(InvalidArtifactPath):
-            write_artifact(self.prefix, "train.py", b"x" * (artifacts.MAX_ARTIFACT_BYTES + 1))
+        with self.assertRaises(InvalidArtifactContent):
+            write_artifact(self.prefix, "eda/big.bin", b"x" * (artifacts.MAX_ARTIFACT_BYTES + 1))
 
-    def test_write_validates_path(self) -> None:
+    @parameterized.expand([("traversal", "../escape.py"), ("key_too_long", "eda/" + "x" * 1100 + ".txt")])
+    def test_write_validates_path(self, _name: str, path: str) -> None:
         with self.assertRaises(InvalidArtifactPath):
-            write_artifact(self.prefix, "../escape.py", b"a")
+            write_artifact(self.prefix, path, b"a")
+        self.assertEqual(self.fake.store, {})
+
+    @parameterized.expand(
+        [
+            ("empty_script", "train.py", b"   \n"),
+            ("not_utf8", "predict.py", b"\xff\xfe"),
+            (
+                "feature_sql_reads_wall_clock",
+                "features.sql",
+                b"SELECT a.person_id AS distinct_id FROM {anchors} a WHERE now() > 0",
+            ),
+            ("feature_sql_unanchored", "features.sql", b"SELECT person_id AS distinct_id FROM events"),
+        ]
+    )
+    def test_bundle_files_are_validated_before_they_are_stored(self, _name: str, path: str, content: bytes) -> None:
+        with self.assertRaises(InvalidArtifactContent):
+            write_artifact(self.prefix, path, content)
+        self.assertEqual(self.fake.store, {})
+
+    def test_valid_feature_sql_upload_is_stored(self) -> None:
+        write_artifact(self.prefix, "features.sql", ANCHORED_SQL)
+        self.assertEqual(read_artifact(self.prefix, "features.sql"), ANCHORED_SQL)
+
+    @override_settings(OBJECT_STORAGE_ENABLED=False)
+    def test_write_refuses_when_object_storage_is_disabled(self) -> None:
+        with self.assertRaises(ObjectStorageError):
+            write_artifact(self.prefix, "train.py", b"a")
+        self.assertEqual(self.fake.store, {})
