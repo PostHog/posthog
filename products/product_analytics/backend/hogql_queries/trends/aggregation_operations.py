@@ -20,10 +20,11 @@ from posthog.hogql.placeholders import replace_placeholders
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES
 from posthog.hogql_queries.data_warehouse_mixin import DataWarehouseInsightQueryMixin
-from posthog.hogql_queries.insights.trends.utils import is_groups_math
 from posthog.hogql_queries.utils.aggregations import FirstTimeForUserEventsQueryAlternator, QueryAlternator
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
+
+from products.product_analytics.backend.hogql_queries.trends.utils import is_groups_math
 
 DEFAULT_CURRENCY_VALUE = "USD"
 DEFAULT_REVENUE_PROPERTY = "$revenue"
