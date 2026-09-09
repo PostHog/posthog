@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from functools import cached_property
 from typing import Any, cast
 from urllib.parse import urlsplit
@@ -10,8 +11,21 @@ from social_core.backends.open_id_connect import OpenIdConnectAuth
 from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter, AuthTokenError
 
 from posthog.constants import AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
+
+BasicAuthCredentials = tuple[str, str]
+
+
+@frozen
+class OIDCClientCredentials:
+    client_id: str
+    client_secret: str
+
+    def __iter__(self) -> Iterator[str]:
+        yield self.client_id
+        yield self.client_secret
 
 
 class MultitenantOIDCAuth(OpenIdConnectAuth):
@@ -73,13 +87,16 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
                 raise AuthFailed(self, "OIDC discovery requires HTTPS endpoints.")
         return document
 
-    def get_key_and_secret(
-        self,
-    ) -> tuple[
-        str, str
-    ]:  # nosemgrep: semgrep.rules.devex.tuple-return-prefer-dataclass -- social-auth passes this tuple directly to requests basic auth
+    def get_key_and_secret(self) -> OIDCClientCredentials:
         config = self.identity_provider_config
-        return config.oidc_client_id, config.oidc_credentials["client_secret"]
+        return OIDCClientCredentials(
+            client_id=config.oidc_client_id,
+            client_secret=config.oidc_credentials["client_secret"],
+        )
+
+    def auth_complete_credentials(self) -> BasicAuthCredentials:
+        credentials = self.get_key_and_secret()
+        return credentials.client_id, credentials.client_secret
 
     def get_jwks_keys(self) -> list[dict[str, Any]]:
         return self.get_remote_jwks_keys()

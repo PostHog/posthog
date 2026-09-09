@@ -214,7 +214,7 @@ class TestOIDCAuthentication(APILicensedTest):
         claims: dict[str, Any] = {"sub": "example-user", "email": "member@example.com"}
         if email_verified is not None:
             claims["email_verified"] = email_verified
-        self.backend.id_token = claims
+        self.backend.id_token = cast(Any, claims)
         response = self.backend.user_data("example-access-token")
         self.assertEqual(self.backend.get_user_id({}, response), f"{self.config.id}:example-user")
         self.assertEqual(self.backend.extra_data(None, "uid", response, {}), {})

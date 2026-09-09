@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
+import { AvailableFeature } from '~/types'
 
 import { SettingSectionId } from '../types'
 
@@ -176,7 +177,29 @@ export const SettingsOrganizationMembers: Story = { args: { sectionId: 'organiza
 
 export const SettingsOrganizationRoles: Story = { args: { sectionId: 'organization-roles' } }
 
-export const SettingsOrganizationAuthentication: Story = { args: { sectionId: 'organization-authentication' } }
+export const SettingsOrganizationAuthentication: Story = {
+    args: { sectionId: 'organization-authentication' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/users/@me': {
+                    ...MOCK_DEFAULT_USER,
+                    organization: {
+                        ...MOCK_DEFAULT_ORGANIZATION,
+                        available_product_features: [
+                            AvailableFeature.AUTOMATIC_PROVISIONING,
+                            AvailableFeature.SSO_ENFORCEMENT,
+                            AvailableFeature.SAML,
+                            AvailableFeature.OIDC,
+                            AvailableFeature.SCIM,
+                            AvailableFeature.XAA_AUTHENTICATION,
+                        ].map((key) => ({ key, name: key })),
+                    },
+                },
+            },
+        }),
+    ],
+}
 
 export const SettingsOrganizationProxy: Story = { args: { sectionId: 'organization-proxy' } }
 
