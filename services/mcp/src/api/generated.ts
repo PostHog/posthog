@@ -10259,6 +10259,8 @@ export namespace Schemas {
          * @nullable
          */
       schedule_start_time?: string | null;
+      /** @nullable */
+      readonly next_check_at: string | null;
       /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
       readonly checks: readonly AlertCheck[];
       /**
@@ -10278,8 +10280,6 @@ export namespace Schemas {
        * * `weekly` - weekly
        * * `monthly` - monthly */
       calculation_interval?: CalculationIntervalEnum;
-      /** @nullable */
-      readonly next_check_at: string | null;
       /**
          * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
          * @nullable
@@ -62254,6 +62254,8 @@ export namespace Schemas {
          * @nullable
          */
       schedule_start_time?: string | null;
+      /** @nullable */
+      readonly next_check_at?: string | null;
       /** Alert check results. By default returns the last 5. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window, checks_limit to cap how many are returned (default 5, max 500), and checks_offset to skip the newest N checks for pagination (0-based). Newest checks first. Only populated on retrieve. */
       readonly checks?: readonly AlertCheck[];
       /**
@@ -62273,8 +62275,6 @@ export namespace Schemas {
        * * `weekly` - weekly
        * * `monthly` - monthly */
       calculation_interval?: CalculationIntervalEnum;
-      /** @nullable */
-      readonly next_check_at?: string | null;
       /**
          * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
          * @nullable
