@@ -1391,6 +1391,69 @@ describe("CodexAppServerAgent", () => {
     expect(decision).toEqual({ decision: "acceptForSession" });
   });
 
+  it.each([
+    { action: "allow", kind: "allow_always", label: "Allow" },
+    { action: "deny", kind: "reject_always", label: "Block" },
+  ])(
+    "preserves the native network $action decision",
+    async ({ action, kind, label }) => {
+      const { agent, stub, permissionOptions } = makeApprovalAgent("network_1");
+      await agent.initialize(init);
+      await agent.newSession({ cwd: "/repo" } as unknown as NewSessionRequest);
+
+      const amendment = {
+        applyNetworkPolicyAmendment: {
+          network_policy_amendment: { host: "example.com", action },
+        },
+      };
+      const decision = await stub.invokeRequest(
+        "item/commandExecution/requestApproval",
+        {
+          itemId: "network-1",
+          command: "curl https://example.com",
+          networkApprovalContext: { host: "example.com", protocol: "https" },
+          availableDecisions: ["accept", amendment, "decline"],
+        },
+      );
+
+      expect(permissionOptions[0]).toContainEqual({
+        optionId: "network_1",
+        kind,
+        name: `${label} example.com for future requests`,
+      });
+      expect((decision as { decision: unknown }).decision).toBe(amendment);
+    },
+  );
+
+  it.each([
+    null,
+    { network_policy_amendment: null },
+    { network_policy_amendment: { host: "example.com", action: "unknown" } },
+    { network_policy_amendment: { action: "allow" } },
+  ])("does not grant an invalid network decision %j", async (payload) => {
+    const { agent, stub, permissionOptions } = makeApprovalAgent("network_1");
+    await agent.initialize(init);
+    await agent.newSession({ cwd: "/repo" } as unknown as NewSessionRequest);
+
+    const decision = await stub.invokeRequest(
+      "item/commandExecution/requestApproval",
+      {
+        itemId: "network-1",
+        command: "curl https://example.com",
+        availableDecisions: [
+          "accept",
+          { applyNetworkPolicyAmendment: payload },
+          "decline",
+        ],
+      },
+    );
+
+    expect(permissionOptions[0].map((option) => option.optionId)).not.toContain(
+      "network_1",
+    );
+    expect(decision).toEqual({ decision: "decline" });
+  });
+
   it("omits Allow-always when codex offers no remember decision for a command", async () => {
     const { agent, stub, permissionOptions } = makeApprovalAgent("allow");
     await agent.initialize(init);

@@ -1,5 +1,24 @@
 # Troubleshooting
 
+## Codex asks for the same permissions again
+
+Codex Auto keeps approvals for actions outside its allowed scope. On macOS, it
+allows workspace writes but restricts network access. Auto is not Full access.
+These settings apply to all GPT models in the Codex adapter.
+
+Choose **Allow these permissions for this session** to reuse a permission grant
+across turns. **Allow for this turn** does not grant access for later turns.
+Both choices grant only the permissions shown in the request.
+
+For network approvals, Codex can offer an option to allow or block a host for
+future requests. The desktop app shows these options only when Codex supplies
+them and returns the selected decision unchanged. Codex owns rule storage and
+enforcement; the desktop app does not create a separate allowlist.
+
+These choices follow the native Codex 0.144.0 approval dialog. They do not enable
+automatic approval review or remove sandbox limits. Compare clients with the
+same workspace, permission settings, saved rules, and approval reviewer.
+
 ## Black screen during development
 
 If the app launches but renders a blank/black screen, it's almost always a stale Vite cache.

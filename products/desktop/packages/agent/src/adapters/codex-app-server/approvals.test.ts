@@ -257,13 +257,14 @@ describe("handleServerRequest", () => {
   });
 
   it.each([
-    // "allow_once" grants for the turn, not session-wide; reject grants nothing.
-    { optionId: "allow", expected: { network: { enabled: true } } },
-    { optionId: "reject", expected: {} },
+    { optionId: "allow", scope: "turn", granted: true },
+    { optionId: "allow_session", scope: "session", granted: true },
+    { optionId: "reject", scope: "turn", granted: false },
+    { optionId: "unknown", scope: "turn", granted: false },
   ])(
     "resolves a permission approval on $optionId",
-    async ({ optionId, expected }) => {
-      const { client } = fakeClient([{ outcome: "selected", optionId }]);
+    async ({ optionId, scope, granted }) => {
+      const { client, calls } = fakeClient([{ outcome: "selected", optionId }]);
 
       const params = {
         threadId: "t",
@@ -275,7 +276,7 @@ describe("handleServerRequest", () => {
         reason: "needs network",
         permissions: {
           network: { enabled: true },
-          fileSystem: null,
+          fileSystem: { read: null, write: ["/repo/build"] },
         },
       };
 
@@ -288,9 +289,16 @@ describe("handleServerRequest", () => {
 
       expect(result.handled).toBe(true);
       expect(result.response).toEqual({
-        permissions: expected,
-        scope: "turn",
+        permissions: granted ? params.permissions : {},
+        scope,
       });
+      expect(calls[0].options).toContainEqual({
+        kind: "allow_always",
+        name: "Allow these permissions for this session",
+        optionId: "allow_session",
+        _meta: { description: JSON.stringify(params.permissions, null, 2) },
+      });
+      expect(calls[0].toolCall.rawInput).toEqual(params.permissions);
     },
   );
 
