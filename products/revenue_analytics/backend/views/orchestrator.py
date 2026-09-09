@@ -24,11 +24,19 @@ SUPPORTED_SOURCES: list[ExternalDataSourceType] = [ExternalDataSourceType.STRIPE
 def _iter_source_handles(team: Team, timings: HogQLTimings) -> Iterable[SourceHandle]:
     with timings.measure("for_events", emit_span=True):
         events = team.revenue_analytics_config.events
-        # Prepared here, once per team: resolving filter property types queries Postgres, and
-        # handles must carry everything the builders need so deferred building does no I/O.
-        events_filter_expr = events_expr_for_team(team) if events else None
-        for event in events:
-            yield SourceHandle(type="events", team=team, event=event, events_filter_expr=events_filter_expr)
+        if events:
+            # Prepared here, once per team: resolving filter property types queries Postgres, and
+            # handles must carry everything the builders need so deferred building does no I/O.
+            try:
+                events_filter_expr = events_expr_for_team(team)
+            except Exception as e:
+                # A test-account filter that cannot resolve, for example one naming a deleted
+                # cohort, must cost only the events views. Skip them so the external sources
+                # below still yield their handles.
+                capture_exception(e, {"team_id": team.pk, "handle_type": "events"})
+            else:
+                for event in events:
+                    yield SourceHandle(type="events", team=team, event=event, events_filter_expr=events_filter_expr)
 
     with timings.measure("for_schema_sources", emit_span=True):
         for source in list_revenue_sources(team.pk, source_types=SUPPORTED_SOURCES):
