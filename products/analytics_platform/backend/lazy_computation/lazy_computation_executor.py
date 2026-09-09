@@ -1073,8 +1073,16 @@ class LazyComputationExecutor:
                 fresh_jobs = self._filter_by_freshness(existing_jobs)
                 pending_jobs = [j for j in fresh_jobs if j.status == PreaggregationJob.Status.PENDING]
 
-                # Step 2: Find missing ranges, split at TTL boundaries
-                missing_ranges = find_missing_contiguous_windows(fresh_jobs, start, end)
+                # Step 2: Find missing ranges, split at TTL boundaries. Coverage is
+                # checked on the overlap-filtered set because that is the set the
+                # final return serves: the filter prefers newer jobs, so a newer
+                # narrow job can evict an older broad one and reopen a gap the
+                # unfiltered union covered. Checking the unfiltered set would call
+                # such a gap covered, and reads would silently undercount it until
+                # a job expired. The filter can also hide a window that only an
+                # older PENDING job covered; recomputing that window costs at most
+                # one duplicate build.
+                missing_ranges = find_missing_contiguous_windows(filter_overlapping_jobs(fresh_jobs), start, end)
                 ttl_ranges = split_ranges_by_ttl(missing_ranges, self.ttl_schedule)
 
                 if had_ready_at_start is None:

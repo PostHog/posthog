@@ -2153,6 +2153,43 @@ class TestComputationExecutorExecute(BaseTest):
         assert result.ready is True
         assert fresh_job.id in result.job_ids
 
+    def test_returned_jobs_cover_range_when_overlap_filter_evicts_broad_job(self):
+        query_info, query_hash = self._make_query_info()
+
+        now = django_timezone.now()
+        # Two fresh READY jobs whose union covers [Jan 1, Jan 9), but the newer
+        # narrow job evicts the older broad one in the overlap filter, so the
+        # filtered set alone leaves [Jan 8, Jan 9) uncovered. The executor must
+        # notice the gap and compute it instead of serving the gappy set.
+        for time_range, created_ago_h in [
+            ((datetime(2024, 1, 2, tzinfo=UTC), datetime(2024, 1, 9, tzinfo=UTC)), 2),
+            ((datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC)), 1),
+        ]:
+            job = PreaggregationJob.objects.create(
+                team=self.team,
+                query_hash=query_hash,
+                time_range_start=time_range[0],
+                time_range_end=time_range[1],
+                status=PreaggregationJob.Status.READY,
+                expires_at=now + timedelta(days=7),
+            )
+            PreaggregationJob.objects.filter(id=job.id).update(created_at=now - timedelta(hours=created_ago_h))
+
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 9, tzinfo=UTC)
+        executor = LazyComputationExecutor()
+        result = executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=start,
+            end=end,
+            run_insert=lambda t, j: None,
+        )
+
+        assert result.ready is True
+        returned_jobs = list(PreaggregationJob.objects.filter(id__in=result.job_ids))
+        assert find_missing_contiguous_windows(returned_jobs, start, end) == []
+
     def test_variable_ttl_creates_jobs_with_different_expiry(self):
         query_info, _ = self._make_query_info()
 
