@@ -12,9 +12,12 @@ from posthog.api.utils import hostname_in_allowed_url_list
 _ALLOWED_LINK_URLS = ["https://posthog.com", "https://*.posthog.com"]
 # Match all CommonMark title forms (double/single-quoted, parenthesized) and allow whitespace before
 # `)` (trailing `\s*`) — otherwise `[x](url "t")`, `[x](url 't')`, or `[x](url\n)` slip past this rule
-# and the bare-URL rule (which skips `](`-prefixed URLs), reaching Slack un-defanged. Consume ordinary
-# destination characters one at a time to avoid ambiguous nested repetition on malformed links.
-_MARKDOWN_LINK_RE = re.compile(r"\[([^\]]*)\]\(((?:[^()\s]|\([^)]*\))+)(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^)]*\)))?\s*\)")
+# and the bare-URL rule (which skips `](`-prefixed URLs), reaching Slack un-defanged. Match ordinary
+# destination characters as one atomic run. This removes the ambiguous nested repetition that makes
+# malformed links backtrack, and it keeps no repeat state per destination character.
+_MARKDOWN_LINK_RE = re.compile(
+    r"\[([^\]]*)\]\(((?:(?>[^()\s]+)|\([^)]*\))+)(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^)]*\)))?\s*\)"
+)
 _MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
 # A malformed link the rule above can't span (e.g. `[x](url\nmore)`) leaves its URL after `](`, which
 # the bare-URL rule skips — defang it here as a safety net.
