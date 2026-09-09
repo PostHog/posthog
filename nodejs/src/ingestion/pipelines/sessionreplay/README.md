@@ -13,6 +13,15 @@ The `SessionRecordingIngester` consumes session recording events from Kafka and:
 - **Extracts console logs** for separate storage and search
 - **Handles failures** via dead letter queue and overflow topics
 
+## Navigation URLs
+
+Navigation URL extraction accepts `data.href` on rrweb Meta events and `data.payload.href` on `$pageview` and `$url_changed` custom events.
+The custom events preserve navigation within single-page applications, which rrweb does not report through Meta events.
+URLs on other events, including `$json_ld`, do not add page visits or clear pending dead-click detection.
+
+The ML mirror extracts URL metadata separately through the native anonymizer.
+A URL on a mirrored JSON-LD event identifies its page; it does not represent a navigation.
+
 ## Local Development
 
 ### Prerequisites

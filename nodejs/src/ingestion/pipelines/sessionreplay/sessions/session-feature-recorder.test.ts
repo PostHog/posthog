@@ -795,18 +795,70 @@ describe('SessionFeatureRecorder', () => {
             expect(result.quickBackCount).toBe(0)
         })
 
-        it('should set urlChangedSinceLastClick to allow dead click detection to be cleared', () => {
-            // Click, then navigation, then another click => first click should NOT be dead
-            const events = [
-                makeClickEvent(1000),
-                makeNavigationEvent(2000, 'https://example.com/page2'),
-                makeClickEvent(5000),
-            ]
-            recorder.recordMessage(createMessage(events))
-            const result = recorder.end()!
+        it.each([
+            {
+                name: 'Meta',
+                type: RRWebEventType.Meta,
+                data: { href: ' https://example.com/page2 ' },
+                navigation: true,
+            },
+            {
+                name: 'SPA pageview',
+                type: RRWebEventType.Custom,
+                data: { tag: '$pageview', payload: { href: ' https://example.com/page2 ' } },
+                navigation: true,
+            },
+            {
+                name: 'SPA URL change',
+                type: RRWebEventType.Custom,
+                data: { tag: '$url_changed', payload: { href: 'https://example.com/page2' } },
+                navigation: true,
+            },
+            {
+                name: 'JSON-LD URL',
+                type: RRWebEventType.Custom,
+                data: { tag: '$json_ld', href: 'https://example.com/page2', payload: {} },
+                navigation: false,
+            },
+            {
+                name: 'JSON-LD payload URL',
+                type: RRWebEventType.Custom,
+                data: { tag: '$json_ld', payload: { href: 'https://example.com/page2' } },
+                navigation: false,
+            },
+            {
+                name: 'other custom URL',
+                type: RRWebEventType.Custom,
+                data: { tag: 'other', payload: { href: 'https://example.com/page2' } },
+                navigation: false,
+            },
+            {
+                name: 'non-custom event URL',
+                type: RRWebEventType.IncrementalSnapshot,
+                data: { href: 'https://example.com/page2' },
+                navigation: false,
+            },
+        ])(
+            'tracks navigation and clears dead clicks only for navigation events: $name',
+            ({ type, data, navigation }) => {
+                const events = [
+                    makeNavigationEvent(500, 'https://example.com/'),
+                    makeClickEvent(1000),
+                    { type, timestamp: 2000, data } as unknown as SnapshotEvent,
+                    makeClickEvent(5000),
+                ]
+                recorder.recordMessage(createMessage(events))
+                const result = recorder.end()!
 
-            expect(result.deadClickCount).toBe(0)
-        })
+                expect(result.pageVisitCount).toBe(navigation ? 2 : 1)
+                expect(result.deadClickCount).toBe(navigation ? 0 : 1)
+                expect(result.visitedUrls).toEqual(
+                    navigation
+                        ? [md5Hex('https://example.com/'), md5Hex('https://example.com/page2')]
+                        : [md5Hex('https://example.com/')]
+                )
+            }
+        )
     })
 
     describe('Console error tracking', () => {
