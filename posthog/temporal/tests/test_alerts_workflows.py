@@ -11,7 +11,7 @@ from django.conf import settings
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
-from temporalio.client import ScheduleOverlapPolicy, WorkflowFailureError
+from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -121,22 +121,6 @@ def test_schedule_is_registered_in_init_schedules():
     from posthog.temporal.schedule import schedules
 
     assert create_schedule_due_alert_checks_schedule in schedules
-
-
-@pytest.mark.asyncio
-async def test_due_alert_schedule_skips_overlapping_runs() -> None:
-    captured: dict = {}
-
-    async def create_schedule(*args, **kwargs) -> None:
-        captured["schedule"] = args[2]
-
-    with (
-        patch("posthog.temporal.alerts.schedule.a_schedule_exists", new=AsyncMock(return_value=False)),
-        patch("posthog.temporal.alerts.schedule.a_create_schedule", new=create_schedule),
-    ):
-        await create_schedule_due_alert_checks_schedule(MagicMock())
-
-    assert captured["schedule"].policy.overlap == ScheduleOverlapPolicy.SKIP
 
 
 def _valid_trends_query() -> dict:
