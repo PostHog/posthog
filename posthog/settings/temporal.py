@@ -279,7 +279,10 @@ LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
 # Units one evaluation backfill dispatches per tick, one tick per BACKFILL_TICK_INTERVAL.
 # evaluation_backfill.py clamps this to 1..1000 where it reads the setting, because the candidate
 # page crosses a Temporal activity boundary as one payload, capped at about 2 MiB.
-LLMA_EVAL_BACKFILL_BATCH_SIZE: int = get_from_env("LLMA_EVAL_BACKFILL_BATCH_SIZE", 100, type_cast=int)
+# Every tick re-reads the window up to its cursor, and ai_events is sorted by trace id rather than
+# by time, so a tick costs about the same whatever it dispatches. A larger batch therefore means
+# less ClickHouse work for the same backfill, and keeps a long walk away from the query time cap.
+LLMA_EVAL_BACKFILL_BATCH_SIZE: int = get_from_env("LLMA_EVAL_BACKFILL_BATCH_SIZE", 500, type_cast=int)
 # Defaults to the general-purpose fleet so dispatch always has a live worker; set the env to
 # "mcp-analytics-task-queue" to route MCP analytics clustering to a dedicated, separately-scalable
 # worker once one is deployed.

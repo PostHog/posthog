@@ -44,6 +44,9 @@ BACKFILL_TICK_INTERVAL = timedelta(seconds=60)
 CHILD_EXECUTION_TIMEOUT = timedelta(hours=3)
 
 ACTIVITY_TIMEOUT = timedelta(seconds=30)
+# A tick that cannot reach a worker must fail rather than sit in the queue, because the loop only
+# continues as new once the tick returns. The bound covers every attempt the retry policy makes.
+ACTIVITY_SCHEDULE_TO_CLOSE = timedelta(minutes=10)
 ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
 # A row stuck at RUNNING blocks every later backfill through the one-active constraint, so the
 # activity that clears it retries harder than an ordinary tick activity.
@@ -317,6 +320,7 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
                 prepare_evaluation_backfill_tick_activity,
                 inputs,
                 start_to_close_timeout=ACTIVITY_TIMEOUT,
+                schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
                 retry_policy=ACTIVITY_RETRY_POLICY,
             )
             if tick.action == TickAction.FINISHED:
@@ -342,10 +346,24 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
             find_evaluation_backfill_candidates_activity,
             FindCandidatesInputs(backfill_id=inputs.backfill_id, team_id=inputs.team_id, limit=tick.batch_size),
             start_to_close_timeout=timedelta(seconds=120),
+            schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
             retry_policy=ACTIVITY_RETRY_POLICY,
         )
-        started = await asyncio.gather(*(self._start_child(inputs, tick, candidate) for candidate in found.candidates))
-        skipped = started.count(False)
+        # A page whose children mostly went out must not be re-dispatched because one start
+        # raised: the retry would collide with every child already running. The unit that failed
+        # is left to a later backfill and counted as skipped, so the totals still add up.
+        results = await asyncio.gather(
+            *(self._start_child(inputs, tick, candidate) for candidate in found.candidates),
+            return_exceptions=True,
+        )
+        failed = [result for result in results if isinstance(result, BaseException)]
+        for error in failed:
+            temporalio.workflow.logger.warning(
+                "llma.evaluation_backfill_child_start_failed",
+                extra={"backfill_id": inputs.backfill_id, "error": str(error)},
+            )
+        dispatched = sum(1 for result in results if result is True)
+        skipped = len(results) - dispatched
         advance = await temporalio.workflow.execute_activity(
             advance_evaluation_backfill_cursor_activity,
             AdvanceCursorInputs(
@@ -355,11 +373,12 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
                 expected_cursor_unit_id=found.started_from_cursor_unit_id,
                 new_cursor_timestamp=found.next_cursor_timestamp,
                 new_cursor_unit_id=found.next_cursor_unit_id,
-                dispatched_delta=len(started) - skipped,
+                dispatched_delta=dispatched,
                 skipped_delta=skipped,
                 exhausted=found.exhausted,
             ),
             start_to_close_timeout=ACTIVITY_TIMEOUT,
+            schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
             retry_policy=ACTIVITY_RETRY_POLICY,
         )
         return advance.finished
@@ -378,6 +397,7 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
                 fail_evaluation_backfill_activity,
                 inputs,
                 start_to_close_timeout=ACTIVITY_TIMEOUT,
+                schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
                 retry_policy=FAIL_BACKFILL_RETRY_POLICY,
             )
             return
