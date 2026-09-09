@@ -189,7 +189,7 @@ def seed_decoy_run(cluster: ClickhouseCluster, spared_person: str, spared_distin
 
 def queued_rows(conn) -> list[tuple]:
     with conn.cursor() as cursor:
-        cursor.execute(f"SELECT team_id, person_uuid, deleted_at, cleaned_at FROM {PG_CLEANUP_QUEUE_TABLE} ORDER BY 2")
+        cursor.execute(f"SELECT team_id, person_uuid, deleted_at, blocked_at FROM {PG_CLEANUP_QUEUE_TABLE} ORDER BY 2")
         return cursor.fetchall()
 
 
@@ -294,10 +294,10 @@ def test_queues_the_deleted_persons_for_postgres(cluster: ClickhouseCluster, per
 
     rows = queued_rows(persons_database)
     assert len(rows) == 1
-    team_id, person_uuid, deleted_at, cleaned_at = rows[0]
+    team_id, person_uuid, deleted_at, blocked_at = rows[0]
     assert (team_id, str(person_uuid)) == (TEAM_ID, deleted)
     assert deleted_at is not None
-    assert cleaned_at is None
+    assert blocked_at is None
 
     # A second run must not raise on the primary key: it re-queues persons the drain has not
     # reached yet.
@@ -319,16 +319,20 @@ def test_queues_every_person_across_page_boundaries(cluster: ClickhouseCluster, 
 
 
 @pytest.mark.django_db
-def test_requeues_a_person_the_drain_already_cleaned(cluster: ClickhouseCluster, persons_database):
-    # A person can be deleted, drained, then re-created and deleted again under the same uuid. The
-    # drain only reads rows where cleaned_at is null, so leaving the cleaned row untouched would
-    # drop the second deletion and leak that person's Postgres rows for good.
+def test_resweeping_a_pending_person_refreshes_deleted_at_and_clears_blocked_at(
+    cluster: ClickhouseCluster, persons_database
+):
+    # A row the drain marked blocked (tombstoned person still owning a live distinct id) stays
+    # queued. When ClickHouse tombstones the same person again, the sweep must hand the drain
+    # fresh evidence: the new deleted_at and a cleared block. Ignoring the conflict would leave
+    # the row blocked forever and leak that person's Postgres rows for good.
     deleted = create_person(team_id=TEAM_ID, version=0, is_deleted=True)
     run_job(cluster, persons_database)
+    [(_, _, first_deleted_at, _)] = queued_rows(persons_database)
 
-    # Stand in for the drain having processed it.
+    # Stand in for the drain having found the person blocked.
     with persons_database.cursor() as cursor:
-        cursor.execute(f"UPDATE {PG_CLEANUP_QUEUE_TABLE} SET cleaned_at = now()")
+        cursor.execute(f"UPDATE {PG_CLEANUP_QUEUE_TABLE} SET blocked_at = now()")
     persons_database.commit()
     assert queued_rows(persons_database)[0][3] is not None
 
@@ -338,7 +342,8 @@ def test_requeues_a_person_the_drain_already_cleaned(cluster: ClickhouseCluster,
 
     rows = queued_rows(persons_database)
     assert len(rows) == 1, "the row is keyed on (team_id, person_uuid), so this stays a single row"
-    assert rows[0][3] is None, "cleaned_at must be cleared so the drain picks the person up again"
+    assert rows[0][2] > first_deleted_at, "deleted_at must move to the later sweep"
+    assert rows[0][3] is None, "blocked_at must be cleared so the drain retries the person"
 
 
 def _foreign_run_dictionary(cluster: ClickhouseCluster, run_id: str) -> clickhouse_cleanup.SnapshotDictionary:
@@ -548,7 +553,7 @@ def test_a_same_run_retry_rewrites_no_rows(cluster: ClickhouseCluster, persons_d
     def queue_row() -> tuple:
         # xmin changes on every UPDATE, so a stable xmin proves no new tuple version was written.
         with persons_database.cursor() as cursor:
-            cursor.execute(f"SELECT xmin::text, deleted_at, cleaned_at FROM {PG_CLEANUP_QUEUE_TABLE}")
+            cursor.execute(f"SELECT xmin::text, deleted_at, blocked_at FROM {PG_CLEANUP_QUEUE_TABLE}")
             [row] = cursor.fetchall()
             return row
 
@@ -558,10 +563,10 @@ def test_a_same_run_retry_rewrites_no_rows(cluster: ClickhouseCluster, persons_d
     clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_db_url(writer=True), run)
     assert queue_row() == first
 
-    # A drained row must still be re-armed even when deleted_at matches, or the second deletion
-    # of a re-created person is dropped.
+    # A blocked row must still be unblocked even when deleted_at matches, or the drain never
+    # retries a person the sweep still sees as deleted.
     with persons_database.cursor() as cursor:
-        cursor.execute(f"UPDATE {PG_CLEANUP_QUEUE_TABLE} SET cleaned_at = now()")
+        cursor.execute(f"UPDATE {PG_CLEANUP_QUEUE_TABLE} SET blocked_at = now()")
     persons_database.commit()
     clickhouse_cleanup.persist_deleted_persons(dagster.build_op_context(), cluster, persons_db_url(writer=True), run)
     rearmed = queue_row()
