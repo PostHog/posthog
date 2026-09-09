@@ -66,10 +66,15 @@ export const CorsPlugin: ReplayPlugin & {
 const defaultStyleRules = `.ph-no-capture { background-image: ${PLACEHOLDER_SVG_DATA_IMAGE_URL}; }`
 const shopifyShorthandCSSFix =
     '@media (prefers-reduced-motion: no-preference) { .scroll-trigger:not(.scroll-trigger--offscreen).animate--slide-in { animation: var(--animation-slide-in) } }'
+// A `content-visibility: auto` subtree stays skipped in the replay iframe, because the player
+// scrolls with transforms and the subtree never becomes relevant to the browser. Each skipped
+// subtree keeps its `contain-intrinsic-size` placeholder height, so the rebuilt page is shorter
+// than the recorded one and every replayed scroll offset lands on the wrong content.
+const contentVisibilityFix = '* { content-visibility: visible !important; }'
 
 export const COMMON_REPLAYER_CONFIG: Partial<playerConfig> = {
     triggerFocus: false,
-    insertStyleRules: [defaultStyleRules, shopifyShorthandCSSFix],
+    insertStyleRules: [defaultStyleRules, shopifyShorthandCSSFix, contentVisibilityFix],
     // Keep the replay iframe scriptless. UNSAFE_replayCanvas makes rrweb add `allow-scripts`
     // to the sandbox, which combined with the required `allow-same-origin` lets untrusted
     // recorded content escape the sandbox into the app origin. Canvas is replayed via
