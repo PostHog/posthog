@@ -59,7 +59,7 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_warehouse.backend.facade.api import CreateTableResult
-from products.notifications.backend.facade.api import NotificationType, TargetType
+from products.notifications.backend.facade.api import NotificationType, Priority, TargetType
 from products.warehouse_sources.backend.facade.hooks import (
     AccountPropertySourceProjection,
     PersonPropertySourceProjection,
@@ -250,6 +250,7 @@ class TestFailMaterializationActivity:
             mock_create.assert_called_once()
             data = mock_create.call_args.args[0]
             assert data.notification_type == NotificationType.MATERIALIZATION_FAILURE
+            assert data.priority == Priority.CRITICAL
             assert data.target_id == str(ateam.pk)
             assert data.resource_id == str(asaved_query.id)
         else:

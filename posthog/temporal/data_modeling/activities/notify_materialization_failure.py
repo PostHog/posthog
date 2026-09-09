@@ -153,6 +153,9 @@ def maybe_notify_materialization_failure(
             views=[_FailedView(job=job, saved_query=saved_query)],
             resolver=_SavedQueryViewers(saved_query),
             source_id=str(job.id),
+            # Someone asked for this run and is waiting on its result, so it outranks the
+            # scheduled failures a person did not ask for.
+            priority=Priority.CRITICAL,
         )
     )
     return True
@@ -184,7 +187,12 @@ def _dedupe_key(views: list[_FailedView]) -> str:
 
 
 def _failure_notification(
-    *, team_id: int, views: list[_FailedView], resolver: RecipientsResolver, source_id: str
+    *,
+    team_id: int,
+    views: list[_FailedView],
+    resolver: RecipientsResolver,
+    source_id: str,
+    priority: Priority = Priority.NORMAL,
 ) -> NotificationData:
     title, body = _failure_copy(views)
     source_url = f"/project/{team_id}/sql"
@@ -193,7 +201,7 @@ def _failure_notification(
     return NotificationData(
         team_id=team_id,
         notification_type=NotificationType.MATERIALIZATION_FAILURE,
-        priority=Priority.NORMAL,
+        priority=priority,
         title=title[:255],
         body=body[:400],
         target_type=TargetType.TEAM,
