@@ -186,6 +186,7 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     saml_x509_cert = models.TextField(blank=True, null=True)
     oidc_issuer_url = models.URLField(max_length=512, blank=True, default="", db_default="")
     oidc_client_id = models.CharField(max_length=512, blank=True, default="", db_default="")
+    # oidc supports multiple forms of authentication. JSON field for forward compatibility.
     oidc_credentials = EncryptedJSONField(default=dict, blank=True, null=True)
     # Round-trips through the IdP as RelayState to route an assertion back to this config, and is
     # also the prefix of every `UserSocialAuth.uid` issued through it. Changing the value on a
@@ -263,12 +264,10 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
 
     @property
     def has_oidc(self) -> bool:
-        return (
-            self.config_scope == ConfigScope.OIDC
-            and bool(self.oidc_issuer_url)
-            and bool(self.oidc_client_id)
-            and self.has_oidc_client_secret
-        )
+        """
+        Returns whether OIDC is configured. Does not validate the organization has the required license.
+        """
+        return bool(self.oidc_issuer_url) and bool(self.oidc_client_id) and self.has_oidc_client_secret
 
     @property
     def has_saml(self) -> bool:
