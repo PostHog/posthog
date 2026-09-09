@@ -1,8 +1,8 @@
 # Troubleshooting
 
-## A signal investigation asks for GitHub access
+## A cloud task asks for GitHub access
 
-Cloud investigations use GitHub to read the selected repository and keep later background runs current. Connect GitHub from the prompt in the task.
+Cloud tasks and investigations use GitHub to read the selected repository and keep later background runs current. Connect GitHub from the prompt in the task.
 
 If your organization needs an owner to approve the PostHog app, copy the access request from the prompt and send it to the owner. When the same repository is registered as a local folder, you can run the investigation against that local checkout. The result is a point-in-time view and can become stale after the run.
 

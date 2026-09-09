@@ -27,6 +27,11 @@ describe("GithubConnectionRequiredDialog", () => {
       document.querySelector('[data-attr="connect-github-for-code-context"]'),
     ).toBeInTheDocument();
     expect(
+      screen.getByText(
+        "Connect GitHub to run this cloud task with code context.",
+      ),
+    ).toBeInTheDocument();
+    expect(
       screen.getByText("Run with local code snapshot"),
     ).toBeInTheDocument();
 
