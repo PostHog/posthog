@@ -216,7 +216,9 @@ export function AutoShowSection({ id }: { id: string }): JSX.Element | null {
     const urlOptions = options['$current_url']
 
     useEffect(() => {
-        if (urlOptions?.status !== 'loading' && urlOptions?.status !== 'loaded') {
+        // A failed load stays at `error` and is not retried here — retrying loops on a persistent
+        // failure and repeats the toast. The user retries from the error toast.
+        if (urlOptions?.status !== 'loading' && urlOptions?.status !== 'loaded' && urlOptions?.status !== 'error') {
             loadPropertyValues({
                 endpoint: undefined,
                 type: PropertyDefinitionType.Event,

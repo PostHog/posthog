@@ -166,7 +166,9 @@ export function PropertyValue({
 
     const setValue = (newValue: PropertyValueProps['value']): void => onSet(newValue)
 
-    // preload values if preloadValues prop is set
+    // preload values if preloadValues prop is set.
+    // A failed load stays at `error` and is not retried here — an automatic retry loops on a
+    // persistent failure and stacks a toast each time. The user retries from the error toast.
     useEffect(() => {
         if (
             !isGroupKeyProperty &&
@@ -174,7 +176,8 @@ export function PropertyValue({
             !isAssigneeProperty &&
             preloadValues &&
             propertyOptions?.status !== 'loading' &&
-            propertyOptions?.status !== 'loaded'
+            propertyOptions?.status !== 'loaded' &&
+            propertyOptions?.status !== 'error'
         ) {
             load('')
         }
@@ -188,7 +191,8 @@ export function PropertyValue({
             !isAssigneeProperty &&
             !isDateTimeProperty &&
             propertyOptions?.status !== 'loading' &&
-            propertyOptions?.status !== 'loaded'
+            propertyOptions?.status !== 'loaded' &&
+            propertyOptions?.status !== 'error'
         ) {
             load('')
         }
