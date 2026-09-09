@@ -41,7 +41,6 @@ dependencies = [
     "django~=5.2.0",
     "django-axes[ipware]==8.3.1",
     "django-cors-headers~=4.9.0",
-    "django-deprecate-fields==0.2.3",
     "django-extensions~=4.1.0",
     "django-filter~=26.1",
     "django-loginas==0.3.14",

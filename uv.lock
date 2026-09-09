@@ -1866,18 +1866,6 @@ wheels = [
 ]
 
 [[package]]
-name = "django-deprecate-fields"
-version = "0.2.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "django" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/3a/dc/281214543a8e3ebd67294e6a2765d425481726834bf6fe662013dff56eed/django_deprecate_fields-0.2.3.tar.gz", hash = "sha256:d3898d46abe8f338c870e9ef5040dd2f27f3f205e34f5aa2536427d7ffad8aad", size = 7579, upload-time = "2026-01-20T17:50:34.322Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/fe/f7/352dee1616b5653ff09f2b0035f07573accb98954a85c009c08bc7625217/django_deprecate_fields-0.2.3-py3-none-any.whl", hash = "sha256:8510a4bfa23ea7c9d5dddcf7593fa5c8dcc4defcbfad97bf6c4b6deed6abc311", size = 8428, upload-time = "2026-01-20T17:50:33.058Z" },
-]
-
-[[package]]
 name = "django-extensions"
 version = "4.1"
 source = { registry = "https://pypi.org/simple" }
@@ -5593,7 +5581,6 @@ dependencies = [
     { name = "django-admin-inline-paginator" },
     { name = "django-axes", extra = ["ipware"] },
     { name = "django-cors-headers" },
-    { name = "django-deprecate-fields" },
     { name = "django-extensions" },
     { name = "django-filter" },
     { name = "django-loginas" },
@@ -5875,7 +5862,6 @@ requires-dist = [
     { name = "django-admin-inline-paginator", specifier = "===0.4.0" },
     { name = "django-axes", extras = ["ipware"], specifier = "==8.3.1" },
     { name = "django-cors-headers", specifier = "~=4.9.0" },
-    { name = "django-deprecate-fields", specifier = "==0.2.3" },
     { name = "django-extensions", specifier = "~=4.1.0" },
     { name = "django-filter", specifier = "~=26.1" },
     { name = "django-loginas", specifier = "==0.3.14" },

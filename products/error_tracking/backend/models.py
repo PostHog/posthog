@@ -11,7 +11,6 @@ from django.db import models, transaction
 from django.utils import timezone
 
 import structlog
-from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
 
 from posthog.kafka_client.client import ClickhouseProducer
@@ -19,6 +18,7 @@ from posthog.kafka_client.topics import (
     KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT,
 )
+from posthog.migration_helpers import deprecate_field
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.integration import Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -195,9 +195,9 @@ class ErrorTrackingExternalReference(UUIDTModel):
         on_delete=models.CASCADE,
     )
     # DEPRECATED: provider can be fetched through the integration model
-    provider = deprecate_field(models.TextField(null=False, blank=False))
+    provider = deprecate_field(models.TextField(null=True, blank=False))
     # DEPRECATED: ids should be placed inside the external_context json field
-    external_id = deprecate_field(models.TextField(null=False, blank=False))
+    external_id = deprecate_field(models.TextField(null=True, blank=False))
     external_context = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

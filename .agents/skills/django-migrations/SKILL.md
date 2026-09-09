@@ -30,6 +30,23 @@ To retire a model/table:
 
 Full guide: `safe-django-migrations.md` (`## Dropping Tables`, `### Removing a whole product or app`). Deleting a migration your branch added but never merged to master is allowed (regenerating).
 
+## Retire a column
+
+**Default: don't drop it.** Take the field out of the ORM and leave the column. It keeps its data and needs no deploy coordination.
+
+Deleting the field and running `makemigrations` is not that. Django names every concrete field in every `SELECT` and `INSERT` it writes, so the generated `RemoveField` drops the column in the same deploy that stops the code asking for it, and every pod still on the old release fails its queries. A `# deprecated` comment does not help, because the field is still on the model.
+
+Two helpers in `posthog.migration_helpers` do it properly:
+
+- `deprecate_field(models.IntegerField(null=True))` wraps the field in place. No migration. Reads and writes warn, and the column leaves every query. The field must already be `null=True`, because nothing writes the column once it is hidden. Use `raise_on_access=True` to prove no caller is left.
+- `untrack_field("mymodel", "myfield")` replaces the generated `RemoveField` with a state-only migration, so the field leaves the model class and the column stays.
+
+Only drop the column after one of those has been deployed for a full deploy cycle, and drop it with `RunSQL ... DROP COLUMN IF EXISTS` in a migration that follows the state removal. Coming from `deprecate_field`, delete the wrapped line and replace the generated `RemoveField` with `untrack_field` first; both migrations can go in one PR. Never ship the plain `RemoveField` that `makemigrations` writes, because it removes state and drops the column in one operation and the analyzer cannot tell it from an unstaged drop.
+
+Check non-ORM readers first (`nodejs/`, `rust/`, Temporal workers, Metabase). Hiding a field from Django says nothing about them.
+
+Full guide: `safe-django-migrations.md` (`## Dropping Columns`).
+
 ## Retire dedicated migration tests
 
 A data migration test protects the rollout, not the permanent behavior of the product. Remove the dedicated test after all supported environments have applied the migration, the rollback window has closed, and no supported upgrade still relies on the old data state.
@@ -78,6 +95,7 @@ Two things a callable does not do for you:
 - **Add a CHECK constraint** → `AddConstraintNotValid` then `ValidateConstraint` in a later migration (or same migration with `atomic = False`).
 - **Add a ForeignKey to a [hot table](#hot-table-hazard)** → declare the FK with `db_constraint=False` on the model (so `CreateModel` / `AddField` emit no parent lock), then add the DB constraint back with `AddForeignKeyNotValid` and follow up with `ValidateForeignKey` in a later migration. See [foreign keys to hot tables](#foreign-keys-to-hot-tables).
 - **Index expressed only as raw SQL** (no Django `Index`) → `CreateIndexConcurrently` / `DropIndexConcurrently` wrapped in `SeparateDatabaseAndState`.
+- **Retire a column** → `deprecate_field` on the model, or `untrack_field` in place of the generated `RemoveField`. See [retire a column](#retire-a-column).
 
 All concurrent-index ops require `atomic = False`.
 

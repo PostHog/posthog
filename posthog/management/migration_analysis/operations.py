@@ -170,10 +170,15 @@ class RemoveFieldAnalyzer(OperationAnalyzer):
             score=5,
             reason="Dropping column breaks backwards compatibility and can't rollback",
             details={"model": op.model_name, "field": op.name},
-            guidance=f"""Multi-phase column drop:
-1. Remove field from Django model (keeps column in DB)
-2. Wait at least one full deployment cycle
-3. Optionally drop column with RemoveField
+            guidance=f"""Django names every model field in every SELECT it writes, so this drops the column in the same deploy that stops the code asking for it. Pods still on the old release fail every query against the table.
+
+Consider leaving the column in place. An unused column costs little and keeps its data.
+
+To retire the field, take it out of the ORM first and leave the column:
+- `deprecate_field(...)` from `posthog.migration_helpers` keeps the field on the model and writes no migration
+- `untrack_field(...)` from `posthog.migration_helpers` replaces this RemoveField with a state-only migration
+
+To drop the column for real, use `untrack_field(...)` here, then `RunSQL ... DROP COLUMN IF EXISTS` in a following migration. This analyzer validates that shape on its own.
 
 [See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
         )
