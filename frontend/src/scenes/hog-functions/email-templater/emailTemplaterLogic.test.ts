@@ -501,8 +501,7 @@ describe('emailTemplaterLogic', () => {
         })
 
         it('does not reload the canvas with a save response that predates the latest edit', async () => {
-            // The host saves on its own debounce, so its response carries the design the request
-            // was sent with. Two edits land while one save is on the wire.
+            // Two edits land while one save is on the wire.
             jest.useFakeTimers()
             editorDesign = DESIGN_EDITED
             editorListeners['design:updated']()
@@ -515,7 +514,6 @@ describe('emailTemplaterLogic', () => {
             expect(onChange).toHaveBeenCalledTimes(2)
 
             // The response replays the first edit, then the host catches up with the second.
-            // Neither may reload the canvas: a reload drops the undo stack and the selection.
             updateProps({ design: DESIGN_EDITED })
             await expectLogic(logic).toFinishAllListeners()
             updateProps({ design: DESIGN_EDITED_AGAIN })
