@@ -182,13 +182,22 @@ def get_profile_settings(
     Use this from Kafka consumer classes that keep their own consumer
     construction but want hosts/security/SASL resolved through the router (so
     topics moved via `KAFKA_TOPIC_ROUTING_OVERRIDES` land on the right cluster).
+
+    Raises `KafkaProfileConfigurationError` when the profile needs SASL but a
+    credential is unset, because the client library reports that config with an
+    error that names neither the profile nor the env var.
     """
     resolved = resolve_profile_name(topic=topic, profile=profile)
-    return settings.KAFKA_PROFILES[resolved.value]
+    profile_settings = settings.KAFKA_PROFILES[resolved.value]
+    # Self-hosted base64 cert mode forces the protocol to SSL and attaches no SASL
+    # credentials, so a missing credential is not a defect there.
+    if not settings.KAFKA_BASE64_KEYS:
+        profile_settings.check_sasl_credentials()
+    return profile_settings
 
 
 def _build_sync_producer(profile: KafkaClusterProfile) -> _KafkaProducer:
-    p = settings.KAFKA_PROFILES[profile.value]
+    p = get_profile_settings(profile=profile)
     producer_settings = p.producer_settings
     return _KafkaProducer(
         kafka_hosts=p.hosts,
@@ -207,7 +216,7 @@ def _build_sync_producer(profile: KafkaClusterProfile) -> _KafkaProducer:
 def _build_async_producer(
     profile: KafkaClusterProfile,
 ) -> _AsyncKafkaProducer:
-    p = settings.KAFKA_PROFILES[profile.value]
+    p = get_profile_settings(profile=profile)
     producer_settings = p.producer_settings
     return _AsyncKafkaProducer(
         kafka_hosts=p.hosts,

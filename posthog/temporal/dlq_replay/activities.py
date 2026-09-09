@@ -12,7 +12,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.kafka_client.routing import get_profile_settings
-from posthog.settings.kafka import KafkaProfileSettings
+from posthog.settings.kafka import KafkaProfileConfigurationError, KafkaProfileSettings
 from posthog.temporal.common.heartbeat import Heartbeater
 
 LOGGER = get_logger(__name__)
@@ -60,7 +60,6 @@ class ReplayPartitionResult:
 
 
 _ENCRYPTED_PROTOCOLS = frozenset({"SSL", "SASL_SSL"})
-_SASL_PROTOCOLS = frozenset({"SASL_PLAINTEXT", "SASL_SSL"})
 
 
 def configure_ssl_context(security_protocol: str | None) -> ssl.SSLContext | None:
@@ -83,19 +82,15 @@ def resolve_topic_profile(topic: str) -> KafkaProfileSettings:
     which no deployment can reach. Report that as a config error, because a
     connection timeout sends the reader after the cluster instead of the config.
     """
-    profile = get_profile_settings(topic=topic)
+    try:
+        profile = get_profile_settings(topic=topic)
+    except KafkaProfileConfigurationError as err:
+        raise ApplicationError(str(err), non_retryable=True) from err
 
     if not profile.hosts_configured and not (settings.DEBUG or settings.TEST):
         raise ApplicationError(
             f"Kafka profile '{profile.name}' for topic '{topic}' has no hosts. "
             f"Set KAFKA_{profile.name.upper()}_HOSTS or KAFKA_DEFAULT_HOSTS.",
-            non_retryable=True,
-        )
-
-    if profile.security_protocol in _SASL_PROTOCOLS and not (profile.sasl_mechanism and profile.sasl_user):
-        raise ApplicationError(
-            f"Kafka profile '{profile.name}' uses {profile.security_protocol} but has no SASL credentials. "
-            f"Set KAFKA_{profile.name.upper()}_SASL_MECHANISM, _SASL_USER, and _SASL_PASSWORD.",
             non_retryable=True,
         )
 
@@ -115,7 +110,7 @@ def client_kwargs(profile: KafkaProfileSettings) -> dict[str, Any]:
         "ssl_context": configure_ssl_context(security_protocol),
         "api_version": "2.5.0",
     }
-    if security_protocol in _SASL_PROTOCOLS:
+    if profile.uses_sasl:
         kwargs["sasl_mechanism"] = profile.sasl_mechanism
         kwargs["sasl_plain_username"] = profile.sasl_user
         kwargs["sasl_plain_password"] = profile.sasl_password

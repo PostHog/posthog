@@ -16,6 +16,7 @@ from posthog.kafka_client.routing import (
     current_topic_routing,
     flush_all_producers,
     get_producer,
+    get_profile_settings,
     new_async_producer,
     producer_scope,
     reset_producers,
@@ -31,6 +32,7 @@ from posthog.kafka_client.topics import (
     KAFKA_TRACES_INGESTION_DLQ,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
 )
+from posthog.settings.kafka import KafkaProfileConfigurationError, KafkaProfileSettings
 
 
 @contextmanager
@@ -290,3 +292,29 @@ class FlushAllProducersTest(TestCase):
     def test_no_op_when_no_producers_cached(self):
         # Just verifying no exceptions from an empty cache.
         flush_all_producers(timeout=0.1)
+
+
+def _sasl_profiles(**overrides) -> dict[str, KafkaProfileSettings]:
+    """A KAFKA_PROFILES map where every profile speaks SASL without credentials."""
+    base = {
+        "name": "cyclotron",
+        "hosts": ["broker:9092"],
+        "security_protocol": "SASL_SSL",
+        "sasl_mechanism": "SCRAM-SHA-512",
+        "sasl_user": None,
+        "sasl_password": None,
+    }
+    profile = KafkaProfileSettings(**{**base, **overrides})
+    return {p.value: profile for p in KafkaClusterProfile}
+
+
+class GetProfileSettingsTest(TestCase):
+    def test_sasl_profile_without_credentials_is_rejected(self):
+        with override_settings(KAFKA_PROFILES=_sasl_profiles(), KAFKA_BASE64_KEYS=False):
+            with self.assertRaises(KafkaProfileConfigurationError):
+                get_profile_settings(topic=KAFKA_DWH_CDP_RAW_TABLE)
+
+    def test_base64_key_mode_drops_sasl_so_credentials_are_not_required(self):
+        """Self-hosted base64 cert mode forces SSL and attaches no SASL credentials."""
+        with override_settings(KAFKA_PROFILES=_sasl_profiles(), KAFKA_BASE64_KEYS=True):
+            self.assertEqual(get_profile_settings(topic=KAFKA_DWH_CDP_RAW_TABLE).name, "cyclotron")
