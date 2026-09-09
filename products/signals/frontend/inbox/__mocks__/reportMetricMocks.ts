@@ -111,7 +111,7 @@ export const reportMetricsFixture: ReportMetricApi[] = [
         value_format: 'count',
         unit: 'users',
         query: eventMetricQuery('$autocapture', 'Create key click', BaseMathType.UniqueUsers),
-        caption: 'Unique users with a dead click on the Create key button, counted once per window.',
+        caption: 'Excludes internal users and test accounts.',
         comparison: { value: 832, label: 'Previous 14 days' },
     },
     {
