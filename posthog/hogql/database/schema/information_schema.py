@@ -2022,8 +2022,10 @@ class InformationSchemaDataQualityCheckRunsTable(LazyTable):
             "check_id", nullable=True, description="UUID of the check definition; NULL once it is deleted."
         ),
         "suite_run_id": _string_field("suite_run_id", description="UUID of the batch this execution belonged to."),
-        "subject_type": _string_field("subject_type", description="'table' or 'view'."),
-        "subject_uuid": _string_field("subject_uuid", description="UUID of the checked table or view."),
+        "subject_type": _string_field(
+            "subject_type", description="'table' (synced source), 'view' (saved query), or 'metric' (catalog metric)."
+        ),
+        "subject_uuid": _string_field("subject_uuid", description="UUID of the checked table, view, or metric."),
         "subject_name": _string_field("subject_name", description="Name of the subject at the time of the run."),
         "check_type": _string_field("check_type", description="Which assertion ran."),
         "column_name": _string_field("column_name", nullable=True, description="Checked column, when applicable."),
@@ -2065,15 +2067,20 @@ class InformationSchemaDataQualityCheckRunsTable(LazyTable):
 
 class InformationSchemaDataQualityHealthTable(LazyTable):
     description: str = (
-        "One row per warehouse table or view that has data quality checks, rolled up to a single verdict. "
-        "Check this before trusting a source in an analysis: 'failing' means an error-severity check found bad "
-        "data, 'erroring' means a check could not run at all, 'warn' means only warn-severity checks failed, "
+        "One row per warehouse table, view, or catalog metric that has data quality checks, rolled up to a single "
+        "verdict. Check this before trusting a source in an analysis: 'failing' means an error-severity check found "
+        "bad data, 'erroring' means a check could not run at all, 'warn' means only warn-severity checks failed, "
         "'unknown' means nothing has run yet. Subjects with no checks do not appear."
     )
     fields: dict[str, FieldOrTable] = {
-        "subject_type": _string_field("subject_type", description="'table' or 'view'."),
-        "subject_uuid": _string_field("subject_uuid", description="UUID of the table or view."),
-        "subject_name": _string_field("subject_name", description="Queryable name of the table or view."),
+        "subject_type": _string_field(
+            "subject_type", description="'table' (synced source), 'view' (saved query), or 'metric' (catalog metric)."
+        ),
+        "subject_uuid": _string_field("subject_uuid", description="UUID of the table, view, or metric."),
+        "subject_name": _string_field(
+            "subject_name",
+            description="Name of the table, view, or metric. Only table and view names are queryable in HogQL.",
+        ),
         "health": _string_field(
             "health", description="'failing', 'erroring', 'warn', 'healthy', or 'unknown'. Worst outcome wins."
         ),
