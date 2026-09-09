@@ -240,7 +240,7 @@ components/         # RunSurfaceImpl (the RunSurface compound, heavy chunk); Rea
                     #   AttachedContextProvider (render-null context injection wrapper)
   composer/         #   the Composer compound; AttachedContextBar (@-picker + context chips)
   tool/             #   tool registry + renderers (built-ins, generic MCP, EditDiffRenderer, diff/exec utils)
-    widgets/        #     PostHog product data-tool widgets (insight/dashboard/recordings/error-tracking/notebook/query)
+    widgets/        #     PostHog product data-tool widgets (insight/dashboard/recordings/notebook/query)
 hooks/              # useAttachedContext, useToolStream — mount-scoped registration wrappers over the logics
 logics/             # runStreamLogic, runInteractionLogic, attachedContextLogic, contextPickerLogic, toolStreamEventsLogic;
                     #   tasksLogic/taskLogic data logics (+ *LogicType.ts)
