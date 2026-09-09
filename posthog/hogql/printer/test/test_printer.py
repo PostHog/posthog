@@ -3013,9 +3013,8 @@ class TestPrinter(BaseTest):
         ]
     )
     def test_date_conversion_of_a_duration_uses_the_plain_constructor(self, expression: str, expected_prefix: str):
-        # The parsers behind these names take only strings and reject a number with code 43. A
-        # datetime duration is Decimal(18, 6) once the timestamps are DateTime64, which the plain
-        # constructors reject in turn with code 44, so only it needs toFloat64.
+        # The parsers behind these names take only strings (code 43). A datetime duration is a
+        # Decimal once the timestamps are DateTime64, which the constructors reject too (code 44).
         printed = self._expr(expression)
         assert "toDateOrNull" not in printed, printed
         assert "parseDateTime64BestEffort" not in printed, printed
@@ -4180,8 +4179,7 @@ class TestPrinter(BaseTest):
         assert "divide(10, 3)" in printed_int, printed_int
         assert "divideDecimal" not in printed_int, printed_int
 
-        # A `date - date` duration is an integer, which unifies with a decimal branch to a decimal in
-        # HogQL and in ClickHouse alike. Typing it as a float loses the divideDecimal below.
+        # An integer duration unifies with a decimal branch as a decimal, in HogQL and in ClickHouse.
         printed_branch = self._select(
             "SELECT if(event = 'x', toDate(timestamp) - toDate(timestamp), rate) / rate AS ratio FROM events",
             context,

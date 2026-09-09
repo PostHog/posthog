@@ -1455,19 +1455,16 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         self._assert_first_columm_is_type(node, ast.FloatType(nullable=False))
 
-        # timestamp - timestamp is a numeric duration, not a datetime; typing it as DateTime makes
-        # the printer wrap later references in toTimeZone(), which ClickHouse rejects (code 43).
+        # a duration typed as DateTime brings back the toTimeZone wrap that fails with code 43
         node = self._select("select timestamp - timestamp as key from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         self._assert_first_columm_is_type(node, ast.FloatType(nullable=False))
 
-        # dates subtract to an Int32 count of days, so this must neither fall through to UnknownType
-        # nor claim Float, which loses divideDecimal on a division of a decimal branch
+        # Int32 days, where Float would lose divideDecimal on a division of a decimal branch
         node = self._select("select toDate(timestamp) - toDate(timestamp) as key from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         self._assert_first_columm_is_type(node, ast.IntegerType(nullable=False))
 
-        # timestamp shifted by an integer stays a datetime
         node = self._select("select timestamp - 1 as key from events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         self._assert_first_columm_is_type(node, ast.DateTimeType(nullable=False))

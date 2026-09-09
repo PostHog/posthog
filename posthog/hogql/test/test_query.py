@@ -1986,9 +1986,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertResponseMatchesSnapshot(response)
 
     def test_timestamp_subtraction_is_a_numeric_duration(self):
-        # Subtracting two datetimes gives a number, so reading the result must not be wrapped in
-        # toTimeZone() and converting it must reach ClickHouse's numeric toDate. Both used to fail
-        # the whole query with code 43.
+        # Reading the duration and converting it each failed the whole query with code 43.
         response = execute_hogql_query(
             "SELECT gap, toDate(gap) FROM (SELECT toDateTime(200000) - toDateTime(100000) AS gap)",
             team=self.team,
@@ -1996,8 +1994,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.results, [(100000, datetime.date(1970, 1, 2))])
 
-        # An events timestamp is DateTime64, so its duration is Decimal(18, 6), which the plain
-        # constructors reject with code 44 unless the printer casts it to a float.
+        # An events timestamp is DateTime64, so its duration is a Decimal, rejected with code 44.
         response = execute_hogql_query(
             "SELECT toDate(gap) FROM (SELECT toDateTime64(200000, 6) - toDateTime64(100000, 6) AS gap)",
             team=self.team,

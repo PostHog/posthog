@@ -168,8 +168,7 @@ DATE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         # Incorrect for parseDateTime64BestEffortOrNull but it is required because when we overload to toDateTime, we use this to figure out if timestamp is already in a function.
         tz_aware=True,
         overloads=[
-            # Float covers the numeric duration from `timestamp - timestamp`.
-            # parseDateTime64BestEffortOrNull accepts only strings, so it cannot take one.
+            # Float covers the `timestamp - timestamp` duration, which the parser cannot take.
             ((ast.DateTimeType, ast.DateType, ast.IntegerType, ast.FloatType), "toDateTime"),
             # ((ast.StringType,), "parseDateTime64"),
         ],
