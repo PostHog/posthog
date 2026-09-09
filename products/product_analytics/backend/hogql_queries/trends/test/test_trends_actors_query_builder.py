@@ -37,7 +37,8 @@ from posthog.hogql.transforms.lazy_tables import find_field_chains
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.constants import UNIQUE_GROUPS
-from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
+
+from products.product_analytics.backend.hogql_queries.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
 
 default_query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange(date_from="-7d"))
 
