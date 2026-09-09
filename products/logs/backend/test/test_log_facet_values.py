@@ -349,6 +349,24 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
             self.assertGreater(len(single), 0)
             self.assertEqual(batched[("log", key)], single)
 
+    def test_one_key_list_keeps_shared_filter_semantics(self):
+        # A one-key list takes the same cheap top-N query as a singular request, so the two shapes
+        # differ only by whether the key's own filter is excluded. That distinction is a flag on one
+        # runner now, and losing it here would silently swap a facet's counts for the other shape's.
+        base = self._facet_attr("k8s.namespace.name")
+        own_value = next(iter(base))
+        filter_group = [
+            {"key": "k8s.namespace.name", "type": "log_resource_attribute", "operator": "exact", "value": own_value}
+        ]
+
+        # Asked for on its own: excludes its own filter, so the counts do not move.
+        self.assertEqual(self._facet_attr("k8s.namespace.name", filterGroup=filter_group), base)
+
+        # Asked for in a key list: shares one WHERE, so its own filter applies and narrows it to
+        # the selected value.
+        batched = self._facet_batch(["k8s.namespace.name"], [], filterGroup=filter_group)
+        self.assertEqual(list(batched[("resource", "k8s.namespace.name")]), [own_value])
+
     def test_batch_limits_values_per_facet(self):
         # The limit is applied per facet by a window partition. A global LIMIT would starve every
         # facet but the highest-volume one, which the equality test above can't see.
