@@ -115,8 +115,9 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
                 "team_id",
                 "id",
             )
-            .only("id", "team_id", "calculation_interval", "insight_id", "next_check_at", "created_at")
-            [: inputs.max_alerts_per_run]
+            .only("id", "team_id", "calculation_interval", "insight_id", "next_check_at", "created_at")[
+                : inputs.max_alerts_per_run
+            ]
         )
         record_due_insight_alert_metrics(alerts_query, datetime.now(UTC))
 
