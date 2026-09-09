@@ -40,6 +40,8 @@ These are packaged runtime skills, not project skill-store entries. Do not use `
 - Each row carries `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, `input_cost_usd`, `output_cost_usd`, `model`, `provider`, and `input`.
 - Exclude corrupt rows before you aggregate: token counts far past the model's context window, and per-call costs far past what the tokens can produce.
 - Group rows into workflows. Split on the feature or product tag, the `model`, the `provider`, and the prompt, trace, or span name.
+- Discover the product tag from the team's event schema. Teams send whatever tag property they chose, so do not assume one name is present.
+- Verify the split before you use it. A span name can cover several unrelated callers, and a tag that reads empty on every row means the split did not resolve. Find another dimension that separates the callers, such as a trace id prefix. Never treat an unresolved bucket as one workflow.
 - If the project is multi-tenant, split on the tenant id too.
 - A workflow is one product surface plus one model that sends a similar prompt shape many times.
 
@@ -131,6 +133,15 @@ Then:
 - Do not fall back to the product's main prompt builder as the target. That path usually caches correctly already.
 - If the project has no linked repository, report the finding as unverified. Say which causes you could not rule out, and keep the estimate conservative.
 
+## Re-validate an existing report
+
+A run that re-checks a live report has a different job from a run that finds a new one.
+
+- Do the code check again. The data alone cannot tell you whether a fix shipped.
+- Read the call site as it stands today, not as the report describes it. The report's linked pull request is one attempt, and a later attempt often lands under a different number.
+- Search the repository for merged commits that touch the file the report names, since the report's filing date. An unlinked merged fix is the most common reason a finding looks unchanged.
+- When a fix shipped and the metric did not move, say so and give the reason. Treat the finding as closed unless you can name what the fix left undone.
+
 ## Estimate the net saving
 
 - Cacheable tokens equal the measured prefix length times the calls that read it back. The first call in each cache window writes and does not read.
@@ -168,6 +179,11 @@ Title a new report `AI cache optimization: <workflow and cause>`. Include:
 - the named mistake from the list above
 - the file and function to change
 - the net saving
+
+Re-measuring an unchanged number is not new evidence.
+
+- Add a note to a live report only when something changed: a fix shipped, the workload changed shape, or the cause differs from the named one.
+- Otherwise write the scratchpad entry and close the run silently. A repeated-numbers note reaches a Slack channel and costs a person's attention for nothing.
 
 Write memory for held candidates.
 Close the run with a short summary: what you checked, what you reported or updated, and what you ruled out.
