@@ -120,7 +120,7 @@ export function humanize(
             const impersonatedUserName = logItem.user ? fullName(logItem.user) : undefined
             logLines.push({
                 id: logItem.id,
-                email: logItem.was_impersonated ? undefined : logItem.user?.email,
+                email: actorEmailForLogItem(logItem),
                 name: logItem.was_impersonated
                     ? `PostHog Support${impersonatedUserName ? ` (as ${impersonatedUserName})` : ''}`
                     : impersonatedUserName,
@@ -160,18 +160,32 @@ function nameOrEmailForUser(
     return fullName(user) || user.email || fallback
 }
 
+// An impersonated row names PostHog Support as the actor, so the address on it belongs to the
+// member who was impersonated and attributing it to Support would misread the audit trail. Every
+// surface that shows the email must use this, or a row can disclose it in one place and hide it
+// in another.
+export function actorEmailForLogItem(logItem: ActivityLogItem): string | undefined {
+    if (logItem.is_system || logItem.was_impersonated) {
+        return undefined
+    }
+    return logItem.user?.email
+}
+
 /**
  * The person who did the thing, with their email on hover. Organizations often have several members
  * who share a first name, and many accounts carry no last name, so the name alone can be ambiguous.
  */
 export function ActivityLogUserName({ logItem }: { logItem: ActivityLogItem }): JSX.Element {
     const name = userNameForLogItem(logItem)
-    const email = logItem.is_system ? undefined : logItem.user?.email
-    const nameElement = <strong className="ph-no-capture">{name}</strong>
+    const email = actorEmailForLogItem(logItem)
     if (!email || email === name) {
-        return nameElement
+        return <strong className="ph-no-capture">{name}</strong>
     }
-    return <Tooltip title={<span className="ph-no-capture">{email}</span>}>{nameElement}</Tooltip>
+    return (
+        <Tooltip title={<span className="ph-no-capture">{email}</span>}>
+            <strong className="ph-no-capture cursor-help">{name}</strong>
+        </Tooltip>
+    )
 }
 
 const NO_PLURAL_SCOPES: ActivityScope[] = [ActivityScope.DATA_MANAGEMENT]
@@ -226,7 +240,7 @@ export function defaultDescriber(
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted <b>{resource}</b>
+                    <ActivityLogUserName logItem={logItem} /> deleted <b>{resource}</b>
                 </>
             ),
         }
@@ -236,7 +250,7 @@ export function defaultDescriber(
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created <b>{resource}</b>
+                    <ActivityLogUserName logItem={logItem} /> created <b>{resource}</b>
                 </>
             ),
         }
@@ -246,7 +260,7 @@ export function defaultDescriber(
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> restored <b>{resource}</b>
+                    <ActivityLogUserName logItem={logItem} /> restored <b>{resource}</b>
                 </>
             ),
         }
@@ -256,7 +270,7 @@ export function defaultDescriber(
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> updated <b>{resource}</b>
+                    <ActivityLogUserName logItem={logItem} /> updated <b>{resource}</b>
                 </>
             ),
         }
@@ -266,8 +280,7 @@ export function defaultDescriber(
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> copied <b>{resource}</b> to
-                    another project
+                    <ActivityLogUserName logItem={logItem} /> copied <b>{resource}</b> to another project
                 </>
             ),
         }
@@ -279,14 +292,13 @@ export function defaultDescriber(
         if (logItem.scope === 'Comment') {
             description = (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> replied to a{' '}
-                    {humanizeScope(logItem.scope, true)}
+                    <ActivityLogUserName logItem={logItem} /> replied to a {humanizeScope(logItem.scope, true)}
                 </>
             )
         } else {
             description = (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> commented
+                    <ActivityLogUserName logItem={logItem} /> commented
                     {asNotification ? <> on a {humanizeScope(logItem.scope, true)}</> : null}
                 </>
             )

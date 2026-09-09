@@ -3,7 +3,6 @@ import {
     ActivityLogUserName,
     HumanizedChange,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
@@ -162,15 +161,20 @@ function organizationInviteActivityDescriber(logItem: ActivityLogItem, asNotific
     const targetEmail = context?.target_email || ''
     const organizationName = context?.organization_name || 'the organization'
     const level = context?.level || 'member'
-    const inviterName = context?.inviter_user_name || userNameForLogItem(logItem) || 'System'
+    // The backend supplies inviter_user_name when the invite was not created by the acting user, so
+    // that name has no log item to resolve an email from.
+    const inviter = context?.inviter_user_name ? (
+        <strong className="ph-no-capture">{context.inviter_user_name}</strong>
+    ) : (
+        <ActivityLogUserName logItem={logItem} />
+    )
 
     if (logItem.activity == 'created') {
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{inviterName}</strong> sent an invitation to{' '}
-                    <strong>{targetEmail}</strong> to join organization {nameOrLinkToOrganization(organizationName)} as{' '}
-                    <strong>{level}</strong>
+                    {inviter} sent an invitation to <strong>{targetEmail}</strong> to join organization{' '}
+                    {nameOrLinkToOrganization(organizationName)} as <strong>{level}</strong>
                 </>
             ),
         }
@@ -180,8 +184,8 @@ function organizationInviteActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong className="ph-no-capture">{inviterName}</strong> revoked the invitation for{' '}
-                    <strong>{targetEmail}</strong> to join organization {nameOrLinkToOrganization(organizationName)}
+                    {inviter} revoked the invitation for <strong>{targetEmail}</strong> to join organization{' '}
+                    {nameOrLinkToOrganization(organizationName)}
                 </>
             ),
         }
@@ -201,9 +205,8 @@ function organizationInviteActivityDescriber(logItem: ActivityLogItem, asNotific
             return {
                 description: (
                     <>
-                        <strong className="ph-no-capture">{inviterName}</strong> {changeDescription} for the invitation
-                        sent to <strong>{targetEmail}</strong> to join organization{' '}
-                        {nameOrLinkToOrganization(organizationName)}
+                        {inviter} {changeDescription} for the invitation sent to <strong>{targetEmail}</strong> to join
+                        organization {nameOrLinkToOrganization(organizationName)}
                     </>
                 ),
             }
@@ -211,8 +214,7 @@ function organizationInviteActivityDescriber(logItem: ActivityLogItem, asNotific
             return {
                 description: (
                     <>
-                        <strong className="ph-no-capture">{inviterName}</strong> updated{' '}
-                        <strong>{changes.length} settings</strong> for the invitation sent to{' '}
+                        {inviter} updated <strong>{changes.length} settings</strong> for the invitation sent to{' '}
                         <strong>{targetEmail}</strong> to join organization {nameOrLinkToOrganization(organizationName)}
                     </>
                 ),

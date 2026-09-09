@@ -178,6 +178,8 @@ export const ActivityLogRow = ({
             <div
                 className={clsx('ActivityLogRow flex deprecated-space-x-2', logItem.unread && 'ActivityLogRow--unread')}
             >
+                {/* Tooltip merges the trigger props onto its child element, and ProfilePicture drops props
+                    it does not declare, so the trigger must land on the span instead of the avatar. */}
                 <Tooltip title={logItem.email ? <span className="ph-no-capture">{logItem.email}</span> : undefined}>
                     <span className="flex shrink-0">
                         <ProfilePicture
