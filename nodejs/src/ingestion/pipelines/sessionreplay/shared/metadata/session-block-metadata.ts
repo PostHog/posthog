@@ -1,5 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { ReplayIndexEntry } from './replay-index-entry'
+
 /**
  * Creates a no-op metadata block with all counters set to zero.
  * Used as a base for special events like deletion markers.
@@ -40,6 +42,8 @@ export function createDeletionBlockMetadata(sessionId: string, teamId: number): 
 }
 
 export interface SessionBlockMetadata {
+    replayIndexEntries?: ReplayIndexEntry[]
+    replayIndexTruncated?: boolean
     /** Unique identifier for the session */
     sessionId: string
     /** ID of the team that owns this session recording */
