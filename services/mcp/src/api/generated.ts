@@ -1328,8 +1328,8 @@ export namespace Schemas {
     } as const;
 
     export interface QueryScanRange {
-      from: string;
-      to: string;
+      date_from: string;
+      date_to: string;
     }
 
     export type QueryScanStatus = typeof QueryScanStatus[keyof typeof QueryScanStatus];

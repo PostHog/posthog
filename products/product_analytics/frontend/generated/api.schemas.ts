@@ -948,8 +948,8 @@ export const QueryScanModeApi = {
 } as const
 
 export interface QueryScanRangeApi {
-    from: string
-    to: string
+    date_from: string
+    date_to: string
 }
 
 export type QueryScanStatusApi = (typeof QueryScanStatusApi)[keyof typeof QueryScanStatusApi]

@@ -49278,14 +49278,14 @@
         "QueryScanRange": {
             "additionalProperties": false,
             "properties": {
-                "from": {
+                "date_from": {
                     "type": "string"
                 },
-                "to": {
+                "date_to": {
                     "type": "string"
                 }
             },
-            "required": ["from", "to"],
+            "required": ["date_from", "date_to"],
             "type": "object"
         },
         "QueryScanStatus": {

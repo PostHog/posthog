@@ -2644,8 +2644,8 @@ class QueryScanRange(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    from_: str = Field(..., alias="from")
-    to: str
+    date_from: str
+    date_to: str
 
 
 class QueryTiming(BaseModel):

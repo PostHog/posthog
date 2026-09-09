@@ -588,8 +588,8 @@ export type QueryScanMode = 'log_only' | 'show'
 export type QueryScanStatus = 'pending' | 'done'
 
 export interface QueryScanRange {
-    from: string
-    to: string
+    date_from: string
+    date_to: string
 }
 
 export interface QueryScanSummary {
