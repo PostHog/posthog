@@ -476,9 +476,7 @@ pub struct Config {
     #[envconfig(default = "")]
     pub flags_redis_reader_url: String,
 
-    // Controls whether to read from dedicated Redis cache
-    // false = Mode 2: dual-write to both caches, read from shared (warming phase)
-    // true = Mode 3: read and write dedicated Redis only (cutover complete)
+    // Nothing reads this. Flipping it moves no read path and emits no warning.
     #[envconfig(default = "false")]
     pub flags_redis_enabled: FlexBool,
 
@@ -488,6 +486,15 @@ pub struct Config {
     // stop enqueuing if it ever misbehaves in prod.
     #[envconfig(from = "FLAG_DEFINITIONS_SELF_HEAL_ENABLED", default = "true")]
     pub flag_definitions_self_heal_enabled: FlexBool,
+
+    // Cluster switch for the /flags/definitions reader. When enabled, the flags-with-cohorts
+    // payload and its ETag both come from the dedicated flags Redis instead of the shared one.
+    //
+    // Deliberately a new variable rather than FLAGS_REDIS_ENABLED, which prod already sets to
+    // "true" in both regions: wiring the reader to that one would move the read path on the next
+    // deploy. The definitions fleet has no canary lane, so a deploy is otherwise the cutover.
+    #[envconfig(from = "FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED", default = "false")]
+    pub flag_definitions_dedicated_redis_enabled: FlexBool,
 
     // S3 configuration for HyperCache fallback
     #[envconfig(default = "posthog")]
@@ -1068,6 +1075,7 @@ impl Config {
             flags_redis_reader_url: "".to_string(),
             flags_redis_enabled: FlexBool(false),
             flag_definitions_self_heal_enabled: FlexBool(false),
+            flag_definitions_dedicated_redis_enabled: FlexBool(false),
             redis_response_timeout_ms: 100,
             redis_connection_timeout_ms: 5000,
             write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"

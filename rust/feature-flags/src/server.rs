@@ -13,6 +13,7 @@ use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
 use crate::flags::flag_definitions_cache::FlagDefinitionsCache;
 use crate::flags::flag_group_type_mapping::GroupTypeCacheManager;
+use crate::metrics::consts::FLAG_DEFINITIONS_READS_DEDICATED_REDIS_GAUGE;
 use crate::rayon_dispatcher::RayonDispatcher;
 use crate::router;
 use crate::tokio_monitor::TokioRuntimeMonitor;
@@ -20,6 +21,7 @@ use common_cache::NegativeCache;
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::{HyperCacheConfig, HyperCacheReader, S3Client};
+use common_metrics::gauge;
 use common_redis::{
     Client, CompressionConfig, ReadWriteClient, ReadWriteClientConfig, RedisClient,
 };
@@ -170,18 +172,27 @@ pub async fn serve_with_rate_limiter_clock<C>(
     let dedicated_redis_client =
         create_dedicated_readwrite_client(&config, compression_config.clone()).await;
 
-    // Log the cache migration mode based on configuration
-    let cache_mode = match (
-        dedicated_redis_client.is_some(),
-        *config.flags_redis_enabled,
-    ) {
-        (false, _) => "Mode 1 (Shared-only): All caches use shared Redis",
-        (true, false) => {
-            "Mode 2 (Dual-write): Reading from shared Redis, warming dedicated Redis in background"
-        }
-        (true, true) => "Mode 3 (Dedicated-only): All flags caches use dedicated Redis",
+    // The flags-with-cohorts reader is the one flags cache with its own cluster switch.
+    let (flags_with_cohorts_redis_client, flag_definitions_cluster) =
+        resolve_flag_definitions_redis_client(
+            dedicated_redis_client.as_ref(),
+            &redis_client,
+            *config.flag_definitions_dedicated_redis_enabled,
+        );
+
+    // Reported per cache rather than as one mode string, because the caches no longer agree:
+    // flags.json, team_metadata, remote_config and auth_tokens follow only whether the dedicated
+    // client exists, while flags_with_cohorts follows its own switch.
+    let other_flags_caches = if dedicated_redis_client.is_some() {
+        "dedicated"
+    } else {
+        "shared"
     };
-    tracing::info!("Feature flags cache migration mode: {}", cache_mode);
+    tracing::info!(
+        other_flags_caches,
+        flags_with_cohorts = flag_definitions_cluster.as_str(),
+        "Feature flags Redis cluster per cache"
+    );
 
     // Create database pools with persons routing support
     let database_pools = match DatabasePools::from_config(&config).await {
@@ -395,9 +406,6 @@ pub async fn serve_with_rate_limiter_clock<C>(
         };
 
     // Create HyperCacheReader for flags with cohorts (used by /flags/definitions endpoint)
-    // Uses the shared cache (redis_client) - same cache Django writes to via HyperCache
-    let flags_with_cohorts_redis_client = redis_client.clone();
-
     let mut flags_with_cohorts_config = HyperCacheConfig::new(
         "feature_flags".to_string(),
         "flags_with_cohorts.json".to_string(),
@@ -608,6 +616,21 @@ pub async fn serve_with_rate_limiter_clock<C>(
         rate_limiter_clock,
     );
 
+    // Emitted here, not where the cluster is resolved: `router_with_rate_limiter_clock` installs
+    // the Prometheus recorder, and a gauge set before that goes to the no-op recorder.
+    gauge(
+        FLAG_DEFINITIONS_READS_DEDICATED_REDIS_GAUGE,
+        &[(
+            "reason".to_string(),
+            flag_definitions_cluster.as_str().to_string(),
+        )],
+        if flag_definitions_cluster.reads_dedicated() {
+            1.0
+        } else {
+            0.0
+        },
+    );
+
     tracing::info!(
         service_mode = ?service_mode,
         "listening on {:?}",
@@ -721,6 +744,62 @@ async fn create_readwrite_client(
             );
             None
         }
+    }
+}
+
+/// Which cluster the `/flags/definitions` reader resolved to. `NoDedicatedClient` is kept
+/// distinct from `Disabled` because both read shared, but only one of them is a fault.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FlagDefinitionsCluster {
+    Disabled,
+    Dedicated,
+    NoDedicatedClient,
+}
+
+impl FlagDefinitionsCluster {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Disabled => "disabled",
+            Self::Dedicated => "dedicated",
+            Self::NoDedicatedClient => "no_dedicated_client",
+        }
+    }
+
+    fn reads_dedicated(self) -> bool {
+        matches!(self, Self::Dedicated)
+    }
+}
+
+/// Pick the Redis cluster the `/flags/definitions` readers use.
+///
+/// Do not give the ETag a gate of its own. Both the payload and the ETag come from this one
+/// client, so a stale-but-present ETag on one cluster can never match a client's `If-None-Match`
+/// while the other cluster holds a newer payload. That pairing answers 304 and pins the SDK to
+/// stale definitions with no error on any metric.
+///
+/// Enabled with no dedicated client is a misconfiguration, not a fallback. It makes a cutover
+/// look done while reads stay on shared, so it warns instead of degrading quietly.
+fn resolve_flag_definitions_redis_client(
+    dedicated_redis_client: Option<&Arc<dyn Client + Send + Sync>>,
+    shared_redis_client: &Arc<dyn Client + Send + Sync>,
+    dedicated_enabled: bool,
+) -> (Arc<dyn Client + Send + Sync>, FlagDefinitionsCluster) {
+    match (dedicated_enabled, dedicated_redis_client) {
+        (true, Some(dedicated)) => (dedicated.clone(), FlagDefinitionsCluster::Dedicated),
+        (true, None) => {
+            tracing::warn!(
+                "FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED is set but no dedicated flags Redis \
+                 client exists. /flags/definitions keeps reading from shared Redis."
+            );
+            (
+                shared_redis_client.clone(),
+                FlagDefinitionsCluster::NoDedicatedClient,
+            )
+        }
+        (false, _) => (
+            shared_redis_client.clone(),
+            FlagDefinitionsCluster::Disabled,
+        ),
     }
 }
 
@@ -876,7 +955,9 @@ pub async fn create_redis_client(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common_redis::MockRedisClient;
     use lifecycle::LifecycleError;
+    use rstest::rstest;
 
     /// Locks in the contract that drives the early-return paths in `serve()`:
     /// `fail_init` must surface a `ComponentFailure { tag: "http-server", reason }` —
@@ -907,6 +988,36 @@ mod tests {
             ),
             "expected ComponentFailure {{ tag: \"http-server\", reason: \"redis init failed\" }}, got {result:?}"
         );
+    }
+
+    /// An inverted toggle here moves a production read path silently, and the
+    /// enabled-without-a-dedicated-client arm is the misconfiguration that makes a cutover look
+    /// done while reads stay on shared.
+    #[rstest]
+    #[case::off_with_dedicated(false, true, FlagDefinitionsCluster::Disabled)]
+    #[case::on_with_dedicated(true, true, FlagDefinitionsCluster::Dedicated)]
+    #[case::on_without_dedicated(true, false, FlagDefinitionsCluster::NoDedicatedClient)]
+    fn test_resolve_flag_definitions_redis_client(
+        #[case] dedicated_enabled: bool,
+        #[case] dedicated_present: bool,
+        #[case] expected_cluster: FlagDefinitionsCluster,
+    ) {
+        let shared: Arc<dyn Client + Send + Sync> = Arc::new(MockRedisClient::new());
+        let dedicated: Arc<dyn Client + Send + Sync> = Arc::new(MockRedisClient::new());
+
+        let (resolved, cluster) = resolve_flag_definitions_redis_client(
+            dedicated_present.then_some(&dedicated),
+            &shared,
+            dedicated_enabled,
+        );
+
+        let expected = if expected_cluster.reads_dedicated() {
+            &dedicated
+        } else {
+            &shared
+        };
+        assert!(Arc::ptr_eq(&resolved, expected));
+        assert_eq!(cluster, expected_cluster);
     }
 
     #[tokio::test]
