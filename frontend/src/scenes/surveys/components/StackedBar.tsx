@@ -130,7 +130,7 @@ export function StackedBar({
                 })}
             </div>
             <div className="w-full flex justify-center">
-                <div className="flex items-center gap-8">
+                <div className="flex flex-wrap justify-center items-center gap-x-8 gap-y-2">
                     {segments.map(
                         ({ count, label, colorClass }) =>
                             count > 0 && (

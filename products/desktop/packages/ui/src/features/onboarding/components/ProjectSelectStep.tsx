@@ -31,14 +31,16 @@ import {
   type ProjectInfo,
   useProjects,
 } from "@posthog/ui/features/projects/useProjects";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { ProductWordmark } from "@posthog/ui/primitives/ProductWordmark";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { track } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
 import {
   FIELD_CONTENT_CLASS,
   FIELD_TRIGGER_CLASS,
 } from "@posthog/ui/styles/fieldTrigger";
-import { Button, Flex, Spinner, Text } from "@radix-ui/themes";
+import { Button, Flex, Text } from "@radix-ui/themes";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMemo, useRef, useState } from "react";
 
@@ -175,9 +177,7 @@ export function ProjectSelectStep({ onNext, onBack }: ProjectSelectStepProps) {
             </AnimatePresence>
 
             {isAuthenticated && isLoading && (
-              <Flex align="center" justify="center" className="h-[80px]">
-                <Spinner size="3" />
-              </Flex>
+              <LoadingState className="h-[80px]" />
             )}
 
             {isAuthenticated && !isLoading && (
@@ -299,11 +299,11 @@ export function ProjectSelectStep({ onNext, onBack }: ProjectSelectStepProps) {
                 });
                 onNext();
               }}
-              loading={selectProjectMutation.isPending}
               disabled={
                 currentProjectId == null || selectProjectMutation.isPending
               }
             >
+              {selectProjectMutation.isPending && <Spinner size="md" />}
               Continue
               <ArrowRight size={16} weight="bold" />
             </Button>

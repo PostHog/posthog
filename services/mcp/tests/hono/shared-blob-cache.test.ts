@@ -4,6 +4,7 @@ import type { RedisLike } from '@/hono/cache/RedisCache'
 import { SharedBlobCache, type SharedBlobCacheOptions } from '@/hono/cache/SharedBlobCache'
 
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
+import { makeSharedBlobRedisStubs } from './helpers/shared-blob-redis-stubs'
 
 class TestSharedBlobCache extends SharedBlobCache {
     constructor(redis: RedisLike, namespace: string, opts?: SharedBlobCacheOptions) {
@@ -14,8 +15,8 @@ class TestSharedBlobCache extends SharedBlobCache {
         return this.readCache()
     }
 
-    write(bytes: Uint8Array): Promise<void> {
-        return this.writeCache(bytes)
+    async write(bytes: Uint8Array, validator?: string): Promise<void> {
+        await this.writeCache(bytes, validator)
     }
 
     acquire(token: string): Promise<boolean> {
@@ -61,15 +62,15 @@ function createMockRedis(): MockRedis {
         }),
         scan: vi.fn(async () => ['0', []] as [string, string[]]),
         ...makeRedisRateLimitStubs(),
+        ...makeSharedBlobRedisStubs(store),
         _store: store,
         _setCalls: setCalls,
     }
 }
 
 const NAMESPACE = 'test-blob'
-const BYTES_KEY = `mcp:shared-blob:${NAMESPACE}:bytes`
-const FRESH_KEY = `mcp:shared-blob:${NAMESPACE}:fresh`
-const LOCK_KEY = `mcp:shared-blob:${NAMESPACE}:lock`
+const CURRENT_KEY = `mcp:shared-blob:${NAMESPACE}:v2:current`
+const LOCK_KEY = `mcp:shared-blob:${NAMESPACE}:v2:lock`
 
 describe('SharedBlobCache', () => {
     let redis: MockRedis
@@ -85,9 +86,25 @@ describe('SharedBlobCache', () => {
         await cache.write(bytes)
         const cached = await cache.read()
 
-        expect(cached).toEqual({ bytes, fresh: true })
-        expect(redis._store.has(BYTES_KEY)).toBe(true)
-        expect(redis._store.has(FRESH_KEY)).toBe(true)
+        expect(cached).toMatchObject({ bytes, fresh: true })
+        expect(redis._store.has(CURRENT_KEY)).toBe(true)
+    })
+
+    it.each(['blob', 'pointer'])('keeps the previous generation when the %s write fails', async (failure) => {
+        const cache = new TestSharedBlobCache(redis, NAMESPACE)
+        const original = new Uint8Array([4, 5, 6])
+        await cache.write(original, 'etag-old')
+        const pointer = redis._store.get(CURRENT_KEY)
+        redis.set = vi.fn(async (key: string, ...rest: (string | number)[]) => {
+            if (failure === 'blob' ? key.includes(':blob:') : key === CURRENT_KEY) {
+                throw new Error('write failed')
+            }
+            redis._store.set(key, String(rest[0]))
+            return 'OK'
+        })
+        await expect(cache.write(new Uint8Array([1, 2, 3]), 'etag-new')).rejects.toThrow('write failed')
+        expect(redis._store.get(CURRENT_KEY)).toBe(pointer)
+        expect(await cache.read()).toMatchObject({ bytes: original, etag: 'etag-old' })
     })
 
     it('marks cached bytes stale after the freshness window', async () => {
@@ -106,8 +123,8 @@ describe('SharedBlobCache', () => {
         await a.write(new Uint8Array([1]))
         await b.write(new Uint8Array([2]))
 
-        expect(redis._store.has('mcp:shared-blob:alpha:bytes')).toBe(true)
-        expect(redis._store.has('mcp:shared-blob:beta:bytes')).toBe(true)
+        expect(redis._store.has(a.currentKey)).toBe(true)
+        expect(redis._store.has(b.currentKey)).toBe(true)
 
         expect((await a.read())?.bytes).toEqual(new Uint8Array([1]))
         expect((await b.read())?.bytes).toEqual(new Uint8Array([2]))
@@ -122,13 +139,16 @@ describe('SharedBlobCache', () => {
         expect(redis._store.get(LOCK_KEY)).toBe('first')
     })
 
-    it('releases the lock', async () => {
+    it.each([false, true])('releases only its own lock (replaced: %s)', async (replaced) => {
         const cache = new TestSharedBlobCache(redis, NAMESPACE)
 
         await cache.acquire('token')
+        if (replaced) {
+            redis._store.set(LOCK_KEY, 'next-writer')
+        }
         await cache.release('token')
 
-        expect(redis._store.has(LOCK_KEY)).toBe(false)
+        expect(redis._store.get(LOCK_KEY)).toBe(replaced ? 'next-writer' : undefined)
     })
 
     it('waits for another writer to publish', async () => {

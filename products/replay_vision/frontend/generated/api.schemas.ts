@@ -864,7 +864,7 @@ export interface ReplayScannerApi {
      * * `scorer` - Scorer
      * * `summarizer` - Summarizer */
     scanner_type: ScannerTypeEnumApi
-    /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.
+    /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.
      *
      * * `ai` - AI draft
      * * `template` - Template
@@ -988,7 +988,7 @@ export interface PatchedReplayScannerApi {
      * * `scorer` - Scorer
      * * `summarizer` - Summarizer */
     scanner_type?: ScannerTypeEnumApi
-    /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Ignored on update.
+    /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.
      *
      * * `ai` - AI draft
      * * `template` - Template
@@ -2059,6 +2059,8 @@ export interface DraftScannerResponseApi {
      * @nullable
      */
     credit_limit: number | null
+    /** Goal-based flow only: the experiment whose participants the draft watches, when the goal named one of the project's launched experiments. Null when it named none. Carried separately from `query`, which never holds an exposure filter. */
+    experiment_targeting: ScannerExperimentTargetingApi | null
     /**
      * Goal-based flow only: recordings a month the drafted scanner is projected to watch under the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.
      * @nullable
