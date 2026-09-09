@@ -1,11 +1,12 @@
 import time
-import dataclasses
 from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, datetime
 from typing import Any, Optional
 from urllib.parse import quote
 
 from requests.exceptions import RequestException
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.ably.settings import (
     ABLY_ENDPOINTS,
@@ -50,7 +51,7 @@ def version_header(api_version: str) -> dict[str, str]:
     return {"X-Ably-Version": value} if value else {}
 
 
-@dataclasses.dataclass
+@frozen
 class AblyResumeConfig:
     # `/stats` and `/channels` are flat listings, so their resume state is the next page URL.
     next_url: Optional[str] = None

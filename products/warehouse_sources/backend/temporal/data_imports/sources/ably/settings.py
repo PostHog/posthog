@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -33,7 +35,7 @@ CHANNEL_FANOUT = DependentEndpointConfig(
 )
 
 
-@dataclass
+@frozen
 class AblyEndpointConfig:
     name: str
     path: str
