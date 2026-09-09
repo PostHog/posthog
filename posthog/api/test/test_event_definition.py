@@ -755,6 +755,14 @@ class TestCreateEventDefinitionsSql(SimpleTestCase):
         assert "LEFT JOIN ee_enterpriseeventdefinition" in sql
         assert "FULL OUTER JOIN" not in sql
 
+    def test_pages_before_it_reads_the_wide_columns(self):
+        sql = create_event_definitions_sql(
+            EventDefinitionType.EVENT, is_enterprise=True, order_expressions=[("name", "ASC")]
+        )
+        paged_subquery = sql.split("FROM (", 1)[1].split(") AS page", 1)[0]
+        assert "LIMIT" in paged_subquery
+        assert "description" not in paged_subquery
+
 
 class TestEventDefinitionExcludeStale(APIBaseTest):
     """Stale filter tests need real wall-clock times so the Postgres NOW() comparison
