@@ -77,12 +77,10 @@ _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 # blow up every team member's prompt. The taxonomy already bounds the number of events per prompt.
 MAX_EVENT_DESCRIPTION_LENGTH = 500
 
-# Event and property names come from ingestion, so they are unbounded too. Real names are short,
-# so a cap this generous only truncates names that are already unusable in a query.
+# Real names are short, so this only truncates a name already unusable in a query.
 MAX_TAXONOMY_NAME_LENGTH = 200
 
-# Sample values are arbitrary ingested strings. URLs and search terms are legitimately long, so
-# give them more room than a name.
+# URLs and search terms are legitimately long, so values get more room than names.
 MAX_TAXONOMY_VALUE_LENGTH = 500
 
 
