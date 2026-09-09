@@ -1,12 +1,10 @@
 import '@testing-library/jest-dom'
 
 import { fireEvent, render, screen } from '@testing-library/react'
-import type { ReactNode } from 'react'
 
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
-import { ToolCallCard } from './ToolCallCard'
-import { lookupToolRenderer, registerToolRenderers, toolRegistry, type ToolRegistryEntry } from './toolRegistry'
+import { lookupToolRenderer, toolRegistry } from './toolRegistry'
 
 function makeMessage(overrides: Partial<ToolCallMessage> = {}): ToolCallMessage {
     return {
@@ -22,46 +20,24 @@ function makeMessage(overrides: Partial<ToolCallMessage> = {}): ToolCallMessage 
 }
 
 describe('toolRegistry', () => {
-    // The base registry module registers only built-ins, exec verbs, the question card, and the fallback.
-    // The PostHog product data-tools self-register via `widgets/registerDataToolRenderers`, which
-    // `ToolCallCard` side-effect-imports — and this file imports `ToolCallCard`, so those keys resolve here
-    // too. Genuinely unmapped keys still fall through to the wrench card.
-
-    it('bulk-registers every entry it is handed', () => {
-        const Renderer = (() => null) as unknown as ToolRegistryEntry['Renderer']
-        const icon = null as unknown as JSX.Element
-        registerToolRenderers([
-            { key: '__test_alpha__', displayName: 'Alpha', icon, Renderer },
-            { key: '__test_beta__', displayName: 'Beta', icon, Renderer },
-        ])
-        expect(toolRegistry.lookup('__test_alpha__')?.displayName).toEqual('Alpha')
-        expect(toolRegistry.lookup('__test_beta__')?.displayName).toEqual('Beta')
-    })
-
-    it('resolves product data-tools because importing ToolCallCard self-registers them', () => {
-        // Guards the fix: if the `registerDataToolRenderers` side-effect import is dropped from ToolCallCard,
-        // these keys fall through to the generic JSON card instead of their widgets.
+    it('resolves product declarations after importing only the registry', () => {
         expect(toolRegistry.lookup('insight-create')?.displayName).toEqual('Insight')
         expect(toolRegistry.lookup('query-trends')?.displayName).toEqual('Trends query')
+        expect(require.cache[require.resolve('./ToolCallCard')]).toBeUndefined()
+        expect(
+            require.cache[require.resolve('scenes/hog-functions/configuration/HogFunctionConfiguration')]
+        ).toBeUndefined()
+        expect(require.cache[require.resolve('products/cdp/frontend/HogFunctionPermissionPreview')]).toBeUndefined()
+        expect(require.cache[require.resolve('./widgets/CreateNotebookWidget')]).toBeUndefined()
     })
 
-    // The permission-preview seam: a preview-only entry (no Renderer) still resolves a card renderer,
-    // and its `renderPermissionPreview` survives `lookupToolRenderer` so `PermissionInput` can call it;
-    // an unregistered tool exposes none, so the approval card falls back to the raw JSON payload.
-    it('preserves a registered renderPermissionPreview through lookupToolRenderer and defaults its Renderer', () => {
-        const preview = jest.fn((): ReactNode => 'PREVIEW_NODE')
-        registerToolRenderers([
-            {
-                key: '__test_preview__',
-                displayName: 'Preview tool',
-                icon: null as unknown as JSX.Element,
-                renderPermissionPreview: preview,
-            },
-        ])
-        const resolved = lookupToolRenderer('__test_preview__', false)
-        expect(resolved.Renderer).not.toBeUndefined()
-        expect(resolved.renderPermissionPreview).toBe(preview)
-        expect(lookupToolRenderer('__unregistered_preview__', false).renderPermissionPreview).toBeUndefined()
+    it('preserves the declared CDP preview and defaults its result card', () => {
+        const resolved = lookupToolRenderer('cdp-functions-partial-update', true)
+        expect(resolved.Renderer).toBe(lookupToolRenderer('__unknown__', false).Renderer)
+        expect(resolved.PermissionPreview).toBe(toolRegistry.lookup('cdp-functions-partial-update')?.PermissionPreview)
+        expect(resolved.PermissionPreview).not.toBeUndefined()
+        expect(lookupToolRenderer('cdp-functions-partial-update', false).PermissionPreview).toBeUndefined()
+        expect(lookupToolRenderer('__unknown__', false).PermissionPreview).toBeUndefined()
     })
 
     it('falls back to the key as displayName for unknown and unmapped tool names', () => {
@@ -149,7 +125,26 @@ describe('toolRegistry', () => {
     // Render-level: ToolCallCard resolves the entry, loads the lazy renderer behind a Suspense
     // skeleton, and the resolved renderer reaches the screen. The skeleton shows the displayName first.
     describe('lazy dispatch', () => {
+        it('loads a product implementation only when its matching card renders', async () => {
+            const { ToolCallCard } = await import('./ToolCallCard')
+            expect(require.cache[require.resolve('./widgets/CreateNotebookWidget')]).toBeUndefined()
+            render(
+                <ToolCallCard
+                    message={makeMessage({
+                        resolvedKey: 'notebooks-create',
+                        innerToolName: 'notebooks-create',
+                        rawOutput: { short_id: 'example-notebook', title: 'Synthetic notebook' },
+                    })}
+                />
+            )
+            expect(screen.getByText('Notebook')).toBeInTheDocument()
+            expect(await screen.findByText('Synthetic notebook')).toBeInTheDocument()
+            expect(screen.queryByText('Notebook')).not.toBeInTheDocument()
+            expect(require.cache[require.resolve('./widgets/CreateNotebookWidget')]).not.toBeUndefined()
+        })
+
         it('renders a Bash call through its dedicated card once the chunk loads', async () => {
+            const { ToolCallCard } = await import('./ToolCallCard')
             render(
                 <ToolCallCard
                     message={makeMessage({
@@ -167,6 +162,7 @@ describe('toolRegistry', () => {
         })
 
         it('renders an unmapped MCP tool through the generic card', async () => {
+            const { ToolCallCard } = await import('./ToolCallCard')
             render(
                 <ToolCallCard
                     message={makeMessage({

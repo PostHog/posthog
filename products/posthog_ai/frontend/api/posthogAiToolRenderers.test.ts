@@ -1,11 +1,6 @@
-// Importing the module runs its side effect: registering the surface's product-specific tool renderers
-// into the shared toolRegistry. We assert the stable key → displayName metadata it contributes (the lazy
-// Renderer itself is an opaque chunk).
-import './registerDataToolRenderers'
+import { toolRegistry } from '../components/tool/toolRegistry'
 
-import { toolRegistry } from 'products/posthog_ai/frontend/api/tools'
-
-describe('registerDataToolRenderers', () => {
+describe('posthogAiToolRenderers', () => {
     it.each([
         ['insight-create', 'Insight'],
         ['insight-update', 'Insight'],
@@ -21,7 +16,7 @@ describe('registerDataToolRenderers', () => {
         ['query-funnel', 'Funnel query'],
         ['notebooks-create', 'Notebook'],
         ['notebook-edit', 'Notebook'],
-    ])('registers %s into the shared registry with displayName "%s"', (key, displayName) => {
+    ])('resolves %s from the central manifest with displayName "%s"', (key, displayName) => {
         const entry = toolRegistry.lookup(key)
         expect(entry).not.toBeNull()
         expect(entry?.displayName).toEqual(displayName)

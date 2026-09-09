@@ -1,6 +1,7 @@
-export { toolRegistry, lookupToolRenderer, registerToolRenderers } from '../components/tool/toolRegistry'
+export { toolRegistry, lookupToolRenderer } from '../components/tool/toolRegistry'
 export type {
     ToolRendererProps,
+    PermissionPreviewProps,
     ToolRegistryEntry,
     ResolvedToolRegistryEntry,
     ToolRegistry,
