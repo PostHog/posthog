@@ -2518,7 +2518,10 @@ CREATE TABLE posthog.sharded_query_log_archive (
   lc_dagster__job_name String ALIAS CAST(log_comment.`dagster.job_name`, 'String'),
   lc_dagster__run_id String ALIAS CAST(log_comment.`dagster.run_id`, 'String'),
   lc_dagster__owner String ALIAS CAST(log_comment.`dagster.tags.owner`, 'String'),
-  lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')
+  lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), ''),
+  lc_plan_fingerprint String ALIAS ifNull(dynamicElement(log_comment.plan_fingerprint, 'String'), ''),
+  lc_estimated_rows Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_rows, 'Int64'), 0),
+  lc_estimated_bytes Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_bytes, 'Int64'), 0)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.sharded_query_log_archive', '{replica}-{shard}') ORDER BY (team_id, event_date, event_time, query_id) PARTITION BY toYYYYMM(event_date) SETTINGS index_granularity = 8192, object_serialization_version = 'v3', object_shared_data_serialization_version = 'map_with_buckets';
 CREATE TABLE posthog.sharded_query_log_archive_old (
   hostname LowCardinality(String),
@@ -6777,7 +6780,10 @@ CREATE TABLE posthog.query_log_archive (
   lc_dagster__job_name String ALIAS CAST(log_comment.`dagster.job_name`, 'String'),
   lc_dagster__run_id String ALIAS CAST(log_comment.`dagster.run_id`, 'String'),
   lc_dagster__owner String ALIAS CAST(log_comment.`dagster.tags.owner`, 'String'),
-  lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')
+  lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), ''),
+  lc_plan_fingerprint String ALIAS ifNull(dynamicElement(log_comment.plan_fingerprint, 'String'), ''),
+  lc_estimated_rows Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_rows, 'Int64'), 0),
+  lc_estimated_bytes Int64 ALIAS ifNull(dynamicElement(log_comment.estimated_bytes, 'Int64'), 0)
 ) ENGINE = Distributed('ops', 'posthog', 'sharded_query_log_archive');
 CREATE TABLE posthog.query_log_archive_buffer (
   hostname LowCardinality(String),
