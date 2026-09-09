@@ -11,7 +11,6 @@ import { ContextUsageBar } from './ContextUsageBar'
 import { FeedbackPromptTrailer } from './FeedbackPromptTrailer'
 import { PermissionInput } from './PermissionInput'
 import { QuestionInput } from './QuestionInput'
-import { ResourcesBar } from './ResourcesBar'
 import { RunLogSkeleton } from './RunLogSkeleton'
 import { ThreadView } from './ThreadView'
 import { TurnFeedbackActions } from './TurnFeedbackActions'
@@ -42,7 +41,7 @@ export interface RunSurfaceProps {
 }
 
 // `RunSurface.Root` binds a `runStreamLogic` instance and bootstraps the run; the slot components
-// (`RunSurface.Thread/.Composer/.Resources/.ContextUsage`) read the bound logic via selectors and the
+// (`RunSurface.Thread/.Composer/.ContextUsage`) read the bound logic via selectors and the
 // run wiring from this context. Consumers compose the slots into a custom layout — there is no default
 // layout; the prepackaged read-only embed lives in `ReadonlyRunSurfaceImpl`. State stays in the logic;
 // the slots are presentational and the composer UI is supplied by the consumer as children.
@@ -211,7 +210,7 @@ function RunSurfaceThread({
                     sessionId={feedbackSessionId}
                     turnIndex={trailer.turnIndex}
                     run={feedbackRun}
-                    isLastTurn={trailer.isLastTurn}
+                    traceId={trailer.traceId}
                     turnText={trailer.turnText}
                 />
             ) : null,
@@ -221,7 +220,7 @@ function RunSurfaceThread({
     if (showSkeleton) {
         return <RunLogSkeleton className={className} listClassName={listClassName} rowClassName={rowClassName} />
     }
-    // Context usage rides the thread footer for live runs (the meta bars are live-only), but never for a
+    // Context usage rides the thread footer for live runs, but never for a
     // scout run. An error surfaces as a `handleStreamError` item folded into the thread, so it renders here too.
     // Turn feedback follows the same gate: only interactive, non-scout surfaces collect ratings.
     return (
@@ -244,49 +243,59 @@ function RunSurfaceThread({
  * any settled run status (active runs take a follow-up, terminal runs start a fresh run from the typed
  * message), is hidden during bootstrap, and is replaced by the prompt while a request is pending.
  */
-function RunSurfaceComposer({ children }: { children?: ReactNode }): JSX.Element | null {
+function RunSurfaceComposer({
+    children,
+    isStopping = false,
+}: {
+    children?: ReactNode
+    isStopping?: boolean
+}): JSX.Element | null {
     const { interaction, streamKey } = useRunSurfaceContext()
-    const { pendingPermissionRequest, currentRunStatus } = useValues(runStreamLogic)
+    const { pendingPermissionRequest, respondingToPermission, currentRunStatus } = useValues(runStreamLogic)
     if (interaction !== 'live') {
         return null
     }
-    // Pending approval/question takes precedence over the composer.
-    if (pendingPermissionRequest && !isTerminalRunStatus(currentRunStatus)) {
-        const isQuestion = !!pendingPermissionRequest.questions && pendingPermissionRequest.questions.length > 0
-        return (
-            <div className="border-t px-4 py-3">
-                <div className="mx-auto w-full max-w-180">
-                    {isQuestion ? (
-                        <QuestionInput streamKey={streamKey} request={pendingPermissionRequest} />
-                    ) : (
-                        <PermissionInput streamKey={streamKey} request={pendingPermissionRequest} />
-                    )}
-                </div>
-            </div>
-        )
-    }
-    if (!children || currentRunStatus === null) {
-        return null // no composer UI supplied (e.g. ReadonlyRunSurface) or pre-bootstrap
-    }
+    const request = !isTerminalRunStatus(currentRunStatus) ? pendingPermissionRequest : null
+    const showApproval = !!request && !respondingToPermission && !isStopping
+
+    // Both inputs keep their local state through delivery and restoration, including uncommitted draft keystrokes.
     return (
-        <div data-attr="composer" className="px-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))]">
-            <LemonDivider className="mt-0 mb-4" />
-            <div className="mx-auto w-full max-w-180">{children}</div>
-        </div>
+        <>
+            {request && (
+                <div hidden={!showApproval} className="border-t px-4 py-3" data-attr="run-approval">
+                    <div key={`${request.sourceRunId}:${request.requestId}`} className="mx-auto w-full max-w-180">
+                        {request.questions?.length ? (
+                            <QuestionInput streamKey={streamKey} request={request} disabled={isStopping} />
+                        ) : (
+                            <PermissionInput streamKey={streamKey} request={request} disabled={isStopping} />
+                        )}
+                    </div>
+                </div>
+            )}
+            {children && currentRunStatus !== null && (
+                <div
+                    hidden={showApproval}
+                    data-attr="composer"
+                    className="px-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))]"
+                >
+                    <LemonDivider className="mt-0 mb-4" />
+                    <div className="mx-auto w-full max-w-180">{children}</div>
+                </div>
+            )}
+        </>
     )
 }
 
 /**
  * Compound run surface. `RunSurface.Root` binds the stream logic, bootstraps the run, and provides context;
- * the slots (`RunSurface.Thread/.Composer/.Resources/.ContextUsage`) compose into a custom layout — there is
+ * the slots (`RunSurface.Thread/.Composer/.ContextUsage`) compose into a custom layout — there is
  * no default layout. `RunSurface.Composer` owns the prompt-vs-composer precedence and takes the composer UI
- * as children; the meta slots (`.Resources`/`.ContextUsage`) self-bind and self-hide when empty. For the
+ * as children; the meta slot (`.ContextUsage`) self-binds and self-hides when empty. For the
  * common no-input embed, prefer the prepackaged `ReadonlyRunSurface` (api/readableRun).
  */
 export const RunSurface = Object.assign(RunSurfaceRoot, {
     Root: RunSurfaceRoot,
     Thread: RunSurfaceThread,
     Composer: RunSurfaceComposer,
-    Resources: ResourcesBar,
     ContextUsage: ContextUsageBar,
 })

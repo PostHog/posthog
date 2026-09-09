@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
+import requests
 import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
@@ -26,7 +27,7 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
-from posthog.cdp.internal_events import is_managed_alert_internal_event
+from posthog.cdp.internal_events import is_managed_alert_internal_event, is_reserved_internal_event
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
@@ -173,6 +174,23 @@ def _named_warehouse_tables(entries: Any) -> list[Any]:
         for entry in entries
         if isinstance(entry, dict) and entry.get("table_name") and entry.get("name") != "Select a table"
     ]
+
+
+def _worker_error_messages(response: requests.Response) -> list[str]:
+    """The CDP worker's own description of a failed test invocation, as a list of messages."""
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    if isinstance(body, dict):
+        for key in ("errors", "error", "detail"):
+            value = body.get(key)
+            if isinstance(value, list):
+                return [str(item) for item in value]
+            if value:
+                return [str(value)]
+    text = (response.text or "").strip()
+    return [text] if text else [f"The worker returned {response.status_code}."]
 
 
 def _without(value: Any, keys: tuple[str, ...]) -> Any:
@@ -446,6 +464,15 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     "template_id": f"Template '{template.template_id}' is internal and cannot be used to create a function."
                 }
             )
+        # Deprecated templates are only hidden from the template listing, so a direct API call with the
+        # template id could still create one. Block that too; existing functions keep running, and the
+        # legacy plugin migration (posthog/cdp/migrations.py) is the one internal caller allowed through.
+        if template.status == "deprecated" and not self.context.get("allow_deprecated_template"):
+            raise serializers.ValidationError(
+                {
+                    "template_id": f"Template '{template.template_id}' is deprecated and cannot be used to create a new function."
+                }
+            )
 
     def _validate_hidden_template_not_enabled(self, attrs: dict, is_create: bool) -> None:
         # Creating from a hidden template is already blocked outright. For an existing function built from
@@ -616,6 +643,19 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 raise serializers.ValidationError(
                     {"filters": "Alert notification destinations are managed through the alert API."}
                 )
+
+        proposed_filters = attrs.get("filters", self.instance.filters if isinstance(self.instance, HogFunction) else {})
+        reserved = sorted(
+            {
+                event_filter["id"]
+                for event_filter in (proposed_filters or {}).get("events", [])
+                if isinstance(event_filter, dict) and is_reserved_internal_event(event_filter.get("id"))
+            }
+        )
+        if reserved:
+            raise serializers.ValidationError(
+                {"filters": f"{', '.join(reserved)} is reserved for the product that emits it."}
+            )
 
         self._validate_hidden_template_not_enabled(attrs, bool(is_create))
 
@@ -1185,7 +1225,9 @@ class HogFunctionViewSet(
         )
 
         if res.status_code != 200:
-            return Response({"status": "error"}, status=res.status_code)
+            # The worker's own message is the only description of the failure. Dropping it leaves the
+            # caller with a bare status code and nothing to act on.
+            return Response({"status": "error", "errors": _worker_error_messages(res)}, status=res.status_code)
 
         return Response(res.json())
 

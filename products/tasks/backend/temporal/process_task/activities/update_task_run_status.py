@@ -11,6 +11,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.metrics import observe_prewarmed_unused_if_never_activated, observe_wizard_run_unbound
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
@@ -25,6 +26,7 @@ TIMED_OUT_INACTIVITY_STATE_KEY = "timed_out_inactivity"
 TIMED_OUT_WALL_CLOCK_STATE_KEY = "timed_out_wall_clock"
 # TaskRun.state marker for runs terminalized because their sandbox disappeared.
 SANDBOX_GONE_STATE_KEY = "sandbox_gone"
+USAGE_METRICS_RECORDED_STATE_KEY = "usage_metrics_recorded"
 
 # Allowlist for `timeout_marker` so the activity never writes an arbitrary state key.
 _TERMINAL_STATE_MARKERS = (
@@ -116,14 +118,19 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
         )
 
     # Side effects run after commit, outside the row lock (repo convention: no side effects in atomic).
+    if input.status in _TERMINAL_STATUSES:
+        resume_workflow_step_for_run(task_run)
+
     task_run.publish_stream_state_event()
     observe_wizard_run_unbound(task_run)
 
     if input.status in _TERMINAL_STATUSES and old_status != input.status:
         task_run.close_ci_progress_step()
 
-    if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED] and old_status != input.status:
-        _capture_terminal_analytics(task_run, input)
+    if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]:
+        if old_status != input.status:
+            _capture_terminal_analytics(task_run, input)
+        _record_terminal_token_usage(task_run, input)
 
     if input.timed_out_inactivity and old_status != input.status:
         task_run.task.soft_delete_if_unclaimed_prewarm(task_run)
@@ -227,7 +234,7 @@ def _is_first_chat_run_of_task(task_run: TaskRun, state: dict[str, Any]) -> bool
 
 
 def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInput) -> None:
-    """Emit the terminal analytics event and token-expenditure metrics.
+    """Emit the terminal analytics events.
 
     This activity performs the DB status transition, so it is the single canonical
     emitter of the terminal analytics events for workflow-driven runs — the workflow
@@ -265,18 +272,28 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
             )
 
         _capture_posthog_ai_chat_analytics(task_run, input, termination_reason=termination_reason)
-
-        state = task_run.state if isinstance(task_run.state, dict) else {}
-        usage = state.get("token_usage")
-        if isinstance(usage, dict):
-            adapter = state.get("runtime_adapter")
-            record_run_token_usage(
-                usage,
-                origin_product=task_run.task.origin_product,
-                run_environment=task_run.environment,
-                rtk_enabled=task_run.effective_rtk(),
-                runtime_adapter=adapter if isinstance(adapter, str) else None,
-                status=input.status,
-            )
     except Exception:
         activity.logger.warning(f"Failed to capture terminal analytics for run {task_run.id}", exc_info=True)
+
+
+def _record_terminal_token_usage(task_run: TaskRun, input: UpdateTaskRunStatusInput) -> None:
+    try:
+        state = task_run.state if isinstance(task_run.state, dict) else {}
+        usage = state.get("token_usage")
+        if not isinstance(usage, dict) or state.get(USAGE_METRICS_RECORDED_STATE_KEY):
+            return
+        adapter = state.get("runtime_adapter")
+        model = state.get("model")
+        task_run.state = TaskRun.update_state_atomic(task_run.id, updates={USAGE_METRICS_RECORDED_STATE_KEY: True})
+        record_run_token_usage(
+            usage,
+            origin_product=task_run.task.origin_product,
+            run_environment=task_run.environment,
+            rtk_enabled=task_run.effective_rtk(),
+            benjamin_enabled=task_run.effective_benjamin(),
+            model=model if isinstance(model, str) else None,
+            runtime_adapter=adapter if isinstance(adapter, str) else None,
+            status=input.status,
+        )
+    except Exception:
+        activity.logger.warning(f"Failed to record token usage for run {task_run.id}", exc_info=True)

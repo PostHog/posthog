@@ -10,6 +10,7 @@ import { getCurrentMatches } from "@posthog/ui/router/navigationBridge";
  */
 export type NavRailPane =
   | "home"
+  | "reports"
   | "spaces"
   | "activity"
   | "canvases"
@@ -28,6 +29,7 @@ export type NavRailPane =
  */
 export const RAIL_PANE_ROOT: Readonly<Record<NavRailPane, string>> = {
   home: "/",
+  reports: "/reports",
   spaces: "/spaces",
   activity: "/activity",
   canvases: "/canvases",
@@ -42,6 +44,7 @@ export const RAIL_PANE_ROOT: Readonly<Record<NavRailPane, string>> = {
 // would only shadow that fallback with the same answer.
 const CLAIMED: readonly NavRailPane[] = [
   "home",
+  "reports",
   "activity",
   "canvases",
   "inbox",
@@ -73,6 +76,27 @@ export function railPaneForMatches(
 /** Not wired to a caller yet. The @public tag stops knip from reporting it. */
 export function getRailPane(): NavRailPane {
   return railPaneForMatches(getCurrentMatches());
+}
+
+const NON_RESTORABLE_ROOTS = [
+  "/settings",
+  "/folders",
+  "/skills",
+  "/mcp-servers",
+  "/usage",
+  "/inbox/agents",
+];
+
+export function isRestorableVisitHref(
+  pane: NavRailPane,
+  href: string,
+): boolean {
+  const path = href.replace(/[?#].*$/, "");
+  const blocked = NON_RESTORABLE_ROOTS.some(
+    (root) => path === root || path.startsWith(`${root}/`),
+  );
+  if (blocked) return false;
+  return railPaneForPath(path) === pane;
 }
 
 const PANES_WITH_SIDEBAR = new Set<NavRailPane>([

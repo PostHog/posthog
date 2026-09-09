@@ -241,3 +241,10 @@ export function resizeCellsForLayout(
 export function clampZoom(value: number): number {
   return Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value)) * 10) / 10;
 }
+
+// Composer draft key for a tile creating its own task. Deliberately outside the
+// "task-input" namespace: those ids drive the sidebar's unsent-draft dot, which
+// must not light up for a draft that lives in the grid.
+export function getCellSessionId(authScope: string, cellIndex: number): string {
+  return `cc-cell-${authScope}-${cellIndex}`;
+}

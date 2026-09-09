@@ -17,6 +17,8 @@ interface CardState {
     myThreshold?: string | null
     dailyLimit?: number | null
     reportsToday?: number
+    /** Personal opt-in to being added as a GitHub assignee on the implementation PR. */
+    githubAssign?: boolean
 }
 
 function Card({
@@ -25,6 +27,7 @@ function Card({
     myThreshold = null,
     dailyLimit = null,
     reportsToday = 0,
+    githubAssign = false,
 }: CardState): JSX.Element {
     useStorybookMocks({
         get: {
@@ -42,6 +45,7 @@ function Card({
                 autostart_priority: myThreshold,
                 slack_notification_channel: null,
                 slack_notification_min_priority: null,
+                github_assign_on_pull_request: githubAssign,
             },
             '/api/environments/:team_id/integrations/': { results: [] },
         },
@@ -87,6 +91,11 @@ export const PersonalOverride: Story = {
 // No personal override: "My threshold" shows "Default" and inherits the project threshold.
 export const PersonalDefault: Story = {
     render: () => <Card myThreshold={null} />,
+}
+
+// Personal GitHub assignment opted in: the row's switch reads on.
+export const GitHubAssignmentOn: Story = {
+    render: () => <Card githubAssign />,
 }
 
 // Master switch off: both thresholds are hidden and only the reassurance copy shows.

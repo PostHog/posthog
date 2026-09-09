@@ -140,6 +140,7 @@ export function newScanner(templateKey?: string | null, teamName?: string | null
         estimated_monthly_observations: null,
         feedback_themes: null,
         estimated_monthly_credits: null,
+        estimated_at: null,
         // Seed price for the unsaved scanner; the server-computed value takes over after the first save.
         credits_per_observation: OBSERVATION_CREDITS_BY_MODEL[DEFAULT_MODEL],
         // An unsaved scanner has no object yet, so there's no effective access level for it —

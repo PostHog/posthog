@@ -127,9 +127,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ReplayVisionScanner: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScanner'),
     ReplayVisionScannerEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ScannerEditorScene'),
     ReplayVisionObservation: () => import('../../products/replay_vision/frontend/observations/ReplayObservation'),
-    ReplayVisionAction: () => import('../../products/replay_vision/frontend/replay_scanners/VisionActionScene'),
-    ReplayVisionActionEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ActionEditorScene'),
-    ReplayVisionActionRun: () => import('../../products/replay_vision/frontend/replay_scanners/VisionActionRunScene'),
     CodeReview: () => import('../../products/review_hog/frontend/CodeReviewScene'),
     Inbox: () => import('../../products/signals/frontend/inbox/InboxScene'),
     Skills: () => import('../../products/skills/frontend/LLMSkillsScene'),
@@ -163,6 +160,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     HeatmapNew: () => import('../../products/web_analytics/frontend/heatmaps/scenes/heatmap/HeatmapNewScene'),
     HeatmapRecording: () =>
         import('../../products/web_analytics/frontend/heatmaps/scenes/heatmap/HeatmapRecordingScene'),
+    WizardRuns: () => import('../../products/wizard/frontend/WizardRunsScene'),
     Workflows: () => import('../../products/workflows/frontend/WorkflowsScene'),
     Workflow: () => import('../../products/workflows/frontend/Workflows/WorkflowScene'),
     WorkflowsLibraryTemplate: () => import('../../products/workflows/frontend/TemplateLibrary/MessageTemplate'),

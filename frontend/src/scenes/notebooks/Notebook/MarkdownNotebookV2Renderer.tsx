@@ -106,9 +106,10 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         reportMarkdownMergeConflicts,
         publishMarkdownCaret,
         setMarkdownAIPresenceActive,
+        saveNotebookNow,
     } = useActions(notebookLogic)
     const { setShowKernelInfo } = useActions(notebookSettingsLogic)
-    const remoteMarkdown = getMarkdownNotebookMarkdown(notebook?.content)
+    const remoteMarkdown = useMemo(() => getMarkdownNotebookMarkdown(notebook?.content), [notebook?.content])
     const [inlineAIRequests, setInlineAIRequests] = useState<InlineNotebookAIRequest[]>([])
     const [aiCaretPosition, setAICaretPosition] = useState<MarkdownNotebookCaretPosition | null>(null)
     const [aiCaretFading, setAICaretFading] = useState(false)
@@ -701,6 +702,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     extraInsertCommands={isEditable ? buildExtraInsertCommands : undefined}
                     hiddenInsertCommandKeys={hiddenInsertCommandKeys}
                     onChange={isEditable ? handleMarkdownNotebookChange : undefined}
+                    onSaveRequested={isEditable ? saveNotebookNow : undefined}
                     onConflict={reportMarkdownMergeConflicts}
                     remoteCarets={remoteCarets}
                     onCaretChange={isEditable ? publishMarkdownCaret : undefined}

@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, call, patch
+from unittest.mock import AsyncMock, patch
 
 from django.db import DatabaseError
 from django.test import SimpleTestCase
@@ -13,7 +13,6 @@ from posthog.api.proxy_record import ProxyRecordUpdateSerializer
 from posthog.models import ProxyRecord
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.temporal.proxy_service.cloudflare import (
-    CloudflareAPIError,
     CustomHostname,
     CustomHostnameSSL,
     CustomHostnameSSLStatus,
@@ -177,10 +176,10 @@ class TestProxyRecordAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("posthog.api.proxy_record.update_custom_hostname_metadata")
+    @patch("posthog.api.proxy_record.update_cloudflare_proxy_root_redirect")
     @patch("posthog.api.proxy_record.get_custom_hostname_by_domain")
     @patch("posthoganalytics.capture")
-    def test_updates_root_redirect_metadata(self, _capture, get_hostname, update_metadata):
+    def test_updates_root_redirect_in_kv(self, _capture, get_hostname, update_redirect):
         record = ProxyRecord.objects.create(
             organization=self.organization,
             created_by=self.user,
@@ -206,13 +205,13 @@ class TestProxyRecordAPI(APIBaseTest):
         assert response.json()["root_redirect_url"] == "https://www.example.com/welcome"
         record.refresh_from_db()
         assert record.root_redirect_url == "https://www.example.com/welcome"
-        update_metadata.assert_called_once_with(hostname, {"root_redirect_url": "https://www.example.com/welcome"})
+        update_redirect.assert_called_once_with(record.domain, "https://www.example.com/welcome")
 
-    @patch("posthog.api.proxy_record.update_custom_hostname_metadata")
+    @patch("posthog.api.proxy_record.update_cloudflare_proxy_root_redirect")
     @patch("posthog.api.proxy_record.get_custom_hostname_by_domain")
     @patch("posthog.api.proxy_record.reconcile_proxy_root_redirect.delay")
-    def test_reconciles_root_redirect_when_database_write_and_cloudflare_rollback_fail(
-        self, reconcile_root_redirect, get_hostname, update_metadata
+    def test_reconciles_root_redirect_when_database_write_fails(
+        self, reconcile_root_redirect, get_hostname, update_redirect
     ):
         record = ProxyRecord.objects.create(
             organization=self.organization,
@@ -229,7 +228,6 @@ class TestProxyRecordAPI(APIBaseTest):
             ssl=CustomHostnameSSL(status=CustomHostnameSSLStatus.ACTIVE, validation_errors=[]),
         )
         get_hostname.return_value = hostname
-        update_metadata.side_effect = [None, CloudflareAPIError("rollback failed")]
 
         with (
             self.settings(CLOUDFLARE_PROXY_BASE_CNAME="cf-prod-us-proxy.proxyhog.com"),
@@ -241,12 +239,7 @@ class TestProxyRecordAPI(APIBaseTest):
             )
 
         assert response.status_code == status.HTTP_502_BAD_GATEWAY
-        update_metadata.assert_has_calls(
-            [
-                call(hostname, {"root_redirect_url": "https://new.example.com/"}),
-                call(hostname, {"root_redirect_url": "https://old.example.com/"}),
-            ]
-        )
+        update_redirect.assert_called_once_with(record.domain, "https://new.example.com/")
         reconcile_root_redirect.assert_called_once_with(str(record.id))
 
     @parameterized.expand(
@@ -260,10 +253,10 @@ class TestProxyRecordAPI(APIBaseTest):
             ("private_suffix", "proxy.victim.dynv6.net", "https://attacker.dynv6.net/", "victim.dynv6.net"),
         ]
     )
-    @patch("posthog.api.proxy_record.update_custom_hostname_metadata")
+    @patch("posthog.api.proxy_record.update_cloudflare_proxy_root_redirect")
     @patch("posthog.api.proxy_record.get_custom_hostname_by_domain")
     def test_rejects_unsafe_root_redirect(
-        self, _name, proxy_domain, redirect_url, expected_error, get_hostname, _update_metadata
+        self, _name, proxy_domain, redirect_url, expected_error, get_hostname, _update_redirect
     ):
         get_hostname.return_value = SimpleNamespace(custom_metadata={})
         record = ProxyRecord.objects.create(
@@ -283,11 +276,11 @@ class TestProxyRecordAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "root_redirect_url"
         assert expected_error in response.json()["detail"]
-        _update_metadata.assert_not_called()
+        _update_redirect.assert_not_called()
 
-    @patch("posthog.api.proxy_record.update_custom_hostname_metadata")
+    @patch("posthog.api.proxy_record.update_cloudflare_proxy_root_redirect")
     @patch("posthog.api.proxy_record.get_custom_hostname_by_domain")
-    def test_clears_root_redirect_metadata(self, get_hostname, update_metadata):
+    def test_clears_root_redirect_in_kv(self, get_hostname, update_redirect):
         record = ProxyRecord.objects.create(
             organization=self.organization,
             created_by=self.user,
@@ -312,7 +305,7 @@ class TestProxyRecordAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["root_redirect_url"] is None
-        update_metadata.assert_called_once_with(hostname, {"root_redirect_url": ""})
+        update_redirect.assert_called_once_with(record.domain, None)
 
     def test_diagnose_fails_closed_on_a_stored_domain_that_is_not_a_hostname(self):
         # Rows predate write-time validation, so the endpoint has to report a failed check
@@ -581,6 +574,29 @@ class TestProxyRecordAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
         assert not ProxyRecord.objects.filter(id=record.id).exists()
+
+    @patch("posthog.api.proxy_record.sync_connect")
+    @patch("posthoganalytics.capture")
+    def test_destroy_pre_active_cloudflare_proxy_starts_cleanup_workflow(self, _capture, mock_sync_connect):
+        mock_temporal = AsyncMock()
+        mock_sync_connect.return_value = mock_temporal
+        record = ProxyRecord.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            domain="cloudflare-destroy.example.com",
+            target_cname="abc123.cf-proxy.example.net",
+            status=ProxyRecord.Status.ERRORING,
+        )
+
+        with self.settings(CLOUDFLARE_PROXY_BASE_CNAME="cf-proxy.example.net"):
+            response = self.client.delete(
+                f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        record.refresh_from_db()
+        assert record.status == ProxyRecord.Status.DELETING
+        mock_temporal.start_workflow.assert_awaited_once()
 
     @parameterized.expand(
         [

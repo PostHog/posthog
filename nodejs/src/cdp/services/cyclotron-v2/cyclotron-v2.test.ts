@@ -1,4 +1,5 @@
 import { Pool } from 'pg'
+import { register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
 import { parseJSON } from '~/common/utils/json-parse'
@@ -6,7 +7,13 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager } from './manager'
-import { CyclotronV2BatchLimit, CyclotronV2DequeuedJob, CyclotronV2JobInit } from './types'
+import {
+    CYCLOTRON_COUNTER_MAX,
+    CYCLOTRON_TRANSITION_CHURN_THRESHOLD,
+    CyclotronV2BatchLimit,
+    CyclotronV2DequeuedJob,
+    CyclotronV2JobInit,
+} from './types'
 import { CyclotronV2Worker } from './worker'
 import { CyclotronV2RateLimitedWorker } from './worker-rate-limited'
 
@@ -157,6 +164,19 @@ async function dequeueOneBatch(worker: CyclotronV2Worker, timeoutMs = 2000): Pro
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
+
+async function gaugeValueForQueue(queue: string): Promise<number | null> {
+    const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_queue_depth')
+    const line = metric.split('\n').find((l) => l.includes(`queue="${queue}"`))
+    return line ? Number(line.trim().split(' ').pop()) : null
+}
+
+// Absent until the queue's first churning dequeue, so a missing line reads as 0.
+async function churnCountForQueue(queue: string): Promise<number> {
+    const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_high_transition_dequeues')
+    const line = metric.split('\n').find((l) => l.includes(`queue="${queue}"`))
+    return line ? Number(line.trim().split(' ').pop()) : 0
+}
 
 describe('Cyclotron V2', () => {
     jest.setTimeout(3000)
@@ -675,6 +695,24 @@ describe('Cyclotron V2', () => {
                 expect(row.transition_count).toBeGreaterThan(0)
             })
 
+            it('createJob with overwriteExisting=true reruns a row whose transition_count is at the smallint ceiling', async () => {
+                const id = uuidv7()
+                await manager.createJob({ id, teamId: 1, queueName: QUEUE })
+                const worker = createWorker()
+                const jobs = await dequeueOneBatch(worker)
+                await jobs[0].ack()
+                await assertPool.query('UPDATE cyclotron_jobs SET transition_count = $1 WHERE id = $2', [
+                    CYCLOTRON_COUNTER_MAX,
+                    id,
+                ])
+
+                await manager.createJob({ id, teamId: 1, queueName: QUEUE, overwriteExisting: true })
+
+                const row = await queryJob(id)
+                expect(row.status).toBe('available')
+                expect(row.transition_count).toBe(CYCLOTRON_COUNTER_MAX)
+            })
+
             it('createJob with overwriteExisting=true on a never-seen id behaves like a normal insert', async () => {
                 const id = uuidv7()
                 await manager.createJob({
@@ -983,6 +1021,49 @@ describe('Cyclotron V2', () => {
             const jobs = await dequeueOneBatch(worker)
             expect(jobs).toHaveLength(2)
             expect(await countByStatus('running')).toBe(2)
+        })
+
+        // Both dequeue paths bump transition_count for the whole batch in one UPDATE, so an
+        // unclamped increment on a saturated row aborts the statement and stops every job on
+        // the queue, not just the saturated one. 'email' selects the fair path, a separate
+        // statement and the one the outage actually aborted.
+        it.each([
+            ['the plain dequeue', QUEUE],
+            ['the fair dequeue', 'email'],
+        ])('dequeues via %s alongside a job at the smallint ceiling', async (_label, queue) => {
+            // Backdate both so neither can miss the poll's `scheduled <= NOW()` window.
+            const scheduled = new Date(Date.now() - 60_000)
+            const saturated = await manager.createJob({ teamId: 1, queueName: queue, scheduled })
+            const healthy = await manager.createJob({ teamId: 1, queueName: queue, scheduled })
+            await assertPool.query('UPDATE cyclotron_jobs SET transition_count = $1 WHERE id = $2', [
+                CYCLOTRON_COUNTER_MAX,
+                saturated,
+            ])
+
+            const jobs = await dequeueOneBatch(createWorker(queue))
+
+            expect(jobs.map((j) => j.id).sort()).toEqual([saturated, healthy].sort())
+            const { rows } = await assertPool.query('SELECT transition_count FROM cyclotron_jobs WHERE id = $1', [
+                saturated,
+            ])
+            expect(rows[0].transition_count).toBe(CYCLOTRON_COUNTER_MAX)
+        })
+
+        // The loop that saturates a counter is claim, refuse, reschedule, so the release bumps
+        // it a second time per cycle and has to be clamped too.
+        it('reschedules a job at the smallint ceiling', async () => {
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+            await assertPool.query('UPDATE cyclotron_jobs SET transition_count = $1 WHERE id = $2', [
+                CYCLOTRON_COUNTER_MAX,
+                id,
+            ])
+
+            const [job] = await dequeueOneBatch(createWorker())
+            await job.reschedule()
+
+            const row = await queryJob(id)
+            expect(row.status).toBe('available')
+            expect(row.transition_count).toBe(CYCLOTRON_COUNTER_MAX)
         })
 
         it('respects priority ordering (lower number = higher priority)', async () => {
@@ -1602,6 +1683,19 @@ describe('Cyclotron V2', () => {
             expect(job.transitionCount).toBe(1)
             const row = await queryJob(id)
             expect(row.transition_count).toBe(1)
+        })
+
+        it.each([
+            ['below the churn threshold', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 2, 0],
+            ['at the churn threshold', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 1, 1],
+        ])('counts a dequeue %s', async (_label, seeded, expected) => {
+            const before = await churnCountForQueue(QUEUE)
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+            await assertPool.query('UPDATE cyclotron_jobs SET transition_count = $1 WHERE id = $2', [seeded, id])
+
+            await dequeueOneBatch(createWorker())
+
+            expect((await churnCountForQueue(QUEUE)) - before).toBe(expected)
         })
     })
 
@@ -2489,6 +2583,24 @@ describe('Cyclotron V2', () => {
             }
         )
 
+        it('measureQueueDepths reports 0 for a queue that drains', async () => {
+            // GROUP BY returns no row for an empty queue. Without the zero write the gauge
+            // keeps the last depth, and a depth alert then fires on an idle queue.
+            const jobId = uuidv7()
+            await insertRawJob({ id: jobId, queue_name: 'queue-drains', status: 'available' })
+
+            const janitor = createJanitor({ stallTimeoutMs: 60_000 })
+            const before = await janitor.runOnce()
+            expect(before.depths.get('queue-drains')).toBe(1)
+            expect(await gaugeValueForQueue('queue-drains')).toBe(1)
+
+            await assertPool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [jobId])
+            await janitor.runOnce()
+            await janitor.stop()
+
+            expect(await gaugeValueForQueue('queue-drains')).toBe(0)
+        })
+
         it('measureQueueDepths returns correct counts per queue', async () => {
             await insertRawJob({ id: uuidv7(), queue_name: 'queue-a', status: 'available' })
             await insertRawJob({ id: uuidv7(), queue_name: 'queue-a', status: 'available' })
@@ -2509,6 +2621,34 @@ describe('Cyclotron V2', () => {
 
             expect(result.depths.get('queue-a')).toBe(2)
             expect(result.depths.get('queue-b')).toBe(1)
+        })
+
+        it('sweeps expired conversion watchers and keeps live ones', async () => {
+            // The sweep is the only thing that removes a watcher that never converts. If a refactor
+            // drops it from runOnce the table grows without bound and nothing else fails, so assert
+            // the delete happens on a real row.
+            const insertWatcher = async (id: string, expiresAt: Date): Promise<void> => {
+                await assertPool.query(
+                    `INSERT INTO conversion_watchers
+                     (id, team_id, function_id, run_id, distinct_id, goal, expires_at)
+                     VALUES ($1, 1, $2, $1, $3, $4, $5)`,
+                    [id, uuidv7(), `sweep-${id}`, JSON.stringify({ events: [] }), expiresAt]
+                )
+            }
+            const expired = uuidv7()
+            const live = uuidv7()
+            await insertWatcher(expired, new Date(Date.now() - 60_000))
+            await insertWatcher(live, new Date(Date.now() + 3_600_000))
+
+            const janitor = createJanitor()
+            await janitor.runOnce()
+
+            const remaining = await assertPool.query(`SELECT id FROM conversion_watchers WHERE id = ANY($1::uuid[])`, [
+                [expired, live],
+            ])
+            expect(remaining.rows.map((r) => r.id)).toEqual([live])
+
+            await janitor.stop()
         })
     })
 })

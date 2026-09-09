@@ -9,6 +9,7 @@ interface TestableServer {
     originProduct?: Task["origin_product"] | null;
     signalReportId?: string | null;
     aiStage?: string | null;
+    aiAgentName?: string | null;
     taskId?: string | null;
     taskRunId?: string | null;
     taskUserId?: number | null;
@@ -212,6 +213,7 @@ describe("AgentServer.configureEnvironment", () => {
       originProduct: "signal_report",
       signalReportId: "report-123",
       aiStage: "research",
+      aiAgentName: "signals-scout-errors",
       taskId: "task-abc",
       taskRunId: "run-xyz",
       taskUserId: 42,
@@ -229,6 +231,7 @@ describe("AgentServer.configureEnvironment", () => {
       "x-posthog-property-task_internal": "true",
       "x-posthog-property-signal_report_id": "report-123",
       "x-posthog-property-ai_stage": "research",
+      "x-posthog-property-ai_agent_name": "signals-scout-errors",
       "x-posthog-property-task_id": "task-abc",
       "x-posthog-property-task_run_id": "run-xyz",
       "x-posthog-property-task_user_id": "42",
@@ -253,6 +256,7 @@ describe("AgentServer.configureEnvironment", () => {
       originProduct: "signal_report",
       signalReportId: "report-123",
       aiStage: "research",
+      aiAgentName: "signals-scout-errors",
       taskId: "task-abc",
       taskRunId: "run-xyz",
       taskUserId: 42,
@@ -271,6 +275,7 @@ describe("AgentServer.configureEnvironment", () => {
         "x-posthog-property-task_internal: true",
         "x-posthog-property-signal_report_id: report-123",
         "x-posthog-property-ai_stage: research",
+        "x-posthog-property-ai_agent_name: signals-scout-errors",
         "x-posthog-property-task_id: task-abc",
         "x-posthog-property-task_run_id: run-xyz",
         "x-posthog-property-task_user_id: 42",
@@ -287,13 +292,15 @@ describe("AgentServer.configureEnvironment", () => {
     );
   });
 
-  it("omits ai_stage from anthropicCustomHeaders when not provided", () => {
+  // A run with neither value in its state must send no header, not an empty one.
+  it("omits ai_stage and ai_agent_name from anthropicCustomHeaders when not provided", () => {
     const env = buildServer("background").configureEnvironment({
       isInternal: false,
       taskId: "task-abc",
     });
 
     expect(env.anthropicCustomHeaders).not.toContain("ai_stage");
+    expect(env.anthropicCustomHeaders).not.toContain("ai_agent_name");
   });
 
   // A signals_scout title is multi-line; it must not inject extra header lines.
@@ -424,6 +431,8 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     "AI_GATEWAY_URL",
     "AI_GATEWAY_PRODUCTS",
     "AI_GATEWAY_TOKEN",
+    "AI_GATEWAY_PRODUCT",
+    "AI_GATEWAY_AI_STAGE",
   ];
   const GO_GATEWAY = "https://ai-gateway.us.posthog.com";
   const SCOPED_TOKEN = "phe_test_scoped_token";
@@ -569,6 +578,36 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     expect(parseBlob(env.anthropicCustomHeaders ?? "").ai_product).toBe(
       "background_agents",
     );
+  });
+
+  // A failed boot fetch leaves aiStage null; without the env values the minted token goes unused.
+  it("routes on the worker's product and stage when the run fetch yielded no stage", () => {
+    process.env.AI_GATEWAY_PRODUCT = "signals_scout";
+    process.env.AI_GATEWAY_AI_STAGE = "scout:web-analytics";
+    const env = buildServer().configureEnvironment({
+      originProduct: "signals_scout",
+      aiStage: null,
+      taskId: "task-1",
+      taskRunId: "run-1",
+    });
+
+    expect(env.anthropicBaseUrl).toBe(GO_GATEWAY);
+    expect(env.anthropicAuthToken).toBe(SCOPED_TOKEN);
+    expect(parseBlob(env.anthropicCustomHeaders ?? "")).toMatchObject({
+      ai_product: "signals_scout",
+      ai_stage: "scout:web-analytics",
+      task_run_id: "run-1",
+    });
+  });
+
+  it("derives product and stage itself when the worker passes none", () => {
+    const env = buildServer().configureEnvironment({
+      originProduct: "signals_scout",
+      aiStage: null,
+    });
+
+    expect(env.anthropicBaseUrl).toBe("https://gateway.us.posthog.com/signals");
+    expect(env.anthropicAuthToken).toBe("test-api-key");
   });
 
   it("authenticates with the scoped token on the Go path", () => {

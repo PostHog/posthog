@@ -5,6 +5,8 @@ import { IconBook, IconGear } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TerminalCard } from 'lib/components/CommandBlock/TerminalCard'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
@@ -15,6 +17,7 @@ import type {
     ProductEmptyStateMode,
     ProductEmptyStatePrimaryAction,
     ProductEmptyStateText,
+    ProductEmptyStateWizard,
 } from './types'
 
 export interface ProductEmptyStateProps {
@@ -35,6 +38,17 @@ function resolvePrimaryAction(
     return 'label' in primaryAction ? primaryAction : primaryAction[mode]
 }
 
+/** A single wizard covers every mode; a mode-keyed one applies only to the modes it names. */
+function resolveWizard(
+    wizard: ProductEmptyStateConfig['wizard'],
+    mode: ProductEmptyStateMode
+): ProductEmptyStateWizard | undefined {
+    if (!wizard) {
+        return undefined
+    }
+    return 'slug' in wizard ? wizard : wizard[mode]
+}
+
 /**
  * The product setup empty state: pitch + install command on the left, an animated
  * preview of the product filled with example data on the right. Shown before
@@ -42,8 +56,9 @@ function resolvePrimaryAction(
  * `emptyState` on the scene's `SceneExport` and the app shell gates for you).
  */
 export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX.Element {
-    const { wizardCommand, isCloudOrDev } = useWizardCommand(config.wizard?.slug, {
-        pinProjectId: config.wizard?.pinProjectId,
+    const wizard = resolveWizard(config.wizard, mode)
+    const { wizardCommand, isCloudOrDev } = useWizardCommand(wizard?.slug, {
+        pinProjectId: wizard?.pinProjectId,
     })
     const { skipEmptyState } = useActions(productSetupStatusLogic({ productKey: config.productKey }))
 
@@ -55,7 +70,7 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
     const text: ProductEmptyStateText = { ...config.text['needs-setup'], ...config.text[mode] }
 
     // Wizard commands only work against cloud; self-hosted falls back to the manual path.
-    const showWizard = !!config.wizard && isCloudOrDev
+    const showWizard = !!wizard && isCloudOrDev
 
     const manualUrl = config.manualSetupUrl ?? config.docsUrl
     const Hedgehog = config.hedgehog
@@ -63,6 +78,13 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
     const hedgehogBeside = config.hedgehogPlacement === 'beside'
 
     const primaryAction = resolvePrimaryAction(config.primaryAction, mode)
+    // Safe to call unconditionally: it answers with a loading reason until the team lands, and
+    // the widest scope is a no-op for actions that declare no restriction.
+    const restrictionReason = useRestrictedArea({
+        scope: primaryAction?.restriction?.scope ?? RestrictionScope.Project,
+        minimumAccessLevel: primaryAction?.restriction?.minimumAccessLevel ?? TeamMembershipLevel.Member,
+    })
+    const primaryActionRestriction = primaryAction?.restriction ? restrictionReason : null
     const primaryActionButton = primaryAction ? (
         <LemonButton
             type="primary"
@@ -72,6 +94,7 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
                 primaryAction.onClick?.()
             }}
             className="self-start"
+            disabledReason={primaryActionRestriction}
             data-attr={primaryAction.dataAttr ?? 'product-empty-state-primary-action'}
         >
             {primaryAction.label}
@@ -129,6 +152,9 @@ export function ProductEmptyState({ config, mode }: ProductEmptyStateProps): JSX
 
     return (
         <div
+            // Frozen selector. Playwright specs use it to detect the setup screen, because a
+            // scene behind this gate does not render until the product has data.
+            data-attr="product-empty-state"
             // Fill the scene: viewport minus the app chrome and the product header above us.
             className="grid w-full flex-1 grid-cols-1 items-stretch gap-10 md:grid-cols-[minmax(0,1fr)_40%] min-h-[calc(100vh-var(--breadcrumbs-height-full,0px)-var(--scene-padding,1rem)-4rem)]"
             style={

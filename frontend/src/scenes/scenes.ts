@@ -91,6 +91,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.Billing]: { organizationBased: true },
     [Scene.BillingSection]: { name: 'Billing', organizationBased: true },
+    [Scene.RealTimeUsage]: { name: 'Real-time usage', organizationBased: true },
     [Scene.Canvas]: {
         projectBased: true,
         name: 'Canvas',
@@ -117,12 +118,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Cohorts',
         description: 'A catalog of identified persons and your created cohorts.',
         iconType: 'cohort',
-    },
-    [Scene.Comments]: {
-        projectBased: true,
-        name: 'Comments',
-        description: 'Comments allow you to provide context and discussions on various elements in PostHog.',
-        iconType: 'comment',
     },
     [Scene.CustomerAnalytics]: { projectBased: true, name: 'Customer analytics' },
     [Scene.Dashboard]: {
@@ -303,6 +298,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Notebooks are a way to organize your work and share it with others.',
         activityScope: ActivityScope.NOTEBOOK,
         docsHref: 'https://posthog.com/docs/notebooks',
+        iconType: 'notebook',
     },
     [Scene.OAuthAuthorize]: {
         name: 'Authorize',
@@ -321,7 +317,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         onlyUnauthenticated: true,
         layout: 'plain',
     },
-    [Scene.PasswordResetComplete]: { onlyUnauthenticated: true, layout: 'plain' },
+    [Scene.PasswordResetComplete]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.PasswordReset]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.TwoFactorReset]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.VercelConnect]: { allowUnauthenticated: true, layout: 'plain', name: 'Connect to Vercel' },
@@ -495,6 +491,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.SessionAttributionExplorer]: { projectBased: true, name: 'Session attribution explorer (beta)' },
     [Scene.SessionProfile]: { projectBased: true, name: 'Session profile', iconType: 'session_profile' },
     [Scene.Settings]: { projectBased: true, name: 'Settings' },
+    [Scene.IdentityProviderConfig]: { projectBased: true, name: 'Configure identity provider' },
     [Scene.Signup]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.Site]: { projectBased: true, hideProjectNotice: true, layout: 'app-raw' },
     [Scene.StartupProgram]: { name: 'PostHog for Startups', organizationBased: true, layout: 'app-container' },
@@ -643,10 +640,12 @@ export const redirects: Record<
     '/annotations/:id': ({ id }) => urls.annotation(id),
     '/batch_exports/:id': ({ id }) => urls.batchExport(id),
     '/batch_exports': urls.destinations(),
+    // Billing lives at /organization/billing. A bare /billing has no scene, so send it there.
+    // /billing/authorization_status keeps its own scene route, so it must not be caught here.
+    '/billing': urls.organizationBilling(),
     // The scene lives at /code-review (hyphen); catch the old underscore variant, keeping the
     // ?review= / ?reviews_scope= deep links that PR status comments bake in
     '/code_review': (_params, searchParams, hashParams) => combineUrl(urls.codeReview(), searchParams, hashParams).url,
-    '/comments': () => urls.comments(),
     '/dashboards': urls.dashboards(),
     // New dashboards open in a modal on the list page. `/dashboard/new` is a guessed URL,
     // so send it there with the modal open instead of matching `/dashboard/:id`.
@@ -745,6 +744,10 @@ export const redirects: Record<
 
     // Redirect old path-based /configuration URLs to query param format
     '/functions/:id/configuration': ({ id }) => urls.hogFunction(id, 'configuration'),
+    '/dashboard/:id/text-tiles/:tileId': ({ id, tileId }) =>
+        combineUrl(urls.dashboardTile(id, tileId), { tileType: 'text' }).url,
+    '/dashboard/:id/button-tiles/:tileId': ({ id, tileId }) =>
+        combineUrl(urls.dashboardTile(id, tileId), { tileType: 'button' }).url,
 
     ...productRedirects,
 }
@@ -754,8 +757,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dashboards()]: [Scene.Dashboards, 'dashboards'],
     [urls.dashboardTemplateCopyToProject(':sourceTemplateId')]: [Scene.DashboardTemplateCopy, 'dashboardTemplateCopy'],
     [urls.dashboard(':id')]: [Scene.Dashboard, 'dashboard'],
-    [urls.dashboardTextTile(':id', ':textTileId')]: [Scene.Dashboard, 'dashboardTextTile'],
-    [urls.dashboardButtonTile(':id', ':buttonTileId')]: [Scene.Dashboard, 'dashboardButtonTile'],
+    [urls.dashboardTile(':id', ':tileId')]: [Scene.Dashboard, 'dashboardTile'],
     [urls.dashboardSharing(':id')]: [Scene.Dashboard, 'dashboardSharing'],
     [urls.dashboardSubscriptions(':id')]: [Scene.Dashboard, 'dashboardSubscriptions'],
     [urls.dashboardSubscription(':id', ':subscriptionId')]: [Scene.Dashboard, 'dashboardSubscription'],
@@ -845,7 +847,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
     [urls.annotations()]: [Scene.Annotations, 'annotations'],
     [urls.annotation(':id')]: [Scene.Annotations, 'annotation'],
-    [urls.comments()]: [Scene.DataManagement, 'comments'],
     [urls.variables()]: [Scene.DataManagement, 'variables'],
     [urls.variableEdit(':id')]: [Scene.SqlVariableEdit, 'sqlVariableEdit'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
@@ -853,6 +854,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],
     [urls.organizationBilling()]: [Scene.Billing, 'organizationBilling'],
+    [urls.organizationBillingRealTimeUsage()]: [Scene.RealTimeUsage, 'organizationBillingRealTimeUsage'],
     [urls.organizationBillingSection(':section' as BillingSectionId)]: [
         Scene.BillingSection,
         'organizationBillingSection',
@@ -895,7 +897,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.onboarding()]: [Scene.Onboarding, 'onboarding'],
     [urls.verifyEmail()]: [Scene.VerifyEmail, 'verifyEmail'],
     [urls.verifyEmail(':uuid')]: [Scene.VerifyEmail, 'verifyEmailWithUuid'],
-    [urls.verifyEmail(':uuid', ':token')]: [Scene.VerifyEmail, 'verifyEmailWithToken'],
+    // Links from emails sent before the switch to verification codes.
+    [`${urls.verifyEmail(':uuid')}/:token`]: [Scene.VerifyEmail, 'verifyEmailWithToken'],
     [urls.vercelConnect()]: [Scene.VercelConnect, 'vercelConnect'],
     [urls.vercelLinkError()]: [Scene.VercelLinkError, 'vercelLinkError'],
     [urls.agenticAccountMismatch()]: [Scene.AgenticAccountMismatch, 'agenticAccountMismatch'],
@@ -913,6 +916,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.notebook(':shortId')]: [Scene.Notebook, 'notebook'],
     [urls.notebooks()]: [Scene.Notebooks, 'notebooks'],
     [urls.canvas()]: [Scene.Canvas, 'canvas'],
+    [urls.identityProviderConfig(':feature', ':configId')]: [Scene.IdentityProviderConfig, 'identityProviderConfig'],
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],

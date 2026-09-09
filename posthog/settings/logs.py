@@ -177,6 +177,8 @@ LOGGING: dict[str, Any] = {
         # at client init, so the source-registry prewarm's INFO lifecycle logs need an
         # explicit level to be visible.
         "posthog.warehouse_source_prewarm": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        # Same clamp: the api query budget logs the team and balance behind every would-be 429 at INFO.
+        "posthog.api_queries_budget": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load": {
             "level": "DEBUG",
             "handlers": ["console"],

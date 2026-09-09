@@ -68,10 +68,10 @@ export interface UserBasicApi {
  * * `collection` - Collection
  * * `filters` - Filters
  */
-export type SessionRecordingPlaylistTypeEnumApi =
-    (typeof SessionRecordingPlaylistTypeEnumApi)[keyof typeof SessionRecordingPlaylistTypeEnumApi]
+export type SessionRecordingPlaylistPlaylistTypeEnumApi =
+    (typeof SessionRecordingPlaylistPlaylistTypeEnumApi)[keyof typeof SessionRecordingPlaylistPlaylistTypeEnumApi]
 
-export const SessionRecordingPlaylistTypeEnumApi = {
+export const SessionRecordingPlaylistPlaylistTypeEnumApi = {
     Collection: 'collection',
     Filters: 'filters',
 } as const
@@ -109,7 +109,7 @@ export interface SessionRecordingPlaylistApi {
      *
      * * `collection` - Collection
      * * `filters` - Filters */
-    type?: SessionRecordingPlaylistTypeEnumApi | null
+    type?: SessionRecordingPlaylistPlaylistTypeEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic: boolean
     _create_in_folder?: string
@@ -159,7 +159,7 @@ export interface PatchedSessionRecordingPlaylistApi {
      *
      * * `collection` - Collection
      * * `filters` - Filters */
-    type?: SessionRecordingPlaylistTypeEnumApi | null
+    type?: SessionRecordingPlaylistPlaylistTypeEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic?: boolean
     _create_in_folder?: string

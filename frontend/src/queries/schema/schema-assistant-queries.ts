@@ -1,4 +1,5 @@
 import {
+    BehavioralPropertyFilter,
     BreakdownType,
     ChartDisplayType,
     FilterLogicalOperator,
@@ -271,6 +272,19 @@ export type AssistantPropertyFilter =
     | AssistantHogQLPropertyFilter
     | AssistantFlagPropertyFilter
 
+export type AssistantBehavioralPropertyFilterOperator =
+    | PropertyOperator.Exact
+    | PropertyOperator.GreaterThan
+    | PropertyOperator.GreaterThanOrEqual
+    | PropertyOperator.LessThan
+    | PropertyOperator.LessThanOrEqual
+
+export interface AssistantBehavioralPropertyFilter extends Omit<BehavioralPropertyFilter, 'operator'> {
+    operator?: AssistantBehavioralPropertyFilterOperator
+}
+
+export type AssistantInsightPropertyFilter = AssistantPropertyFilter | AssistantBehavioralPropertyFilter
+
 /**
  * Extended property filter union for recordings queries that also supports
  * recording-specific metric filters (e.g. duration, click_count, activity_score).
@@ -295,7 +309,7 @@ export interface AssistantInsightsQueryBase {
      *
      * @default []
      */
-    properties?: AssistantPropertyFilter[]
+    properties?: AssistantInsightPropertyFilter[]
 
     /**
      * Sampling rate from 0 to 1 where 1 is 100% of the data.

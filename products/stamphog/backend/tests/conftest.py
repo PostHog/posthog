@@ -1,4 +1,3 @@
-import os
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, ExitStack
 from dataclasses import dataclass
@@ -194,9 +193,9 @@ def stamphog_chain() -> Iterator[StamphogChain]:
                 STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key(),
             )
         )
-        # Hosted reviews hard-require the gateway (no raw-Anthropic fallback); point it at the
-        # stamphog product route like production would.
-        stack.enter_context(patch.dict(os.environ, {"AI_GATEWAY_URL": "https://llm-gateway.test/stamphog/v1"}))
+        # Hosted reviews require a gateway; the fixture points settings at the legacy stamphog route.
+        # Go-gateway tests override both settings of the pair locally.
+        stack.enter_context(override_settings(AI_GATEWAY_URL="https://llm-gateway.test/stamphog/v1"))
         # mark_review_failed emits a failure event through the real analytics client — a network
         # boundary, faked like the rest. Tests asserting on the event re-patch this locally.
         stack.enter_context(patch("products.stamphog.backend.temporal.activities.ph_scoped_capture"))
@@ -233,7 +232,7 @@ def stamphog_chain() -> Iterator[StamphogChain]:
         stack.enter_context(patch("products.stamphog.backend.logic.channel_resolution.SlackIntegration", fake_slack))
         stack.enter_context(
             patch(
-                "products.stamphog.backend.logic.digest.get_llm_client",
+                "products.stamphog.backend.logic.digest.build_anthropic_client",
                 side_effect=RuntimeError("no gateway in tests"),
             )
         )

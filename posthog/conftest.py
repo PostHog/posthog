@@ -1,5 +1,6 @@
 import os
 import time
+import warnings
 import subprocess
 from collections.abc import Callable
 from functools import partial
@@ -385,6 +386,23 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
 
     create_clickhouse_tables()
 
+    # Seed default data that historically lived in RunPython migrations. Squashed
+    # migrations drop those ops, so without this tests relying on the defaults
+    # (Billing Team auth group, Default DataColorTheme, starter DashboardTemplates)
+    # would fail on a fresh test DB. Tolerated: in some shards (e.g. temporal
+    # async tests that only need the persons DB) the default DB schema isn't
+    # fully migrated yet — skip seeding rather than break setup.
+    with django_db_blocker.unblock():
+        from django.core.management import call_command
+
+        try:
+            call_command("ensure_migration_defaults", verbosity=0)
+        except Exception as exc:
+            warnings.warn(
+                f"ensure_migration_defaults skipped during test DB setup: {exc}",
+                stacklevel=2,
+            )
+
     yield
 
     if django_db_keepdb:
@@ -438,7 +456,7 @@ def _patched_flush_handle(self, **options: Any) -> None:
 
 
 _original_flush_handle = FlushCommand.handle
-FlushCommand.handle = _patched_flush_handle  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+FlushCommand.handle = _patched_flush_handle  # type: ignore[method-assign]
 
 
 @pytest.fixture
@@ -504,22 +522,6 @@ def mock_code_based_verifier(request, mocker):
     mocker.patch(
         "posthog.helpers.two_factor_session.CodeBasedVerifier.should_send_code_based_verification",
         return_value=CodeBasedVerificationCheckResult(should_send=False),
-    )
-
-
-@pytest.fixture(autouse=True)
-def mock_email_code_verification(request, mocker):
-    """
-    Keep the pre-existing email-verification tests on the link flow. Codes are the default and
-    would bypass every mock of the link-email sender. Code-flow tests opt out with
-    @pytest.mark.disable_mock_email_code_verification.
-    """
-    if "disable_mock_email_code_verification" in request.keywords:
-        return
-
-    mocker.patch(
-        "posthog.api.email_verification.EmailVerifier.use_verification_code",
-        return_value=False,
     )
 
 

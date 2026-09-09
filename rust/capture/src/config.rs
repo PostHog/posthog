@@ -503,7 +503,7 @@ pub struct KafkaConfig {
     #[envconfig(default = "none")]
     pub kafka_replay_envelope_compression: EnvelopeCompression,
     /// Refuse to boot when a registered output resolves to an empty topic
-    /// name (see `OutputRegistry::check_complete`). Config-only — the broker
+    /// name (see `TopicTable::check_complete`). Config-only — the broker
     /// is never probed, so topic autocreation on first publish is unaffected.
     /// Opt-in (default off) so deployments that deliberately blank a topic
     /// they never produce to keep booting; arm it per deployment once its
