@@ -100,7 +100,7 @@ async fn revoke_lease_on_key(store: &PersonhogStore, key: &str) -> Result<()> {
         .inner()
         .client()
         .clone()
-        .get(key.clone(), None)
+        .get(key, None)
         .await
         .context("reading registration key from etcd")?;
 
