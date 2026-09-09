@@ -8,6 +8,7 @@ from unittest import mock
 
 from django.core.cache import cache
 
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from parameterized import parameterized
 from rest_framework import status
 
@@ -2086,6 +2087,35 @@ class TestAlertSimulateForecast(APIBaseTest):
             "insight_id": str(self.insight["id"]),
             "forecast_condition": "future_breach",
         }
+
+    @parameterized.expand(
+        [
+            ("connect failed", NetworkError("Code: 209.")),
+            ("connect timed out", SocketTimeoutError("timed out")),
+        ]
+    )
+    @mock.patch("products.alerts.backend.presentation.views.alert.capture_exception")
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_forecast_on_insight")
+    def test_simulate_forecast_transient_clickhouse_failure_returns_503(
+        self, _name: str, error: Exception, mock_simulate_forecast, mock_capture
+    ) -> None:
+        mock_simulate_forecast.side_effect = error
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+                {
+                    "insight": self.insight["id"],
+                    "forecast_config": {"type": "ForecastConfig", "condition": "future_breach"},
+                    "series_index": 0,
+                },
+            )
+        # The driver classes carry no status_code and do not inherit RuntimeError, so they answered
+        # a generic 500 before. The query runner already reports them, hence no capture here.
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
+        assert response.json()["detail"] == "Forecast simulation is temporarily unavailable. Try again."
+        mock_capture.assert_not_called()
 
     @mock.patch("products.alerts.backend.presentation.views.alert.simulate_forecast_on_insight")
     def test_simulate_forecast_capacity_error_returns_429(self, mock_simulate_forecast) -> None:

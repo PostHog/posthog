@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 
 import posthoganalytics
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema, extend_schema_view
 from pydantic import (
     Field as PydanticField,
@@ -1740,6 +1741,16 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError(str(e))
         except ForecastSimulationCapacityExceeded:
             raise Throttled(detail="Too many forecasts are already running. Try again shortly.")
+        except (NetworkError, SocketTimeoutError):
+            # The ClickHouse driver raises these while it opens a connection, before any query is
+            # sent, so nothing ran and a retry is safe (see CH_TRANSIENT_ERRORS in posthog/errors.py).
+            # Neither class inherits RuntimeError and neither carries a status_code, so without this
+            # branch a node dropping out of the cluster's load balancer answers 500 instead of the
+            # retryable 503 below. The query runner already captured it, so do not report it twice.
+            return Response(
+                {"detail": "Forecast simulation is temporarily unavailable. Try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         except (RuntimeError, ForecastCapacityUnavailable) as error:
             # Covers the engine's ForecastExecutionError (a RuntimeError subclass), the extractor's
             # failure when the query layer returns no result, and a capacity store that cannot be
