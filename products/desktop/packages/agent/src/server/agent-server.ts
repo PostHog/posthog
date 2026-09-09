@@ -4467,7 +4467,8 @@ export class AgentServer {
 - To show a chart in Slack (a saved insight or an ad-hoc analytics query result), make a single call: POST to \`${endpoint}chart/\` with \`$POSTHOG_PERSONAL_API_KEY\` and body \`{"name": "<chart title>", "query": <query JSON, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}>}\`, or \`{"name": "<chart title>", "insight_id": <numeric insight id>}\` for a saved insight. It renders the chart server-side and registers it for Slack delivery in one step, blocking until done (typically a few seconds).
 - The chart renders directly under your answer text with its name as the title, so do not restate the title or announce the chart ("Here's a chart of…"). Spend your answer text on the takeaway instead: the trend, inflection points, spikes, or drops a reader should notice, with numbers where they matter. Each chart is delivered with an "Open in PostHog" button, so do not paste the response \`url\` into your answer unless the user explicitly asks for a link. Do not download, view, or re-upload the image yourself.
 - Report a chart failure rather than retrying blindly: a 400 carries the reason in \`error\`, or in \`detail\` when the request body itself was rejected, and a 429 means the project's chart render limit is saturated, so answer without the chart.
-- SQL results cannot be charted yet, because the chart endpoint rejects SQL queries. Chart with an insight query (e.g. TrendsQuery) when the question can be expressed as one; otherwise summarize the SQL result in your answer text.`
+- A result you computed in SQL charts too: wrap the HogQL query in a DataVisualizationNode, e.g. \`{"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT ..."}, "display": "ActionsLineGraph"}\`. Reach for it when the answer needs a calculation a TrendsQuery cannot express, and keep using an InsightVizNode when it can.
+- Never draw a chart with a local plotting library (matplotlib, plotly, seaborn, and similar) and upload the image as a file. The chart endpoint is the only chart path, so every chart keeps PostHog's styling and opens in PostHog. If a chart genuinely cannot go through the endpoint, give the numbers in your answer text instead.`
       : "";
 
     if (this.slackArtifactDelivery === "message") {
@@ -4648,9 +4649,14 @@ Optimize for the fewest shell round trips.
 - Read multiple files at once.
 - Never rerun a command solely to reproduce output you already have.`;
 
+    // A chart has a dedicated delivery path that keeps PostHog's styling and stays openable in
+    // PostHog, so it must not reach the user as an image a plotting library drew.
+    const chartCarveOut = this.slackChartDelivery
+      ? " A chart is not one of these files: render it through the chart endpoint described below, never as an uploaded image."
+      : "";
     const artifactInstructions = `
 ## Delivering non-code files (artifacts)
-When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
+When you create a non-code file the user should be able to download (such as a report, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply.${chartCarveOut} In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
     // Closes out every branch below, so a new section is added once rather than five times.
     const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildGithubAccessInstructions(hasGithubToken)}${buildStoreSkillsInstructions(this.storeSkillsInstalledCount)}`;

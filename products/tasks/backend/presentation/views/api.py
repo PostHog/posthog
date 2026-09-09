@@ -60,7 +60,7 @@ from posthog.schema_migrations.upgrade import upgrade
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS, TASK_AGENT_OAUTH_APP_CLIENT_IDS
 from posthog.utils import absolute_uri
 
-from products.exports.backend.facade.api import render_png_export
+from products.exports.backend.facade.api import is_chartable_export_source, render_png_export
 
 if TYPE_CHECKING:
     from products.exports.backend.facade.api import ExportedAsset
@@ -3850,8 +3850,9 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         },
         summary="Render an insight chart and attach it as a living artifact",
         description=(
-            "Renders a PostHog insight (ad-hoc query JSON or a saved insight) to a PNG server-side and registers "
-            "it as a slack_file living artifact in one call. Blocks until the render finishes."
+            "Renders a PostHog chart (ad-hoc insight query JSON, a HogQL query wrapped in a "
+            "DataVisualizationNode, or a saved insight) to a PNG server-side and registers it as a "
+            "slack_file living artifact in one call. Blocks until the render finishes."
         ),
         strict_request_validation=True,
         operation_id="tasks_runs_living_artifacts_chart",
@@ -3876,7 +3877,8 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         started = perf_counter()
 
         def capture_render(*, failure_reason: str | None = None, export_asset_id: int | None = None) -> None:
-            raw_source = query.get("source") if isinstance(query, dict) else None
+            node: dict = query if isinstance(query, dict) else {}
+            raw_source = node.get("source")
             source: dict = raw_source if isinstance(raw_source, dict) else {}
             posthoganalytics.capture(
                 distinct_id=str(getattr(request.user, "distinct_id", None) or self.team.uuid),
@@ -3886,10 +3888,12 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                     "run_id": run_id,
                     "source": "query" if query is not None else "insight",
                     "insight_id": request.validated_data.get("insight_id"),
+                    "node_kind": node.get("kind"),
                     "query_kind": source.get("kind"),
-                    "display": next(
-                        (f["display"] for f in source.values() if isinstance(f, dict) and f.get("display")), None
-                    ),
+                    # A DataVisualizationNode carries display on the node; an InsightVizNode
+                    # carries it on the source's per-insight filter object.
+                    "display": node.get("display")
+                    or next((f["display"] for f in source.values() if isinstance(f, dict) and f.get("display")), None),
                     "duration_ms": round((perf_counter() - started) * 1000, 2),
                     "failure_reason": failure_reason,
                     "export_asset_id": export_asset_id,
@@ -3898,15 +3902,15 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             )
 
         if query is not None:
-            # Only InsightVizNode renders a chart deterministically; QuerySchemaRoot
-            # also admits kinds that render as table dumps or nothing.
-            if not isinstance(query, dict) or query.get("kind") != "InsightVizNode":
+            # QuerySchemaRoot also admits kinds that render as table dumps or nothing, so gate on
+            # the same predicate the render pipeline uses to decide whether it draws a chart.
+            if not is_chartable_export_source(query):
                 capture_render(failure_reason="unsupported_query")
                 return Response(
                     TaskRunErrorResponseSerializer(
                         {
-                            "error": "Only insight queries wrapped in an InsightVizNode can be charted — "
-                            "SQL and table queries are not supported yet"
+                            "error": "Only an insight query wrapped in an InsightVizNode, or a HogQL query "
+                            "wrapped in a DataVisualizationNode, can be charted"
                         }
                     ).data,
                     status=status.HTTP_400_BAD_REQUEST,
@@ -3995,6 +3999,11 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         if query is not None:
             # absolute_uri rejects the %5C that json.dumps escapes produce, so append the payload
             # after resolving the path (same shape as data_catalog's _deep_link).
+            if query.get("kind") == "DataVisualizationNode":
+                # The SQL editor is where a HogQL-backed chart is editable, and open_query keeps
+                # the node's display and chartSettings. The insight scene would drop both.
+                path = absolute_uri(f"/project/{self.team_id}/sql")
+                return path + f"?open_query={quote(json.dumps(query), safe='')}"
             return absolute_uri(f"/project/{self.team_id}/insights/new") + f"#q={quote(json.dumps(query))}"
         if asset.insight_id and asset.insight:
             return absolute_uri(f"/project/{self.team_id}/insights/{asset.insight.short_id}")

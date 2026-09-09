@@ -1384,9 +1384,10 @@ class TaskRunLivingArtifactChartRequestSerializer(serializers.Serializer):
     query = InsightQueryJSONField(
         required=False,
         help_text=(
-            "Insight query JSON to render ad hoc, e.g. "
-            '{"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. '
-            "SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. "
+            "Query JSON to render ad hoc, e.g. "
+            '{"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}, or a HogQL query '
+            'wrapped for charting: {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", '
+            '"query": "SELECT ..."}, "display": "ActionsLineGraph"}. '
             "Provide exactly one of query or insight_id."
         ),
     )

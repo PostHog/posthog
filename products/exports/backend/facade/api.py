@@ -2,6 +2,7 @@
 
 from collections.abc import Collection
 from datetime import datetime, timedelta
+from typing import Any
 
 from django.conf import settings
 from django.http.response import HttpResponseBase
@@ -145,18 +146,26 @@ def export_limit_context(export_context: dict | None) -> LimitContext:
     return LimitContext.QUERY
 
 
+def is_chartable_export_source(source: Any) -> bool:
+    """Whether the ad-hoc render pipeline draws a chart for ``source`` rather than a JSON dump.
+
+    The pipeline (viewport sizing, the exporter page's Query dispatch) charts an
+    InsightVizNode-wrapped source, or a DataVisualizationNode over HogQL. Callers that build
+    their own export_context gate on this instead of re-deriving the rule, so a caller cannot
+    accept less than the renderer supports.
+    """
+    if not isinstance(source, dict):
+        return False
+    kind = source.get("kind")
+    if kind == "InsightVizNode":
+        return True
+    inner = source.get("source")
+    return kind == "DataVisualizationNode" and isinstance(inner, dict) and inner.get("kind") == "HogQLQuery"
+
+
 def _validate_adhoc_export_context(export_context: dict) -> None:
-    """The ad-hoc render pipeline (viewport sizing, the exporter page's Query dispatch) draws a
-    chart for an InsightVizNode-wrapped source, or for a DataVisualizationNode over HogQL. Anything
-    else renders a JSON dump instead of a chart, so reject it here with a real error instead."""
-    source = export_context.get("source")
-    if isinstance(source, dict):
-        kind = source.get("kind")
-        if kind == "InsightVizNode":
-            return
-        inner = source.get("source")
-        if kind == "DataVisualizationNode" and isinstance(inner, dict) and inner.get("kind") == "HogQLQuery":
-            return
+    if is_chartable_export_source(export_context.get("source")):
+        return
     raise ValueError("export_context.source must be an InsightVizNode- or DataVisualizationNode-wrapped query")
 
 

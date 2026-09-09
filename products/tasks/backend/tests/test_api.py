@@ -10619,21 +10619,48 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
             },
         )
 
+    @patch("products.tasks.backend.presentation.views.api.tasks_facade.create_task_run_living_artifact")
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_renders_hogql_chart_and_links_to_the_sql_editor(self, mock_render, mock_create):
+        # An answer computed in SQL is only chartable through a DataVisualizationNode, and the
+        # insight scene would drop the node's display, so the link has to reach the SQL editor.
+        query = {
+            "kind": "DataVisualizationNode",
+            "source": {"kind": "HogQLQuery", "query": "SELECT toStartOfMonth(timestamp), count() FROM events"},
+            "display": "ActionsLineGraph",
+        }
+        mock_render.return_value = (self._rendered_asset(), b"png-bytes")
+        mock_create.return_value = (self._artifact_response(), None)
+        response = self._post_chart(["task:write", "query:read"], {"name": "Monthly creates", "query": query})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        sent_query = mock_render.call_args.kwargs["export_context"]["source"]
+        self.assertEqual(sent_query["kind"], "DataVisualizationNode")
+        self.assertEqual(sent_query["display"], "ActionsLineGraph")
+        self.assertEqual(sent_query["source"]["query"], query["source"]["query"])
+        expected_url = (
+            absolute_uri(f"/project/{self.team.id}/sql") + f"?open_query={quote(json.dumps(sent_query), safe='')}"
+        )
+        self.assertEqual(response.json()["url"], expected_url)
+        self.assertEqual(mock_create.call_args.kwargs["artifact"]["metadata"], {"posthog_url": expected_url})
+
     @parameterized.expand(
         [
+            # A DataVisualizationNode only charts over HogQL; over anything else the exporter
+            # page renders a JSON dump.
             (
-                "dataviz_node",
-                {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
-                "InsightVizNode",
+                "dataviz_over_trends",
+                {"kind": "DataVisualizationNode", "source": {"kind": "TrendsQuery"}},
+                "can be charted",
             ),
-            ("bare_hogql", {"kind": "HogQLQuery", "query": "SELECT 1"}, "InsightVizNode"),
+            ("dataviz_without_source", {"kind": "DataVisualizationNode"}, "can be charted"),
+            ("bare_hogql", {"kind": "HogQLQuery", "query": "SELECT 1"}, "can be charted"),
             (
                 "datatable_node",
                 {"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
-                "InsightVizNode",
+                "can be charted",
             ),
-            ("string_query", "SELECT 1", "InsightVizNode"),
-            ("list_kind", {"kind": ["TrendsQuery"]}, "InsightVizNode"),
+            ("string_query", "SELECT 1", "can be charted"),
+            ("list_kind", {"kind": ["TrendsQuery"]}, "can be charted"),
             (
                 "invalid_source_kind",
                 {"kind": "InsightVizNode", "source": {"kind": "NotAQuery"}},
