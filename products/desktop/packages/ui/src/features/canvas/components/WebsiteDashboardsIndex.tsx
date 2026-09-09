@@ -23,15 +23,22 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
+import { useSketchpadMutations } from "@posthog/ui/features/sketchpad/hooks/useSketchpadMutations";
+import { useSpaceSketchpadsAsCanvases } from "@posthog/ui/features/sketchpad/hooks/useSketchpadsAsCanvases";
 import { track } from "@posthog/ui/shell/analytics";
 import { Box, Flex, Grid } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
-import { memo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 
 // A channel's dashboards index: a grid of cards, each showing a scaled-down
 // live preview. Clicking a card opens the full dashboard.
 export function WebsiteDashboardsIndex({ channelId }: { channelId: string }) {
-  const { dashboards, isLoading } = useDashboards(channelId);
+  const { dashboards: canvases, isLoading } = useDashboards(channelId);
+  const boards = useSpaceSketchpadsAsCanvases(channelId);
+  const dashboards = useMemo(
+    () => [...canvases, ...boards].sort((a, b) => b.updatedAt - a.updatedAt),
+    [canvases, boards],
+  );
 
   // templateId -> display name, for the per-card badge ("Freeform (React)", …).
   // Falls back to the raw id for any template not in the registry.
@@ -93,6 +100,7 @@ const DashboardCard = memo(function DashboardCard({
   // Inside its delete-undo window the card stays in the grid (Undo puts it
   // straight back) but is dimmed and inert.
   const pendingDelete = useIsCanvasPendingDelete(summary.id);
+  const isSketchpad = summary.canvasType === "sketchpad";
   return (
     <Box
       className={cn(
@@ -101,8 +109,15 @@ const DashboardCard = memo(function DashboardCard({
       )}
     >
       <Link
-        to="/spaces/$channelId/dashboards/$dashboardId"
-        params={{ channelId, dashboardId: summary.id }}
+        {...(isSketchpad
+          ? {
+              to: "/spaces/$channelId/sketchpads/$sketchpadId" as const,
+              params: { channelId, sketchpadId: summary.id },
+            }
+          : {
+              to: "/spaces/$channelId/dashboards/$dashboardId" as const,
+              params: { channelId, dashboardId: summary.id },
+            })}
         className="no-underline"
         onClick={() =>
           track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
@@ -140,6 +155,7 @@ const DashboardCard = memo(function DashboardCard({
         id={summary.id}
         name={summary.name}
         channelId={channelId}
+        isSketchpad={isSketchpad}
       />
     </Box>
   );
@@ -160,13 +176,16 @@ function DashboardCardMenu({
   id,
   name,
   channelId,
+  isSketchpad,
 }: {
   id: string;
   name: string;
   channelId: string;
+  isSketchpad: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const { invalidateDashboards } = useDashboardMutations();
+  const { removeSketchpad } = useSketchpadMutations();
 
   const onDelete = () => {
     deleteCanvasWithUndo({
@@ -174,12 +193,13 @@ function DashboardCardMenu({
       channelId,
       name,
       surface: "dashboards_grid",
-      invalidate: invalidateDashboards,
+      remove: isSketchpad ? () => removeSketchpad(id) : undefined,
+      invalidate: isSketchpad ? undefined : invalidateDashboards,
     });
   };
 
   return (
-    <Box
+    <div
       className={cn(
         "absolute top-2 right-2 transition-opacity",
         open ? "opacity-100" : "opacity-0 group-hover:opacity-100",
@@ -200,7 +220,12 @@ function DashboardCardMenu({
         <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
           <DropdownMenuItem
             onClick={() =>
-              void copyCanvasLink(channelId, id, "dashboards_grid")
+              void copyCanvasLink(
+                channelId,
+                id,
+                "dashboards_grid",
+                isSketchpad ? "sketchpad" : "canvas",
+              )
             }
           >
             <LinkIcon size={14} />
@@ -212,7 +237,7 @@ function DashboardCardMenu({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-    </Box>
+    </div>
   );
 }
 

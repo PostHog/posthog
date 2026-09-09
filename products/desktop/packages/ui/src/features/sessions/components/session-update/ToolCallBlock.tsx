@@ -1,4 +1,5 @@
 import { isShowActionsCall } from "@posthog/core/sessions/showActions";
+import { isSketchpadToolCall } from "@posthog/core/sketchpad/toolCalls";
 import { useServiceOptional } from "@posthog/di/react";
 import { readAgentToolName, readMcpToolName } from "@posthog/shared";
 import { DeleteToolView } from "@posthog/ui/features/sessions/components/session-update/DeleteToolView";
@@ -20,6 +21,7 @@ import {
   useToolCallStatus,
 } from "@posthog/ui/features/sessions/components/session-update/toolCallUtils";
 import type { ToolCall } from "@posthog/ui/features/sessions/types";
+import { SketchpadToolRow } from "@posthog/ui/features/sketchpad/components/SketchpadToolRow";
 import { Box } from "@radix-ui/themes";
 import type { ConversationItem, TurnContext } from "../buildConversationItems";
 import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
@@ -84,6 +86,14 @@ export function ToolCallBlock({
   // call takes the row instead of a tool header the user would have to expand.
   // A denied, failed, or cancelled call falls through to the standard view,
   // which shows why it failed rather than live buttons the block never stopped.
+  if (isSketchpadToolCall(toolCall._meta) && isComplete) {
+    return (
+      <div className={chatChrome ? "my-1" : "my-1 pl-3"}>
+        <SketchpadToolRow {...props} />
+      </div>
+    );
+  }
+
   if (isShowActionsCall(toolCall._meta) && isComplete) {
     return (
       <div className={chatChrome ? "my-1" : "my-1 pl-3"}>

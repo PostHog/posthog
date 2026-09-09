@@ -54,7 +54,15 @@ const CLAIMED: readonly NavRailPane[] = [
   "feeds",
 ];
 
+const SKETCHPADS_ROOT = "/sketchpads";
+
 export function railPaneForPath(fullPath: string): NavRailPane {
+  if (
+    fullPath === SKETCHPADS_ROOT ||
+    fullPath.startsWith(`${SKETCHPADS_ROOT}/`)
+  ) {
+    return "canvases";
+  }
   for (const pane of CLAIMED) {
     const root = RAIL_PANE_ROOT[pane];
     if (fullPath === root) return pane;

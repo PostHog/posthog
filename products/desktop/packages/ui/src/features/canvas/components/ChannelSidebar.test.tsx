@@ -49,6 +49,9 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("@posthog/ui/features/canvas/components/ChannelBackRow", () => ({
   ChannelBackRow: () => null,
 }));
+vi.mock("@posthog/ui/features/canvas/components/NewCanvasMenu", () => ({
+  NewCanvasMenu: () => null,
+}));
 vi.mock("@posthog/ui/features/canvas/components/ChannelsFab", () => ({
   ChannelsFab: () => null,
 }));
@@ -105,20 +108,20 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
     ts: Date.parse("2026-07-17T12:00:00.000Z"),
     createdAt: Date.parse("2026-07-16T12:00:00.000Z"),
     pinned: false,
+    canvasType: "canvas",
     rawStatus: null,
     environment: null,
     source: null,
-    canvasType: "canvas",
     needsInput: false,
     unread: false,
     authorUser: null,
     authorName: "Someone else",
     // Not the viewer, so filtering to "Me" leaves nothing.
     authorUuid: "someone-else-uuid",
+    authorEmail: null,
     templateId: null,
     repository: null,
     branch: null,
-    authorEmail: null,
     task: null,
     ...overrides,
   };

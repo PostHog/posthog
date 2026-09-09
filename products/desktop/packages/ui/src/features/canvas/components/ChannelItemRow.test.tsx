@@ -541,6 +541,35 @@ describe("ChannelItemRow", () => {
     );
   });
 
+  it("labels a sketchpad by type and opens it at the board URL", () => {
+    const board = item({
+      key: "canvas:b1",
+      kind: "canvas",
+      id: "b1",
+      title: "Status board",
+      canvasType: "sketchpad",
+      authorUuid: "u-1",
+    });
+    renderInList(
+      <ChannelItemRow
+        actions={actions}
+        isActive={false}
+        item={board}
+        channelId="channel-1"
+        onAddToCommandCenter={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Sketchpad")).toBeInTheDocument();
+    expect(screen.queryByText("v2")).not.toBeInTheDocument();
+    fireEvent.contextMenu(screen.getByText("Status board"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open in new tab" }));
+
+    expect(mocks.openBrowserTab).toHaveBeenCalledWith(
+      "/spaces/channel-1/sketchpads/b1",
+    );
+  });
+
   it("keeps the hover sidebar open while the context menu is open", () => {
     vi.useFakeTimers();
     try {

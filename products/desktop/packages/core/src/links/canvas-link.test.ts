@@ -23,14 +23,14 @@ function makeDeepLinkService() {
     registerHandler: vi.fn((key: string, handler: DeepLinkHandler) => {
       handlers.set(key, handler);
     }),
-    trigger: (key: string, path: string) => {
+    trigger: (key: string, path: string, search = "") => {
       const handler = handlers.get(key);
       if (!handler) throw new Error(`No handler for ${key}`);
-      return handler(path, new URLSearchParams());
+      return handler(path, new URLSearchParams(search));
     },
   };
   return service as unknown as IDeepLinkRegistry & {
-    trigger: (key: string, path: string) => boolean;
+    trigger: (key: string, path: string, search?: string) => boolean;
   };
 }
 
@@ -74,6 +74,20 @@ describe("CanvasLinkService", () => {
     expect(listener).toHaveBeenCalledWith({
       channelId: "chan-1",
       dashboardId: "dash-2",
+      canvasType: "canvas",
+    });
+  });
+
+  it("reads type=sketchpad as a Sketchpad link", () => {
+    const listener = vi.fn();
+    service.on(CanvasLinkEvent.OpenCanvas, listener);
+
+    deepLinkService.trigger("canvas", "chan-1/board-2", "type=sketchpad");
+
+    expect(listener).toHaveBeenCalledWith({
+      channelId: "chan-1",
+      dashboardId: "board-2",
+      canvasType: "sketchpad",
     });
   });
 
@@ -86,6 +100,7 @@ describe("CanvasLinkService", () => {
     expect(listener).toHaveBeenCalledWith({
       channelId: "chan/a",
       dashboardId: "dash b",
+      canvasType: "canvas",
     });
   });
 
@@ -93,7 +108,11 @@ describe("CanvasLinkService", () => {
     deepLinkService.trigger("canvas", "chan-1/dash-2");
 
     const pending = service.consumePendingDeepLink();
-    expect(pending).toEqual({ channelId: "chan-1", dashboardId: "dash-2" });
+    expect(pending).toEqual({
+      channelId: "chan-1",
+      dashboardId: "dash-2",
+      canvasType: "canvas",
+    });
 
     // Draining clears it
     expect(service.consumePendingDeepLink()).toBeNull();

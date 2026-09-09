@@ -69,6 +69,7 @@ export interface TaskRowMenuProps {
   kind: "task" | "canvas";
   id: string;
   title: string;
+  canvasType?: "canvas" | "sketchpad";
   isPinned: boolean;
   task?: Task;
   /** The channel this item is already filed to, ticked in "File to…". */
@@ -167,10 +168,12 @@ function TaskRowMenuItems({
   // A canvas lives in one space, so its new-tab URL needs that space's id; a
   // task has a channel-independent route, so it opens even when the row is
   // listed outside its own space (activity, saved search).
+  const canvasSection =
+    menu.canvasType === "sketchpad" ? "sketchpads" : "dashboards";
   const newTabHref = isTask
     ? `/tasks/${menu.id}`
     : menu.channelId
-      ? `/spaces/${menu.channelId}/dashboards/${menu.id}`
+      ? `/spaces/${menu.channelId}/${canvasSection}/${menu.id}`
       : null;
   const canOpenInNewTab = newTabHref !== null;
 

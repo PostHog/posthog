@@ -30,6 +30,16 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
 }));
 
+vi.mock("@posthog/ui/features/sketchpad/hooks/useSketchpadsAsCanvases", () => ({
+  useSpaceSketchpadsAsCanvases: () => [],
+}));
+vi.mock("@posthog/ui/features/sketchpad/hooks/useSketchpadMutations", () => ({
+  useSketchpadMutations: () => ({
+    fileSketchpad: vi.fn(),
+    setSketchpadPinned: vi.fn(),
+    removeSketchpad: vi.fn(),
+  }),
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => mocks.channels,
 }));
@@ -120,6 +130,7 @@ function taskItem(id: string): ChannelItemModel {
     ts: 0,
     createdAt: 0,
     pinned: false,
+    canvasType: "canvas",
     rawStatus: null,
     environment: null,
     source: null,
@@ -131,7 +142,6 @@ function taskItem(id: string): ChannelItemModel {
     authorEmail: null,
     templateId: null,
     repository: null,
-    canvasType: "canvas",
     branch: null,
     task: null,
   };
@@ -140,7 +150,6 @@ function taskItem(id: string): ChannelItemModel {
 function canvas(id: string, createdBy?: string, createdByUuid?: string) {
   return {
     id,
-    authorEmail: null,
     channelId: "c1",
     name: id,
     templateId: "freeform",

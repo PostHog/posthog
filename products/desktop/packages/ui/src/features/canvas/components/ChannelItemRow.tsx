@@ -47,6 +47,7 @@ import {
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
 import { writeTaskDragData } from "@posthog/ui/features/sidebar/taskDrag";
 import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSelection";
+import { SketchpadTag } from "@posthog/ui/features/sketchpad/components/SketchpadTag";
 import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
 import { useMountedOnceOpened } from "@posthog/ui/hooks/useMountedOnceOpened";
 import { useNow } from "@posthog/ui/hooks/useNow";
@@ -167,6 +168,7 @@ function rowAuthor(
       uuid: item.authorUuid,
       first_name: first ?? null,
       last_name: rest.join(" ") || null,
+      email: item.authorEmail,
     },
     label: name ?? "Unknown",
   };
@@ -295,7 +297,12 @@ export function ChannelItemRowView({
       depth={0}
       icon={<ChannelItemDot item={item} status={status} />}
       // A non-string label opts out of SidebarItem's truncation tooltip.
-      label={<span>{item.title}</span>}
+      label={
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate">{item.title}</span>
+          {item.canvasType === "sketchpad" ? <SketchpadTag /> : null}
+        </span>
+      }
       subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}
@@ -429,6 +436,7 @@ export function ChannelItemRow({
             kind: "canvas",
             id: item.id,
             title: item.title,
+            canvasType: item.canvasType,
             isPinned: item.pinned,
             channelId,
             ...(canFileCanvas
