@@ -186,6 +186,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -697,6 +700,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -1082,6 +1088,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -1295,6 +1304,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -1496,6 +1508,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -6574,6 +6589,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -6707,6 +6725,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -6810,6 +6831,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -6934,6 +6958,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7049,6 +7076,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7155,6 +7185,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7254,6 +7287,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -7368,6 +7404,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7470,6 +7509,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7569,6 +7611,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -7686,6 +7731,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7801,6 +7849,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -7915,6 +7966,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -8052,6 +8106,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -8196,6 +8253,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -8304,6 +8364,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -8418,6 +8481,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -8985,6 +9051,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -9085,6 +9154,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -9201,6 +9273,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -9347,6 +9422,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -9719,6 +9797,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -9838,6 +9919,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -9932,6 +10016,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -10037,6 +10124,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -10138,6 +10228,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -10237,6 +10330,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -10338,6 +10434,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -10437,6 +10536,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -10538,6 +10640,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -10637,6 +10742,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -10738,6 +10846,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -10837,6 +10948,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -10938,6 +11052,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -11037,6 +11154,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -11138,6 +11258,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -11237,6 +11360,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -11343,6 +11469,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -11442,6 +11571,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -11544,6 +11676,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -11643,6 +11778,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -11767,6 +11905,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -11904,6 +12045,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -12036,6 +12180,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -12163,6 +12310,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -12272,6 +12422,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -12462,6 +12615,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -12562,6 +12718,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -12658,6 +12817,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -12766,6 +12928,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -12866,6 +13031,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -12979,6 +13147,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -13095,6 +13266,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -13235,6 +13409,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -13347,6 +13524,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -13461,6 +13641,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -13560,6 +13743,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -13728,6 +13914,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -13910,6 +14099,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -14017,6 +14209,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -14123,6 +14318,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -14237,6 +14435,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -14335,6 +14536,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -14444,6 +14648,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -14560,6 +14767,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -14671,6 +14881,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -14771,6 +14984,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -14870,6 +15086,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -14980,6 +15199,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -15096,6 +15318,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -15210,6 +15435,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -15336,6 +15564,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -15443,6 +15674,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -15560,6 +15794,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -15671,6 +15908,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -15796,6 +16036,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -15908,6 +16151,9 @@
                 "query_metadata": {
                     "type": "object"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -16009,6 +16255,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -16220,6 +16469,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -17543,6 +17795,9 @@
                                 "offset": {
                                     "$ref": "#/definitions/integer"
                                 },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
+                                },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -17630,6 +17885,9 @@
                                 },
                                 "offset": {
                                     "$ref": "#/definitions/integer"
+                                },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -17719,6 +17977,9 @@
                                 },
                                 "offset": {
                                     "$ref": "#/definitions/integer"
+                                },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -17825,6 +18086,9 @@
                                     "description": "Input query string",
                                     "type": "string"
                                 },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
+                                },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -17905,6 +18169,9 @@
                                 },
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                                },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -17998,88 +18265,8 @@
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                                 },
-                                "query_status": {
-                                    "$ref": "#/definitions/QueryStatus",
-                                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                                },
-                                "resolved_compare_date_range": {
-                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
-                                    "description": "The resolved previous/comparison period date range, when comparing against another period"
-                                },
-                                "resolved_date_range": {
-                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
-                                    "description": "The date range used for the query"
-                                },
-                                "results": {
-                                    "items": {},
-                                    "type": "array"
-                                },
-                                "samplingRate": {
-                                    "$ref": "#/definitions/SamplingRate"
-                                },
-                                "timings": {
-                                    "description": "Measured timings for different parts of the query generation process",
-                                    "items": {
-                                        "$ref": "#/definitions/QueryTiming"
-                                    },
-                                    "type": "array"
-                                },
-                                "types": {
-                                    "items": {},
-                                    "type": "array"
-                                },
-                                "used_data_warehouse_sources": {
-                                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
-                                    "items": {
-                                        "$ref": "#/definitions/DataWarehouseSourceUsage"
-                                    },
-                                    "type": "array"
-                                },
-                                "warnings": {
-                                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
-                                    "items": {
-                                        "anyOf": [
-                                            {
-                                                "$ref": "#/definitions/DataWarehouseSyncWarning"
-                                            },
-                                            {
-                                                "$ref": "#/definitions/AccessControlFilterWarning"
-                                            }
-                                        ]
-                                    },
-                                    "type": "array"
-                                }
-                            },
-                            "required": ["results"],
-                            "type": "object"
-                        },
-                        {
-                            "additionalProperties": false,
-                            "properties": {
-                                "columns": {
-                                    "items": {},
-                                    "type": "array"
-                                },
-                                "error": {
-                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                                    "type": "string"
-                                },
-                                "hasMore": {
-                                    "type": "boolean"
-                                },
-                                "hogql": {
-                                    "description": "Generated HogQL query.",
-                                    "type": "string"
-                                },
-                                "limit": {
-                                    "$ref": "#/definitions/integer"
-                                },
-                                "modifiers": {
-                                    "$ref": "#/definitions/HogQLQueryModifiers",
-                                    "description": "Modifiers used when performing the query"
-                                },
-                                "offset": {
-                                    "$ref": "#/definitions/integer"
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -18163,6 +18350,95 @@
                                 },
                                 "offset": {
                                     "$ref": "#/definitions/integer"
+                                },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
+                                },
+                                "query_status": {
+                                    "$ref": "#/definitions/QueryStatus",
+                                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
+                                "resolved_compare_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                                },
+                                "resolved_date_range": {
+                                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                                    "description": "The date range used for the query"
+                                },
+                                "results": {
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "samplingRate": {
+                                    "$ref": "#/definitions/SamplingRate"
+                                },
+                                "timings": {
+                                    "description": "Measured timings for different parts of the query generation process",
+                                    "items": {
+                                        "$ref": "#/definitions/QueryTiming"
+                                    },
+                                    "type": "array"
+                                },
+                                "types": {
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "used_data_warehouse_sources": {
+                                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                                    "items": {
+                                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                                    },
+                                    "type": "array"
+                                },
+                                "warnings": {
+                                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                                    "items": {
+                                        "anyOf": [
+                                            {
+                                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                            },
+                                            {
+                                                "$ref": "#/definitions/AccessControlFilterWarning"
+                                            }
+                                        ]
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["results"],
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "columns": {
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "error": {
+                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                                    "type": "string"
+                                },
+                                "hasMore": {
+                                    "type": "boolean"
+                                },
+                                "hogql": {
+                                    "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "limit": {
+                                    "$ref": "#/definitions/integer"
+                                },
+                                "modifiers": {
+                                    "$ref": "#/definitions/HogQLQueryModifiers",
+                                    "description": "Modifiers used when performing the query"
+                                },
+                                "offset": {
+                                    "$ref": "#/definitions/integer"
+                                },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -18251,6 +18527,9 @@
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                                 },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
+                                },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -18327,6 +18606,9 @@
                                 },
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                                },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -18408,6 +18690,9 @@
                                 "offset": {
                                     "$ref": "#/definitions/integer"
                                 },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
+                                },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -18484,6 +18769,9 @@
                                 },
                                 "offset": {
                                     "$ref": "#/definitions/integer"
+                                },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -18570,6 +18858,9 @@
                                 "offset": {
                                     "$ref": "#/definitions/integer"
                                 },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
+                                },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -18644,6 +18935,9 @@
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
+                                },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -18728,6 +19022,9 @@
                                 "offset": {
                                     "$ref": "#/definitions/integer"
                                 },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
+                                },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -18807,6 +19104,9 @@
                                 },
                                 "offset": {
                                     "$ref": "#/definitions/integer"
+                                },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -19036,6 +19336,9 @@
                                 "offset": {
                                     "$ref": "#/definitions/integer"
                                 },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
+                                },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -19116,6 +19419,9 @@
                                 "offset": {
                                     "$ref": "#/definitions/integer"
                                 },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
+                                },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -19193,6 +19499,9 @@
                                 },
                                 "offset": {
                                     "$ref": "#/definitions/integer"
+                                },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -19285,6 +19594,9 @@
                                 "offset": {
                                     "$ref": "#/definitions/integer"
                                 },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
+                                },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -19376,6 +19688,9 @@
                                 },
                                 "offset": {
                                     "$ref": "#/definitions/integer"
+                                },
+                                "query_scan": {
+                                    "$ref": "#/definitions/QueryScanSummary"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -20785,6 +21100,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -21265,6 +21583,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -21395,6 +21716,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -21518,6 +21842,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -21740,6 +22067,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -21999,6 +22329,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -22291,6 +22624,9 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -22675,6 +23011,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -22921,6 +23260,9 @@
                 "other_release_count": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -23076,6 +23418,9 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -23310,6 +23655,9 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -23789,6 +24137,9 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -27810,6 +28161,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -28631,6 +28985,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -28996,6 +29353,9 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -29768,6 +30128,9 @@
                 "query": {
                     "description": "Input query string",
                     "type": "string"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -31453,6 +31816,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -31646,6 +32012,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -31907,6 +32276,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -32110,6 +32482,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -32269,6 +32644,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -32409,6 +32787,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -32533,6 +32914,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -32659,6 +33043,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -32752,6 +33139,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -32860,6 +33250,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -32979,6 +33372,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -33111,6 +33507,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -33222,6 +33621,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -33404,6 +33806,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -33501,6 +33906,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -33618,6 +34026,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -33753,6 +34164,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -33928,6 +34342,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -34069,6 +34486,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -34196,6 +34616,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -34337,6 +34760,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -34520,6 +34946,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -34787,6 +35216,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -34998,6 +35430,9 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -35404,6 +35839,9 @@
                     "$ref": "#/definitions/integer",
                     "description": "How many breakdown values were folded into 'Other', so the table can say so."
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -35678,6 +36116,9 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -37875,6 +38316,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -38825,6 +39269,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -39199,6 +39646,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -40144,6 +40594,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -40331,6 +40784,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -40415,6 +40871,9 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -40504,6 +40963,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -40592,6 +41054,9 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -40784,6 +41249,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -40900,6 +41368,9 @@
                         "query": {
                             "description": "Input query string",
                             "type": "string"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -41059,6 +41530,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -41138,6 +41612,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -41212,6 +41689,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -41280,6 +41760,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -41344,6 +41827,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -41460,6 +41946,9 @@
                         "other_release_count": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -41575,6 +42064,9 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -41944,6 +42436,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -42021,6 +42516,9 @@
                         },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -42114,88 +42612,8 @@
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
-                        "query_status": {
-                            "$ref": "#/definitions/QueryStatus",
-                            "description": "Query status indicates whether next to the provided data, a query is still running."
-                        },
-                        "resolved_compare_date_range": {
-                            "$ref": "#/definitions/ResolvedDateRangeResponse",
-                            "description": "The resolved previous/comparison period date range, when comparing against another period"
-                        },
-                        "resolved_date_range": {
-                            "$ref": "#/definitions/ResolvedDateRangeResponse",
-                            "description": "The date range used for the query"
-                        },
-                        "results": {
-                            "items": {},
-                            "type": "array"
-                        },
-                        "samplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        },
-                        "timings": {
-                            "description": "Measured timings for different parts of the query generation process",
-                            "items": {
-                                "$ref": "#/definitions/QueryTiming"
-                            },
-                            "type": "array"
-                        },
-                        "types": {
-                            "items": {},
-                            "type": "array"
-                        },
-                        "used_data_warehouse_sources": {
-                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
-                            "items": {
-                                "$ref": "#/definitions/DataWarehouseSourceUsage"
-                            },
-                            "type": "array"
-                        },
-                        "warnings": {
-                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
-                            "items": {
-                                "anyOf": [
-                                    {
-                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
-                                    },
-                                    {
-                                        "$ref": "#/definitions/AccessControlFilterWarning"
-                                    }
-                                ]
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["results"],
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "columns": {
-                            "items": {},
-                            "type": "array"
-                        },
-                        "error": {
-                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                            "type": "string"
-                        },
-                        "hasMore": {
-                            "type": "boolean"
-                        },
-                        "hogql": {
-                            "description": "Generated HogQL query.",
-                            "type": "string"
-                        },
-                        "limit": {
-                            "$ref": "#/definitions/integer"
-                        },
-                        "modifiers": {
-                            "$ref": "#/definitions/HogQLQueryModifiers",
-                            "description": "Modifiers used when performing the query"
-                        },
-                        "offset": {
-                            "$ref": "#/definitions/integer"
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -42280,6 +42698,95 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "samplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -42359,6 +42866,9 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -42447,6 +42957,9 @@
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -42523,6 +43036,9 @@
                         },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -42599,6 +43115,9 @@
                         },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -42684,6 +43203,9 @@
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -42765,6 +43287,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -42839,6 +43364,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -42935,6 +43463,9 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -43038,6 +43569,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -43130,6 +43664,9 @@
                         "otherBreakdownCount": {
                             "$ref": "#/definitions/integer",
                             "description": "How many breakdown values were folded into 'Other', so the table can say so."
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -43236,6 +43773,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -43323,6 +43863,9 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -43412,6 +43955,9 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -43518,6 +44064,9 @@
                             "description": "Input query string",
                             "type": "string"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -43598,6 +44147,9 @@
                         },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -43691,88 +44243,8 @@
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
-                        "query_status": {
-                            "$ref": "#/definitions/QueryStatus",
-                            "description": "Query status indicates whether next to the provided data, a query is still running."
-                        },
-                        "resolved_compare_date_range": {
-                            "$ref": "#/definitions/ResolvedDateRangeResponse",
-                            "description": "The resolved previous/comparison period date range, when comparing against another period"
-                        },
-                        "resolved_date_range": {
-                            "$ref": "#/definitions/ResolvedDateRangeResponse",
-                            "description": "The date range used for the query"
-                        },
-                        "results": {
-                            "items": {},
-                            "type": "array"
-                        },
-                        "samplingRate": {
-                            "$ref": "#/definitions/SamplingRate"
-                        },
-                        "timings": {
-                            "description": "Measured timings for different parts of the query generation process",
-                            "items": {
-                                "$ref": "#/definitions/QueryTiming"
-                            },
-                            "type": "array"
-                        },
-                        "types": {
-                            "items": {},
-                            "type": "array"
-                        },
-                        "used_data_warehouse_sources": {
-                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
-                            "items": {
-                                "$ref": "#/definitions/DataWarehouseSourceUsage"
-                            },
-                            "type": "array"
-                        },
-                        "warnings": {
-                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
-                            "items": {
-                                "anyOf": [
-                                    {
-                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
-                                    },
-                                    {
-                                        "$ref": "#/definitions/AccessControlFilterWarning"
-                                    }
-                                ]
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["results"],
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "columns": {
-                            "items": {},
-                            "type": "array"
-                        },
-                        "error": {
-                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                            "type": "string"
-                        },
-                        "hasMore": {
-                            "type": "boolean"
-                        },
-                        "hogql": {
-                            "description": "Generated HogQL query.",
-                            "type": "string"
-                        },
-                        "limit": {
-                            "$ref": "#/definitions/integer"
-                        },
-                        "modifiers": {
-                            "$ref": "#/definitions/HogQLQueryModifiers",
-                            "description": "Modifiers used when performing the query"
-                        },
-                        "offset": {
-                            "$ref": "#/definitions/integer"
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -43856,6 +44328,95 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "samplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -43944,6 +44505,9 @@
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -44020,6 +44584,9 @@
                         },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -44101,6 +44668,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -44177,6 +44747,9 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -44263,6 +44836,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -44337,6 +44913,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -44421,6 +45000,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -44500,6 +45082,9 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -44729,6 +45314,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -44809,6 +45397,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -44886,6 +45477,9 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -44977,6 +45571,9 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -45070,6 +45667,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -45146,6 +45746,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -45211,6 +45814,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -45274,6 +45880,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -45340,6 +45949,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -45405,6 +46017,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -45466,6 +46081,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -45531,6 +46149,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -45609,6 +46230,9 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -45702,6 +46326,9 @@
                             "description": "Cursor for the next page. Contains the ordering value and session_id from the last record.",
                             "type": "string"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -45786,6 +46413,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -45848,6 +46478,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -45914,6 +46547,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -45978,6 +46614,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -46057,6 +46696,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -46123,6 +46765,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -46195,6 +46840,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -46267,6 +46915,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -46362,6 +47013,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -46433,6 +47087,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -46494,6 +47151,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -46582,85 +47242,8 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
-                        "query_status": {
-                            "$ref": "#/definitions/QueryStatus",
-                            "description": "Query status indicates whether next to the provided data, a query is still running."
-                        },
-                        "resolved_compare_date_range": {
-                            "$ref": "#/definitions/ResolvedDateRangeResponse",
-                            "description": "The resolved previous/comparison period date range, when comparing against another period"
-                        },
-                        "resolved_date_range": {
-                            "$ref": "#/definitions/ResolvedDateRangeResponse",
-                            "description": "The date range used for the query"
-                        },
-                        "results": {
-                            "items": {
-                                "$ref": "#/definitions/LLMTrace"
-                            },
-                            "type": "array"
-                        },
-                        "timings": {
-                            "description": "Measured timings for different parts of the query generation process",
-                            "items": {
-                                "$ref": "#/definitions/QueryTiming"
-                            },
-                            "type": "array"
-                        },
-                        "used_data_warehouse_sources": {
-                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
-                            "items": {
-                                "$ref": "#/definitions/DataWarehouseSourceUsage"
-                            },
-                            "type": "array"
-                        },
-                        "warnings": {
-                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
-                            "items": {
-                                "anyOf": [
-                                    {
-                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
-                                    },
-                                    {
-                                        "$ref": "#/definitions/AccessControlFilterWarning"
-                                    }
-                                ]
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["results"],
-                    "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "columns": {
-                            "items": {
-                                "type": "string"
-                            },
-                            "type": "array"
-                        },
-                        "error": {
-                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                            "type": "string"
-                        },
-                        "hasMore": {
-                            "type": "boolean"
-                        },
-                        "hogql": {
-                            "description": "Generated HogQL query.",
-                            "type": "string"
-                        },
-                        "limit": {
-                            "$ref": "#/definitions/integer"
-                        },
-                        "modifiers": {
-                            "$ref": "#/definitions/HogQLQueryModifiers",
-                            "description": "Modifiers used when performing the query"
-                        },
-                        "offset": {
-                            "$ref": "#/definitions/integer"
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -46741,6 +47324,92 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/LLMTrace"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -46843,6 +47512,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -46904,6 +47576,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -46993,6 +47668,9 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -47086,6 +47764,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -47150,6 +47831,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -47229,6 +47913,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -47296,6 +47983,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -47360,6 +48050,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -47426,6 +48119,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -47490,6 +48186,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -47556,6 +48255,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -47620,6 +48322,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -47686,6 +48391,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -47750,6 +48458,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -47817,6 +48528,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -47881,6 +48595,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -47951,6 +48668,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -48015,6 +48735,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -48081,6 +48804,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -48145,6 +48871,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -48211,6 +48940,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -48276,6 +49008,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -48340,6 +49075,9 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -48410,6 +49148,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -48475,6 +49216,9 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "query_scan": {
+                            "$ref": "#/definitions/QueryScanSummary"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -48526,6 +49270,56 @@
                     "type": "object"
                 }
             ]
+        },
+        "QueryScanMode": {
+            "enum": ["log_only", "show"],
+            "type": "string"
+        },
+        "QueryScanRange": {
+            "additionalProperties": false,
+            "properties": {
+                "from": {
+                    "type": "string"
+                },
+                "to": {
+                    "type": "string"
+                }
+            },
+            "required": ["from", "to"],
+            "type": "object"
+        },
+        "QueryScanStatus": {
+            "enum": ["pending", "done"],
+            "type": "string"
+        },
+        "QueryScanSummary": {
+            "additionalProperties": false,
+            "properties": {
+                "duration_ms": {
+                    "$ref": "#/definitions/integer",
+                    "description": "ClickHouse time for the last fresh run."
+                },
+                "events_in_range": {
+                    "$ref": "#/definitions/integer"
+                },
+                "mode": {
+                    "$ref": "#/definitions/QueryScanMode",
+                    "description": "Flag mode for this team: what clients may show"
+                },
+                "range": {
+                    "$ref": "#/definitions/QueryScanRange"
+                },
+                "rows_read": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Rows ClickHouse read for the last fresh run of this query, all tables included."
+                },
+                "status": {
+                    "$ref": "#/definitions/QueryScanStatus",
+                    "description": "Absent below the floor. pending = enqueued, not finished. done = findings are in `warnings`."
+                }
+            },
+            "required": ["mode", "rows_read", "duration_ms"],
+            "type": "object"
         },
         "QuerySchema": {
             "discriminator": {
@@ -49263,6 +50057,9 @@
                     "description": "Cursor for the next page. Contains the ordering value and session_id from the last record.",
                     "type": "string"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -49734,6 +50531,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -50302,6 +51102,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -50515,6 +51318,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -50718,6 +51524,9 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -51083,6 +51892,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -51194,6 +52006,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -52286,6 +53101,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -53205,6 +54023,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -53273,6 +54094,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -53362,6 +54186,9 @@
                 },
                 "query_metadata": {
                     "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -53690,6 +54517,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -53810,6 +54640,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -53943,6 +54776,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -54102,6 +54938,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -54204,6 +55043,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -54326,6 +55168,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -54477,6 +55322,9 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -54998,6 +55846,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -55196,6 +56047,9 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -55363,6 +56217,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -55783,6 +56640,9 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -56206,6 +57066,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -56379,6 +57242,9 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -56564,6 +57430,9 @@
                 },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -56765,6 +57634,9 @@
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -56963,6 +57835,9 @@
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -57136,6 +58011,9 @@
                 },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -57377,6 +58255,9 @@
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -57603,6 +58484,9 @@
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                 },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -57802,6 +58686,9 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",

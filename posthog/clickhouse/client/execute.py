@@ -19,6 +19,8 @@ from clickhouse_driver import Client as SyncClient
 from opentelemetry import trace
 from prometheus_client import Counter
 
+from posthog.hogql import query_stats
+
 from posthog.api_queries_budget import API_QUERIES_BUDGET_ERRORS_COUNTER, QueryCost, debit, record_request_query_cost
 from posthog.clickhouse.client.connection import (
     ClickHouseUser,
@@ -240,6 +242,31 @@ def _chargeable_query_info(client: Any, query_info_before: Any) -> Optional[Any]
     if query_info is None or query_info is query_info_before or not query_info.progress:
         return None
     return query_info
+
+
+def _record_query_stats(client: Any, query_info_before: Any, start_time: float) -> None:
+    """Add what this execution read to the active query stats scope, for the query scan warnings.
+
+    Runs after a failure too: a query the server killed reports its progress before it dies, and
+    that read cost the same as a successful one. Never raises, because the numbers are advisory and
+    a failure to collect them must not fail the query.
+    """
+    try:
+        query_info = _chargeable_query_info(client, query_info_before)
+        if query_info is None:
+            return
+        progress = query_info.progress
+        # elapsed_ns is what the server measured. It is 0 on old protocol revisions, so fall back to
+        # the client-side round trip.
+        elapsed_ns = progress.elapsed_ns or 0
+        duration_ms = elapsed_ns / 1e6 if elapsed_ns else (perf_counter() - start_time) * 1000
+        query_stats.record(
+            rows_read=int(progress.rows or 0),
+            bytes_read=int(progress.bytes or 0),
+            duration_ms=duration_ms,
+        )
+    except Exception:
+        pass
 
 
 def kill_switch_overrides(team_id: Optional[int], ch_user: ClickHouseUser = ClickHouseUser.DEFAULT) -> dict[str, int]:
@@ -562,6 +589,7 @@ def sync_execute(
                 # in the outer finally, once the connection is back in the pool.
                 if tags.chargeable and tags.team_id:
                     chargeable_query_info = _chargeable_query_info(client, query_info_before)
+                _record_query_stats(client, query_info_before, start_time)
             if (
                 "INSERT INTO" in prepared_sql
                 and hasattr(client, "last_query")

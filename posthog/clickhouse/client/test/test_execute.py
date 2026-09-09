@@ -1,7 +1,11 @@
 from ipaddress import IPv4Address, IPv6Address
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
+
+from posthog.hogql.query_stats import query_stats_scope
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute import query_with_columns, sync_execute
@@ -107,6 +111,57 @@ def test_llm_analytics_queries_take_a_concurrency_slot(client_from_pool, llm_ana
         sync_execute("SELECT 1", flush=False)
 
     assert llm_analytics_slots.call_count == expected_slots
+
+
+def _fake_query_info(rows: int, elapsed_ns: int) -> SimpleNamespace:
+    return SimpleNamespace(progress=SimpleNamespace(rows=rows, bytes=rows * 10, elapsed_ns=elapsed_ns, written_rows=0))
+
+
+class _FakeClient:
+    # Enough of the driver for the progress handling: `last_query` only holds this query once it has
+    # run, and a pooled client can come back still holding the previous query's.
+    def __init__(self, query_info: SimpleNamespace, raises: bool, last_query: SimpleNamespace | None) -> None:
+        self.last_query = last_query
+        self._query_info = query_info
+        self._raises = raises
+
+    def execute(self, *args: Any, **kwargs: Any) -> list[tuple[int]]:
+        self.last_query = self._query_info
+        if self._raises:
+            raise ValueError("Memory limit (for query) exceeded")
+        return [(1,)]
+
+
+@pytest.mark.parametrize(
+    "raises,holds_previous_query_info,expected_rows,expected_bytes,expected_duration_ms",
+    [
+        (False, False, 7, 70, 3.0),
+        # A query the server killed already cost the read it reports, so it counts too.
+        (True, False, 7, 70, 3.0),
+        # Connecting failed, so the pooled client still holds the previous query's progress.
+        (True, True, 0, 0, 0.0),
+    ],
+)
+def test_sync_execute_records_what_clickhouse_read(
+    raises, holds_previous_query_info, expected_rows, expected_bytes, expected_duration_ms
+):
+    query_info = _fake_query_info(rows=7, elapsed_ns=3_000_000)
+    client = _FakeClient(query_info, raises=raises, last_query=query_info if holds_previous_query_info else None)
+
+    with patch("posthog.clickhouse.client.execute.get_client_from_pool") as pool:
+        pool.return_value.__enter__.return_value = client
+        with query_stats_scope() as stats:
+            if raises:
+                with pytest.raises(ValueError):
+                    sync_execute("SELECT 1", flush=False)
+            else:
+                sync_execute("SELECT 1", flush=False)
+
+    assert (stats.rows_read, stats.bytes_read, stats.duration_ms) == (
+        expected_rows,
+        expected_bytes,
+        expected_duration_ms,
+    )
 
 
 @pytest.mark.parametrize(

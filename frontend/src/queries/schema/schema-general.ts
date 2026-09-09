@@ -583,6 +583,28 @@ export interface AccessControlFilterWarning {
     message: string
 }
 
+export type QueryScanMode = 'log_only' | 'show'
+
+export type QueryScanStatus = 'pending' | 'done'
+
+export interface QueryScanRange {
+    from: string
+    to: string
+}
+
+export interface QueryScanSummary {
+    /** Flag mode for this team: what clients may show */
+    mode: QueryScanMode
+    /** Rows ClickHouse read for the last fresh run of this query, all tables included. */
+    rows_read: integer
+    /** ClickHouse time for the last fresh run. */
+    duration_ms: integer
+    /** Absent below the floor. pending = enqueued, not finished. done = findings are in `warnings`. */
+    status?: QueryScanStatus
+    events_in_range?: integer
+    range?: QueryScanRange
+}
+
 export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBase {
     results: T
     /** Input query string */
@@ -603,6 +625,7 @@ export interface HogQLQueryResponse<T = any[]> extends AnalyticsQueryResponseBas
      * Also carries access control warnings when a system-table query filters out objects the user can't access.
      */
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
+    query_scan?: QueryScanSummary
     hasMore?: boolean
     limit?: integer
     offset?: integer
@@ -2693,6 +2716,7 @@ export interface AnalyticsQueryResponseBase {
      * Also carries access control warnings when a system-table query filters out objects the user can't access.
      */
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
+    query_scan?: QueryScanSummary
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsage[]
 }

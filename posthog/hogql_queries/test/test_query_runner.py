@@ -57,6 +57,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError, ResolutionError
+from posthog.hogql.query_stats import record
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
@@ -93,6 +94,7 @@ from posthog.query_cache.failures import (
     QueryFailureCache,
 )
 from posthog.query_cache.storage import entry_redis_key
+from posthog.query_scan.flag import QueryScanFlag
 from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.types import SloOutcome
 
@@ -196,6 +198,38 @@ class TestQueryRunner(BaseTest):
         warnings = [w if isinstance(w, dict) else w.model_dump() for w in response.warnings or []]
         assert any(w.get("table_name") == "paid_bills" for w in warnings)
         assert any(w.get("resources") == ["insight"] for w in warnings)
+
+    @parameterized.expand(
+        [
+            ("flag on", QueryScanFlag(mode="show", floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)),
+            ("flag off", None),
+        ]
+    )
+    def test_query_scan_summary_attached_only_for_a_flagged_team(self, _name, flag):
+        # With the flag off no stats scope is installed, so `record` from the ClickHouse client is a
+        # no-op and the response must not grow the field.
+        TestQueryRunner = self.setup_test_query_runner_class()
+
+        def calculate_with_clickhouse_stats(_self):
+            record(rows_read=12, bytes_read=120, duration_ms=34.0)
+            return TheTestBasicQueryResponse(results=[])
+
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        with (
+            mock.patch("posthog.hogql_queries.query_runner.get_query_scan_flag", return_value=flag),
+            mock.patch.object(
+                TestQueryRunner, "_calculate", autospec=True, side_effect=calculate_with_clickhouse_stats
+            ),
+        ):
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        if flag is None:
+            assert response.query_scan is None
+        else:
+            assert response.query_scan is not None
+            assert response.query_scan.mode == "show"
+            assert response.query_scan.rows_read == 12
+            assert response.query_scan.duration_ms == 34
 
     def test_calculate_runs_validators_before_calculation(self):
         TestQueryRunner = self.setup_test_query_runner_class()
