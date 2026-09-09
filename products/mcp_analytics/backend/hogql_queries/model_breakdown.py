@@ -9,18 +9,16 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
-from products.mcp_analytics.backend.hogql_queries.base import (
-    mcp_query_date_range,
-    mcp_tool_call_where,
-    validate_mcp_analytics_access,
-)
+from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
+from products.mcp_analytics.backend.hogql_queries.base import mcp_query_date_range, validate_mcp_analytics_access
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -40,38 +38,47 @@ class MCPModelBreakdownQueryRunner(AnalyticsQueryRunner[MCPModelBreakdownQueryRe
     def query_date_range(self) -> QueryDateRange:
         return mcp_query_date_range(self.team, self.query.dateRange)
 
+    def _where(self) -> ast.Expr:
+        exprs = [
+            parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_TOOL_CALL_EVENT)}),
+            parse_expr(
+                "timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
+            ),
+            parse_expr("timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}),
+        ]
+        properties = list(self.query.properties or [])
+        if self.query.filterTestAccounts:
+            properties += self.team.test_account_filters or []
+        if properties:
+            exprs.append(property_to_expr(properties, self.team))
+        return ast.And(exprs=exprs)
+
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return parse_select(
             """
             SELECT
-                model,
-                total_calls,
-                client_metadata_calls,
-                self_reported_calls,
-                sum(total_calls) OVER () AS all_calls,
-                sum(client_metadata_calls) OVER () AS all_client_metadata_calls,
-                sum(self_reported_calls) OVER () AS all_self_reported_calls
+                if(model = 'Unknown', 'Unknown', if(model_rank <= {limit}, model, 'Other')) AS model_group,
+                sum(total_calls) AS total_calls
             FROM (
                 SELECT
-                    coalesce(nullIf(trim(toString(properties.$mcp_llm_model)), ''), '') AS model,
-                    count() AS total_calls,
-                    countIf(properties.$mcp_llm_model_source = 'client_metadata') AS client_metadata_calls,
-                    countIf(properties.$mcp_llm_model_source = 'self_reported') AS self_reported_calls
-                FROM events
-                WHERE {where}
-                GROUP BY model
+                    model,
+                    total_calls,
+                    row_number() OVER (ORDER BY model = 'Unknown' ASC, total_calls DESC, model ASC) AS model_rank
+                FROM (
+                    SELECT
+                        coalesce(nullIf(trim(toString(properties.$mcp_llm_model)), ''), 'Unknown') AS model,
+                        count() AS total_calls
+                    FROM events
+                    WHERE {where}
+                    GROUP BY model
+                )
             )
-            ORDER BY model = '' DESC, total_calls DESC, model ASC
-            LIMIT {limit}
+            GROUP BY model_group
+            ORDER BY total_calls DESC, model_group ASC
             """,
             placeholders={
-                "where": mcp_tool_call_where(
-                    team=self.team,
-                    date_range=self.query_date_range,
-                    properties=self.query.properties,
-                    filter_test_accounts=self.query.filterTestAccounts,
-                ),
-                "limit": ast.Constant(value=MODEL_SERIES_LIMIT + 1),
+                "where": self._where(),
+                "limit": ast.Constant(value=MODEL_SERIES_LIMIT),
             },
         )
 
@@ -92,43 +99,9 @@ class MCPModelBreakdownQueryRunner(AnalyticsQueryRunner[MCPModelBreakdownQueryRe
                 limit_context=self.limit_context,
             )
 
-        raw_rows = response.results or []
-        results: list[MCPModelBreakdownItem] = []
-        if raw_rows:
-            known_rows = [row for row in raw_rows if str(row[0] or "")]
-            unknown_rows = [row for row in raw_rows if not str(row[0] or "")]
-            displayed_rows = known_rows[:MODEL_SERIES_LIMIT] + unknown_rows
-
-            displayed_by_model: dict[str, MCPModelBreakdownItem] = {}
-            for row in displayed_rows:
-                model = str(row[0] or "Unknown")
-                existing = displayed_by_model.get(model)
-                displayed_by_model[model] = MCPModelBreakdownItem(
-                    model=model,
-                    total_calls=(existing.total_calls if existing else 0) + int(row[1] or 0),
-                    client_metadata_calls=(existing.client_metadata_calls if existing else 0) + int(row[2] or 0),
-                    self_reported_calls=(existing.self_reported_calls if existing else 0) + int(row[3] or 0),
-                )
-
-            all_calls = int(raw_rows[0][4] or 0)
-            all_client_metadata_calls = int(raw_rows[0][5] or 0)
-            all_self_reported_calls = int(raw_rows[0][6] or 0)
-            displayed_calls = sum(row.total_calls for row in displayed_by_model.values())
-            if all_calls > displayed_calls:
-                existing_other = displayed_by_model.get("Other")
-                displayed_by_model["Other"] = MCPModelBreakdownItem(
-                    model="Other",
-                    total_calls=(existing_other.total_calls if existing_other else 0) + all_calls - displayed_calls,
-                    client_metadata_calls=(existing_other.client_metadata_calls if existing_other else 0)
-                    + all_client_metadata_calls
-                    - sum(row.client_metadata_calls for row in displayed_by_model.values()),
-                    self_reported_calls=(existing_other.self_reported_calls if existing_other else 0)
-                    + all_self_reported_calls
-                    - sum(row.self_reported_calls for row in displayed_by_model.values()),
-                )
-
-            results = list(displayed_by_model.values())
-            results.sort(key=lambda row: (-row.total_calls, row.model))
+        results = [
+            MCPModelBreakdownItem(model=str(row[0]), total_calls=int(row[1] or 0)) for row in (response.results or [])
+        ]
 
         return MCPModelBreakdownQueryResponse(
             results=results,

@@ -3416,12 +3416,10 @@ export interface MCPHarnessBreakdownQuery extends DataNode<MCPHarnessBreakdownQu
 
 export type CachedMCPHarnessBreakdownQueryResponse = CachedQueryResponse<MCPHarnessBreakdownQueryResponse>
 
-/** One model's share of MCP tool calls and how its identity was captured. */
+/** One model's share of MCP tool calls. */
 export interface MCPModelBreakdownItem {
     model: string
     total_calls: integer
-    client_metadata_calls: integer
-    self_reported_calls: integer
 }
 
 export interface MCPModelBreakdownQueryResponse extends AnalyticsQueryResponseBase {

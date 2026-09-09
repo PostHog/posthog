@@ -10,6 +10,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -17,9 +18,10 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.mcp_analytics.backend import mcp_harness
+from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.hogql_queries.base import (
     mcp_query_date_range,
-    mcp_tool_call_where,
+    tool_scope_exprs,
     validate_mcp_analytics_access,
 )
 
@@ -47,6 +49,23 @@ class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQue
     def query_date_range(self) -> QueryDateRange:
         return mcp_query_date_range(self.team, self.query.dateRange)
 
+    def _where(self) -> ast.Expr:
+        exprs: list[ast.Expr] = [
+            parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_TOOL_CALL_EVENT)}),
+            parse_expr(
+                "timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
+            ),
+            parse_expr("timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}),
+        ]
+        if self.query.toolName:
+            exprs.extend(tool_scope_exprs(self.query.toolName))
+        properties = list(self.query.properties or [])
+        if self.query.filterTestAccounts:
+            properties += self.team.test_account_filters or []
+        if properties:
+            exprs.append(property_to_expr(properties, self.team))
+        return ast.And(exprs=exprs)
+
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         # The harness label and token are HogQL fragments from mcp_harness; parse them
         # to AST and inject as placeholders (like {where}) so nothing is string-interpolated.
@@ -72,13 +91,7 @@ class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQue
             placeholders={
                 "label": parse_expr(mcp_harness.harness_label_sql("h")),
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
-                "where": mcp_tool_call_where(
-                    team=self.team,
-                    date_range=self.query_date_range,
-                    properties=self.query.properties,
-                    filter_test_accounts=self.query.filterTestAccounts,
-                    tool_name=self.query.toolName,
-                ),
+                "where": self._where(),
             },
         )
 

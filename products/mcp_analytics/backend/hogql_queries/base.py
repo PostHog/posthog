@@ -13,15 +13,13 @@ import posthoganalytics
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
-from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 
 if TYPE_CHECKING:
-    from posthog.schema import AnyPropertyFilterDiscriminated, DateRange, IntervalType
+    from posthog.schema import DateRange, IntervalType
 
     from posthog.models.team import Team
     from posthog.models.user import User
@@ -61,29 +59,6 @@ def tool_scope_exprs(tool: str) -> list[ast.Expr]:
         ),
         parse_expr("properties.$mcp_source = {source}", placeholders={"source": ast.Constant(value=NEW_SDK_SOURCE)}),
     ]
-
-
-def mcp_tool_call_where(
-    *,
-    team: "Team",
-    date_range: QueryDateRange,
-    properties: list["AnyPropertyFilterDiscriminated"] | None,
-    filter_test_accounts: bool | None,
-    tool_name: str | None = None,
-) -> ast.Expr:
-    exprs: list[ast.Expr] = [
-        parse_expr("event = {event}", placeholders={"event": ast.Constant(value=MCP_TOOL_CALL_EVENT)}),
-        parse_expr("timestamp >= {date_from}", placeholders={"date_from": date_range.date_from_as_hogql()}),
-        parse_expr("timestamp <= {date_to}", placeholders={"date_to": date_range.date_to_as_hogql()}),
-    ]
-    if tool_name:
-        exprs.extend(tool_scope_exprs(tool_name))
-    all_properties = list(properties or [])
-    if filter_test_accounts:
-        all_properties += team.test_account_filters or []
-    if all_properties:
-        exprs.append(property_to_expr(all_properties, team))
-    return ast.And(exprs=exprs)
 
 
 def display_person_properties(*, email: str, name: str) -> str:

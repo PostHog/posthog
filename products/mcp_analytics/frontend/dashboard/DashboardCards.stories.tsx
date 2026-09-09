@@ -66,10 +66,10 @@ const HARNESS_ROWS: HarnessRow[] = [
 ]
 
 const MODEL_ROWS: ModelRow[] = [
-    { model: 'claude-sonnet-5', total_calls: 4200, client_metadata_calls: 3800, self_reported_calls: 400 },
-    { model: 'gpt-5.6-sol', total_calls: 3100, client_metadata_calls: 2700, self_reported_calls: 400 },
-    { model: 'Unknown', total_calls: 1400, client_metadata_calls: 0, self_reported_calls: 0 },
-    { model: 'Other', total_calls: 580, client_metadata_calls: 320, self_reported_calls: 260 },
+    { model: 'claude-sonnet-5', total_calls: 4200 },
+    { model: 'gpt-5.6-sol', total_calls: 3100 },
+    { model: 'Unknown', total_calls: 1400 },
+    { model: 'Other', total_calls: 580 },
 ]
 
 const NOTABLE_SESSIONS: NotableSession[] = [

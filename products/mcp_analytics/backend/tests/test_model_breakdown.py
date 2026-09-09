@@ -29,7 +29,7 @@ class TestMCPModelBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickho
         )
         return {row.model: row for row in runner.calculate().results}
 
-    def test_aggregates_models_unknown_calls_and_capture_sources(self) -> None:
+    def test_aggregates_models_and_unknown_calls(self) -> None:
         self._emit(
             distinct_id="d1",
             properties={"$mcp_llm_model": "gpt-5.6-sol", "$mcp_llm_model_source": "client_metadata"},
@@ -50,11 +50,8 @@ class TestMCPModelBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickho
         rows = self._breakdown()
 
         assert rows["gpt-5.6-sol"].total_calls == 2
-        assert rows["gpt-5.6-sol"].client_metadata_calls == 1
-        assert rows["gpt-5.6-sol"].self_reported_calls == 1
         assert rows["claude-sonnet-5"].total_calls == 1
         assert rows["Unknown"].total_calls == 3
-        assert rows["Unknown"].self_reported_calls == 1
         assert sum(row.total_calls for row in rows.values()) == 6
 
     def test_collapses_long_tail_into_other_without_losing_calls(self) -> None:
@@ -84,6 +81,5 @@ class TestMCPModelBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickho
 
         assert rows["Unknown"].total_calls == 1
         assert rows["Other"].total_calls == 15
-        assert rows["Other"].self_reported_calls == 15
         assert sum(row.total_calls for row in rows.values()) == expected_total
         assert len([model for model in rows if model not in {"Other", "Unknown"}]) == MODEL_SERIES_LIMIT - 1

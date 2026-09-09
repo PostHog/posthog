@@ -46420,9 +46420,7 @@ export namespace Schemas {
     }
 
     export interface MCPModelBreakdownItem {
-      client_metadata_calls: number;
       model: string;
-      self_reported_calls: number;
       total_calls: number;
     }
 

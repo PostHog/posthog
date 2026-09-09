@@ -5872,9 +5872,7 @@ class MCPModelBreakdownItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    client_metadata_calls: int
     model: str
-    self_reported_calls: int
     total_calls: int
 
 

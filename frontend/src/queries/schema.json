@@ -32564,22 +32564,16 @@
         },
         "MCPModelBreakdownItem": {
             "additionalProperties": false,
-            "description": "One model's share of MCP tool calls and how its identity was captured.",
+            "description": "One model's share of MCP tool calls.",
             "properties": {
-                "client_metadata_calls": {
-                    "$ref": "#/definitions/integer"
-                },
                 "model": {
                     "type": "string"
-                },
-                "self_reported_calls": {
-                    "$ref": "#/definitions/integer"
                 },
                 "total_calls": {
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["model", "total_calls", "client_metadata_calls", "self_reported_calls"],
+            "required": ["model", "total_calls"],
             "type": "object"
         },
         "MCPModelBreakdownQuery": {

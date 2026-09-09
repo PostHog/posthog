@@ -197,8 +197,6 @@ export interface HarnessRow {
 export interface ModelRow {
     model: string
     total_calls: number
-    client_metadata_calls: number
-    self_reported_calls: number
 }
 
 export interface SessionRow {

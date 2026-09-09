@@ -78,13 +78,6 @@ const HARNESS_RESULTS = [
     { harness: 'VS Code', total_calls: 540, errors: 12, error_rate_pct: 2.2, sessions: 120 },
 ]
 
-const MODEL_RESULTS = [
-    { model: 'claude-sonnet-5', total_calls: 4200, client_metadata_calls: 3800, self_reported_calls: 400 },
-    { model: 'gpt-5.6-sol', total_calls: 3100, client_metadata_calls: 2700, self_reported_calls: 400 },
-    { model: 'Unknown', total_calls: 1400, client_metadata_calls: 0, self_reported_calls: 0 },
-    { model: 'Other', total_calls: 580, client_metadata_calls: 320, self_reported_calls: 260 },
-]
-
 const SESSION_LIST = {
     results: [
         {
@@ -684,9 +677,6 @@ const meta: Meta = {
                     // resolves the harness server-side) — match on its kind, not a SQL string.
                     if (body?.query?.kind === 'MCPHarnessBreakdownQuery') {
                         return [200, { results: HARNESS_RESULTS }]
-                    }
-                    if (body?.query?.kind === 'MCPModelBreakdownQuery') {
-                        return [200, { results: MODEL_RESULTS }]
                     }
                     // Tool quality tab runners return typed item rows — match on kind, not a SQL string.
                     if (body?.query?.kind === 'MCPToolQualityRowsQuery') {

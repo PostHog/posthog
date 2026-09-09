@@ -399,19 +399,15 @@ describe('mcpDashboardOverviewLogic', () => {
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
-            logic.actions.loadModelRowsSuccess([
-                { model: 'Unknown', total_calls: 12, client_metadata_calls: 0, self_reported_calls: 0 },
-            ])
+            logic.actions.loadModelRowsSuccess([{ model: 'Unknown', total_calls: 12 }])
             expect(logic.values.hasKnownModelData).toBe(false)
 
-            logic.actions.loadModelRowsSuccess([
-                { model: 'gpt-5.6-sol', total_calls: 1, client_metadata_calls: 1, self_reported_calls: 0 },
-            ])
+            logic.actions.loadModelRowsSuccess([{ model: 'gpt-5.6-sol', total_calls: 1 }])
             expect(logic.values.hasKnownModelData).toBe(true)
 
             logic.actions.loadModelRowsSuccess([
-                { model: 'Unknown', total_calls: 12, client_metadata_calls: 0, self_reported_calls: 0 },
-                { model: 'claude-sonnet-5', total_calls: 0, client_metadata_calls: 0, self_reported_calls: 0 },
+                { model: 'Unknown', total_calls: 12 },
+                { model: 'claude-sonnet-5', total_calls: 0 },
             ])
             expect(logic.values.hasKnownModelData).toBe(false)
         })
