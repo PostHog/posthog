@@ -218,10 +218,31 @@ describe("deriveSessionViewState", () => {
     ).toBe(true);
 
     session.status = "connected";
+    session.initialPrompt = [
+      { type: "text", text: "Inspect the example task" },
+    ];
+    expect(
+      deriveSessionViewState(session, task, null, false).isInitializing,
+    ).toBe(true);
+
     session.firstPromptForRunId = session.taskRunId;
     expect(
       deriveSessionViewState(session, task, null, false).isInitializing,
     ).toBe(false);
+  });
+
+  it("opens a connected local task when no initial prompt remains to send", () => {
+    const task = makeTask("in_progress");
+    task.description = "Inspect the example task";
+    if (task.latest_run) task.latest_run.environment = "local";
+    const session = makeSession("in_progress");
+    session.isCloud = false;
+
+    const state = deriveSessionViewState(session, task, null, false);
+
+    expect(state.isInitializing).toBe(false);
+    expect(state.isRunning).toBe(true);
+    expect(state.hasError).toBe(false);
   });
 
   it("treats not_started as a non-terminal cloud state", () => {

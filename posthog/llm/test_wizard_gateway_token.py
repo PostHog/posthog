@@ -1,23 +1,33 @@
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
 from unittest.mock import patch
 
 from django.test import override_settings
+from django.utils import timezone
 
 import requests
 
 from posthog.llm.wizard_gateway_token import (
+    _TIER_FLOORS,
     NO_OVERRIDE,
+    WIZARD_GATEWAY_CONFIG_REJECTS,
     WizardGatewayMintError,
     WizardLimitOverride,
+    WizardTierLimits,
     mint_wizard_gateway_token,
     parse_limit_override,
     wizard_gateway_base_url,
     wizard_gateway_configured,
     wizard_limit_override,
+    wizard_posture,
     wizard_product_node,
+    wizard_program_cap,
+    wizard_tier_limits,
 )
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
 
 MINT_SETTINGS = {
     "WIZARD_GATEWAY_URL": "https://ai-gateway.us.posthog.com",
@@ -88,7 +98,7 @@ class TestMintWizardGatewayToken:
         minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post:
             mint_wizard_gateway_token(obo="org_1", user="user_1")
-        assert post.call_args.kwargs["json"]["ttl_seconds"] == 3600
+        assert post.call_args.kwargs["json"]["ttl_seconds"] == 1800
 
     @pytest.mark.parametrize(
         "response",
@@ -160,7 +170,7 @@ class TestMintWizardGatewayToken:
                 return_value=_Response(201, minted),
             ) as post:
                 mint_wizard_gateway_token(obo="org_1", user="user_1")
-        assert post.call_args.kwargs["json"]["cap_usd"] == "20.000000"
+        assert post.call_args.kwargs["json"]["cap_usd"] == "7.000000"
 
     @pytest.mark.parametrize(
         "raised,token_may_exist",
@@ -221,23 +231,149 @@ class TestMintWizardGatewayToken:
         assert "phs_wizard_secret" not in str(raised.value)
 
 
+def _organization(
+    *, age: timedelta = timedelta(days=30), features: list | None = None, subscribed: bool | None = None
+) -> Organization:
+    # Unsaved: posture reads cached fields only, so no row is needed.
+    return Organization(
+        name="org",
+        created_at=timezone.now() - age,
+        available_product_features=features or [],
+        has_active_subscription=subscribed,
+    )
+
+
+class TestWizardPosture:
+    def test_a_young_organization_with_no_event_is_new(self):
+        assert wizard_posture(_organization(age=timedelta(days=1)), Team(ingested_event=False)) == "new"
+
+    def test_an_ingested_event_makes_it_active_whatever_its_age(self):
+        assert wizard_posture(_organization(age=timedelta(days=1)), Team(ingested_event=True)) == "active"
+
+    def test_an_old_organization_with_no_event_is_active(self):
+        assert wizard_posture(_organization(age=timedelta(days=8)), Team(ingested_event=False)) == "active"
+
+    def test_a_subscription_outranks_the_rest(self):
+        paid = _organization(age=timedelta(days=1), subscribed=True)
+        assert wizard_posture(paid, Team(ingested_event=False)) == "paid"
+
+    def test_a_cancelled_organization_keeps_its_features_but_loses_the_paid_tier(self):
+        # Billing leaves the feature list populated after a cancellation, so the
+        # feature-derived tier would go on handing it the widest limits.
+        cancelled = _organization(features=[{"key": "alerts", "name": "Alerts"}], subscribed=False)
+        assert wizard_posture(cancelled, Team(ingested_event=True)) == "active"
+
+    def test_an_unsynced_organization_falls_back_to_its_plan_tier(self):
+        licensed = _organization(features=[{"key": "alerts", "name": "Alerts"}], subscribed=None)
+        assert wizard_posture(licensed, Team(ingested_event=False)) == "paid"
+        assert wizard_posture(_organization(subscribed=None), Team(ingested_event=True)) == "active"
+
+
+class TestWizardTierLimits:
+    @override_settings(WIZARD_GATEWAY_TIERS={"new": {"cap_usd": "5", "mints_per_week": 2, "ttl_seconds": "3600"}})
+    def test_a_configured_tier_is_read_field_by_field(self):
+        assert wizard_tier_limits("new") == WizardTierLimits(
+            cap_usd=Decimal("5.000000"),
+            max_cap_usd=_TIER_FLOORS["new"].max_cap_usd,
+            mints_per_week=2,
+            ttl_seconds=3600,
+        )
+        assert wizard_tier_limits("paid") == _TIER_FLOORS["paid"]
+
+    @override_settings(WIZARD_GATEWAY_TIERS={"new": {"cap_usd": "5", "max_cap_usd": "3"}})
+    def test_a_ceiling_under_its_own_cap_is_ignored(self):
+        # Honouring it would let a program entry tighten the cap rather than size it.
+        limits = wizard_tier_limits("new")
+        assert limits.cap_usd == Decimal("5.000000")
+        assert limits.max_cap_usd == _TIER_FLOORS["new"].max_cap_usd
+
+    @pytest.mark.parametrize(
+        "tiers",
+        [
+            {"new": "lots"},
+            # A non-dict entry that would satisfy `"cap_usd" in raw`.
+            {"new": ["cap_usd", "mints_per_week", "ttl_seconds"]},
+            {"new": {"cap_usd": "999", "mints_per_week": 0, "ttl_seconds": True}},
+            {"new": {"cap_usd": "NaN", "mints_per_week": "two", "ttl_seconds": -1}},
+            [],
+            "not a dict",
+        ],
+    )
+    def test_an_out_of_contract_tier_degrades_to_its_own_floor(self, tiers):
+        with override_settings(WIZARD_GATEWAY_TIERS=tiers):
+            assert wizard_tier_limits("new") == _TIER_FLOORS["new"]
+
+    @override_settings(WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM={"self-driving": "6", "broken": "lots"})
+    def test_a_program_cap_is_read_by_program_id(self):
+        assert wizard_program_cap("self-driving") == Decimal("6.000000")
+        assert wizard_program_cap("broken") is None
+        assert wizard_program_cap("integration") is None
+        assert wizard_program_cap(["self-driving"]) is None
+
+
+class TestTieredMint:
+    @pytest.fixture(autouse=True)
+    def _mint_settings(self):
+        with override_settings(
+            **MINT_SETTINGS,
+            WIZARD_GATEWAY_TIERS={
+                "new": {"cap_usd": "5", "mints_per_week": 2, "ttl_seconds": 3600},
+                "paid": {"cap_usd": "10", "mints_per_week": 10},
+            },
+            WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM={"ai-observability": "12"},
+        ):
+            yield
+
+    def _mint(self, **kwargs):
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
+        with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post:
+            mint_wizard_gateway_token(obo="org_1", user="user_1", **kwargs)
+        return post.call_args.kwargs["json"]
+
+    def test_the_tier_cap_and_ttl_apply(self):
+        body = self._mint(program="integration", posture="new")
+        assert (body["cap_usd"], body["ttl_seconds"]) == ("5.000000", 3600)
+
+    def test_a_tier_without_a_ttl_keeps_its_floor_ttl(self):
+        assert self._mint(program="integration", posture="paid")["ttl_seconds"] == _TIER_FLOORS["paid"].ttl_seconds
+
+    def test_a_posture_without_a_tier_keeps_its_floor_cap(self):
+        want = f"{_TIER_FLOORS['active'].cap_usd:f}"
+        assert self._mint(program="integration", posture="active")["cap_usd"] == want
+
+    def test_the_program_cap_is_bounded_by_the_postures_ceiling(self):
+        assert self._mint(program="ai-observability", posture="new")["cap_usd"] == "6.000000"
+        assert self._mint(program="ai-observability", posture="paid")["cap_usd"] == "12.000000"
+
+    def test_no_posture_ignores_the_caller_supplied_program_cap(self):
+        # The one path with no ceiling to bound it, so the program a caller
+        # names must not choose the cap there.
+        assert self._mint(program="ai-observability")["cap_usd"] == "25.000000"
+
+    def test_the_override_outranks_both(self):
+        assert self._mint(program="ai-observability", posture="new", cap_usd=Decimal("30"))["cap_usd"] == "30.000000"
+
+    def test_no_posture_and_no_program_is_the_flat_cap(self):
+        assert self._mint()["cap_usd"] == "25.000000"
+
+
 class TestParseLimitOverride:
     @pytest.mark.parametrize(
         "raw,expected",
         [
             (
-                {"cap_usd": "30", "mints_per_day": 100},
-                WizardLimitOverride(cap_usd=Decimal("30.000000"), mints_per_day=100),
+                {"cap_usd": "30", "mints_per_week": 100},
+                WizardLimitOverride(cap_usd=Decimal("30.000000"), mints_per_week=100),
             ),
             (
-                '{"cap_usd": 12.5, "mints_per_day": "50"}',
-                WizardLimitOverride(cap_usd=Decimal("12.500000"), mints_per_day=50),
+                '{"cap_usd": 12.5, "mints_per_week": "50"}',
+                WizardLimitOverride(cap_usd=Decimal("12.500000"), mints_per_week=50),
             ),
-            ({"mints_per_day": 100}, WizardLimitOverride(cap_usd=None, mints_per_day=100)),
-            ({"cap_usd": "lots", "mints_per_day": 100}, WizardLimitOverride(cap_usd=None, mints_per_day=100)),
+            ({"mints_per_week": 100}, WizardLimitOverride(cap_usd=None, mints_per_week=100)),
+            ({"cap_usd": "lots", "mints_per_week": 100}, WizardLimitOverride(cap_usd=None, mints_per_week=100)),
             (
-                {"cap_usd": "30", "mints_per_day": 0},
-                WizardLimitOverride(cap_usd=Decimal("30.000000"), mints_per_day=None),
+                {"cap_usd": "30", "mints_per_week": 0},
+                WizardLimitOverride(cap_usd=Decimal("30.000000"), mints_per_week=None),
             ),
             (None, NO_OVERRIDE),
             ("not json", NO_OVERRIDE),
@@ -254,7 +390,7 @@ class TestParseLimitOverride:
 
     @pytest.mark.parametrize("mints", [0, -1, 151, 2.5, "2.5", "abc", True, None])
     def test_mints_outside_the_bounds_are_ignored(self, mints):
-        assert parse_limit_override({"mints_per_day": mints}) == NO_OVERRIDE
+        assert parse_limit_override({"mints_per_week": mints}) == NO_OVERRIDE
 
 
 class TestWizardLimitOverride:
@@ -267,7 +403,7 @@ class TestWizardLimitOverride:
                 distinct_id="d1", email="eng@posthog.com", organization_id="org_1", team_id=7
             )
 
-        assert override == WizardLimitOverride(cap_usd=Decimal("30.000000"), mints_per_day=None)
+        assert override == WizardLimitOverride(cap_usd=Decimal("30.000000"), mints_per_week=None)
         get_payload.assert_called_once_with(
             "wizard-gateway-limit-override",
             "d1",
@@ -326,3 +462,73 @@ class TestWizardProductNode:
     @override_settings(WIZARD_GATEWAY_PROGRAM_IDS=[])
     def test_no_configured_programs_refuses_every_program(self):
         assert wizard_product_node("audit") is None
+
+
+class TestWizardConfigRejectCounter:
+    """A rejected settings value degrades the mint toward a floor, so every
+    rejection leaves a counter an operator can alert on."""
+
+    @staticmethod
+    def _count(field: str) -> float:
+        return WIZARD_GATEWAY_CONFIG_REJECTS.labels(field=field)._value.get()
+
+    @override_settings(WIZARD_GATEWAY_TIERS={"new": {"cap_usd": "999", "mints_per_week": 0, "ttl_seconds": -1}})
+    def test_each_rejected_tier_field_is_counted_on_its_own_label(self):
+        fields = ("cap_usd", "mints_per_week", "ttl_seconds")
+        before = {f: self._count(f) for f in fields}
+        wizard_tier_limits("new")
+        assert {f: self._count(f) for f in fields} == {f: before[f] + 1 for f in fields}
+
+    @override_settings(WIZARD_GATEWAY_TIERS={"new": {"cap_usd": "5", "max_cap_usd": "3"}})
+    def test_a_ceiling_under_its_own_cap_counts_apart_from_an_unreadable_one(self):
+        before = self._count("max_cap_usd_below_cap")
+        unreadable = self._count("max_cap_usd")
+        wizard_tier_limits("new")
+        assert self._count("max_cap_usd_below_cap") == before + 1
+        assert self._count("max_cap_usd") == unreadable
+
+    @override_settings(WIZARD_GATEWAY_TIERS={"new": {"cap_usd": "5"}})
+    def test_a_readable_tier_counts_nothing(self):
+        fields = ("cap_usd", "mints_per_week", "ttl_seconds", "max_cap_usd", "max_cap_usd_below_cap", "tiers_json")
+        before = {f: self._count(f) for f in fields}
+        wizard_tier_limits("new")
+        assert {f: self._count(f) for f in fields} == before
+
+    @override_settings(WIZARD_GATEWAY_TIERS={}, WIZARD_GATEWAY_TIERS_INVALID=True)
+    def test_a_tier_map_unreadable_at_boot_is_counted_on_every_mint(self):
+        # The empty dict cannot say whether the operator configured nothing or
+        # configured something unparseable, which is why boot carries the flag.
+        before = self._count("tiers_json")
+        assert wizard_tier_limits("new") == _TIER_FLOORS["new"]
+        assert self._count("tiers_json") == before + 1
+
+    @override_settings(WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM={"broken": "lots"})
+    def test_a_rejected_program_cap_is_counted(self):
+        before = self._count("program_cap")
+        assert wizard_program_cap("broken") is None
+        assert self._count("program_cap") == before + 1
+
+    @override_settings(WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM={}, WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM_INVALID=True)
+    def test_a_program_cap_map_unreadable_at_boot_is_counted(self):
+        before = self._count("program_caps_json")
+        assert wizard_program_cap("self-driving") is None
+        assert self._count("program_caps_json") == before + 1
+
+    def test_an_override_payload_that_is_not_json_is_counted(self):
+        before = self._count("override_payload")
+        assert parse_limit_override("{not json") == NO_OVERRIDE
+        assert self._count("override_payload") == before + 1
+
+    def test_the_retired_daily_key_still_applies_and_is_counted(self):
+        # The live override flag's payload still spells it mints_per_day, so
+        # dropping the key outright would silently stop applying every override.
+        before = self._count("mints_per_day_retired_key")
+        assert parse_limit_override({"mints_per_day": 100}) == WizardLimitOverride(cap_usd=None, mints_per_week=100)
+        assert self._count("mints_per_day_retired_key") == before + 1
+
+    def test_the_weekly_key_wins_and_counts_no_retirement(self):
+        before = self._count("mints_per_day_retired_key")
+        assert parse_limit_override({"mints_per_week": 7, "mints_per_day": 100}) == WizardLimitOverride(
+            cap_usd=None, mints_per_week=7
+        )
+        assert self._count("mints_per_day_retired_key") == before
