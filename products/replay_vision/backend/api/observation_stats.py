@@ -289,11 +289,13 @@ def _scorer_stats(scanner: ReplayScanner, queryset: QuerySet[ReplayObservation])
     )
     inner_sql, inner_params = succeeded.values("_score").query.sql_with_params()
 
-    # Span the configured scale so clustered scores still show the full axis. A missing or non-numeric bound
-    # falls back to the observed min and max, which is the only part of the bucket grid that needs the
-    # summary. So the grid is derived in SQL from the same `scored` CTE: one statement, one scan of the rows.
+    # Span the configured scale so clustered scores still show the full axis. A bound that is missing or not a
+    # number falls back to the observed range, so the bucket grid is built in SQL beside the summary that
+    # supplies that range, rather than in Python between two statements that would each scan the rows.
     config = scanner.scanner_config if isinstance(scanner.scanner_config, dict) else {}
-    scale = config.get("scale") if isinstance(config.get("scale"), dict) else {}
+    scale = config.get("scale")
+    if not isinstance(scale, dict):
+        scale = {}
     scale_min, scale_max = (
         value if isinstance(value, (int, float)) else None for value in (scale.get("min"), scale.get("max"))
     )

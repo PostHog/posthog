@@ -2115,7 +2115,6 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(summary["median"], 3.0)
         self.assertAlmostEqual(summary["mean"], 3.0)
         histogram = body["scorer"]["histogram"]
-        # The grid spans the configured 0-10 scale, one bucket per point, with the five scores in place.
         self.assertEqual(histogram["labels"], [str(i) for i in range(11)])
         self.assertEqual(histogram["counts"], [0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0])
         self.assertIsNone(body["monitor"])
@@ -2137,7 +2136,6 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             )
 
     def test_stats_scorer_histogram_falls_back_to_observed_range(self) -> None:
-        # No scale in the config, so the grid comes from the observed min and max instead.
         scorer = self._create_scanner(name="unscaled", scanner_type=ScannerType.SCORER, scanner_config={"prompt": "p"})
         self._scored_observations(scorer, [100.0, 110.0, 120.0])
         histogram = self.client.get(f"{self.observations_url(str(scorer.id))}stats/").json()["scorer"]["histogram"]
@@ -2165,7 +2163,6 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(histogram["counts"][20], 1)
 
     def test_stats_scorer_reads_the_observations_once(self) -> None:
-        # The summary and the histogram share one CTE. A second statement here would scan the rows twice.
         scorer = self._create_scanner(
             name="one-scan",
             scanner_type=ScannerType.SCORER,
