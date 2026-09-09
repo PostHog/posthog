@@ -354,6 +354,7 @@ const taskRunStateFields = {
   ),
   resume_from_run_id: optionalField(z.string()),
   sandbox_environment_id: optionalField(z.string()),
+  scout_skill_name: optionalField(z.string()),
   slack_artifact_delivery: optionalField(
     z.enum(["none", "message", "canvas_file"]),
   ),

@@ -1956,6 +1956,7 @@ export class AgentServer {
       originProduct: preTask?.origin_product,
       signalReportId: preTask?.signal_report,
       aiStage: getTaskRunStateString(preTaskRun, "ai_stage"),
+      scoutSkillName: getTaskRunStateString(preTaskRun, "scout_skill_name"),
       taskId: payload.task_id,
       taskRunId: payload.run_id,
       taskUserId: payload.user_id || preTask?.created_by?.id || null,
@@ -5074,6 +5075,7 @@ ${commonInstructions}
     originProduct,
     signalReportId,
     aiStage,
+    scoutSkillName,
     taskId,
     taskRunId,
     taskUserId,
@@ -5090,6 +5092,7 @@ ${commonInstructions}
     originProduct?: Task["origin_product"] | null;
     signalReportId?: string | null;
     aiStage?: string | null;
+    scoutSkillName?: string | null;
     taskId?: string | null;
     taskRunId?: string | null;
     taskUserId?: number | null;
@@ -5146,6 +5149,10 @@ ${commonInstructions}
       task_internal: isInternal,
       signal_report_id: signalReportId,
       ai_stage: resolvedStage,
+      // `ai_stage` collapses team-authored scouts to `scout:custom`; this names the scout.
+      // Absent on every non-scout run, and on scout runs started before this shipped, so the
+      // header builders drop it rather than stamping an empty property.
+      scout_skill_name: scoutSkillName,
       task_id: taskId,
       task_run_id: taskRunId,
       task_user_id: taskUserId,
