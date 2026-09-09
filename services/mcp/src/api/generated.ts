@@ -92,6 +92,15 @@ export namespace Schemas {
       window?: AIWindowConfig;
     }
 
+    export type AIQueryPlanStatusEnum = typeof AIQueryPlanStatusEnum[keyof typeof AIQueryPlanStatusEnum];
+
+
+    export const AIQueryPlanStatusEnum = {
+      Frozen: 'frozen',
+      NotFrozen: 'not_frozen',
+      PlannerUpdated: 'planner_updated',
+    } as const;
+
     export interface AIReportChart {
       /** Id of the rendered PNG export backing this chart. */
       export_asset_id: number;
@@ -58749,6 +58758,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly ai_report_prompt: string | null;
+      /** Query plan state recorded for this delivery: frozen, not_frozen, or planner_updated. Null for older deliveries and non-AI deliveries. */
+      readonly ai_query_plan_status: AIQueryPlanStatusEnum | null;
     }
 
     export interface PaginatedSubscriptionDeliveryList {
@@ -58843,6 +58854,8 @@ export namespace Schemas {
       prompt?: string | null;
       /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
       ai_prompt_config?: AIPromptConfig;
+      /** Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types. */
+      readonly ai_query_plan_status: AIQueryPlanStatusEnum | null;
       /** Delivery channel: email, slack, or teams.
        *
        * * `email` - Email
@@ -68093,6 +68106,8 @@ export namespace Schemas {
       prompt?: string | null;
       /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
       ai_prompt_config?: AIPromptConfig;
+      /** Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types. */
+      readonly ai_query_plan_status?: AIQueryPlanStatusEnum | null;
       /** Delivery channel: email, slack, or teams.
        *
        * * `email` - Email
