@@ -21,6 +21,16 @@ class Migration(migrations.Migration):
 
     visionactionrun is dropped first because it references visionaction.
 
+    Each table holds a foreign key to posthog_team, and Postgres needs ACCESS EXCLUSIVE on a
+    referenced table to drop a foreign key that points at it. So both drops take ACCESS EXCLUSIVE
+    on posthog_team. The lock is metadata-only and is held for microseconds, but posthog_team is
+    read on almost every request, so every query that arrives while the lock request waits queues
+    behind it. Both statements share one transaction, so posthog_team is locked one time.
+
+    lock_timeout bounds that wait to 2 seconds. bin/migrate otherwise applies MIGRATE_LOCK_TIMEOUT,
+    which defaults to 20 seconds. If the lock does not arrive in 2 seconds the migration fails and
+    bin/migrate retries it, which costs a retry instead of a 20 second queue on posthog_team.
+
     Irreversible: the row data is gone. The reverse is a no-op rather than a bogus CREATE TABLE,
     so unapplying this leaves both tables absent, which no code reads or writes.
     """
@@ -32,6 +42,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL(
             sql="""
+                SET LOCAL lock_timeout = '2s';
                 DROP TABLE IF EXISTS "replay_vision_visionactionrun";
                 DROP TABLE IF EXISTS "replay_vision_visionaction";
             """,
