@@ -19,7 +19,7 @@ from ee.hogai.utils.asgi import SyncIterableToAsync
 from .models import MCPAuditEvent, MCPGatewayServer, MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
 from .policy import GatewayCaller, PolicyContext
-from .url_policy import check_mcp_url_policy, trust_environment_proxy
+from .upstream_http import upstream_mcp_client, validate_upstream_url
 
 logger = structlog.get_logger(__name__)
 
@@ -458,11 +458,11 @@ def proxy_mcp_request(
     rides, so the audit trail answers whose connection an agent used. Both are
     empty for member calls, where the actor already is the credential owner.
     """
-    allowed, error = check_mcp_url_policy(installation.url, installation.team_id)
-    if not allowed:
-        logger.warning("SSRF: blocked proxy request", url=installation.url, reason=error)
+    url_verdict = validate_upstream_url(installation.url, installation.team_id)
+    if not url_verdict.allowed:
+        logger.warning("SSRF: blocked proxy request", url=installation.url, reason=url_verdict.reason)
         return HttpResponse(
-            json.dumps({"error": f"URL not allowed: {error}"}),
+            json.dumps({"error": f"URL not allowed: {url_verdict.reason}"}),
             content_type="application/json",
             status=400,
         )
@@ -532,9 +532,11 @@ def proxy_mcp_request(
     if mcp_session_id:
         headers["Mcp-Session-Id"] = mcp_session_id
 
-    client = httpx.Client(
+    client = upstream_mcp_client(
+        installation.url,
+        installation.team_id,
+        url_verdict,
         timeout=UPSTREAM_TIMEOUT,
-        trust_env=trust_environment_proxy(installation.url, installation.team_id),
     )
     try:
         upstream_response, upstream_url = send_mcp_request_with_same_origin_redirect(

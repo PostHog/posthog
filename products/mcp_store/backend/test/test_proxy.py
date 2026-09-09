@@ -1,5 +1,6 @@
 import time
 import uuid
+import ipaddress
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import MagicMock, patch
@@ -14,6 +15,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team, User
+from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.mcp_store.backend.models import (
     MCPAuditEvent,
@@ -24,17 +26,21 @@ from products.mcp_store.backend.models import (
 )
 from products.mcp_store.backend.proxy import _build_sse_response
 
+# An allowed URL with no pinned addresses leaves the client unpinned, so a test can mock
+# ``httpx.Client`` without standing up a transport.
+_ALLOWED_URL_VERDICT = PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set())
+
 
 class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def setUp(self):
         super().setUp()
-        # Policy checks now flow through url_policy (check_mcp_url_policy);
-        # proxy.is_url_allowed still guards same-origin redirect targets.
-        for target in (
-            "products.mcp_store.backend.url_policy.is_url_allowed",
-            "products.mcp_store.backend.proxy.is_url_allowed",
+        # A fetch validates and pins through upstream_http; proxy.is_url_allowed still
+        # guards same-origin redirect targets.
+        for target, verdict in (
+            ("products.mcp_store.backend.upstream_http.validate_url_and_pin_ips", _ALLOWED_URL_VERDICT),
+            ("products.mcp_store.backend.proxy.is_url_allowed", (True, None)),
         ):
-            patcher = patch(target, return_value=(True, None))
+            patcher = patch(target, return_value=verdict)
             patcher.start()
             self.addCleanup(patcher.stop)
 
@@ -87,7 +93,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         mock_client_cls.return_value = mock_client
         return mock_client
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_proxy_forwards_json_rpc_with_api_key(self, mock_client_cls):
         installation = self._create_installation(
             sensitive_configuration={"api_key": "sk-test-key"},
@@ -108,7 +114,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         _, kwargs = mock_client.build_request.call_args
         assert kwargs["headers"]["Authorization"] == "Bearer sk-test-key"
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_proxy_forwards_json_rpc_with_oauth_token(self, mock_client_cls):
         installation = self._create_oauth_installation()
         mock_response = MagicMock()
@@ -127,7 +133,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         _, kwargs = mock_client.build_request.call_args
         assert kwargs["headers"]["Authorization"] == "Bearer oauth-token-123"
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_proxy_streams_sse_response_in_chunks(self, mock_client_cls):
         installation = self._create_installation(
             sensitive_configuration={"api_key": "sk-test-key"},
@@ -152,7 +158,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert content == b"event: message\ndata: {}\n\n"
         mock_response.iter_bytes.assert_called_once_with(4096)
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_proxy_passes_mcp_session_id_both_ways(self, mock_client_cls):
         installation = self._create_installation(
             sensitive_configuration={"api_key": "sk-test-key"},
@@ -178,7 +184,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         _, kwargs = mock_client.build_request.call_args
         assert kwargs["headers"]["Mcp-Session-Id"] == "client-session-xyz"
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_proxy_forwards_posthog_namespace_headers(self, mock_client_cls):
         # Required for PostHog MCP installs through the Store: without
         # `x-posthog-mcp-consumer` reaching the upstream, single-exec mode
@@ -222,7 +228,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert "x-not-posthog-namespace" not in forwarded
 
     @patch("products.mcp_store.backend.oauth.refresh_oauth_token")
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_proxy_refreshes_expired_oauth_token(self, mock_client_cls, mock_refresh):
         installation = self._create_oauth_installation(
             sensitive_configuration={
@@ -311,7 +317,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         assert response.json()["error"] == "Installation needs re-authentication"
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_proxy_sends_no_auth_header_for_none_auth_type(self, mock_client_cls):
         installation = self._create_installation(auth_type="none")
         mock_response = MagicMock()
@@ -336,7 +342,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("timeout", httpx.TimeoutException("Timed out"), 502, "Upstream MCP server timed out"),
         ]
     )
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_proxy_upstream_errors(self, _name, side_effect, expected_status, expected_error, mock_client_cls):
         installation = self._create_installation(
             sensitive_configuration={"api_key": "sk-test-key"},
@@ -368,7 +374,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == 400
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_proxy_passes_through_upstream_error_status(self, mock_client_cls):
         installation = self._create_installation(
             sensitive_configuration={"api_key": "sk-test-key"},
@@ -387,7 +393,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == 404
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_proxy_follows_same_origin_mcp_redirect(self, mock_client_cls):
         installation = self._create_installation(
             sensitive_configuration={"api_key": "sk-test-key"},
@@ -421,7 +427,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert mock_client.build_request.call_args_list[1].kwargs["headers"]["Authorization"] == "Bearer sk-test-key"
         redirect_response.close.assert_called_once()
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_proxy_does_not_follow_cross_origin_redirect_with_credentials(self, mock_client_cls):
         installation = self._create_installation(
             sensitive_configuration={"api_key": "sk-test-key"},
@@ -447,7 +453,7 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         mock_client.send.assert_called_once()
         assert mock_client.build_request.call_args_list[0].kwargs["headers"]["Authorization"] == "Bearer sk-test-key"
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_proxy_does_not_follow_malformed_redirect_with_credentials(self, mock_client_cls):
         installation = self._create_installation(
             sensitive_configuration={"api_key": "sk-test-key"},
@@ -510,9 +516,11 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         assert response.json()["error"] == "No credentials configured"
 
-    @patch("products.mcp_store.backend.url_policy.is_url_allowed")
-    def test_proxy_rejects_ssrf_private_ips(self, mock_is_url_allowed):
-        mock_is_url_allowed.return_value = (False, "Private IP address not allowed")
+    @patch("products.mcp_store.backend.upstream_http.validate_url_and_pin_ips")
+    def test_proxy_rejects_ssrf_private_ips(self, mock_validate_url):
+        mock_validate_url.return_value = PinnedUrlVerdict(
+            allowed=False, reason="Private IP address not allowed", pinned_ips=set()
+        )
         installation = self._create_installation(
             sensitive_configuration={"api_key": "sk-test-key"},
         )
@@ -547,13 +555,13 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
 
     def setUp(self):
         super().setUp()
-        # Policy checks now flow through url_policy (check_mcp_url_policy);
-        # proxy.is_url_allowed still guards same-origin redirect targets.
-        for target in (
-            "products.mcp_store.backend.url_policy.is_url_allowed",
-            "products.mcp_store.backend.proxy.is_url_allowed",
+        # A fetch validates and pins through upstream_http; proxy.is_url_allowed still
+        # guards same-origin redirect targets.
+        for target, verdict in (
+            ("products.mcp_store.backend.upstream_http.validate_url_and_pin_ips", _ALLOWED_URL_VERDICT),
+            ("products.mcp_store.backend.proxy.is_url_allowed", (True, None)),
         ):
-            patcher = patch(target, return_value=(True, None))
+            patcher = patch(target, return_value=verdict)
             patcher.start()
             self.addCleanup(patcher.stop)
 
@@ -579,7 +587,7 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
             removed_at=removed_at,
         )
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_approved_tool_call_reaches_upstream(self, mock_client_cls):
         installation = self._installation()
         self._tool(installation, "search", "approved")
@@ -602,7 +610,7 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert response.status_code == 200
         mock_client.send.assert_called_once()
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_needs_approval_tool_call_blocked_with_jsonrpc_error(self, mock_client_cls):
         installation = self._installation()
         self._tool(installation, "search", "needs_approval")
@@ -620,7 +628,7 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert "approval" in body["error"]["message"].lower()
         mock_client_cls.assert_not_called()
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_do_not_use_tool_call_blocked_with_distinct_error_code(self, mock_client_cls):
         installation = self._installation()
         self._tool(installation, "delete", "do_not_use")
@@ -635,7 +643,7 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert body["error"]["code"] == -32002
         mock_client_cls.assert_not_called()
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_unknown_tool_returns_method_not_found(self, mock_client_cls):
         installation = self._installation()
 
@@ -649,7 +657,7 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert body["error"]["code"] == -32601
         mock_client_cls.assert_not_called()
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_removed_tool_is_not_callable(self, mock_client_cls):
         installation = self._installation()
         self._tool(installation, "legacy", "approved", removed_at=timezone.now())
@@ -664,7 +672,7 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert body["error"]["code"] == -32601
         mock_client_cls.assert_not_called()
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_non_tools_call_methods_pass_through(self, mock_client_cls):
         installation = self._installation()
         # No tools registered — but tools/list must still reach upstream.
@@ -686,7 +694,7 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert response.status_code == 200
         mock_client.send.assert_called_once()
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_batch_all_approved_passes_through(self, mock_client_cls):
         installation = self._installation()
         self._tool(installation, "a", "approved")
@@ -712,7 +720,7 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert response.status_code == 200
         mock_client.send.assert_called_once()
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_batch_all_blocked_returns_jsonrpc_error_list(self, mock_client_cls):
         installation = self._installation()
         self._tool(installation, "a", "needs_approval")
@@ -779,7 +787,7 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert len(batch_call_queries.captured_queries) == len(single_call_queries.captured_queries)
         assert MCPAuditEvent.objects.for_team(self.team.id).count() == 6
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_mixed_batch_rejects_whole_request_with_batch_code(self, mock_client_cls):
         server = MCPGatewayServer.objects.for_team(self.team.id).create(
             team=self.team,
@@ -834,7 +842,7 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         installation.refresh_from_db()
         assert installation.last_used_at is None
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_mixed_batch_with_tools_list_sibling_uses_batch_code(self, mock_client_cls):
         """A passthrough sibling like tools/list must not get TOOL_NEEDS_APPROVAL_CODE."""
         installation = self._installation()
@@ -865,13 +873,13 @@ class TestMCPProxyAccessControl(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
     def setUp(self):
         super().setUp()
-        # Policy checks now flow through url_policy (check_mcp_url_policy);
-        # proxy.is_url_allowed still guards same-origin redirect targets.
-        for target in (
-            "products.mcp_store.backend.url_policy.is_url_allowed",
-            "products.mcp_store.backend.proxy.is_url_allowed",
+        # A fetch validates and pins through upstream_http; proxy.is_url_allowed still
+        # guards same-origin redirect targets.
+        for target, verdict in (
+            ("products.mcp_store.backend.upstream_http.validate_url_and_pin_ips", _ALLOWED_URL_VERDICT),
+            ("products.mcp_store.backend.proxy.is_url_allowed", (True, None)),
         ):
-            patcher = patch(target, return_value=(True, None))
+            patcher = patch(target, return_value=verdict)
             patcher.start()
             self.addCleanup(patcher.stop)
 
@@ -945,7 +953,7 @@ class TestMCPProxyAccessControl(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_proxy_does_not_leak_other_users_credentials(self, mock_client_cls):
         """Even if the installation UUID is known, another user's secret must not be forwarded."""
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
@@ -972,7 +980,7 @@ class TestMCPProxyAccessControl(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         mock_client_cls.return_value = mock_client
         return mock_client
 
-    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    @patch("posthog.security.pinned_httpx.httpx.Client")
     def test_proxy_scopes_to_authenticated_user_not_installation_owner(self, mock_client_cls):
         """The requesting user's identity gates access, not the installation's user field."""
         installation = self._create_installation(self.team, self.user)
@@ -1015,3 +1023,41 @@ class TestBuildSSEResponseOverCap:
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         upstream_response.close.assert_called_once()
         client.close.assert_called_once()
+
+
+class TestMCPProxyDnsPinning(ClickhouseTestMixin, APIBaseTest):
+    """The proxy must reach the address it validated, not whatever DNS says at connect time."""
+
+    def test_proxy_connects_to_the_validated_address(self):
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name="Test Server",
+            url="https://mcp.example.com/mcp",
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "sk-test-key"},
+        )
+        public_ip = ipaddress.ip_address("93.184.216.34")
+
+        with (
+            patch("posthog.security.url_validation.resolve_host_ips", return_value={public_ip}),
+            patch.object(
+                httpx.HTTPTransport,
+                "handle_request",
+                return_value=httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {}}),
+            ) as handle_request,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/proxy/",
+                data={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        # A rebinding record would answer with an internal address on this second lookup.
+        # Pinning means there is no second lookup: the request carries the validated address,
+        # and still names the host for the certificate and for the upstream server.
+        sent = handle_request.call_args.args[0]
+        assert str(sent.url) == f"https://{public_ip}/mcp"
+        assert sent.headers["Host"] == "mcp.example.com"
+        assert sent.extensions["sni_hostname"] == "mcp.example.com"
