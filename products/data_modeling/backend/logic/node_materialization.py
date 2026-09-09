@@ -1,6 +1,5 @@
 import asyncio
 from dataclasses import asdict
-from datetime import timedelta
 from uuid import UUID
 
 from django.conf import settings
@@ -47,12 +46,11 @@ def start_node_materialization(node: Node, *, resume: bool = True) -> None:
             task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-            retry_policy=RetryPolicy(
-                initial_interval=timedelta(seconds=10),
-                maximum_interval=timedelta(seconds=60),
-                maximum_attempts=3,
-                non_retryable_error_types=["NondeterminismError", "CancelledError"],
-            ),
+            # The workflow writes a Failed job row before it re-raises, so a workflow-level retry
+            # writes another job row and another suspension strike for the same failure. Transient
+            # errors are retried inside the workflow by each activity's own policy, the same way the
+            # DAG child start in execute_dag.py leaves it at one attempt.
+            retry_policy=RetryPolicy(maximum_attempts=1),
         )
     )
 
