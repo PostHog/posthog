@@ -265,7 +265,11 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                           return disableLinks ? (
                               <>{alt || src}</>
                           ) : (
-                              <Link to={src} target="_blank" targetBlankIcon disableDocsPanel>
+                              // `disableClientSideRouting` keeps the sanitized `src` as the href. Without it, a
+                              // src that kea-router does not read as a direct link (a protocol-relative
+                              // `//host/a.png`, an uppercase `HTTPS://`, any same-origin path) gets a
+                              // `/project/<id>` prefix, so the link opens a PostHog route instead of the image.
+                              <Link to={src} target="_blank" targetBlankIcon disableDocsPanel disableClientSideRouting>
                                   {alt || src}
                               </Link>
                           )
