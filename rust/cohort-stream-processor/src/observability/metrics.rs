@@ -148,9 +148,11 @@ pub const STORE_OFFLOAD_QUEUE_WAIT_DURATION_SECONDS: &str =
 /// Execution time of the offloaded op inside the blocking closure, labelled by `op` (histogram,
 /// seconds) — excludes permit and queue waits, so it is the pure on-thread store cost.
 pub const STORE_OFFLOAD_EXEC_DURATION_SECONDS: &str = "store_offload_exec_duration_seconds";
-/// Store ops currently executing inside a blocking closure, labelled by `lane`
-/// (`event`|`maintenance`|`write`|`section`) (gauge). Maintained inside the closure so it stays
-/// correct even if the caller future is dropped mid-flight.
+/// Store ops currently executing inside a blocking closure, labelled by `lane` (gauge). The label is
+/// the permit lane the op holds (`event`|`maintenance`), or `write` and `section` for the permit-free
+/// write and stats-snapshot offloads, so `lane="maintenance"` is the maintenance permits in use,
+/// sections included. Maintained inside the closure so it stays correct even if the caller future
+/// is dropped mid-flight.
 pub const STORE_OFFLOAD_INFLIGHT: &str = "store_offload_inflight";
 
 /// Latency of a RocksDB read, labelled by `op` (histogram, seconds). `op=get` is sampled 1-in-N
@@ -554,6 +556,22 @@ pub const PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str =
 /// produce-failure counters before concluding produces are failing.**
 pub const SEED_REGISTER_REPAIRS_TOTAL: &str = "cohort_seed_register_repairs_total";
 
+/// Persons whose Stage 2 inputs a seed apply read through shared store sections (counter).
+/// Attempt-based: a held run counts its persons, and so does the redelivery that replays it.
+/// **Do not divide [`STAGE2_COHORTS_EVALUATED`] by this**, because that counter is settled-based and
+/// the ratio then under-reports the sharing on exactly the runs that hold. Read keys per person off
+/// [`SEED_RECOMPUTE_KEYS_FETCHED_TOTAL`], which is attempt-based on both sides.
+pub const SEED_RECOMPUTE_PERSONS_TOTAL: &str = "cohort_seed_recompute_persons_total";
+/// Store keys those sections fetched, labelled by `source` (`behavioral`|`person_record`|`stage2`)
+/// (counter). Over [`SEED_RECOMPUTE_PERSONS_TOTAL`] this is the sharing win: `person_record` holds
+/// at one per person however many cohorts that person reaches.
+pub const SEED_RECOMPUTE_KEYS_FETCHED_TOTAL: &str = "cohort_seed_recompute_keys_fetched_total";
+/// Raw value bytes one batched read returned, labelled by the same `source` (histogram, bytes).
+/// **A key limit does not bound bytes**, because behavioral values grow with window length, so read
+/// this before assuming the read plan has a memory ceiling. A miss records a real `0`, so prefer the
+/// upper quantiles while a backfill sweeps persons it finds nothing for.
+pub const SEED_RECOMPUTE_CHUNK_BYTES: &str = "cohort_seed_recompute_chunk_bytes";
+
 /// Seeds applied as one run, labelled by `kind` (histogram). The p50 is the batching win: `1` means
 /// every seed still pays its own produce round trip.
 pub const SEED_APPLY_RUN_SIZE: &str = "cohort_seed_apply_run_size";
@@ -939,6 +957,18 @@ mod tests {
         assert_eq!(
             SEED_REGISTER_REPAIRS_TOTAL,
             "cohort_seed_register_repairs_total"
+        );
+        assert_eq!(
+            SEED_RECOMPUTE_PERSONS_TOTAL,
+            "cohort_seed_recompute_persons_total"
+        );
+        assert_eq!(
+            SEED_RECOMPUTE_KEYS_FETCHED_TOTAL,
+            "cohort_seed_recompute_keys_fetched_total",
+        );
+        assert_eq!(
+            SEED_RECOMPUTE_CHUNK_BYTES,
+            "cohort_seed_recompute_chunk_bytes"
         );
         assert_eq!(SEED_APPLY_RUN_SIZE, "cohort_seed_apply_run_size");
         assert_eq!(
