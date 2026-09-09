@@ -65,11 +65,8 @@ Documents exceeding the shared depth limit produce `{}` in the temporary output;
 
 ### Benchmarking the cleaner
 
-The benchmark suite covers clean objects, wide objects, dotted keys, escaped strings, discarded payloads, temporary properties, and feature-flag normalization.
 `BenchmarkProcessFixture` measures cleaning with a reused processor and output buffer.
-`BenchmarkRunFixture` includes chunk framing and buffered input/output for event (`0`), person (`1`), and temporary (`2`) properties.
 One fixture operation processes the entire supplied file, so divide allocations and elapsed time by its row count for per-row figures.
-The chunk benchmark creates a fresh worker per operation, including its fixed buffers.
 
 To use the public [JSONBench Bluesky dataset](https://github.com/ClickHouse/JSONBench), run these commands from `clickhouse-udfs/util`:
 
