@@ -20989,10 +20989,6 @@ snapshots:
     dependencies:
       '@posthog/types': 1.409.2
 
-  '@posthog/core@1.51.1':
-    dependencies:
-      '@posthog/types': 1.409.2
-
   '@posthog/hedgehog-mode@0.0.53(prop-types@15.8.1)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
     dependencies:
       gsap: 3.14.2
