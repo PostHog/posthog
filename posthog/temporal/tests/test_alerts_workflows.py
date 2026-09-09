@@ -11,8 +11,8 @@ from django.conf import settings
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
-from temporalio.client import ScheduleOverlapPolicy, WorkflowFailureError
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -117,26 +117,40 @@ async def test_schedule_due_alert_checks_skips_already_running_children() -> Non
     start_child.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+async def test_schedule_due_alert_checks_attempts_remaining_children_before_reporting_start_failures() -> None:
+    alerts = [
+        AlertInfo(
+            alert_id=f"alert-{index}",
+            team_id=42,
+            distinct_id=f"user-{index}",
+            calculation_interval=AlertCalculationInterval.DAILY.value,
+            insight_id=123,
+        )
+        for index in range(2)
+    ]
+
+    with (
+        patch(
+            "posthog.temporal.alerts.workflows.temporalio.workflow.execute_activity",
+            new=AsyncMock(return_value=alerts),
+        ),
+        patch(
+            "posthog.temporal.alerts.workflows.temporalio.workflow.start_child_workflow",
+            new=AsyncMock(side_effect=[RuntimeError("start failed"), None]),
+        ) as start_child,
+        patch("posthog.temporal.alerts.workflows.temporalio.workflow.logger", new=MagicMock()),
+    ):
+        with pytest.raises(ApplicationError, match="alert-0"):
+            await ScheduleDueAlertChecksWorkflow().run()
+
+    assert start_child.await_count == 2
+
+
 def test_schedule_is_registered_in_init_schedules():
     from posthog.temporal.schedule import schedules
 
     assert create_schedule_due_alert_checks_schedule in schedules
-
-
-@pytest.mark.asyncio
-async def test_due_alert_schedule_skips_overlapping_runs() -> None:
-    captured: dict = {}
-
-    async def create_schedule(*args, **kwargs) -> None:
-        captured["schedule"] = args[2]
-
-    with (
-        patch("posthog.temporal.alerts.schedule.a_schedule_exists", new=AsyncMock(return_value=False)),
-        patch("posthog.temporal.alerts.schedule.a_create_schedule", new=create_schedule),
-    ):
-        await create_schedule_due_alert_checks_schedule(MagicMock())
-
-    assert captured["schedule"].policy.overlap == ScheduleOverlapPolicy.SKIP
 
 
 def _valid_trends_query() -> dict:

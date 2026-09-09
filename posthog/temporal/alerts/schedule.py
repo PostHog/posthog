@@ -27,7 +27,7 @@ async def create_schedule_due_alert_checks_schedule(client: Client) -> None:
             execution_timeout=dt.timedelta(minutes=10),
         ),
         spec=ScheduleSpec(cron_expressions=["*/1 * * * *"]),
-        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.ALLOW_ALL),
     )
 
     if await a_schedule_exists(client, SCHEDULE_ID):
