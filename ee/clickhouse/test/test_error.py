@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import MagicMock
 
 from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError
 
@@ -272,3 +273,16 @@ def test_memory_limit_wraps_by_which_ceiling_was_hit(message, expected_per_query
 )
 def test_failing_to_open_a_clickhouse_connection_is_transient(error):
     assert isinstance(wrap_clickhouse_query_error(error), CH_TRANSIENT_ERRORS)
+
+
+def test_a_driver_error_the_wrapper_passes_through_is_not_its_own_cause():
+    error = SocketTimeoutError("(clickhouse.example.com:9440)")
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.execute.side_effect = error
+
+    with pytest.raises(SocketTimeoutError) as raised:
+        sync_execute("SELECT 1", sync_client=client)
+
+    assert raised.value is error
+    assert raised.value.__cause__ is None
