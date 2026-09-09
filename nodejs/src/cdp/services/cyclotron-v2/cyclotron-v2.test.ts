@@ -1023,25 +1023,47 @@ describe('Cyclotron V2', () => {
             expect(await countByStatus('running')).toBe(2)
         })
 
-        it('dequeues alongside a job whose transition_count is at the smallint ceiling', async () => {
-            // Dequeue bumps transition_count for the whole batch in one UPDATE, so an
-            // unclamped increment on a saturated row aborts the statement and stops every
-            // job on the queue from being dequeued, not just the saturated one.
-            const saturated = await manager.createJob({ teamId: 1, queueName: QUEUE })
-            const healthy = await manager.createJob({ teamId: 1, queueName: QUEUE })
+        // Both dequeue paths bump transition_count for the whole batch in one UPDATE, so an
+        // unclamped increment on a saturated row aborts the statement and stops every job on
+        // the queue, not just the saturated one. 'email' selects the fair path, a separate
+        // statement and the one the outage actually aborted.
+        it.each([
+            ['the plain dequeue', QUEUE],
+            ['the fair dequeue', 'email'],
+        ])('dequeues via %s alongside a job at the smallint ceiling', async (_label, queue) => {
+            // Backdate both so neither can miss the poll's `scheduled <= NOW()` window.
+            const scheduled = new Date(Date.now() - 60_000)
+            const saturated = await manager.createJob({ teamId: 1, queueName: queue, scheduled })
+            const healthy = await manager.createJob({ teamId: 1, queueName: queue, scheduled })
             await assertPool.query('UPDATE cyclotron_jobs SET transition_count = $1 WHERE id = $2', [
                 CYCLOTRON_COUNTER_MAX,
                 saturated,
             ])
 
-            const worker = createWorker()
-            const jobs = await dequeueOneBatch(worker)
+            const jobs = await dequeueOneBatch(createWorker(queue))
 
             expect(jobs.map((j) => j.id).sort()).toEqual([saturated, healthy].sort())
             const { rows } = await assertPool.query('SELECT transition_count FROM cyclotron_jobs WHERE id = $1', [
                 saturated,
             ])
             expect(rows[0].transition_count).toBe(CYCLOTRON_COUNTER_MAX)
+        })
+
+        // The loop that saturates a counter is claim, refuse, reschedule, so the release bumps
+        // it a second time per cycle and has to be clamped too.
+        it('reschedules a job at the smallint ceiling', async () => {
+            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+            await assertPool.query('UPDATE cyclotron_jobs SET transition_count = $1 WHERE id = $2', [
+                CYCLOTRON_COUNTER_MAX,
+                id,
+            ])
+
+            const [job] = await dequeueOneBatch(createWorker())
+            await job.reschedule()
+
+            const row = await queryJob(id)
+            expect(row.status).toBe('available')
+            expect(row.transition_count).toBe(CYCLOTRON_COUNTER_MAX)
         })
 
         it('respects priority ordering (lower number = higher priority)', async () => {

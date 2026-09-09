@@ -3,23 +3,10 @@ import { z } from 'zod'
 
 export type CyclotronV2JobStatus = 'available' | 'running' | 'completed' | 'failed' | 'canceled'
 
-/**
- * Ceiling for `transition_count` and `janitor_touch_count`, which are SMALLINT.
- * Incrementing past it raises `smallint out of range`, and because dequeue bumps
- * `transition_count` in the same UPDATE that claims a batch, one saturated row
- * aborts the dequeue for every job on its queue rather than just itself. Both
- * counters are only ever read for observability, never compared against a limit,
- * so saturating preserves their meaning without that blast radius.
- */
+// SMALLINT ceiling. Dequeue bumps the counter while claiming a batch, so one saturated row aborts the claim for every job in it.
 export const CYCLOTRON_COUNTER_MAX = 32767
 
-/**
- * A dequeued job past this many transitions is in a retry loop it will not leave
- * on its own. Set above anything reached by normal work: across both prod-us
- * queues p50 is 2-4 transitions and the highest live row is ~19.5k, so nothing
- * legitimate crosses this, while a saturating job still has hours of headroom
- * below `CYCLOTRON_COUNTER_MAX` for someone to act on the alert.
- */
+// Past this a job is in a retry loop it will not leave on its own. Set above normal work: live p99 is ~5k and the highest row ~19.5k.
 export const CYCLOTRON_TRANSITION_CHURN_THRESHOLD = 20000
 
 export type CyclotronV2PoolConfig = {
