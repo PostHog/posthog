@@ -23,6 +23,7 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
     is_dangerous_table_function,
 )
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.person_property_mutation_log import PersonPropertyMutationLogTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.database.trino_unnest_table import resolve_internal_trino_table_function
 from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
@@ -49,6 +50,7 @@ from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import (
     expand_hogqlx_query,
+    extract_base_table_types,
     lookup_field_by_name,
     lookup_table_by_name,
     suggest_field_names,
@@ -921,6 +923,11 @@ class Resolver(CloningVisitor):
 
         # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1]
         new_node.select_from = self.visit(node.select_from)
+        if new_node.select_from is not None and new_node.select_from.next_join is not None:
+            if any(
+                isinstance(table.table, PersonPropertyMutationLogTable) for table in extract_base_table_types(node_type)
+            ):
+                raise QueryError("person_property_mutation_log cannot be joined. Query it separately by event_uuid.")
 
         if node.limit_percent and self.dialect not in _POSTGRES_FAMILY:
             if self.dialect == "clickhouse":

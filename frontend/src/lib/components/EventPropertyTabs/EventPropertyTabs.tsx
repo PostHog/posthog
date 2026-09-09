@@ -6,7 +6,9 @@ import { INTERNAL_EXCEPTION_PROPERTY_KEYS } from '@posthog/products-error-tracki
 import { eventPropertyFilteringLogic } from 'lib/components/EventPropertyTabs/eventPropertyFilteringLogic'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { dayjs } from 'lib/dayjs'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs, LemonTabsProps } from 'lib/lemon-ui/LemonTabs'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { isKeyOf } from 'lib/utils/guards'
 import { isSurveyResponseEvent } from 'scenes/surveys/utils'
 
@@ -15,6 +17,7 @@ import { EventType, RecordingEventType } from '~/types'
 
 import { AutocaptureImageTab, hasAutocaptureImage } from '../AutocapturePreviewImage/AutocapturePreviewImage'
 import { ErrorEventType } from '../Errors/types'
+import { personPropertyMutationLogic } from './personPropertyMutationLogic'
 
 export type ErrorPropertyTabEvent = EventType | RecordingEventType | ErrorEventType
 
@@ -32,6 +35,7 @@ type EventPropertyTabKey =
     | 'elements'
     | '$set_properties'
     | '$set_once_properties'
+    | '$unset_properties'
     | 'raw'
     | 'conversation'
     | 'evaluation'
@@ -44,7 +48,7 @@ type EventPropertyTabKey =
     | 'mcp'
 
 export const EventPropertyTabs = ({
-    event,
+    event: originalEvent,
     tabContentComponentFn,
     ...lemonTabsProps
 }: {
@@ -54,6 +58,9 @@ export const EventPropertyTabs = ({
     size?: LemonTabsProps<EventPropertyTabKey>['size']
     barClassName?: LemonTabsProps<EventPropertyTabKey>['barClassName']
 }): JSX.Element => {
+    const eventId = ('uuid' in originalEvent && originalEvent.uuid) || ('id' in originalEvent && originalEvent.id) || ''
+    const { mutations, mutationsLoading, mutationsFailed } = useValues(personPropertyMutationLogic({ eventId }))
+    const event = { ...originalEvent, properties: { ...originalEvent.properties, ...mutations } }
     const isAIGenerationEvent = event.event === '$ai_generation'
     const isAIConversationEvent = isAIGenerationEvent || event.event === '$ai_span' || event.event === '$ai_trace'
     const isAIEvaluationEvent = event.event === '$ai_evaluation'
@@ -93,6 +100,7 @@ export const EventPropertyTabs = ({
     const debugProperties: Record<string, any> = {}
     let setProperties: Record<string, any> = {}
     let setOnceProperties: Record<string, any> = {}
+    let unsetProperties: string[] = []
 
     for (const key of Object.keys(event.properties)) {
         if (!CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] || !CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
@@ -104,6 +112,11 @@ export const EventPropertyTabs = ({
                 setProperties = event.properties[key] ?? {}
             } else if (key === '$set_once') {
                 setOnceProperties = event.properties[key] ?? {}
+            } else if (key === '$unset') {
+                const unset = event.properties[key]
+                unsetProperties = (Array.isArray(unset) ? unset : Object.keys(unset ?? {})).filter(
+                    (name): name is string => typeof name === 'string'
+                )
             } else if (INTERNAL_EXCEPTION_PROPERTY_KEYS.includes(key)) {
                 errorProperties[key] = event.properties[key]
             } else {
@@ -221,6 +234,17 @@ export const EventPropertyTabs = ({
                   }),
               }
             : null,
+        unsetProperties.length > 0
+            ? {
+                  key: '$unset_properties',
+                  label: 'Unset person properties',
+                  content: tabContentComponentFn({
+                      properties: Object.fromEntries(unsetProperties.map((name) => [name, 'Unset'])),
+                      event,
+                      tabKey: '$unset_properties',
+                  }),
+              }
+            : null,
         Object.keys(errorProperties).length > 0
             ? {
                   key: 'exception_properties',
@@ -252,11 +276,24 @@ export const EventPropertyTabs = ({
         },
     ]
     return (
-        <LemonTabs
-            {...lemonTabsProps}
-            activeKey={activeTab}
-            onChange={(newKey: EventPropertyTabKey) => setActiveTab(newKey)}
-            tabs={tabs}
-        />
+        <>
+            {mutationsLoading && (
+                <div className="flex items-center gap-2 px-2 py-1 text-secondary">
+                    <Spinner textColored />
+                    <span>Loading person property updates...</span>
+                </div>
+            )}
+            {mutationsFailed && (
+                <LemonBanner type="error">
+                    Could not load person property updates. Refresh the page to try again.
+                </LemonBanner>
+            )}
+            <LemonTabs
+                {...lemonTabsProps}
+                activeKey={activeTab}
+                onChange={(newKey: EventPropertyTabKey) => setActiveTab(newKey)}
+                tabs={tabs}
+            />
+        </>
     )
 }

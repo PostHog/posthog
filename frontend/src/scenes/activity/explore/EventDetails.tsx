@@ -146,8 +146,8 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                         return (
                             <div className="mx-3 -mt-4">
                                 <p>
-                                    Person properties sent with this event. Will replace any property value that may
-                                    have been set on this person profile before now.{' '}
+                                    Person properties this event requested to set. Existing values are replaced when the
+                                    update is applied.{' '}
                                     <Link to="https://posthog.com/docs/getting-started/person-properties">
                                         Learn more
                                     </Link>
@@ -166,8 +166,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                         return (
                             <div className="mx-3 -mt-4">
                                 <p>
-                                    "Set once" person properties sent with this event. Will replace any property value
-                                    that has never been set on this person profile before now.{' '}
+                                    Person properties this event requested to set only when no value was already set.{' '}
                                     <Link to="https://posthog.com/docs/getting-started/person-properties">
                                         Learn more
                                     </Link>
@@ -179,6 +178,18 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     tableProps={tableProps}
                                     searchable
                                     collapsible
+                                />
+                            </div>
+                        )
+                    case '$unset_properties':
+                        return (
+                            <div className="mx-3 -mt-4">
+                                <p>Person properties this event requested to remove from the person profile.</p>
+                                <PropertiesTable
+                                    type={PropertyDefinitionType.Person}
+                                    properties={properties}
+                                    tableProps={tableProps}
+                                    searchable
                                 />
                             </div>
                         )

@@ -38,6 +38,7 @@ const meta: Meta<typeof EventDetails> = {
     title: 'Components/EventDetails',
     decorators: [
         mswDecorator({
+            post: { '/api/environments/:team_id/query/:kind': { results: [] } },
             get: {
                 '/api/projects/:project_id/event_definitions/primary_properties/': { primary_properties: {} },
             },
@@ -58,6 +59,36 @@ export const NestedProperties: Story = {
     render: () => (
         <div className="w-[40rem]">
             <EventDetails event={eventWithNestedProperties} />
+        </div>
+    ),
+}
+
+export const PersonMutations: Story = {
+    args: { event: eventWithNestedProperties },
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/:kind': {
+                    results: [
+                        [
+                            JSON.stringify({
+                                $set: { plan: 'pro', preferences: { emails: false } },
+                                $set_once: { signup_source: 'newsletter' },
+                                $unset: { trial_expires_at: true },
+                            }),
+                        ],
+                    ],
+                },
+            },
+        }),
+    ],
+}
+
+export const PersonMutationsNarrow: Story = {
+    ...PersonMutations,
+    render: (args) => (
+        <div className="w-128">
+            <EventDetails {...args} />
         </div>
     ),
 }

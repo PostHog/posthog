@@ -125,3 +125,34 @@ If you access `poe.properties.$browser`, we will actually access the field `pers
 In practice, you should avoid both and access `person.properties.$browser`, which will choose the right approach for you.
 
 Add new tables and fields as needed! Just make sure each table has a `team_id` column.
+
+## Event person property updates
+
+`posthog.person_property_mutation_log` stores the submitted `$set`, `$set_once`, and `$unset` payloads for an event.
+These are attempted updates, not the resulting person snapshot: `$set_once` can include values that were already set and therefore did not change.
+The table contains `team_id`, `event_uuid`, `properties` (JSON), and `ingested_at` (UTC Kafka message timestamp).
+HogQL applies the current project's tenant filter and hides rows older than 30 days, even before the storage TTL removes them.
+
+```sql
+SELECT properties
+FROM posthog.person_property_mutation_log
+WHERE event_uuid = '0192a5c8-0000-0000-0000-000000000000'
+ORDER BY ingested_at DESC
+LIMIT 1
+```
+
+The table is unavailable to users with restricted person properties, because the raw payloads can contain those values.
+Event-property restrictions on `$set`, `$set_once`, and `$unset` remove those keys from both raw payloads and nested property reads.
+
+Query this table separately. HogQL rejects joins involving it, including joins through aliases, subqueries, and CTEs.
+Event details perform this point lookup and display the payloads alongside the event, including unset property names.
+An absent row means no retained mutation payload was found; events without updates, expired entries, and events predating ingestion setup all produce this result.
+Embedded mutation properties on older events remain visible.
+
+Storage lives on AUX, ordered by `(team_id, event_uuid)` with daily partitions and a 30-day TTL.
+A separate `clickhouse_person_property_mutation_log` consumer group reads `clickhouse_events_json` through the `warpstream_ingestion` named collection on event-ingestion nodes.
+Only mutation properties reach AUX; other event and person-snapshot properties are discarded.
+This consumer is independent of event storage, so a recently captured event can appear before its mutation log entry.
+Deploy the ClickHouse migration before the application changes or changes that remove embedded mutation payloads from events.
+The migration does not backfill from event storage and does not change the existing event consumers or materialized views.
+Initial consumption follows the Kafka consumer configuration and available topic history.

@@ -182,6 +182,8 @@ They're masked when the query is printed to ClickHouse SQL, so a restricted read
 - **Explicit reads** (`properties.email`) are replaced with `NULL`, and the resolver refuses to back them with a materialized column — `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
 - **Whole-blob reads** (`SELECT properties` or `SELECT *`) have the restricted keys stripped from the returned JSON via `JSONDropKeys(...)` — `ClickHousePrinter._maybe_apply_json_drop_keys()` in `posthog/hogql/printer/clickhouse.py`.
 
+The `posthog.person_property_mutation_log` table uses the same event-property redaction for `$set`, `$set_once`, and `$unset`, including nested reads. Its table guard denies all reads when any person property is restricted, because those payloads can contain person values.
+
 Group restrictions retain their group type index, so a same-named property on another group type stays readable. The masking also applies to the Postgres-backed `system.groups.group_properties` field.
 
 The restriction set is loaded once per query in `prepare_ast_for_printing()` and cached per `(team_id, user_id)` for the request lifetime.
