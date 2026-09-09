@@ -36,6 +36,7 @@ from products.alerts.backend.evaluation.forecast import (
     TrendsForecastExtractor,
     _forecast_extraction_contract,
     _index_for_target_date,
+    _required_history_points,
     _target_projection,
     evaluate_with_forecast,
     simulate_forecast_on_insight,
@@ -484,6 +485,50 @@ class TestHistoryRequirements:
         assert extract.call_args.args[3] == 124
         assert evaluation.is_inconclusive is False
         assert engine.calls[0]["horizon"] == 31
+
+    @parameterized.expand(
+        [
+            ("hourly carries a spare bucket", IntervalType.HOUR, 1),
+            ("daily needs no spare", IntervalType.DAY, 0),
+        ]
+    )
+    def test_hourly_extraction_asks_for_more_history_than_the_evaluation_requires(
+        self, _name: str, interval: IntervalType, expected_spare: int
+    ) -> None:
+        # A relative -Nh range is wall-clock arithmetic, so an hourly window holding a
+        # spring-forward transition returns one bucket fewer. The evaluation needs exactly
+        # _required_history_points, so the request has to carry a spare one at that interval.
+        horizon = 7
+        forecast_config = {
+            "type": "ForecastConfig",
+            "engine": "prophet",
+            "condition": "future_breach",
+            "horizon": horizon,
+        }
+        alert = SimpleNamespace(
+            forecast_config=forecast_config,
+            config={"series_index": 0},
+            team=SimpleNamespace(timezone="America/New_York", week_start_day=1, base_currency="USD"),
+            created_by=None,
+        )
+        query = {
+            "kind": "TrendsQuery",
+            "interval": interval.value,
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+        }
+
+        with patch(
+            "products.alerts.backend.evaluation.forecast.extract_trends_series",
+            return_value=_series(interval=interval),
+        ) as extract:
+            TrendsForecastExtractor().extract(
+                cast(AlertConfiguration, alert),
+                cast(Insight, SimpleNamespace()),
+                query,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            )
+
+        assert extract.call_args.args[3] == _required_history_points(horizon, interval) + expected_spare
 
     @parameterized.expand([("scheduled check", False), ("preview", True)])
     def test_a_null_interval_asks_for_daily_history(self, _name: str, is_preview: bool) -> None:

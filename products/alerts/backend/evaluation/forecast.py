@@ -144,6 +144,22 @@ def _forecast_min_samples(horizon: int, interval: IntervalType | None = None) ->
     return bounded_training_points(_required_history_points(horizon, interval), interval)
 
 
+def _forecast_query_intervals(horizon: int, interval: IntervalType | None) -> int:
+    """Intervals of history to ask the query for, which carries a spare one at an hourly interval.
+
+    A relative ``-Nh`` range is wall-clock arithmetic, so an hourly window that holds a
+    spring-forward transition covers one real hour less and the trends runner returns one bucket
+    fewer. The fit window is exactly the size the evaluation requires, so without the spare
+    interval an hourly alert reports not_enough_history for as long as the transition stays inside
+    the window. One spare is enough, because the widest hourly window is about six weeks and no
+    timezone springs forward twice that close together. A coarser interval snaps its range to
+    interval starts, so an hour of drift never changes its bucket count. ``_clean_points`` caps the
+    history it keeps either way, so the spare interval cannot push the fit past its point limit.
+    """
+    samples = _forecast_min_samples(horizon, interval)
+    return samples + 1 if interval == IntervalType.HOUR else samples
+
+
 def _with_resolved_interval(query: TrendsQuery) -> TrendsQuery:
     """The query extraction runs, with a null interval resolved to the daily default.
 
@@ -429,7 +445,7 @@ class TrendsForecastExtractor:
             insight,
             alert.team,
             trends_query,
-            _forecast_min_samples(horizon, trends_query.interval),
+            _forecast_query_intervals(horizon, trends_query.interval),
             execution_mode,
             series_index=series_index,
             user=alert.created_by,
@@ -452,7 +468,7 @@ class TrendsForecastExtractor:
             insight,
             ctx.team,
             trends_query,
-            _forecast_min_samples(horizon, trends_query.interval),
+            _forecast_query_intervals(horizon, trends_query.interval),
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             series_index=ctx.series_index,
             date_from=_bounded_simulation_date_from(ctx.date_from, team_timezone, today, trends_query.interval),
