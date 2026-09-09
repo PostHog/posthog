@@ -4498,6 +4498,7 @@ def relay_task_run_message(
     text: str,
     text_parts: list[str] | None = None,
     message_id: str | None = None,
+    trace_id: str | None = None,
 ) -> tuple[str, str | None]:
     """Queue a Slack relay workflow for a run message, or under the agent-design
     flag signal the running task workflow to stream the text inline.
@@ -4510,6 +4511,10 @@ def relay_task_run_message(
     post-last-tool-use answer, and posting only that keeps the interim narration
     ("Let me check…") out of the Slack thread. Older callers still send just
     ``text`` and get the previous behavior unchanged.
+
+    ``trace_id`` is the gateway trace id of the turn that wrote this answer, which the
+    posted reply keeps so a rating on it can name the turn. Absent when the sandbox
+    reported none.
     """
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
         SlackThreadTaskMapping,
@@ -4546,6 +4551,7 @@ def relay_task_run_message(
             text=trimmed,
             delete_progress=True,
             message_id=message_id,
+            trace_id=trace_id,
         )
     except Exception:
         logger.exception("task_run_relay_message_enqueue_failed", extra={"run_id": str(run.id)})

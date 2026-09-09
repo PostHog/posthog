@@ -479,6 +479,7 @@ export class PostHogAPIClient {
     text: string,
     textParts?: string[],
     messageId?: string,
+    traceId?: string | null,
   ): Promise<void> {
     const teamId = this.getTeamId();
     // Send `text_parts` alongside the joined `text` so backends that understand
@@ -486,7 +487,12 @@ export class PostHogAPIClient {
     // backends still get the flat `text` field they already handle.
     // `message_id` correlates the relay with the user message that initiated
     // the turn; it is omitted when no message id is known (e.g. boot prompt).
-    const body: { text: string; text_parts?: string[]; message_id?: string } = {
+    const body: {
+      text: string;
+      text_parts?: string[];
+      message_id?: string;
+      trace_id?: string;
+    } = {
       text,
     };
     if (textParts && textParts.length > 0) {
@@ -494,6 +500,9 @@ export class PostHogAPIClient {
     }
     if (messageId) {
       body.message_id = messageId;
+    }
+    if (traceId) {
+      body.trace_id = traceId;
     }
     await this.apiRequest<{ status: string }>(
       `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/relay_message/`,
