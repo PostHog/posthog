@@ -654,13 +654,11 @@ ignore_imports = [
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.query_validation",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_direct",
-    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_references",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_dispatch",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_runs",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_serializers",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_state",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_variables",
-    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.client",
-    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.sql_v2",
     # TODO: experiments presentation wave — these were invisible to import-linter until
     # backend/presentation/ got its package marker, so they are newly surfaced debt, not new
     # coupling. experiments is not isolated, so nothing was being skipped on their account.

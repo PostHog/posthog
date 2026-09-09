@@ -202,6 +202,72 @@ class KernelRuntime(UUIDTModel):
         ]
 
 
+class NotebookRun(TeamScopedRootMixin, UUIDModel):
+    """One whole-notebook run: every runnable cell of a markdown notebook, in document order.
+
+    A Temporal workflow drives the cells one at a time and each becomes a NotebookNodeRun
+    pointing back here. The row is the only durable record of a run a client can leave and
+    come back to, so the status endpoint reads it rather than the workflow.
+    """
+
+    class Trigger(models.TextChoices):
+        UI = "ui", "ui"
+        MCP = "mcp", "mcp"
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "running"
+        DONE = "done", "done"
+        FAILED = "failed", "failed"
+        INTERRUPTED = "interrupted", "interrupted"
+
+    ACTIVE_STATUSES = (Status.RUNNING,)
+
+    # db_constraint=False: creating a real FK to the hot posthog_team table locks it on deploy.
+    # Tenant isolation is still enforced by the fail-closed TeamScopedRootMixin manager.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE, related_name="+")
+    # Who started it, and whose kernel the Python cells run on. None for a token user, the
+    # same as NotebookNodeRun. db_constraint=False/DO_NOTHING for the reasons stated there.
+    user = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
+    trigger = models.CharField(choices=Trigger, default=Trigger.UI, max_length=16)
+    status = models.CharField(choices=Status, default=Status.RUNNING, max_length=20)
+    # The variables this run bound, as [{name, type, value}]. A snapshot: an edit during the
+    # run must not change what the remaining cells receive.
+    variables: JSONField = JSONField(default=list)
+    # The cells to run, as [{node_id, cell_type, dataframe_name}], frozen when the run starts.
+    # A cell added mid-run does not join it, and a deleted one still runs.
+    cell_plan: JSONField = JSONField(default=list)
+    current_index = models.IntegerField(default=0)
+    failed_node_id = models.TextField(null=True, blank=True)
+    error = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_notebook_run"
+        constraints = [
+            # "One whole-notebook run at a time" enforced by the database, so two racing
+            # start requests cannot both open a run without holding a lock.
+            models.UniqueConstraint(
+                fields=["notebook"],
+                condition=models.Q(status="running"),
+                name="notebook_run_one_active_per_notebook",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "notebook", "-created_at"], name="notebook_run_recent"),
+        ]
+
+
 class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     """A single execution of a revamped-notebooks (SQLV2) node.
     The primary key is the run_id referenced by the run/callback/stream endpoints.
@@ -224,6 +290,20 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     # Tenant isolation is still enforced by the fail-closed TeamScopedRootMixin manager.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE)
+    # The whole-notebook run that ordered this cell, if any. Null for a single-cell run.
+    # db_constraint=False and db_index=False for the same reasons as `user` below: this table
+    # grows fastest, so the column must add neither a validation scan nor an index build to a
+    # deploy. Readers already scope by (team, notebook), which the index above covers, and
+    # DO_NOTHING keeps a NotebookRun delete from issuing an unindexed UPDATE over the table.
+    notebook_run = models.ForeignKey(
+        "notebooks.NotebookRun",
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="node_runs",
+    )
     # Who ran it. Kernels are per user, so this is the second half of a KernelRuntime's scope —
     # the callback needs it to file the frame snapshot without a user-blind lookup by id.
     # db_constraint=False: a real FK to the hot posthog_user table locks it on deploy.
