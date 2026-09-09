@@ -2774,6 +2774,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "id",
             "skill_name",
             "description",
+            "display_name",
             "scout_origin",
             "owners",
             "enabled",
@@ -2846,7 +2847,7 @@ def _capture_auto_pause_reverted(
 
 
 class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
-    """Editable schedule, enablement, and emit posture for one scout config."""
+    """Editable display name, schedule, enablement, and emit posture for one scout config."""
 
     enabled = serializers.BooleanField(
         required=False,
@@ -3003,6 +3004,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = SignalScoutConfig
         fields = [
+            "display_name",
             "enabled",
             "emit",
             "run_interval_minutes",

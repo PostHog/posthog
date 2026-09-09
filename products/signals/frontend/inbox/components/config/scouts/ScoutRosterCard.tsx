@@ -14,7 +14,7 @@ import {
     ScoutRosterRow,
     scoutSubtitle,
 } from '../../../utils/scoutGroups'
-import { prettifyScoutSkillName } from '../../../utils/scoutRunsWindow'
+import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import { inboxCardRowClassName } from '../../cards/inboxCardRowClassName'
 import { ScoutLifecycleBadge } from './ScoutBadges'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
@@ -64,7 +64,7 @@ export function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <span className="min-w-0 truncate text-sm font-semibold leading-snug">
-                            {prettifyScoutSkillName(config.skill_name)}
+                            {scoutDisplayName(config)}
                         </span>
                         <ScoutWriteAccessTag writeScopes={config.write_scopes} emit={config.emit} />
                         {config.auto_pause_exempt && group === 'watching' && (
