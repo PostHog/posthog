@@ -129,21 +129,31 @@ class TestGetBillingStatusRequest(BaseTest):
         )
         self.manager = BillingManager(license)
 
+    @parameterized.expand([("overview", "_get_billing"), ("product_fallback", "_get_products")])
     @patch("ee.billing.billing_manager.http_session.get")
-    def test_the_status_request_carries_a_timeout(self, mock_get):
-        mock_get.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"customer": {}}))
+    def test_the_status_request_carries_a_timeout(self, _name, method_name, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=200, json=MagicMock(return_value={"customer": {}, "products": []})
+        )
 
-        self.manager._get_billing(self.organization)
+        getattr(self.manager, method_name)(self.organization)
 
         assert mock_get.call_args.kwargs["timeout"] == BILLING_STATUS_REQUEST_TIMEOUT
 
-    @parameterized.expand([("read_timeout", requests.Timeout), ("unreachable", requests.ConnectionError)])
+    @parameterized.expand(
+        [
+            ("overview_read_timeout", "_get_billing", requests.Timeout),
+            ("overview_unreachable", "_get_billing", requests.ConnectionError),
+            ("product_fallback_read_timeout", "_get_products", requests.Timeout),
+            ("product_fallback_unreachable", "_get_products", requests.ConnectionError),
+        ]
+    )
     @patch("ee.billing.billing_manager.http_session.get")
-    def test_a_request_that_never_answers_is_unavailable(self, _name, error_class, mock_get):
+    def test_a_request_that_never_answers_is_unavailable(self, _name, method_name, error_class, mock_get):
         mock_get.side_effect = error_class()
 
         with self.assertRaises(BillingServiceUnavailable):
-            self.manager._get_billing(self.organization)
+            getattr(self.manager, method_name)(self.organization)
 
     @parameterized.expand([("request_timeout", 408), ("bad_gateway", 502), ("gateway_timeout", 504)])
     @patch("ee.billing.billing_manager.http_session.get")
@@ -184,7 +194,10 @@ class TestBillingManager(BaseTest):
         BillingManager(license=None).get_billing(organization)
         assert billing_patch_request_mock.call_count == 1
         billing_patch_request_mock.assert_called_with(
-            "https://billing.posthog.com/api/products-v2", params={"plan": "standard"}, headers={}
+            "https://billing.posthog.com/api/products-v2",
+            params={"plan": "standard"},
+            headers={},
+            timeout=BILLING_STATUS_REQUEST_TIMEOUT,
         )
 
     def test_get_billing_adds_todays_usage_to_usage_summary(self):

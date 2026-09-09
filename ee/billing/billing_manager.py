@@ -52,8 +52,8 @@ BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER = "X-PostHog-Billing-Provider-Signatur
 BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER = "X-PostHog-Billing-Provider-Timestamp"
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION = "sha256"
 BILLING_TIMESERIES_REQUEST_TIMEOUT = (5, 30)
-# The billing overview the page reads on load. It is a status read, so it gets the same budget as
-# a timeseries request.
+# The reads the billing page waits on: the overview, and the product list it falls back to. They
+# are status reads, so they get the same budget as a timeseries request.
 BILLING_STATUS_REQUEST_TIMEOUT = (5, 30)
 # Statuses that mean billing did not answer this time, rather than that the request is wrong.
 # A caller can retry them.
@@ -599,11 +599,15 @@ class BillingManager:
         if self.license and organization:
             headers = self.get_auth_headers(organization)
 
-        res = http_session.get(
-            f"{BILLING_SERVICE_URL}/api/products-v2",
-            params=params,
-            headers=headers,
-        )
+        try:
+            res = http_session.get(
+                f"{BILLING_SERVICE_URL}/api/products-v2",
+                params=params,
+                headers=headers,
+                timeout=BILLING_STATUS_REQUEST_TIMEOUT,
+            )
+        except (requests.Timeout, requests.ConnectionError) as error:
+            raise BillingServiceUnavailable("Billing service did not answer the products request") from error
 
         handle_billing_service_error(res)
 
