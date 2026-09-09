@@ -483,6 +483,19 @@ class PersonalOrProjectSecretApiKeyRateThrottle(PersonalApiKeyRateThrottle):
         return super().get_cache_key(request, view)
 
 
+class PersonalOrProjectSecretApiKeyBurstRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    # The default burst budget, extended to project secret API keys. It shares BurstRateThrottle's
+    # scope, so it shares its bucket too and session and personal-key behavior is unchanged.
+    scope = BurstRateThrottle.scope
+    rate = BurstRateThrottle.rate
+
+
+class PersonalOrProjectSecretApiKeySustainedRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    # The default sustained budget, extended to project secret API keys.
+    scope = SustainedRateThrottle.scope
+    rate = SustainedRateThrottle.rate
+
+
 class ProjectSecretApiKeyTeamRateThrottle(PersonalApiKeyRateThrottle):
     """
     Per-team aggregate throttle for project secret API key (PSAK) requests.
@@ -1006,6 +1019,21 @@ class PersonalSpendDailyThrottle(PersonalApiKeyOrUserRateThrottle):
     # Daily cap for the personal LLM spend analysis endpoint.
     scope = "personal_spend_daily"
     rate = "200/day"
+
+
+class LLMPromptProjectSecretApiKeyTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    """Per-team aggregate burst budget across all of a project's secret API keys, so minting
+    extra keys never multiplies a project's total prompt-fetch capacity."""
+
+    scope = "llm_prompt_psak_team_burst"
+    rate = BurstRateThrottle.rate
+
+
+class LLMPromptProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    """Per-team aggregate sustained budget across all of a project's secret API keys."""
+
+    scope = "llm_prompt_psak_team_sustained"
+    rate = SustainedRateThrottle.rate
 
 
 class LLMPromptPublishBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):

@@ -22,7 +22,17 @@ from posthog.api.llm_prompt_serializers import (
 )
 from posthog.api.services.llm_prompt import MAX_PROMPT_VERSION
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
+from posthog.models.organization import OrganizationMembership
+from posthog.rate_limit import (
+    BurstRateThrottle,
+    LLMPromptProjectSecretApiKeyTeamBurstThrottle,
+    LLMPromptProjectSecretApiKeyTeamSustainedThrottle,
+    LLMPromptPublishBurstRateThrottle,
+    PersonalOrProjectSecretApiKeyBurstRateThrottle,
+    PersonalOrProjectSecretApiKeySustainedRateThrottle,
+    SustainedRateThrottle,
+)
+from posthog.test.api_keys import create_project_secret_api_key
 
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel
 
@@ -935,15 +945,18 @@ class TestLLMPromptAPI(APIBaseTest):
         assert isinstance(throttles[1], BurstRateThrottle)
         assert isinstance(throttles[2], SustainedRateThrottle)
 
-    def test_get_by_name_uses_default_burst_and_sustained_throttles(self):
+    @parameterized.expand([("get_by_name",), ("resolve_by_name",)])
+    def test_fetch_actions_use_project_secret_api_key_aware_throttles(self, action: str):
         view = LLMPromptViewSet()
-        view.action = "get_by_name"
+        view.action = action
 
         throttles = view.get_throttles()
 
-        assert len(throttles) == 2
-        assert isinstance(throttles[0], BurstRateThrottle)
-        assert isinstance(throttles[1], SustainedRateThrottle)
+        assert len(throttles) == 4
+        assert isinstance(throttles[0], PersonalOrProjectSecretApiKeyBurstRateThrottle)
+        assert isinstance(throttles[1], PersonalOrProjectSecretApiKeySustainedRateThrottle)
+        assert isinstance(throttles[2], LLMPromptProjectSecretApiKeyTeamBurstThrottle)
+        assert isinstance(throttles[3], LLMPromptProjectSecretApiKeyTeamSustainedThrottle)
 
     def test_duplicate_prompt_creates_new_prompt_with_latest_content(self):
         self.create_prompt_version(name="original", version=1, is_latest=False, prompt="v1")
@@ -1657,3 +1670,132 @@ class TestLLMPromptLabelNameValidationNoDB(SimpleTestCase):
     )
     def test_accepts_valid_label_name(self, _label: str, good_name: str) -> None:
         assert validate_prompt_label_name_value(good_name) == good_name
+
+
+class TestLLMPromptProjectSecretAPIKeyAuth(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        LLMPrompt.objects.create(
+            team=self.team,
+            name="my-prompt",
+            prompt="You are a helpful assistant.",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        _, self.token = create_project_secret_api_key(self.team, scopes=["llm_prompt:read"])
+        # Log out the test client so only the key header authenticates requests
+        self.client.logout()
+
+    def _auth_headers(self, token: str) -> dict[str, str]:
+        return {"Authorization": f"Bearer {token}"}
+
+    def test_key_can_fetch_prompt_by_name(self) -> None:
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/",
+            headers=self._auth_headers(self.token),
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        data = response.json()
+        assert data["name"] == "my-prompt"
+        assert data["prompt"] == "You are a helpful assistant."
+
+    def test_key_can_resolve_prompt_versions(self) -> None:
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/resolve/name/my-prompt/",
+            headers=self._auth_headers(self.token),
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        data = response.json()
+        assert data["prompt"]["name"] == "my-prompt"
+        assert [version["version"] for version in data["versions"]] == [1]
+
+    def test_key_keeps_working_when_its_creator_is_deactivated(self) -> None:
+        _, token = create_project_secret_api_key(
+            self.team, created_by=self.user, label="service", scopes=["llm_prompt:read"]
+        )
+        self.user.is_active = False
+        self.user.save()
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/",
+            headers=self._auth_headers(token),
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    @parameterized.expand(
+        [
+            ("publish", "patch", "name/my-prompt/", {"prompt": "Rewritten"}),
+            ("archive", "post", "name/my-prompt/archive/", None),
+            ("duplicate", "post", "name/my-prompt/duplicate/", {"new_name": "copy"}),
+            ("set_label", "put", "name/my-prompt/labels/production/", {"version": 1}),
+            ("delete_label", "delete", "name/my-prompt/labels/production/", None),
+            ("create", "post", "", {"name": "other", "prompt": "hi"}),
+            ("list", "get", "", None),
+        ]
+    )
+    def test_key_blocked_on_actions_that_stay_human_driven(
+        self, _name: str, method: str, path_suffix: str, body: dict | None
+    ) -> None:
+        _, wide_token = create_project_secret_api_key(
+            self.team, label="wide", scopes=["llm_prompt:read", "llm_prompt:write"]
+        )
+
+        response = getattr(self.client, method)(
+            f"/api/environments/{self.team.id}/llm_prompts/{path_suffix}",
+            data=body,
+            content_type="application/json",
+            headers=self._auth_headers(wide_token),
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+    def test_key_without_prompt_scope_forbidden(self) -> None:
+        _, token = create_project_secret_api_key(self.team, label="wrong-scope", scopes=["feature_flag:read"])
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/",
+            headers=self._auth_headers(token),
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+    def test_key_from_another_project_forbidden(self) -> None:
+        other_team = self.create_team_with_organization(organization=self.organization)
+        _, other_token = create_project_secret_api_key(other_team, label="other", scopes=["llm_prompt:read"])
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/",
+            headers=self._auth_headers(other_token),
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+    def test_session_auth_still_fetches_prompts(self) -> None:
+        self.client.force_login(self.user)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["name"] == "my-prompt"
+
+    @parameterized.expand(
+        [
+            ("read_allowed", ["llm_prompt:read"], status.HTTP_201_CREATED),
+            ("write_rejected", ["llm_prompt:write"], status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_key_creation_allowlist(self, _name: str, scopes: list[str], expected_status: int) -> None:
+        self.client.force_login(self.user)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "prompt fetcher", "scopes": scopes},
+        )
+
+        assert response.status_code == expected_status, response.content
