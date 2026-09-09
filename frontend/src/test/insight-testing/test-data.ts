@@ -287,6 +287,10 @@ export interface FunnelStepData {
     breakdown_value?: string | number
     // The funnels runner tags compare rows with `compare_label` (it doesn't set `compare`).
     compare_label?: 'current' | 'previous'
+    // Per-period conversion counts, index-aligned with `data`. Optional so a fixture can also
+    // stand in for a result the query cache filled before the runner returned counts.
+    reached_from_step_count?: number[]
+    reached_to_step_count?: number[]
 }
 
 export const funnelTrendsSteps = {
@@ -296,6 +300,8 @@ export const funnelTrendsSteps = {
         days,
         labels,
         name: '$pageview → Napped',
+        reached_from_step_count: [200, 200, 200, 200, 200],
+        reached_to_step_count: [20, 50, 80, 120, 70],
     } satisfies FunnelStepData,
     byBreakdown: {
         hedgehog: [
