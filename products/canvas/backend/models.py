@@ -273,10 +273,8 @@ class CanvasState(TeamScopedRootMixin, UUIDModel):
 
 
 class Sketchpad(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-    channel = models.ForeignKey(
-        "tasks.Channel", on_delete=models.CASCADE, db_constraint=False, related_name="sketchpads"
-    )
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    channel = models.ForeignKey("tasks.Channel", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     name = models.CharField(max_length=120)
     created_by = models.ForeignKey(
         "posthog.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+", db_constraint=False
@@ -300,7 +298,7 @@ class SketchpadRecord(TeamScopedRootMixin, UUIDModel):
         COMPILE = "compile"
         STATE = "state"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     sketchpad = models.ForeignKey(Sketchpad, on_delete=models.CASCADE, related_name="records")
     kind = models.CharField(max_length=8, choices=Kind.choices)
     key = models.CharField(max_length=128)
@@ -319,7 +317,7 @@ class SketchpadOp(TeamScopedRootMixin, UUIDModel):
     ACTOR_KIND_AGENT = "agent"
     ACTOR_KINDS = [ACTOR_KIND_USER, ACTOR_KIND_AGENT]
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     sketchpad = models.ForeignKey(Sketchpad, on_delete=models.CASCADE, related_name="ops")
     seq = models.IntegerField()
     op_id = models.CharField(max_length=64)
