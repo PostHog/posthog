@@ -59,9 +59,11 @@ What stays in `scenes/max`: conversation orchestration (`maxLogic`, `maxThreadLo
 Max Context subsystem, slash commands, `useMaxTool`/`MaxTool`, feedback/ratings, and the frozen LangGraph
 path (including its `messages/*` presenters). The **PostHog product tool renderers** (insight, dashboard,
 recordings, notebook, query) live in `products/posthog_ai/frontend/components/tool/widgets`; error tracking
-and replay vision own their widget families under their respective `products/<product>/frontend` directories
-and contribute through the central manifest. Max's LangGraph path consumes the heavier
-ones (`VisualizationWidget` / `RecordingsWidget`) through `api/primitives`, and error-tracking and replay-vision widgets directly from their owning products.
+and replay vision own their widget families under their respective `products/<product>/frontend` directories.
+Error tracking contributes a declaration list to the central manifest, so its cards render on the sandbox path too.
+Replay vision has no declaration yet, so its scan widget renders only on the LangGraph path until one is added.
+Max's LangGraph path consumes the heavier ones (`VisualizationWidget` / `RecordingsWidget`) through `api/primitives`,
+and error-tracking and replay-vision widgets directly from their owning products.
 
 ## 5. Where do I add X?
 
