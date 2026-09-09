@@ -15,20 +15,11 @@ import { ApiError } from 'lib/api'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
-import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
-import { getAddTileMenuItems } from 'scenes/dashboard/DashboardHeaderActions'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import {
-    BREAKPOINTS,
-    BREAKPOINT_COLUMN_COUNTS,
-    getInsightQueryError,
-    isWidgetTileVisibleOnPlacement,
-} from 'scenes/dashboard/dashboardUtils'
+import { BREAKPOINTS, getInsightQueryError, isWidgetTileVisibleOnPlacement } from 'scenes/dashboard/dashboardUtils'
 import { continueDragGestureInEditMode, continueResizeGestureInEditMode } from 'scenes/dashboard/editLayoutGesture'
-import { InsertTileOverlay } from 'scenes/dashboard/InsertTileOverlay'
 import { useDashboardLayoutInteraction } from 'scenes/dashboard/useDashboardLayoutInteraction'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
@@ -120,16 +111,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         copyToDashboard,
         setTileOverride,
         setDashboardMode,
-        setAddWidgetModalOpen,
-        setPendingInsertion,
-        openTextTileModal,
-        openImageTileModal,
-        openButtonTileModal,
     } = useActions(dashboardLogic)
-    const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
-    const { reportDashboardAddMenuOpened, reportDashboardTileRepositioned } = useActions(eventUsageLogic)
+    const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
     const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({})
 
@@ -262,33 +247,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const margin = useMemo(
         () => BASE_MARGIN.map(() => gridGap * spacingFactor) as [number, number],
         [gridGap, spacingFactor]
-    )
-
-    const getInsertMenuItems = useCallback(
-        (targetX: number, targetY: number, targetW?: number): LemonMenuItems =>
-            dashboard
-                ? getAddTileMenuItems({
-                      dashboardWidgetsEnabled,
-                      onAddInsight: showAddInsightToDashboardModal,
-                      onAddText: openTextTileModal,
-                      onAddImage: openImageTileModal,
-                      onAddButton: openButtonTileModal,
-                      push,
-                      setAddWidgetModalOpen,
-                      onBeforeSelect: () => setPendingInsertion({ x: targetX, y: targetY, w: targetW ?? null }),
-                  })
-                : [],
-        [
-            dashboard,
-            dashboardWidgetsEnabled,
-            showAddInsightToDashboardModal,
-            push,
-            setAddWidgetModalOpen,
-            setPendingInsertion,
-            openTextTileModal,
-            openImageTileModal,
-            openButtonTileModal,
-        ]
     )
 
     const showResizeHandles = layoutEditMode && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
@@ -730,25 +688,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             }
                         })}
                     </ReactGridLayout>
-                    {isEditablePlacement && (
-                        <InsertTileOverlay
-                            layout={layouts['sm']}
-                            gridWidth={gridWidth}
-                            cols={BREAKPOINT_COLUMN_COUNTS.sm}
-                            rowHeight={rowHeight}
-                            marginX={margin[0]}
-                            marginY={margin[1]}
-                            canEditDashboard={canEditDashboard}
-                            isMobileView={isMobileView}
-                            disabled={resizingTileId !== null}
-                            getMenuItems={getInsertMenuItems}
-                            onMenuOpen={() => {
-                                if (dashboard?.id) {
-                                    reportDashboardAddMenuOpened('inline', dashboard.id)
-                                }
-                            }}
-                        />
-                    )}
                 </div>
             )}
             {dashboardStreaming && (
