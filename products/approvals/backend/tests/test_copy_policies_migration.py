@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.models import Team
 
+from products.access_control.backend.models.role import Role
 from products.approvals.backend.models import ApprovalPolicy
 
 # Delete this once the migration has run everywhere and the rollback window has closed.
@@ -63,6 +64,7 @@ class TestCopyFeatureFlagPoliciesToExperiments(APIBaseTest):
         assert copied_teams == {self.team.id, other_team.id}
 
     def test_carries_the_whole_policy_across(self) -> None:
+        role = Role.objects.create(organization=self.organization, name="Approvers")
         source = self._policy(
             "feature_flag.update",
             conditions={"type": "before_after", "field": "rollout_percentage", "operator": ">", "value": 0},
@@ -72,12 +74,15 @@ class TestCopyFeatureFlagPoliciesToExperiments(APIBaseTest):
             expires_after=timedelta(days=3),
             enabled=False,
         )
+        source.bypass_roles.set([role])
 
         run_migration()
 
         copy = ApprovalPolicy.objects.get(action_key="experiment.update", team=self.team)
         for field in MIGRATION.COPIED_FIELDS:
             assert getattr(copy, field) == getattr(source, field), field
+        # bypass_roles is a many-to-many, so the migration copies it outside COPIED_FIELDS.
+        assert list(copy.bypass_roles.all()) == [role]
 
     def test_running_twice_creates_nothing_new(self) -> None:
         self._policy("feature_flag.enable")
