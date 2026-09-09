@@ -37,9 +37,7 @@ pub trait IdentityStorage: Send + Sync {
     ) -> StorageResult<Vec<DistinctIdMapping>>;
 
     /// Live mapping rows for the given distinct ids on the primary, joined
-    /// to the person's uuid for re-emission to ClickHouse. Mappings to
-    /// tombstoned persons are invisible; ids without a live mapping are
-    /// absent from the result.
+    /// to the person's uuid. Ids without a live mapping are absent.
     async fn get_distinct_id_mappings(
         &self,
         team_id: i64,

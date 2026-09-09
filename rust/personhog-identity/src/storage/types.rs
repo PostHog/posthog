@@ -41,8 +41,7 @@ pub struct DistinctIdMapping {
     pub version: Option<i64>,
 }
 
-/// One live mapping row joined to its person's uuid, because ClickHouse
-/// keys persons by uuid, not row id.
+/// One live mapping row joined to its person's uuid.
 #[derive(Debug, Clone)]
 pub struct DistinctIdPersonMapping {
     pub distinct_id: String,

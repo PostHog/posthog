@@ -480,9 +480,8 @@ async fn repeated_person_ids_do_not_exceed_the_per_person_limit() {
     );
 }
 
-/// The mapping read backs ClickHouse re-emission: it must carry the
-/// mapping row's own version (extras are born at version 1, primaries at
-/// 0) and the person's uuid, and hide unknown ids.
+/// The read must carry the mapping row's own version (extras are born at
+/// version 1, primaries at 0), not the person's, and hide unknown ids.
 #[tokio::test]
 async fn distinct_id_mappings_carry_uuid_and_mapping_version() {
     let t = ServiceTestContext::new().await;

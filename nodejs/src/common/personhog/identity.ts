@@ -121,9 +121,8 @@ export class PersonhogIdentityOperations {
     }
 
     /**
-     * Committed mapping rows for the given distinct ids on the primary,
-     * with the person uuid and mapping-row version, for re-emission to
-     * ClickHouse. Ids without a live mapping are absent from the result.
+     * Committed mapping rows on the primary, for re-emission to ClickHouse.
+     * Ids without a live mapping are absent from the result.
      */
     async getDistinctIdMappings(
         teamId: number,

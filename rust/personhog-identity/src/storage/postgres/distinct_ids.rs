@@ -73,9 +73,7 @@ pub(super) async fn get_distinct_ids_for_persons(
         .collect()
 }
 
-/// Live mapping rows for the given distinct ids on the primary, joined to
-/// the person's uuid. Mappings to tombstoned persons are invisible, like
-/// `resolve_distinct_ids`.
+/// Mappings to tombstoned persons are invisible, like `resolve_distinct_ids`.
 pub(super) async fn get_distinct_id_mappings(
     pool: &PgPool,
     tables: &IdentityTables,
