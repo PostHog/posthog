@@ -85,9 +85,9 @@ WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP = 15
 
 WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL = Counter(
     "posthog_wizard_gateway_token_requests_total",
-    "Wizard gateway-token mint requests, by outcome (minted/unconfigured/not_wizard_app/"
-    "scope_missing/team_ambiguous/team_missing/unauthorized/blocked/program_unknown/"
-    "not_rolled_out/mint_failed)",
+    "Wizard gateway-token mint requests, by outcome (minted/unconfigured/invalid_token/"
+    "not_wizard_app/scope_missing/team_ambiguous/team_missing/unauthorized/blocked/"
+    "program_unknown/not_rolled_out/throttled/mint_failed)",
     labelnames=["outcome"],
 )
 
