@@ -876,14 +876,22 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
     - ``SIGNAL_REPORT`` linked to a report in this team, repo-less, and carrying no GitHub
       integration (the Inbox "Discuss" fallback). Reports are minted by scouts and the link is
       team-scoped by the write serializer, so a caller can't forge one. Acting on a report is
-      entitled through self-driving (`product-autonomy`). A report task that resolved a
-      repository, or that carries the team integration for a repo-less discussion, is not
-      exempt, because `create_task` only gives it either after the gate passed. Re-checking
+      entitled through self-driving (`product-autonomy`). A discussion that resolved a
+      repository, or that carries the team integration while repo-less, is not exempt under
+      this shape, because `create_task` only gives it either after the gate passed. Re-checking
       here costs the caller nothing.
     - ``SIGNALS_CHAT`` (Inbox scout chat), reserved for server-side creation by the signals
       scout-chat endpoint; the write serializer rejects it from API callers. Only while
       repo-less: chat tasks are minted without repositories, and attaching one via update
       would turn the exemption into ungated cloud code work.
+    - ``SIGNAL_REPORT`` linked to a report in this team that also carries an ``implementation``
+      ``SignalReportTask`` row for this task (the Inbox "Create PR"). Such a task holds a
+      repository by design, so the repo-less shape above can never cover it. Auto-start opens the
+      same PR run for the same report from the server without consulting the gate, and
+      self-driving prices a PR flat and caps it per report, so gating the button would only make
+      the outcome depend on who started the run. ``record_report_task`` writes the row on both
+      paths. The relationship label is client input, but it counts only on a row scoped to this
+      team and to the report the task itself links, so asserting it buys nothing on its own.
 
     A bare ``SIGNAL_REPORT`` origin without a report link deliberately does not qualify:
     ``origin_product`` is client input, so an FK-less claim would be a one-field waitlist
@@ -905,6 +913,13 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
             repositories=[],
             github_integration__isnull=True,
             github_user_integration__isnull=True,
+        )
+        | Q(
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report__team_id=team_id,
+            signal_report_tasks__team_id=team_id,
+            signal_report_tasks__report_id=F("signal_report_id"),
+            signal_report_tasks__relationship="implementation",
         ),
         id=task_id,
         team_id=team_id,
@@ -5962,7 +5977,7 @@ def create_task(
     # report-linked task that can never open a PR. "Implementation" (Create PR) and legacy clients
     # (no relationship) always resolve one. "Discuss" (and any other non-implementation label)
     # resolves one only for a caller the Desktop gate passed: the run endpoint gates a
-    # repository-backed report task, so resolving for anyone else would 403 the very click this
+    # repository-backed discussion, so resolving for anyone else would 403 the very click this
     # path exists to unblock (see `task_exempt_from_code_access`).
     signal_report = validated_data.get("signal_report")
     if (
