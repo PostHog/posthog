@@ -268,6 +268,11 @@ tools:
             from the scanner's Scouts and Alerts tabs. For a scanner scoped to one experiment's exposed sessions, load
             the `scanning-experiments-with-replay-vision` skill first — it derives the query from the experiment's
             exposure criteria.
+        agent_note: >
+            A new scanner runs the prompt as written, and the first sweep is where its weaknesses show. Tell the person
+            that rating results thumbs up or down turns into a config recommendation they can review, and that
+            `_posthogUrl` plus the Calibration tab is where they do it. There is nothing to rate yet, so this is a
+            closing sentence for them, not a step for you.
         exclude_params:
             - id
             - scanner_version
@@ -276,11 +281,6 @@ tools:
             - created_by
             - updated_at
         requires_ai_consent: true
-        agent_note: >
-            A new scanner runs the prompt as written, and the first sweep is where its weaknesses show. Tell the person
-            that rating results thumbs up or down turns into a config recommendation they can review, and that
-            `_posthogUrl` plus the Calibration tab is where they do it. There is nothing to rate yet, so this is a
-            closing sentence for them, not a step for you.
     vision-scanners-creators-retrieve:
         operation: vision_scanners_creators_retrieve
         enabled: false
