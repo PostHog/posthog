@@ -37,6 +37,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     NON_RETRYABLE_CLICKHOUSE_ERROR_CODES,
     PREAGGREGATION_INSERT_QUORUM,
     PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS,
+    BuildRange,
     LazyComputationExecutor,
     LazyComputationQuery,
     LazyComputationResult,
@@ -264,31 +265,57 @@ class TestClampRangesToDataHorizon(SimpleTestCase):
     @parameterized.expand(
         [
             (
+                "no_horizon_wraps_unchanged",
+                [(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC), 60)],
+                None,
+                [
+                    BuildRange(
+                        start=datetime(2024, 1, 1, tzinfo=UTC), end=datetime(2024, 1, 4, tzinfo=UTC), ttl_seconds=60
+                    )
+                ],
+            ),
+            (
                 "range_before_horizon_unchanged",
                 [(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 2, tzinfo=UTC), 60)],
                 datetime(2024, 1, 3, 12, tzinfo=UTC),
-                [(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 2, tzinfo=UTC), 60)],
+                [
+                    BuildRange(
+                        start=datetime(2024, 1, 1, tzinfo=UTC), end=datetime(2024, 1, 2, tzinfo=UTC), ttl_seconds=60
+                    )
+                ],
             ),
             (
                 "crossing_multi_day_range_splits_at_day_boundary",
                 [(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC), 60)],
                 datetime(2024, 1, 3, 12, tzinfo=UTC),
                 [
-                    (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC), 60),
-                    (datetime(2024, 1, 3, tzinfo=UTC), datetime(2024, 1, 3, 12, tzinfo=UTC), 60),
+                    BuildRange(
+                        start=datetime(2024, 1, 1, tzinfo=UTC), end=datetime(2024, 1, 3, tzinfo=UTC), ttl_seconds=60
+                    ),
+                    BuildRange(
+                        start=datetime(2024, 1, 3, tzinfo=UTC), end=datetime(2024, 1, 3, 12, tzinfo=UTC), ttl_seconds=60
+                    ),
                 ],
             ),
             (
                 "crossing_single_day_range_clamps_without_split",
                 [(datetime(2024, 1, 3, tzinfo=UTC), datetime(2024, 1, 4, tzinfo=UTC), 60)],
                 datetime(2024, 1, 3, 12, tzinfo=UTC),
-                [(datetime(2024, 1, 3, tzinfo=UTC), datetime(2024, 1, 3, 12, tzinfo=UTC), 60)],
+                [
+                    BuildRange(
+                        start=datetime(2024, 1, 3, tzinfo=UTC), end=datetime(2024, 1, 3, 12, tzinfo=UTC), ttl_seconds=60
+                    )
+                ],
             ),
             (
                 "midnight_horizon_is_noop",
                 [(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC), 60)],
                 datetime(2024, 1, 3, tzinfo=UTC),
-                [(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC), 60)],
+                [
+                    BuildRange(
+                        start=datetime(2024, 1, 1, tzinfo=UTC), end=datetime(2024, 1, 3, tzinfo=UTC), ttl_seconds=60
+                    )
+                ],
             ),
         ]
     )

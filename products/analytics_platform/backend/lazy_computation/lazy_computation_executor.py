@@ -776,13 +776,23 @@ def find_missing_contiguous_windows(
     return merged
 
 
+@frozen
+class BuildRange:
+    """One contiguous span a single job's INSERT fills, with its band TTL."""
+
+    start: datetime
+    end: datetime
+    ttl_seconds: int
+
+
 def clamp_ranges_to_data_horizon(
     ttl_ranges: list[tuple[datetime, datetime, int]],
-    horizon: datetime,
-) -> list[tuple[datetime, datetime, int]]:
+    horizon: datetime | None,
+) -> list[BuildRange]:
     """
     Clamp build ranges so no created job claims time past `horizon`, the point
-    up to which the INSERT actually stores data.
+    up to which the INSERT actually stores data. A None horizon only wraps the
+    ranges unchanged.
 
     Daily windows round the final day up to midnight, so a build whose data
     horizon (the caller's `end`, derived from a historical as_of) falls mid-day
@@ -802,19 +812,22 @@ def clamp_ranges_to_data_horizon(
     still arriving, the same-day TTL already refreshes it, and a clamped claim
     would force a rebuild on every read.
     """
-    clamped: list[tuple[datetime, datetime, int]] = []
+    if horizon is None:
+        return [BuildRange(start=s, end=e, ttl_seconds=ttl) for s, e, ttl in ttl_ranges]
+
+    clamped: list[BuildRange] = []
     horizon_day_start = datetime(horizon.year, horizon.month, horizon.day, tzinfo=UTC)
     for range_start, range_end, ttl in ttl_ranges:
         if range_end <= horizon:
-            clamped.append((range_start, range_end, ttl))
+            clamped.append(BuildRange(start=range_start, end=range_end, ttl_seconds=ttl))
             continue
         if range_start > horizon_day_start:
-            clamped.append((range_start, horizon, ttl))
+            clamped.append(BuildRange(start=range_start, end=horizon, ttl_seconds=ttl))
             continue
         if horizon_day_start > range_start:
-            clamped.append((range_start, horizon_day_start, ttl))
+            clamped.append(BuildRange(start=range_start, end=horizon_day_start, ttl_seconds=ttl))
         if horizon > horizon_day_start:
-            clamped.append((horizon_day_start, horizon, ttl))
+            clamped.append(BuildRange(start=horizon_day_start, end=horizon, ttl_seconds=ttl))
     return clamped
 
 
@@ -1135,9 +1148,9 @@ class LazyComputationExecutor:
 
                 # Step 2: Find missing ranges, split at TTL boundaries
                 missing_ranges = find_missing_contiguous_windows(fresh_jobs, start, end)
-                ttl_ranges = split_ranges_by_ttl(missing_ranges, self.ttl_schedule)
-                if historical_end is not None:
-                    ttl_ranges = clamp_ranges_to_data_horizon(ttl_ranges, historical_end)
+                build_ranges = clamp_ranges_to_data_horizon(
+                    split_ranges_by_ttl(missing_ranges, self.ttl_schedule), historical_end
+                )
 
                 if had_ready_at_start is None:
                     had_ready_at_start = any(j.status == PreaggregationJob.Status.READY for j in fresh_jobs)
@@ -1147,7 +1160,7 @@ class LazyComputationExecutor:
                 # fully cover the range, return them immediately — complete-but-stale beats
                 # blocking. Whoever refreshes (the warmer, or a request after the grace)
                 # replaces the data; `filter_overlapping_jobs` always prefers newer jobs.
-                if self.stale_while_revalidate_seconds is not None and (ttl_ranges or pending_jobs):
+                if self.stale_while_revalidate_seconds is not None and (build_ranges or pending_jobs):
                     graced = find_existing_jobs(
                         team, query_hash, start, end, expired_grace_seconds=self.stale_while_revalidate_seconds
                     )
@@ -1172,7 +1185,7 @@ class LazyComputationExecutor:
                 # jobs (the stale-serve above would have returned), and this request
                 # must not compute inline or block on someone else's pending job —
                 # report the miss so the caller serves live and warms in background.
-                if not self.run_inserts and (ttl_ranges or pending_jobs):
+                if not self.run_inserts and (build_ranges or pending_jobs):
                     result = LazyComputationResult(
                         ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
                     )
@@ -1182,8 +1195,8 @@ class LazyComputationExecutor:
                 # Step 3: Insert missing ranges
                 did_work = False
                 lost_create_race = False
-                if ttl_ranges and failures <= self.max_retries:
-                    for range_start, range_end, ttl in ttl_ranges:
+                if build_ranges and failures <= self.max_retries:
+                    for build_range in build_ranges:
                         # Each insert runs inline and is bounded only by the ClickHouse
                         # max_execution_time, which is larger than our wait budget. A capped
                         # (narrow) window can produce many ranges; stop before starting another
@@ -1197,13 +1210,13 @@ class LazyComputationExecutor:
                             _log_execution("timeout", result)
                             return result
 
-                        # `ttl` is the band TTL used for merging; the job's real expiry adds the jitter
+                        # `ttl_seconds` is the band TTL used for merging; the job's real expiry adds the jitter
                         new_job = create_lazy_computation_job(
                             team,
                             query_hash,
-                            range_start,
-                            range_end,
-                            self.ttl_schedule.get_ttl(range_start, jittered=True),
+                            build_range.start,
+                            build_range.end,
+                            self.ttl_schedule.get_ttl(build_range.start, jittered=True),
                         )
                         if new_job is None:
                             # Another executor created a PENDING job for this range; the
@@ -1216,10 +1229,10 @@ class LazyComputationExecutor:
                                 team_id=team.id,
                                 query_hash=query_hash,
                                 table=str(query_info.table),
-                                time_range_start=str(range_start),
-                                time_range_end=str(range_end),
+                                time_range_start=str(build_range.start),
+                                time_range_end=str(build_range.end),
                             )
-                            if self._try_fail_expired_pending_job(team, query_hash, range_start, range_end):
+                            if self._try_fail_expired_pending_job(team, query_hash, build_range.start, build_range.end):
                                 LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
                                     outcome="expired", table=str(query_info.table)
                                 ).inc()
@@ -1228,8 +1241,8 @@ class LazyComputationExecutor:
                                     team_id=team.id,
                                     query_hash=query_hash,
                                     table=str(query_info.table),
-                                    time_range_start=str(range_start),
-                                    time_range_end=str(range_end),
+                                    time_range_start=str(build_range.start),
+                                    time_range_end=str(build_range.end),
                                 )
                             lost_create_race = True
                             continue
@@ -1258,7 +1271,7 @@ class LazyComputationExecutor:
                             new_job.computed_at = django_timezone.now()
                             if wrote_nothing and new_job.expires_at is not None:
                                 empty_expires_at = self.ttl_schedule.empty_result_expires_at(
-                                    new_job.computed_at, range_end
+                                    new_job.computed_at, build_range.end
                                 )
                                 if empty_expires_at is not None:
                                     new_job.expires_at = min(new_job.expires_at, empty_expires_at)
@@ -1274,9 +1287,9 @@ class LazyComputationExecutor:
                                 job_id=str(new_job.id),
                                 query_hash=query_hash,
                                 table=str(query_info.table),
-                                time_range_start=str(range_start),
-                                time_range_end=str(range_end),
-                                ttl_seconds=ttl,
+                                time_range_start=str(build_range.start),
+                                time_range_end=str(build_range.end),
+                                ttl_seconds=build_range.ttl_seconds,
                                 insert_duration_ms=round(insert_elapsed * 1000),
                                 rows_written=rows_written,
                                 expires_at=str(new_job.expires_at),
@@ -1297,9 +1310,9 @@ class LazyComputationExecutor:
                                 job_id=str(new_job.id),
                                 query_hash=query_hash,
                                 table=str(query_info.table),
-                                time_range_start=str(range_start),
-                                time_range_end=str(range_end),
-                                ttl_seconds=ttl,
+                                time_range_start=str(build_range.start),
+                                time_range_end=str(build_range.end),
+                                ttl_seconds=build_range.ttl_seconds,
                                 insert_duration_ms=round(insert_elapsed * 1000),
                                 error=str(e)[:500],
                                 error_type=type(e).__name__,
@@ -1323,7 +1336,7 @@ class LazyComputationExecutor:
                                 return result
                         did_work = True
 
-                if ttl_ranges and failures > self.max_retries:
+                if build_ranges and failures > self.max_retries:
                     errors.append("Max retries exceeded for computation")
                     result = LazyComputationResult(
                         ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
