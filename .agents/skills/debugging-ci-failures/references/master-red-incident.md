@@ -66,6 +66,8 @@ Keep it under about 80 words. Somebody is reading it while master is broken.
 
 Do not recommend a rerun for a failure you classified as a real regression, and do not recommend a code change for one you classified as infrastructure.
 
-A reply in the thread reaches you and buys another full run, so the last line decides whether that run happens and what it spends itself on.
-Name the specific next step in the reader's terms: which commits to read, which shard to reproduce, which history to pull. "Reply if you want me to look at the shard layout change" is a line a person can act on. "Let me know if you need more" is not, and neither is silence about the gap.
+Line 4 is one clause for the gap and one for the probe, and it replaces the bare "could not check" rather than adding to it. "Unconfirmed: whether the shard rebalance landed first" is the whole line.
+Name the probe as a fact, never as an offer. "Let me know if you need more" is filler, and so is any sentence about what you would be happy to do.
+
+A reply in the thread reaches you and buys another full run, which is why the probe is worth naming at all.
 Treat the first answer as the opening of a conversation rather than a report you defend.
