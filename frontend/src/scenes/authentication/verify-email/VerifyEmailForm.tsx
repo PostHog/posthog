@@ -33,7 +33,6 @@ const CHECKLIST = [
     'Channel your inner hedgehog and peek again',
 ]
 
-// A partner hand-off drops the user here mid-flow, so say what they were doing and what happens next.
 const DEEP_LINK_NOTICE: Record<VerifyEmailReason, string> = {
     stripe_deep_link:
         "Stripe sent you to PostHog to set up analytics. Verify your email and we'll open your new project.",
@@ -168,16 +167,57 @@ function VerificationCodeEntry(): JSX.Element {
     )
 }
 
-export function VerifyEmailForm(): JSX.Element {
-    const { view, uuid, user, reason, verificationEmailSent } = useValues(verifyEmailLogic)
-    const { openSupportForm } = useActions(supportLogic)
+function CheckYourInbox(): JSX.Element {
+    const { uuid, user, reason, verificationEmailSent } = useValues(verifyEmailLogic)
 
-    const noteKey = view === 'pending' && !verificationEmailSent ? 'send_failed' : (view ?? 'pending')
-    const notes = NOTES[noteKey] ?? NOTES.pending
     // The address that received the code. This is the new address if an email change is pending,
     // else the account address. Without a session, for example on a fresh signup, the page uses the
     // address the signup or login form stored in this browser. It stays unset in a different browser.
     const verificationEmail = user?.pending_email ?? user?.email ?? getPendingVerificationEmail(uuid) ?? undefined
+
+    return (
+        <div className="flex flex-col items-center text-center">
+            {reason && (
+                <LemonBanner type="info" className="w-full mb-4 text-left">
+                    {DEEP_LINK_NOTICE[reason]}
+                </LemonBanner>
+            )}
+            {!verificationEmailSent && (
+                <LemonBanner type="warning" className="w-full mb-4 text-left">
+                    We couldn't send your code just now. Open "Not seeing it?" below to send a new one.
+                </LemonBanner>
+            )}
+            <HedgehogMagnifyingGlass className="block w-auto mx-auto h-28" />
+            <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
+                {verificationEmailSent ? 'Check your inbox' : 'Enter your code'}
+            </h1>
+            <p className="AuthScene__sub mt-2 mb-4 text-sm text-secondary text-center text-pretty">
+                {!verificationEmailSent ? (
+                    <>Already have a code? Enter it below. Codes are valid for 30 minutes.</>
+                ) : verificationEmail ? (
+                    <>
+                        We sent a 6-digit code to <strong>{verificationEmail}</strong>.
+                        <br />
+                        It's valid for 30 minutes.
+                    </>
+                ) : (
+                    <>We sent you a 6-digit code. It's valid for 30 minutes.</>
+                )}
+            </p>
+            <VerificationCodeEntry />
+            <div className="mt-3">
+                <NotSeeingIt />
+            </div>
+        </div>
+    )
+}
+
+export function VerifyEmailForm(): JSX.Element {
+    const { view, verificationEmailSent } = useValues(verifyEmailLogic)
+    const { openSupportForm } = useActions(supportLogic)
+
+    const noteKey = view === 'pending' && !verificationEmailSent ? 'send_failed' : (view ?? 'pending')
+    const notes = NOTES[noteKey] ?? NOTES.pending
 
     if (view === 'success') {
         return (
@@ -264,39 +304,7 @@ export function VerifyEmailForm(): JSX.Element {
                     </p>
                 }
             >
-                <div className="flex flex-col items-center text-center">
-                    {reason && (
-                        <LemonBanner type="info" className="w-full mb-4 text-left">
-                            {DEEP_LINK_NOTICE[reason]}
-                        </LemonBanner>
-                    )}
-                    {!verificationEmailSent && (
-                        <LemonBanner type="warning" className="w-full mb-4 text-left">
-                            We couldn't send your code just now. Open "Not seeing it?" below to send a new one.
-                        </LemonBanner>
-                    )}
-                    <HedgehogMagnifyingGlass className="block w-auto mx-auto h-28" />
-                    <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
-                        {verificationEmailSent ? 'Check your inbox' : 'Enter your code'}
-                    </h1>
-                    <p className="AuthScene__sub mt-2 mb-4 text-sm text-secondary text-center text-pretty">
-                        {!verificationEmailSent ? (
-                            <>Already have a code? Enter it below. Codes are valid for 30 minutes.</>
-                        ) : verificationEmail ? (
-                            <>
-                                We sent a 6-digit code to <strong>{verificationEmail}</strong>.
-                                <br />
-                                It's valid for 30 minutes.
-                            </>
-                        ) : (
-                            <>We sent you a 6-digit code. It's valid for 30 minutes.</>
-                        )}
-                    </p>
-                    <VerificationCodeEntry />
-                    <div className="mt-3">
-                        <NotSeeingIt />
-                    </div>
-                </div>
+                <CheckYourInbox />
             </AuthSceneCard>
         </AuthScene>
     )

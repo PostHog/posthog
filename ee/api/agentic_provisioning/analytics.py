@@ -34,8 +34,7 @@ def capture_provisioning_event(
 
 
 def capture_deep_link_event(outcome: str, **extra: object) -> None:
-    # Pinned: the Stripe namespace captures this same step under this exact name, so both
-    # partner surfaces land in one funnel.
+    # Pinned: the Stripe namespace captures this step under the same name, so both surfaces share a funnel.
     capture_provisioning_event("deep_link_login", outcome, partner=None, **extra)
 
 

@@ -219,8 +219,7 @@ class TestAgenticLogin(ProvisioningTestBase):
     @patch("ee.api.agentic_provisioning.views.deep_links.email_verification_code_verifier.send_code")
     def test_unverified_user_redirects_to_verify_email(self, _name, verified_value, _mock_send_code):
         # Both False (new partner account) and None (legacy NULL passthrough) must be
-        # blocked - deep-link login has no password challenge. The reason tells the
-        # verify-email page why a partner hand-off parked the user there.
+        # blocked - deep-link login has no password challenge.
         self.user.is_email_verified = verified_value
         self.user.save(update_fields=["is_email_verified"])
         token = self._create_deep_link_token()

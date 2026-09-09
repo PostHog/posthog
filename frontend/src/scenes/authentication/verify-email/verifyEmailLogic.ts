@@ -66,11 +66,8 @@ export interface VerificationResultType {
     uuid?: string
 }
 
-/**
- * Why a partner hand-off parked the user here instead of signing them in.
- * Pinned: the deep-link login views send these exact values as the `reason` search param
- * (ee/partners/stripe/api/provisioning/constants.py, ee/api/agentic_provisioning/constants.py).
- */
+// Pinned: the deep-link login views send these exact values as the `reason` search param
+// (ee/partners/stripe/api/provisioning/constants.py, ee/api/agentic_provisioning/constants.py).
 export type VerifyEmailReason = 'stripe_deep_link' | 'partner_deep_link'
 
 const VERIFY_EMAIL_REASONS: VerifyEmailReason[] = ['stripe_deep_link', 'partner_deep_link']
@@ -254,7 +251,6 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
             true,
             {
                 setDeepLinkContext: (_, { verificationEmailSent }) => verificationEmailSent,
-                // A resend that reported success makes the "we couldn't send it" state stale.
                 requestVerificationCodeSuccess: (state, { newlyRequestedVerificationCode }) =>
                     newlyRequestedVerificationCode || state,
             },

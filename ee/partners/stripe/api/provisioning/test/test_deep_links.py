@@ -54,7 +54,6 @@ class TestDeepLinks(StripeProvisioningTestBase):
     )
     @patch("ee.partners.stripe.api.provisioning.login.email_verification_code_verifier.send_code")
     def test_unverified_user_lands_on_verify_email_with_a_reason(self, _name, verified_value, _mock_send_code):
-        # A Stripe merchant blocked here has no idea why, unless the redirect says so.
         self.user.is_email_verified = verified_value
         self.user.save(update_fields=["is_email_verified"])
         self._cache_deep_link_token("stripe_unverified_token")
