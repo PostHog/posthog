@@ -16,7 +16,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { ApiError, shouldReportApiFailure } from 'lib/api-error'
+import { ApiError, isUnavailableEndpointError, shouldReportApiFailure } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { reconcileById } from 'lib/utils/objects'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
@@ -789,7 +789,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                             // Recovering here skips the gate `initKea` applies to loader failures, so
                             // reapply it: a refused or unreachable read is expected, but a backend
                             // fault must still reach error tracking instead of reading as success.
-                            if (shouldReportApiFailure(error)) {
+                            // A route the backend does not serve is expected too, because the
+                            // roster ships ahead of its endpoints and shows no number until both
+                            // sides are deployed.
+                            if (shouldReportApiFailure(error) && !isUnavailableEndpointError(error)) {
                                 posthog.captureException(error)
                             }
                             // A full fleet spans several batches, so keep the ones that answered and

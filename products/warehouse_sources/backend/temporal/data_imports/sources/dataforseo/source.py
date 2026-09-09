@@ -129,6 +129,13 @@ Note: DataForSEO bills per API request, so every sync consumes account credits. 
             "DataForSEO API error [40203]": "Your DataForSEO daily spending limit was exceeded. Raise the limit in your DataForSEO account settings or wait for it to reset, then resync.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_post_task`'s own tenacity retry already covers HTTP 429/5xx and the 40202/50xxx body
+        # codes (see `DataForSEORetryableError`), so one only reaches here once that budget is
+        # exhausted. Temporal retries the whole activity from there, so the failure is transient
+        # and self-recovering rather than a bug.
+        return {"DataForSEO API error (retryable)"}
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,

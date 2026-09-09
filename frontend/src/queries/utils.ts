@@ -50,7 +50,6 @@ import {
     MetricsQuery,
     Node,
     NodeKind,
-    NonIntegratedConversionsTableQuery,
     PathsQuery,
     PathsV2Query,
     PersonsNode,
@@ -290,12 +289,6 @@ export function isMarketingAnalyticsAggregatedQuery(
     node?: Record<string, any> | null
 ): node is MarketingAnalyticsAggregatedQuery {
     return node?.kind === NodeKind.MarketingAnalyticsAggregatedQuery
-}
-
-export function isNonIntegratedConversionsTableQuery(
-    node?: Record<string, any> | null
-): node is NonIntegratedConversionsTableQuery {
-    return node?.kind === NodeKind.NonIntegratedConversionsTableQuery
 }
 
 export function isTracesQuery(node?: Record<string, any> | null): node is TracesQuery {

@@ -12,7 +12,11 @@ from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 from django.conf import settings
-from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core import signing
+from django.core.exceptions import (
+    PermissionDenied,
+    ValidationError as DjangoValidationError,
+)
 from django.db import IntegrityError, transaction
 from django.db.models import (
     Case,
@@ -87,6 +91,7 @@ from products.tasks.backend.logic.services.network_policy import (
     MAX_SANDBOX_ALLOWED_DOMAINS,
     normalize_requested_domains,
 )
+from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     MCP_CREDENTIAL_OWNER_STATE_KEY,
@@ -166,6 +171,7 @@ __all__ = [
     "TaskRuntime",
     "TaskRunEnvironment",
     "TaskRunStatus",
+    "WarmRunActivationUnavailable",
     "append_task_run_log",
     "apply_task_run_model_config",
     "ensure_task_run_session",
@@ -226,6 +232,9 @@ __all__ = [
     "task_run_preview_ready",
     "get_task_run_living_artifact",
     "capture_relay_command_telemetry",
+    "PermissionResponseUnavailable",
+    "validate_permission_response_target",
+    "classify_permission_response",
     "get_task_run_stream_info",
     "get_task_summaries",
     "is_internal_debug_team",
@@ -413,6 +422,8 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "ai_stage",
         "auto_publish",
         "benjamin_enabled",
+        "claude_model_access",
+        "claude_subscription_user_id",
         "context_window",
         "custom_image_id",
         "fast_mode",
@@ -865,14 +876,22 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
     - ``SIGNAL_REPORT`` linked to a report in this team, repo-less, and carrying no GitHub
       integration (the Inbox "Discuss" fallback). Reports are minted by scouts and the link is
       team-scoped by the write serializer, so a caller can't forge one. Acting on a report is
-      entitled through self-driving (`product-autonomy`). A report task that resolved a
-      repository, or that carries the team integration for a repo-less discussion, is not
-      exempt, because `create_task` only gives it either after the gate passed. Re-checking
+      entitled through self-driving (`product-autonomy`). A discussion that resolved a
+      repository, or that carries the team integration while repo-less, is not exempt under
+      this shape, because `create_task` only gives it either after the gate passed. Re-checking
       here costs the caller nothing.
     - ``SIGNALS_CHAT`` (Inbox scout chat), reserved for server-side creation by the signals
       scout-chat endpoint; the write serializer rejects it from API callers. Only while
       repo-less: chat tasks are minted without repositories, and attaching one via update
       would turn the exemption into ungated cloud code work.
+    - ``SIGNAL_REPORT`` linked to a report in this team that also carries an ``implementation``
+      ``SignalReportTask`` row for this task (the Inbox "Create PR"). Such a task holds a
+      repository by design, so the repo-less shape above can never cover it. Auto-start opens the
+      same PR run for the same report from the server without consulting the gate, and
+      self-driving prices a PR flat and caps it per report, so gating the button would only make
+      the outcome depend on who started the run. ``record_report_task`` writes the row on both
+      paths. The relationship label is client input, but it counts only on a row scoped to this
+      team and to the report the task itself links, so asserting it buys nothing on its own.
 
     A bare ``SIGNAL_REPORT`` origin without a report link deliberately does not qualify:
     ``origin_product`` is client input, so an FK-less claim would be a one-field waitlist
@@ -894,6 +913,13 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
             repositories=[],
             github_integration__isnull=True,
             github_user_integration__isnull=True,
+        )
+        | Q(
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report__team_id=team_id,
+            signal_report_tasks__team_id=team_id,
+            signal_report_tasks__report_id=F("signal_report_id"),
+            signal_report_tasks__relationship="implementation",
         ),
         id=task_id,
         team_id=team_id,
@@ -2253,6 +2279,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "provider",
         "model",
         "reasoning_effort",
+        "claude_model_access",
+        "claude_subscription_user_id",
         "rtk_effective",
         "benjamin_effective",
         "usage_metrics_recorded",
@@ -3907,6 +3935,33 @@ def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID, fo
 # --- Task run commands (user_message signal + sandbox proxy) ---
 
 
+class PermissionResponseUnavailable(Exception):
+    def __init__(self, *, target_ended: bool) -> None:
+        self.code = "permission_target_ended" if target_ended else "agent_session_not_ready"
+        self.status_code = 409 if target_ended else 503
+        super().__init__("This run has ended." if target_ended else "The agent is still starting. Please try again.")
+
+
+def validate_permission_response_target(run_id: str | UUID, task_id: str | UUID, team_id: int) -> None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None or run.is_terminal:
+        raise PermissionResponseUnavailable(target_ended=True)
+
+
+def classify_permission_response(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, status_code: int, data: object
+) -> bool:
+    from products.tasks.backend.logic.services.agent_command import (  # noqa: PLC0415
+        is_agent_session_not_ready,
+        permission_response_succeeded,
+    )
+
+    validate_permission_response_target(run_id, task_id, team_id)
+    if is_agent_session_not_ready(status_code, data):
+        raise PermissionResponseUnavailable(target_ended=False)
+    return 200 <= status_code < 300 and permission_response_succeeded(data)
+
+
 def validate_task_run_artifact_ids(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_ids: list[str]
 ) -> tuple[list[str], bool]:
@@ -3933,6 +3988,8 @@ def signal_task_run_user_message(
     message_id: str | None = None,
     actor_slack_user_id: str | None = None,
     steer: bool = False,
+    rpc_timeout: timedelta | None = None,
+    workflow_id: str | None = None,
 ) -> bool | None:
     """Queue a user_message follow-up signal on the run's workflow.
 
@@ -3943,6 +4000,10 @@ def signal_task_run_user_message(
     """
     from temporalio.service import RPCError, RPCStatusCode  # noqa: PLC0415 — keep temporalio off the api import path
 
+    from products.tasks.backend.exceptions import (
+        ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
+        SandboxNotFoundError,
+    )
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         signal_task_followup_message,
     )
@@ -3950,9 +4011,22 @@ def signal_task_run_user_message(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    from products.tasks.backend.exceptions import (
-        ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
-    )
+    if (run.state or {}).get("claude_model_access") == "own-subscription" and (run.state or {}).get(
+        "claude_subscription_user_id"
+    ) != actor_user_id:
+        raise PermissionDenied("Only the user who started this run can use its Claude plan.")
+    if run.is_terminal or (run.state or {}).get("cancel_requested_at"):
+        if not run.is_terminal:
+            raise RuntimeError("Task run is still stopping. Try again shortly.")
+        sandbox_id = (run.state or {}).get("sandbox_id")
+        if sandbox_id:
+            try:
+                sandbox = get_sandbox_class_for_sandbox_id(sandbox_id).get_by_id(sandbox_id)
+                if sandbox.is_running():
+                    raise RuntimeError("Task run is still stopping. Try again shortly.")
+            except SandboxNotFoundError:
+                pass
+        return False
     from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason  # noqa: PLC0415
 
     if reason := get_compute_quota_denial_reason(run.task):
@@ -3961,13 +4035,14 @@ def signal_task_run_user_message(
     try:
         context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
         signal_task_followup_message(
-            run.workflow_id,
+            workflow_id or run.workflow_id,
             content,
             artifact_ids,
             message_id,
             actor_user_id,
             context,
             steer=steer,
+            **({"rpc_timeout": rpc_timeout} if rpc_timeout is not None else {}),
         )
     except RPCError as e:
         if e.status == RPCStatusCode.NOT_FOUND:
@@ -4438,6 +4513,7 @@ def relay_task_run_message(
     text: str,
     text_parts: list[str] | None = None,
     message_id: str | None = None,
+    trace_id: str | None = None,
 ) -> tuple[str, str | None]:
     """Queue a Slack relay workflow for a run message, or under the agent-design
     flag signal the running task workflow to stream the text inline.
@@ -4450,6 +4526,10 @@ def relay_task_run_message(
     post-last-tool-use answer, and posting only that keeps the interim narration
     ("Let me check…") out of the Slack thread. Older callers still send just
     ``text`` and get the previous behavior unchanged.
+
+    ``trace_id`` is the gateway trace id of the turn that wrote this answer, which the
+    posted reply keeps so a rating on it can name the turn. Absent when the sandbox
+    reported none.
     """
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
         SlackThreadTaskMapping,
@@ -4486,6 +4566,7 @@ def relay_task_run_message(
             text=trimmed,
             delete_progress=True,
             message_id=message_id,
+            trace_id=trace_id,
         )
     except Exception:
         logger.exception("task_run_relay_message_enqueue_failed", extra={"run_id": str(run.id)})
@@ -4661,6 +4742,7 @@ def bootstrap_task_run(
         "fast_mode": fast_mode,
         "rtk_enabled": validated_data.get("rtk_enabled"),
         "benjamin_enabled": validated_data.get("benjamin_enabled"),
+        "claude_model_access": validated_data.get("claude_model_access"),
     }.items():
         if value is not None:
             extra_state = extra_state or {}
@@ -5708,6 +5790,7 @@ def create_task(
     validated_data: dict,
     client_provenance: TaskClientProvenance | None = None,
     code_access_allowed: bool = False,
+    warm_retry_token: str | None = None,
 ) -> contracts.TaskDetailDTO:
     """Create a task, mirroring ``TaskSerializer.create`` byte-for-byte.
 
@@ -5835,6 +5918,7 @@ def create_task(
                 )
                 warm_run = None
         if warm_run is not None:
+            _warm_retry_message_id(warm_retry_token, warm_run)
             warm_task = warm_run.task
             should_set_client_provenance = warm_task.client_provenance is None and client_provenance is not None
             if should_set_client_provenance:
@@ -5878,8 +5962,12 @@ def create_task(
                 artifact_ids=pending_user_artifact_ids,
                 auto_publish=warm_auto_publish,
                 reasoning_effort=warm_reasoning_effort,
+                retry_token=warm_retry_token,
             )
             return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
+
+    if warm_retry_token is not None:
+        raise WarmRunActivationUnavailable("target_unavailable")
 
     # The relationship the client asserted (validated by the serializer, which rejects `research`).
     # Popped so it isn't forwarded to the model; the link itself is recorded by record_report_task below.
@@ -5889,7 +5977,7 @@ def create_task(
     # report-linked task that can never open a PR. "Implementation" (Create PR) and legacy clients
     # (no relationship) always resolve one. "Discuss" (and any other non-implementation label)
     # resolves one only for a caller the Desktop gate passed: the run endpoint gates a
-    # repository-backed report task, so resolving for anyone else would 403 the very click this
+    # repository-backed discussion, so resolving for anyone else would 403 the very click this
     # path exists to unblock (see `task_exempt_from_code_access`).
     signal_report = validated_data.get("signal_report")
     if (
@@ -6495,7 +6583,7 @@ def _warm_sandbox_selection_is_accessible(
 def _idling_warm_run_for_task(task: Task) -> TaskRun | None:
     """The task's latest run iff it is an idling pre-warmed Run (non-terminal, awaiting first message)."""
     run = task.latest_run
-    if run is None or run.is_terminal:
+    if run is None or run.is_terminal or (run.state or {}).get("cancel_requested_at"):
         return None
     if not (run.state or {}).get("await_user_message"):
         return None
@@ -6525,6 +6613,112 @@ def _attach_staged_artifacts_to_run(
     )
 
 
+class WarmRunActivationUnavailable(Exception):
+    code = "warm_run_activation_unavailable"
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        self.retry_token: str | None = None
+        super().__init__("Couldn't start this run yet. Please try again.")
+
+
+def _warm_retry_message_id(token: str | None, run: TaskRun) -> str | None:
+    if token is None:
+        return None
+    try:
+        run_id, workflow_id, message_id = signing.TimestampSigner(salt="warm-run-activation").unsign_object(
+            token, max_age=60
+        )
+    except (signing.BadSignature, ValueError) as error:
+        raise WarmRunActivationUnavailable("invalid_retry") from error
+    if run_id != str(run.id) or workflow_id != run.workflow_id:
+        raise WarmRunActivationUnavailable("target_unavailable")
+    return str(message_id)
+
+
+def _deliver_warm_run_message(
+    run: TaskRun, *, message: str | None, artifact_ids: list[str], message_id: str | None = None
+) -> None:
+    from temporalio.service import RPCError, RPCStatusCode
+
+    started_at = time.monotonic()
+    workflow_id = run.workflow_id
+    frontend_retry = message_id is not None
+    message_id = message_id or str(uuid4())
+    eligible_runs = TaskRun.objects.filter(
+        id=run.id,
+        team_id=run.team_id,
+        task_id=run.task_id,
+        task__deleted=False,
+        state__await_user_message=True,
+    ).exclude(status__in=_TERMINAL_TASK_RUN_STATUSES)
+
+    try:
+        current_run = eligible_runs.first()
+        if current_run is None or current_run.workflow_id != workflow_id:
+            raise WarmRunActivationUnavailable("target_unavailable")
+        try:
+            delivered = signal_task_run_user_message(
+                run.id,
+                run.task_id,
+                run.team_id,
+                content=message,
+                artifact_ids=artifact_ids,
+                message_id=message_id,
+                workflow_id=workflow_id,
+                rpc_timeout=timedelta(seconds=10),
+            )
+        except RPCError as error:
+            # NOT_FOUND proves the workflow did not receive this message. Other errors may follow delivery.
+            if error.status != RPCStatusCode.NOT_FOUND:
+                raise
+            current_run = eligible_runs.first()
+            if current_run is None or current_run.workflow_id != workflow_id:
+                raise WarmRunActivationUnavailable("target_unavailable") from error
+            unavailable = WarmRunActivationUnavailable("starting")
+            unavailable.retry_token = signing.TimestampSigner(salt="warm-run-activation").sign_object(
+                [str(run.id), workflow_id, message_id]
+            )
+            raise unavailable from error
+        if delivered is not True:
+            raise WarmRunActivationUnavailable("delivery_failed")
+
+        with transaction.atomic():
+            activated_run = eligible_runs.select_for_update(of=("self",)).first()
+            if activated_run is None or activated_run.workflow_id != workflow_id:
+                raise WarmRunActivationUnavailable("target_unavailable")
+            activated_run.state.pop("await_user_message", None)
+            activated_run.state["warm_activated"] = True
+            activated_run.save(update_fields=["state", "updated_at"])
+    except WarmRunActivationUnavailable as error:
+        log = logger.info if error.retry_token else logger.warning
+        log(
+            "task_warm_activation_unavailable",
+            extra={
+                "run_id": str(run.id),
+                "task_id": str(run.task_id),
+                "team_id": run.team_id,
+                "workflow_id": workflow_id,
+                "elapsed_seconds": time.monotonic() - started_at,
+                "reason": error.reason,
+                "frontend_retry": frontend_retry,
+            },
+        )
+        raise
+    if frontend_retry:
+        logger.info(
+            "task_warm_activation_recovered",
+            extra={
+                "run_id": str(run.id),
+                "task_id": str(run.task_id),
+                "team_id": run.team_id,
+                "workflow_id": workflow_id,
+                "elapsed_seconds": time.monotonic() - started_at,
+                "frontend_retry": frontend_retry,
+            },
+        )
+
+
 def _activate_warm_run(
     run: TaskRun,
     task: Task,
@@ -6535,6 +6729,7 @@ def _activate_warm_run(
     description: str | None = None,
     auto_publish: bool | None = None,
     reasoning_effort: str | None = None,
+    retry_token: str | None = None,
 ) -> None:
     """Activate an idling warm Run: set the draft Task's visible description from raw task text,
     forward the first message to the already-running agent, and drop the ``await_user_message`` marker
@@ -6551,11 +6746,7 @@ def _activate_warm_run(
     if description and not (task.description or "").strip():
         task.description = description
         task.save(update_fields=["description", "updated_at"])
-    # Claims the Run as activated before the signal goes out. `await_user_message` can only be cleared
-    # after the signal — clearing it first would drop a Run out of the warm pool that a failed signal
-    # never activated, stranding its sandbox. That leaves a window where the Run is being activated but
-    # still looks idle, so this marker is what the unused-warm metric reads to tell the two apart.
-    activation_state_updates: dict[str, object] = {"warm_activated": True}
+    activation_state_updates: dict[str, object] = {}
     if auto_publish is not None:
         # Before the signal: the agent-server re-reads run state when the forwarded
         # first message arrives, so the choice must already be persisted by then.
@@ -6567,8 +6758,9 @@ def _activate_warm_run(
         updates=activation_state_updates,
         remove_keys=["reasoning_effort"] if reasoning_effort is None else None,
     )
-    signal_task_run_user_message(run.id, task.id, team_id, content=message, artifact_ids=artifact_ids)
-    TaskRun.update_state_atomic(run.id, remove_keys=["await_user_message"])
+    _deliver_warm_run_message(
+        run, message=message, artifact_ids=artifact_ids, message_id=_warm_retry_message_id(retry_token, run)
+    )
     # Only count activations of Runs that actually carry the prewarmed marker, so the activation
     # numerator stays consistent with the workflow_start{prewarmed="true"} denominator — otherwise
     # warm Runs provisioned before this ships (await_user_message set, prewarmed absent) would push
@@ -6815,6 +7007,8 @@ def warm_task_resume_sandbox(
         return None
 
     previous_state = parse_run_state(previous_run.state)
+    if previous_state.claude_model_access == "own-subscription":
+        return None
     resolved_runtime_adapter = runtime_adapter or previous_state.runtime_adapter
     resolved_model = model or previous_state.model
     resolved_reasoning_effort = reasoning_effort or previous_state.reasoning_effort
@@ -6914,7 +7108,12 @@ def warm_task_resume_sandbox(
 
 
 def run_task(
-    task_id: str | UUID, team_id: int, user_id: int | None, *, validated_data: dict
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    validated_data: dict,
+    warm_retry_token: str | None = None,
 ) -> contracts.TaskRunResult | None:
     """Create a run for a task and kick off its workflow, mirroring ``TaskViewSet.run``.
 
@@ -6925,7 +7124,10 @@ def run_task(
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,
     )
-    from products.tasks.backend.logic.services.staged_artifacts import get_task_staged_artifacts  # noqa: PLC0415
+    from products.tasks.backend.logic.services.staged_artifacts import (  # noqa: PLC0415
+        get_task_run_artifacts_by_id,
+        get_task_staged_artifacts,
+    )
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
         PrAuthorshipMode,
         RunSource,
@@ -6999,8 +7201,15 @@ def run_task(
             internal=task.internal,
         )
 
+    claude_model_access = validated_data.get("claude_model_access")
+    if claude_model_access is None and previous_state is not None:
+        claude_model_access = previous_state.claude_model_access
+
     warm_run = _idling_warm_run_for_task(task)
+    if warm_run is not None and claude_model_access == "own-subscription":
+        warm_run = None
     if warm_run is not None:
+        _warm_retry_message_id(warm_retry_token, warm_run)
         warm_state = warm_run.state or {}
         # Both directions. A request that states no resume source must not be handed a successor
         # warmed to resume an earlier run — its filesystem was restored from that run's snapshot, so
@@ -7069,6 +7278,9 @@ def run_task(
                     if pending_user_artifact_ids
                     else ([], [])
                 )
+                if warm_missing_artifact_ids:
+                    # A previous activation attempt may have moved these out of staging before delivery failed.
+                    _, warm_missing_artifact_ids = get_task_run_artifacts_by_id(warm_run, warm_missing_artifact_ids)
                 if not warm_missing_artifact_ids:
                     if warm_staged_artifacts:
                         _attach_staged_artifacts_to_run(
@@ -7086,8 +7298,11 @@ def run_task(
                         artifact_ids=pending_user_artifact_ids,
                         auto_publish=validated_data.get("auto_publish"),
                         reasoning_effort=validated_data.get("reasoning_effort"),
+                        retry_token=warm_retry_token,
                     )
                     return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
+    if warm_retry_token is not None:
+        raise WarmRunActivationUnavailable("target_unavailable")
     sandbox_environment_id = validated_data.get("sandbox_environment_id")
     sandbox_environment_id_supplied_by_user = sandbox_environment_id is not None
     custom_image_id = validated_data.get("custom_image_id")
@@ -7130,6 +7345,7 @@ def run_task(
         ("initial_permission_mode", initial_permission_mode),
         ("rtk_enabled", validated_data.get("rtk_enabled")),
         ("benjamin_enabled", validated_data.get("benjamin_enabled")),
+        ("claude_model_access", claude_model_access),
     ):
         if value is not None:
             extra_state = extra_state or {}
@@ -8926,7 +9142,9 @@ def forward_thread_message(
         author = message.author
         author_name = (author.get_full_name() or author.email) if author else "A teammate"
         content = f"[Thread comment from {author_name}] {message.content}"
-        signal_result = signal_task_run_user_message(run.id, task.id, team_id, content=content, artifact_ids=[])
+        signal_result = signal_task_run_user_message(
+            run.id, task.id, team_id, content=content, artifact_ids=[], actor_user_id=user_id
+        )
         if not signal_result:
             return "signal_failed", None
 
