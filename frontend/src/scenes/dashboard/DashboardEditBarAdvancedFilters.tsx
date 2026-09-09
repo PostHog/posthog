@@ -12,7 +12,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DashboardMode, DashboardPlacement } from '~/types'
+import { DashboardPlacement } from '~/types'
 
 type TestAccountFilterChoice = 'inherit' | 'filter-out' | 'include'
 
@@ -34,8 +34,9 @@ const CHOICE_HINTS: Record<TestAccountFilterChoice, string> = {
  * breakdown color override.
  */
 export function DashboardEditBarAdvancedFilters(): JSX.Element {
-    const { dashboard, dashboardMode, placement, canEditDashboard, effectiveEditBarFilters } = useValues(dashboardLogic)
-    const { setFilterTestAccounts, setDashboardMode } = useActions(dashboardLogic)
+    const { dashboard, dashboardEditing, placement, canEditDashboard, effectiveEditBarFilters } =
+        useValues(dashboardLogic)
+    const { setFilterTestAccounts, setDashboardEditing } = useActions(dashboardLogic)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { currentTeam } = useValues(teamLogic)
     const hasDashboardColors = useFeatureFlag('PRODUCT_ANALYTICS_DASHBOARD_COLORS')
@@ -83,8 +84,11 @@ export function DashboardEditBarAdvancedFilters(): JSX.Element {
                         size="small"
                         value={choice}
                         onChange={(next) => {
-                            if (dashboardMode !== DashboardMode.Edit) {
-                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                            if (!dashboardEditing?.filters) {
+                                setDashboardEditing(
+                                    { filters: true, layout: false },
+                                    DashboardEventSource.DashboardFilters
+                                )
                             }
                             setFilterTestAccounts(CHOICE_TO_FILTER[next])
                         }}
