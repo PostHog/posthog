@@ -134,7 +134,7 @@ class Case:
     expected_repo_template: str = ""
 
 
-@dataclass
+@dataclass(frozen=True)
 class CaseResult:
     case: Case
     actual_stage: Stage
@@ -384,7 +384,7 @@ class RunFlags:
     show_picker: bool = False
 
 
-@dataclass
+@dataclass(frozen=True)
 class TeamContext:
     team: Team
     team_id: int
@@ -559,7 +559,7 @@ class Command:
                 RepoRoutingRule.objects.filter(id__in=rule_ids).delete()
 
         if case.expected_repo_template:
-            result.expected_repo = case.expected_repo_template.format(**substitutions)
+            result = replace(result, expected_repo=case.expected_repo_template.format(**substitutions))
         return result
 
     def _run_stages(
