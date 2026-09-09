@@ -44,7 +44,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     is_slack_interaction_state,
 )
 
-from ee.hogai.sandbox import is_turn_complete
+from ee.hogai.sandbox import is_turn_complete, turn_complete_trace_id
 
 logger = structlog.get_logger(__name__)
 
@@ -501,7 +501,11 @@ async def _relay_loop(
                                     # turn_completed, which clears the parent's relay id and would
                                     # otherwise drop a delta that arrived after it.
                                     await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
-                                    await _signal_safely(workflow_handle, "turn_completed")
+                                    await _signal_safely(
+                                        workflow_handle,
+                                        "turn_completed",
+                                        arg=turn_complete_trace_id(event_data),
+                                    )
                                 final_text = final_message_tracker.end_turn()
                                 if final_text is not None and task_run is not None:
                                     await asyncio.to_thread(_persist_final_message, run_id, final_text)
