@@ -94,7 +94,9 @@ export function Billing(): JSX.Element {
         router.actions.push(urls.default())
     }
 
-    if ((!billing && billingLoading) || couponsOverviewLoading) {
+    // Coupons load beside billing. Wait for them only when there is billing to show, so a slow
+    // coupon request cannot hide the billing error and the retry it offers.
+    if ((!billing && billingLoading) || (billing && couponsOverviewLoading)) {
         return (
             <>
                 <SpinnerOverlay sceneLevel />
