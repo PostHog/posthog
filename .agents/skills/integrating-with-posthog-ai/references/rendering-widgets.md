@@ -29,8 +29,12 @@ export const posthogAiToolRenderers: ToolRegistryEntry[] = [
 ]
 ```
 
-Reference lists: `products/posthog_ai/frontend/api/posthogAiToolRenderers.tsx` for data widgets and
-`products/cdp/frontend/posthogAiToolRenderers.tsx` for a lazy permission preview.
+Reference lists: `products/posthog_ai/frontend/posthogAiToolRenderers.tsx` for data widgets,
+`products/error_tracking/frontend/posthogAiToolRenderers.tsx` for product-owned error-tracking widgets,
+and `products/cdp/frontend/posthogAiToolRenderers.tsx` for a lazy permission preview.
+Declaration lists live at the product frontend root, outside `api/`. Implementations that use another
+product’s internals belong with that product. Use PostHog AI’s public `api/tools` helpers for the tool-card
+contract and generic output parsing; shared `frontend` dependencies are allowed.
 Implementations stay product-owned and load only on use through `lazyWithRetry`.
 
 ## The entry

@@ -11,33 +11,29 @@ import {
     IconStickiness,
     IconTrends,
     IconUserPaths,
-    IconWarning,
 } from '@posthog/icons'
 
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
-import type { ToolRegistryEntry } from './tools'
+import type { ToolRegistryEntry } from './api/tools'
 
 // Lazy factories keep widget implementations out of the registry's eager import graph.
 const InsightRenderer = lazyWithRetry(() =>
-    import('../components/tool/widgets/CreateInsightWidget').then((m) => ({ default: m.CreateInsightWidget }))
+    import('./components/tool/widgets/CreateInsightWidget').then((m) => ({ default: m.CreateInsightWidget }))
 )
 const DashboardRenderer = lazyWithRetry(() =>
-    import('../components/tool/widgets/UpsertDashboardWidget').then((m) => ({ default: m.UpsertDashboardWidget }))
+    import('./components/tool/widgets/UpsertDashboardWidget').then((m) => ({ default: m.UpsertDashboardWidget }))
 )
 const SessionRecordingsRenderer = lazyWithRetry(() =>
-    import('../components/tool/widgets/SearchSessionRecordingsWidget').then((m) => ({
+    import('./components/tool/widgets/SearchSessionRecordingsWidget').then((m) => ({
         default: m.SearchSessionRecordingsWidget,
     }))
 )
-const ErrorTrackingRenderer = lazyWithRetry(() =>
-    import('../components/tool/widgets/ErrorTrackingWidget').then((m) => ({ default: m.ErrorTrackingWidget }))
-)
 const NotebookRenderer = lazyWithRetry(() =>
-    import('../components/tool/widgets/CreateNotebookWidget').then((m) => ({ default: m.CreateNotebookWidget }))
+    import('./components/tool/widgets/CreateNotebookWidget').then((m) => ({ default: m.CreateNotebookWidget }))
 )
 const QueryRenderer = lazyWithRetry(() =>
-    import('../components/tool/widgets/QueryWidget').then((m) => ({ default: m.QueryWidget }))
+    import('./components/tool/widgets/QueryWidget').then((m) => ({ default: m.QueryWidget }))
 )
 
 const DATA_TOOLS = [
@@ -62,19 +58,6 @@ const DATA_TOOLS = [
         Renderer: SessionRecordingsRenderer,
     },
 
-    {
-        keys: [
-            'query-error-tracking-issues-list',
-            'query-error-tracking-issue',
-            'query-error-tracking-issue-events',
-            'search_error_tracking_issues',
-            'filter_error_tracking_issues',
-        ],
-        displayName: 'Error tracking',
-        icon: <IconWarning />,
-        Renderer: ErrorTrackingRenderer,
-    },
-
     // The generated CRUD tools and the handwritten notebook-edit (the collab-safe content editor) all
     // return the same REST notebook payload. A feature flag swaps that set for the markdown notebook
     // tools, so both sets are registered — a thread only ever contains calls from the set its own run
@@ -95,7 +78,8 @@ const DATA_TOOLS = [
     },
 ]
 
-const QUERY_WRAPPER_TOOLS: { key: string; displayName: string; icon: JSX.Element }[] = [
+const QUERY_TOOLS: { key: string; displayName: string; icon: JSX.Element }[] = [
+    { key: 'insight-query', displayName: 'Insight query', icon: <IconGraph /> },
     { key: 'query-trends', displayName: 'Trends query', icon: <IconTrends /> },
     { key: 'query-funnel', displayName: 'Funnel query', icon: <IconFunnels /> },
     { key: 'query-retention', displayName: 'Retention query', icon: <IconRetention /> },
@@ -111,5 +95,5 @@ export const posthogAiToolRenderers: ToolRegistryEntry[] = [
     ...DATA_TOOLS.flatMap(({ keys, ...entry }) =>
         keys.map((key) => ({ key, ...entry, requiresPostHogOrigin: true, keepVisible: true }))
     ),
-    ...QUERY_WRAPPER_TOOLS.map((entry) => ({ ...entry, Renderer: QueryRenderer, requiresPostHogOrigin: true, keepVisible: true })),
+    ...QUERY_TOOLS.map((entry) => ({ ...entry, Renderer: QueryRenderer, requiresPostHogOrigin: true, keepVisible: true })),
 ]

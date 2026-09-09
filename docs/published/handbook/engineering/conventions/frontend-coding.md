@@ -114,7 +114,12 @@ Do not mount or fetch a product scene to produce a preview.
 Both boundaries use that evidence fallback; approval controls remain outside them and stay usable during loading or failure.
 Errors retain the `posthog_ai_permission_preview` feature tag, and a new permission request resets the error boundary.
 
-Existing data widget implementations remain in `products/posthog_ai/frontend/components/tool/widgets/`;
-`products/posthog_ai/frontend/api/posthogAiToolRenderers.tsx` owns their declarations.
+Insights, dashboards, recordings, notebooks, and query widgets live in `products/posthog_ai/frontend/components/tool/widgets/`;
+`products/posthog_ai/frontend/posthogAiToolRenderers.tsx` owns their declarations, including `insight-query`.
+Error tracking owns its widget family and declarations under `products/error_tracking/frontend/`.
+Replay vision owns its scan widget and polling logic under `products/replay_vision/frontend/posthogAi/`.
+Declaration modules are product contributions at the frontend root, outside the reusable `api/` facade.
+Products may depend on shared frontend code. Keep widget-specific access to product internals within the owning product,
+and consume PostHog AI’s tool-card contract and output parser through `api/tools`.
 The CDP list and `HogFunctionPermissionPreview` demonstrate a lazy preview that reads an already mounted form.
 See [the integration guide](https://github.com/PostHog/posthog/blob/master/products/posthog_ai/README.md) for the other frontend integration seams.

@@ -23,6 +23,11 @@ describe('toolRegistry', () => {
     it('resolves product declarations after importing only the registry', () => {
         expect(toolRegistry.lookup('insight-create')?.displayName).toEqual('Insight')
         expect(toolRegistry.lookup('query-trends')?.displayName).toEqual('Trends query')
+        expect(toolRegistry.lookup('search_error_tracking_issues')?.displayName).toEqual('Error tracking')
+        expect(
+            require.cache[require.resolve('products/error_tracking/frontend/posthogAi/ErrorTrackingWidget')]
+        ).toBeUndefined()
+        expect(require.cache[require.resolve('./widgets/QueryWidget')]).toBeUndefined()
         expect(require.cache[require.resolve('./ToolCallCard')]).toBeUndefined()
         expect(
             require.cache[require.resolve('scenes/hog-functions/configuration/HogFunctionConfiguration')]
@@ -48,7 +53,6 @@ describe('toolRegistry', () => {
         )
         expect(lookupToolRenderer('experiment-create', false).displayName).toEqual('experiment-create')
         // Never-registered keys (not built-ins, not any product data-tool) resolve to the fallback.
-        expect(toolRegistry.lookup('insight-query')).toBeNull()
         expect(toolRegistry.lookup('read_insight')).toBeNull()
         expect(toolRegistry.lookup('query-llm-trace')).toBeNull()
     })
@@ -61,6 +65,8 @@ describe('toolRegistry', () => {
         ['notebooks-create', 'Notebook'],
         ['dashboard-create', 'Dashboard'],
         ['query-trends', 'Trends query'],
+        ['insight-query', 'Insight query'],
+        ['search_error_tracking_issues', 'Error tracking'],
     ])('gates product widget %s on a trusted PostHog-exec origin', (key, displayName) => {
         expect(lookupToolRenderer(key, false).displayName).toEqual(key)
         expect(lookupToolRenderer(key, true).displayName).toEqual(displayName)
