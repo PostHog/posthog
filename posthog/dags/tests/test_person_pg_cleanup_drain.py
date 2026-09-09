@@ -279,7 +279,16 @@ def test_rows_from_two_sweeps_are_sent_separately_and_a_requeued_row_survives(
     old = seed_tombstoned(fake, TEAM_A, 1)
     new = seed_tombstoned(fake, TEAM_A, 2)
     requeued = seed_tombstoned(fake, TEAM_A, 3)
-    queue(persons_database, [(TEAM_A, old, SWEEP_1), (TEAM_A, requeued, SWEEP_1), (TEAM_A, new, SWEEP_2)])
+    requeued_blocked = seed_blocked(fake, TEAM_A, 4)
+    queue(
+        persons_database,
+        [
+            (TEAM_A, old, SWEEP_1),
+            (TEAM_A, requeued, SWEEP_1),
+            (TEAM_A, requeued_blocked, SWEEP_1),
+            (TEAM_A, new, SWEEP_2),
+        ],
+    )
     original = fake.delete_tombstoned_persons
 
     def requeue_during_rpc(
@@ -288,8 +297,8 @@ def test_rows_from_two_sweeps_are_sent_separately_and_a_requeued_row_survives(
         if requeued in request.person_uuids:
             with persons_database.cursor() as cursor:
                 cursor.execute(
-                    f"UPDATE {PG_CLEANUP_QUEUE_TABLE} SET deleted_at = %s WHERE person_uuid = %s",
-                    (SWEEP_2, requeued),
+                    f"UPDATE {PG_CLEANUP_QUEUE_TABLE} SET deleted_at = %s WHERE person_uuid = ANY(%s::uuid[])",
+                    (SWEEP_2, [requeued, requeued_blocked]),
                 )
             persons_database.commit()
         return original(request, timeout=timeout)
@@ -299,8 +308,12 @@ def test_rows_from_two_sweeps_are_sent_separately_and_a_requeued_row_survives(
     result = run_job(cluster)
 
     sent = [sorted(request.person_uuids) for request in delete_requests(fake)]
-    assert sorted(sent) == sorted([sorted([old, requeued]), [new]])
-    assert queued(persons_database) == [(TEAM_A, requeued, SWEEP_2, None)]
+    assert sorted(sent) == sorted([sorted([old, requeued, requeued_blocked]), [new]])
+    # Both re-queued rows survive untouched: the resolved one is not deleted, and the blocked one is
+    # not stamped, because both now belong to the newer sweep.
+    assert queued(persons_database) == sorted(
+        [(TEAM_A, requeued, SWEEP_2, None), (TEAM_A, requeued_blocked, SWEEP_2, None)], key=lambda row: row[1]
+    )
     assert totals_of(result).queue_rows_deleted == 2
 
 
@@ -450,3 +463,25 @@ def test_pauses_after_every_request_by_pause_ms_plus_latency(cluster: Clickhouse
     assert len(pauses) == totals.rpc_calls == 3
     assert all(pause >= 0.25 for pause in pauses), pauses
     assert [round(pause - 0.25, 6) for pause in pauses] == [round(2.0 * rpc, 6) for rpc in totals.rpc_seconds]
+
+
+@pytest.mark.parametrize(
+    "rpc_batch_size,rpc_timeout_seconds,valid",
+    [
+        (100, 31.0, True),
+        (100, 30.0, False),
+        (200, 60.0, False),
+        (200, 61.0, True),
+        (1000, 300.0, False),
+        (1000, 301.0, True),
+    ],
+)
+def test_rpc_timeout_must_cover_every_chunk_of_the_request(rpc_batch_size, rpc_timeout_seconds, valid):
+    # A deadline shorter than the replica's sequential chunk work makes the client abandon a delete
+    # the server is still running, then retry on top of it.
+    build = lambda: drain.DrainConfig(rpc_batch_size=rpc_batch_size, rpc_timeout_seconds=rpc_timeout_seconds)
+    if valid:
+        assert build().rpc_timeout_seconds == rpc_timeout_seconds
+    else:
+        with pytest.raises(ValueError, match="rpc_timeout_seconds must exceed"):
+            build()
