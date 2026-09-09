@@ -1,9 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
-import { mswDecorator } from '~/mocks/browser'
-
 import { makeReport, pullRequestReports, reportTabReports, runReportsMany } from '../../__mocks__/inboxMocks'
 import { SignalReportStatus } from '../../types'
 import { AgentRunCard } from './AgentRunCard'
@@ -42,30 +38,6 @@ export const PullRequestCards: Story = {
                 <ReportCard key={r.id} report={r} />
             ))}
         </Stack>
-    ),
-}
-
-// The redesign row's verdict buttons. They sit hidden until the row is hovered or focused, which a
-// screenshot can't do, so this story overrides that one class to review them where they land.
-export const ReportCardVerdictActions: Story = {
-    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: true } },
-    decorators: [
-        // The verdict buttons mount the owning section's list logic, which counts its rows on mount.
-        mswDecorator({
-            get: {
-                '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
-            },
-        }),
-    ],
-    render: () => (
-        // `@container` so the row lays out its action column the way the inbox list does.
-        <div className="@container [&_[data-attr='inbox-report-row-verdicts']]:opacity-100">
-            <Stack>
-                {reportTabReports.slice(0, 3).map((r) => (
-                    <ReportCard key={r.id} report={r} />
-                ))}
-            </Stack>
-        </div>
     ),
 }
 

@@ -33,20 +33,28 @@ import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import { InboxReportSectionKey, SignalReport, SignalReportStatus } from '../../types'
-import { DISMISSAL_REASON_OPTIONS, RESOLVE_REASON_OPTIONS } from '../../utils/dismissalReasons'
+import {
+    DISMISSAL_REASON_OPTIONS,
+    DismissalFeedback,
+    DismissalReasonValue,
+    RESOLVE_REASON_OPTIONS,
+    ResolveReasonValue,
+} from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
-import { canCreateImplementationPr, canResolveReport } from '../../utils/reportActions'
+import { canCreateImplementationPr, canResolveReport, hasOpenImplementationPr } from '../../utils/reportActions'
+import { displayConventionalCommitTitle } from '../../utils/reportPresentation'
 import { ReviewerSearchList } from '../detail/ReviewerSearchList'
-import { useReportVerdict } from './useReportVerdict'
+import { openDismissReportDialog } from '../shell/DismissReportDialog'
+import { openResolveReportDialog } from '../shell/ResolveReportDialog'
 
 /**
  * Right-click menu on a report row in the flat inbox list: the report's major actions without
  * opening its detail. Create PR, Resolve, Dismiss, and Reviewers follow the same eligibility rules
  * as the detail pane (`utils/reportActions.ts`); a dismissed row offers Restore instead. Resolve
  * and Dismiss nest their canonical reasons, and picking one applies immediately through the owning
- * section's list logic (see {@link useReportVerdict} for the two reasons that still need the
- * dialog). Rows with no action (resolved, refunded) render without a menu, so the
- * browser's own menu still works there. On rows with a menu the trigger suppresses that native
+ * section's list logic. The dialog stays available for a note, a corrected repository, or an open
+ * implementation PR warning. Rows with no action (resolved, refunded) render without a menu, so
+ * the browser's own menu still works there. On rows with a menu the trigger suppresses that native
  * menu over the row's link, so the standard link actions return as an explicit section at the
  * bottom (open, open in new tab, copy link).
  */
@@ -81,8 +89,8 @@ export function ReportContextMenu({
             <ContextMenuContent
                 loop
                 className="min-w-48"
-                // The "Something else…" dialogs autofocus their note field, and the menu closes on
-                // the same click. Its closing focus restore runs after the dialog opens and would
+                // The verdict dialogs autofocus their first field, and the menu closes on the same
+                // click. Its closing focus restore runs after the dialog opens and would
                 // pull focus back to the row, so skip the restore for exactly that close.
                 onCloseAutoFocus={(event) => {
                     if (openedDialogRef.current) {
@@ -180,16 +188,72 @@ function ReportContextMenuItems({
     /** Tells the menu a dialog is opening, so its close skips the focus restore. */
     onOpenDialog: () => void
 }): JSX.Element {
-    const { restoreReport } = useActions(reportListLogic(sectionListLogicProps(sectionKey)))
+    const { dismissReport, resolveReport, restoreReport } = useActions(
+        reportListLogic(sectionListLogicProps(sectionKey))
+    )
     // Kept mounted by `ReportsTab` beyond this menu's lifetime, so the create-PR listener survives
     // the menu closing on click.
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
-    const { pickDismissReason, pickResolveReason, openDismissDialog, openResolveDialog } = useReportVerdict({
-        report,
-        sectionKey,
-        surface: 'context_menu',
-        onOpenDialog,
-    })
+    const reportTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
+    const hasOpenPr = hasOpenImplementationPr(report)
+
+    const dismissWith = (dismissal: DismissalFeedback): void => {
+        const { reason, note, correctedRepository } = dismissal
+        captureInboxReportAction({
+            report,
+            actionType: 'dismiss',
+            surface: 'context_menu',
+            extra: {
+                dismissal_reason: reason,
+                ...(note ? { dismissal_note: note } : {}),
+                ...(correctedRepository ? { dismissal_corrected_repository: correctedRepository } : {}),
+            },
+        })
+        dismissReport(report.id, dismissal)
+    }
+
+    const resolveWith = (reason: ResolveReasonValue, note: string): void => {
+        // pinned: `dismissal_reason` is the persisted field the reason lands in, for both verdicts.
+        // Only the structured reason is safe for analytics because the note can contain private text.
+        captureInboxReportAction({
+            report,
+            actionType: 'resolve',
+            surface: 'context_menu',
+            extra: { dismissal_reason: reason },
+        })
+        resolveReport(report.id, reason, note)
+    }
+
+    const openDismissDialog = (initialReason?: DismissalReasonValue): void => {
+        onOpenDialog()
+        openDismissReportDialog({ reportTitle, hasOpenPr, initialReason, onConfirm: dismissWith })
+    }
+
+    const openResolveDialog = (initialReason?: ResolveReasonValue): void => {
+        onOpenDialog()
+        openResolveReportDialog({
+            reportTitle,
+            hasOpenPr,
+            initialReason,
+            onConfirm: ({ reason, note }) => resolveWith(reason, note),
+        })
+    }
+
+    const pickDismissReason = (reason: DismissalReasonValue): void => {
+        if (reason === 'wrong_repo' || hasOpenPr) {
+            openDismissDialog(reason)
+            return
+        }
+        dismissWith({ reason, note: '', correctedRepository: null })
+    }
+
+    const pickResolveReason = (reason: ResolveReasonValue): void => {
+        if (hasOpenPr) {
+            openResolveDialog(reason)
+            return
+        }
+        resolveWith(reason, '')
+    }
 
     // The menu only mounts in the redesign flat list, whose rows link to the reports tab with no
     // back param, so the default detail URL is exactly the row's own href.
