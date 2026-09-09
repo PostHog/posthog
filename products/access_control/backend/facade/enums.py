@@ -12,9 +12,7 @@ Internal-only constants (DB magic values, feature flags, etc.)
 should stay in the implementation (logic.py, models.py).
 """
 
-from typing import Literal
-
-from django.db import models
+from typing import Literal, get_args
 
 ResolvedAccessSourceValue = Literal[
     "object",
@@ -28,23 +26,7 @@ ResolvedAccessSourceValue = Literal[
 ]
 ResolvedAccessSourceSubjectValue = Literal["member", "role", "default"]
 
-
-class ResolvedAccessSource(models.TextChoices):
-    """The `ResolvedAccessSourceValue` literals as choices, so the schema names the enum after this class."""
-
-    OBJECT = "object"
-    PARENT_OBJECT = "parent_object"
-    RESOURCE = "resource"
-    PARENT_RESOURCE = "parent_resource"
-    SYSTEM_DEFAULT = "system_default"
-    ORG_ADMIN = "org_admin"
-    CREATOR = "creator"
-    ORG_MEMBERSHIP = "org_membership"
-
-
-class ResolvedAccessSourceSubject(models.TextChoices):
-    """The `ResolvedAccessSourceSubjectValue` literals as choices, so the schema names the enum after this class."""
-
-    MEMBER = "member"
-    ROLE = "role"
-    DEFAULT = "default"
+# Serializer choices for the literals above. The schema names their enum components through
+# ENUM_NAME_OVERRIDES in posthog/settings/web.py, because no Choices class carries these values.
+RESOLVED_ACCESS_SOURCE_CHOICES: list[str] = list(get_args(ResolvedAccessSourceValue))
+RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES: list[str] = list(get_args(ResolvedAccessSourceSubjectValue))
