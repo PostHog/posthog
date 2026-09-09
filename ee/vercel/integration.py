@@ -875,6 +875,10 @@ class VercelIntegration:
     @staticmethod
     def _authenticate_and_login_user(request, claims: VercelUserClaims, resource_id: str | None) -> User:
         user = VercelIntegration._find_sso_user(claims)
+        if user.is_email_verified is not True and claims.user_email and claims.user_email.lower() == user.email.lower():
+            # Vercel verified the mailbox before issuing the claim, so this login proves it.
+            user.is_email_verified = True
+            user.save(update_fields=["is_email_verified"])
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         if resource_id:
             VercelIntegration.set_active_project(user, resource_id)
