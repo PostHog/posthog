@@ -23,10 +23,7 @@ def test_permission_errors_point_to_access_recovery() -> None:
     skill_content = SKILL_PATH.read_text(encoding="utf-8")
     normalized_skill_content = " ".join(skill_content.split())
 
-    assert (
-        "If a billing tool returns a permission error that says the user does not have billing access"
-        in normalized_skill_content
-    )
-    assert "do not retry the same billing tool" in normalized_skill_content
+    assert "If a billing tool returns a permission error, read the error detail" in normalized_skill_content
+    assert "Stop only when it says the user does not have billing access" in normalized_skill_content
     assert "does not have billing access for this organization" in normalized_skill_content
     assert "If the permission error points to requested projects or `team_ids`" in normalized_skill_content

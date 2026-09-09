@@ -87,6 +87,11 @@ aggregates data that is not represented as a team-scoped PostHog table,
 or returns a curated API shape that would be awkward or unsafe to rebuild in SQL.
 For these tools, keep the surface narrow and document the source and shape in the YAML description.
 
+For proxy endpoints that can fail because of either user permissions or request scope,
+return distinct API-visible error details. Agents should stop on true authorization
+failures, but they can often recover from a bad project/team filter if the response says
+the requested scope is unavailable.
+
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
 

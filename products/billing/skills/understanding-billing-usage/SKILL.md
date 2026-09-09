@@ -45,10 +45,11 @@ about billing usage and those tools are not available, do not continue with this
 workflow. Briefly say that billing usage investigation is not enabled for this
 organization or MCP session.
 
-If a billing tool returns a permission error that says the user does not have
-billing access, do not retry the same billing tool. Say the current PostHog user
-does not have billing access for this organization and should ask someone with
-billing access to run it or update their role.
+If a billing tool returns a permission error, read the error detail before
+deciding what to do. Stop only when it says the user does not have billing
+access. Say the current PostHog user does not have billing access for this
+organization and should ask someone with billing access to run it or update
+their role.
 
 If the permission error points to requested projects or `team_ids`, correct the
 project filter once if the user provided the wrong project context. Do not
