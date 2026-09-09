@@ -1,4 +1,5 @@
 import api, { ApiMethodOptions, isAbortError } from 'lib/api'
+import { type ApiFailureClass, classifyApiFailure } from 'lib/api-error'
 import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils/async'
 
@@ -65,6 +66,15 @@ export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
+
+/** The client stopped polling because the query outlived the deadline. It carries no HTTP status. */
+export class QueryTimeoutError extends Error {
+    constructor(public queryId?: string) {
+        super(QUERY_TIMEOUT_ERROR_MESSAGE)
+        this.name = 'QueryTimeoutError'
+    }
+}
+
 /** Matches MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE in posthog/api/query.py. */
 const MANAGED_WAREHOUSE_UNAVAILABLE_CODE = 'managed_warehouse_connection_unavailable'
 
@@ -157,9 +167,7 @@ export async function pollForResults(
     }
 
     // if we get here, the query timed out
-    const timeoutError = new Error(QUERY_TIMEOUT_ERROR_MESSAGE)
-    ;(timeoutError as Error & { queryId?: string }).queryId = queryId
-    throw timeoutError
+    throw new QueryTimeoutError(queryId)
 }
 
 /**
@@ -334,7 +342,8 @@ export async function performQuery<N extends DataNode>(
         // A superseded query or navigating away mid-request aborts, not fails — skip so the
         // 'query failed' metric isn't drowned in cancellation noise.
         if (!isAbortError(e)) {
-            // Raw error detail/message can echo query fragments, so telemetry only gets status and code
+            // Raw error detail/message can echo query fragments, so telemetry only gets status,
+            // code, and a coarse class
             const error = e as (Error & { status?: number; code?: string | null }) | null
             posthog.capture('query failed', {
                 query: queryNode,
@@ -342,12 +351,22 @@ export async function performQuery<N extends DataNode>(
                 duration: performance.now() - startTime,
                 error_status: error?.status ?? null,
                 error_code: error?.code ?? null,
+                error_class: queryFailureClass(e),
                 uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
                 ...logParams,
             })
         }
         throw e
     }
+}
+
+/**
+ * Why a query failed, in terms a triager can act on. Status and code are both null for a request
+ * that never got a response, which leaves most failures unattributable without this. The value
+ * stays coarse and fixed so no query text reaches telemetry.
+ */
+function queryFailureClass(error: unknown): ApiFailureClass | 'timeout' {
+    return error instanceof QueryTimeoutError ? 'timeout' : classifyApiFailure(error)
 }
 
 export function getPersonsEndpoint(query: PersonsNode): string {

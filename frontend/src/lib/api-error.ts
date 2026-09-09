@@ -165,6 +165,36 @@ export function shouldReportApiFailure(error: unknown): boolean {
     return !isApprovalRequiredError(failure)
 }
 
+/**
+ * A coarse, non-sensitive reason a request failed, for telemetry. Error messages and response
+ * bodies can echo the query a user wrote, so a failure event carries this class instead.
+ *
+ * - `network`: the request never reached the server.
+ * - `malformed_response`: the server answered, but the body could not be read as JSON.
+ * - `client`: a 4xx, so the request itself was refused (bad input, permissions, rate limit).
+ * - `server`: a 5xx, so the backend or a gateway in front of it failed.
+ * - `unknown`: an error with no status that no rule above recognizes, such as an application
+ *   `TypeError` raised on the way to or from the request.
+ */
+export type ApiFailureClass = 'network' | 'malformed_response' | 'client' | 'server' | 'unknown'
+
+export function classifyApiFailure(error: unknown): ApiFailureClass {
+    if (error instanceof MalformedResponseError) {
+        return 'malformed_response'
+    }
+    if (error instanceof NetworkError || isBrowserNetworkFailure(error)) {
+        return 'network'
+    }
+    const status = (error as { status?: unknown } | null)?.status
+    if (typeof status !== 'number') {
+        return 'unknown'
+    }
+    if (status >= 500) {
+        return 'server'
+    }
+    return status >= 400 ? 'client' : 'unknown'
+}
+
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null
@@ -276,5 +306,18 @@ export class NetworkError extends ApiError {
         // `dropUnactionableNetworkExceptions` and error tracking grouping rules match on.
         this.name = 'NetworkError'
         this.cause = cause
+    }
+}
+
+/**
+ * A response that arrived but could not be read as the JSON its caller expects: the body stream
+ * failed mid-read, or the text is not valid JSON. `status` stays undefined because the HTTP status
+ * was a success, and recovery paths keyed on `status === undefined` should treat a garbled body
+ * like the connectivity failure it effectively is.
+ */
+export class MalformedResponseError extends ApiError {
+    constructor(message: string) {
+        super(message)
+        this.name = 'MalformedResponseError'
     }
 }
