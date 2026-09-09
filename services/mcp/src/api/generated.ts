@@ -44830,7 +44830,6 @@ export namespace Schemas {
       compare?: CompareItem[] | null;
       day?: DayItem[] | null;
       interval?: IntervalItem[] | null;
-      query_scan?: QueryScanSummary | null;
       series?: Series[] | null;
       status?: StatusItem[] | null;
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
@@ -73781,7 +73780,6 @@ export namespace Schemas {
       compare?: CompareItem[] | null;
       day?: DayItem[] | null;
       interval?: IntervalItem[] | null;
-      query_scan?: QueryScanSummary | null;
       series?: Series[] | null;
       status?: StatusItem[] | null;
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
