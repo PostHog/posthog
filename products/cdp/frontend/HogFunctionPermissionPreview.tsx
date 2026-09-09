@@ -22,10 +22,11 @@ export function HogFunctionPermissionPreview({ request, fallback }: PermissionPr
     }
     const proposed = getPermissionRequestToolInput(request)
     // An update aimed at a different function than the one on screen must not render a diff against
-    // the open form — that would preview the wrong change. Fall back to the raw payload.
+    // the open form — that would preview the wrong change. Both ids must be known and match, because
+    // a new-function form carries no id and would otherwise diff against template defaults.
     const targetId = typeof proposed.id === 'string' ? proposed.id : null
     const mountedId = typeof mounted.props.id === 'string' ? mounted.props.id : null
-    if (targetId && mountedId && targetId !== mountedId) {
+    if (!targetId || !mountedId || targetId !== mountedId) {
         return <>{fallback}</>
     }
     const diffs = buildHogFunctionConfigDiff(current, proposed)
