@@ -200,17 +200,19 @@ pub async fn flags_definitions(
         .get_etag(&team_key)
         .await
     {
-        Ok(etag) => etag.or_else(|| {
-            // Redis answered and held no ETag key for this team. Counted apart from a
-            // cluster fault because the two need opposite responses: rebuild the cache
-            // tier, or treat Redis as the fault.
-            inc(
-                FLAG_DEFINITIONS_ETAG_COUNTER,
-                &[("result".to_string(), "redis_missing".to_string())],
-                1,
-            );
-            None
-        }),
+        Ok(etag) => {
+            if etag.is_none() {
+                // Redis answered and held no ETag key for this team. Counted apart from a
+                // cluster fault because the two need opposite responses: rebuild the cache
+                // tier, or treat Redis as the fault.
+                inc(
+                    FLAG_DEFINITIONS_ETAG_COUNTER,
+                    &[("result".to_string(), "redis_missing".to_string())],
+                    1,
+                );
+            }
+            etag
+        }
         Err(e) => {
             warn!(
                 team_id = team.id,
