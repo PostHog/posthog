@@ -35,6 +35,10 @@ from products.alerts.backend.destinations import (
     soft_delete_all_alert_destinations,
 )
 from products.alerts.backend.email_notifications import send_alert_email
+from products.alerts.backend.facade.scheduling import (
+    validate_and_normalize_schedule_restriction,
+    validate_and_normalize_schedule_start_time,
+)
 from products.alerts.backend.insight_alert_destinations import (
     INSIGHT_ALERT_DESTINATION_TYPES,
     INSIGHT_ALERT_EVENT_IDS,
@@ -45,10 +49,6 @@ from products.alerts.backend.insight_alert_destinations import (
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
-from products.alerts.backend.scheduling import (
-    validate_and_normalize_schedule_restriction,
-    validate_and_normalize_schedule_start_time,
-)
 
 logger = structlog.get_logger(__name__)
 
