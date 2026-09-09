@@ -6,8 +6,6 @@ One run is one answer: work out what broke, post a single reply in that Slack th
 The parent `SKILL.md` owns the method: the classification table and the base-rate check.
 This file only adds what is different about running unattended, starting with the fact that its first step does not exist here.
 
-`recurring-failures.md` in this directory carries the failure families that have fired repeatedly on master, and which verdict each one usually turns out to be. Read it before you classify.
-
 Setting the workflow up is `master-red-workflow-setup.md` in this directory.
 
 ## You have no digest, so start from the MCP tools
