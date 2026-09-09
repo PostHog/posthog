@@ -1,12 +1,32 @@
+import { NodeKind } from '~/queries/schema/schema-general'
+
 import {
     dropDuplicatesOfOverrides,
     getDateRangeOverrideDisplay,
     getEffectiveFilterOverrides,
+    getEffectiveTestAccountFiltering,
 } from './insightDetailsFilterOverrides'
 
 const browserChrome = { key: '$browser', value: 'Chrome', type: 'event', operator: 'exact' }
 const browserSafari = { key: '$browser', value: 'Safari', type: 'event', operator: 'exact' }
 const countryUS = { key: '$country', value: 'US', type: 'event', operator: 'exact' }
+
+const trendsViz = (filterTestAccounts?: boolean): any => ({
+    kind: NodeKind.InsightVizNode,
+    source: {
+        kind: NodeKind.TrendsQuery,
+        series: [],
+        ...(filterTestAccounts === undefined ? {} : { filterTestAccounts }),
+    },
+})
+
+const dataTable = (sourceKind: NodeKind, filterTestAccounts?: boolean): any => ({
+    kind: NodeKind.DataTableNode,
+    source: {
+        kind: sourceKind,
+        ...(filterTestAccounts === undefined ? {} : { filterTestAccounts }),
+    },
+})
 
 describe('InsightDetails', () => {
     describe('getDateRangeOverrideDisplay', () => {
@@ -254,6 +274,74 @@ describe('InsightDetails', () => {
 
             expect(result.ignoresDashboardFilters).toBe(true)
             expect(result.filterTestAccounts).toBeNull()
+        })
+    })
+    describe('getEffectiveTestAccountFiltering', () => {
+        it.each([
+            {
+                label: 'an insight that never set the flag counts as including test users',
+                query: trendsViz(),
+                filtersOverride: undefined,
+                tileFiltersOverride: undefined,
+                expected: { value: false, source: 'insight' },
+            },
+            {
+                label: "the insight's own setting wins when no layer overrides it",
+                query: trendsViz(true),
+                filtersOverride: undefined,
+                tileFiltersOverride: undefined,
+                expected: { value: true, source: 'insight' },
+            },
+            {
+                label: 'a dashboard force-off beats the insight filtering test users out',
+                query: trendsViz(true),
+                filtersOverride: { filterTestAccounts: false },
+                tileFiltersOverride: undefined,
+                expected: { value: false, source: 'dashboard' },
+            },
+            {
+                label: 'a tile force-on beats a dashboard force-off',
+                query: trendsViz(false),
+                filtersOverride: { filterTestAccounts: false },
+                tileFiltersOverride: { filterTestAccounts: true },
+                expected: { value: true, source: 'tile' },
+            },
+            {
+                label: 'a dashboard override reports nothing on a query kind that has no test account filter',
+                query: { kind: NodeKind.SavedInsightNode, shortId: 'abc' },
+                filtersOverride: { filterTestAccounts: false },
+                tileFiltersOverride: undefined,
+                expected: null,
+            },
+            {
+                label: 'an events table keeps its own setting, which a dashboard override never reaches',
+                query: dataTable(NodeKind.EventsQuery, true),
+                filtersOverride: { filterTestAccounts: false },
+                tileFiltersOverride: undefined,
+                expected: { value: true, source: 'insight' },
+            },
+            {
+                label: 'a sessions table keeps its own setting, which a tile override never reaches',
+                query: dataTable(NodeKind.SessionsQuery, false),
+                filtersOverride: undefined,
+                tileFiltersOverride: { filterTestAccounts: true },
+                expected: { value: false, source: 'insight' },
+            },
+        ])('$label', ({ query, filtersOverride, tileFiltersOverride, expected }) => {
+            expect(
+                getEffectiveTestAccountFiltering(query, undefined, filtersOverride as any, tileFiltersOverride as any)
+            ).toEqual(expected)
+        })
+
+        it('reports nothing for a query kind that has no test account filter', () => {
+            expect(
+                getEffectiveTestAccountFiltering(
+                    { kind: NodeKind.SavedInsightNode, shortId: 'abc' } as any,
+                    undefined,
+                    undefined,
+                    undefined
+                )
+            ).toBeNull()
         })
     })
 })

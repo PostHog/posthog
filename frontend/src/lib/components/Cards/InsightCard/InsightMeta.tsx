@@ -42,6 +42,7 @@ import { getOverrideWarningPropsForButton } from 'scenes/insights/utils'
 import { SurveyOpportunityButton } from 'scenes/surveys/components/SurveyOpportunityButton'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { isSurveyableFunnelInsight, SurveyableFunnelInsight } from 'scenes/surveys/utils/opportunityDetection'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -77,6 +78,7 @@ import { DashboardWidgetPlacementMenus } from './DashboardWidgetPlacementMenus'
 import { InsightCardProps } from './InsightCard'
 import { insightCardCaptureTarget } from './insightCardImageCapture'
 import { InsightDetails } from './InsightDetails'
+import { getEffectiveTestAccountFiltering } from './insightDetailsFilterOverrides'
 
 interface InsightMetaProps extends Pick<
     InsightCardProps,
@@ -191,6 +193,7 @@ export function InsightMeta({
     const { updateInsightDirect } = useActions(insightsModel)
     const { reportDashboardInsightMetaUpdated } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     const showCompactTile =
         placement === DashboardPlacement.Dashboard ||
@@ -221,11 +224,23 @@ export function InsightMeta({
         showsDataRetentionWarning && retentionPeriodLabel
             ? `This insight's date range goes beyond your ${retentionPeriodLabel} data retention, so events older than that aren't included.`
             : null
+    const testAccountFiltering = getEffectiveTestAccountFiltering(
+        insight.query,
+        insight.filter_override_context,
+        filtersOverride,
+        tileFiltersOverride
+    )
+    // Without configured internal filters the setting is inert either way, so the notice would say nothing.
+    const includesTestUsersSource =
+        (currentTeam?.test_account_filters || []).length > 0 && testAccountFiltering?.value === false
+            ? testAccountFiltering.source
+            : null
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,
         hasTileOverrides,
         ignoresDashboardFilters,
+        includesTestUsersSource,
         resolvedDateRange: insightData?.resolved_date_range,
         ...dateOverride,
     }

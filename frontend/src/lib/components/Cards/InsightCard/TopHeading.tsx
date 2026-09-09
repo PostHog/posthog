@@ -13,6 +13,8 @@ import {
     isInsightVizNode,
 } from '~/queries/utils'
 
+import { IncludesTestUsersNotice } from './IncludesTestUsersNotice'
+import { TestAccountFilteringSource } from './insightDetailsFilterOverrides'
 import { InsightFreshness } from './InsightFreshness'
 import { IgnoresDashboardFiltersNotice, TileOverridesWarning } from './TileOverridesWarning'
 
@@ -31,6 +33,7 @@ export function TopHeading({
     lastRefresh,
     hasTileOverrides,
     ignoresDashboardFilters,
+    includesTestUsersSource,
     resolvedDateRange,
     showInsightType = true,
     showDate = true,
@@ -41,6 +44,8 @@ export function TopHeading({
     lastRefresh?: string | null
     hasTileOverrides?: boolean | null
     ignoresDashboardFilters?: boolean | null
+    /** Set when internal and test users are counted, naming the layer that decided it. */
+    includesTestUsersSource?: TestAccountFilteringSource | null
     resolvedDateRange?: ResolvedDateRangeResponse | null
     showInsightType?: boolean
     showDate?: boolean
@@ -88,6 +93,7 @@ export function TopHeading({
             {dateLabel && lastRefresh ? <InsightFreshness lastRefresh={lastRefresh} /> : null}
             {hasTileOverrides ? <TileOverridesWarning /> : null}
             {ignoresDashboardFilters ? <IgnoresDashboardFiltersNotice /> : null}
+            {includesTestUsersSource ? <IncludesTestUsersNotice source={includesTestUsersSource} /> : null}
         </CardTopHeadingRow>
     )
 }

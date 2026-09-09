@@ -1,7 +1,16 @@
-import { DashboardFilter, TileFilters } from '~/queries/schema/schema-general'
+import { DashboardFilter, Node, TileFilters } from '~/queries/schema/schema-general'
+import {
+    isDataTableNode,
+    isDataVisualizationNode,
+    isEventsQuery,
+    isHogQLQuery,
+    isInsightVizNode,
+    isSessionsQuery,
+} from '~/queries/utils'
 import { AnyPropertyFilter, InsightFilterOverrideContext, IntervalType, PropertyGroupFilter } from '~/types'
 
 export type OverrideSource = 'dashboard' | 'tile'
+export type TestAccountFilteringSource = OverrideSource | 'insight'
 
 export interface EffectiveFilterOverrides {
     propertyGroups: { properties: AnyPropertyFilter[]; source: OverrideSource }[]
@@ -77,6 +86,60 @@ export function getEffectiveFilterOverrides(
         filterTestAccounts,
         ignoresDashboardFilters: tileIgnoresDashboard,
     }
+}
+
+interface OwnTestAccountFiltering {
+    value: boolean
+    // False for query kinds whose runner drops a dashboard or tile `filterTestAccounts` override, so the
+    // insight's own setting is what runs however the dashboard is set.
+    overridable: boolean
+}
+
+// The insight's own setting, or null when the query kind has no test account filter at all.
+// An insight that never set the flag counts as including test users, same as the query does.
+function ownTestAccountFiltering(query: Node | null | undefined): OwnTestAccountFiltering | null {
+    if (isInsightVizNode(query)) {
+        return { value: query.source.filterTestAccounts ?? false, overridable: true }
+    }
+    if (isDataVisualizationNode(query) || isDataTableNode(query)) {
+        const source = query.source
+        if (isHogQLQuery(source)) {
+            return { value: source.filters?.filterTestAccounts ?? false, overridable: true }
+        }
+        // `EventsQueryRunner.apply_dashboard_filters` and `SessionsQueryRunner.apply_dashboard_filters`
+        // copy only the date bounds and the properties, so a dashboard or tile setting never reaches
+        // these two kinds.
+        if (isEventsQuery(source) || isSessionsQuery(source)) {
+            return { value: source.filterTestAccounts ?? false, overridable: false }
+        }
+    }
+    return null
+}
+
+// Which layer decides whether internal and test users are counted: tile beats dashboard beats the
+// insight's own setting. Null when the query kind has no test account filter, because an override
+// cannot apply to a query that has nowhere to put it.
+export function getEffectiveTestAccountFiltering(
+    query: Node | null | undefined,
+    filterOverrideContext: InsightFilterOverrideContext | null | undefined,
+    filtersOverride: DashboardFilter | undefined,
+    tileFiltersOverride: TileFilters | null | undefined
+): { value: boolean; source: TestAccountFilteringSource } | null {
+    const own = ownTestAccountFiltering(query)
+    if (!own) {
+        return null
+    }
+    if (own.overridable) {
+        const override = getEffectiveFilterOverrides(
+            filterOverrideContext,
+            filtersOverride,
+            tileFiltersOverride
+        ).filterTestAccounts
+        if (override) {
+            return override
+        }
+    }
+    return { value: own.value, source: 'insight' }
 }
 
 interface DateRangeSource {
