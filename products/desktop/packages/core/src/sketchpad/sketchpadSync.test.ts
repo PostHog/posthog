@@ -5,6 +5,7 @@ import {
   type Sketchpad,
   type SketchpadAppendOpsResult,
   type SketchpadLogEntry,
+  type SketchpadOpsPage,
 } from "@posthog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type SketchpadApi, SketchpadSyncClient } from "./sketchpadSync";
@@ -20,6 +21,15 @@ function entry(seq: number): SketchpadLogEntry {
   };
 }
 
+function opsPage(
+  results: SketchpadLogEntry[],
+  headSeq: number,
+  historyStartSeq = 0,
+  historySnapshot = emptySketchpadSnapshot(),
+): SketchpadOpsPage {
+  return { results, headSeq, historyStartSeq, historySnapshot };
+}
+
 function setup() {
   const board: Sketchpad = {
     id: "board",
@@ -29,6 +39,8 @@ function setup() {
     updatedAt: "2026-01-01T00:00:00.000Z",
     snapshot: emptySketchpadSnapshot(),
     headSeq: 0,
+    historyStartSeq: 0,
+    historySnapshot: emptySketchpadSnapshot(),
   };
   const api = {
     get: vi.fn<SketchpadApi["get"]>().mockResolvedValue(board),
@@ -76,7 +88,7 @@ describe("SketchpadSyncClient", () => {
 
   it("polls only while running and can restart after stopping", async () => {
     const { api, client } = setup();
-    api.opsSince.mockResolvedValue({ headSeq: 0, results: [] });
+    api.opsSince.mockResolvedValue(opsPage([], 0));
     await client.load();
     await vi.advanceTimersByTimeAsync(10_000);
     expect(api.opsSince).not.toHaveBeenCalled();
@@ -179,7 +191,7 @@ describe("SketchpadSyncClient", () => {
     board.snapshot = { ...board.snapshot, state: { saved: true } };
     board.headSeq = 5;
     api.get.mockRejectedValueOnce(new Error("Disconnected"));
-    api.opsSince.mockResolvedValue({ headSeq: 5, results: [] });
+    api.opsSince.mockResolvedValue(opsPage([], 5));
     await client.load();
     expect(client.getState().status).toBe("error");
 
@@ -203,7 +215,7 @@ describe("SketchpadSyncClient", () => {
         finishLoad = resolve;
       }),
     );
-    api.opsSince.mockResolvedValue({ headSeq: 2, results: [entry(2)] });
+    api.opsSince.mockResolvedValue(opsPage([entry(2)], 2));
     const loading = client.load();
     client.ingestStreamEntry(entry(2));
     client.setLive(true);
@@ -222,17 +234,14 @@ describe("SketchpadSyncClient", () => {
   it("retries a stream gap without another event and stops polling after repair", async () => {
     const { api, client } = setup();
     await client.load();
-    api.opsSince.mockResolvedValue({ headSeq: 0, results: [] });
+    api.opsSince.mockResolvedValue(opsPage([], 0));
     client.start();
     client.setLive(true);
     await vi.advanceTimersByTimeAsync(0);
     api.opsSince.mockRejectedValueOnce(new Error("Disconnected"));
     client.ingestStreamEntry(entry(3));
     await vi.advanceTimersByTimeAsync(0);
-    api.opsSince.mockResolvedValue({
-      headSeq: 3,
-      results: [entry(1), entry(2)],
-    });
+    api.opsSince.mockResolvedValue(opsPage([entry(1), entry(2)], 3));
 
     await vi.advanceTimersByTimeAsync(1500);
 
@@ -251,10 +260,9 @@ describe("SketchpadSyncClient", () => {
     async (source) => {
       const { api, client } = setup();
       await client.load();
-      api.opsSince.mockImplementation(async (_id, since) => ({
-        headSeq: 3,
-        results: since < 3 ? [entry(since + 1)] : [],
-      }));
+      api.opsSince.mockImplementation(async (_id, since) =>
+        opsPage(since < 3 ? [entry(since + 1)] : [], 3),
+      );
       if (source === "stream") client.ingestStreamEntry(entry(3));
 
       await client.poll();
@@ -277,10 +285,9 @@ describe("SketchpadSyncClient", () => {
       headSeq: 2,
       results: input.ops.map(({ opId }) => ({ opId, seq: 2 })),
     }));
-    api.opsSince.mockImplementation(async (_id, since) => ({
-      headSeq: 2,
-      results: since === 0 ? [entry(1)] : [],
-    }));
+    api.opsSince.mockImplementation(async (_id, since) =>
+      opsPage(since === 0 ? [entry(1)] : [], 2),
+    );
 
     await client.flush();
     await client.poll();
@@ -397,10 +404,7 @@ describe("SketchpadSyncClient", () => {
     await client.load();
     client.ingestStreamEntry(entry(3));
     client.ingestStreamEntry(entry(1));
-    api.opsSince.mockResolvedValue({
-      results: [entry(2), entry(3)],
-      headSeq: 3,
-    });
+    api.opsSince.mockResolvedValue(opsPage([entry(2), entry(3)], 3));
     await client.loadFullLog();
     expect(api.opsSince).toHaveBeenCalledWith("board", 1, 1000);
     expect(client.getState().log.map(({ seq }) => seq)).toEqual([1, 2, 3]);
@@ -417,6 +421,37 @@ describe("SketchpadSyncClient", () => {
     expect(client.getState().logComplete).toBe(false);
     await client.restoreTo(2);
     expect(client.getState().pending).toEqual([]);
+  });
+
+  it("loads and restores retained history from its checkpoint", async () => {
+    const { api, client, board } = setup();
+    const allEntries = [1, 2, 3, 4, 5].map(entry);
+    board.historyStartSeq = 2;
+    board.historySnapshot = foldOps(
+      emptySketchpadSnapshot(),
+      allEntries.slice(0, 2),
+    );
+    board.headSeq = 5;
+    board.snapshot = foldOps(board.historySnapshot, allEntries.slice(2));
+    api.opsSince.mockResolvedValue(
+      opsPage(allEntries.slice(2), 5, 2, board.historySnapshot),
+    );
+
+    await client.load();
+    await client.loadFullLog();
+    await client.restoreTo(4);
+
+    expect(api.opsSince).toHaveBeenCalledWith("board", 2, 1000);
+    expect(client.getState()).toMatchObject({
+      historyStartSeq: 2,
+      logComplete: true,
+    });
+    expect(client.getState().pending[0].op).toMatchObject({
+      type: "restore",
+      snapshot: {
+        state: { "key-1": 1, "key-2": 2, "key-3": 3, "key-4": 4 },
+      },
+    });
   });
 
   it("keeps a submitted operation unchanged after a lost response", async () => {
@@ -574,6 +609,40 @@ describe("SketchpadSyncClient", () => {
       "key-1": 1,
       later: true,
     });
+    expect(client.getState().pending).toEqual([]);
+  });
+
+  it("keeps pending edits after history compaction until explicit recovery", async () => {
+    const { api, client, board } = setup();
+    await client.load();
+    client.applyLocal([entry(1).op]);
+    board.historyStartSeq = 1;
+    board.historySnapshot = foldOps(emptySketchpadSnapshot(), [entry(1)]);
+    board.headSeq = 1;
+    board.snapshot = board.historySnapshot;
+    api.appendOps.mockRejectedValueOnce({
+      status: 409,
+      message: "Sketchpad history was compacted",
+    });
+
+    await client.flush();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(client.getState()).toMatchObject({
+      historyConflict: true,
+      status: "error",
+    });
+    expect(client.getState().pending).toHaveLength(1);
+    expect(api.appendOps).toHaveBeenCalledTimes(1);
+
+    api.appendOps.mockImplementationOnce(async (_id, input) => ({
+      headSeq: 2,
+      results: [{ opId: input.ops[0].opId, seq: 2 }],
+    }));
+    client.rebasePendingAfterCompaction();
+    await vi.advanceTimersByTimeAsync(150);
+
+    expect(api.appendOps.mock.lastCall?.[1].baseSeq).toBe(1);
     expect(client.getState().pending).toEqual([]);
   });
 });

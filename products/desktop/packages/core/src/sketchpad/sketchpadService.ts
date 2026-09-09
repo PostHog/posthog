@@ -52,6 +52,8 @@ interface ApiSketchpad {
   updated_at: string;
   created_by: ApiActor | null;
   head_seq: number;
+  history_start_seq: number;
+  history_snapshot: unknown;
   snapshot: unknown;
   source_versions: Record<string, string>;
 }
@@ -73,6 +75,8 @@ interface ApiSketchpadSummary {
 interface ApiOpsPage {
   results: ApiLogEntry[];
   head_seq: number;
+  history_start_seq: number;
+  history_snapshot: unknown;
   source_versions: Record<string, string>;
 }
 
@@ -179,6 +183,8 @@ function sketchpadInput(api: ApiSketchpad): z.input<typeof sketchpadSchema> {
     updatedAt: api.updated_at,
     createdBy: api.created_by ? actorInput(api.created_by) : undefined,
     headSeq: api.head_seq,
+    historyStartSeq: api.history_start_seq,
+    historySnapshot: snapshotInput(api.history_snapshot, api.source_versions),
     snapshot: snapshotInput(api.snapshot, api.source_versions),
   };
 }
@@ -290,6 +296,8 @@ export class SketchpadService implements ISketchpadService {
         logEntryInput({ ...entry, op: opInput(entry.op, api.source_versions) }),
       ),
       headSeq: api.head_seq,
+      historyStartSeq: api.history_start_seq,
+      historySnapshot: snapshotInput(api.history_snapshot, api.source_versions),
     });
   }
 
@@ -304,6 +312,7 @@ export class SketchpadService implements ISketchpadService {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          base_seq: input.baseSeq,
           ops: input.ops.map((draft) => ({
             op_id: draft.opId,
             op: draft.op,

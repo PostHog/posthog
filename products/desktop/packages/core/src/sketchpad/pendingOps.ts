@@ -1,12 +1,15 @@
 import {
   SKETCHPAD_FIELD_MAX_OP_ENTRIES,
+  SKETCHPAD_MAX_OPS_PER_BATCH,
   type SketchpadEditFieldOp,
   type SketchpadLogEntry,
   type SketchpadOp,
 } from "@posthog/shared";
 import { actorIdentity } from "./sketchpadHistory";
 
-export type PendingEntry = Omit<SketchpadLogEntry, "seq">;
+export type PendingEntry = Omit<SketchpadLogEntry, "seq"> & {
+  baseSeq: number;
+};
 const GEOMETRY_KEYS: readonly string[] = ["x", "y", "w", "h"];
 
 export function appendPending(
@@ -43,6 +46,7 @@ function mergeGeometryUpdates(
 }
 
 function canBatch(first: PendingEntry, entry: PendingEntry): boolean {
+  if (first.baseSeq !== entry.baseSeq) return false;
   if (actorIdentity(first.actor) !== actorIdentity(entry.actor)) return false;
   if (first.op.type === "restore" || entry.op.type === "restore") return false;
   if (first.op.type === "edit_field" || entry.op.type === "edit_field") {
@@ -63,7 +67,10 @@ export function leadingActorRun(
   const end = pending.findIndex(
     (entry, index) => index > 0 && !canBatch(first, entry),
   );
-  return pending.slice(0, Math.min(1000, end < 0 ? pending.length : end));
+  return pending.slice(
+    0,
+    Math.min(SKETCHPAD_MAX_OPS_PER_BATCH, end < 0 ? pending.length : end),
+  );
 }
 
 function mergeFieldEdits(

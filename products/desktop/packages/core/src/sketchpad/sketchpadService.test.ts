@@ -93,6 +93,12 @@ describe("SketchpadService", () => {
     ];
     const page = {
       head_seq: ops.length,
+      history_start_seq: 1,
+      history_snapshot: {
+        schemaVersion: 1,
+        fragments: [fragment],
+        state: {},
+      },
       source_versions: { [ref]: code },
       results: ops.map((op, index) => ({
         seq: index + 1,
@@ -122,6 +128,11 @@ describe("SketchpadService", () => {
         },
       },
     ]);
+    expect(result.historyStartSeq).toBe(1);
+    expect(result.historySnapshot.fragments[0]).toEqual({
+      ...resolved,
+      code,
+    });
     page.source_versions = {};
     await expect(service.opsSince("board", 0)).rejects.toThrow();
   });
