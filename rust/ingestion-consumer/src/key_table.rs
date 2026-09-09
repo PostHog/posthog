@@ -14,13 +14,20 @@
 //! else does, and nothing else must: placement is stateless — the configured
 //! router picks a worker per dispatch, with no pins and no stash.
 //!
+//! Every queued message carries the token of the partition assignment it was
+//! polled under. Work under a cancelled token drops instead of moving: at
+//! the revoke for what is queued, at arrival for a poll that raced the
+//! revoke, and at settlement for a failed run that was in flight when its
+//! partition left. The new owner replays all of it.
+//!
 //! Not selected by any production caller yet; the scheduler switch is the
 //! next change.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
 use metrics::{counter, gauge, histogram};
+use tokio_util::sync::CancellationToken;
 
 use crate::order_sentinel::SendKind;
 use crate::routing::{Router, WorkerLoad};
@@ -54,8 +61,15 @@ fn payload_bytes(messages: &[SerializedKafkaMessage]) -> usize {
 /// a resend's wait measures the pause before the redelivery.
 struct QueuedMessage {
     epoch: u64,
+    assignment: CancellationToken,
     enqueued_at: Instant,
     message: SerializedKafkaMessage,
+}
+
+fn record_purged(count: usize) {
+    if count > 0 {
+        counter!("ingestion_consumer_key_table_purged_messages_total").increment(count as u64);
+    }
 }
 
 /// One drained run: the longest same-epoch prefix of a key's queue.
@@ -76,6 +90,9 @@ struct KeyState {
     /// The epoch of the outstanding run, so its failed messages requeue
     /// under the epoch they were polled in.
     outstanding_epoch: u64,
+    /// The assignment of the outstanding run, so its failed messages drop
+    /// when that assignment was revoked while the run was in flight.
+    outstanding_assignment: Option<CancellationToken>,
     /// The key waits for the parked-retry deadline. A parked key is never
     /// outstanding: it parks only when nothing of its is in flight.
     parked: bool,
@@ -91,6 +108,7 @@ impl KeyState {
             queue: VecDeque::new(),
             outstanding: false,
             outstanding_epoch: 0,
+            outstanding_assignment: None,
             parked: false,
             redelivering: false,
         }
@@ -147,7 +165,13 @@ impl KeyTable {
     }
 
     /// Append messages to the key's queue, creating the key when new.
-    fn enqueue_back(&mut self, key: &str, epoch: u64, messages: Vec<SerializedKafkaMessage>) {
+    fn enqueue_back(
+        &mut self,
+        key: &str,
+        epoch: u64,
+        assignment: &CancellationToken,
+        messages: Vec<SerializedKafkaMessage>,
+    ) {
         self.queued_messages += messages.len();
         self.queued_bytes += payload_bytes(&messages);
         let enqueued_at = Instant::now();
@@ -157,6 +181,7 @@ impl KeyTable {
             .queue
             .extend(messages.into_iter().map(|message| QueuedMessage {
                 epoch,
+                assignment: assignment.clone(),
                 enqueued_at,
                 message,
             }));
@@ -164,24 +189,38 @@ impl KeyTable {
 
     /// Return a failed run to the front of its queue, ahead of anything that
     /// arrived while the run was in flight, so the redelivery keeps offset order.
-    /// The messages keep the outstanding run's epoch.
-    fn requeue_front(&mut self, key: &str, messages: Vec<SerializedKafkaMessage>) {
-        self.queued_messages += messages.len();
-        self.queued_bytes += payload_bytes(&messages);
+    /// The messages keep the outstanding run's epoch. A run whose assignment
+    /// was revoked in flight drops instead, since the new owner replays it;
+    /// returns the dropped count.
+    fn requeue_front(&mut self, key: &str, messages: Vec<SerializedKafkaMessage>) -> usize {
         let state = self
             .keys
             .entry(key.to_string())
             .or_insert_with(KeyState::new);
+        let assignment = state.outstanding_assignment.clone();
+        if assignment
+            .as_ref()
+            .is_some_and(CancellationToken::is_cancelled)
+        {
+            return messages.len();
+        }
+        // No outstanding run is a caller contract violation; tolerate it the
+        // way the key itself is founded.
+        let assignment = assignment.unwrap_or_default();
+        self.queued_messages += messages.len();
+        self.queued_bytes += payload_bytes(&messages);
         state.redelivering = true;
         let epoch = state.outstanding_epoch;
         let enqueued_at = Instant::now();
         for message in messages.into_iter().rev() {
             state.queue.push_front(QueuedMessage {
                 epoch,
+                assignment: assignment.clone(),
                 enqueued_at,
                 message,
             });
         }
+        0
     }
 
     /// Drain the queue's longest same-epoch prefix into one run and mark the
@@ -196,6 +235,7 @@ impl KeyTable {
         }
         let front = state.queue.front().expect("checked non-empty");
         let epoch = front.epoch;
+        let assignment = front.assignment.clone();
         let head_wait = front.enqueued_at.elapsed();
         let mut messages: Vec<SerializedKafkaMessage> = Vec::new();
         while state
@@ -207,6 +247,7 @@ impl KeyTable {
         }
         state.outstanding = true;
         state.outstanding_epoch = epoch;
+        state.outstanding_assignment = Some(assignment);
         state.parked = false;
         state.redelivering = false;
         self.outstanding_keys += 1;
@@ -271,21 +312,16 @@ impl KeyTable {
         }
     }
 
-    /// Drop queued messages on revoked partitions and the keys that emptied,
-    /// unless still outstanding. Returns the purged message count and the
-    /// evicted keys.
-    fn purge_partitions(&mut self, revoked: &[(String, i32)]) -> (usize, Vec<String>) {
-        let revoked: HashSet<(&str, i32)> = revoked
-            .iter()
-            .map(|(topic, partition)| (topic.as_str(), *partition))
-            .collect();
+    /// Drop queued messages under a cancelled assignment and the keys that
+    /// emptied, unless still outstanding. Returns the purged message count
+    /// and the evicted keys.
+    fn purge_cancelled(&mut self) -> (usize, Vec<String>) {
         let mut purged = 0usize;
         let mut purged_bytes = 0usize;
         for state in self.keys.values_mut() {
             let before = state.queue.len();
             state.queue.retain(|queued| {
-                let keep =
-                    !revoked.contains(&(queued.message.topic.as_str(), queued.message.partition));
+                let keep = !queued.assignment.is_cancelled();
                 if !keep {
                     purged_bytes += queued.message.payload_bytes();
                 }
@@ -396,7 +432,8 @@ impl Scheduler for KeyTableScheduler {
     /// Enqueue each run, then dispatch every runnable key it touched. A key
     /// that is outstanding or parked just queues the new messages — they go
     /// out behind the earlier ones, when the request settles or the parked
-    /// retry fires.
+    /// retry fires. A run already under a cancelled assignment (its poll
+    /// raced the revoke) drops here.
     fn on_groups(
         &mut self,
         snapshot: &WorkerSnapshot,
@@ -408,9 +445,18 @@ impl Scheduler for KeyTableScheduler {
         let mut load = working_load(snapshot);
 
         let mut touched: Vec<String> = Vec::with_capacity(groups.len());
+        let mut purged = 0usize;
         for group in groups {
-            self.table
-                .enqueue_back(&group.routing_key, assignment_epoch, group.messages);
+            if group.assignment.is_cancelled() {
+                purged += group.messages.len();
+                continue;
+            }
+            self.table.enqueue_back(
+                &group.routing_key,
+                assignment_epoch,
+                &group.assignment,
+                group.messages,
+            );
             // The group queues behind an outstanding request or a parked
             // backlog: the "why is this key not moving" signal.
             if !self.table.is_runnable(&group.routing_key) {
@@ -418,6 +464,7 @@ impl Scheduler for KeyTableScheduler {
             }
             touched.push(group.routing_key);
         }
+        record_purged(purged);
 
         // Bin-packing wants the biggest runs placed first so heavy hitters
         // drive the load distribution; P2C is per-run and order-independent.
@@ -480,9 +527,11 @@ impl Scheduler for KeyTableScheduler {
             }
             SettlementOutcome::Failed { runs, .. } => {
                 effects.deferred.send_failed = runs.len() as u64;
+                let mut purged = 0usize;
                 for run in runs {
-                    self.table.requeue_front(&run.routing_key, run.messages);
+                    purged += self.table.requeue_front(&run.routing_key, run.messages);
                 }
+                record_purged(purged);
                 for key in &settlement.routing_keys {
                     if !self.table.settle_key(key) {
                         continue;
@@ -553,12 +602,10 @@ impl Scheduler for KeyTableScheduler {
         effects
     }
 
-    fn on_partitions_revoked(&mut self, partitions: &[(String, i32)]) -> SchedulerEffects {
+    fn on_revoke(&mut self) -> SchedulerEffects {
         let mut effects = SchedulerEffects::default();
-        let (purged, evicted) = self.table.purge_partitions(partitions);
-        if purged > 0 {
-            counter!("ingestion_consumer_key_table_purged_messages_total").increment(purged as u64);
-        }
+        let (purged, evicted) = self.table.purge_cancelled();
+        record_purged(purged);
         effects.evicted_keys = evicted;
         self.record_gauges();
         effects
@@ -571,7 +618,7 @@ mod tests {
 
     use super::*;
     use crate::routing::RoutingStrategy;
-    use crate::scheduler::WorkerHealth;
+    use crate::scheduler::{FailedRun, WorkerHealth};
 
     const A: &str = "http://worker:1";
     const B: &str = "http://worker:2";
@@ -593,9 +640,21 @@ mod tests {
     }
 
     fn run(key: &str, offsets: &[i64]) -> KeyRun {
+        run_under(key, offsets, &CancellationToken::new())
+    }
+
+    fn run_under(key: &str, offsets: &[i64], assignment: &CancellationToken) -> KeyRun {
         KeyRun {
             routing_key: key.to_string(),
             messages: offsets.iter().map(|o| msg(key, *o)).collect(),
+            assignment: assignment.clone(),
+        }
+    }
+
+    fn failed_run(run: KeyRun) -> FailedRun {
+        FailedRun {
+            routing_key: run.routing_key,
+            messages: run.messages,
         }
     }
 
@@ -651,7 +710,7 @@ mod tests {
             from_flush: false,
             outcome: SettlementOutcome::Failed {
                 batch_id: "b".to_string(),
-                runs,
+                runs: runs.into_iter().map(failed_run).collect(),
             },
         }
     }
@@ -1047,17 +1106,34 @@ mod tests {
     #[test]
     fn test_revoked_partitions_purge_queued_messages() {
         let mut sched = scheduler();
+        let p0 = CancellationToken::new();
         // Key a queues behind its outstanding request; key b parks unroutable.
-        let _ = sched.on_groups(&snapshot(&[A], &[]), "b1", 0, vec![run("t:a", &[1])]);
-        let _ = sched.on_groups(&snapshot(&[A], &[]), "b2", 0, vec![run("t:a", &[2])]);
-        let _ = sched.on_groups(&snapshot(&[], &[]), "b3", 0, vec![run("t:b", &[1])]);
+        let _ = sched.on_groups(
+            &snapshot(&[A], &[]),
+            "b1",
+            0,
+            vec![run_under("t:a", &[1], &p0)],
+        );
+        let _ = sched.on_groups(
+            &snapshot(&[A], &[]),
+            "b2",
+            0,
+            vec![run_under("t:a", &[2], &p0)],
+        );
+        let _ = sched.on_groups(
+            &snapshot(&[], &[]),
+            "b3",
+            0,
+            vec![run_under("t:b", &[1], &p0)],
+        );
 
-        // An unrelated partition purges nothing.
-        let effects = sched.on_partitions_revoked(&[("test".to_string(), 7)]);
+        // A revoke that cancelled nothing of ours purges nothing.
+        let effects = sched.on_revoke();
         assert!(effects.evicted_keys.is_empty());
         assert_eq!(sched.table().queued_messages(), 2);
 
-        let effects = sched.on_partitions_revoked(&[("test".to_string(), 0)]);
+        p0.cancel();
+        let effects = sched.on_revoke();
 
         assert_eq!(sched.table().queued_messages(), 0);
         assert_eq!(sched.table().queued_bytes(), 0);
@@ -1073,6 +1149,96 @@ mod tests {
         let effects = sched.on_settled(&snapshot(&[A], &[]), delivered(A, &["t:a"]));
         assert!(effects.dispatches.is_empty());
         assert_eq!(sched.table().key_count(), 0);
+    }
+
+    #[test]
+    fn test_a_failed_run_under_a_revoked_assignment_is_dropped() {
+        let mut sched = scheduler();
+        let p0 = CancellationToken::new();
+        let _ = sched.on_groups(
+            &snapshot(&[A], &[]),
+            "b1",
+            0,
+            vec![run_under("t:a", &[1, 2], &p0)],
+        );
+        assert_eq!(sched.table().outstanding_keys(), 1);
+
+        // The partition leaves while the run is in flight, then the send fails.
+        p0.cancel();
+        let _ = sched.on_revoke();
+        let effects = sched.on_settled(&snapshot(&[A], &[]), failed(A, vec![run("t:a", &[1, 2])]));
+
+        assert_eq!(effects.deferred.send_failed, 1);
+        assert_eq!(effects.evicted_keys, vec!["t:a".to_string()]);
+        assert_eq!(sched.table().queued_messages(), 0);
+        assert_eq!(sched.table().parked_keys(), 0);
+        assert_eq!(sched.table().key_count(), 0);
+
+        let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::ParkedRetry);
+        assert!(
+            effects.dispatches.is_empty(),
+            "the new owner replays the run; this consumer must not resend it"
+        );
+    }
+
+    #[test]
+    fn test_a_reassigned_partition_drops_the_old_run_and_keeps_the_new() {
+        let mut sched = scheduler();
+        let old = CancellationToken::new();
+        let _ = sched.on_groups(
+            &snapshot(&[A], &[]),
+            "b1",
+            0,
+            vec![run_under("t:a", &[1], &old)],
+        );
+
+        // Revoked and re-assigned while the run is in flight: the replayed
+        // offsets arrive under a fresh assignment and queue behind it.
+        old.cancel();
+        let _ = sched.on_revoke();
+        let new = CancellationToken::new();
+        let effects = sched.on_groups(
+            &snapshot(&[A], &[]),
+            "b2",
+            1,
+            vec![run_under("t:a", &[1], &new)],
+        );
+        assert!(
+            effects.dispatches.is_empty(),
+            "queued behind the outstanding run"
+        );
+
+        let effects = sched.on_settled(&snapshot(&[A], &[]), failed(A, vec![run("t:a", &[1])]));
+
+        assert!(effects.evicted_keys.is_empty());
+        assert_eq!(sched.table().queued_messages(), 1, "only the replay stays");
+        let effects = sched.on_deadline(&snapshot(&[A], &[]), Deadline::ParkedRetry);
+        assert_eq!(effects.dispatches.len(), 1);
+        assert_eq!(
+            effects.dispatches[0].kind,
+            SendKind::Fresh,
+            "never sent under this assignment"
+        );
+        assert_eq!(effects.dispatches[0].assignment_epoch, Some(1));
+        assert_eq!(offsets_of(&effects.dispatches[0]), vec![1]);
+    }
+
+    #[test]
+    fn test_an_arrival_under_a_revoked_assignment_is_dropped() {
+        let mut sched = scheduler();
+        let p0 = CancellationToken::new();
+        p0.cancel();
+
+        let effects = sched.on_groups(
+            &snapshot(&[A], &[]),
+            "b1",
+            0,
+            vec![run_under("t:a", &[1], &p0)],
+        );
+
+        assert!(effects.dispatches.is_empty());
+        assert_eq!(sched.table().key_count(), 0);
+        assert_eq!(sched.table().queued_messages(), 0);
     }
 
     // ---- lifecycle ----

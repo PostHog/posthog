@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
-use crate::types::{Offset, Partition};
+use crate::types::Offset;
 
 /// One polled message as the demux sees it. The crate never reads `inner`.
 #[derive(Debug)]
@@ -22,15 +22,16 @@ pub struct GroupMessage<M> {
 
 /// One key's messages from one poll on one partition, or one keyless message
 /// on its own. Messages keep submission order; ordering by offset is the
-/// caller's contract, not the accumulator's.
+/// caller's contract, not the accumulator's. `P` is whatever the caller
+/// identifies a partition by.
 #[derive(Debug)]
-pub struct Group<K, M> {
-    pub partition: Partition,
+pub struct Group<P, K, M> {
+    pub partition: P,
     pub key: Option<K>,
     pub messages: Vec<GroupMessage<M>>,
 }
 
-impl<K, M> Group<K, M> {
+impl<P, K, M> Group<P, K, M> {
     pub fn len(&self) -> usize {
         self.messages.len()
     }
@@ -45,15 +46,15 @@ impl<K, M> Group<K, M> {
 /// a group of its own. Groups come out in first-seen order, and each group
 /// keeps its messages in submission order.
 #[derive(Debug)]
-pub struct Accumulator<K, M> {
-    groups: Vec<Group<K, M>>,
-    /// Nested rather than keyed by `(Partition, K)`, so a lookup borrows the
-    /// key instead of cloning it per message.
-    group_index_by_key: HashMap<Partition, HashMap<K, usize>>,
+pub struct Accumulator<P, K, M> {
+    groups: Vec<Group<P, K, M>>,
+    /// Nested rather than keyed by `(P, K)`, so a lookup borrows the key
+    /// instead of cloning it per message.
+    group_index_by_key: HashMap<P, HashMap<K, usize>>,
     message_count: usize,
 }
 
-impl<K, M> Default for Accumulator<K, M> {
+impl<P, K, M> Default for Accumulator<P, K, M> {
     fn default() -> Self {
         Self {
             groups: Vec::new(),
@@ -63,26 +64,35 @@ impl<K, M> Default for Accumulator<K, M> {
     }
 }
 
-impl<K: Hash + Eq + Clone, M> Accumulator<K, M> {
-    pub fn push(&mut self, partition: Partition, message: PolledMessage<K, M>) {
+impl<P: Hash + Eq + Clone, K: Hash + Eq + Clone, M> Accumulator<P, K, M> {
+    /// `partition` is borrowed and cloned only when it founds a group, so a
+    /// caller can pass an identity that is not free to copy.
+    pub fn push(&mut self, partition: &P, message: PolledMessage<K, M>) {
         let PolledMessage { offset, key, inner } = message;
         let index = match key {
             None => {
                 self.groups.push(Group {
-                    partition,
+                    partition: partition.clone(),
                     key: None,
                     messages: Vec::with_capacity(1),
                 });
                 self.groups.len() - 1
             }
             Some(key) => {
-                let group_index_by_key = self.group_index_by_key.entry(partition).or_default();
+                if !self.group_index_by_key.contains_key(partition) {
+                    self.group_index_by_key
+                        .insert(partition.clone(), HashMap::new());
+                }
+                let group_index_by_key = self
+                    .group_index_by_key
+                    .get_mut(partition)
+                    .expect("inserted above");
                 match group_index_by_key.get(&key) {
                     Some(&index) => index,
                     None => {
                         let index = self.groups.len();
                         self.groups.push(Group {
-                            partition,
+                            partition: partition.clone(),
                             key: Some(key.clone()),
                             messages: Vec::new(),
                         });
@@ -103,7 +113,7 @@ impl<K: Hash + Eq + Clone, M> Accumulator<K, M> {
         self.message_count
     }
 
-    pub fn into_groups(self) -> Vec<Group<K, M>> {
+    pub fn into_groups(self) -> Vec<Group<P, K, M>> {
         self.groups
     }
 }
@@ -111,15 +121,16 @@ impl<K: Hash + Eq + Clone, M> Accumulator<K, M> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Partition;
 
     fn push(
-        acc: &mut Accumulator<&'static str, i64>,
+        acc: &mut Accumulator<Partition, &'static str, i64>,
         partition: i32,
         offset: i64,
         key: Option<&'static str>,
     ) {
         acc.push(
-            Partition(partition),
+            &Partition(partition),
             PolledMessage {
                 offset: Offset(offset),
                 key,
@@ -128,7 +139,7 @@ mod tests {
         );
     }
 
-    fn offsets<K>(group: &Group<K, i64>) -> Vec<Offset> {
+    fn offsets<K>(group: &Group<Partition, K, i64>) -> Vec<Offset> {
         group.messages.iter().map(|m| m.offset).collect()
     }
 

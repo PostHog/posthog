@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use metrics::{counter, gauge};
+use tokio_util::sync::CancellationToken;
 
 use crate::order_sentinel::SendKind;
 use crate::routing::{Router, WorkerLoad};
@@ -78,6 +79,15 @@ impl WorkerSnapshot {
 pub struct KeyRun {
     pub routing_key: String,
     pub messages: Vec<SerializedKafkaMessage>,
+    /// Cancelled when the partition assignment the run was polled under is
+    /// revoked: the run then drops, because the new owner replays it. A key
+    /// spanning two partitions in one poll carries its first partition's.
+    pub assignment: CancellationToken,
+}
+
+pub struct FailedRun {
+    pub routing_key: String,
+    pub messages: Vec<SerializedKafkaMessage>,
 }
 
 /// One run of one key, placed on the chosen worker.
@@ -118,7 +128,7 @@ pub enum SettlementOutcome {
     /// stays outstanding forever.
     Failed {
         batch_id: String,
-        runs: Vec<KeyRun>,
+        runs: Vec<FailedRun>,
     },
 }
 
@@ -229,9 +239,9 @@ pub trait Scheduler {
         deadline: Deadline<'_>,
     ) -> SchedulerEffects;
 
-    /// Partitions were revoked, as `(topic, partition)`. Queued messages for
-    /// them must drop: the new partition owner replays them.
-    fn on_partitions_revoked(&mut self, _partitions: &[(String, i32)]) -> SchedulerEffects {
+    /// Partition assignments were revoked and their tokens cancelled. Queued
+    /// work under a cancelled token must drop: the new owner replays it.
+    fn on_revoke(&mut self) -> SchedulerEffects {
         SchedulerEffects::default()
     }
 }
@@ -311,7 +321,7 @@ impl PinStashScheduler {
     /// Stash a failed send's runs for replay. Returns the number of groups
     /// stashed. Used by the failed-settlement arm, and directly by the
     /// caller's two-step test path.
-    pub(crate) fn stash_failed(&mut self, batch_id: &str, runs: Vec<KeyRun>) -> u64 {
+    pub(crate) fn stash_failed(&mut self, batch_id: &str, runs: Vec<FailedRun>) -> u64 {
         let deferred = runs.len() as u64;
         for run in runs {
             self.stash.defer(
@@ -700,6 +710,14 @@ mod tests {
         KeyRun {
             routing_key: key.to_string(),
             messages: (0..n).map(|_| msg(key)).collect(),
+            assignment: CancellationToken::new(),
+        }
+    }
+
+    fn failed_run(run: KeyRun) -> FailedRun {
+        FailedRun {
+            routing_key: run.routing_key,
+            messages: run.messages,
         }
     }
 
@@ -754,7 +772,7 @@ mod tests {
             from_flush,
             outcome: SettlementOutcome::Failed {
                 batch_id: batch_id.to_string(),
-                runs,
+                runs: runs.into_iter().map(failed_run).collect(),
             },
         }
     }

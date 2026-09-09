@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use common_kafka_consumer::{Offset, PolledMessage};
 use serde::{Deserialize, Serialize};
 
+use crate::partition_assignments::Assignment;
+
 /// Matches `SerializedKafkaMessage` in `nodejs/src/ingestion/api/types.ts`.
 /// Values are raw UTF-8 strings (PostHog Kafka messages are always JSON text).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,7 +38,8 @@ impl From<SerializedKafkaMessage> for PolledMessage<String, SerializedKafkaMessa
 }
 
 /// One poll's messages for one routing key on one partition, in offset order.
-pub type Group = common_kafka_consumer::Group<String, SerializedKafkaMessage>;
+pub type Group = common_kafka_consumer::Group<Assignment, String, SerializedKafkaMessage>;
 
 /// The demux that builds one poll's groups.
-pub type Accumulator = common_kafka_consumer::Accumulator<String, SerializedKafkaMessage>;
+pub type Accumulator =
+    common_kafka_consumer::Accumulator<Assignment, String, SerializedKafkaMessage>;

@@ -11,10 +11,11 @@ use crate::debug_recorder::{
 };
 use crate::key_table::KeyTableScheduler;
 use crate::order_sentinel::KeyOrderSentinel;
+use crate::partition_assignments::Assignment;
 use crate::routing::{Router, RoutingStrategy, WorkerLoad};
 use crate::scheduler::{
-    Deadline, Dispatch, KeyRun, PinStashScheduler, Scheduler, SchedulerEffects, SchedulerKind,
-    Settlement, SettlementOutcome, WorkerHealth, WorkerSnapshot,
+    Deadline, Dispatch, FailedRun, KeyRun, PinStashScheduler, Scheduler, SchedulerEffects,
+    SchedulerKind, Settlement, SettlementOutcome, WorkerHealth, WorkerSnapshot,
 };
 use crate::types::{Accumulator, Group, SerializedKafkaMessage};
 use crate::worker_registry::{WorkerId, WorkerRegistry};
@@ -215,7 +216,7 @@ impl SchedulerImpl {
         }
     }
 
-    fn stash_failed(&mut self, batch_id: &str, runs: Vec<KeyRun>) -> u64 {
+    fn stash_failed(&mut self, batch_id: &str, runs: Vec<FailedRun>) -> u64 {
         match self {
             SchedulerImpl::PinStash(scheduler) => scheduler.stash_failed(batch_id, runs),
             SchedulerImpl::KeyTable(_) => 0,
@@ -279,10 +280,10 @@ impl Scheduler for SchedulerImpl {
         }
     }
 
-    fn on_partitions_revoked(&mut self, partitions: &[(String, i32)]) -> SchedulerEffects {
+    fn on_revoke(&mut self) -> SchedulerEffects {
         match self {
-            SchedulerImpl::PinStash(scheduler) => scheduler.on_partitions_revoked(partitions),
-            SchedulerImpl::KeyTable(scheduler) => scheduler.on_partitions_revoked(partitions),
+            SchedulerImpl::PinStash(scheduler) => scheduler.on_revoke(),
+            SchedulerImpl::KeyTable(scheduler) => scheduler.on_revoke(),
         }
     }
 }
@@ -769,11 +770,11 @@ impl Dispatcher {
         self.scheduler_kind
     }
 
-    /// Drop the scheduler's queued messages for revoked partitions, as
-    /// `(topic, partition)`. Called from the consumer's rebalance callback.
-    pub fn purge_revoked(&self, partitions: &[(String, i32)]) {
+    /// Called from the consumer's rebalance callback, after it cancelled the
+    /// revoked assignments' tokens.
+    pub fn purge_revoked(&self) {
         let mut inner = self.inner.lock().unwrap();
-        let effects = inner.scheduler.on_partitions_revoked(partitions);
+        let effects = inner.scheduler.on_revoke();
         debug_assert!(effects.dispatches.is_empty(), "a purge never dispatches");
         for key in &effects.evicted_keys {
             self.key_sentinel.evict(key);
@@ -997,18 +998,41 @@ struct GroupedMessages {
     unkeyed_count: u64,
 }
 
-/// Demux messages into groups the way the collect path does for a poll.
+/// Each partition under a fresh assignment; for the test-only
+/// [`Dispatcher::assign`] path.
 fn demux(messages: Vec<SerializedKafkaMessage>) -> Vec<Group> {
+    let mut assignments: HashMap<i32, Assignment> = HashMap::new();
     let mut accumulator = Accumulator::default();
     for message in messages {
-        accumulator.push(Partition(message.partition), message.into());
+        let assignment = assignments
+            .entry(message.partition)
+            .or_insert_with(|| Assignment {
+                partition: Partition(message.partition),
+                generation: 0,
+                token: tokio_util::sync::CancellationToken::new(),
+            });
+        accumulator.push(assignment, message.into());
     }
     accumulator.into_groups()
 }
 
 /// Name a failed send's messages for the stash, one run per routing key.
-pub(crate) fn runs_by_routing_key(messages: Vec<SerializedKafkaMessage>) -> Vec<KeyRun> {
-    routing_groups(demux(messages)).groups
+/// The messages carry no assignment back from the send; the scheduler
+/// remembers the outstanding run's.
+pub(crate) fn runs_by_routing_key(messages: Vec<SerializedKafkaMessage>) -> Vec<FailedRun> {
+    let mut accumulator: common_kafka_consumer::Accumulator<Partition, String, _> =
+        common_kafka_consumer::Accumulator::default();
+    for message in messages {
+        accumulator.push(&Partition(message.partition), message.into());
+    }
+    merge_by_routing_key(accumulator.into_groups())
+        .runs
+        .into_iter()
+        .map(|run| FailedRun {
+            routing_key: run.routing_key,
+            messages: run.messages,
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -1016,26 +1040,63 @@ fn group_messages_by_routing_key(messages: Vec<SerializedKafkaMessage>) -> Group
     routing_groups(demux(messages))
 }
 
-/// Name each group for the scheduler. A keyed group's routing key is its
-/// Kafka key. An unkeyed message has no order to preserve, so it can go to
-/// any worker: a synthetic per-message key spreads such messages across
-/// workers instead of pinning them all to one shared fallback key.
+fn routing_groups(groups: Vec<Group>) -> GroupedMessages {
+    let MergedRuns {
+        runs,
+        unkeyed_count,
+    } = merge_by_routing_key(groups);
+    let groups = runs
+        .into_iter()
+        .map(|run| KeyRun {
+            assignment: run.partition.token,
+            routing_key: run.routing_key,
+            messages: run.messages,
+        })
+        .collect();
+    GroupedMessages {
+        groups,
+        unkeyed_count,
+    }
+}
+
+struct MergedRun<P> {
+    routing_key: String,
+    /// The first group's: a key may span two partitions in one poll.
+    partition: P,
+    messages: Vec<SerializedKafkaMessage>,
+}
+
+struct MergedRuns<P> {
+    runs: Vec<MergedRun<P>>,
+    unkeyed_count: u64,
+}
+
+/// Merge groups by routing key. A keyed group's routing key is its Kafka
+/// key. An unkeyed message has no order to preserve, so it can go to any
+/// worker: a synthetic per-message key spreads such messages across workers
+/// instead of pinning them all to one shared fallback key.
 ///
 /// The scheduler's pin table is keyed by routing key alone, so a key that
 /// arrives on two partitions in one poll (a partition-count change leaves its
 /// backlog on the old partition) merges into one group: two groups for one
 /// key could route to two workers at once.
-fn routing_groups(groups: Vec<Group>) -> GroupedMessages {
+fn merge_by_routing_key<P>(
+    groups: Vec<common_kafka_consumer::Group<P, String, SerializedKafkaMessage>>,
+) -> MergedRuns<P> {
     let mut unkeyed_count = 0u64;
-    let mut merged: Vec<KeyRun> = Vec::with_capacity(groups.len());
+    let mut merged: Vec<MergedRun<P>> = Vec::with_capacity(groups.len());
     let mut index_by_key: HashMap<String, usize> = HashMap::new();
     for group in groups {
         let routing_key = match group.key {
             Some(key) => key,
             None => {
                 unkeyed_count += 1;
-                let first = group.messages.first().map_or(Offset(-1), |m| m.offset);
-                format!(":{}:{}", group.partition, first)
+                let first = group.messages.first();
+                format!(
+                    ":{}:{}",
+                    first.map_or(-1, |m| m.message.partition),
+                    first.map_or(Offset(-1), |m| m.offset)
+                )
             }
         };
         let messages = group.messages.into_iter().map(|m| m.message);
@@ -1043,16 +1104,17 @@ fn routing_groups(groups: Vec<Group>) -> GroupedMessages {
             Some(&index) => merged[index].messages.extend(messages),
             None => {
                 index_by_key.insert(routing_key.clone(), merged.len());
-                merged.push(KeyRun {
+                merged.push(MergedRun {
                     routing_key,
+                    partition: group.partition,
                     messages: messages.collect(),
                 });
             }
         }
     }
 
-    GroupedMessages {
-        groups: merged,
+    MergedRuns {
+        runs: merged,
         unkeyed_count,
     }
 }
@@ -2208,26 +2270,22 @@ mod tests {
 
         let racing = Arc::clone(&dispatcher);
         let mut race = None;
-        let sent = dispatcher.assign_and_send(
-            "batch-2",
-            0,
-            demux(make_msgs(&["t:user-1"])),
-            |sub_batch| {
-                // Admitted behind batch-1's live pin. batch-1's send now fails
-                // and tries to stash its messages before this group is enqueued.
-                let dispatcher = Arc::clone(&racing);
-                let handle = std::thread::spawn(move || {
-                    dispatcher.defer_failed("batch-1", make_msgs(&["t:user-1"]));
-                });
-                std::thread::sleep(Duration::from_millis(50));
-                assert!(
-                    !handle.is_finished(),
-                    "defer_failed must wait until the admitted group is enqueued"
-                );
-                race = Some(handle);
-                sub_batch
-            },
-        );
+        let groups = demux(make_msgs(&["t:user-1"]));
+        let sent = dispatcher.assign_and_send("batch-2", 0, groups, |sub_batch| {
+            // Admitted behind batch-1's live pin. batch-1's send now fails
+            // and tries to stash its messages before this group is enqueued.
+            let dispatcher = Arc::clone(&racing);
+            let handle = std::thread::spawn(move || {
+                dispatcher.defer_failed("batch-1", make_msgs(&["t:user-1"]));
+            });
+            std::thread::sleep(Duration::from_millis(50));
+            assert!(
+                !handle.is_finished(),
+                "defer_failed must wait until the admitted group is enqueued"
+            );
+            race = Some(handle);
+            sub_batch
+        });
         assert_eq!(sent.len(), 1, "batch-2 was admitted and handed to send");
         race.take().expect("send ran").join().expect("defer_failed");
 

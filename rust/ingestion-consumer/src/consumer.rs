@@ -13,6 +13,7 @@ use rdkafka::message::{Headers, Message};
 use rdkafka::TopicPartitionList;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::batcher::{make_batch_id, Batcher, BatcherOutputs};
@@ -23,6 +24,7 @@ use crate::dispatcher::Dispatcher;
 use crate::grpc_transport::GrpcTransport;
 use crate::ledger_rejection::{warn_rejection, RejectedSlice};
 use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
+use crate::partition_assignments::{Assignment, PartitionAssignments};
 use crate::scheduler::SchedulerKind;
 use crate::types::{Accumulator, SerializedKafkaMessage};
 
@@ -62,6 +64,8 @@ struct PartitionDeliveries {
     span: OffsetSpan,
     /// Ledger generation the charges are stamped with.
     generation: u64,
+    /// Refreshed with the generation.
+    assignment: Assignment,
     /// Ledger generations version seen when the charges were last stamped.
     /// Comparing it per message is cheaper than reading the generation.
     generations_version_seen: u64,
@@ -79,10 +83,16 @@ struct PartitionDeliveries {
 }
 
 impl PartitionDeliveries {
-    fn new(generation: u64, generations_version: u64, delivery: &Delivery) -> Self {
+    fn new(
+        generation: u64,
+        generations_version: u64,
+        assignment: Assignment,
+        delivery: &Delivery,
+    ) -> Self {
         Self {
             span: OffsetSpan::new(delivery.offset),
             generation,
+            assignment,
             generations_version_seen: generations_version,
             charges: vec![(Offset(delivery.offset), delivery.charge)],
             latest_kafka_ts: delivery.kafka_ts,
@@ -98,11 +108,13 @@ impl PartitionDeliveries {
     /// means the partition was revoked and regained inside this batch: the
     /// offsets buffered so far belong to the old assignment and Kafka
     /// redelivers them, so the ledger slice restarts. The span keeps them,
-    /// so the commit sentinel still sees the whole delivered range.
+    /// so the commit sentinel still sees the whole delivered range. The
+    /// assignment restarts too, so the regained offsets found new groups.
     fn record(
         &mut self,
         generations_version: u64,
         generation: impl FnOnce() -> u64,
+        token: impl FnOnce() -> CancellationToken,
         delivery: &Delivery,
     ) {
         self.span.extend(delivery.offset);
@@ -117,6 +129,11 @@ impl PartitionDeliveries {
             if generation != self.generation {
                 self.generation = generation;
                 self.charges.clear();
+                self.assignment = Assignment {
+                    partition: self.assignment.partition,
+                    generation,
+                    token: token(),
+                };
             }
         }
         self.charges
@@ -292,6 +309,9 @@ pub struct IngestionConsumer {
     /// Partitions revoked since the loop last looked, fed by the rebalance
     /// callback. Only populated under the key-table scheduler.
     revoked_partitions: Arc<Mutex<Vec<TopicPartition>>>,
+    /// Cancelled by the rebalance callback, so the scheduler drops work
+    /// whose partition this consumer no longer owns.
+    partition_assignments: Arc<PartitionAssignments>,
 }
 
 impl IngestionConsumer {
@@ -312,13 +332,16 @@ impl IngestionConsumer {
         let commit_sentinel = consumer.context().commit_sentinel();
         let topic_offset_ledger = consumer.context().topic_offset_ledger();
         let revoked_partitions: Arc<Mutex<Vec<TopicPartition>>> = Arc::new(Mutex::new(Vec::new()));
+        let partition_assignments = Arc::new(PartitionAssignments::new());
+        let hook_assignments = Arc::clone(&partition_assignments);
         let purge_dispatcher = Arc::clone(&dispatcher);
         let hook_revoked = (dispatcher.scheduler_kind() == SchedulerKind::KeyTable)
             .then(|| Arc::clone(&revoked_partitions));
         consumer
             .context()
             .set_revoke_hook(Box::new(move |partitions| {
-                purge_dispatcher.purge_revoked(partitions);
+                hook_assignments.revoke(partitions);
+                purge_dispatcher.purge_revoked();
                 if let Some(list) = &hook_revoked {
                     list.lock().unwrap().extend(
                         partitions
@@ -339,6 +362,7 @@ impl IngestionConsumer {
             debug_recorder: options.debug_recorder,
             topic_offset_ledger,
             revoked_partitions,
+            partition_assignments,
             consumer: Arc::new(consumer),
             batcher,
             outputs: Some(outputs),
@@ -392,11 +416,14 @@ impl IngestionConsumer {
         );
         context.set_assignment_epoch(transport.assignment_epoch());
         let revoked_partitions: Arc<Mutex<Vec<TopicPartition>>> = Arc::new(Mutex::new(Vec::new()));
+        let partition_assignments = Arc::new(PartitionAssignments::new());
+        let hook_assignments = Arc::clone(&partition_assignments);
         let purge_dispatcher = batcher.dispatcher();
         let hook_revoked = (purge_dispatcher.scheduler_kind() == SchedulerKind::KeyTable)
             .then(|| Arc::clone(&revoked_partitions));
         context.set_revoke_hook(Box::new(move |partitions| {
-            purge_dispatcher.purge_revoked(partitions);
+            hook_assignments.revoke(partitions);
+            purge_dispatcher.purge_revoked();
             if let Some(list) = &hook_revoked {
                 list.lock().unwrap().extend(
                     partitions
@@ -424,6 +451,7 @@ impl IngestionConsumer {
             debug_recorder,
             topic_offset_ledger,
             revoked_partitions,
+            partition_assignments,
             batcher,
             outputs: Some(outputs),
             transport,
@@ -735,24 +763,31 @@ impl IngestionConsumer {
                     };
                     let key = TopicPartition::new(topic.clone(), partition);
                     let generations_version = self.topic_offset_ledger.generations_version();
-                    match partitions.get_mut(&key) {
-                        Some(deliveries) => deliveries.record(
-                            generations_version,
-                            || self.topic_offset_ledger.generation(&key),
-                            &delivery,
-                        ),
+                    let deliveries = match partitions.get_mut(&key) {
+                        Some(deliveries) => {
+                            deliveries.record(
+                                generations_version,
+                                || self.topic_offset_ledger.generation(&key),
+                                || self.partition_assignments.token(&key),
+                                &delivery,
+                            );
+                            deliveries
+                        }
                         None => {
                             let generation = self.topic_offset_ledger.generation(&key);
-                            partitions.insert(
-                                key,
-                                PartitionDeliveries::new(
-                                    generation,
-                                    generations_version,
-                                    &delivery,
-                                ),
-                            );
+                            let assignment = Assignment {
+                                partition: Partition(partition),
+                                generation,
+                                token: self.partition_assignments.token(&key),
+                            };
+                            partitions.entry(key).or_insert(PartitionDeliveries::new(
+                                generation,
+                                generations_version,
+                                assignment,
+                                &delivery,
+                            ))
                         }
-                    }
+                    };
 
                     let serialized = SerializedKafkaMessage {
                         topic,
@@ -770,7 +805,7 @@ impl IngestionConsumer {
                         headers,
                     };
 
-                    accumulator.push(Partition(partition), serialized.into());
+                    accumulator.push(&deliveries.assignment, serialized.into());
                 }
                 Ok(Some(Err(err))) => {
                     warn!(error = %err, "Kafka recv error");
@@ -1148,6 +1183,14 @@ mod tests {
     use super::*;
     use common_kafka_consumer::Offset as MessageOffset;
 
+    fn assignment(partition: i32) -> Assignment {
+        Assignment {
+            partition: Partition(partition),
+            generation: 0,
+            token: CancellationToken::new(),
+        }
+    }
+
     fn poll(epoch: u64, partition: i32, first: i64, last: i64, count: u32) -> InFlightPoll {
         let mut partitions = HashMap::new();
         partitions.insert(
@@ -1155,6 +1198,7 @@ mod tests {
             PartitionDeliveries {
                 span: OffsetSpan { first, last },
                 generation: 0,
+                assignment: assignment(partition),
                 generations_version_seen: 0,
                 charges: Vec::new(),
                 latest_kafka_ts: 0,
@@ -1241,6 +1285,7 @@ mod tests {
                     last: 11,
                 },
                 generation: 0,
+                assignment: assignment(1),
                 generations_version_seen: 0,
                 charges: Vec::new(),
                 latest_kafka_ts: 0,
