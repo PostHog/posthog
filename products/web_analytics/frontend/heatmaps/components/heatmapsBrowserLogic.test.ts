@@ -37,8 +37,14 @@ describe('heatmapsBrowserLogic', () => {
             ['https://example.com/pricing', { href: 'https://example.com/pricing', matchType: 'exact' }],
             // a recorded query string is literal; as a regex its ? would quantify the character before it
             ['https://example.com/search?q=shoes', { href: 'https://example.com/search?q=shoes', matchType: 'exact' }],
-            ['https://example.com/search?q=*', { href: 'https://example\\.com/search\\?q=*', matchType: 'pattern' }],
-            ['https://example.com/blog/*', { href: 'https://example\\.com/blog/*', matchType: 'pattern' }],
+            ['https://example.com/search?q=*', { href: '^https://example\\.com/search\\?q=.+$', matchType: 'pattern' }],
+            ['https://example.com/blog/*', { href: '^https://example\\.com/blog/.+$', matchType: 'pattern' }],
+            // the API leaves a `*` alone when a dot precedes it, so an escaped dot has to be
+            // expanded here or `file.*` matches a run of dots instead of `file.pdf`
+            ['https://example.com/file.*', { href: '^https://example\\.com/file\\..+$', matchType: 'pattern' }],
+            // the API adds no end anchor to a pattern that already ends with `$`, so a literal `$`
+            // in the address has to be anchored here
+            ['https://example.com/a*$', { href: '^https://example\\.com/a.+\\$$', matchType: 'pattern' }],
         ] as const)('recordingUrlToHref(%s) → %s', (input, expected) => {
             expect(recordingUrlToHref(input)).toEqual(expected)
         })

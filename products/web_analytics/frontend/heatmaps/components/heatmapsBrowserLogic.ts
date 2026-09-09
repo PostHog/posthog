@@ -107,7 +107,12 @@ export const recordingUrlToHref = (url: string): { href: string; matchType: 'pat
     if (!url.includes('*')) {
         return { href: url, matchType: 'exact' }
     }
-    return { href: url.replace(/[.+?^${}()|[\]\\]/g, '\\$&'), matchType: 'pattern' }
+    // The finished anchored pattern gets built here, because the API loosens a `*` only when no dot
+    // comes before it, and it adds no end anchor to a pattern that already ends with `$`. Both of
+    // those rules read the escaped text as regular expression syntax. So `file.*` would arrive as
+    // `file\.*`, which matches a run of dots instead of any name that starts with `file.`.
+    const literalParts = url.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+    return { href: `^${literalParts.join('.+')}$`, matchType: 'pattern' }
 }
 
 const normalizeUrlPath = (urlObj: URL): string => {
