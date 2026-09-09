@@ -13075,8 +13075,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
         link_other_report: bool = False,
         report_in_other_team: bool = False,
     ) -> Task:
-        # The Inbox "Create PR" shape: a report-linked task that resolved a repository, plus the
-        # `SignalReportTask` row `record_report_task` writes on the manual and auto-start paths.
+        # `record_report_task` writes this row on the manual and the auto-start path.
         from products.signals.backend.models import SignalReport, SignalReportTask
 
         report_team = (
@@ -13337,8 +13336,6 @@ class TestCloudUsageGate(BaseTaskAPITest):
     def test_exemption_for_create_pr_task_needs_a_team_scoped_implementation_link(
         self, _name, relationship, link_other_report, report_in_other_team, expected
     ):
-        # The relationship label is client input, so it only entitles a run when the row is
-        # scoped to this team and to the report the task itself links.
         task = self._create_pr_task(
             relationship=relationship,
             link_other_report=link_other_report,
@@ -13563,9 +13560,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
     def test_run_report_create_pr_task_bypasses_code_access(self, _mock_gate, mock_workflow):
         # "Create PR" holds a repository by design, so the repo-less Inbox exemption cannot cover
-        # it. The implementation link is what entitles the run, and it runs while the Desktop
-        # policy denies the organization, because auto-start opens the same PR run for the same
-        # report from the server without consulting the gate.
+        # it. The implementation link entitles the run while the Desktop policy denies the caller.
         self.set_tasks_feature_flag(False)
         task = self._create_pr_task()
 

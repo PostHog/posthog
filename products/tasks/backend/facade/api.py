@@ -5969,9 +5969,8 @@ def create_task(
 
     # Inbox "Create PR" doesn't pre-select a repo, so resolve one here rather than creating a
     # report-linked task that can never open a PR. "Implementation" (Create PR) and legacy clients
-    # (no relationship) always resolve one: their implementation link keeps the run exempt whatever
-    # repository it holds. "Discuss" (and any other non-implementation label) gets no such link, so
-    # it resolves one only for a caller the Desktop gate passed: the run endpoint gates a
+    # (no relationship) always resolve one. "Discuss" (and any other non-implementation label)
+    # resolves one only for a caller the Desktop gate passed: the run endpoint gates a
     # repository-backed discussion, so resolving for anyone else would 403 the very click this
     # path exists to unblock (see `task_exempt_from_code_access`).
     signal_report = validated_data.get("signal_report")
