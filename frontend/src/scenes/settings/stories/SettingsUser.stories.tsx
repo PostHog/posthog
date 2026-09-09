@@ -116,6 +116,24 @@ export const SettingsUserProfileHedgehogAvatar: Story = {
     },
 }
 
+export const SettingsUserProfilePasswordResetSent: Story = {
+    args: { sectionId: 'user-profile' },
+    parameters: {
+        msw: {
+            mocks: {
+                post: {
+                    '/api/reset/': () => [204, null],
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Forgot password?'))
+        await canvas.findByText(/We emailed a reset link/)
+    },
+}
+
 export const SettingsUserApiKeys: Story = {
     args: { sectionId: 'user-api-keys' },
 }

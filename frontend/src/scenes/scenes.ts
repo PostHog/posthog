@@ -317,7 +317,9 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         onlyUnauthenticated: true,
         layout: 'plain',
     },
-    [Scene.PasswordResetComplete]: { onlyUnauthenticated: true, layout: 'plain' },
+    // Reachable while signed in too, because the change password form can send a reset link to
+    // someone who is already in the app but has forgotten the password they need to type.
+    [Scene.PasswordResetComplete]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.PasswordReset]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.TwoFactorReset]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.VercelConnect]: { allowUnauthenticated: true, layout: 'plain', name: 'Connect to Vercel' },

@@ -14,6 +14,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { passwordResetLogic } from './passwordResetLogic'
 
@@ -107,11 +108,21 @@ function NewPasswordForm(): JSX.Element {
 }
 
 function ResetInvalid(): JSX.Element {
+    const { user } = useValues(userLogic)
+
     return (
         <div className="text-center">
             The provided link is <b>invalid or has expired</b>. Please request a new link.
             <div className="mt-4">
-                <LemonButton fullWidth type="primary" center data-attr="back-to-login" to={urls.passwordReset()}>
+                <LemonButton
+                    fullWidth
+                    type="primary"
+                    center
+                    data-attr="back-to-login"
+                    // /reset is unauthenticated-only, so send someone who is still signed in back
+                    // to the settings row that offered them the link.
+                    to={user ? urls.settings('user-profile', 'change-password') : urls.passwordReset()}
+                >
                     Request new link
                 </LemonButton>
             </div>
