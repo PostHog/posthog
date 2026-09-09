@@ -2264,13 +2264,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("object_keyed_by_breakdown_value", {"Chrome": "preset-1"}),
+            ("object_keyed_by_breakdown_value", {"Chrome": "preset-1"}, "breakdown_colors"),
             # Belongs at the endpoint, not in the field matrix: the update is a PATCH, so DRF
-            # resolves the entry's required keys against the serializer's partial flag.
-            ("entry_under_snake_case_keys", [{"breakdown_value": "good", "color": "#36a854"}]),
+            # resolves the entry's required keys against the serializer's partial flag. An error
+            # inside an entry names the entry and the key, so the attr carries a path.
+            ("entry_missing_the_color_token", [{"breakdownValue": "Chrome"}], "breakdown_colors__0__colorToken"),
         ]
     )
-    def test_dashboard_rejects_breakdown_colors_that_cannot_apply(self, _name: str, value: object) -> None:
+    def test_dashboard_rejects_breakdown_colors_that_cannot_apply(
+        self, _name: str, value: object, expected_attr: str
+    ) -> None:
         # Wiring guard: the viewset has to reject the value rather than store it. The shape matrix
         # lives in products/dashboards/backend/api/test/test_dashboard_filters_validation.py, which
         # needs no database.
@@ -2282,7 +2285,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
-        self.assertEqual(response["attr"], "breakdown_colors")
+        self.assertEqual(response["attr"], expected_attr)
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.breakdown_colors, [])
 
