@@ -1,11 +1,8 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-import redis
-
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     LOCK_TTL_SECONDS,
-    _get_redis_client,
     _lock_key,
     acquire_v3_pipeline_lock,
     get_v3_pipeline_lock_holder,
@@ -27,7 +24,7 @@ class TestAcquireV3PipelineLock:
         ],
         ids=["acquired", "already_held"],
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock.get_redis_client")
     def test_acquire_result(self, mock_ctx: MagicMock, set_return: bool | None, expected: bool) -> None:
         mock_redis = MagicMock()
         mock_redis.set.return_value = set_return
@@ -38,14 +35,14 @@ class TestAcquireV3PipelineLock:
         assert result is expected
         mock_redis.set.assert_called_once_with(_lock_key(1, "s-1"), "tok-1", nx=True, ex=LOCK_TTL_SECONDS)
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock.get_redis_client")
     def test_fail_closed_on_redis_unavailable(self, mock_ctx: MagicMock) -> None:
         mock_ctx.return_value.__enter__ = MagicMock(return_value=None)
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
         assert acquire_v3_pipeline_lock(1, "s-1", "tok-1") is False
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock.get_redis_client")
     def test_fail_closed_on_set_exception(self, mock_ctx: MagicMock) -> None:
         mock_redis = MagicMock()
         mock_redis.set.side_effect = Exception("connection lost")
@@ -65,7 +62,7 @@ class TestGetV3PipelineLockHolder:
         ],
         ids=["bytes_token", "str_token", "unheld"],
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock.get_redis_client")
     def test_holder_result(self, mock_ctx: MagicMock, get_return: bytes | str | None, expected: str | None) -> None:
         mock_redis = MagicMock()
         mock_redis.get.return_value = get_return
@@ -74,14 +71,14 @@ class TestGetV3PipelineLockHolder:
 
         assert get_v3_pipeline_lock_holder(1, "s-1") == expected
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock.get_redis_client")
     def test_returns_none_on_redis_unavailable(self, mock_ctx: MagicMock) -> None:
         mock_ctx.return_value.__enter__ = MagicMock(return_value=None)
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
         assert get_v3_pipeline_lock_holder(1, "s-1") is None
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock.get_redis_client")
     def test_returns_none_on_get_exception(self, mock_ctx: MagicMock) -> None:
         mock_redis = MagicMock()
         mock_redis.get.side_effect = Exception("connection lost")
@@ -100,7 +97,7 @@ class TestReleaseV3PipelineLock:
         ],
         ids=["released", "token_mismatch"],
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock.get_redis_client")
     def test_release_result(self, mock_ctx: MagicMock, eval_return: int, expected: bool) -> None:
         mock_redis = MagicMock()
         mock_redis.eval.return_value = eval_return
@@ -110,14 +107,14 @@ class TestReleaseV3PipelineLock:
         result = release_v3_pipeline_lock(1, "s-1", "tok-1")
         assert result is expected
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock.get_redis_client")
     def test_returns_false_on_redis_unavailable(self, mock_ctx: MagicMock) -> None:
         mock_ctx.return_value.__enter__ = MagicMock(return_value=None)
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
         assert release_v3_pipeline_lock(1, "s-1", "tok-1") is False
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock.get_redis_client")
     def test_returns_false_on_eval_exception(self, mock_ctx: MagicMock) -> None:
         mock_redis = MagicMock()
         mock_redis.eval.side_effect = Exception("connection lost")
@@ -125,28 +122,3 @@ class TestReleaseV3PipelineLock:
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
         assert release_v3_pipeline_lock(1, "s-1", "tok-1") is False
-
-
-class TestGetRedisClient:
-    """The acquire/release activities run with a single Temporal attempt, so a bare
-    DNS/connection blip previously skipped the whole scheduled sync run with no retry."""
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock.get_client")
-    def test_recovers_from_transient_connection_error(self, mock_get_client: MagicMock) -> None:
-        mock_redis = MagicMock()
-        mock_redis.ping.side_effect = [redis.exceptions.ConnectionError("Temporary failure in name resolution"), None]
-        mock_get_client.return_value = mock_redis
-
-        with _get_redis_client() as client:
-            assert client is mock_redis
-        assert mock_redis.ping.call_count == 2
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock.get_client")
-    def test_fails_closed_after_exhausting_retries(self, mock_get_client: MagicMock) -> None:
-        mock_redis = MagicMock()
-        mock_redis.ping.side_effect = redis.exceptions.ConnectionError("Temporary failure in name resolution")
-        mock_get_client.return_value = mock_redis
-
-        with _get_redis_client() as client:
-            assert client is None
-        assert mock_redis.ping.call_count == 3

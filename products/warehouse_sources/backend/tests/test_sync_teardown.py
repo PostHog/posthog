@@ -218,7 +218,7 @@ def fake_redis():
     def _fake_client():
         yield client
 
-    with patch.object(sync_lock, "_get_redis_client", _fake_client):
+    with patch.object(sync_lock, "get_redis_client", _fake_client):
         yield client
 
 
