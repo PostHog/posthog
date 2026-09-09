@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
@@ -15,7 +16,12 @@ from products.data_quality.backend.facade.enums import (
     SuiteRunStatus,
     SuiteRunTrigger,
 )
-from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
+from products.data_quality.backend.models import (
+    DataQualityCheck,
+    DataQualityCheckRun,
+    DataQualityCheckSchedule,
+    DataQualitySuiteRun,
+)
 from products.data_quality.backend.temporal.activities.finalize_check_suite import _finalize
 from products.data_quality.backend.temporal.activities.prepare_check_suite import _prepare
 from products.data_quality.backend.temporal.activities.run_check_batch import _run_batch
@@ -117,6 +123,36 @@ class TestCheckSuiteActivities(BaseTest):
         suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).get(id=prepared.suite_run_id)
         assert suite_run.subject_type == SubjectType.TABLE
         assert suite_run.subject_uuid == table_id
+
+    def test_scheduled_metric_suite_selects_checks_and_stamps_its_schedule_on_retry(self) -> None:
+        metric_id = uuid4()
+        on_metric = self._check(saved_query_id=None, metric_id=metric_id, subject_type=SubjectType.METRIC)
+        self._check()
+        schedule = DataQualityCheckSchedule.objects.for_team(self.team.id).create(
+            team=self.team, subject_type=SubjectType.METRIC, subject_uuid=metric_id, next_run_at=datetime.now(UTC)
+        )
+        prepared = self._prepare(
+            saved_query_ids=[],
+            metric_ids=[str(metric_id)],
+            trigger=SuiteRunTrigger.SCHEDULED,
+            schedule_id=str(schedule.id),
+        )
+        assert prepared.batches == [[str(on_metric.id)]]
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).get(id=prepared.suite_run_id)
+        assert suite.subject_type == SubjectType.METRIC
+        assert suite.subject_uuid == metric_id
+        schedule.refresh_from_db()
+        assert schedule.last_suite_run_id == suite.id
+        assert schedule.last_run_at == suite.started_at
+        retried = self._prepare(
+            saved_query_ids=[],
+            metric_ids=[str(metric_id)],
+            trigger=SuiteRunTrigger.SCHEDULED,
+            schedule_id=str(schedule.id),
+        )
+        assert retried.suite_run_id == prepared.suite_run_id
+        schedule.refresh_from_db()
+        assert schedule.last_run_at == suite.started_at
 
     def test_mixed_metric_and_view_suite_has_no_single_subject(self) -> None:
         prepared = self._prepare(metric_ids=[str(uuid4())])

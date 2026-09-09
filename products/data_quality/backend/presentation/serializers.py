@@ -14,8 +14,8 @@ from rest_framework.settings import api_settings
 from posthog.api.shared import UserBasicSerializer
 
 from ..facade import api
-from ..facade.enums import CheckSeverity, CheckType, CreatedSource, SubjectType
-from ..facade.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
+from ..facade.enums import CheckSeverity, CheckType, CreatedSource, ScheduleInterval, SubjectType
+from ..facade.models import DataQualityCheck, DataQualityCheckRun, DataQualityCheckSchedule, DataQualitySuiteRun
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -248,6 +248,33 @@ class DataQualityOverviewCheckSerializer(DataQualityCheckSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_subject_metric_name(self, obj: DataQualityCheck) -> str | None:
         return self._location(obj).metric_name
+
+
+class DataQualityCheckScheduleUpdateSerializer(serializers.Serializer):
+    interval = serializers.ChoiceField(
+        choices=list(ScheduleInterval), required=False, help_text="How often all enabled checks on the metric run."
+    )
+    enabled = serializers.BooleanField(required=False, help_text="Whether checks run automatically on this schedule.")
+
+
+class DataQualityCheckScheduleSerializer(serializers.ModelSerializer):
+    interval = serializers.SerializerMethodField(help_text="Schedule interval: 1hour, 6hour, 12hour, 24hour, or 7day.")
+
+    class Meta:
+        model = DataQualityCheckSchedule
+        fields = ["id", "interval", "enabled", "next_run_at", "last_run_at", "last_suite_run"]
+        read_only_fields = fields
+        extra_kwargs = {
+            "id": {"help_text": "Schedule identifier."},
+            "enabled": {"help_text": "Whether the schedule runs automatically."},
+            "next_run_at": {"help_text": "Next scheduled execution time."},
+            "last_run_at": {"help_text": "Most recent scheduled execution time."},
+            "last_suite_run": {"help_text": "Most recent suite started by this schedule."},
+        }
+
+    @extend_schema_field(serializers.ChoiceField(choices=list(ScheduleInterval)))
+    def get_interval(self, obj: DataQualityCheckSchedule) -> str:
+        return api.label_from_interval(obj.interval)
 
 
 @extend_schema_serializer(component_name="DataQualityCheckRun")

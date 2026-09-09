@@ -61,6 +61,7 @@ class TestMetricCheckAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("checks_list", "get", "checks/"),
+            ("checks_schedule", "get", "checks/schedule/"),
             ("checks_health", "get", "checks/health/"),
             ("checks_run_all", "post", "checks/run_all/"),
             ("suite_runs_list", "get", "check_suite_runs/"),
@@ -93,10 +94,48 @@ class TestMetricCheckAPI(APIBaseTest):
                 response = self.client.get(f"{parent}/{identifier}/{action}/")
                 assert response.status_code == 404, response.content
 
-    def test_metric_check_authoring_and_overview(self) -> None:
+    def test_schedule_change_refuses_queries_the_editor_cannot_run(self) -> None:
+        check = self._create()
+        denied = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="restricted_orders",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"},
+        )
+        DataQualityCheck.objects.for_team(self.team.id).filter(id=check["id"]).update(
+            config={"query": "SELECT * FROM {metric} WHERE EXISTS (SELECT 1 FROM restricted_orders)"},
+        )
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_view",
+            resource_id=str(denied.id),
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda name, *a, **k: name == "hogql-warehouse-access-control",
+        ):
+            response = self.client.patch(f"{self.url}/schedule/", {"interval": "6hour"})
+        assert response.status_code == 403, response.content
+        schedule = api.get_schedule(self.team.id, "metric", self.metric.id)
+        assert schedule is not None
+        assert api.label_from_interval(schedule.interval) == "24hour"
+
+    def test_metric_check_authoring_schedule_and_overview(self) -> None:
+        assert self.client.get(f"{self.url}/schedule/").status_code == 404
+        assert self.client.patch(f"{self.url}/schedule/", {"enabled": False}).status_code == 404
         check = self._create()
         assert [entry["check_type"] for entry in self.client.get(f"{self.url}/check_types/").json()] == ["custom_sql"]
         assert self.client.get(f"{self.url}/").json()["results"][0]["id"] == check["id"]
+        schedule = self.client.get(f"{self.url}/schedule/").json()
+        assert schedule["interval"] == "24hour"
+        patched = self.client.patch(f"{self.url}/schedule/", {"interval": "6hour", "enabled": False})
+        assert patched.status_code == 200
+        assert patched.json()["interval"] == "6hour"
+        assert patched.json()["enabled"] is False
         edited = self.client.patch(
             f"{self.url}/{check['id']}/", {"config": {"query": "SELECT * FROM {metric} WHERE signups < 50"}}
         )
@@ -108,6 +147,7 @@ class TestMetricCheckAPI(APIBaseTest):
         assert row["subject_metric_name"] == "registrations"
         assert "definition" not in row and "values" not in row
         assert self.client.delete(f"{self.url}/{check['id']}/").status_code == 204
+        assert self.client.get(f"{self.url}/schedule/").status_code == 200
 
     def test_a_metric_that_leaves_hogql_still_takes_presentation_edits(self) -> None:
         check = self._create()
@@ -149,6 +189,7 @@ class TestMetricCheckAPI(APIBaseTest):
         )
         cache.clear()
         assert self.client.get(f"{self.url}/").status_code == 403
+        assert self.client.get(f"{self.url}/schedule/").status_code == 403
         assert self.client.get(f"{self.suites_url}/").status_code == 403
         assert self.client.get(f"/api/projects/{self.team.id}/data_quality_checks/").json()["results"] == []
 

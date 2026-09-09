@@ -9,10 +9,10 @@ from posthog.temporal.common.logger import get_logger
 
 from products.data_modeling.backend.facade import api as data_modeling_facade
 
-from ...facade.enums import SubjectType
+from ...facade.enums import SubjectType, SuiteRunTrigger
 from ...logic.checks import live_subject_checks
 from ...logic.flags import is_data_quality_checks_enabled_for_team_id
-from ...models import DataQualityCheck, DataQualitySuiteRun
+from ...models import DataQualityCheck, DataQualityCheckSchedule, DataQualitySuiteRun
 from ..contracts import PreparedSuite, RunCheckSuiteInputs
 
 LOGGER = get_logger(__name__)
@@ -28,11 +28,22 @@ async def prepare_check_suite_activity(inputs: RunCheckSuiteInputs) -> PreparedS
 def _prepare(inputs: RunCheckSuiteInputs) -> PreparedSuite:
     checks = _select_checks(inputs) if is_data_quality_checks_enabled_for_team_id(inputs.team_id) else []
     suite_run = _suite_run(inputs)
+    _stamp_schedule(inputs, suite_run)
 
     check_ids = [str(check_id) for check_id in checks]
     batches = [check_ids[start : start + CHECKS_PER_BATCH] for start in range(0, len(check_ids), CHECKS_PER_BATCH)]
     LOGGER.info("Prepared check suite", suite_run_id=str(suite_run.id), checks=len(check_ids), batches=len(batches))
     return PreparedSuite(suite_run_id=str(suite_run.id), batches=batches)
+
+
+def _stamp_schedule(inputs: RunCheckSuiteInputs, suite_run: DataQualitySuiteRun) -> None:
+    if inputs.trigger != SuiteRunTrigger.SCHEDULED or not inputs.schedule_id or suite_run.subject_uuid is None:
+        return
+    DataQualityCheckSchedule.objects.for_team(inputs.team_id).filter(
+        id=inputs.schedule_id, subject_type=suite_run.subject_type, subject_uuid=suite_run.subject_uuid
+    ).filter(models.Q(last_run_at__isnull=True) | models.Q(last_run_at__lte=suite_run.started_at)).update(
+        last_run_at=suite_run.started_at, last_suite_run=suite_run, updated_at=datetime.now(UTC)
+    )
 
 
 def _suite_run(inputs: RunCheckSuiteInputs) -> DataQualitySuiteRun:

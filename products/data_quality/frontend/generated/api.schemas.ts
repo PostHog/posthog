@@ -482,6 +482,51 @@ export interface DataQualitySubjectHealthApi {
     checks_failing: number
 }
 
+export type DataQualityScheduleIntervalEnumApi =
+    (typeof DataQualityScheduleIntervalEnumApi)[keyof typeof DataQualityScheduleIntervalEnumApi]
+
+export const DataQualityScheduleIntervalEnumApi = {
+    '1hour': '1hour',
+    '6hour': '6hour',
+    '12hour': '12hour',
+    '24hour': '24hour',
+    '7day': '7day',
+} as const
+
+export interface DataQualityCheckScheduleApi {
+    /** Schedule identifier. */
+    readonly id: string
+    /** Schedule interval: 1hour, 6hour, 12hour, 24hour, or 7day. */
+    readonly interval: DataQualityScheduleIntervalEnumApi
+    /** Whether the schedule runs automatically. */
+    readonly enabled: boolean
+    /** Next scheduled execution time. */
+    readonly next_run_at: string
+    /**
+     * Most recent scheduled execution time.
+     * @nullable
+     */
+    readonly last_run_at: string | null
+    /**
+     * Most recent suite started by this schedule.
+     * @nullable
+     */
+    readonly last_suite_run: string | null
+}
+
+export interface PatchedDataQualityCheckScheduleUpdateApi {
+    /** How often all enabled checks on the metric run.
+     *
+     * * `1hour` - 1hour
+     * * `6hour` - 6hour
+     * * `12hour` - 12hour
+     * * `24hour` - 24hour
+     * * `7day` - 7day */
+    interval?: DataQualityScheduleIntervalEnumApi
+    /** Whether checks run automatically on this schedule. */
+    enabled?: boolean
+}
+
 /**
  * Type-specific configuration, validated against the check type's JSON schema.
  */

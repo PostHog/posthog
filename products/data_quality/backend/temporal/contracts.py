@@ -5,10 +5,31 @@ single JSON object, so nested dataclasses would not survive ``parse_inputs``.
 """
 
 import dataclasses
+from datetime import datetime
 
 from posthog.dataclasses import frozen
 
 from ..facade.enums import SuiteRunStatus, SuiteRunTrigger
+from ..logic.contracts import DueSchedule
+
+
+@frozen
+class ClaimDueSchedulesInputs:
+    now: datetime
+    limit: int
+    after: DueSchedule | None = None
+
+
+@frozen
+class AcknowledgeScheduleInputs:
+    occurrence: DueSchedule
+    now: datetime
+
+
+@frozen
+class ScheduledSuitesOutcome:
+    claimed: int = 0
+    started: int = 0
 
 
 @frozen
@@ -28,6 +49,7 @@ class RunCheckSuiteInputs:
     check_ids: list[str] = dataclasses.field(default_factory=list)
     node_ids: list[str] = dataclasses.field(default_factory=list)
     suite_run_id: str | None = None
+    schedule_id: str | None = None
     data_modeling_job_id: str | None = None
     created_by_id: int | None = None
     # Audits the staged folder rather than the published table. Needs exactly one saved query.

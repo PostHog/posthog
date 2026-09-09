@@ -1,8 +1,12 @@
 """Shapes passed between the subject resolver, the check registry, and the compiler."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING
+from uuid import UUID
+
+from posthog.dataclasses import frozen
 
 from ..facade.enums import SubjectType
 
@@ -47,6 +51,23 @@ class SubjectRef:
     exists: bool
     definition_kind: str | None = None
     metric_definition: "HogQLMetricDefinition | None" = None
+
+
+@frozen
+class DueSchedule:
+    team_id: int
+    schedule_id: UUID
+    subject_type: str
+    subject_uuid: UUID
+    fire_at: datetime
+
+
+@dataclass(frozen=True)
+class ClaimedScheduleBatch:
+    claimed_count: int
+    schedules: list[DueSchedule]
+    skipped_schedules: list[DueSchedule] = field(default_factory=list)
+    next_cursor: DueSchedule | None = None
 
 
 @dataclass(frozen=True)

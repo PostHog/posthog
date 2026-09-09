@@ -41,6 +41,8 @@ from ..facade.models import DataQualityCheck, DataQualityCheckRun, DataQualitySu
 from .serializers import (
     CheckTypeSerializer,
     DataQualityCheckRunSerializer,
+    DataQualityCheckScheduleSerializer,
+    DataQualityCheckScheduleUpdateSerializer,
     DataQualityCheckSerializer,
     DataQualityGateConfigSerializer,
     DataQualityOverviewCheckSerializer,
@@ -576,6 +578,25 @@ class MetricCheckViewSet(_BaseCheckViewSet):
     scope_object = "data_catalog"
     subject_type = SubjectType.METRIC
     subject_field = "metric"
+    QUERY_GATED_ACTIONS = _BaseCheckViewSet.QUERY_GATED_ACTIONS | {"schedule"}
+
+    @extend_schema(methods=["GET"], request=None, responses={200: DataQualityCheckScheduleSerializer})
+    @extend_schema(
+        methods=["PATCH"],
+        request=DataQualityCheckScheduleUpdateSerializer,
+        responses={200: DataQualityCheckScheduleSerializer},
+    )
+    @action(methods=["GET", "PATCH"], detail=False, pagination_class=None)
+    def schedule(self, request: Request, **kwargs) -> Response:
+        schedule = api.get_schedule(self.team_id, self.subject_type, self.subject_uuid)
+        if schedule is None:
+            raise NotFound("Add a check to create this metric's schedule.")
+        if request.method == "PATCH":
+            self._require_enabled_check_access()
+            serializer = DataQualityCheckScheduleUpdateSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            schedule = api.set_schedule(self.team_id, self.subject_type, self.subject_uuid, **serializer.validated_data)
+        return Response(DataQualityCheckScheduleSerializer(schedule).data)
 
 
 class _BaseSuiteRunViewSet(

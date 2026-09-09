@@ -15,7 +15,27 @@ from temporalio.client import (
 
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
+from ..facade.contracts import DISPATCH_SCHEDULED_SUITES_WORKFLOW_NAME
+
 CLEANUP_SCHEDULE_ID = "cleanup-data-quality-check-runs-schedule"
+DISPATCH_SCHEDULE_ID = "dispatch-scheduled-data-quality-suites-schedule"
+
+
+async def create_dispatch_scheduled_data_quality_suites_schedule(client: Client) -> None:
+    await _upsert(
+        client,
+        DISPATCH_SCHEDULE_ID,
+        Schedule(
+            action=ScheduleActionStartWorkflow(
+                DISPATCH_SCHEDULED_SUITES_WORKFLOW_NAME,
+                id=DISPATCH_SCHEDULE_ID,
+                task_queue=settings.DATA_MODELING_TASK_QUEUE,
+                execution_timeout=dt.timedelta(minutes=15),
+            ),
+            spec=ScheduleSpec(cron_expressions=["*/15 * * * *"]),
+            policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+        ),
+    )
 
 
 async def create_cleanup_data_quality_check_runs_schedule(client: Client) -> None:

@@ -87,7 +87,10 @@ from products.customer_analytics.backend.facade.temporal import (
     create_account_track_rule_coordinator_schedule,
     create_calendar_sync_coordinator_schedule,
 )
-from products.data_quality.backend.facade.temporal import create_cleanup_data_quality_check_runs_schedule
+from products.data_quality.backend.facade.temporal import (
+    create_cleanup_data_quality_check_runs_schedule,
+    create_dispatch_scheduled_data_quality_suites_schedule,
+)
 from products.engineering_analytics.backend.facade.temporal import (
     create_ci_signals_coordinator_schedule,
     create_github_job_logs_coordinator_schedule,
@@ -944,6 +947,7 @@ schedules = [
     create_review_hog_finding_outcomes_schedule,
     create_ci_signals_coordinator_schedule,
     create_cleanup_data_quality_check_runs_schedule,
+    create_dispatch_scheduled_data_quality_suites_schedule,
 ]
 
 # AI observability summarization and clustering call the cloud-only guard in
