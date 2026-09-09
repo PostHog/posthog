@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -168,6 +168,30 @@ describe('replayScannerLogic', () => {
             ).toFinishAllListeners()
 
             expect(logic.values.scanner?.query).toEqual({ kind: 'RecordingsQuery' })
+        })
+
+        it('carries the drafted experiment targeting onto the form', async () => {
+            // Targeting is not part of the query, so the form is its only carrier: dropped here, the
+            // saved scanner watches every visitor of the drafted pages instead of the participants.
+            draftSpy.mockReturnValue([
+                200,
+                {
+                    name: 'New entrypoint friction',
+                    description: 'Classifies friction in the new entrypoint.',
+                    scanner_type: 'classifier',
+                    scanner_config: { prompt: 'Classify the friction.', tags: ['smooth'], multi_label: false },
+                    rationale: '',
+                    query: null,
+                    experiment_targeting: { experiment_id: 11, variant: 'test' },
+                },
+            ])
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal('friction in the new AI entrypoint')
+            ).toFinishAllListeners()
+
+            expect(logic.values.scanner?.experiment_targeting).toEqual({ experiment_id: 11, variant: 'test' })
         })
 
         it('drops a stale draft when the user has left the template step mid-request', async () => {
@@ -1444,6 +1468,19 @@ describe('replayScannerLogic', () => {
                 goal_length: 'find users who get stuck'.length,
             })
         })
+
+        it('the last path taken is what the save reports', async () => {
+            // Each of these replaces the form, so someone who drafts with AI and then picks a
+            // template saved the template's scanner. Reporting the first path would credit the AI
+            // flow with a scanner it did not produce.
+            await expectLogic(logic, () => {
+                logic.actions.draftScannerFromGoal('find users who get stuck')
+            }).toFinishAllListeners()
+            expect(logic.values.creationMethod).toEqual('ai')
+
+            logic.actions.startFromTemplate('dead_end')
+            expect(logic.values.creationMethod).toEqual('template')
+        })
     })
 
     describe('rebuildExperimentContext', () => {
@@ -1479,6 +1516,34 @@ describe('replayScannerLogic', () => {
 
             expect(logic.values.scanner?.experiment_targeting).toBeFalsy()
             expect(logic.values.experimentContext).toBeNull()
+        })
+    })
+
+    describe('team refresh on tab visibility', () => {
+        const setHidden = (hidden: boolean): void => {
+            Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
+        let teamSpy: jest.Mock
+
+        beforeEach(() => {
+            teamSpy = jest.fn(() => [200, MOCK_DEFAULT_TEAM])
+            useMocks({ get: { '/api/environments/@current': teamSpy } })
+            teamLogic.mount()
+        })
+
+        afterEach(() => {
+            setHidden(false)
+        })
+
+        it('refetches the team when the tab becomes visible again, not on mount', async () => {
+            expect(teamSpy).not.toHaveBeenCalled()
+
+            setHidden(true)
+            setHidden(false)
+            await expectLogic(teamLogic).toDispatchActions(['refreshCurrentTeamSuccess'])
+
+            expect(teamSpy).toHaveBeenCalledTimes(1)
         })
     })
 })

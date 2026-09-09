@@ -77,6 +77,44 @@ def default_logs_pattern_message_keys() -> list[str]:
     return list(DEFAULT_LOGS_PATTERN_MESSAGE_KEYS)
 
 
+# Built-in session-id attribute key conventions. Mirror of the frontend SESSION_ID_KEYS in
+# products/logs/frontend/utils.tsx, so keep the two in sync. The logs UI renders a value under any
+# of these keys as the log's session (isSessionIdKey), so a session-scoped viewer matches them too
+# (on top of a team's configured keys), otherwise a log the UI shows as belonging to a session
+# would not appear when scoped to it. Literal keys only: the frontend additionally matches
+# dot-suffixed variants (e.g. `span.session_id`), which an exact attribute filter can't express.
+# `posthogSessionId` is emitted by some pipelines even though no SDK sends it; removing it
+# breaks them.
+SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS = [
+    "session.id",
+    "session_id",
+    "sessionId",
+    "sessionID",
+    "$session_id",
+    "posthogSessionId",
+    "posthogSessionID",
+    "posthog_session_id",
+    "posthog.session.id",
+    "posthog.session_id",
+]
+
+
+def resolved_distinct_id_attribute_keys(team) -> list[str]:
+    """The attribute keys that link a log to a person: the team's configured keys (or the
+    default when unconfigured), then the built-in conventions the UI links regardless of
+    config. Deduped, configured keys first."""
+    config = TeamLogsConfig.objects.filter(team=team).first()
+    configured = (config.logs_distinct_id_attribute_keys if config else None) or DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS
+    return list(dict.fromkeys([*configured, *DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS]))
+
+
+def resolved_session_id_attribute_keys(team) -> list[str]:
+    """The session-ID equivalent of resolved_distinct_id_attribute_keys."""
+    config = TeamLogsConfig.objects.filter(team=team).first()
+    configured = (config.logs_session_id_attribute_keys if config else None) or DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS
+    return list(dict.fromkeys([*configured, *SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS]))
+
+
 class TeamLogsConfig(models.Model):
     # Plain `models.Model` (not `TeamScopedRootMixin`) — log emission and ingestion
     # are per-environment, and so is this config. Inheriting the root-mixin would

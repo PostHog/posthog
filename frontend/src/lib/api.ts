@@ -7,7 +7,7 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError, NetworkError, type NetworkFailureReason } from 'lib/api-error'
+import { ApiError, BROWSER_FETCH_FAILURE_MESSAGES, NetworkError, type NetworkFailureReason } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
@@ -2270,8 +2270,8 @@ const api = {
         async create(data: any): Promise<InsightModel> {
             return await new ApiRequest().insights().create({ data })
         },
-        async update(id: number, data: any): Promise<InsightModel> {
-            return await new ApiRequest().insight(id).update({ data })
+        async update(id: number, data: any, options?: ApiMethodOptions): Promise<InsightModel> {
+            return await new ApiRequest().insight(id).update({ data, ...options })
         },
         async cancelQuery(clientQueryId: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             await new ApiRequest().insightsCancel(teamId).create({ data: { client_query_id: clientQueryId } })
@@ -5797,18 +5797,6 @@ const api = {
         async list(): Promise<PaginatedResponse<DataModelingDAG>> {
             return await new ApiRequest().dataModelingDags().get()
         },
-        async create(data: { name: string; description?: string; sync_frequency?: string }): Promise<DataModelingDAG> {
-            return await new ApiRequest().dataModelingDags().create({ data })
-        },
-        async update(
-            dagId: DataModelingDAG['id'],
-            data: Partial<Pick<DataModelingDAG, 'name' | 'description' | 'sync_frequency'>>
-        ): Promise<DataModelingDAG> {
-            return await new ApiRequest().dataModelingDag(dagId).update({ data })
-        },
-        async delete(dagId: DataModelingDAG['id']): Promise<void> {
-            await new ApiRequest().dataModelingDag(dagId).delete()
-        },
     },
 
     dataModelingNodes: {
@@ -7490,13 +7478,11 @@ function requestPathname(url: string): string {
  * carries that realm's `TypeError`, and a `fetch` replaced by a browser extension can reject with
  * its own error shape. Both keep the class name and the engine-specific message, so we match those
  * as well before a connectivity failure falls through to an unclassified `ApiError`.
+ *
+ * Matching a bare `TypeError` is safe here in a way it would not be elsewhere, because this runs
+ * only after a `fetch` call rejected. `isBrowserNetworkFailure` decides the same question about an
+ * arbitrary error, so it matches the message alone.
  */
-const BROWSER_FETCH_FAILURE_MESSAGES = [
-    'Failed to fetch',
-    'Load failed',
-    'NetworkError when attempting to fetch resource',
-]
-
 function isBrowserFetchFailure(error: unknown): boolean {
     if (error instanceof TypeError) {
         return true

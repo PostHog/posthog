@@ -168,7 +168,8 @@ per-run dollar cap. Two JSON object settings can override it:
 
 - `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES` maps team IDs to caps.
 - `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES` maps AI product names to
-  caps and defaults to `{"signals_implementation": "15"}`.
+  caps and defaults to
+  `{"signals_implementation": "15", "signals_inbox": "75", "signals_chat": "30"}`.
 
 A product override takes precedence over a team override, which takes precedence
 over the default cap. Set the product override to `{}` to disable the built-in

@@ -9,8 +9,13 @@ from PIL import Image, ImageDraw
 
 from products.visual_review.backend.diff import compare_images
 from products.visual_review.backend.diffing import classify_compare_result
-from products.visual_review.backend.facade.contracts import PIXEL_DIFF_THRESHOLD_PERCENT, SSIM_DISSIMILARITY_THRESHOLD
+from products.visual_review.backend.facade.contracts import (
+    PIXEL_DIFF_THRESHOLD_PERCENT,
+    SHIFT_ABSORB_MAX_ROWS,
+    SSIM_DISSIMILARITY_THRESHOLD,
+)
 from products.visual_review.backend.facade.enums import ChangeKind
+from products.visual_review.backend.tests.conftest import insert_background_rows, make_striped_png, open_png, to_png
 
 
 def _make_png(width: int, height: int, color: tuple[int, int, int, int]) -> bytes:
@@ -52,8 +57,26 @@ def _make_tall_settings_page(width: int = 400, height: int = 3000, extra_element
     return buf.getvalue()
 
 
+PAGE_BACKGROUND = (245, 245, 245, 255)
+
+
+def _insert_rows(png_bytes: bytes, y: int, rows: int) -> bytes:
+    return insert_background_rows(png_bytes, y, rows, PAGE_BACKGROUND)
+
+
+def _grow_rows(png_bytes: bytes, y: int, rows: int) -> bytes:
+    # A panel that grows repeats its edge row, so the new rows match the row above them.
+    image = open_png(png_bytes)
+    width, height = image.size
+    out = Image.new("RGBA", (width, height + rows))
+    out.paste(image.crop((0, 0, width, y)), (0, 0))
+    for i in range(rows):
+        out.paste(image.crop((0, y - 1, width, y)), (0, y + i))
+    out.paste(image.crop((0, y, width, height)), (0, y + rows))
+    return to_png(out)
+
+
 def _classify(baseline_bytes: bytes, current_bytes: bytes) -> ChangeKind | None:
-    """Run the production classifier on a fresh compare result."""
     result = compare_images(baseline_bytes, current_bytes, with_thumbnail=False)
     return classify_compare_result(result)
 
@@ -183,3 +206,176 @@ class TestClusterSummary:
         dumped = original.model_dump(mode="json")
         roundtripped = DiffMetadata.model_validate(dumped)
         assert roundtripped == original
+
+
+class TestRowShiftClassification:
+    # A panel that grows by a pixel moves everything below it down, which a
+    # top-aligned pixel diff reads as a page-wide change. Row alignment pairs
+    # the rows that exist in both images so the diff describes what changed.
+
+    @pytest.mark.parametrize(
+        "inserted_rows, expected_kind",
+        [
+            pytest.param(1, None, id="one_row_absorbed"),
+            pytest.param(SHIFT_ABSORB_MAX_ROWS, None, id="cap_still_absorbed"),
+            pytest.param(SHIFT_ABSORB_MAX_ROWS + 1, ChangeKind.LAYOUT, id="past_cap_is_layout"),
+        ],
+    )
+    def test_background_row_insert_ladder(self, inserted_rows: int, expected_kind: ChangeKind | None):
+        baseline = _make_tall_settings_page()
+        current = _insert_rows(baseline, y=200, rows=inserted_rows)
+
+        result = compare_images(baseline, current, with_thumbnail=False)
+        assert result.row_shift is not None
+        assert result.row_shift.inserted_rows == inserted_rows
+        assert result.row_shift.deleted_rows == 0
+        # Everything below the seam is identical once the rows are paired.
+        assert result.row_shift.residual_percentage < 0.01
+        # Without alignment the same pair reads as a large pixel diff.
+        assert result.diff_percentage > PIXEL_DIFF_THRESHOLD_PERCENT
+        assert result.row_shift.raw_diff_percentage == result.diff_percentage
+
+        bands = result.row_shift.bands
+        assert len(bands) == 1
+        assert (bands[0].rows, bands[0].kind) == (inserted_rows, "inserted")
+        # The rows around y=200 are page background, and the aligner is free to
+        # put the seam anywhere inside that identical run, so the band lands
+        # near the insert rather than exactly on it.
+        assert 200 <= bands[0].y <= 215
+
+        assert classify_compare_result(result) == expected_kind
+
+    @pytest.mark.parametrize(
+        "page_height, moved_rows, expected_kind",
+        [
+            pytest.param(3000, SHIFT_ABSORB_MAX_ROWS, None, id="cap_still_absorbed"),
+            pytest.param(3000, SHIFT_ABSORB_MAX_ROWS + 1, ChangeKind.LAYOUT, id="past_cap_is_layout"),
+            # On a short page the doubled band area alone would cross the pixel threshold.
+            pytest.param(100, SHIFT_ABSORB_MAX_ROWS, None, id="cap_on_a_short_page"),
+        ],
+    )
+    def test_same_height_translation_counts_the_movement_once(
+        self, page_height: int, moved_rows: int, expected_kind: ChangeKind | None
+    ):
+        # A page that keeps its height while its content moves down shows up
+        # as the same number of inserted and deleted rows. Summing both sides
+        # would double the movement and push a cap-sized shift into layout.
+        baseline = _make_tall_settings_page(height=page_height)
+        grown = open_png(_grow_rows(baseline, y=page_height // 2, rows=moved_rows))
+        current = to_png(grown.crop((0, 0, grown.width, grown.height - moved_rows)))
+
+        result = compare_images(baseline, current, with_thumbnail=False)
+        assert result.row_shift is not None
+        assert (result.row_shift.inserted_rows, result.row_shift.deleted_rows) == (moved_rows, moved_rows)
+        assert result.row_shift.shifted_rows == moved_rows
+
+        assert classify_compare_result(result) == expected_kind
+
+    @pytest.mark.parametrize(
+        "page_rows, expected_kind",
+        [
+            pytest.param(20, ChangeKind.PIXEL, id="bar_across_a_small_component"),
+            pytest.param(3000, None, id="two_rows_on_a_tall_page"),
+        ],
+    )
+    def test_inserted_rows_count_their_own_area(self, page_rows: int, expected_kind: ChangeKind | None):
+        # The residual never sees rows that have no counterpart, so the cap
+        # alone would absorb two black rows across a twenty-row component.
+        # The band's own area has to count against the pixel threshold.
+        colors = [(200 + (i * 7) % 50, 200 + (i * 13) % 50, 220, 255) for i in range(page_rows)]
+        baseline = make_striped_png(colors, width=100)
+        current = insert_background_rows(baseline, y=page_rows // 2, rows=2, fill=(0, 0, 0, 255))
+
+        result = compare_images(baseline, current, with_thumbnail=False)
+        assert result.row_shift is not None
+        assert result.row_shift.shifted_rows == 2
+        assert result.row_shift.residual_percentage == 0
+
+        assert classify_compare_result(result) == expected_kind
+
+    def test_over_cap_shift_is_layout_even_when_its_band_covers_the_page(self):
+        # The band's area counts as changed pixels, and a big move on a short
+        # page covers more of it than the pixel threshold. The move is still
+        # the change, so it has to read as layout, not as a pixel diff.
+        baseline = _make_tall_settings_page(height=200)
+        current = _insert_rows(baseline, y=80, rows=40)
+
+        result = compare_images(baseline, current, with_thumbnail=False)
+        assert result.row_shift is not None
+        assert result.aligned_diff_percentage > PIXEL_DIFF_THRESHOLD_PERCENT
+
+        assert classify_compare_result(result) == ChangeKind.LAYOUT
+
+    @pytest.mark.parametrize("destination", [pytest.param(800, id="interior"), pytest.param(3000, id="bottom_edge")])
+    def test_relocated_thin_element_is_layout_not_a_small_shift(self, destination: int):
+        # A one-row line that moved from y=100 elsewhere aligns as one delete
+        # plus one insert with no residual. Counting rows alone calls that a
+        # one-row shift; the inserted row's pixels equal the deleted row's,
+        # which says the line moved. The bottom edge is the case that looks
+        # exactly like a page translation from the band positions alone.
+        colors = [(200 + (i * 7) % 50, 200 + (i * 13) % 50, 220, 255) for i in range(3000)]
+        line = (0, 0, 0, 255)
+        baseline = make_striped_png([*colors[:100], line, *colors[100:]], width=100)
+        current = make_striped_png([*colors[:destination], line, *colors[destination:]], width=100)
+
+        result = compare_images(baseline, current, with_thumbnail=False)
+        assert result.row_shift is not None
+        assert (result.row_shift.inserted_rows, result.row_shift.deleted_rows) == (1, 1)
+        assert result.row_shift.relocated_rows == 1
+
+        assert classify_compare_result(result) == ChangeKind.LAYOUT
+
+    def test_page_shift_that_exposes_matching_edge_padding_still_absorbs(self):
+        # A fixed-height page that moved down by a row exposes a padding row
+        # at the top and crops one at the bottom. Both are padding, so they
+        # match, and the top one differs from the content below it. That is
+        # not an element that moved: neither row stood out in the interior.
+        padding = (245, 245, 245, 255)
+        colors = [(200 + (i * 7) % 50, 200 + (i * 13) % 50, 220, 255) for i in range(300)]
+        baseline = make_striped_png([padding, *colors, padding], width=100)
+        current = make_striped_png([padding, padding, *colors], width=100)
+
+        result = compare_images(baseline, current, with_thumbnail=False)
+        assert result.row_shift is not None
+        assert (result.row_shift.inserted_rows, result.row_shift.deleted_rows) == (1, 1)
+        assert result.row_shift.relocated_rows == 0
+
+        assert classify_compare_result(result) is None
+
+    def test_shift_too_big_to_check_for_relocation_goes_to_review(self, mocker):
+        # The relocation check decodes the images again. Past the pixel bound
+        # it is skipped, and a shift with both inserts and deletes must then
+        # reach a reviewer rather than absorb on the strength of a guess.
+        mocker.patch("products.visual_review.backend.diff.RELOCATION_CHECK_MAX_PIXELS", 1)
+        baseline = _make_tall_settings_page()
+        grown = open_png(_grow_rows(baseline, y=1500, rows=1))
+        current = to_png(grown.crop((0, 0, grown.width, grown.height - 1)))
+
+        result = compare_images(baseline, current, with_thumbnail=False)
+        assert result.row_shift is not None
+        assert result.row_shift.relocated_rows == 1
+
+        assert classify_compare_result(result) == ChangeKind.LAYOUT
+
+    def test_shift_plus_real_change_is_not_absorbed(self):
+        baseline = _make_tall_settings_page()
+        shifted = open_png(_insert_rows(baseline, y=200, rows=1))
+        ImageDraw.Draw(shifted).rectangle([(20, 1000), (380, 1060)], fill=(255, 0, 0, 255))
+
+        result = compare_images(baseline, to_png(shifted), with_thumbnail=False)
+
+        assert result.row_shift is not None
+        assert result.row_shift.inserted_rows == 1
+        assert classify_compare_result(result) in (ChangeKind.PIXEL, ChangeKind.STRUCTURAL)
+
+    def test_partial_width_drift_is_not_absorbed(self):
+        # Only the right half of a block moves down a row. That is not a page
+        # shift, so it must not ride the absorb path out of review.
+        baseline = _make_tall_settings_page()
+        drifted = open_png(baseline)
+        width, _ = drifted.size
+        half = drifted.crop((width // 2, 500, width, 900))
+        drifted.paste((245, 245, 245, 255), (width // 2, 500, width, 900))
+        drifted.paste(half, (width // 2, 501))
+
+        assert _classify(baseline, to_png(drifted)) is not None
