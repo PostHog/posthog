@@ -14,6 +14,7 @@ import type { PostHogAPIClient } from "../posthog-api";
 import {
   createTaskRun,
   createTestRepo,
+  TEST_REPO_HOOK_TIMEOUT_MS,
   type TestRepo,
 } from "../test/fixtures/api";
 import { createPostHogHandlers } from "../test/mocks/msw-handlers";
@@ -146,19 +147,22 @@ describe("Question relay", () => {
 
   // msw patches fetch process-wide. A second listen() on an already-patched
   // fetch throws, so patch once per file and reset the handlers per test.
-  beforeAll(() => {
+  beforeAll(async () => {
     mswServer = setupServer(
       ...createPostHogHandlers({ baseUrl: "http://localhost:8000" }),
     );
     mswServer.listen({ onUnhandledRequest: "bypass" });
-  });
-
-  afterAll(() => {
-    mswServer.close();
-  });
-
-  beforeEach(async () => {
+    // No test here starts a session or runs git, so the repo is only a
+    // `repositoryPath` value. Build it once per file instead of per test.
     repo = await createTestRepo("question-relay");
+  }, TEST_REPO_HOOK_TIMEOUT_MS);
+
+  afterAll(async () => {
+    mswServer.close();
+    await repo.cleanup();
+  });
+
+  beforeEach(() => {
     server = new AgentServer({
       port,
       jwtPublicKey: "unused-in-unit-tests",
@@ -172,9 +176,8 @@ describe("Question relay", () => {
     }) as unknown as TestableAgentServer;
   });
 
-  afterEach(async () => {
+  afterEach(() => {
     mswServer.resetHandlers();
-    await repo.cleanup();
   });
 
   describe("isQuestionMeta", () => {

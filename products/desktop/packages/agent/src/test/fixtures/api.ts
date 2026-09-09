@@ -20,6 +20,11 @@ export interface TestRepo {
   exists: (relativePath: string) => boolean;
 }
 
+// `createTestRepo` spawns six sequential git subprocesses. On a loaded CI runner
+// that setup can pass Vitest's 10s default hook budget, so hooks that call it
+// declare this longer timeout.
+export const TEST_REPO_HOOK_TIMEOUT_MS = 30_000;
+
 export async function createTestRepo(prefix = "test-repo"): Promise<TestRepo> {
   const repoPath = join(
     tmpdir(),

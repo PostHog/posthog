@@ -37,6 +37,7 @@ import {
   createMockApiClient,
   createTaskRun,
   createTestRepo,
+  TEST_REPO_HOOK_TIMEOUT_MS,
   type TestRepo,
 } from "../test/fixtures/api";
 import { createPostHogHandlers } from "../test/mocks/msw-handlers";
@@ -415,12 +416,13 @@ describe("AgentServer HTTP Mode", () => {
     mswServer.close();
   });
 
+  // Tests write into the repo, so each one needs its own.
   beforeEach(async () => {
     repo = await createTestRepo("agent-server-http");
     appendLogCalls = [];
     // Use a unique high port per test to avoid reuse and browser-blocked ports.
     port = getNextTestPort();
-  });
+  }, TEST_REPO_HOOK_TIMEOUT_MS);
 
   afterEach(async () => {
     const runningServer = server;
