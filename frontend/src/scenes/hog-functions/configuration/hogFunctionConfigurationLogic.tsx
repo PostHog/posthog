@@ -1618,10 +1618,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     type: FilterLogicalOperator.And,
                     values: [seriesProperties],
                 }
-                const allPossibleEventFilters = configuration.filters?.events ?? []
-                const allPossibleActionFilters = configuration.filters?.actions ?? []
+                // Mapped destinations execute mapping-level matchers, not global event/action filters.
+                // Keep these arrays separate from configuration so preview calculation cannot mutate form state.
+                const allPossibleEventFilters = useMapping ? [] : [...(configuration.filters?.events ?? [])]
+                const allPossibleActionFilters = useMapping ? [] : [...(configuration.filters?.actions ?? [])]
 
-                if (Array.isArray(configuration.mappings)) {
+                const mappingMatchesAllEvents =
+                    useMapping && configuration.mappings?.some((mapping) => mapping.use_all_events_by_default === true)
+
+                if (mappingMatchesAllEvents) {
+                    seriesProperties.values.push({
+                        type: FilterLogicalOperator.And,
+                        values: [{ type: PropertyFilterType.HogQL, key: 'true' }],
+                    })
+                } else if (useMapping && Array.isArray(configuration.mappings)) {
                     for (const mapping of configuration.mappings) {
                         if (mapping.filters?.events) {
                             allPossibleEventFilters.push(...mapping.filters.events)

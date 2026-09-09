@@ -6,7 +6,13 @@ import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 
 import { initKeaTests } from '~/test/init'
-import { CyclotronJobFiltersType, HogFunctionTemplateType, HogFunctionType } from '~/types'
+import {
+    CyclotronJobFiltersType,
+    FilterLogicalOperator,
+    HogFunctionTemplateType,
+    HogFunctionType,
+    PropertyFilterType,
+} from '~/types'
 
 import { hogFunctionConfigurationLogic, sanitizeInputs } from './hogFunctionConfigurationLogic'
 
@@ -291,6 +297,135 @@ describe('hogFunctionConfigurationLogic', () => {
 
             expect(logic.values.configuration.filters).toEqual(expectedFilters)
             expect(logic.values.configuration.hog).toEqual(TEMPLATE_WITH_DEFAULT_FILTERS.code)
+        })
+    })
+
+    describe('mapping preview filters', () => {
+        it('combines mapping matchers with global properties and ignores unsupported global matchers', async () => {
+            const globalFilters: CyclotronJobFiltersType = {
+                events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
+                actions: [{ id: '99', name: 'Globally configured action', type: 'actions' }],
+                properties: [{ type: PropertyFilterType.HogQL, key: "properties.plan = 'paid'" }],
+            }
+            mockApi.getTemplate.mockResolvedValue({
+                ...HOG_TEMPLATE,
+                filters: globalFilters,
+                mapping_templates: [
+                    {
+                        name: 'Purchase',
+                        include_by_default: true,
+                        filters: { actions: [{ id: '42', name: 'Purchased', type: 'actions' }] },
+                    },
+                    {
+                        name: 'Signup',
+                        include_by_default: true,
+                        filters: { events: [{ id: 'signed up', name: 'signed up', type: 'events' }] },
+                    },
+                ],
+            })
+            logic = hogFunctionConfigurationLogic({ templateId: 'test' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            expect(logic.values.matchingFilters).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: "event = 'signed up'" }],
+                            },
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: 'matchesAction(42)' }],
+                            },
+                        ],
+                    },
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [{ type: PropertyFilterType.HogQL, key: "properties.plan = 'paid'" }],
+                    },
+                ],
+            })
+            expect(logic.values.configuration.filters).toEqual(globalFilters)
+        })
+
+        it('matches every event for an all-events mapping', async () => {
+            mockApi.getTemplate.mockResolvedValue({
+                ...HOG_TEMPLATE,
+                mapping_templates: [
+                    {
+                        name: 'All events',
+                        include_by_default: true,
+                        use_all_events_by_default: true,
+                    },
+                ],
+            })
+            logic = hogFunctionConfigurationLogic({ templateId: 'all-events' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            expect(logic.values.matchingFilters).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: 'true' }],
+                            },
+                        ],
+                    },
+                ],
+            })
+        })
+
+        it('matches every event across mixed mappings while preserving global properties', async () => {
+            const globalProperties: NonNullable<CyclotronJobFiltersType['properties']> = [
+                { type: PropertyFilterType.HogQL, key: "properties.plan = 'paid'" },
+            ]
+            mockApi.getTemplate.mockResolvedValue({
+                ...HOG_TEMPLATE,
+                filters: { properties: globalProperties },
+                mapping_templates: [
+                    {
+                        name: 'Signup',
+                        include_by_default: true,
+                        filters: { events: [{ id: 'signed up', name: 'signed up', type: 'events' }] },
+                    },
+                    {
+                        name: 'All events',
+                        include_by_default: true,
+                        use_all_events_by_default: true,
+                    },
+                ],
+            })
+            logic = hogFunctionConfigurationLogic({ templateId: 'mixed-mappings' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            expect(logic.values.matchingFilters).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: 'true' }],
+                            },
+                        ],
+                    },
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: globalProperties,
+                    },
+                ],
+            })
+            expect(logic.values.baseEventsQuery?.fixedProperties).toEqual([logic.values.matchingFilters])
         })
     })
 
