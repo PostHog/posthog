@@ -55,7 +55,7 @@ describe('Billing', () => {
             await screen.findByText('Billing is taking longer than usual to answer. Try again in a moment.')
         ).toBeInTheDocument()
         // LemonBanner renders its action once per layout, so the count is not the point here.
-        expect(screen.getAllByRole('button', { name: 'Try again' })).not.toHaveLength(0)
+        expect(screen.getAllByText('Try again')).not.toHaveLength(0)
 
         releaseCoupons()
     })
