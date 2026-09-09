@@ -28,8 +28,12 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from products.signals.backend.models import SignalScoutNote
-from products.signals.backend.scout_harness.note_targets import InvalidNoteError, validate_note_target
+from products.signals.backend.models import SignalScoutConfig, SignalScoutNote
+from products.signals.backend.scout_harness.note_targets import (
+    PIPELINE_AUDIENCE_PREFIX,
+    InvalidNoteError,
+    validate_note_target,
+)
 
 # Defensive caps on the list surface. The default is sized for the scout cold-start read —
 # the newest handful of steering notes — not for archival browsing; callers page for more.
@@ -127,15 +131,22 @@ def leave_note(
     `feedback_notes.forward_feedback_note`, and `REPORT_REVIEWER_CORRECTION` to
     `reviewer_correction_notes.forward_reviewer_correction_note`.
     """
-    _validate_note(team_id=team_id, skill_name=skill_name, content=content)
-    row = SignalScoutNote.objects.create(
-        team_id=team_id,
-        skill_name=skill_name,
-        content=content,
-        created_by_id=created_by_id,
-        expires_at=expires_at,
-        origin=origin,
-    )
+    with transaction.atomic():
+        # A rename takes this row's lock before it moves the scout's notes, so taking the same lock
+        # here settles the interleaving: a note that arrives first is moved with the rest, and one
+        # that arrives after fails validation on the freed name instead of steering nobody. Blank
+        # and pipeline targets name no config, and a rename cannot move them either.
+        if skill_name and not skill_name.startswith(PIPELINE_AUDIENCE_PREFIX):
+            SignalScoutConfig.objects.for_team(team_id).select_for_update().filter(skill_name=skill_name).first()
+        _validate_note(team_id=team_id, skill_name=skill_name, content=content)
+        row = SignalScoutNote.objects.create(
+            team_id=team_id,
+            skill_name=skill_name,
+            content=content,
+            created_by_id=created_by_id,
+            expires_at=expires_at,
+            origin=origin,
+        )
     return _to_note(row)
 
 

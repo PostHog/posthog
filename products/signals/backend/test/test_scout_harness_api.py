@@ -2286,6 +2286,63 @@ class TestScoutRenameConcurrency(NonAtomicAPIBaseTest):
         config.refresh_from_db()
         assert config.skill_name == new_name
 
+    def test_note_left_during_a_rename_cannot_land_under_the_old_name(self) -> None:
+        old_name = "signals-scout-before-rename"
+        new_name = "signals-scout-after-rename"
+        config = SignalScoutConfig.all_teams.create(team=self.team, skill_name=old_name)
+        LLMSkill.objects.create(team=self.team, name=old_name, description="Test scout", body="Check test data.")
+        SignalScoutNote.all_teams.create(team=self.team, skill_name=old_name, content="Watch the funnel.")
+        notes_moved = Event()
+        note_started = Event()
+
+        def wait_for_note_write(
+            execute: Callable[..., Any], sql: str, params: object, many: bool, context: dict[str, Any]
+        ) -> Any:
+            result = execute(sql, params, many, context)
+            if sql.startswith(f'UPDATE "{SignalScoutNote._meta.db_table}"'):
+                notes_moved.set()
+                assert note_started.wait(timeout=20)
+            return result
+
+        def announce_target_read(
+            execute: Callable[..., Any], sql: str, params: object, many: bool, context: dict[str, Any]
+        ) -> Any:
+            # The rename holds until the note write reaches the target config, so the note is
+            # written against a project where the old name still resolves.
+            if SignalScoutConfig._meta.db_table in sql:
+                note_started.set()
+            return execute(sql, params, many, context)
+
+        def write_note() -> int:
+            try:
+                assert notes_moved.wait(timeout=20)
+                client = APIClient()
+                client.force_authenticate(user=self.user)
+                with connection.execute_wrapper(announce_target_read):
+                    response = client.post(
+                        f"/api/projects/{self.team.id}/signals/scout/notes/",
+                        {"skill_name": old_name, "content": "Check the checkout page."},
+                        format="json",
+                    )
+                return response.status_code
+            finally:
+                note_started.set()
+                connections.close_all()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            pending_note = executor.submit(write_note)
+            with connection.execute_wrapper(wait_for_note_write):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/signals/scout/configs/{config.id}/rename/",
+                    {"new_name": new_name},
+                    format="json",
+                )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert pending_note.result(timeout=20) == status.HTTP_400_BAD_REQUEST
+
+        assert not SignalScoutNote.all_teams.filter(team=self.team, skill_name=old_name).exists()
+        assert SignalScoutNote.all_teams.filter(team=self.team, skill_name=new_name).count() == 1
+
     def test_concurrent_renames_return_a_name_conflict(self) -> None:
         configs = []
         for name in ["signals-scout-first", "signals-scout-second"]:
