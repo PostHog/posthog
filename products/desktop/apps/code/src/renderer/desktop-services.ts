@@ -456,7 +456,9 @@ container.bind(SETUP_STORE).toConstantValue(setupStore);
 
 container.bind(HOST_CAPABILITIES).toConstantValue({
   localWorkspaces: true,
-  customCloud: true,
+  // Baked from the same rule the main-process store applies to its reads and
+  // writes, so the option never appears in a build that cannot serve it.
+  customCloud: import.meta.env.VITE_POSTHOG_CUSTOM_CLOUD_BUILD === "true",
 } satisfies HostCapabilities);
 
 container.bind(DISK_CACHE_IMAGES).toConstantValue(desktopDiskCacheImages);

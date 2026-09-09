@@ -409,6 +409,7 @@ describe("getCloudTaskGatewayUrl with a custom cloud", () => {
   it("uses the gateway of the custom cloud for its own host only", () => {
     configureCustomCloud({
       url: "https://posthog.example.com",
+      oauthClientId: "client-id",
       gatewayUrl: "https://gateway.example.com",
     });
     expect(getCloudTaskGatewayUrl("https://posthog.example.com")).toBe(

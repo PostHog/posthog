@@ -15,7 +15,6 @@ import {
   Skeleton,
   Text,
 } from "@posthog/quill";
-import { REGION_LABELS } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { OAuthControls } from "@posthog/ui/features/auth/OAuthControls";
@@ -48,33 +47,6 @@ interface ProjectGroup {
 interface ProjectSelectStepProps {
   onNext: () => void;
   onBack?: () => void;
-}
-
-/** The sign-in button resolves into this, so signing in reads as a completed line. */
-function SignedInRow({ email }: { email: string | undefined }) {
-  const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
-  const region = cloudRegion ? REGION_LABELS[cloudRegion].label : null;
-  return (
-    <Flex
-      align="center"
-      gap="2"
-      className="h-[44px] w-full rounded-[6px] border border-(--gray-a4) px-[14px]"
-    >
-      <CheckCircle
-        size={16}
-        weight="fill"
-        className="shrink-0 text-(--green-9)"
-      />
-      <Text className="min-w-0 truncate text-(--gray-12) text-sm">
-        Signed in as {email ?? "your PostHog account"}
-      </Text>
-      {region && (
-        <Text className="ml-auto shrink-0 text-(--gray-11) text-xs">
-          {region}
-        </Text>
-      )}
-    </Flex>
-  );
 }
 
 export function ProjectSelectStep({ onNext, onBack }: ProjectSelectStepProps) {

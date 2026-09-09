@@ -41,6 +41,42 @@ describe("custom cloud", () => {
       ).toBeNull();
     });
 
+    it("returns null without an OAuth client ID", () => {
+      expect(
+        normalizeCustomCloud({ url: "https://posthog.example.com" }),
+      ).toBeNull();
+      expect(
+        normalizeCustomCloud({
+          url: "https://posthog.example.com",
+          oauthClientId: "  ",
+        }),
+      ).toBeNull();
+    });
+
+    it("keeps an http URL only for a loopback host", () => {
+      expect(
+        normalizeCustomCloud({
+          url: "http://localhost:8020",
+          oauthClientId: "client-id",
+        })?.url,
+      ).toBe("http://localhost:8020");
+      expect(
+        normalizeCustomCloud({
+          url: "http://posthog.example.com",
+          oauthClientId: "client-id",
+        }),
+      ).toBeNull();
+    });
+
+    it("refuses a built-in host written with a trailing dot", () => {
+      expect(
+        normalizeCustomCloud({
+          url: "https://us.posthog.com.",
+          oauthClientId: "client-id",
+        }),
+      ).toBeNull();
+    });
+
     it.each([
       "https://us.posthog.com",
       "https://eu.posthog.com",
@@ -63,7 +99,10 @@ describe("custom cloud", () => {
   describe("getCustomCloud", () => {
     it("prefers the configured target over the environment", () => {
       vi.stubEnv("POSTHOG_CUSTOM_CLOUD_URL", "https://from-env.example.com");
-      configureCustomCloud({ url: "https://configured.example.com" });
+      configureCustomCloud({
+        url: "https://configured.example.com",
+        oauthClientId: "configured-client-id",
+      });
       expect(getCustomCloud()?.url).toBe("https://configured.example.com");
     });
 
@@ -80,7 +119,10 @@ describe("custom cloud", () => {
 
   describe("isCustomCloudHost", () => {
     it("matches the configured host only", () => {
-      configureCustomCloud({ url: "https://posthog.example.com" });
+      configureCustomCloud({
+        url: "https://posthog.example.com",
+        oauthClientId: "client-id",
+      });
       expect(isCustomCloudHost("https://posthog.example.com/")).toBe(true);
       expect(isCustomCloudHost("https://us.posthog.com")).toBe(false);
     });

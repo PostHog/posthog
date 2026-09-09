@@ -134,7 +134,7 @@ A packaged test build keeps its own user data, under `posthog-code-test`, so its
    - **Name**: anything, for example `PostHog Desktop`.
    - **Client type**: `Public`. The app uses PKCE, so it has no client secret.
    - **Authorization grant type**: `Authorization code`. The form fixes this, with `RS256`.
-   - **Redirect URIs**: `posthog-code://callback` for a packaged build. Add `http://localhost:8237/callback` for a local development build, and `posthog-code-dev://callback` for a packaged development build.
+   - **Redirect URIs**: `posthog-code://callback` for a packaged build. Add `http://localhost:8237/callback` for a local development build, `posthog-code-dev://callback` for a packaged development build, and `posthog-code-test://callback` for a test build from the **Desktop Build Test** workflow.
    - Token signing needs `OIDC_RSA_PRIVATE_KEY` on the instance. A deployment usually has it.
 2. Copy the client ID from the list page, then seed the scope ceiling on the instance:
 
@@ -144,7 +144,7 @@ A packaged test build keeps its own user data, under `posthog-code-test`, so its
 
    An empty ceiling resolves to the unprivileged scopes, which exclude `llm_gateway:read`. The gateway refuses a token without it, so agent runs fail.
 3. On the sign-in screen, select **Custom** in the region list. It is the last entry, after **Local development**.
-4. Enter the URL of the instance and the client ID of the OAuth application. The URL must be a plain origin, for example `https://posthog.example.com`, with no path, query, or fragment.
+4. Enter the URL of the instance and the client ID of the OAuth application. The URL must be an `https` origin, for example `https://posthog.example.com`, with no path, query, or fragment. Plain `http` is only accepted for a loopback host, because OAuth tokens cross this origin.
 5. Sign in. The app keeps the values, and applies them to sign-in, API requests, and agent runs.
 
 Agent runs need an LLM gateway that accepts a token from your instance, so give the **LLM gateway URL** field the address of a gateway that reads your instance's database (see `services/llm-gateway`).
@@ -155,7 +155,7 @@ The PostHog MCP server is absent for a custom instance, because `mcp.posthog.com
 
 The `us`, `eu`, `dev`, and `dev-cloud` regions never read these values, and the instance URL field refuses their hosts.
 
-For a standalone headless harness run, the three environment variables `POSTHOG_CUSTOM_CLOUD_URL`, `POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID`, and `POSTHOG_CUSTOM_CLOUD_GATEWAY_URL` hold the target, and `POSTHOG_REGION=custom` selects it. Without the region the harness stays on US.
+For a standalone headless harness run, the environment variables `POSTHOG_CUSTOM_CLOUD_URL`, `POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID`, and `POSTHOG_CUSTOM_CLOUD_GATEWAY_URL` hold the target, and `POSTHOG_REGION=custom` selects it. The URL and the client ID are both required. Without the region the harness stays on US, and with the region but an incomplete target it fails with a message that names the missing variables.
 
 ## Dev console commands
 

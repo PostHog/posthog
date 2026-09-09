@@ -78,7 +78,9 @@ process.env.POSTHOG_CODE_VERSION = app.getVersion();
 const chromiumLogDir = path.join(
   os.homedir(),
   ".posthog-code",
-  isDev ? "logs-dev" : "logs",
+  // A test build can run beside a release build, so its logs need their own
+  // directory or the two writers would rotate the same file.
+  isDev ? "logs-dev" : isTestChannel ? "logs-test" : "logs",
 );
 mkdirSync(chromiumLogDir, { recursive: true });
 const chromiumLogPath = path.join(chromiumLogDir, "chromium.log");

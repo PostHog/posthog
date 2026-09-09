@@ -233,6 +233,8 @@ export {
   selectOptionHarness,
 } from "./models";
 export {
+  DEV_CALLBACK_PORT,
+  DEV_REDIRECT_URI,
   getOauthClientIdFromRegion,
   OAUTH_SCOPE_VERSION,
   OAUTH_SCOPES,

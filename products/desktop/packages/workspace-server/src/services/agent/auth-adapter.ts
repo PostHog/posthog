@@ -292,14 +292,16 @@ export class AgentAuthAdapter {
     if (overrideUrl) {
       return overrideUrl;
     }
-    if (apiHost.includes("localhost") || apiHost.includes("127.0.0.1")) {
-      return "http://localhost:8787/mcp";
-    }
     // The Cloud MCP cannot read a token from another instance, and the proxy
     // adds that token to every forwarded request. So a custom instance gets no
-    // PostHog MCP server unless POSTHOG_MCP_URL names one it can use.
+    // PostHog MCP server unless POSTHOG_MCP_URL names one it can use. This
+    // check runs before the loopback branch, because a custom target may
+    // itself live on a loopback host.
     if (isCustomCloudHost(apiHost)) {
       return null;
+    }
+    if (apiHost.includes("localhost") || apiHost.includes("127.0.0.1")) {
+      return "http://localhost:8787/mcp";
     }
     return "https://mcp.posthog.com/mcp";
   }

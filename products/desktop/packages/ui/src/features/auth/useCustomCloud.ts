@@ -46,6 +46,7 @@ export function useCustomCloud({ enabled }: { enabled: boolean }) {
     mutationFn: (target: CustomCloud) =>
       hostClient.customCloud.set.mutate(target),
     onSuccess: (saved) => {
+      setError(null);
       configureCustomCloud(saved);
       queryClient.setQueryData(CUSTOM_CLOUD_QUERY_KEY, saved);
     },
@@ -75,7 +76,15 @@ export function useCustomCloud({ enabled }: { enabled: boolean }) {
       return false;
     }
     try {
-      await save.mutateAsync(target);
+      const saved = await save.mutateAsync(target);
+      // A host that cannot hold a target answers the write with null instead
+      // of an error, so a silent refusal must read as a failed save.
+      if (!saved) {
+        setError(
+          "This build cannot hold a custom instance. Use a development or test build.",
+        );
+        return false;
+      }
     } catch {
       setError("Could not save these settings. Try again.");
       return false;

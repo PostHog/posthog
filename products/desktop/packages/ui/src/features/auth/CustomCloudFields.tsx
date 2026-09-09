@@ -1,7 +1,14 @@
 import { InfoIcon } from "@phosphor-icons/react";
 import { Input, Text } from "@posthog/quill";
+import { DEV_CALLBACK_PORT } from "@posthog/shared";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import type { CustomCloudDraft } from "./useCustomCloud";
+
+// The app only listens on the HTTP callback in a development build; a packaged
+// build receives the OAuth callback as a deep link instead.
+const REDIRECT_URI = import.meta.env.DEV
+  ? `http://localhost:${DEV_CALLBACK_PORT}/callback`
+  : "posthog-code://callback";
 
 const FIELDS: {
   key: keyof CustomCloudDraft;
@@ -22,7 +29,7 @@ const FIELDS: {
     type: "text",
     placeholder: "OAuth client ID",
     label: "OAuth client ID",
-    help: "The client ID of the OAuth application on that instance. Make the application in Django admin, with the redirect URI posthog-code://callback.",
+    help: `The client ID of the OAuth application on that instance. Make the application in Django admin, with the redirect URI ${REDIRECT_URI}.`,
   },
   {
     key: "gatewayUrl",

@@ -34,9 +34,18 @@ export function resolveExplicitRegion(
     candidate === "us" ||
     candidate === "eu" ||
     candidate === "dev" ||
-    candidate === "dev-cloud" ||
-    candidate === "custom"
+    candidate === "dev-cloud"
   ) {
+    return candidate;
+  }
+  if (candidate === "custom") {
+    // A custom region with no target would build every URL from an empty
+    // base, so name the missing configuration instead.
+    if (!getCustomCloud()) {
+      throw new Error(
+        "POSTHOG_REGION=custom needs a custom cloud target. Set POSTHOG_CUSTOM_CLOUD_URL (a full https origin) and POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID.",
+      );
+    }
     return candidate;
   }
   return undefined;
