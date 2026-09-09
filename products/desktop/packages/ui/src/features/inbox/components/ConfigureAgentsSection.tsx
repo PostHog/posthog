@@ -40,6 +40,7 @@ import { toastError } from "@posthog/ui/features/notifications/errorDetails";
 import { SettingsSubsection } from "@posthog/ui/features/settings/components/SettingsSubsection";
 import { DailyReportLimitSettings } from "@posthog/ui/features/settings/sections/DailyReportLimitSettings";
 import { GitHubIntegrationSection } from "@posthog/ui/features/settings/sections/GitHubIntegrationSection";
+import { SignalGithubAssignmentSettings } from "@posthog/ui/features/settings/sections/SignalGithubAssignmentSettings";
 import { SlackInboxNotificationsSettings } from "@posthog/ui/features/settings/sections/SlackInboxNotificationsSettings";
 import {
   resolveDefaultCloudRepository,
@@ -136,6 +137,7 @@ export function ConfigureAgentsSection() {
           isLoading={isLoadingIntegrations}
           showBottomBorder={false}
         />
+        <SignalGithubAssignmentSettings />
       </SettingsSubsection>
 
       <SettingsSubsection

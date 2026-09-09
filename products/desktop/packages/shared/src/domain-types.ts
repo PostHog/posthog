@@ -1152,6 +1152,8 @@ export interface SignalUserAutonomyConfig {
   slack_notification_channel?: string | null;
   /** Minimum priority that triggers a notification (P0 highest). `null` = every priority. */
   slack_notification_min_priority?: SignalReportPriority | null;
+  /** Add this user as a GitHub assignee on implementation PRs for reports that suggest them as reviewer. */
+  github_assign_on_pull_request?: boolean;
   created_at?: string;
   updated_at?: string;
 }
