@@ -419,11 +419,15 @@ def _runs_past_an_upstream_failure(condition: str) -> bool:
     job's own ``if`` calls a status function. Calling one is not enough on its own:
     the call also has to be true in that state, which `success()` and `cancelled()`
     are not.
+
+    A condition that carries both kinds is read as skipping, without solving the
+    boolean expression: `!cancelled() && success()` is false in that state, and the
+    conjunction is the only composition of the two anyone writes. Reading it the
+    other way would drop a skip-propagating edge and let the gate go green with the
+    worker skipped.
     """
-    return any(
-        (call.group("name"), call.group("negated") is not None) in TRUE_AFTER_UPSTREAM_FAILURE
-        for call in STATUS_CALL.finditer(condition)
-    )
+    calls = {(call.group("name"), call.group("negated") is not None) for call in STATUS_CALL.finditer(condition)}
+    return bool(calls & TRUE_AFTER_UPSTREAM_FAILURE) and not (calls - TRUE_AFTER_UPSTREAM_FAILURE)
 
 
 def _falsified_by(condition: str, upstream: str) -> bool:
@@ -438,6 +442,13 @@ def _falsified_by(condition: str, upstream: str) -> bool:
     A false term is read as a skip without solving the whole boolean expression. That
     over-reports a condition where a disjunct unrelated to the upstream can still
     carry the job, which fails the gate closed rather than open.
+
+    The empty-output model assumes a failed job published nothing. A job that sets an
+    output from a `failure()`-guarded step breaks that assumption, and a consumer
+    testing the value it did publish would skip without this seeing it. Reading those
+    outputs as unknown instead would make every inequality against a selector look
+    false, which is what makes a recovered selector gate-critical, so the assumption
+    stays and the narrower miss is the accepted cost.
     """
     for comparison in COMPARISON.finditer(condition):
         for side, other in (("l", "right"), ("r", "left")):

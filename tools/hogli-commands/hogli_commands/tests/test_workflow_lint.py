@@ -1581,6 +1581,7 @@ class TestRequiredGateCheck:
             (("build",), "${{ !cancelled() }}", []),
             (("build",), "${{ success() }}", ["detect"]),
             (("build",), "${{ failure() && needs.detect.result == 'failure' }}", []),
+            (("build",), "${{ !cancelled() && success() }}", ["detect"]),
             (("build",), "${{ !cancelled() && needs.detect.outputs.mode == 'go' }}", ["detect"]),
         ],
         ids=[
@@ -1589,6 +1590,7 @@ class TestRequiredGateCheck:
             "dependency-recovers-from-upstream",
             "dependency-held-behind-success",
             "dependency-recovers-on-the-failure-itself",
+            "dependency-mixes-a-surviving-and-a-skipping-status-call",
             "dependency-demands-an-upstream-output",
         ],
     )
