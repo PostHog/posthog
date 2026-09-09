@@ -56,6 +56,7 @@ from products.logs.backend.impact_query_runner import ImpactQueryRunner
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_facet_values_query_runner import FACET_FIELDS, LogFacetValuesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
+from products.logs.backend.logs_availability import logs_unavailable_reason
 from products.logs.backend.logs_query_runner import (
     MAX_CUSTOM_COLUMNS,
     CachedLogsQueryResponse,
@@ -1193,6 +1194,15 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
     serializer_class = _FallbackSerializer
 
+    def handle_exception(self, exc: Exception) -> Response:
+        # Every action here queries the logs workload, which is provisioned separately from the main
+        # ClickHouse. Mapping at this layer covers all of them, so a deployment without logs storage
+        # gets the same typed answer whichever panel of the scene asked first.
+        unavailable = logs_unavailable_reason(exc)
+        if unavailable is not None:
+            exc = unavailable()
+        return super().handle_exception(exc)
+
     def get_throttles(self) -> list[BaseThrottle]:
         # patterns_diff mines two windows per request (current + baseline), roughly doubling the
         # ClickHouse work of a single patterns query, so it uses the tighter ClickHouse-specific
@@ -1789,6 +1799,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         try:
             result = runner.calculate()
         except (QueryError, ExposedCHQueryError) as e:
+            # A missing logs schema arrives as an exposed ClickHouse error, so let it through to
+            # handle_exception for the typed answer instead of showing the raw ClickHouse text.
+            if logs_unavailable_reason(e) is not None:
+                raise
             # A user query error (HogQL or ClickHouse) becomes a clean 400 the filter can show.
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(
@@ -1868,6 +1882,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             try:
                 result = runner.calculate()
             except (QueryError, ExposedCHQueryError) as e:
+                # A missing logs schema arrives as an exposed ClickHouse error, so let it through to
+                # handle_exception for the typed answer instead of showing the raw ClickHouse text.
+                if logs_unavailable_reason(e) is not None:
+                    raise
                 # A user query error (HogQL or ClickHouse) becomes a clean 400 the filter can show.
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
             span.set_attribute("result_count", len(result.results))

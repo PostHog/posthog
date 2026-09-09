@@ -9,6 +9,7 @@ from django.core.cache import cache
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import CHQueryErrorUnknownTable
 
 from products.logs.backend.has_logs_query_runner import HasLogsQueryRunner
 
@@ -34,6 +35,21 @@ class TestHasLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         runner = HasLogsQueryRunner(self.team)
         self.assertTrue(runner.run())
+
+    def test_has_logs_returns_false_when_logs_storage_is_missing(self):
+        with patch(
+            "products.logs.backend.has_logs_query_runner.execute_hogql_query",
+            side_effect=CHQueryErrorUnknownTable("Table logs does not exist", code=60),
+        ):
+            self.assertFalse(HasLogsQueryRunner(self.team).run())
+
+    def test_has_logs_reraises_unrelated_query_errors(self):
+        with patch(
+            "products.logs.backend.has_logs_query_runner.execute_hogql_query",
+            side_effect=ValueError("boom"),
+        ):
+            with self.assertRaises(ValueError):
+                HasLogsQueryRunner(self.team).run()
 
     def test_has_logs_respects_team_isolation(self):
         # Insert a log entry for a different team
