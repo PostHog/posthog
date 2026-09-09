@@ -4,6 +4,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
 
+from django.db.models import Q
+
 import nh3
 import structlog
 from markdown_it import MarkdownIt
@@ -192,12 +194,25 @@ def _resolve_subscription_context(
     return team, subscription.created_by, window, subscription.ai_query_plan
 
 
-def _persist_ai_query_plan(subscription_id: int, team_id: int, prompt: str | None, plan: dict) -> bool:
+def _persist_ai_query_plan(
+    subscription_id: int,
+    team_id: int,
+    prompt: str | None,
+    plan: dict,
+    *,
+    expected_include_images: bool,
+) -> bool:
+    image_state = Q(delivery_config__include_images=expected_include_images)
+    if expected_include_images:
+        # Existing subscriptions omit this key and default to including images.
+        image_state |= ~Q(delivery_config__has_key="include_images")
+
     # Targeted update, never a full save() — that would re-emit the activity-log/analytics signals.
-    # Filtering on the planning-time prompt closes a race: a prompt edited mid-generation clears the
-    # plan via Subscription.save(), and this no-ops instead of re-freezing a plan for the old prompt.
+    # Matching both planning inputs prevents a concurrent edit from restoring an invalidated plan.
     return bool(
-        Subscription.objects.filter(id=subscription_id, team_id=team_id, prompt=prompt).update(ai_query_plan=plan)
+        Subscription.objects.filter(id=subscription_id, team_id=team_id, prompt=prompt)
+        .filter(image_state)
+        .update(ai_query_plan=plan)
     )
 
 
@@ -229,6 +244,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
                 subscription.team_id,
                 subscription.prompt,
                 result.plan_to_persist,
+                expected_include_images=include_images,
             )
         except Exception as exc:
             # The frozen plan is an optimization — losing this write must not abort the delivery (the

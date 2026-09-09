@@ -691,19 +691,26 @@ class TestFeedbackFooter:
 class TestPersistAiQueryPlan(APIBaseTest):
     @parameterized.expand(
         [
-            ("unchanged_prompt_persists", "original prompt?", True),
-            ("changed_prompt_noops", "edited mid-generation?", False),
+            ("unchanged_prompt_and_images_persist", "original prompt?", {"include_images": False}, False, True),
+            ("changed_prompt_noops", "edited mid-generation?", {"include_images": False}, False, False),
+            ("images_enabled_mid_generation_noops", "original prompt?", {"include_images": True}, False, False),
+            ("images_disabled_mid_generation_noops", "original prompt?", {"include_images": False}, True, False),
+            ("explicitly_enabled_images_persist", "original prompt?", {"include_images": True}, True, True),
+            ("omitted_images_default_to_enabled", "original prompt?", {}, True, True),
         ]
     )
-    def test_persist_is_conditional_on_prompt(
+    def test_persist_is_conditional_on_generation_inputs(
         self,
         _name: str,
         current_prompt: str,
+        current_delivery_config: dict,
+        expected_include_images: bool,
         written: bool,
     ) -> None:
         sub = Subscription.objects.create(
             team=self.team,
             prompt=current_prompt,
+            delivery_config=current_delivery_config,
             target_type="email",
             target_value="a@posthog.com",
             frequency="weekly",
@@ -712,7 +719,13 @@ class TestPersistAiQueryPlan(APIBaseTest):
         )
         plan = {"version": 1, "plan": {}}
 
-        persisted = _persist_ai_query_plan(sub.id, self.team.id, "original prompt?", plan)
+        persisted = _persist_ai_query_plan(
+            sub.id,
+            self.team.id,
+            "original prompt?",
+            plan,
+            expected_include_images=expected_include_images,
+        )
 
         sub.refresh_from_db()
         assert persisted is written
@@ -800,8 +813,8 @@ class TestLastSuccessfulDeliveryAnchor(APIBaseTest):
 
 class TestFreezePlanPersistence:
     """build_ai_subscription_report freezes a freshly-generated plan and skips persistence on reuse.
-    These guard the freeze contract without touching the DB — the persist write itself is a one-line
-    queryset .update() exercised by the integration/activity suites."""
+    These guard the freeze contract without touching the DB — the conditional persist write itself is
+    exercised by the integration/activity suites."""
 
     def _subscription(self, ai_query_plan: dict | None) -> Subscription:
         return Subscription(
@@ -822,8 +835,17 @@ class TestFreezePlanPersistence:
         window = ReportWindow(start=end - timedelta(days=1), end=end)
         return MagicMock(), MagicMock(), window, sub.ai_query_plan
 
-    async def test_first_run_persists_freshly_generated_plan(self) -> None:
+    @parameterized.expand(
+        [
+            ("legacy_config", {}, True),
+            ("images_off", {"include_images": False}, False),
+        ]
+    )
+    async def test_first_run_persists_freshly_generated_plan(
+        self, _name: str, delivery_config: dict, expected_include_images: bool
+    ) -> None:
         sub = self._subscription(ai_query_plan=None)
+        sub.delivery_config = delivery_config
         fresh_plan = {
             "overall_intent": "i",
             "steps": [{"description": "d", "query_type": "hogql", "hogql": "SELECT 1"}],
@@ -847,7 +869,13 @@ class TestFreezePlanPersistence:
             returned = await build_ai_subscription_report(sub)
 
         # The plan generated on the first delivery is frozen onto the (id, team_id)-scoped subscription.
-        mock_persist.assert_called_once_with(sub.id, sub.team_id, sub.prompt, fresh_plan)
+        mock_persist.assert_called_once_with(
+            sub.id,
+            sub.team_id,
+            sub.prompt,
+            fresh_plan,
+            expected_include_images=expected_include_images,
+        )
         assert returned.query_plan_status == AIQueryPlanStatus.FROZEN
 
     async def test_persist_failure_does_not_abort_the_delivery(self) -> None:
