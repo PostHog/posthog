@@ -100,6 +100,8 @@ export interface BuildOptionsParams {
   forkSession?: boolean;
   additionalDirectories?: string[];
   disableBuiltInTools?: boolean;
+  disabledTools?: string[];
+  strictMcpConfig?: boolean;
   outputFormat?: OutputFormat;
   settingsManager: SettingsManager;
   onModeChange?: OnModeChange;
@@ -637,11 +639,13 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     ...params.userProvidedOptions,
     betas: ["context-1m-2025-08-07"],
     systemPrompt: params.systemPrompt ?? buildSystemPrompt(),
-    settingSources: params.userProvidedOptions?.settingSources ?? [
-      "user",
-      "project",
-      "local",
-    ],
+    settingSources: params.strictMcpConfig
+      ? []
+      : (params.userProvidedOptions?.settingSources ?? [
+          "user",
+          "project",
+          "local",
+        ]),
     stderr: (err) => params.logger.error(err),
     cwd: params.cwd,
     includePartialMessages: true,
@@ -649,6 +653,12 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     permissionMode: toSdkPermissionMode(params.permissionMode),
     canUseTool: params.canUseTool,
     tools,
+    disallowedTools: Array.from(
+      new Set([
+        ...(params.userProvidedOptions?.disallowedTools ?? []),
+        ...(params.disabledTools ?? []),
+      ]),
+    ),
     agents,
     extraArgs: {
       ...params.userProvidedOptions?.extraArgs,
@@ -660,9 +670,13 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
       params.userProvidedOptions?.includeHookEvents ??
       traceparentHookSettings !== undefined,
     mcpServers: buildMcpServers(
-      params.userProvidedOptions?.mcpServers,
+      params.strictMcpConfig
+        ? undefined
+        : params.userProvidedOptions?.mcpServers,
       params.mcpServers,
-      loadUserClaudeJsonMcpServers(params.cwd, params.logger),
+      params.strictMcpConfig
+        ? {}
+        : loadUserClaudeJsonMcpServers(params.cwd, params.logger),
     ),
     // Feedback events stamp the task id as $ai_session_id, so generations
     // carry the same id for LLMA to group a task's runs and ratings together.

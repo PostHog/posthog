@@ -177,6 +177,11 @@ program
     "--allowedDomains <domains>",
     "Comma-separated list of domains allowed for web tools (WebFetch, WebSearch)",
   )
+  .option("--disabledTools <json>", "Server-enforced disabled Claude tools")
+  .option(
+    "--strictMcpConfig <boolean>",
+    "Ignore ambient Claude MCP configuration",
+  )
   .action(async (options) => {
     const envResult = envSchema.safeParse(process.env);
 
@@ -240,6 +245,15 @@ program
           .map((d: string) => d.trim())
           .filter(Boolean)
       : undefined;
+    const disabledTools = parseJsonOption(
+      options.disabledTools,
+      z.array(z.string().min(1)),
+      "--disabledTools",
+    );
+    const strictMcpConfig = parseBooleanOption(
+      options.strictMcpConfig,
+      "--strictMcpConfig",
+    );
 
     if (
       env.POSTHOG_CODE_RUNTIME_ADAPTER &&
@@ -290,6 +304,8 @@ program
       baseBranch: options.baseBranch,
       claudeCode,
       allowedDomains,
+      disabledTools,
+      strictMcpConfig,
       piRpcHostPath: fileURLToPath(
         new URL("../pi/rpc-host.js", import.meta.url),
       ),

@@ -75,6 +75,18 @@ function createContext(
 }
 
 describe("canUseTool MCP approval enforcement", () => {
+  it("denies platform-disabled tools before bypass mode can allow them", async () => {
+    const context = createContext("WebFetch", {
+      disabledTools: ["WebFetch"],
+      session: { permissionMode: "bypassPermissions" },
+    });
+
+    const result = await canUseTool(context);
+
+    expect(result.behavior).toBe("deny");
+    expect(context.client.requestPermission).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     clearMcpToolMetadataCache();
   });

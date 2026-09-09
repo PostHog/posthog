@@ -56,6 +56,8 @@ export interface AgentServerConfig {
   baseBranch?: string;
   claudeCode?: ClaudeCodeConfig;
   allowedDomains?: string[];
+  disabledTools?: string[];
+  strictMcpConfig?: boolean;
   piRpcHostPath?: string;
   runtimeAdapter?: Adapter;
   model?: string;
