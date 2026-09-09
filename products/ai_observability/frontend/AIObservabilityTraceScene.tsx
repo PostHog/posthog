@@ -50,7 +50,6 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { isObject } from 'lib/utils/guards'
 import { identifierToHuman, pluralize } from 'lib/utils/strings'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -1595,8 +1594,7 @@ const EventContent = React.memo(
 
             const model = event.properties.$ai_model
             const provider = event.properties.$ai_provider
-            const tools = Array.isArray(loadedTools) && loadedTools.every(isObject) ? loadedTools : undefined
-            openInPlayground({ model, provider, input: loadedInput, output: loadedOutput, tools })
+            openInPlayground({ model, provider, input: loadedInput, output: loadedOutput, tools: loadedTools })
         }
 
         return (

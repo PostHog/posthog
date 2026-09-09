@@ -863,18 +863,28 @@ describe('llmPlaygroundLogic', () => {
             expect(llmPlaygroundPromptsLogic.values.messages[0].content).toContain('123')
         })
 
-        it('should handle tools parameter', () => {
-            const tools = [
-                { type: 'function', function: { name: 'search', description: 'Search tool' } },
-                { type: 'function', function: { name: 'calculator', description: 'Math tool' } },
-            ]
-
+        it.each([
+            [
+                'an array',
+                [
+                    { type: 'function', function: { name: 'search', description: 'Search tool' } },
+                    { type: 'function', function: { name: 'calculator', description: 'Math tool' } },
+                ],
+            ],
+            [
+                'a dictionary',
+                {
+                    search: { type: 'function', function: { name: 'search', description: 'Search tool' } },
+                    calculator: { type: 'function', function: { name: 'calculator', description: 'Math tool' } },
+                },
+            ],
+        ])('should handle tools parameter as %s', (_, tools) => {
             llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
                 input: 'Test',
                 tools,
             })
 
-            expect(llmPlaygroundPromptsLogic.values.tools).toEqual(tools)
+            expect(llmPlaygroundPromptsLogic.values.tools).toEqual(Array.isArray(tools) ? tools : Object.values(tools))
         })
 
         it('should default messages with unknown roles to user', () => {
