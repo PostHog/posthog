@@ -9987,6 +9987,43 @@ export namespace Schemas {
       readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
+    /**
+     * * `slack` - slack
+     */
+    export type ChannelTypeEnum = typeof ChannelTypeEnum[keyof typeof ChannelTypeEnum];
+
+
+    export const ChannelTypeEnum = {
+      Slack: 'slack',
+    } as const;
+
+    export interface AlertCreateDestination {
+      /** Destination type. Slack is the only type this endpoint creates.
+       *
+       * * `slack` - slack */
+      type?: ChannelTypeEnum;
+      /** Integration ID of the Slack workspace to post in. List them with the integrations endpoint. */
+      slack_workspace_id: number;
+      /** Slack channel ID to post in, for example C0123456789. */
+      slack_channel_id: string;
+      /** Channel name shown on the destination, for example product-alerts. */
+      slack_channel_name?: string;
+    }
+
+    export interface AlertDeleteDestination {
+      /**
+         * Destination IDs to delete, as returned when the destination was created.
+         * @minItems 1
+         * @maxItems 100
+         */
+      hog_function_ids: string[];
+    }
+
+    export interface AlertDestinationResponse {
+      /** IDs of the created destination. Pass them to destinations/delete to remove it. */
+      hog_function_ids: string[];
+    }
+
     export interface AlertSimulate {
       /** Numeric insight ID or saved insight short ID to simulate the detector on. */
       insight: number | string;
@@ -17106,16 +17143,6 @@ export namespace Schemas {
     export interface ChannelStarWrite {
       starred: boolean;
     }
-
-    /**
-     * * `slack` - slack
-     */
-    export type ChannelTypeEnum = typeof ChannelTypeEnum[keyof typeof ChannelTypeEnum];
-
-
-    export const ChannelTypeEnum = {
-      Slack: 'slack',
-    } as const;
 
     /**
      * Response shape for a channel's page identity in the wiki.
