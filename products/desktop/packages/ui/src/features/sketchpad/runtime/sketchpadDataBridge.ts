@@ -1,21 +1,14 @@
 import {
-<<<<<<< HEAD
   SHARED_FIELD_READ_ONLY_STATE,
   SHARED_TEXT_FULL,
 } from "@posthog/core/sketchpad/frameCopy";
 import {
-=======
->>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
   SKETCHPAD_MAX_READS_IN_FLIGHT,
   SKETCHPAD_MAX_READS_WAITING,
   SKETCHPAD_READ_LIMIT,
   SKETCHPAD_WRITE_LIMIT,
   TokenBucket,
-<<<<<<< HEAD
 } from "@posthog/core/sketchpad/sketchpadRateLimits";
-=======
-} from "@posthog/core/sketchpad/frameBudget";
->>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
 import {
   applyOp,
   diffTextToOps,
@@ -47,13 +40,7 @@ import {
 import { handleFreeformDataRequest } from "@posthog/ui/features/canvas/freeform/freeformDataBridge";
 import { fieldPlainValue } from "@posthog/ui/features/sketchpad/runtime/sketchpadFieldMessages";
 import {
-<<<<<<< HEAD
   SHARED_TEXT_CHANGES_FULL,
-=======
-  SHARED_FIELD_READ_ONLY_STATE,
-  SHARED_TEXT_CHANGES_FULL,
-  SHARED_TEXT_FULL,
->>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
   SKETCHPAD_TOO_MANY_READS_AT_ONCE,
   sketchpadReadsPausedMessage,
   sketchpadWritesPausedMessage,
@@ -62,10 +49,7 @@ import type { QueryClient } from "@tanstack/react-query";
 
 export interface SketchpadDataBridgeContext {
   signal?: AbortSignal;
-<<<<<<< HEAD
   budget: SketchpadBudget;
-=======
->>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
   sketchpadId: string;
   queryClient: QueryClient;
   getSnapshot: () => SketchpadSnapshot;
@@ -86,23 +70,14 @@ interface SketchpadListEditPayload {
   update?: unknown;
 }
 
-<<<<<<< HEAD
 export interface SketchpadBudget {
   sketchpadId: string;
-=======
-interface SketchpadBudget {
->>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
   reads: TokenBucket;
   writes: TokenBucket;
   readsInFlight: number;
   waiting: (() => void)[];
 }
 
-<<<<<<< HEAD
-=======
-const budgets = new Map<string, SketchpadBudget>();
-
->>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
 const BRIDGE_CLIENT_ID = globalThis.crypto.randomUUID().replace(/-/g, "");
 let entryCounter = 0;
 
@@ -231,10 +206,6 @@ function editText(
   payload: unknown,
   ctx: SketchpadDataBridgeContext,
 ): { text: string; ids: string[] } {
-<<<<<<< HEAD
-=======
-  spendWrite(ctx);
->>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
   const key = readKey(payload, "ph.state.editText(key, edit) requires a key");
   const input = (payload ?? {}) as SketchpadTextEditPayload;
   const next = readString(input.next);
@@ -273,10 +244,6 @@ function editList(
   payload: unknown,
   ctx: SketchpadDataBridgeContext,
 ): { items: { id: string; value: unknown }[] } {
-<<<<<<< HEAD
-=======
-  spendWrite(ctx);
->>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
   const key = readKey(payload, "ph.state.editList(key, edit) requires a key");
   const input = (payload ?? {}) as SketchpadListEditPayload;
   const field = readyField(ctx, key, "list");
@@ -355,10 +322,7 @@ function commit(
   ops: SketchpadOp[],
 ): SketchpadField {
   if (ops.length === 0) return field;
-<<<<<<< HEAD
   spendWrite(ctx);
-=======
->>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
   const after = foldField(key, field, ops);
   ctx.applyLocal(ops);
   return after;
@@ -390,13 +354,7 @@ function readyField(
   if (!isField(live)) {
     const ops = seedOps(key, kind, live);
     if (ops.length > 0) {
-<<<<<<< HEAD
       return commit(ctx, key, emptyField(kind), ops);
-=======
-      const seeded = foldField(key, emptyField(kind), ops);
-      ctx.applyLocal(ops);
-      return seeded;
->>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
     }
   }
   return isField(live) && live[SKETCHPAD_FIELD_MARK] === kind
@@ -483,27 +441,15 @@ function readRecords(
   );
 }
 
-<<<<<<< HEAD
 export function createSketchpadBudget(sketchpadId: string): SketchpadBudget {
   const now = Date.now();
   const fresh: SketchpadBudget = {
     sketchpadId,
-=======
-function budgetOf(sketchpadId: string): SketchpadBudget {
-  const existing = budgets.get(sketchpadId);
-  if (existing) return existing;
-  const now = Date.now();
-  const fresh: SketchpadBudget = {
->>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
     reads: new TokenBucket(SKETCHPAD_READ_LIMIT, now),
     writes: new TokenBucket(SKETCHPAD_WRITE_LIMIT, now),
     readsInFlight: 0,
     waiting: [],
   };
-<<<<<<< HEAD
-=======
-  budgets.set(sketchpadId, fresh);
->>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
   return fresh;
 }
 
@@ -511,11 +457,7 @@ async function read<T>(
   ctx: SketchpadDataBridgeContext,
   run: () => Promise<T>,
 ): Promise<T> {
-<<<<<<< HEAD
   const budget = ctx.budget;
-=======
-  const budget = budgetOf(ctx.sketchpadId);
->>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
   const now = Date.now();
   if (!budget.reads.take(now)) {
     throw new Error(sketchpadReadsPausedMessage(budget.reads.waitSeconds(now)));
@@ -566,23 +508,12 @@ function releaseReadSlot(budget: SketchpadBudget): void {
 }
 
 function spendWrite(ctx: SketchpadDataBridgeContext): void {
-<<<<<<< HEAD
   const budget = ctx.budget;
-=======
-  const budget = budgetOf(ctx.sketchpadId);
->>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
   const now = Date.now();
   if (budget.writes.take(now)) return;
   throw new Error(sketchpadWritesPausedMessage(budget.writes.waitSeconds(now)));
 }
 
-<<<<<<< HEAD
-=======
-export function spendSketchpadWrite(sketchpadId: string): boolean {
-  return budgetOf(sketchpadId).writes.take(Date.now());
-}
-
->>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
 function readKey(payload: unknown, message: string): string {
   const key = (payload as { key?: unknown } | null)?.key;
   if (typeof key !== "string" || key.length === 0) throw new Error(message);

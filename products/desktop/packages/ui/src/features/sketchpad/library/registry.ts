@@ -15,32 +15,20 @@ import {
   TextAaIcon,
   TextAlignLeftIcon,
 } from "@phosphor-icons/react";
-<<<<<<< HEAD
 import barChartCode from "./templates/bar-chart.tsx.txt?raw";
-=======
-import { barChartCode } from "./templates/bar-chart";
->>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
 import checklistCode from "./templates/checklist.tsx.txt?raw";
 import dateFrameCode from "./templates/date-frame.tsx.txt?raw";
 import dateRangeCode from "./templates/date-range.tsx.txt?raw";
 import headingCode from "./templates/heading.tsx.txt?raw";
 import insightCode from "./templates/insight.tsx.txt?raw";
-<<<<<<< HEAD
 import kpiCode from "./templates/kpi.tsx.txt?raw";
-=======
-import { kpiCode } from "./templates/kpi";
->>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
 import layoutCode from "./templates/layout.tsx.txt?raw";
 import notesCode from "./templates/notes.tsx.txt?raw";
 import slideshowCode from "./templates/slideshow.tsx.txt?raw";
 import sqlTableCode from "./templates/sql-table.tsx.txt?raw";
 import stickyCode from "./templates/sticky.tsx.txt?raw";
 import textCode from "./templates/text.tsx.txt?raw";
-<<<<<<< HEAD
 import trendChartCode from "./templates/trend-chart.tsx.txt?raw";
-=======
-import { trendChartCode } from "./templates/trend-chart";
->>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
 
 export type SketchpadLibraryGroup = "notes" | "data" | "frames";
 

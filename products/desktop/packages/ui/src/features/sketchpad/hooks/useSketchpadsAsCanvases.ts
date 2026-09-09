@@ -31,7 +31,6 @@ export function sketchpadAsCanvas(board: SketchpadSummary): DashboardRecord {
   };
 }
 
-<<<<<<< HEAD
 function useSketchpadsAsCanvases(
   channelId: string | undefined,
   requested: boolean,
@@ -53,24 +52,4 @@ export function useSpaceSketchpadsAsCanvases(
 
 export function useAllSketchpadsAsCanvases(): DashboardRecord[] {
   return useSketchpadsAsCanvases(undefined, true);
-=======
-export function useSpaceSketchpadsAsCanvases(
-  channelId: string | undefined,
-): DashboardRecord[] {
-  const enabled = useSketchpadsFlag();
-  const { boards } = useSketchpads(channelId, enabled && !!channelId);
-  return useMemo(
-    () => (enabled && channelId ? boards.map(sketchpadAsCanvas) : NO_RECORDS),
-    [boards, channelId, enabled],
-  );
-}
-
-export function useAllSketchpadsAsCanvases(): DashboardRecord[] {
-  const enabled = useSketchpadsFlag();
-  const { boards } = useSketchpads(undefined, enabled);
-  return useMemo(
-    () => (enabled ? boards.map(sketchpadAsCanvas) : NO_RECORDS),
-    [boards, enabled],
-  );
->>>>>>> e14cb962164 (feat(desktop): add sketchpad UI runtime, library, and sync hooks)
 }
