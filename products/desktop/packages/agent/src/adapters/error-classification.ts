@@ -7,11 +7,35 @@ export type AgentErrorClassification =
   | "upstream_provider_failure"
   | "content_block_rejection"
   | "turn_ended_without_response"
+  | "subscription_usage_limit"
   | "agent_error";
 
+const RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS =
+  new Set<AgentErrorClassification>([
+    "upstream_stream_terminated",
+    "upstream_connection_error",
+    "upstream_timeout",
+    "upstream_provider_failure",
+  ]);
+
+export function isRetryableUpstreamErrorClassification(
+  classification: AgentErrorClassification,
+): boolean {
+  return RETRYABLE_UPSTREAM_ERROR_CLASSIFICATIONS.has(classification);
+}
+
 const UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = /API Error:\s*(?:429|5\d\d)\b/i;
+// The codex app-server reports a provider HTTP failure as
+// "unexpected status <code> <reason>: <body>" instead of the "API Error:" wording.
+const CODEX_PROVIDER_ERROR_STATUS_PATTERN =
+  /unexpected status\s*(?:429|5\d\d)\b/i;
 const TURN_ENDED_WITHOUT_RESPONSE_PATTERN =
   /\[ede_diagnostic\]\s+result_type=user\b/i;
+// Anthropic's exact CLI wording for a Claude Pro/Max own-subscription limit
+// isn't pinned anywhere we can check offline, so this matches the phrase
+// loosely rather than a fixed string. Update this if the real wording turns
+// out to differ.
+const SUBSCRIPTION_USAGE_LIMIT_PATTERN = /usage limit/i;
 
 /**
  * Classify error strings surfaced by agent adapters. Transient upstream
@@ -51,7 +75,10 @@ export function classifyAgentError(
   if (/API Error:.*\b(?:timed out|timeout)\b/i.test(text)) {
     return "upstream_timeout";
   }
-  if (UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN.test(text)) {
+  if (
+    UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN.test(text) ||
+    CODEX_PROVIDER_ERROR_STATUS_PATTERN.test(text)
+  ) {
     return "upstream_provider_failure";
   }
   if (/API Error:\s*Content block\b/i.test(text)) {
@@ -60,7 +87,34 @@ export function classifyAgentError(
   if (TURN_ENDED_WITHOUT_RESPONSE_PATTERN.test(text)) {
     return "turn_ended_without_response";
   }
+  if (SUBSCRIPTION_USAGE_LIMIT_PATTERN.test(text)) {
+    return "subscription_usage_limit";
+  }
   return "agent_error";
+}
+
+export function sanitizeAgentErrorCause(
+  result: string,
+  classification: AgentErrorClassification,
+): string {
+  const text = result.trim();
+  const codexStatus = text.match(/\bunexpected status\s+(\d{3})\b/i);
+  if (codexStatus) {
+    return `unexpected status ${codexStatus[1]}`;
+  }
+  const apiStatus = text.match(/\bAPI Error:\s*(\d{3})\b/i);
+  if (apiStatus) {
+    return `API Error: ${apiStatus[1]}`;
+  }
+  if (
+    classification === "upstream_provider_failure" ||
+    classification === "upstream_connection_error" ||
+    classification === "upstream_stream_terminated" ||
+    classification === "upstream_timeout"
+  ) {
+    return classification;
+  }
+  return text.slice(0, 400);
 }
 
 /**

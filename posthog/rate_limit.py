@@ -607,6 +607,19 @@ class LlmsTxtFetchSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "200/hour"
 
 
+# Site discovery can fetch several small public resources per request and holds the web worker for
+# the complete chain. The project-wide API throttles do not cover session-authenticated requests,
+# so this separate team bucket also limits browser callers.
+class ContentAutopilotDiscoveryBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "content_autopilot_discovery_burst"
+    rate = "10/minute"
+
+
+class ContentAutopilotDiscoverySustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "content_autopilot_discovery_sustained"
+    rate = "100/hour"
+
+
 # The batch session-context endpoint computes experiment context for up to 20 recordings per
 # call, in up to several per-day ClickHouse scan sets — heavier than most ClickHouse endpoints
 # — and its primary caller is the session-authenticated replay/experiment UI, which the
@@ -623,6 +636,19 @@ class SessionContextsBurstRateThrottle(_TeamBucketRateThrottle):
 class SessionContextsSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "session_contexts_sustained"
     rate = "600/hour"
+
+
+# Feature flag request usage scans up to 31 days of billing events in ClickHouse. Its primary
+# caller is the session-authenticated feature flags UI, which the generic ClickHouse throttle
+# pair does not cover. Use a team-wide bucket so users and API keys share one query budget.
+class FeatureFlagRequestUsageBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "feature_flag_request_usage_burst"
+    rate = "30/minute"
+
+
+class FeatureFlagRequestUsageSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "feature_flag_request_usage_sustained"
+    rate = "300/hour"
 
 
 # Fingerprint projection runs t-SNE synchronously over up to 250 high-dimensional embeddings.

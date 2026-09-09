@@ -503,6 +503,7 @@ tools:
         param_overrides:
             uuid:
                 description: User UUID, or `@me` to target the authenticated user.
+                default: '@me'
         response:
             include:
                 - id
@@ -646,6 +647,9 @@ tools:
         enabled: false
     users-onboarding-skip-create:
         operation: users_onboarding_skip_create
+        enabled: false
+    users-product-intro-seen-partial-update:
+        operation: users_product_intro_seen_partial_update
         enabled: false
     users-push-tokens-create:
         operation: users_push_tokens_create

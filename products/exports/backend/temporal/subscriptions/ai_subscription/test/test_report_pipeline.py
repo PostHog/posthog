@@ -6,10 +6,12 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
+from rest_framework.exceptions import APIException
 
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
 
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.errors import ExposedCHQueryError
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 from products.exports.backend.temporal.subscriptions.ai_subscription.charts import (
     ChartFailureReason,
@@ -43,7 +45,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     ReportWindow,
     StoredPlanInvalidError,
 )
-from products.exports.backend.temporal.subscriptions.types import safe_error_message
+from products.exports.backend.temporal.subscriptions.types import safe_error_message, safe_query_error_details
 
 from ee.hogai.context.insight.query_executor import FormattedQueryResult
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -102,6 +104,81 @@ def _spec_with_window_placeholder() -> EnrichedPromptSpec:
         ),
         relevant_events=["export created"],
     )
+
+
+def _wrap(
+    outer: BaseException, *, cause: BaseException | None = None, context: BaseException | None = None
+) -> BaseException:
+    if cause is not None:
+        outer.__cause__ = cause
+    if context is not None:
+        outer.__context__ = context
+    return outer
+
+
+@pytest.mark.parametrize(
+    "exc,expected",
+    [
+        (
+            ClickHouseQueryMemoryLimitExceeded(),
+            {
+                "type": "ClickHouseQueryMemoryLimitExceeded",
+                "code": ClickHouseQueryMemoryLimitExceeded.default_code,
+                "message": ClickHouseQueryMemoryLimitExceeded.default_detail,
+            },
+        ),
+        (
+            ClickHouseQueryTimeOut(),
+            {
+                "type": "ClickHouseQueryTimeOut",
+                "code": ClickHouseQueryTimeOut.default_code,
+                "message": ClickHouseQueryTimeOut.default_detail,
+            },
+        ),
+        (ResolutionError("Database is not set"), None),
+        (
+            QueryError("Unknown field: signups"),
+            {"type": "QueryError", "code": "hogql_query_error", "message": "Unknown field: signups"},
+        ),
+        (
+            ExposedHogQLError("Unable to resolve field 'operaton'"),
+            {
+                "type": "ExposedHogQLError",
+                "code": "hogql_error",
+                "message": "Unable to resolve field 'operaton'",
+            },
+        ),
+        (
+            ExposedCHQueryError("Invalid aggregate", code_name="illegal_aggregation"),
+            {
+                "type": "ExposedCHQueryError",
+                "code": "illegal_aggregation",
+                "message": "Invalid aggregate",
+            },
+        ),
+        (_wrap(Exception("outer"), cause=ResolutionError("Database is not set")), None),
+        (
+            _wrap(RuntimeError("outer"), context=ExposedHogQLError("Unknown field: revenue")),
+            {"type": "ExposedHogQLError", "code": "hogql_error", "message": "Unknown field: revenue"},
+        ),
+        # Only explicitly marked API exceptions are safe. A generic one may carry team-scoped detail.
+        (APIException("internal detail with a team-scoped id"), None),
+    ],
+)
+def test_safe_query_error_details_matches_query_api(exc: BaseException, expected: dict[str, str] | None) -> None:
+    assert safe_query_error_details(exc) == expected
+
+
+def test_safe_query_error_details_uses_exception_safety_marker() -> None:
+    class UserSafeQueryError(Exception):
+        user_safe = True
+        code_name = "safe_query_error"
+
+    assert safe_query_error_details(UserSafeQueryError("Safe detail")) == {
+        "type": "UserSafeQueryError",
+        "code": "safe_query_error",
+        "message": "Safe detail",
+    }
 
 
 def _slo_completed(capture_mock: MagicMock) -> dict:
@@ -300,7 +377,9 @@ async def test_run_steps_non_retryable_error_degrades_to_placeholder(mock_execut
 
 
 @patch(f"{_RP}.AssistantQueryExecutor")
-async def test_run_steps_placeholder_omits_undisclosed_error_type(mock_executor_cls: MagicMock) -> None:
+async def test_run_steps_keeps_recipient_copy_generic_and_records_safe_query_error(
+    mock_executor_cls: MagicMock,
+) -> None:
     mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=ClickHouseQueryMemoryLimitExceeded())
     execution = await _run_steps(
         _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
@@ -308,12 +387,13 @@ async def test_run_steps_placeholder_omits_undisclosed_error_type(mock_executor_
     assert execution.failed_count == 1
     assert execution.rendered[0] == f"### s0\n\n_{QUERY_FAILED_PREFIX} — metric not computed, not empty data._"
     assert execution.diagnostics[0].error_type == "ClickHouseQueryMemoryLimitExceeded"
-    assert execution.diagnostics[0].human_readable_error is None
+    assert execution.diagnostics[0].error_code == ClickHouseQueryMemoryLimitExceeded.default_code
+    assert execution.diagnostics[0].human_readable_error == ClickHouseQueryMemoryLimitExceeded.default_detail
 
 
 @patch(f"{_RP}.AssistantQueryExecutor")
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
-async def test_run_steps_placeholder_omits_wrapped_undisclosed_error_type(
+async def test_run_steps_keeps_wrapped_error_out_of_recipient_copy_and_records_safe_query_error(
     mock_hogql_fix: AsyncMock, mock_executor_cls: MagicMock
 ) -> None:
     error = MaxToolRetryableError("Memory limit exceeded")
@@ -326,20 +406,20 @@ async def test_run_steps_placeholder_omits_wrapped_undisclosed_error_type(
 
     assert execution.failed_count == 1
     assert execution.rendered[0] == f"### s0\n\n_{QUERY_FAILED_PREFIX} — metric not computed, not empty data._"
-    assert execution.diagnostics[0].error_type == "ClickHouseQueryMemoryLimitExceeded"
+    assert execution.diagnostics[0].error_type == "MaxToolRetryableError"
+    assert execution.diagnostics[0].error_code == ClickHouseQueryMemoryLimitExceeded.default_code
+    assert execution.diagnostics[0].human_readable_error == ClickHouseQueryMemoryLimitExceeded.default_detail
     mock_hogql_fix.assert_awaited_once()
 
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
 @patch(f"{_RP}.AssistantQueryExecutor")
-async def test_run_steps_forwards_resolution_error_message_to_fix(
+async def test_run_steps_forwards_exposed_query_error_message_to_fix(
     mock_executor_cls: MagicMock, mock_fix: AsyncMock
 ) -> None:
-    # ResolutionError names the field the planner referenced — its message, not just the type name,
-    # must reach the fix LLM so it can actually repair the query.
     mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
         side_effect=[
-            ResolutionError("Unable to resolve field 'operaton'"),
+            QueryError("Unable to resolve field 'operaton'"),
             FormattedQueryResult(formatted="formatted table", fallback_used=False, response=_RESPONSE),
         ]
     )
@@ -456,27 +536,18 @@ async def test_run_steps_bounds_concurrent_query_execution(mock_executor_cls: Ma
     assert max_concurrent == _MAX_CONCURRENT_STEPS
 
 
-def _wrap(
-    outer: BaseException, *, cause: BaseException | None = None, context: BaseException | None = None
-) -> BaseException:
-    if cause is not None:
-        outer.__cause__ = cause
-    if context is not None:
-        outer.__context__ = context
-    return outer
-
-
 @pytest.mark.parametrize(
     "exc,expected",
     [
         (ExposedHogQLError("Unable to resolve field 'operaton'"), "Unable to resolve field 'operaton'"),
-        (ResolutionError("Unknown field: signups"), "Unknown field: signups"),
-        # A plain InternalHogQLError (not a ResolutionError) can echo team-scoped data — stays type-only.
+        (QueryError("Unknown field: signups"), "Unknown field: signups"),
+        (ClickHouseQueryMemoryLimitExceeded(), ClickHouseQueryMemoryLimitExceeded.default_detail),
+        (ResolutionError("Database is not set"), None),
         (InternalHogQLError("internal detail with a team-scoped id"), None),
         (ValueError("boom"), None),
         # A generic error wrapping a safe error surfaces the wrapped message (executors wrap like this).
         (
-            _wrap(Exception("wrapper"), cause=ResolutionError("Unable to resolve field 'x'")),
+            _wrap(Exception("wrapper"), cause=QueryError("Unable to resolve field 'x'")),
             "Unable to resolve field 'x'",
         ),
         (_wrap(RuntimeError("boom"), context=ExposedHogQLError("bad thing")), "bad thing"),

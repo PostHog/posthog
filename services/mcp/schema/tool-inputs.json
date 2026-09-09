@@ -881,6 +881,12 @@
                     "description": "Optional substring filter applied to prompt names and prompt content.",
                     "type": "string"
                 },
+                "label": {
+                    "description": "Return each prompt at the version this label points to, e.g. 'production'. Prompts that do not carry the label are omitted. If omitted, the latest version of every prompt is returned.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                },
                 "content": {
                     "default": "none",
                     "description": "Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely.",
@@ -997,7 +1003,8 @@
                                     "maximum": 9007199254740991
                                 }
                             },
-                            "required": ["kind"]
+                            "required": ["kind"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -1011,7 +1018,8 @@
                                     "description": "The name of the event that you want to retrieve properties for."
                                 }
                             },
-                            "required": ["kind", "event_name"]
+                            "required": ["kind", "event_name"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -1025,7 +1033,8 @@
                                     "description": "The type of the entity that you want to retrieve properties for."
                                 }
                             },
-                            "required": ["kind", "entity"]
+                            "required": ["kind", "entity"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -1041,7 +1050,8 @@
                                     "description": "The ID of the action that you want to retrieve properties for."
                                 }
                             },
-                            "required": ["kind", "action_id"]
+                            "required": ["kind", "action_id"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -1059,7 +1069,8 @@
                                     "description": "Verified property name of an entity."
                                 }
                             },
-                            "required": ["kind", "entity", "property_name"]
+                            "required": ["kind", "entity", "property_name"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -1077,7 +1088,8 @@
                                     "description": "Verified property name of an event."
                                 }
                             },
-                            "required": ["kind", "event_name", "property_name"]
+                            "required": ["kind", "event_name", "property_name"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -1097,7 +1109,8 @@
                                     "description": "Verified property name of an action."
                                 }
                             },
-                            "required": ["kind", "action_id", "property_name"]
+                            "required": ["kind", "action_id", "property_name"],
+                            "additionalProperties": false
                         }
                     ],
                     "description": "The data schema query to execute."

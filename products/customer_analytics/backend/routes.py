@@ -2,6 +2,7 @@ from posthog.api.routing import RouterRegistry
 
 from products.customer_analytics.backend.presentation.views.accounts_table_query import AccountsTableQueryViewSet
 from products.customer_analytics.backend.presentation.views.announcements import AnnouncementViewSet
+from products.customer_analytics.backend.presentation.views.customer_tasks import CustomerTaskViewSet
 from products.customer_analytics.backend.presentation.views.organization_members import (
     OrganizationMembersForAccountViewSet,
 )
@@ -21,6 +22,7 @@ from products.customer_analytics.backend.presentation.views.views import (
     EventStreamViewSet,
     FeatureRequestProductAreaViewSet,
     FeatureRequestViewSet,
+    UserCustomerAnalyticsConfigViewSet,
 )
 
 
@@ -104,6 +106,12 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_calendar_sync",
         ["team_id"],
     )
+    routers.projects.register(
+        r"user_customer_analytics_config",
+        UserCustomerAnalyticsConfigViewSet,
+        "project_user_customer_analytics_config",
+        ["team_id"],
+    )
     project_accounts_router = routers.projects.register(r"accounts", AccountViewSet, "project_accounts", ["team_id"])
     project_accounts_router.register(
         r"notebooks", AccountNotebookViewSet, "project_account_notebooks", ["team_id", "account_id"]
@@ -120,3 +128,4 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_account_relationships",
         ["team_id", "account_id"],
     )
+    routers.projects.register(r"customer_tasks", CustomerTaskViewSet, "project_customer_tasks", ["team_id"])

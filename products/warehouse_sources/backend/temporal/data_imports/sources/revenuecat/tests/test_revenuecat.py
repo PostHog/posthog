@@ -500,6 +500,10 @@ class TestCreateWebhook:
         # Webhook creation needs write scope, so this shared 403 message must not tell the user to
         # grant read access (unlike the credential-check path).
         assert "read" not in result.error.lower()
+        # Naming the scope is the point: a scope-neutral 403 sends people round re-checking a key
+        # that was never missing the permission they looked at.
+        assert "write permission for integrations" in result.error
+        assert "manual setup" in result.error
 
 
 class TestDeleteWebhook:

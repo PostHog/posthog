@@ -16,6 +16,7 @@ import type { RedisLike } from '@/hono/cache/RedisCache'
 import type { ContextMillResource } from '@/resources/manifest-types'
 
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
+import { makeSharedBlobRedisStubs } from './helpers/shared-blob-redis-stubs'
 
 type EntryLoader = () => Promise<ContextMillResource[]>
 
@@ -67,14 +68,14 @@ function createMockRedis(): MockRedis {
         }),
         scan: vi.fn(async () => ['0', []] as [string, string[]]),
         ...makeRedisRateLimitStubs(),
+        ...makeSharedBlobRedisStubs(store),
         _store: store,
         _setCalls: setCalls,
     }
 }
 
-const MANIFEST_BYTES_KEY = 'mcp:shared-blob:context-mill:manifest:bytes'
-const MANIFEST_FRESH_KEY = 'mcp:shared-blob:context-mill:manifest:fresh'
-const MANIFEST_LOCK_KEY = 'mcp:shared-blob:context-mill:manifest:lock'
+const MANIFEST_CURRENT_KEY = 'mcp:shared-blob:context-mill:manifest:v2:current'
+const MANIFEST_LOCK_KEY = 'mcp:shared-blob:context-mill:manifest:v2:lock'
 
 function bodyKey(uri: string): string {
     const hash = createHash('sha256').update(uri).digest('hex')
@@ -117,8 +118,8 @@ describe('ContextMillResourceCache', () => {
         expect(slim.entries.map((e) => e.uri).sort()).toEqual(entries.map((e) => e.uri).sort())
         expect(slim.entries[0]).not.toHaveProperty('text')
 
-        // Body keys must land before the manifest bytes key in Redis writes.
-        const manifestIdx = redis._setCalls.indexOf(MANIFEST_BYTES_KEY)
+        // Body keys must land before readers can discover the manifest.
+        const manifestIdx = redis._setCalls.indexOf(MANIFEST_CURRENT_KEY)
         expect(manifestIdx).toBeGreaterThan(-1)
         for (const e of entries) {
             const bodyIdx = redis._setCalls.indexOf(bodyKey(e.uri))
@@ -360,7 +361,7 @@ describe('ContextMillResourceCache', () => {
         expect(slim.entries[0]!.uri).toBe(entries[0]!.uri)
         expect(result).toBe('fallback')
         expect(upstream).toHaveBeenCalledTimes(1)
-        expect(redis._store.has(MANIFEST_BYTES_KEY)).toBe(false)
+        expect(redis._store.has(MANIFEST_CURRENT_KEY)).toBe(false)
         expect(mockCacheEventsInc).toHaveBeenCalledWith({ event: 'wait_timeout' })
     })
 
@@ -368,6 +369,6 @@ describe('ContextMillResourceCache', () => {
         const cache = new TestContextMillResourceCache(redis, async () => [makeEntry('a')])
         await cache.loadOrRefresh()
         expect(redis._store.has(MANIFEST_LOCK_KEY)).toBe(false)
-        expect(redis._store.has(MANIFEST_FRESH_KEY)).toBe(true)
+        expect(redis._store.has(MANIFEST_CURRENT_KEY)).toBe(true)
     })
 })

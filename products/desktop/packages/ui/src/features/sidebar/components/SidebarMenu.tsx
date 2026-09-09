@@ -35,13 +35,12 @@ import { useMarqueeSelection } from "@posthog/ui/features/sidebar/useMarqueeSele
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useSidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
 import { useSidebarData } from "@posthog/ui/features/sidebar/useSidebarData";
-import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
 import { useTaskContextMenu } from "@posthog/ui/features/tasks/useTaskContextMenu";
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
-import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { logger } from "@posthog/ui/shell/logger";
@@ -82,8 +81,6 @@ function SidebarMenuComponent() {
   );
 
   const { data: workspaces = {} } = useWorkspaces();
-  const { markAsViewed } = useTaskViewed();
-
   const { folders, removeFolder } = useFolders();
 
   const openExternalApp = useExternalAppAction();
@@ -101,26 +98,6 @@ function SidebarMenuComponent() {
   });
 
   const commandCenterCells = useCommandCenterStore((s) => s.cells);
-
-  const previousTaskIdRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    const currentTaskId =
-      view.type === "task-detail" && view.taskId ? view.taskId : null;
-
-    if (
-      previousTaskIdRef.current &&
-      previousTaskIdRef.current !== currentTaskId
-    ) {
-      markAsViewed(previousTaskIdRef.current);
-    }
-
-    if (currentTaskId) {
-      markAsViewed(currentTaskId);
-    }
-
-    previousTaskIdRef.current = currentTaskId;
-  }, [view, markAsViewed]);
 
   const queryClient = useQueryClient();
 
@@ -525,7 +502,7 @@ function SidebarMenuComponent() {
           {sidebarData.isLoading ? (
             <SidebarItem
               depth={0}
-              icon={<DotsCircleSpinner size={12} className="text-gray-10" />}
+              icon={<Spinner size="sm" className="text-gray-10" />}
               label="Loading tasks..."
               disabled
             />

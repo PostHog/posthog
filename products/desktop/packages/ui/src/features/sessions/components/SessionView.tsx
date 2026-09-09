@@ -11,13 +11,8 @@ import {
   FAST_MODE_OPTION_CATEGORY,
 } from "@posthog/core/task-detail/previewConfig";
 import { useService } from "@posthog/di/react";
-import {
-  type AcpMessage,
-  FAST_MODE_FLAG,
-  sessionSupportsSideQuestion,
-} from "@posthog/shared";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
+import { type AcpMessage, FAST_MODE_FLAG } from "@posthog/shared";
+import type { Task } from "@posthog/shared/domain-types";
 import {
   spendStopMessage,
   useSpendStop,
@@ -54,6 +49,7 @@ import { QueuedMessagesDock } from "@posthog/ui/features/sessions/components/Que
 import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
 import { RawLogsView } from "@posthog/ui/features/sessions/components/raw-logs/RawLogsView";
 import { SessionInitializingView } from "@posthog/ui/features/sessions/components/SessionInitializingView";
+import { SessionSummaryPanel } from "@posthog/ui/features/sessions/components/SessionSummaryPanel";
 import { SideQuestionCard } from "@posthog/ui/features/sessions/components/SideQuestionCard";
 import { SteerQueueToggle } from "@posthog/ui/features/sessions/components/SteerQueueToggle";
 import {
@@ -82,14 +78,12 @@ import {
   useSessionViewActions,
   useShowRawLogs,
 } from "@posthog/ui/features/sessions/sessionViewStore";
-import { useSideQuestionStore } from "@posthog/ui/features/sessions/sideQuestionStore";
 import type { Plan } from "@posthog/ui/features/sessions/types";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useIsWorkspaceCloudRun } from "@posthog/ui/features/workspace/useWorkspace";
 import { useConnectivity } from "@posthog/ui/hooks/useConnectivity";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
-import { captureException, track } from "@posthog/ui/shell/analytics";
 import {
   pendingTaskPromptStoreApi,
   usePendingTaskPrompt,
@@ -135,7 +129,6 @@ interface SessionViewProps {
   onNewSession?: () => void;
   isInitializing?: boolean;
   isCloud?: boolean;
-  cloudStatus?: TaskRunStatus | null;
   slackThreadUrl?: string;
   compact?: boolean;
   isActiveSession?: boolean;
@@ -147,8 +140,6 @@ interface SessionViewProps {
 
 const DEFAULT_ERROR_MESSAGE =
   "Failed to resume this session. The working directory may have been deleted. Please start a new session.";
-
-const HANDOFF_SUMMARY_PROMPT = `Create a concise handoff summary for another coding agent. Include the user's goal, constraints, decisions, current progress, relevant files, commands and tests, remaining work, and blockers. Do not continue the task. Return only the handoff summary.`;
 
 export function SessionView({
   events,
@@ -174,7 +165,6 @@ export function SessionView({
   onNewSession,
   isInitializing = false,
   isCloud = false,
-  cloudStatus = null,
   slackThreadUrl,
   compact = false,
   isActiveSession = true,
@@ -258,12 +248,6 @@ export function SessionView({
   );
 
   const contextUsage = useContextUsage(events);
-  const canCopyHandoffSummary = useSessionSelector(taskId, (session) =>
-    session ? sessionSupportsSideQuestion(session) : false,
-  );
-  const hasPendingSideQuestion = useSideQuestionStore((s) =>
-    taskId ? s.byTaskId[taskId]?.status === "pending" : false,
-  );
   const activeTaskRunId = useSessionSelector(taskId, (s) => s?.taskRunId);
 
   const applyConfigOption = useCallback(
@@ -290,54 +274,6 @@ export function SessionView({
     contextTokens: contextUsage?.used,
     onApply: applyConfigOption,
   });
-
-  const handleCopyHandoffSummary = useCallback(async (): Promise<void> => {
-    if (!taskId || !activeTaskRunId || !pendingModelSwitch) return;
-    const { ask, resolve, fail } = useSideQuestionStore.getState();
-    const questionId = ask(taskId, activeTaskRunId, HANDOFF_SUMMARY_PROMPT);
-    if (!questionId) return;
-    try {
-      const summary = await sessionService.askSideQuestion(
-        taskId,
-        HANDOFF_SUMMARY_PROMPT,
-      );
-      resolve(taskId, activeTaskRunId, questionId, summary);
-      await navigator.clipboard.writeText(summary);
-      track(ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION, {
-        task_id: taskId,
-        from_model: pendingModelSwitch.fromValue,
-        to_model: pendingModelSwitch.value,
-        context_tokens: contextUsage?.used,
-        action: "copy_handoff_summary",
-        result: "succeeded",
-      });
-      toast.success("Handoff summary copied");
-    } catch (error) {
-      const caughtError =
-        error instanceof Error ? error : new Error("Handoff summary failed");
-      fail(taskId, activeTaskRunId, questionId, caughtError.message);
-      captureException(caughtError, {
-        feature: "model_switch_handoff_summary",
-      });
-      track(ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION, {
-        task_id: taskId,
-        from_model: pendingModelSwitch.fromValue,
-        to_model: pendingModelSwitch.value,
-        context_tokens: contextUsage?.used,
-        action: "copy_handoff_summary",
-        result: "failed",
-      });
-      toast.error("Could not copy a handoff summary", {
-        description: "Try again, or continue without a summary.",
-      });
-    }
-  }, [
-    taskId,
-    activeTaskRunId,
-    pendingModelSwitch,
-    sessionService,
-    contextUsage?.used,
-  ]);
 
   const handleConfigOptionChange = useCallback(
     (configId: string, value: string) => {
@@ -729,7 +665,7 @@ export function SessionView({
                         >
                           {isRestoring ? (
                             <>
-                              <Spinner size={14} />
+                              <Spinner size="md" />
                               Restoring...
                             </>
                           ) : (
@@ -742,24 +678,17 @@ export function SessionView({
                 </Box>
               </>
             ) : isInitializing ? (
-              isCloud ? (
-                <SessionInitializingView
-                  executionTarget="cloud"
-                  cloudStatus={cloudStatus}
-                />
-              ) : pendingTaskPrompt?.promptText ? (
+              pendingTaskPrompt?.promptText ? (
                 <PendingChatView
-                  promptText={pendingTaskPrompt.promptText}
+                  content={
+                    pendingTaskPrompt.contentXml ?? pendingTaskPrompt.promptText
+                  }
                   attachments={pendingTaskPrompt.attachments}
                 />
               ) : (
-                <Flex
-                  align="center"
-                  justify="center"
-                  className="absolute inset-0 bg-background"
-                >
-                  <Spinner size={32} className="text-gray-9" />
-                </Flex>
+                <SessionInitializingView
+                  executionTarget={isCloud ? "cloud" : "local"}
+                />
               )
             ) : (
               <>
@@ -870,6 +799,12 @@ export function SessionView({
                     >
                       <ComposerWidth compact={compact}>
                         {taskId && (
+                          <SessionSummaryPanel
+                            taskId={taskId}
+                            taskRunId={activeTaskRunId}
+                          />
+                        )}
+                        {taskId && (
                           <SideQuestionCard
                             taskId={taskId}
                             taskRunId={activeTaskRunId}
@@ -933,6 +868,7 @@ export function SessionView({
                             <ContextUsageIndicator
                               usage={contextUsage}
                               taskId={taskId}
+                              originProduct={task?.origin_product}
                               focused={isActiveSession !== false}
                             />
                           }
@@ -961,14 +897,8 @@ export function SessionView({
         fromModelLabel={pendingModelSwitch?.fromLabel ?? ""}
         toModelId={pendingModelSwitch?.value ?? ""}
         toModelLabel={pendingModelSwitch?.label ?? ""}
-        taskId={taskId}
         contextTokens={contextUsage?.used}
         onConfirm={confirmModelSwitch}
-        onCopyHandoffSummary={
-          canCopyHandoffSummary && !hasPendingSideQuestion
-            ? handleCopyHandoffSummary
-            : undefined
-        }
         onCancel={cancelModelSwitch}
       />
       <ContextMenu.Content size="1">
