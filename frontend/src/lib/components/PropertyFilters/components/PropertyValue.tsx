@@ -500,7 +500,6 @@ export function PropertyValue({
                         : undefined
                 }
                 onChange={(nextVal) => {
-                    const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
                     // Trim whitespace so a stray leading/trailing space (common when pasting an ID)
                     // doesn't silently break the filter — the snack display hides the space. Only
                     // what the user just typed or pasted is trimmed: a suggested value, and one
@@ -516,6 +515,7 @@ export function PropertyValue({
                           )
                     const newValues = trimmedVal.filter((v) => !formattedValues.includes(String(v)))
                     if (newValues.length > 0) {
+                        const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
                         const fromSuggestion = newValues.every((v) => availableValues.has(toString(v)))
 
                         posthog.capture('property_value_selected', {
