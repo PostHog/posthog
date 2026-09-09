@@ -412,6 +412,13 @@ export function LoginForm(): JSX.Element {
                                 isLastUsed={lastLoginMethod === 'saml'}
                             />
                         )}
+                        {precheckResponse.oidc_available && !precheckResponse.sso_enforcement && (
+                            <SSOEnforcedLoginButton
+                                provider="oidc"
+                                email={login.email}
+                                isLastUsed={lastLoginMethod === 'oidc'}
+                            />
+                        )}
                     </Form>
                 )}
                 {/* Normally SAML replaces this row, but when the account has no password we need to

@@ -135,6 +135,7 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
     sso_providers = get_instance_available_sso_providers()
     # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance
     sso_providers["saml"] = settings.EE_AVAILABLE
+    sso_providers["oidc"] = settings.EE_AVAILABLE
 
     is_reauth = is_sso_reauth_begin(request)
 
@@ -422,16 +423,18 @@ class LoginPrecheckSerializer(serializers.Serializer):
         ]
 
         saml_available = IdentityProviderConfig.objects.get_is_saml_available_for_email(email)
+        oidc_available = IdentityProviderConfig.objects.get_is_oidc_available_for_email(email)
 
         return {
             "sso_enforcement": OrganizationDomain.objects.get_sso_enforcement_for_email_address(email),
             "saml_available": saml_available,
+            **({"oidc_available": True} if oidc_available else {}),
             "webauthn_credentials": webauthn_credentials,
-            **self._available_local_methods(email, saml_available=saml_available),
+            **self._available_local_methods(email, saml_available=saml_available, oidc_available=oidc_available),
         }
 
     @staticmethod
-    def _available_local_methods(email: str, *, saml_available: bool) -> dict[str, Any]:
+    def _available_local_methods(email: str, *, saml_available: bool, oidc_available: bool = False) -> dict[str, Any]:
         """
         Report whether this account can log in with a password, and which of its linked social
         identities are actually usable on this instance, so the login form can stop offering a
@@ -459,6 +462,8 @@ class LoginPrecheckSerializer(serializers.Serializer):
             # SAML is domain-configured rather than instance-configured, so it isn't covered above.
             usable_providers.add("saml")
         linked_providers = set(user.social_auth.values_list("provider", flat=True))
+        if oidc_available:
+            usable_providers.add("oidc")
 
         return {
             "password_login_available": password_login_available,

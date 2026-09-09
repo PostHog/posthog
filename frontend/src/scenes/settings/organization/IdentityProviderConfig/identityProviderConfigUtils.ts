@@ -16,6 +16,10 @@ const INCOMPLETE_STATUS_DESCRIPTIONS: Record<
     ConfigScopeEnumApi,
     Record<Exclude<IdentityProviderConfigStatus, 'configured'>, string>
 > = {
+    [ConfigScopeEnumApi.Oidc]: {
+        not_configured: 'Add your identity provider details to enable OpenID Connect single sign-on.',
+        partially_configured: 'Add the missing OIDC details to finish the configuration.',
+    },
     [ConfigScopeEnumApi.Saml]: {
         not_configured: 'Add your identity provider details to enable SAML single sign-on.',
         partially_configured: 'Add the missing SAML details to finish the configuration.',
@@ -31,6 +35,12 @@ const INCOMPLETE_STATUS_DESCRIPTIONS: Record<
 }
 
 export const IDENTITY_PROVIDER_FEATURES: Record<ConfigScopeEnumApi, IdentityProviderFeatureDefinition> = {
+    [ConfigScopeEnumApi.Oidc]: {
+        name: 'OIDC',
+        title: 'OpenID Connect single sign-on',
+        description: 'Configure OpenID Connect authentication for your organization.',
+        availableFeature: AvailableFeature.OIDC,
+    },
     [ConfigScopeEnumApi.Saml]: {
         name: 'SAML',
         title: 'SAML single sign-on',
@@ -89,7 +99,7 @@ export function getIdentityProviderConfigsForScope(
     configScope: ConfigScopeEnumApi
 ): IdentityProviderConfigApi[] {
     const scopedConfigs = configs.filter((config) => config.config_scope === configScope)
-    return scopedConfigs.length > 0
+    return scopedConfigs.length > 0 || configScope === ConfigScopeEnumApi.Oidc
         ? scopedConfigs
         : configs.filter((config) => config.config_scope == null || config.config_scope === '')
 }
@@ -163,6 +173,15 @@ export function getIdentityProviderConfigStatus(
 ): IdentityProviderConfigStatus {
     if (!config) {
         return 'not_configured'
+    }
+
+    if (configScope === ConfigScopeEnumApi.Oidc) {
+        if (config.has_oidc) {
+            return 'configured'
+        }
+        return config.oidc_issuer_url || config.oidc_client_id || config.has_oidc_client_secret
+            ? 'partially_configured'
+            : 'not_configured'
     }
 
     if (configScope === ConfigScopeEnumApi.Saml) {

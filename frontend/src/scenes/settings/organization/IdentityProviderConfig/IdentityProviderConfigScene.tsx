@@ -23,6 +23,7 @@ import { identityProviderConfigLogic } from './identityProviderConfigLogic'
 import type { IdentityProviderConfigLogicProps } from './identityProviderConfigLogic'
 import { IDENTITY_PROVIDER_FEATURES, isIdentityProviderConfigScope } from './identityProviderConfigUtils'
 import { IdentityProviderDomainScope } from './IdentityProviderDomainScope'
+import { OIDCConfigFields } from './OIDCConfigFields'
 import { SAMLConfigFields } from './SAMLConfigFields'
 import { SCIMConfigFields } from './SCIMConfigFields'
 import { XAAConfigFields } from './XAAConfigFields'
@@ -152,6 +153,11 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
                                     tokenLoading={regeneratedScimTokenLoading}
                                     disabled={isIdentityProviderConfigFormSubmitting}
                                     onRegenerateToken={regenerateScimToken}
+                                />
+                            ) : configScope === ConfigScopeEnumApi.Oidc ? (
+                                <OIDCConfigFields
+                                    siteUrl={siteUrl}
+                                    hasClientSecret={Boolean(identityProviderConfig?.has_oidc_client_secret)}
                                 />
                             ) : (
                                 <XAAConfigFields isReady={Boolean(identityProviderConfigForm.id_jag_issuer_url)} />

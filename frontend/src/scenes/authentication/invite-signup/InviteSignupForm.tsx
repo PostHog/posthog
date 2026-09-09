@@ -267,6 +267,14 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                             extraQueryParams={{ invite_id: invite.id }}
                         />
                     )}
+                    {precheckResponse.oidc_available && !precheckResponse.sso_enforcement && (
+                        <SSOEnforcedLoginButton
+                            provider="oidc"
+                            email={invite.target_email}
+                            actionText="Continue"
+                            extraQueryParams={{ invite_id: invite.id }}
+                        />
+                    )}
                 </Form>
                 {!extraFieldsHidden && (
                     <InviteAlternativeLogins

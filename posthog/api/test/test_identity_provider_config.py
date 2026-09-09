@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.conf import settings
 from django.utils import timezone
@@ -19,6 +20,100 @@ from ee.models.scim_request_log import SCIMRequestLog
 
 
 class TestIdentityProviderConfigAPI(APIBaseTest):
+    @patch("posthog.api.identity_provider_config.is_url_allowed", return_value=(True, ""))
+    def test_oidc_configuration_keeps_client_secret_private(self, _mock_url_allowed):
+        self._make_admin()
+        self._enable_features(AvailableFeature.OIDC)
+        response = self.client.post(
+            "/api/organizations/@current/identity_provider_configs/",
+            {
+                "config_scope": "oidc",
+                "domain_scope": "all",
+                "oidc_issuer_url": "https://idp.example.com",
+                "oidc_client_id": "example-client",
+                "oidc_client_secret": "example-secret",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.json()["has_oidc"])
+        self.assertTrue(response.json()["has_oidc_client_secret"])
+        self.assertNotIn("oidc_client_secret", response.json())
+        self.assertNotIn("oidc_credentials", response.json())
+        config = IdentityProviderConfig.objects.get(id=response.json()["id"])
+        self.assertEqual(config.oidc_credentials, {"client_secret": "example-secret"})
+        from django.db import connection
+
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT oidc_credentials FROM posthog_identityproviderconfig WHERE id = %s", [config.id])
+            self.assertNotIn("example-secret", str(cursor.fetchone()[0]))
+
+        response = self.client.patch(
+            f"/api/organizations/@current/identity_provider_configs/{config.id}/", {"name": "Renamed provider"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        config.refresh_from_db()
+        self.assertEqual(config.oidc_credentials, {"client_secret": "example-secret"})
+
+        response = self.client.patch(
+            f"/api/organizations/@current/identity_provider_configs/{config.id}/", {"oidc_client_secret": "new-secret"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        config.refresh_from_db()
+        self.assertEqual(config.oidc_credentials, {"client_secret": "new-secret"})
+
+        response = self.client.patch(
+            f"/api/organizations/@current/identity_provider_configs/{config.id}/", {"oidc_client_secret": ""}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["has_oidc"])
+
+    def test_oidc_configuration_requires_its_own_entitlement(self):
+        self._make_admin()
+        self._enable_features(AvailableFeature.SAML)
+        response = self.client.post(
+            "/api/organizations/@current/identity_provider_configs/",
+            {"config_scope": "oidc", "oidc_client_id": "example-client"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "feature_not_available")
+
+    def test_oidc_configuration_rejects_overlapping_verified_domains(self):
+        self._make_admin()
+        self._enable_features(AvailableFeature.OIDC)
+        OrganizationDomain.objects.create(
+            organization=self.organization, domain="example.com", verified_at=timezone.now()
+        )
+        IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            config_scope="oidc",
+            domain_scope="all",
+            oidc_issuer_url="https://idp.example.com",
+            oidc_client_id="example-client",
+            oidc_credentials={"client_secret": "example-secret"},
+        )
+        config = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            config_scope="oidc",
+            domain_scope="all",
+            oidc_issuer_url="https://other.example.com",
+            oidc_client_id="other-client",
+        )
+        response = self.client.patch(
+            f"/api/organizations/@current/identity_provider_configs/{config.id}/",
+            {"oidc_client_secret": "other-secret"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("overlaps", response.json()["detail"])
+
+    def test_oidc_configuration_rejects_insecure_issuer(self):
+        self._make_admin()
+        self._enable_features(AvailableFeature.OIDC)
+        response = self.client.post(
+            "/api/organizations/@current/identity_provider_configs/",
+            {"config_scope": "oidc", "oidc_issuer_url": "http://idp.example.com"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def _make_admin(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

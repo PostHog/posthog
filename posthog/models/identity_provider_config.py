@@ -8,6 +8,7 @@ import structlog
 
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
+from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDModel
 
@@ -40,6 +41,7 @@ def has_verified_organization_domain_q() -> models.Q:
 
 class ConfigScope(models.TextChoices):
     SAML = "saml"
+    OIDC = "oidc"
     SCIM = "scim"
     ID_JAG = (
         "xaa",
@@ -80,6 +82,9 @@ class IdentityProviderConfigQuerySet(models.QuerySet["IdentityProviderConfig"]):
 
     def saml_for_email(self, email: str) -> "IdentityProviderConfigQuerySet":
         return self.for_scope(ConfigScope.SAML).filter(saml_configured_q()).with_verified_domain_for_email(email)
+
+    def oidc_for_email(self, email: str) -> "IdentityProviderConfigQuerySet":
+        return self.filter(config_scope=ConfigScope.OIDC).with_verified_domain_for_email(email)
 
 
 class IdentityProviderConfigManager(models.Manager["IdentityProviderConfig"]):
@@ -137,6 +142,12 @@ class IdentityProviderConfigManager(models.Manager["IdentityProviderConfig"]):
         configs = self.get_queryset().saml_for_email(email).select_related("organization")
         return any(config.organization.is_feature_available(AvailableFeature.SAML) for config in configs)
 
+    def get_is_oidc_available_for_email(self, email: str) -> bool:
+        configs = self.get_queryset().oidc_for_email(email).select_related("organization")
+        return any(
+            config.has_oidc and config.organization.is_feature_available(AvailableFeature.OIDC) for config in configs
+        )
+
 
 class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     """
@@ -173,6 +184,9 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     saml_entity_id = models.CharField(max_length=512, blank=True, null=True)
     saml_acs_url = models.CharField(max_length=512, blank=True, null=True)
     saml_x509_cert = models.TextField(blank=True, null=True)
+    oidc_issuer_url = models.URLField(max_length=512, blank=True, default="", db_default="")
+    oidc_client_id = models.CharField(max_length=512, blank=True, default="", db_default="")
+    oidc_credentials = EncryptedJSONField(default=dict, blank=True, null=True)
     # Round-trips through the IdP as RelayState to route an assertion back to this config, and is
     # also the prefix of every `UserSocialAuth.uid` issued through it. Changing the value on a
     # config already in use orphans those identities, so it is assigned once and never edited.
@@ -242,6 +256,19 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
         if self.applies_to_all_domains:
             return domains
         return domains.filter(linked_identity_provider_configs__identity_provider_config=self)
+
+    @property
+    def has_oidc_client_secret(self) -> bool:
+        return bool((self.oidc_credentials or {}).get("client_secret"))
+
+    @property
+    def has_oidc(self) -> bool:
+        return (
+            self.config_scope == ConfigScope.OIDC
+            and bool(self.oidc_issuer_url)
+            and bool(self.oidc_client_id)
+            and self.has_oidc_client_secret
+        )
 
     @property
     def has_saml(self) -> bool:

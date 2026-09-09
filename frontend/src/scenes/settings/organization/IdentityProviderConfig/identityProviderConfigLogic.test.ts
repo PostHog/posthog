@@ -33,6 +33,8 @@ const CREATED_CONFIG: IdentityProviderConfigApi = {
     created_at: '2026-08-01T00:00:00Z',
     updated_at: '2026-08-01T00:00:00Z',
     has_saml: true,
+    has_oidc: false,
+    has_oidc_client_secret: false,
     saml_relay_state: '0198bbbb-0000-4000-8000-000000000001',
     saml_entity_id: 'entity-id',
     saml_acs_url: 'https://idp.example.com/sso',
@@ -44,6 +46,60 @@ const CREATED_CONFIG: IdentityProviderConfigApi = {
 }
 
 describe('identityProviderConfigLogic', () => {
+    it('saves OIDC settings and clears the secret from the form', async () => {
+        let requestBody: Record<string, unknown> | undefined
+        const oidcConfig = {
+            ...CREATED_CONFIG,
+            config_scope: ConfigScopeEnumApi.Oidc,
+            oidc_issuer_url: 'https://idp.example.com',
+            oidc_client_id: 'example-client',
+            has_oidc: true,
+            has_oidc_client_secret: true,
+        }
+        useMocks({
+            get: {
+                '/api/organizations/:organization/domains': { count: 0, next: null, previous: null, results: [] },
+            },
+            post: {
+                '/api/organizations/:organization/identity_provider_configs': async ({ request }) => {
+                    requestBody = (await request.json()) as Record<string, unknown>
+                    return [201, oidcConfig]
+                },
+            },
+            patch: {
+                '/api/organizations/:organization/identity_provider_configs/:configId': async ({ request }) => {
+                    requestBody = (await request.json()) as Record<string, unknown>
+                    return [200, oidcConfig]
+                },
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSO_SETTINGS_REDESIGN], {
+            [FEATURE_FLAGS.SSO_SETTINGS_REDESIGN]: true,
+        })
+        const logic = identityProviderConfigLogic({ configScope: ConfigScopeEnumApi.Oidc, configId: 'new' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setIdentityProviderConfigFormValues({
+            oidc_issuer_url: ' https://idp.example.com ',
+            oidc_client_id: ' example-client ',
+            oidc_client_secret: 'example-secret',
+        })
+        logic.actions.submitIdentityProviderConfigForm()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(requestBody).toMatchObject({
+            config_scope: ConfigScopeEnumApi.Oidc,
+            oidc_issuer_url: 'https://idp.example.com',
+            oidc_client_id: 'example-client',
+            oidc_client_secret: 'example-secret',
+        })
+        expect(logic.values.identityProviderConfigForm.oidc_client_secret).toBe('')
+        expect(logic.values.identityProviderConfigFormChanged).toBe(false)
+        logic.actions.setIdentityProviderConfigFormValues({ name: 'Updated provider' })
+        logic.actions.submitIdentityProviderConfigForm()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(requestBody).not.toHaveProperty('oidc_client_secret')
+    })
     it('loads every page of organization domains', async () => {
         const requestedOffsets: string[] = []
         const firstPageDomains = Array.from({ length: 100 }, (_, index) => makeDomain(`domain-${index}`))

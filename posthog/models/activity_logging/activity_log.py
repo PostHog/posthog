@@ -316,6 +316,7 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     ],
     "IdentityProviderConfig": [
         "scim_bearer_token",
+        "oidc_credentials",
         "saml_x509_cert",
     ],
     "User": [

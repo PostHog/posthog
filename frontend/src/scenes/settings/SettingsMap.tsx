@@ -1929,6 +1929,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['sso', 'saml', 'single sign-on', 'identity provider'],
             },
             {
+                id: 'oidc-configuration',
+                title: 'OpenID Connect single sign-on',
+                description: 'Authenticate members through your identity provider with OpenID Connect (OIDC).',
+                component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Oidc} />,
+                flag: 'SSO_SETTINGS_REDESIGN',
+                keywords: ['sso', 'oidc', 'openid connect', 'single sign-on', 'identity provider'],
+            },
+            {
                 id: 'scim-configuration',
                 title: 'SCIM provisioning',
                 description:

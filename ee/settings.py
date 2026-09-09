@@ -12,6 +12,7 @@ from posthog.utils import str_to_bool
 AUTHENTICATION_BACKENDS = [
     *AUTHENTICATION_BACKENDS,
     "ee.api.authentication.MultitenantSAMLAuth",
+    "ee.api.oidc.MultitenantOIDCAuth",
     "ee.api.authentication.CustomGoogleOAuth2",
 ]
 

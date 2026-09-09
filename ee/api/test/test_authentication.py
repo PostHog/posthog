@@ -7,19 +7,23 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import pytest
 from freezegun.api import freeze_time
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core import mail
 from django.core.exceptions import ValidationError
 from django.shortcuts import redirect
-from django.test import override_settings
+from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
+import jwt
+from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
+from requests import Response
 from rest_framework import status
-from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter
+from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter, AuthTokenError
 from social_django.models import UserSocialAuth
+from social_django.utils import load_strategy
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
@@ -29,6 +33,7 @@ from posthog.models.linked_identity_provider_config import LinkedIdentityProvide
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.authentication import CustomGoogleOAuth2, MultitenantSAMLAuth
+from ee.api.oidc import MultitenantOIDCAuth
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
 
@@ -52,6 +57,226 @@ GITHUB_MOCK_SETTINGS = {
 }
 
 CURRENT_FOLDER = os.path.dirname(__file__)
+
+
+class TestOIDCAuthentication(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.OIDC, "name": "OIDC"},
+            {"key": AvailableFeature.SSO_ENFORCEMENT, "name": "SSO enforcement"},
+        ]
+        self.organization.save()
+        self.domain = OrganizationDomain.objects.create(
+            organization=self.organization, domain="example.com", verified_at=timezone.now()
+        )
+        self.config = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            config_scope="oidc",
+            domain_scope="all",
+            oidc_issuer_url="https://idp.example.com",
+            oidc_client_id="example-client",
+            oidc_credentials={"client_secret": "example-secret"},
+        )
+        request = RequestFactory().get("/login/oidc/", {"email": "member@example.com"})
+        request.session = self.client.session
+        request.session["oidc_config_id"] = str(self.config.id)
+        self.backend = MultitenantOIDCAuth(load_strategy(request), "https://app.example.com/complete/oidc/")
+
+    @parameterized.expand(
+        [
+            ("valid", None),
+            ("issuer", {"iss": "https://other.example.com"}),
+            ("audience", {"aud": "other-client"}),
+            ("expired", {"exp": 1}),
+            ("nonce", {"nonce": "wrong-nonce"}),
+            ("authorized_party", {"azp": "other-client"}),
+            ("multiple_audiences", {"aud": ["example-client", "other-client"]}),
+        ]
+    )
+    def test_oidc_validates_signed_id_token(self, _name, overrides):
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        public_key = {**json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(private_key.public_key())), "kid": "example-key"}
+        discovery = {
+            "issuer": self.config.oidc_issuer_url,
+            "authorization_endpoint": "https://idp.example.com/authorize",
+            "token_endpoint": "https://idp.example.com/token",
+            "jwks_uri": "https://idp.example.com/keys",
+        }
+        with patch.object(self.backend, "get_json", return_value=discovery):
+            nonce = parse_qs(urlparse(self.backend.auth_url()).query)["nonce"][0]
+        claims = {
+            "iss": self.config.oidc_issuer_url,
+            "aud": "example-client",
+            "sub": "example-user",
+            "iat": int(timezone.now().timestamp()),
+            "exp": int(timezone.now().timestamp()) + 60,
+            "nonce": nonce,
+            **(overrides or {}),
+        }
+        token = jwt.encode(claims, private_key, algorithm="RS256", headers={"kid": "example-key"})
+        with patch.object(self.backend, "get_jwks_keys", return_value=[public_key]):
+            if overrides:
+                with self.assertRaises(AuthTokenError):
+                    self.backend.validate_and_return_id_token(token, "example-access-token")
+            else:
+                self.assertEqual(self.backend.validate_and_return_id_token(token, "example-access-token"), claims)
+                with self.assertRaises(AuthTokenError):
+                    self.backend.validate_and_return_id_token(token, "example-access-token")
+
+    def test_oidc_login_completes_without_storing_tokens(self):
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        public_key = {**json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(private_key.public_key())), "kid": "example-key"}
+        token_response: dict[str, Any] = {}
+
+        def oidc_response(url, method="GET", *args, **kwargs):
+            response = Response()
+            response.status_code = 200
+            if url.endswith("/.well-known/openid-configuration"):
+                data = {
+                    "issuer": self.config.oidc_issuer_url,
+                    "authorization_endpoint": "https://idp.example.com/authorize",
+                    "token_endpoint": "https://idp.example.com/token",
+                    "jwks_uri": "https://idp.example.com/keys",
+                }
+            elif url.endswith("/keys"):
+                data = {"keys": [public_key]}
+            else:
+                self.assertEqual(url, "https://idp.example.com/token")
+                self.assertEqual(method, "POST")
+                self.assertIn("code_verifier", kwargs["data"])
+                data = token_response
+            response._content = json.dumps(data).encode()
+            return response
+
+        with patch.object(MultitenantOIDCAuth, "request", side_effect=oidc_response):
+            response = self.client.get("/login/oidc/", {"email": self.user.email})
+            self.assertEqual(response.status_code, 302)
+            params = parse_qs(urlparse(response["Location"]).query)
+            claims = {
+                "iss": self.config.oidc_issuer_url,
+                "aud": "example-client",
+                "sub": "example-user",
+                "email": self.user.email,
+                "email_verified": True,
+                "name": "Example User",
+                "iat": int(timezone.now().timestamp()),
+                "exp": int(timezone.now().timestamp()) + 60,
+                "nonce": params["nonce"][0],
+            }
+            token_response.update(
+                {
+                    "access_token": "example-access-token",
+                    "token_type": "Bearer",
+                    "id_token": jwt.encode(claims, private_key, algorithm="RS256", headers={"kid": "example-key"}),
+                }
+            )
+            response = self.client.get("/complete/oidc/", {"state": params["state"][0], "code": "example-code"})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
+        social_auth = UserSocialAuth.objects.get(user=self.user, provider="oidc")
+        self.assertEqual(social_auth.uid, f"{self.config.id}:example-user")
+        self.assertEqual(social_auth.extra_data, {})
+
+    def test_oidc_redirect_uses_pkce_and_tenant_client(self):
+        with patch.object(
+            self.backend,
+            "get_json",
+            return_value={
+                "issuer": self.config.oidc_issuer_url,
+                "authorization_endpoint": "https://idp.example.com/authorize",
+                "token_endpoint": "https://idp.example.com/token",
+                "jwks_uri": "https://idp.example.com/keys",
+            },
+        ):
+            params = parse_qs(urlparse(self.backend.auth_url()).query)
+        self.assertEqual(params["client_id"], ["example-client"])
+        self.assertEqual(params["code_challenge_method"], ["S256"])
+        self.assertEqual(params["scope"], ["openid profile email"])
+        self.assertTrue(params["state"])
+        self.assertTrue(params["nonce"])
+
+    @parameterized.expand([("missing", None), ("false", False), ("string", "true")])
+    def test_oidc_requires_verified_email(self, _name, email_verified):
+        self.backend.id_token = {"sub": "example-user", "email": "member@example.com", "email_verified": email_verified}
+        with self.assertRaises(AuthFailed):
+            self.backend.user_data("example-access-token")
+
+    def test_oidc_rejects_another_domain(self):
+        self.backend.id_token = {"sub": "example-user", "email": "member@other.example", "email_verified": True}
+        with self.assertRaises(AuthFailed):
+            self.backend.user_data("example-access-token")
+
+    def test_oidc_accepts_verified_email_and_scopes_subject_to_config(self):
+        self.backend.id_token = {"sub": "example-user", "email": "member@example.com", "email_verified": True}
+        response = self.backend.user_data("example-access-token")
+        self.assertEqual(self.backend.get_user_id({}, response), f"{self.config.id}:example-user")
+        self.assertEqual(self.backend.extra_data(None, "uid", response, {}), {})
+
+    def test_oidc_rejects_removed_entitlement(self):
+        self.organization.available_product_features = []
+        self.organization.save()
+        with self.assertRaises(AuthFailed):
+            self.backend.get_key_and_secret()
+
+    def test_oidc_rejects_unverified_domain(self):
+        self.domain.verified_at = None
+        self.domain.save()
+        with self.assertRaises(AuthFailed):
+            self.backend.auth_url()
+
+    def test_oidc_rejects_overlapping_configurations(self):
+        self.config.pk = uuid.uuid4()
+        self.config.saml_relay_state = str(uuid.uuid4())
+        self.config.scim_slug = str(uuid.uuid4())
+        self.config.save()
+        with self.assertRaises(AuthFailed):
+            self.backend.auth_url()
+
+    def test_oidc_checks_discovery_issuer(self):
+        with patch.object(self.backend, "get_json", return_value={"issuer": "https://other.example.com"}):
+            with self.assertRaises(AuthFailed):
+                self.backend.oidc_config()
+
+    def test_oidc_does_not_share_discovery_between_tenants(self):
+        other_backend = MultitenantOIDCAuth(self.backend.strategy, self.backend.redirect_uri)
+        other_config = MagicMock(oidc_issuer_url="https://other.example.com")
+        other_backend.identity_provider_config = other_config
+        for backend, issuer in [
+            (self.backend, self.config.oidc_issuer_url),
+            (other_backend, other_config.oidc_issuer_url),
+        ]:
+            with patch.object(
+                backend,
+                "get_json",
+                return_value={
+                    "issuer": issuer,
+                    "authorization_endpoint": f"{issuer}/authorize",
+                    "token_endpoint": f"{issuer}/token",
+                    "jwks_uri": f"{issuer}/keys",
+                },
+            ) as get_json:
+                self.assertEqual(backend.oidc_config()["issuer"], issuer)
+                get_json.assert_called_once_with(f"{issuer}/.well-known/openid-configuration")
+
+    def test_oidc_enforcement_checks_entitlement(self):
+        self.domain.sso_enforcement = "oidc"
+        self.domain.save()
+        self.assertEqual(OrganizationDomain.objects.get_sso_enforcement_for_email_address("member@example.com"), "oidc")
+        self.organization.available_product_features = [{"key": AvailableFeature.SSO_ENFORCEMENT}]
+        self.organization.save()
+        self.assertIsNone(OrganizationDomain.objects.get_sso_enforcement_for_email_address("member@example.com"))
+
+    def test_oidc_precheck_requires_configured_and_licensed_provider(self):
+        response = self.client.post("/api/login/precheck", {"email": "member@example.com"})
+        self.assertTrue(response.json()["oidc_available"])
+        self.config.oidc_credentials = {}
+        self.config.save()
+        response = self.client.post("/api/login/precheck", {"email": "member@example.com"})
+        self.assertFalse(response.json().get("oidc_available", False))
 
 
 class TestEELoginPrecheckAPI(APILicensedTest):

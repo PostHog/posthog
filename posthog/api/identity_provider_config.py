@@ -67,6 +67,20 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
         help_text="Allowed ID-JAG client IDs. Empty list allows any client_id.",
     )
     has_saml = serializers.BooleanField(read_only=True, help_text="Whether SAML is fully configured on this config.")
+    has_oidc = serializers.BooleanField(
+        read_only=True, help_text="Whether OIDC has an issuer, client ID, and client secret."
+    )
+    has_oidc_client_secret = serializers.BooleanField(
+        read_only=True, help_text="Whether an encrypted OIDC client secret is saved."
+    )
+    oidc_client_secret = serializers.CharField(
+        required=False,
+        write_only=True,
+        allow_blank=True,
+        max_length=4096,
+        trim_whitespace=False,
+        help_text="OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.",
+    )
     has_scim = serializers.BooleanField(
         read_only=True, help_text="Whether SCIM is enabled and a bearer token is set on this config."
     )
@@ -95,6 +109,11 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "has_saml",
+            "has_oidc",
+            "has_oidc_client_secret",
+            "oidc_issuer_url",
+            "oidc_client_id",
+            "oidc_client_secret",
             "saml_relay_state",
             "saml_entity_id",
             "saml_acs_url",
@@ -109,6 +128,10 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
             "id_jag_allowed_clients",
         )
         extra_kwargs = {
+            "oidc_issuer_url": {
+                "help_text": "HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document."
+            },
+            "oidc_client_id": {"help_text": "Client ID of the organization's OIDC application."},
             "name": {"help_text": "Display name for this IdP configuration (e.g. 'Okta production')."},
             "domain_scope": {
                 "required": False,
@@ -182,11 +205,34 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
     def validate_id_jag_issuer_url(self, value: str | None) -> str | None:
         return self._validate_id_jag_url(value)
 
+    def validate_oidc_issuer_url(self, value: str) -> str:
+        from urllib.parse import urlsplit
+
+        normalized = value.strip()
+        if normalized:
+            parsed = urlsplit(normalized)
+            if parsed.scheme != "https" or parsed.query or parsed.fragment or parsed.username or parsed.password:
+                raise serializers.ValidationError(
+                    "Use an HTTPS issuer URL without credentials, a query, or a fragment."
+                )
+            allowed, reason = is_url_allowed(normalized)
+            if not allowed:
+                raise serializers.ValidationError(f"URL is not allowed: {reason}")
+        return normalized
+
     def validate_id_jag_jwks_url(self, value: str | None) -> str | None:
         return self._validate_id_jag_url(value)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         organization: Organization = self.context["view"].organization
+
+        if any(attrs.get(field) for field in ("oidc_issuer_url", "oidc_client_id", "oidc_client_secret")):
+            if not organization.is_feature_available(AvailableFeature.OIDC):
+                raise serializers.ValidationError(
+                    {"oidc_issuer_url": "OIDC is not available for this organization."}, code="feature_not_available"
+                )
+            if attrs.get("config_scope", getattr(self.instance, "config_scope", None)) != ConfigScope.OIDC:
+                raise serializers.ValidationError({"config_scope": "Use an OIDC configuration for OIDC settings."})
 
         if attrs.get("scim_enabled") is not None and not organization.is_feature_available(AvailableFeature.SCIM):
             raise serializers.ValidationError(
@@ -203,11 +249,15 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
             )
 
         instance = cast(IdentityProviderConfig | None, self.instance)
-        saml_values = {
-            field: attrs.get(field, getattr(instance, field, None))
-            for field in ("saml_entity_id", "saml_acs_url", "saml_x509_cert")
-        }
-        if not all(saml_values.values()):
+        is_oidc = attrs.get("config_scope", getattr(instance, "config_scope", None)) == ConfigScope.OIDC
+        config_fields = (
+            ("oidc_issuer_url", "oidc_client_id") if is_oidc else ("saml_entity_id", "saml_acs_url", "saml_x509_cert")
+        )
+        if not all(attrs.get(field, getattr(instance, field, None)) for field in config_fields):
+            return attrs
+        if is_oidc and not attrs.get(
+            "oidc_client_secret", ((instance.oidc_credentials or {}) if instance else {}).get("client_secret")
+        ):
             return attrs
 
         organization_domains = attrs.get("organization_domains")
@@ -221,19 +271,29 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
             proposed_domain_ids = {domain.id for domain in organization_domains if domain.verified_at is not None}
 
         domain_scope = attrs.get("domain_scope", getattr(instance, "domain_scope", None))
-        other_saml_configs = IdentityProviderConfig.objects.filter(
-            saml_configured_q(), organization=organization
-        ).filter(Q(config_scope=ConfigScope.SAML) | Q(config_scope__isnull=True))
+        if is_oidc:
+            configured_ids = [
+                config.id
+                for config in IdentityProviderConfig.objects.filter(
+                    organization=organization, config_scope=ConfigScope.OIDC
+                )
+                if config.has_oidc
+            ]
+            other_auth_configs = IdentityProviderConfig.objects.filter(organization=organization, id__in=configured_ids)
+        else:
+            other_auth_configs = IdentityProviderConfig.objects.filter(
+                saml_configured_q(), organization=organization
+            ).filter(Q(config_scope=ConfigScope.SAML) | Q(config_scope__isnull=True))
         if instance:
-            other_saml_configs = other_saml_configs.exclude(pk=instance.pk)
+            other_auth_configs = other_auth_configs.exclude(pk=instance.pk)
 
         if domain_scope == DomainScope.ALL:
-            has_overlap = other_saml_configs.filter(
+            has_overlap = other_auth_configs.filter(
                 Q(organization__domains__verified_at__isnull=False)
                 | Q(linked_identity_provider_configs__organization_domain__verified_at__isnull=False)
             ).exists()
         elif proposed_domain_ids:
-            has_overlap = other_saml_configs.filter(
+            has_overlap = other_auth_configs.filter(
                 Q(
                     domain_scope=DomainScope.ALL,
                     organization__domains__id__in=proposed_domain_ids,
@@ -248,9 +308,10 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
             has_overlap = False
 
         if has_overlap:
+            protocol = "OIDC" if is_oidc else "SAML"
             raise serializers.ValidationError(
                 {
-                    "domain_scope": "This SAML configuration overlaps with another SAML configuration on one or more verified domains. Choose different domains before saving."
+                    "domain_scope": f"This {protocol} configuration overlaps with another {protocol} configuration on one or more verified domains. Choose different domains before saving."
                 }
             )
 
@@ -274,6 +335,8 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def create(self, validated_data: dict[str, Any]) -> IdentityProviderConfig:
         validated_data["organization"] = self.context["view"].organization
+        if "oidc_client_secret" in validated_data:
+            validated_data["oidc_credentials"] = {"client_secret": validated_data.pop("oidc_client_secret")}
         scim_enabled = validated_data.pop("scim_enabled", None)
         organization_domains = validated_data.pop("organization_domains", [])
         validated_data.pop("scim_bearer_token", None)
@@ -288,6 +351,8 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def update(self, instance: IdentityProviderConfig, validated_data: dict[str, Any]) -> IdentityProviderConfig:
+        if "oidc_client_secret" in validated_data:
+            validated_data["oidc_credentials"] = {"client_secret": validated_data.pop("oidc_client_secret")}
         scim_enabled = validated_data.pop("scim_enabled", None)
         organization_domains = validated_data.pop("organization_domains", None)
         validated_data.pop("scim_bearer_token", None)

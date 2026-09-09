@@ -87,6 +87,9 @@ class OrganizationDomainManager(models.Manager):
                     organization=str(query["organization_id"]),
                 )
                 return None
+        elif candidate_sso_enforcement == "oidc":
+            if AvailableFeature.OIDC not in available_product_feature_keys:
+                return None
         else:
             sso_providers = get_instance_available_sso_providers()
             if not sso_providers[candidate_sso_enforcement]:

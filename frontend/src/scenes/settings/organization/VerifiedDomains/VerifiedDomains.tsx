@@ -109,6 +109,7 @@ function VerifiedDomainsTable(): JSX.Element {
         updatingDomainLoading,
         isSSOEnforcementAvailable,
         isSAMLAvailable,
+        isOIDCAvailable,
         isSCIMAvailable,
         isXAAAuthenticationAvailable,
         ownVerifiedDomain,
@@ -217,6 +218,11 @@ function VerifiedDomainsTable(): JSX.Element {
                         loading={updatingDomainLoading}
                         onChange={(val) => updateDomain({ id, sso_enforcement: val })}
                         samlAvailable={hasSaml}
+                        oidcAvailable={Boolean(
+                            isOIDCAvailable &&
+                            getIdentityProviderConfigForDomain(identityProviderConfigs, id, ConfigScopeEnumApi.Oidc)
+                                ?.has_oidc
+                        )}
                         disabledReason={restrictionReason}
                     />
                 )
@@ -235,6 +241,11 @@ function VerifiedDomainsTable(): JSX.Element {
                     identityProviderConfigs,
                     id,
                     ConfigScopeEnumApi.Scim
+                )
+                const oidcConfig = getIdentityProviderConfigForDomain(
+                    identityProviderConfigs,
+                    id,
+                    ConfigScopeEnumApi.Oidc
                 )
                 const idJagConfig = getIdentityProviderConfigForDomain(
                     identityProviderConfigs,
@@ -276,6 +287,27 @@ function VerifiedDomainsTable(): JSX.Element {
                         />
                     )
                 }
+
+                badges.push(
+                    <IntegrationBadge
+                        key="oidc"
+                        label="OIDC"
+                        type={isOIDCAvailable && oidcConfig?.has_oidc ? 'success' : 'muted'}
+                        icon={<IconLock />}
+                        tooltip={
+                            !isOIDCAvailable
+                                ? 'Upgrade your plan to enable OIDC'
+                                : oidcConfig?.has_oidc
+                                  ? 'OIDC is enabled'
+                                  : 'OIDC is not enabled'
+                        }
+                        to={
+                            !isOIDCAvailable
+                                ? billingLink
+                                : urls.identityProviderConfig(ConfigScopeEnumApi.Oidc, oidcConfig?.id ?? 'new')
+                        }
+                    />
+                )
 
                 if (!isSCIMAvailable) {
                     badges.push(

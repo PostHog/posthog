@@ -40,6 +40,7 @@ export interface AuthenticateResponseType {
 export interface PrecheckResponseType {
     sso_enforcement?: SSOProvider | null
     saml_available: boolean
+    oidc_available?: boolean
     status: 'pending' | 'completed'
     webauthn_credentials?: PublicKeyCredentialDescriptorJSON[]
     /**
@@ -540,6 +541,9 @@ export const loginLogic = kea<loginLogicType>([
                 }
                 if (precheckResponse.saml_available && !methods.includes('saml')) {
                     methods.push('saml')
+                }
+                if (precheckResponse.oidc_available && !methods.includes('oidc')) {
+                    methods.push('oidc')
                 }
                 if (precheckResponse.webauthn_credentials?.length) {
                     methods.push('passkey')
