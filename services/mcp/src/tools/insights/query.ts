@@ -14,11 +14,9 @@ type Params = z.infer<typeof schema>
 
 type Result = WithPostHogUrl<{
     query: unknown
-    // Identity and link only. The rest of the serialized insight repeats what this
-    // response already carries: its own `query` mirrors the top-level `query`, and
-    // `result` / `columns` / `types` / `hogql` are a cached copy of the result set,
-    // next to the `results` the UI app renders and the formatted table the model
-    // reads. `dashboard-get` prunes the same fields.
+    // Identity and link only. The rest of the serializer's roster repeats what this
+    // response already carries: `query` mirrors the top-level `query`, and `result` /
+    // `columns` / `types` / `hogql` duplicate the result set. `dashboard-get` prunes the same.
     insight: { id: number; short_id: string; name: string | null | undefined; url: string }
     results: unknown
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
