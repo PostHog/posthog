@@ -5,6 +5,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { parseURLFilters, parseURLVariables } from 'scenes/dashboard/dashboardUtils'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -12,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
+import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, HogQLVariable, InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
@@ -169,6 +171,67 @@ describe('insightSceneLogic', () => {
             .toMatchValues({
                 hashParams: partial({ q: JSON.stringify(dataTableQuery) }),
             })
+    })
+
+    describe('a settling scene must not take the drill-down query away', () => {
+        // The persons modal's "Open as new insight" carries its table query in `#q=`. Whatever the
+        // scene emits while it settles, the user keeps seeing the table they asked for. Each case
+        // asserts the rendered query as well as the hash, because a hash that survives on its own
+        // leaves the screen on a trends chart and the url disagreeing with it.
+        const drillDownQuery = {
+            kind: NodeKind.DataTableNode,
+            source: { kind: NodeKind.ActorsQuery, select: ['person'] },
+            full: true,
+        }
+
+        const openDrillDown = async (): Promise<ReturnType<typeof insightDataLogic.build>> => {
+            router.actions.push(urls.insightNew({ query: drillDownQuery as any }))
+            logic = insightSceneLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const sceneParams = { params: {}, searchParams: {}, hashParams: {} }
+            sceneLogic.actions.setExportedScene(
+                { logic: insightSceneLogic, component: () => null as any },
+                Scene.Insight,
+                'insightNew',
+                sceneParams
+            )
+            sceneLogic.actions.setScene(Scene.Insight, 'insightNew', sceneParams, false)
+
+            return logic.values.insightDataLogicRef!.logic as ReturnType<typeof insightDataLogic.build>
+        }
+
+        it.each([
+            ['an unedited default query', () => getDefaultQuery(InsightType.TRENDS, false)],
+            ['a null query', () => null],
+        ])('keeps the table on screen and in the url when the scene emits %s', async (_label, makeQuery) => {
+            const dataLogic = await openDrillDown()
+
+            dataLogic.actions.setQuery(makeQuery())
+            await expectLogic(dataLogic).toFinishAllListeners()
+
+            expect(dataLogic.values.query).toEqual(drillDownQuery)
+            await expectLogic(router)
+                .delay(1)
+                .toMatchValues({ hashParams: partial({ q: JSON.stringify(drillDownQuery) }) })
+        })
+
+        it('still follows the user when they edit the drill-down query', async () => {
+            const dataLogic = await openDrillDown()
+
+            const editedQuery = {
+                ...drillDownQuery,
+                source: { kind: NodeKind.ActorsQuery, select: ['person', 'created_at'] },
+            }
+            dataLogic.actions.setQuery(editedQuery)
+            await expectLogic(dataLogic).toFinishAllListeners()
+
+            expect(dataLogic.values.query).toEqual(editedQuery)
+            await expectLogic(router)
+                .delay(1)
+                .toMatchValues({ hashParams: partial({ q: editedQuery }) })
+        })
     })
 
     it('tags a DataTableNode drill-down query on cold load via the upgrade path', async () => {

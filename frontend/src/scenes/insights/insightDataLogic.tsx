@@ -97,8 +97,28 @@ import { insightDataTimingLogic } from './insightDataTimingLogic'
 import { insightLogic } from './insightLogic'
 import { insightSceneLogic } from './insightSceneLogic'
 import { insightUsageLogic } from './insightUsageLogic'
-import { crushDraftQueryForLocalStorage, isQueryTooLarge } from './utils'
+import { crushDraftQueryForLocalStorage, isQueryTooLarge, parseDraftQueryFromURL } from './utils'
 import { compareQuery, isDraftQueryWorthSaving } from './utils/queryUtils'
+
+// A persons-modal drill-down opens `/insights/new` with its own query in the `#q=` hash. The scene
+// goes on settling after that query is applied, and can emit an unedited default query, or a null
+// one. Either one costs the user the drill-down twice: it replaces the table on screen, and it
+// overwrites or strips the hash, so a reload or a later `/insights/new` navigation builds the stock
+// trends insight instead. So the query the URL carries stays authoritative until the user edits it.
+// Returns that query when the incoming one must not replace it, and null when it may proceed.
+function urlQueryToKeep(
+    nextQuery: Node | null,
+    hashParams: Record<string, any>,
+    insightId: InsightShortId | 'new' | null | undefined,
+    queryChanged: boolean
+): Node | null {
+    // Only a user edit displaces the URL query. A null query carries nothing to sync at all.
+    if (insightId !== 'new' || (nextQuery && queryChanged)) {
+        return null
+    }
+    const urlQuery = typeof hashParams.q === 'string' ? parseDraftQueryFromURL(hashParams.q) : (hashParams.q ?? null)
+    return urlQuery && !objectsEqual(urlQuery, nextQuery) ? (urlQuery as Node) : null
+}
 
 export const isInsightSceneInstance = (props: InsightLogicProps): boolean =>
     sceneLogic.values.activeSceneId === Scene.Insight &&
@@ -1001,6 +1021,16 @@ export const insightDataLogic = kea<insightDataLogicType>([
             if (isInsightSceneInstance(props)) {
                 const insightId = insightSceneLogic.findMounted()?.values.insightId
                 const { pathname, searchParams, hashParams } = router.values.currentLocation
+
+                const urlQuery = urlQueryToKeep(query, hashParams, insightId, values.queryChanged)
+                if (urlQuery) {
+                    // The `internalQuery` reducer runs before this listener, so it already holds the
+                    // incoming query and outranks `insight.query` in the `query` selector. Restore
+                    // the drill-down through syncQueryFromProps, which does not re-enter here.
+                    actions.syncQueryFromProps(urlQuery)
+                    return
+                }
+
                 if (query && (values.queryChanged || insightId === 'new')) {
                     const { insight: _, ...hash } = hashParams // remove existing /new#insight=TRENDS param
                     router.actions.replace(pathname, searchParams, {
