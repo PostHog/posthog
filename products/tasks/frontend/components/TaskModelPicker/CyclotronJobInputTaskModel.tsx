@@ -54,9 +54,7 @@ export default function CyclotronJobInputTaskModel({ value, onChange }: CustomIn
                     value={selected.reasoning_effort ?? null}
                     options={efforts.map((effort) => ({ value: effort, label: effort }))}
                     onChange={(effort) =>
-                        onChange(
-                            effort ? { model: selectedModel, reasoning_effort: effort } : { model: selectedModel }
-                        )
+                        onChange(effort ? { model: selectedModel, reasoning_effort: effort } : { model: selectedModel })
                     }
                     data-attr="task-model-picker-effort"
                 />

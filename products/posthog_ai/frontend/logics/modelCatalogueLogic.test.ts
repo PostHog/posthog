@@ -14,10 +14,7 @@ describe('modelCatalogueLogic', () => {
 
     function mountWithFlags(flags: string[]): void {
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags(
-            flags,
-            Object.fromEntries(flags.map((flag) => [flag, true]))
-        )
+        featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
         logic = modelCatalogueLogic()
         logic.mount()
     }

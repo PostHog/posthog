@@ -67,13 +67,15 @@ describe('composerModels', () => {
         const bare = qualified.split('/')[1]
         expect(getModelLabel(CATALOGUE, qualified)).toBe(expectedLabel)
         expect(getEffortsForModel(CATALOGUE, qualified)).toEqual(getEffortsForModel(CATALOGUE, bare))
-        expect(buildRunCreateRequest(
-            CATALOGUE,
-            qualified,
-            ReasoningEffortEnumApi.High,
-            InitialPermissionModeEnumApi.Auto as PermissionMode,
-            {}
-        )).toMatchObject({ runtime_adapter: getRuntimeAdapterForModel(CATALOGUE, bare) })
+        expect(
+            buildRunCreateRequest(
+                CATALOGUE,
+                qualified,
+                ReasoningEffortEnumApi.High,
+                InitialPermissionModeEnumApi.Auto as PermissionMode,
+                {}
+            )
+        ).toMatchObject({ runtime_adapter: getRuntimeAdapterForModel(CATALOGUE, bare) })
     })
 
     // A model absent from the catalogue (still loading, or retired from the gateway) must still produce a
