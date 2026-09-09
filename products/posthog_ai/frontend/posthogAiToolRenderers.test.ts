@@ -1,10 +1,11 @@
-import { toolRegistry } from '../components/tool/toolRegistry'
+import { toolRegistry } from './components/tool/toolRegistry'
 
 describe('posthogAiToolRenderers', () => {
     it.each([
         ['insight-create', 'Insight'],
         ['insight-update', 'Insight'],
         ['insight-get', 'Insight'],
+        ['insight-query', 'Insight query'],
         ['create_insight', 'Insight'],
         ['dashboard-create', 'Dashboard'],
         ['upsert_dashboard', 'Dashboard'],

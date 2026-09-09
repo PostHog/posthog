@@ -95,8 +95,12 @@ It must stay **free of the Max scene and conversation orchestration**. Do not im
 - `runStreamLogic` keys on a generic `streamKey` (conversation id for Max, run/task id for a task
   viewer). Keep it generic — no Max-specific branching.
 - **Tool declarations load through the central manifest.** `frontend/src/posthogAiToolRenderers.ts` imports
-  lightweight product lists directly, with one import and spread per product. Data widgets stay in
-  `components/tool/widgets/`; `api/posthogAiToolRenderers.tsx` declares their keys, metadata, and lazy factories.
+  lightweight product lists directly, with one import and spread per product. Insights, dashboards, recordings,
+  notebooks, and query widgets live in `components/tool/widgets/`; the frontend-root `posthogAiToolRenderers.tsx`
+  declares their keys, metadata, and lazy factories. Error tracking owns its widget family and declaration
+  list under `products/error_tracking/frontend/`; replay vision owns its scan widget and polling logic
+  under `products/replay_vision/frontend/posthogAi/`. Product adapters use the public `api/tools` contract
+  and shared helpers. Products may depend on shared frontend code; product internals stay with their owner.
   CDP owns `products/cdp/frontend/posthogAiToolRenderers.tsx` and its lazy permission preview component.
   Declaration modules use type-only contract imports from `api/tools`, never runtime facade imports,
   scenes, or broad component barrels. The registry initializes once from built-ins and the manifest;
@@ -106,8 +110,8 @@ It must stay **free of the Max scene and conversation orchestration**. Do not im
   mounted state is unavailable, mismatched, or unchanged. It must not mount or fetch the product scene.
   `PermissionInput` isolates lazy loading and rendering errors with evidence fallbacks; approval controls
   remain outside both boundaries. The error boundary resets for a new permission request.
-  Max's frozen LangGraph path remains a consumer of `VisualizationWidget`, `RecordingsWidget`, and
-  `ErrorTrackingFiltersWidget` through `api/primitives`.
+  Max's frozen LangGraph path consumes `VisualizationWidget` and `RecordingsWidget` through
+  `api/primitives`, and the error-tracking and replay-vision widgets from their owning products.
 - If Max needs something the surface doesn't express generically, **lift it to a generic prop/selector here
   and have Max adapt** — never special-case Max in this directory. (The recordings "accept these filters"
   bar is one such lift: `RecordingsWidget` takes an optional `onAcceptFilters` prop; Max's LangGraph path
@@ -221,6 +225,7 @@ ingestion).
 ## 5. Layout
 
 ```text
+posthogAiToolRenderers.tsx # product declarations consumed by the central manifest
 api/                # public API facade — the contract (import api/<module>, never deep paths)
   readableRun.ts    #   Tier 1: ReadonlyRunSurface (lazy read-only embed)
   runSurface.ts     #   Tier 1: RunSurface compound (Root + slots, eager) for custom layouts
@@ -228,7 +233,6 @@ api/                # public API facade — the contract (import api/<module>, n
   primitives.ts     #   Tier 2: Composer, Thread + atoms, ThreadView, QueuedMessageList, presenters, perm/question
   logics.ts         #   Tier 3: runStreamLogic, runInteractionLogic, context store + hooks, tool-event bus (headless)
   types.ts          #   Tier 3: folded-thread + tool domain types, AttachedContextItem, ToolStreamEvent (pure types)
-  posthogAiToolRenderers.tsx # lightweight data-widget declarations for the central manifest
   tools.ts          #   Tier 4: lookup + declaration contract (registry isolated)
 components/         # RunSurfaceImpl (the RunSurface compound, heavy chunk); ReadonlyRunSurfaceImpl (prepackaged
                     #   read-only layout) + ReadonlyRunSurface (its lazy wrapper, replaces the old RunViewer.tsx);

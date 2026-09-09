@@ -200,7 +200,9 @@ Do not mount or fetch a product scene to produce a preview.
 Both boundaries use that evidence fallback; approval controls remain outside them and stay usable during loading or failure.
 Errors retain the `posthog_ai_permission_preview` feature tag, and a new permission request resets the error boundary.
 
-The existing data widgets stay in `components/tool/widgets/`, with their lazy declarations in `api/posthogAiToolRenderers.tsx`.
+Insights, dashboards, recordings, notebooks, and query widgets live in `components/tool/widgets/`, with lazy declarations in the frontend-root `posthogAiToolRenderers.tsx`. This declaration list is a product contribution, outside the reusable `api/` facade.
+Error tracking owns its widget family and declaration list in `products/error_tracking/frontend/`; replay vision owns its scan widget and polling logic in `products/replay_vision/frontend/posthogAi/`.
+Product-owned tool adapters consume `ToolRendererProps`, `DataToolRow`, `GenericMcpToolRenderer`, and `parseToolOutputRecord` through `api/tools`. Shared frontend dependencies are allowed; widget-specific product internals stay with their owner.
 CDP's `products/cdp/frontend/posthogAiToolRenderers.tsx` declares a preview-only entry; its result card stays generic.
 Set `requiresPostHogOrigin: true` for product entries; unknown or untrusted colliding keys use generic cards and evidence.
 

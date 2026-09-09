@@ -163,7 +163,7 @@ Errors retain the `posthog_ai_permission_preview` feature tag, and a new permiss
 
 **A tool card is two header lines plus an accordion.** `ToolActivity` gives you a `title` and one `subtitle` — the single most salient input. Everything else your tool produces goes in the collapsible `body`, never in always-visible `children`, so a thread with twenty tool calls stays scannable. Reserve `children` for payloads the user must act on.
 
-The built-in PostHog widgets (insights, dashboards, recordings, error tracking, notebooks, query results) live in `frontend/components/tool/widgets/` with declarations in `frontend/api/posthogAiToolRenderers.tsx`. CDP declares its preview in `products/cdp/frontend/posthogAiToolRenderers.tsx`.
+Insights, dashboards, recordings, notebooks, and query widgets live in `frontend/components/tool/widgets/`, with declarations in `frontend/posthogAiToolRenderers.tsx`. The query renderer also handles `insight-query` saved-insight results. Error tracking owns its widgets under `products/error_tracking/frontend/posthogAi/` and declares them in its frontend-root `posthogAiToolRenderers.tsx`. Replay vision owns its scan widget and polling logic under `products/replay_vision/frontend/posthogAi/`; Max composes that widget directly. CDP declares its preview in `products/cdp/frontend/posthogAiToolRenderers.tsx`.
 
 > **MCP UI apps are a different mechanism.** The `@posthog/mcp-ui` components under `products/*/mcp/apps/` render tool results in _external_ clients like Claude Desktop, served through `services/mcp/`. They do not render inside PostHog AI threads. See [`/implementing-mcp-ui-apps`](../../.agents/skills/implementing-mcp-ui-apps/SKILL.md).
 

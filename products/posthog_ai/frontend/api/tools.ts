@@ -17,3 +17,5 @@ export { findAllDiffContent, getDiffStats, languageFromPath } from '../component
 export type { ToolCallDiffContent } from '../components/tool/toolDiffContent'
 export { DiffEvidenceCard } from '../components/tool/DiffEvidenceCard'
 export type { DiffEvidenceCardProps } from '../components/tool/DiffEvidenceCard'
+export { parseToolOutputRecord } from '../components/tool/parseToolOutputRecord'
+export { MessageTemplate } from '../messages/MessageTemplate'
