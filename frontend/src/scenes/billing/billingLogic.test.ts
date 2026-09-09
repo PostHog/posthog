@@ -240,6 +240,89 @@ describe('billingLogic', () => {
         expect(unregisterSpy).toHaveBeenCalledWith('custom_limits_usd.product_analytics')
     })
 
+    describe('usage spike alert', () => {
+        const flat = (value: number, days: number): number[] => Array(days).fill(value)
+
+        let usageData: number[]
+
+        const mountWithFlag = async (flagOn: boolean = true): Promise<void> => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags(
+                flagOn ? [FEATURE_FLAGS.BILLING_USAGE_SPIKE_ALERT] : [],
+                flagOn ? { [FEATURE_FLAGS.BILLING_USAGE_SPIKE_ALERT]: true } : {}
+            )
+            billingLogic.mount()
+            await expectLogic(preflightLogic).toFinishAllListeners()
+            await expectLogic(billingLogic, () => {
+                billingLogic.actions.loadBilling()
+            }).toFinishAllListeners()
+        }
+
+        beforeEach(() => {
+            // A paying product with nothing capping the bill - the case no alert covered before.
+            billingState = billingWithProducts([productWithUsage(0, { usage_limit: null })])
+            usageData = [...flat(10_000, 21), ...flat(40_000, 7)]
+            useMocks({
+                get: {
+                    '/_preflight': [200, { ...preflightJson, cloud: true }],
+                    '/api/billing': () => [200, billingState],
+                    '/api/billing/credits/overview': [200, creditOverviewResponse],
+                    '/api/billing/usage/': () => [
+                        200,
+                        {
+                            status: 'ok',
+                            type: 'timeseries',
+                            customer_id: 'cus_1',
+                            results: [
+                                {
+                                    id: 0,
+                                    label: 'events',
+                                    data: usageData,
+                                    dates: usageData.map((_, index) => `2026-08-${index + 1}`),
+                                    breakdown_type: 'type',
+                                    breakdown_value: 'events',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+        })
+
+        it('warns when usage runs well above its own baseline and no limit is set', async () => {
+            await mountWithFlag()
+
+            expect(billingLogic.values.billingAlert).toMatchObject({
+                kind: 'usage_spike',
+                status: 'warning',
+                title: 'Your usage is spiking',
+                message: expect.stringContaining('Product analytics is running at 4x its usual volume'),
+                productKey: ProductKey.PRODUCT_ANALYTICS,
+            })
+        })
+
+        it('stays quiet when usage is steady', async () => {
+            usageData = flat(10_000, 28)
+            await mountWithFlag()
+
+            expect(billingLogic.values.billingAlert).toBeNull()
+        })
+
+        it('stays quiet while the flag is off, and asks billing for nothing', async () => {
+            await mountWithFlag(false)
+
+            expect(billingLogic.values.usageSpikesByUsageKey).toBeNull()
+            expect(billingLogic.values.billingAlert).toBeNull()
+        })
+
+        it('leaves a product alone once it has a limit to stop it', async () => {
+            billingState = billingWithProducts([productWithUsage(0.1, { usage_limit: 100_000 })])
+            await mountWithFlag()
+
+            expect(billingLogic.values.billingAlert).toBeNull()
+        })
+    })
+
     it.each<BillingAccessCase>([
         {
             name: 'member with both member-access flags',

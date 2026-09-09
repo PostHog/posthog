@@ -10,7 +10,9 @@ import billingJsonWithFlatFee from '~/mocks/fixtures/_billing_with_flat_fee.json
 import {
     buildUsageLimitApproachingMessage,
     buildUsageLimitReachedMessage,
+    buildUsageSpikeMessage,
     canAccessBilling,
+    detectUsageSpike,
     canViewUsageAndSpend,
     convertAmountToUsage,
     convertLargeNumberToWords,
@@ -793,5 +795,64 @@ describe('selectionCoversEveryProject', () => {
     it('covers a deleted project that still appears as an option', () => {
         // The options include projects that have usage but no longer exist.
         expect(selectionCoversEveryProject([1, 2, 3, 99], [...options, { key: '99' }])).toBe(true)
+    })
+})
+
+describe('detectUsageSpike', () => {
+    const flat = (value: number, days: number): number[] => Array(days).fill(value)
+
+    it('reports a week running well above its own baseline', () => {
+        const spike = detectUsageSpike([...flat(10_000, 21), ...flat(40_000, 7)])
+        expect(spike).toEqual({ recentDailyAverage: 40_000, baselineDailyAverage: 10_000, ratio: 4 })
+    })
+
+    it.each([
+        ['steady usage', [...flat(10_000, 21), ...flat(10_000, 7)]],
+        ['a rise below the threshold', [...flat(10_000, 21), ...flat(15_000, 7)]],
+        ['a fall', [...flat(40_000, 21), ...flat(10_000, 7)]],
+        ['a baseline of nothing', [...flat(0, 21), ...flat(40_000, 7)]],
+        ['a spike too small to cost anything', [...flat(3, 21), ...flat(300, 7)]],
+        ['too few days to judge', [...flat(10_000, 10), ...flat(40_000, 7)]],
+    ])('reports no spike for %s', (_label, data) => {
+        expect(detectUsageSpike(data)).toBeNull()
+    })
+
+    it('measures only the trailing window, so an older spike does not count', () => {
+        expect(detectUsageSpike([...flat(90_000, 7), ...flat(10_000, 14), ...flat(10_000, 7)])).toBeNull()
+    })
+})
+
+describe('buildUsageSpikeMessage', () => {
+    const spike = { recentDailyAverage: 42_000, baselineDailyAverage: 10_000, ratio: 4.2 }
+
+    it('names the product, the multiple, and the limit that is missing', () => {
+        const result = buildUsageSpikeMessage([{ type: 'product_analytics', name: 'Product analytics', spike }])
+        expect(result.title).toEqual('Your usage is spiking')
+        expect(result.message).toEqual(
+            'Product analytics is running at 4.2x its usual volume over the last week, and you have no billing limit set. Set a billing limit to cap what you can be charged.'
+        )
+    })
+
+    it('lists every spiking product', () => {
+        const result = buildUsageSpikeMessage([
+            { type: 'product_analytics', name: 'Product analytics', spike },
+            { type: 'session_replay', name: 'Session replay', spike: { ...spike, ratio: 2 } },
+        ])
+        expect(result.message).toContain(
+            'Product analytics is running at 4.2x its usual volume and Session replay is running at 2x its usual volume'
+        )
+    })
+
+    it('points a member without billing access at someone who can set the limit', () => {
+        const result = buildUsageSpikeMessage(
+            [{ type: 'product_analytics', name: 'Product analytics', spike }],
+            false,
+            OrganizationMembershipLevel.Admin
+        )
+        expect(result.message).toContain('Ask an organization admin to set a billing limit')
+    })
+
+    it('says nothing when nothing is spiking', () => {
+        expect(buildUsageSpikeMessage([])).toEqual({ title: '', message: '' })
     })
 })

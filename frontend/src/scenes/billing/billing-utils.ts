@@ -794,3 +794,77 @@ export function billingErrorGuidance(error: { code: string; detail: string }): s
             return error.detail
     }
 }
+
+/** Days of usage that count as "recent" when looking for a spike. */
+export const USAGE_SPIKE_RECENT_DAYS = 7
+/** Days before the recent window that set the baseline a spike is measured against. */
+export const USAGE_SPIKE_BASELINE_DAYS = 21
+/** How many times the baseline the recent average must reach before it counts as a spike. */
+const USAGE_SPIKE_RATIO_THRESHOLD = 2
+/**
+ * Recent daily average a usage type must reach before a spike is worth a banner.
+ *
+ * A tiny baseline multiplies easily, so a project that went from 3 units a day to 30 is a
+ * tenfold spike and no money at all. This floor keeps those out.
+ */
+const USAGE_SPIKE_MINIMUM_RECENT_DAILY_AVERAGE = 1000
+
+export interface UsageSpike {
+    recentDailyAverage: number
+    baselineDailyAverage: number
+    /** Recent daily average divided by the baseline daily average. */
+    ratio: number
+}
+
+const average = (values: number[]): number =>
+    values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0
+
+/**
+ * Measure a daily usage series against its own trailing baseline.
+ *
+ * Returns null when the series is too short to judge, when the baseline is empty, or when the
+ * rise is too small or too cheap to tell anyone about. `data` must be ordered oldest first.
+ */
+export function detectUsageSpike(data: number[]): UsageSpike | null {
+    const windowDays = USAGE_SPIKE_RECENT_DAYS + USAGE_SPIKE_BASELINE_DAYS
+    if (data.length < windowDays) {
+        return null
+    }
+
+    const recentDailyAverage = average(data.slice(-USAGE_SPIKE_RECENT_DAYS))
+    const baselineDailyAverage = average(data.slice(-windowDays, -USAGE_SPIKE_RECENT_DAYS))
+    if (baselineDailyAverage <= 0 || recentDailyAverage < USAGE_SPIKE_MINIMUM_RECENT_DAILY_AVERAGE) {
+        return null
+    }
+
+    const ratio = recentDailyAverage / baselineDailyAverage
+    return ratio >= USAGE_SPIKE_RATIO_THRESHOLD ? { recentDailyAverage, baselineDailyAverage, ratio } : null
+}
+
+/**
+ * Build the banner text for products whose usage is climbing without a limit to stop it.
+ */
+export function buildUsageSpikeMessage(
+    products: Array<{ type?: string | null; name: string; spike: UsageSpike }>,
+    hasBillingAccess: boolean = true,
+    minimumBillingAccessLevel: OrganizationMembershipLevel = OrganizationMembershipLevel.Admin
+): { title: string; message: string } {
+    if (products.length === 0) {
+        return { title: '', message: '' }
+    }
+
+    const details = products.map((product) => {
+        const multiple = Math.round(product.spike.ratio * 10) / 10
+        return `${billingProductDisplayName(product)} is running at ${multiple}x its usual volume`
+    })
+
+    const roleName = membershipLevelToName.get(minimumBillingAccessLevel)
+    const action = hasBillingAccess
+        ? 'Set a billing limit to cap what you can be charged.'
+        : `Ask an organization ${roleName} to set a billing limit to cap what you can be charged.`
+
+    return {
+        title: 'Your usage is spiking',
+        message: `${formatProductNames(details)} over the last week, and you have no billing limit set. ${action}`,
+    }
+}
