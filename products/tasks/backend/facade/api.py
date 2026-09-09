@@ -92,6 +92,7 @@ from products.tasks.backend.logic.services.network_policy import (
     normalize_requested_domains,
 )
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
+from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     MCP_CREDENTIAL_OWNER_STATE_KEY,
@@ -419,6 +420,7 @@ _TASK_RUN_LOG_URL_CACHE_TTL = 55 * 60
 
 _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
     {
+        "ai_agent_name",
         "ai_stage",
         "auto_publish",
         "benjamin_enabled",
@@ -1719,6 +1721,7 @@ def claim_and_fail_stale_run(run_id: str | UUID, error: str, error_type: str | N
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
     if run is not None:
         run.mark_failed(error, error_type=error_type)
+        resume_workflow_step_for_run(run)
     return True
 
 
@@ -2265,6 +2268,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # is_interactive_signals_run reads it the same way, so forging it would move the run off
         # the interactive budget and out of its per-run spend ceiling.
         "ai_stage",
+        # Names the agent (scout, custom agent, workflow) the run executes, lifted onto its
+        # $ai_generation events. A PATCHable value would bill a caller's spend to another agent.
+        "ai_agent_name",
         # The server-generated head branch the run->PR link is keyed on (find_signal_implementation_run).
         # A PATCHable value would let a caller re-aim the approve-first carve-out at any App-authored
         # PR, which is the exact forgery the stamp exists to prevent.
@@ -2715,9 +2721,11 @@ def update_task_run(
     update_fields: set[str] = set()
 
     with transaction.atomic():
-        if has_output_merge or has_state_mutation or only_if_non_terminal:
+        if has_output_merge or has_state_mutation or only_if_non_terminal or "status" in validated_data:
             run = TaskRun.objects.select_for_update().get(pk=run.pk)
         if only_if_non_terminal and run.is_terminal:
+            if validated_data.get("status") == run.status:
+                transaction.on_commit(lambda: resume_workflow_step_for_run(run))
             return _task_run_detail_to_dto(run)
         old_status = run.status
         old_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
@@ -2770,6 +2778,16 @@ def update_task_run(
             update_fields.add("state")
 
         new_status = validated_data.get("status")
+        if (
+            caller_is_agent
+            and new_status == TaskRun.Status.COMPLETED
+            and old_status != new_status
+            and run.task.origin_product == Task.OriginProduct.WORKFLOW
+            and (run.state or {}).get("end_run_when_done")
+        ):
+            if isinstance(run.output, dict):
+                run.output = {key: value for key, value in run.output.items() if key != "final_message"}
+                update_fields.add("output")
         if new_status in _TERMINAL_TASK_RUN_STATUSES:
             if not run.completed_at:
                 run.completed_at = django_timezone.now()
@@ -2836,6 +2854,9 @@ def update_task_run(
     new_commit_head = _commit_push_head_sha(run.output)
     if caller_is_agent and isinstance(run.output, dict) and new_commit_head and new_commit_head != old_commit_head:
         post_commits_pushed_thread_update(run, run.output["commit_push"])
+
+    if new_status in _TERMINAL_TASK_RUN_STATUSES:
+        resume_workflow_step_for_run(run)
 
     return _task_run_detail_to_dto(run)
 
