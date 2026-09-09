@@ -125,6 +125,7 @@ from products.tasks.backend.models import (
 )
 from products.tasks.backend.pr_urls import merge_pr_output
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
+from products.tasks.backend.search_index import search_text_match_q
 from products.tasks.backend.visibility import (
     TEAM_READABLE_ORIGIN_PRODUCTS,
     task_control_q,
@@ -5413,7 +5414,16 @@ def _list_tasks_queryset(
     if search:
         search_term = search.strip()
         if search_term:
-            search_q = Q(title__icontains=search_term) | Q(description__icontains=search_term)
+            # Title and description hold no index an ILIKE '%term%' can use, so matching
+            # them here made both the page and its count scan every task the team owns.
+            # The search projection carries the same text in one trigram-indexed column.
+            matched_task_ids = (
+                TaskSearchDocument.objects.for_team(team_id)
+                .filter(kind=TaskSearchDocument.Kind.TASK)
+                .filter(search_text_match_q(search_term))
+                .values("task_id")
+            )
+            search_q = Q(id__in=Subquery(matched_task_ids))
             number_part = search_term.split("-")[-1].strip()
             if number_part.isdigit():
                 search_q |= Q(task_number=int(number_part))
@@ -5628,7 +5638,7 @@ def search_tasks(
         exact_match |= Q(exact_identifiers__contains=[identifier])
     matches = exact_match
     if len(normalized) >= 3:
-        matches |= Q(search_text__icontains=normalized)
+        matches |= search_text_match_q(normalized)
     page_size = min(limit, 50)
     candidates = (
         TaskSearchDocument.objects.for_team(team_id)

@@ -974,7 +974,7 @@ export const TasksListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Case-insensitive substring search over task title and description. A numeric value also matches the task number. An empty value disables the filter.'
+            'Case-insensitive substring search over task title and the first 4000 characters of the description. A numeric value also matches the task number. An empty value disables the filter.'
         ),
     stage: zod.string().min(1).optional().describe('Filter by task run stage'),
     status: zod

@@ -5194,7 +5194,7 @@ export type TasksListParams = {
      */
     repository?: string
     /**
-     * Case-insensitive substring search over task title and description. A numeric value also matches the task number. An empty value disables the filter.
+     * Case-insensitive substring search over task title and the first 4000 characters of the description. A numeric value also matches the task number. An empty value disables the filter.
      */
     search?: string
     /**

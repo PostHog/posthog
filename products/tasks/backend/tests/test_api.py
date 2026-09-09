@@ -239,15 +239,20 @@ class BaseTaskAPITest(TestCase):
         title: str = "Test Task",
         created_by: User | None = None,
         runtime: Task.Runtime = Task.Runtime.ACP,
+        **fields: Any,
     ) -> Task:
-        return Task.objects.create(
-            team=self.team,
-            created_by=created_by or self.user,
-            title=title,
-            description="Test Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            runtime=runtime,
-        )
+        fields.setdefault("description", "Test Description")
+        # Search reads the projection the post-save hook writes on commit, and a test
+        # never commits, so run the callbacks the way a request does.
+        with self.captureOnCommitCallbacks(execute=True):
+            return Task.objects.create(
+                team=self.team,
+                created_by=created_by or self.user,
+                title=title,
+                origin_product=Task.OriginProduct.USER_CREATED,
+                runtime=runtime,
+                **fields,
+            )
 
     def create_organization_user(self, email_prefix: str = "other") -> User:
         user = User.objects.create_user(
@@ -4562,6 +4567,7 @@ class TestTaskAPI(BaseTaskAPITest):
             ("matches_title_substring", "login", [0]),
             ("matches_title_case_insensitive", "LOGIN", [0]),
             ("matches_description_substring", "regression", [1]),
+            ("matches_description_case_insensitive", "REGRESSION", [1]),
             ("matches_both_title_and_description", "bug", [1, 2]),
             ("matches_task_number", "2", [2]),
             ("matches_slug_style_input", "TSK-1", [1]),
@@ -4580,16 +4586,7 @@ class TestTaskAPI(BaseTaskAPITest):
             ("Cleanup", "Addresses a latent bug in the parser", 2),
         ]
         for title, description, task_number in titles_descriptions_and_numbers:
-            tasks.append(
-                Task.objects.create(
-                    team=self.team,
-                    title=title,
-                    description=description,
-                    origin_product=Task.OriginProduct.USER_CREATED,
-                    created_by=self.user,
-                    task_number=task_number,
-                )
-            )
+            tasks.append(self.create_task(title=title, description=description, task_number=task_number))
 
         url = "/api/projects/@current/tasks/"
         if search_value is not None:
@@ -4851,44 +4848,27 @@ class TestTaskAPI(BaseTaskAPITest):
         other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
         self.organization.members.add(other_user)
 
-        matching = Task.objects.create(
-            team=self.team,
-            title="Fix login flow",
-            description="Payments login regression",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            repository="posthog/posthog",
-            created_by=self.user,
+        matching = self.create_task(
+            title="Fix login flow", description="Payments login regression", repository="posthog/posthog"
         )
         TaskRun.objects.create(task=matching, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
         # Same content but wrong repository.
-        Task.objects.create(
-            team=self.team,
-            title="Fix login flow elsewhere",
-            description="Payments login regression",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            repository="other/repo",
-            created_by=self.user,
+        self.create_task(
+            title="Fix login flow elsewhere", description="Payments login regression", repository="other/repo"
         )
 
         # Same repo and content but wrong creator.
-        Task.objects.create(
-            team=self.team,
+        self.create_task(
             title="Fix login flow",
-            description="Payments login regression",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            repository="posthog/posthog",
             created_by=other_user,
+            description="Payments login regression",
+            repository="posthog/posthog",
         )
 
         # Same creator/repo/content but wrong latest run status.
-        wrong_status = Task.objects.create(
-            team=self.team,
-            title="Fix login flow",
-            description="Payments login regression",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            repository="posthog/posthog",
-            created_by=self.user,
+        wrong_status = self.create_task(
+            title="Fix login flow", description="Payments login regression", repository="posthog/posthog"
         )
         TaskRun.objects.create(task=wrong_status, team=self.team, status=TaskRun.Status.COMPLETED)
 

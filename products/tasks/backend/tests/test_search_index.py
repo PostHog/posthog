@@ -1,3 +1,5 @@
+from unittest import mock
+
 from django.test import TransactionTestCase
 
 from parameterized import parameterized
@@ -13,6 +15,7 @@ from products.tasks.backend.search_index import (
     MAX_INDEXED_PR_URLS,
     index_task_artifact,
     index_task_run,
+    rebuild_team_search_index,
 )
 
 
@@ -74,6 +77,15 @@ class TestTaskSearchIndex(TransactionTestCase):
         self.assertEqual(result["latest_run"].status, TaskRun.Status.IN_PROGRESS)
         self.assertEqual(result["latest_run"].environment, TaskRun.Environment.CLOUD)
         self.assertIsNotNone(result["updated_at"])
+
+    def test_indexes_the_description_body_the_task_list_search_filters_on(self):
+        task = self.make_task(title="Trim the export queue")
+        task.description = "The nightly sweep leaves orphaned rows behind"
+        task.save(update_fields=["description"])
+
+        result = search_tasks(self.team.id, self.user.id, "orphaned rows")[0]
+
+        self.assertEqual(result["task_id"], str(task.id))
 
     @parameterized.expand([("channel",), ("channel_id",)])
     def test_a_canvas_moved_into_a_private_space_leaves_team_search(self, channel_field):
@@ -356,3 +368,27 @@ class TestTaskSearchIndex(TransactionTestCase):
 
         self.assertEqual(len(results), 8)
         self.assertTrue(all(result["kind"] == TaskSearchDocument.Kind.ARTIFACT for result in results))
+
+    def test_an_interrupted_rebuild_keeps_the_documents_search_already_had(self):
+        task = self.make_task(title="Rotate the export credentials")
+
+        with mock.patch("products.tasks.backend.search_index.index_task", side_effect=RuntimeError("rebuild stopped")):
+            with self.assertRaises(RuntimeError):
+                rebuild_team_search_index(self.team.id)
+
+        self.assertEqual(search_tasks(self.team.id, self.user.id, "export credentials")[0]["task_id"], str(task.id))
+
+    def test_a_rebuild_drops_documents_whose_source_is_gone(self):
+        task = self.make_task(title="Publish the launch notes")
+        orphan = TaskSearchDocument.objects.create(
+            team=self.team,
+            kind=TaskSearchDocument.Kind.TASK,
+            source_key="6f1f8f3e-0000-4000-8000-000000000000",
+            title="Retired task",
+            search_text="retired task",
+        )
+
+        rebuild_team_search_index(self.team.id)
+
+        self.assertFalse(TaskSearchDocument.objects.filter(id=orphan.id).exists())
+        self.assertEqual(search_tasks(self.team.id, self.user.id, "launch notes")[0]["task_id"], str(task.id))
