@@ -21,7 +21,7 @@ vi.mock("react-native-webview", () => ({
   default: (props: Record<string, unknown>) => createElement("WebView", props),
 }));
 
-vi.mock("@/features/mcp/sandbox/mcpAppCsp", () => ({
+vi.mock("@posthog/core/mcp-apps/csp", () => ({
   applyCspToHtml: (html: string) => `csp:${html}`,
 }));
 

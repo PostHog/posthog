@@ -18,6 +18,12 @@ export type NotebookListItemType = {
     _create_in_folder?: string
 }
 
+export type NotebookVariableApi = {
+    name: string
+    type: string
+    value?: unknown
+}
+
 export type NotebookParentResource = {
     type: 'account'
     id: string
@@ -32,19 +38,23 @@ export type NotebookType = NotebookListItemType &
         // null when the notebook is standalone; set when it belongs to a resource (e.g. an
         // account note) so the scene can route breadcrumbs back to that resource's list
         parent_resource?: NotebookParentResource | null
+        // Notebook-level variables a SQL cell reads as `{name}` and a Python cell as a global.
+        // A notebook property rather than document content, so editing prose cannot delete it.
+        variables?: NotebookVariableApi[] | null
     }
 
 export enum NotebookNodeType {
     Mention = RichContentNodeType.Mention,
     MarkdownNotebook = 'ph-markdown-notebook',
     Query = 'ph-query',
-    Python = 'ph-python',
-    // The revamped Python cell: runs in the notebook's sandbox kernel via the SQLV2 run
-    // path, unlike the legacy ph-python node's in-browser kernel.
+    Dashboard = 'ph-dashboard-widget',
+    Action = 'ph-action',
+    Workflow = 'ph-workflow',
+    // Runs in the notebook's sandbox kernel via the SQLV2 run path. The "V2" suffix is a wire
+    // string: persisted notebooks carry `<PythonV2 />` / `<SQLV2 />` tags and `ph-*-v2` node types.
     PythonV2 = 'ph-python-v2',
-    DuckSQL = 'ph-duck-sql',
-    HogQLSQL = 'ph-hogql-sql',
     SQLV2 = 'ph-sql-v2',
+    GeneratedWidget = 'ph-generated-widget',
     Recording = 'ph-recording',
     RecordingPlaylist = 'ph-recording-playlist',
     FeatureFlag = 'ph-feature-flag',
@@ -67,6 +77,7 @@ export enum NotebookNodeType {
     TaskCreate = 'ph-task-create',
     LLMTrace = 'ph-llm-trace',
     Issues = 'ph-issues',
+    ErrorTrackingIssue = 'ph-error-tracking-issue',
     UsageMetrics = 'ph-usage-metrics',
     ZendeskTickets = 'ph-zendesk-tickets',
     RelatedGroups = 'ph-related-groups',
@@ -136,6 +147,7 @@ export type NodeWrapperProps<T extends CustomNotebookNodeAttributes> = Omit<Note
         autoHideMetadata?: boolean
         /** Expand the node if the component is clicked */
         expandOnClick?: boolean
+        unmountWhenOutOfView?: boolean
         settingsPlacement?: NotebookNodeSettingsPlacement
         defaultView?: PostHogWidgetDefaultView
         views?: PostHogWidgetViews<T>

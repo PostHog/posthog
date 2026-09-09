@@ -214,10 +214,12 @@ class MultipleInCohortResolver(TraversingVisitor):
             parts: list[ast.SelectQuery | ast.SelectSetQuery] = []
 
             if static_cohorts:
+                # DISTINCT because duplicate membership rows survive in `person_static_cohort` (its sort
+                # key carries a per-row UUID), and each one would fan out through the LEFT JOIN below.
                 parts.append(
                     parse_select(
                         """
-                            SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
+                            SELECT DISTINCT person_id AS cohort_person_id, 1 AS matched, cohort_id
                             FROM static_cohort_people
                             WHERE {clause}
                         """,
@@ -403,7 +405,10 @@ class InCohortResolver(TraversingVisitor):
                 )
             else:
                 if is_static:
-                    sql = "(SELECT person_id, 1 as matched FROM static_cohort_people WHERE cohort_id = {cohort_id})"
+                    # DISTINCT because `person_static_cohort` keeps a per-row UUID in its sort key, so
+                    # ReplacingMergeTree can't collapse repeated inserts of the same member. Without it
+                    # every duplicate membership row fans out through the LEFT JOIN below.
+                    sql = "(SELECT DISTINCT person_id, 1 as matched FROM static_cohort_people WHERE cohort_id = {cohort_id})"
                 elif version is not None:
                     sql = "(SELECT person_id, 1 as matched FROM raw_cohort_people WHERE cohort_id = {cohort_id} AND version = {version})"
                 else:

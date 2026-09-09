@@ -1,3 +1,4 @@
+import { formatBulkArchiveWarning } from "@posthog/core/sidebar/selection";
 import type {
   ContextMenuAction,
   ContextMenuItem,
@@ -48,6 +49,15 @@ function findItem(items: ContextMenuItem[], label: string): ContextMenuAction {
   );
   if (!item) throw new Error(`menu item "${label}" not found`);
   return item;
+}
+
+function findSubmenuItem(
+  items: ContextMenuItem[],
+  submenuLabel: string,
+  itemLabel: string,
+): ContextMenuAction {
+  const submenu = findItem(items, submenuLabel).submenu ?? [];
+  return findItem(submenu, itemLabel);
 }
 
 function makeService(menu: IContextMenu, dialog: IDialog = dialogReturning(1)) {
@@ -142,6 +152,23 @@ describe("ContextMenuService.showTaskContextMenu", () => {
     );
   });
 
+  it("offers Hand off only to callers that mark it available", async () => {
+    // The API 404s a non-owner's handoff, so the item must stay hidden from one.
+    const owner = new FakeContextMenu();
+    const handedOff = makeService(owner).showTaskContextMenu({
+      ...baseTask,
+      canHandoff: true,
+    });
+    await owner.shown;
+    findItem(owner.lastItems, "Hand off…").click();
+    expect(await handedOff).toEqual({ action: { type: "handoff" } });
+
+    const viewer = new FakeContextMenu();
+    makeService(viewer).showTaskContextMenu(baseTask);
+    await viewer.shown;
+    expect(labels(viewer.lastItems)).not.toContain("Hand off…");
+  });
+
   it("can hide Archive prior tasks for task lists without that action", async () => {
     const menu = new FakeContextMenu();
     makeService(menu).showTaskContextMenu({
@@ -151,6 +178,38 @@ describe("ContextMenuService.showTaskContextMenu", () => {
     await menu.shown;
     expect(labels(menu.lastItems)).not.toContain("Archive prior tasks");
     expect(labels(menu.lastItems)).toContain("Archive");
+  });
+
+  it("lists starred channels first under File to…", async () => {
+    const menu = new FakeContextMenu();
+    const result = makeService(menu).showTaskContextMenu({
+      ...baseTask,
+      channels: [
+        {
+          id: "0",
+          name: "personal",
+          channelType: "personal",
+          starred: true,
+        },
+        { id: "1", name: "alpha" },
+        { id: "2", name: "beta", starred: true },
+        { id: "3", name: "gamma" },
+        { id: "4", name: "delta", starred: true },
+      ],
+    });
+    await menu.shown;
+    const submenu = findItem(menu.lastItems, "File to…").submenu ?? [];
+    expect(labels(submenu)).toEqual([
+      "personal",
+      "#beta",
+      "#delta",
+      "#alpha",
+      "#gamma",
+    ]);
+    findSubmenuItem(menu.lastItems, "File to…", "#delta").click();
+    expect(await result).toEqual({
+      action: { type: "file-to-channel", channelId: "4" },
+    });
   });
 
   it("resolves to null when the menu is dismissed", async () => {
@@ -183,16 +242,110 @@ describe("ContextMenuService.showTaskContextMenu", () => {
 });
 
 describe("ContextMenuService.showBulkTaskContextMenu", () => {
-  it("labels the archive action with the task count and gates on confirm", async () => {
+  it("labels every action with the session count", async () => {
+    const menu = new FakeContextMenu();
+    const result = makeService(menu).showBulkTaskContextMenu({ taskCount: 3 });
+    await menu.shown;
+    expect(labels(menu.lastItems)).toEqual([
+      "Pin 3 sessions",
+      "Add 3 sessions to Command Center",
+      "Archive 3 sessions",
+    ]);
+    findItem(menu.lastItems, "Add 3 sessions to Command Center").click();
+    expect(await result).toEqual({ action: { type: "add-to-command-center" } });
+  });
+
+  it.each([
+    { allPinned: false, expected: "Pin 3 sessions" },
+    { allPinned: true, expected: "Unpin 3 sessions" },
+  ])(
+    "offers $expected when allPinned=$allPinned",
+    async ({ allPinned, expected }) => {
+      const menu = new FakeContextMenu();
+      const result = makeService(menu).showBulkTaskContextMenu({
+        taskCount: 3,
+        allPinned,
+      });
+      await menu.shown;
+      findItem(menu.lastItems, expected).click();
+      expect(await result).toEqual({ action: { type: "pin" } });
+    },
+  );
+
+  it("omits the File to submenu when there are no channels", async () => {
+    const menu = new FakeContextMenu();
+    makeService(menu).showBulkTaskContextMenu({ taskCount: 2, channels: [] });
+    await menu.shown;
+    expect(labels(menu.lastItems)).not.toContain("File to…");
+  });
+
+  it("resolves a channel from the File to submenu", async () => {
+    const menu = new FakeContextMenu();
+    const result = makeService(menu).showBulkTaskContextMenu({
+      taskCount: 2,
+      // Stored bare, shown with the hash the menu adds.
+      channels: [{ id: "c1", name: "support" }],
+    });
+    await menu.shown;
+    findSubmenuItem(menu.lastItems, "File to…", "#support").click();
+    expect(await result).toEqual({
+      action: { type: "file-to-channel", channelId: "c1" },
+    });
+  });
+
+  it("lists starred channels first under File to…", async () => {
+    const menu = new FakeContextMenu();
+    makeService(menu).showBulkTaskContextMenu({
+      taskCount: 2,
+      channels: [
+        { id: "c1", name: "support" },
+        { id: "c2", name: "design", starred: true },
+        {
+          id: "c3",
+          name: "personal",
+          channelType: "personal",
+          starred: true,
+        },
+      ],
+    });
+    await menu.shown;
+    const submenu = findItem(menu.lastItems, "File to…").submenu ?? [];
+    expect(labels(submenu)).toEqual(["#design", "personal", "#support"]);
+  });
+
+  it("gates archive on confirmation", async () => {
     const menu = new FakeContextMenu();
     const result = makeService(
       menu,
-      dialogReturning(1),
+      dialogReturning(0),
     ).showBulkTaskContextMenu({ taskCount: 3 });
     await menu.shown;
-    expect(labels(menu.lastItems)).toEqual(["Archive 3 tasks"]);
-    findItem(menu.lastItems, "Archive 3 tasks").click();
-    expect(await result).toEqual({ action: { type: "archive" } });
+    findItem(menu.lastItems, "Archive 3 sessions").click();
+    expect(await result).toEqual({ action: null });
+  });
+
+  // The native confirm and the action bar's dialog must warn about the same
+  // things; both compose their detail with formatBulkArchiveWarning.
+  it("warns in the archive confirm about running sessions and cloud sandboxes", async () => {
+    const menu = new FakeContextMenu();
+    let confirmOptions: ConfirmOptions | undefined;
+    const dialog = {
+      confirm: async (options: ConfirmOptions) => {
+        confirmOptions = options;
+        return 1;
+      },
+    } as IDialog;
+    const result = makeService(menu, dialog).showBulkTaskContextMenu({
+      taskCount: 3,
+      runningCount: 2,
+      stopsCloudSandbox: true,
+    });
+    await menu.shown;
+    findItem(menu.lastItems, "Archive 3 sessions").click();
+    await result;
+    expect(confirmOptions?.detail).toBe(
+      formatBulkArchiveWarning({ running: 2, stopsCloudSandbox: true }),
+    );
   });
 });
 

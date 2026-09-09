@@ -52,7 +52,7 @@ User ─────────────────────────
 
 ### PostHog API
 
-`backend/presentation/views/api.py` (thin viewsets) over `backend/facade/api.py` (behavior) — every user-triggered cloud launch path, including prewarming and task automations, checks server-side PostHog Desktop access before provisioning or activating a run. Composer prewarming carries the complete ordered repository selection, so single- and multi-repository submissions can reuse only an exact matching sandbox. Scheduled automations repeat the entitlement check at execution time so revoked access cannot launch later. `TaskViewSet.run` creates a `TaskRun` (status=QUEUED) and starts the Temporal workflow. `TaskRunViewSet.partial_update` handles status transitions and signals the Temporal workflow on terminal statuses via `signal_workflow_completion`. `TaskRunViewSet.cancel` (`POST .../runs/{id}/cancel/`) is the user-facing kill switch: `cancel_task_run` interrupts the in-flight agent turn, signals `complete_task("cancelled")` so the workflow snapshots the session and tears down the sandbox, and falls back to finalizing the run directly when no workflow is running.
+`backend/presentation/views/api.py` (thin viewsets) over `backend/facade/api.py` (behavior) — every user-triggered cloud launch path, including prewarming, checks server-side PostHog Desktop access before provisioning or activating a run. Composer prewarming carries the complete ordered repository selection, so single- and multi-repository submissions can reuse only a matching sandbox. A terminal task can also prewarm a successor through `POST .../tasks/{id}/warm/`; the source run must remain the task's latest terminal run, and the normal `run` request activates that successor with `resume_from_run_id`. Runtime, model, branch, permission mode, and sandbox configuration must match; reasoning effort may change and is applied before the warmed agent's first turn. Full-filesystem resume snapshots bundle their agent binary, so prewarming probes for the deferred-resume capability and falls back to a fresh sandbox when an old snapshot lacks it. `TaskViewSet.run` creates a `TaskRun` (status=QUEUED) and starts the Temporal workflow. `TaskRunViewSet.partial_update` handles status transitions and signals the Temporal workflow on terminal statuses via `signal_workflow_completion`. `TaskRunViewSet.cancel` (`POST .../runs/{id}/cancel/`) is the user-facing kill switch: `cancel_task_run` interrupts the in-flight agent turn, signals `complete_task("cancelled")` so the workflow snapshots the session and tears down the sandbox, and falls back to finalizing the run directly when no workflow is running.
 
 ### Temporal workflow
 
@@ -149,6 +149,33 @@ Per-team configuration for sandbox execution: network access level (trusted/full
 | GitHub App      | Installation access tokens via the team's GitHub integration                                                      |
 | API permissions | `PostHogFeatureFlagPermission` + `APIScopePermission` on all endpoints                                            |
 
+### Claude subscription token relay
+
+A run created with `claude_model_access: "own-subscription"` uses the user's Claude plan for model usage.
+Sandbox compute still uses PostHog credits.
+The `posthog-code-claude-own-subscription-cloud` flag controls rollout.
+If the backend cannot confirm that the flag is enabled, an explicitly requested subscription run fails without switching to PostHog billing.
+
+Desktop stores a `claude setup-token` token in its encrypted local store.
+The server records the user who selected subscription billing in protected run state.
+Desktop and the command endpoint check this owner before sending a token.
+Sandbox credentials cannot select subscription billing or inherit it from a resumed run.
+The response uses the authenticated `/command/` proxy, with redirects blocked and a five-second request timeout.
+Subscription runs always use direct event ingest so the request can reach Desktop before session readiness.
+The separate event-ingest rollout flag does not control this path.
+The request metadata can be replayed through the durable event stream; the token is never included in that stream, task state, logs, or analytics.
+If no token arrives within 120 seconds, the run fails with setup instructions.
+
+Subscription runs require the `--claudeSubscription` startup option.
+The launcher checks support before starting the process.
+Subscription health checks have a 155-second command limit, leaving time for setup and diagnostics within the five-minute activity.
+The PID check applies only when the PID file exists, so servers launched before deployment can still pass the health check.
+Continuation inherits the selected billing mode unless the caller explicitly changes it.
+Subscription runs do not reuse prewarmed sessions, because those processes have already selected their credentials.
+
+Keep the flag off while deploying the backend and publishing the sandbox agent build, then enable it for the intended users.
+Desktop and backend use the same flag; a stale client cannot bypass the backend check.
+
 ## Sandbox providers
 
 |                   | DockerSandbox                                                  | ModalSandbox                                                          |
@@ -204,7 +231,7 @@ Set `SANDBOX_API_URL` to the ngrok URL. `SITE_URL` stays as `http://localhost:80
 
 ## Frontend
 
-- **TaskDetailPage** (`frontend/components/TaskDetailPage.tsx`) — Task detail view with run history, "Run task" button, "Open in PostHog Desktop" link
+- **TaskDetailPage** (`frontend/components/TaskDetailPage.tsx`) — Task detail view with run history, "Run task" button, and an "Open in PostHog Desktop" link for users with Desktop access
 - **TaskSessionView** (`frontend/components/TaskSessionView.tsx`) — Live log streaming with hedgehog animation during agent execution
 - PostHog Desktop integration via `posthog-code://task/{id}` deep links
 

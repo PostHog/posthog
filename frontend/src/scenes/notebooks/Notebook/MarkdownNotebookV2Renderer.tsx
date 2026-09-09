@@ -2,12 +2,13 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconFlask, IconGraph, IconMessage, IconPeople, IconRocket, IconToggle } from '@posthog/icons'
+import { IconGraph } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import {
     MarkdownNotebook,
     NotebookComponentRunStatusContext,
+    PRODUCTS_INSERT_COMMAND_CATEGORY,
     parseMarkdownNotebook,
 } from 'lib/components/MarkdownNotebook'
 import type {
@@ -28,9 +29,13 @@ import { getInlineText } from 'lib/components/MarkdownNotebook/utils'
 import { uploadFile } from 'lib/hooks/useUploadFiles'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
+import { userLogic } from 'scenes/userLogic'
 
 import type { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 
+import { NODE_ICONS } from '../nodeIcons'
+import { notebookWidgetCatalog, NotebookWidgetPickerKind } from '../notebookWidgetCatalog'
+import { NotebookNodeType } from '../types'
 import {
     MarkdownNotebookEntityPicker,
     MarkdownNotebookEntityPickerKind,
@@ -64,6 +69,7 @@ import {
     NOTEBOOK_AI_PRESENCE_NAME,
 } from './notebookPresence'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
+import { NotebookVariablesBar } from './NotebookVariablesBar'
 
 const NOTEBOOK_AI_FOLLOW_UP_PROMPT_MARKDOWN = '<Prompt question="" />'
 const NOTEBOOK_AI_PRESENCE_DEPARTURE_IDLE_MS = 5_000
@@ -80,11 +86,13 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         isEditable,
         isShared,
         notebook,
+        shortId,
         markdownEditorValue,
         markdownEditorInteractionActive,
         markdownRemoteCarets,
     } = useValues(notebookLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
     const markdownRegistry = useMemo(() => getMarkdownRegistryForFeatureFlags(featureFlags), [featureFlags])
     const hiddenInsertCommandKeys = useMemo(
         () => getHiddenInsertCommandKeysForFeatureFlags(featureFlags),
@@ -98,9 +106,10 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         reportMarkdownMergeConflicts,
         publishMarkdownCaret,
         setMarkdownAIPresenceActive,
+        saveNotebookNow,
     } = useActions(notebookLogic)
     const { setShowKernelInfo } = useActions(notebookSettingsLogic)
-    const remoteMarkdown = getMarkdownNotebookMarkdown(notebook?.content)
+    const remoteMarkdown = useMemo(() => getMarkdownNotebookMarkdown(notebook?.content), [notebook?.content])
     const [inlineAIRequests, setInlineAIRequests] = useState<InlineNotebookAIRequest[]>([])
     const [aiCaretPosition, setAICaretPosition] = useState<MarkdownNotebookCaretPosition | null>(null)
     const [aiCaretFading, setAICaretFading] = useState(false)
@@ -348,7 +357,9 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
             markAIPresenceActive(conversationId)
             setAICaretPosition(getNotebookAICaretPosition(markdownWithResponse, responseNodeIndex))
             const uiContext = getInlineNotebookAIUIContext({
-                notebookShortId: notebook?.short_id ?? null,
+                // A canvas has no saved notebook, so fall back to the logic's short id. Without it the
+                // structured context is dropped and the request reaches the model with no document.
+                notebookShortId: notebook?.short_id ?? shortId,
                 notebookTitle: notebook?.title ?? 'Untitled notebook',
                 markdown: markdownWithResponse,
                 conversationId,
@@ -376,7 +387,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
             inlineAIResponseNodeCountsRef.current[conversationId] = 1
             inlineAIResponseNodeIndicesRef.current[conversationId] = responseNodeIndex
         },
-        [markAIPresenceActive, notebook?.short_id, notebook?.title]
+        [markAIPresenceActive, notebook?.short_id, notebook?.title, shortId]
     )
 
     const getInlineAIRequest = useCallback(
@@ -445,7 +456,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
         ): InsertCommand => ({
             key,
             label,
-            category: 'Products',
+            category: PRODUCTS_INSERT_COMMAND_CATEGORY,
             icon,
             aliases,
             run: (targetNodeId) => {
@@ -454,19 +465,14 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
             },
         })
 
-        return [
-            pickerCommand('query-saved-insight', 'Saved insight', <IconGraph />, 'saved-insight', ['insight']),
-            pickerCommand('experiment', 'Experiment', <IconFlask />, 'experiment', ['ab test']),
-            pickerCommand('product-feature-flag', 'Feature flag', <IconToggle />, 'feature-flag', ['flag']),
-            pickerCommand('product-survey', 'Survey', <IconMessage />, 'survey'),
+        return Object.entries(notebookWidgetCatalog.widgets).map(([tagName, widget]) =>
             pickerCommand(
-                'product-early-access-feature',
-                'Early access feature',
-                <IconRocket />,
-                'early-access-feature'
-            ),
-            pickerCommand('product-cohort', 'Cohort', <IconPeople />, 'cohort'),
-        ]
+                `product-${tagName.replaceAll(/([a-z])([A-Z])/g, '$1-$2').toLowerCase()}`,
+                widget.label,
+                NODE_ICONS[widget.nodeType as NotebookNodeType] || <IconGraph />,
+                widget.picker as NotebookWidgetPickerKind
+            )
+        )
     }, [])
 
     const closeEntityPicker = useCallback((): void => {
@@ -687,6 +693,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
             <NotebookComponentRunStatusContext.Provider value={resolveComponentRunStatus}>
                 <MarkdownNotebook
                     value={markdownEditorValue}
+                    aiPromptAuthorName={user?.first_name || 'You'}
                     remoteValue={remoteMarkdown}
                     remoteVersion={notebook?.version}
                     mode={isEditable ? 'edit' : 'view'}
@@ -695,6 +702,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     extraInsertCommands={isEditable ? buildExtraInsertCommands : undefined}
                     hiddenInsertCommandKeys={hiddenInsertCommandKeys}
                     onChange={isEditable ? handleMarkdownNotebookChange : undefined}
+                    onSaveRequested={isEditable ? saveNotebookNow : undefined}
                     onConflict={reportMarkdownMergeConflicts}
                     remoteCarets={remoteCarets}
                     onCaretChange={isEditable ? publishMarkdownCaret : undefined}
@@ -705,6 +713,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     deferRemoteValue={markdownEditorInteractionActive}
                     onInteractionStateChange={setMarkdownEditorInteractionActive}
                     allowViewModeFilters={mountedNotebookLogic.props.mode === 'canvas'}
+                    canvasHeader={<NotebookVariablesBar />}
                     className="Notebook__markdown-v2"
                     data-attr="notebook-markdown-v2"
                     autoFocus={isEditable}

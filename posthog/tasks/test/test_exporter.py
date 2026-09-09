@@ -11,6 +11,8 @@ from parameterized import parameterized
 from posthog.hogql.errors import QueryError
 
 from posthog.exceptions import ClickHouseAtCapacity
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.tasks import exporter
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -80,6 +82,33 @@ class TestExporterTask(APIBaseTest):
 
         assert self.exported_asset.content is None
         assert self.exported_asset.content_location is not None
+
+    @patch("products.exports.backend.tasks.image_exporter.export_image")
+    def test_exporter_rechecks_typed_export_scopes(self, mock_export: MagicMock, mock_uuid: MagicMock) -> None:
+        personal_api_key = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="typed export key",
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["export:write"],
+            scoped_teams=[self.team.id],
+        )
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard=self.exported_asset.dashboard,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            created_by=self.user,
+            source_authentication=ExportedAsset.SourceAuthentication.PERSONAL_API_KEY,
+            source_credential_id=personal_api_key.id,
+        )
+
+        exporter.export_asset(asset.id)
+
+        mock_export.assert_not_called()
+        asset.refresh_from_db()
+        assert (
+            asset.exception
+            == "This export could not verify its original authorization. Create a new export and try again."
+        )
 
     @patch("products.exports.backend.tasks.image_exporter.export_image")
     def test_export_stores_exception_type_on_failure(self, mock_export: MagicMock, mock_uuid: MagicMock) -> None:

@@ -30,6 +30,13 @@ window.POSTHOG_APP_CONTEXT = {
     current_project: { id: MOCK_TEAM_ID },
 } as unknown as AppContext
 
+// The disposables plugin pauses and resumes on `visibilitychange`, reading `document.hidden`, so a
+// test that backgrounds the tab has to move the property before dispatching the event.
+const setTabHidden = (hidden: boolean): void => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+    document.dispatchEvent(new Event('visibilitychange'))
+}
+
 describe('infiniteListLogic', () => {
     let logic: ReturnType<typeof infiniteListLogic.build>
 
@@ -699,6 +706,51 @@ describe('infiniteListLogic', () => {
                 })
             expect(retryingLogic.values.totalResultCount).toBeGreaterThan(0)
         })
+
+        it('backgrounding the tab neither cancels the request nor fails a search that succeeded', async () => {
+            let respond: ((response: [number, Record<string, any>]) => void) | undefined
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () =>
+                        new Promise<[number, Record<string, any>]>((resolve) => {
+                            respond = resolve
+                        }),
+                },
+            })
+            initKeaTests()
+            jest.useFakeTimers()
+            try {
+                const backgroundedLogic = infiniteListLogic({
+                    taxonomicFilterLogicKey: 'backgroundedList',
+                    listGroupType: TaxonomicFilterGroupType.Events,
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                    showNumericalPropsOnly: false,
+                })
+                backgroundedLogic.mount()
+                backgroundedLogic.actions.setSearchQuery('user_signed_up')
+
+                // Past the debounce, so the request is in flight rather than still queued.
+                await jest.advanceTimersByTimeAsync(600)
+                expect(backgroundedLogic.values.showLoadingState).toBe(true)
+
+                setTabHidden(true)
+                expect(backgroundedLogic.cache.abortController.signal.aborted).toBe(false)
+
+                setTabHidden(false)
+                respond?.([200, { results: [{ name: 'user_signed_up', id: 'uuid-1' }], count: 1 }])
+                await jest.advanceTimersByTimeAsync(1)
+
+                // Well past the watchdog. Coming back to the tab must not arm a second watchdog
+                // against the request that already answered, or a successful search decays into
+                // "couldn't load results".
+                await jest.advanceTimersByTimeAsync(31000)
+                expect(backgroundedLogic.values.showErrorState).toBe(false)
+                expect(backgroundedLogic.values.totalResultCount).toBeGreaterThan(0)
+            } finally {
+                jest.useRealTimers()
+                setTabHidden(false)
+            }
+        })
     })
 
     describe('SuggestedFilters aggregate holds the empty state until sibling groups settle', () => {
@@ -864,6 +916,33 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    // Transformation filters exclude `$exception` while allowing uncaptured events, so an excluded
+    // name must never be offered as "not seen yet".
+    describe('the "not seen yet" option and excluded names', () => {
+        const EXCLUDED_EVENT = '$exception'
+
+        it.each([
+            [EXCLUDED_EVENT, false],
+            ['checkout_started', true],
+        ])('searching %p offers the option: %p', async (query, expected) => {
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: `excluded-events-${query}`,
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+                allowNonCapturedEvents: true,
+                excludedProperties: { [TaxonomicFilterGroupType.Events]: [EXCLUDED_EVENT] },
+            })
+            listLogic.mount()
+
+            await expectLogic(listLogic, () => {
+                listLogic.actions.setSearchQuery(query)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ showNonCapturedEventOption: expected })
+        })
+    })
+
     describe('data warehouse pin lifecycle', () => {
         beforeEach(() => {
             const databaseLogic = databaseTableListLogic()
@@ -1022,6 +1101,45 @@ describe('infiniteListLogic', () => {
             logic.mount()
         })
 
+        it.each([200, 500])('reveals scoped results before the full count returns %s', async (status) => {
+            let resolveCount!: (response: [number, { count: number; results: { name: string }[] }]) => void
+            useMocks({
+                get: {
+                    '/api/projects/:team/property_definitions': ({ request }) => {
+                        const url = new URL(request.url)
+                        if (
+                            url.searchParams.get('search') === 'browser' &&
+                            !url.searchParams.has('filter_by_event_names')
+                        ) {
+                            return new Promise((resolve) => {
+                                resolveCount = resolve
+                            })
+                        }
+                        return [200, { results: [{ name: '$browser', id: 'browser' }], count: 1 }]
+                    },
+                },
+            })
+            await expectLogic(logic, () => logic.actions.setSearchQuery('browser'))
+                .toDispatchActions(['loadRemoteItemsSuccess'])
+                .toMatchValues({
+                    remoteItems: partial({ searchQuery: 'browser', count: 1 }),
+                    isLoading: false,
+                    isExpandable: false,
+                    expandedCountResultLoading: true,
+                })
+            const visibleResults = logic.values.results
+            const selectedIndex = logic.values.index
+            await expectLogic(logic, () => resolveCount([status, { count: 9, results: [{ name: '$browser' }] }]))
+                .toDispatchActions(['loadExpandedCountSuccess'])
+                .toMatchValues({
+                    isLoading: false,
+                    isExpandable: status === 200,
+                    expandedCount: status === 200 ? 9 : 0,
+                    results: visibleResults,
+                    index: selectedIndex,
+                })
+        })
+
         it('setting search query filters events', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setSearchQuery('browser')
@@ -1038,7 +1156,6 @@ describe('infiniteListLogic', () => {
                     expandedCount: 2,
                     remoteItems: partial({
                         count: 1,
-                        expandedCount: 2,
                         results: partial([partial({ name: '$browser', is_seen_on_filtered_events: true })]),
                     }),
                 })
@@ -1058,7 +1175,6 @@ describe('infiniteListLogic', () => {
                     expandedCount: 0,
                     remoteItems: partial({
                         count: 2,
-                        expandedCount: undefined,
                         results: partial([
                             partial({ name: '$browser', is_seen_on_filtered_events: true }),
                             partial({ name: 'browser_no_dollar_not_on_event', is_seen_on_filtered_events: false }),
@@ -1082,7 +1198,6 @@ describe('infiniteListLogic', () => {
                     expandedCount: 0,
                     remoteItems: partial({
                         count: 2,
-                        expandedCount: undefined,
                         results: partial([
                             partial({ name: '$browser', is_seen_on_filtered_events: true }),
                             partial({ name: 'browser_no_dollar_not_on_event', is_seen_on_filtered_events: false }),
@@ -1108,7 +1223,6 @@ describe('infiniteListLogic', () => {
                     index: 0,
                     remoteItems: partial({
                         count: 1,
-                        expandedCount: 2,
                         results: partial([partial({ name: '$browser', is_seen_on_filtered_events: true })]),
                     }),
                 })
@@ -1132,7 +1246,6 @@ describe('infiniteListLogic', () => {
                     expandedCount: 0,
                     remoteItems: partial({
                         count: 2,
-                        expandedCount: undefined,
                         results: partial([
                             partial({ name: '$browser', is_seen_on_filtered_events: true }),
                             partial({ name: 'browser_no_dollar_not_on_event', is_seen_on_filtered_events: false }),
@@ -1737,6 +1850,34 @@ describe('infiniteListLogic', () => {
                 .map((i) => (i as { name: string }).name)
             expect(names).not.toContain('message')
             expect(names).toContain('level')
+        })
+
+        it('hides a pinned value that is excluded for its source group', () => {
+            // A pin outlives the picker it was made in, so without this the Pinned tab is a second
+            // door to selecting a value the exclusion forbids.
+            const pinnedLogic = taxonomicFilterPinnedPropertiesLogic.build()
+            pinnedLogic.mount()
+            pinnedLogic.actions.togglePin(TaxonomicFilterGroupType.Events, 'Events', '$exception', {
+                name: '$exception',
+            })
+            pinnedLogic.actions.togglePin(TaxonomicFilterGroupType.Events, 'Events', 'checkout_started', {
+                name: 'checkout_started',
+            })
+
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'pinned-excluded-test',
+                listGroupType: TaxonomicFilterGroupType.PinnedFilters,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PinnedFilters],
+                showNumericalPropsOnly: false,
+                excludedProperties: { [TaxonomicFilterGroupType.Events]: ['$exception'] },
+            })
+            listLogic.mount()
+
+            const names = listLogic.values.contextFilteredPinnedItems
+                .filter((i) => 'name' in i)
+                .map((i) => (i as { name: string }).name)
+            expect(names).not.toContain('$exception')
+            expect(names).toContain('checkout_started')
         })
 
         it('preserves sourceValue on recent Persons items so the row resolves the correct distinct_id', () => {

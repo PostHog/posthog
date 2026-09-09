@@ -12,6 +12,8 @@ export interface UserData {
   organization?: {
     id: string;
     name: string;
+    is_ai_data_processing_approved?: boolean;
+    membership_level?: number;
   };
   team?: {
     id: number;

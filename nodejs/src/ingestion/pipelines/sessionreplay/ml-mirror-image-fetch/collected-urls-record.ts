@@ -1,84 +1,172 @@
+import type { UrlPolicyDecline } from '@posthog/replay-anonymizer'
+
 import { parseJSON } from '~/common/utils/json-parse'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 
-import { UrlDropReason } from './metrics'
+import { ImageFetchBlockReason, isImageFetchBlockReason } from './block-reason'
+import { tryCanonicalizeUrl } from './politeness-key'
 
-/** Beyond this the URL is not something the mirror produced, so it is a format disagreement. */
-const MAX_URL_LENGTH = 2048
+export const MAX_HOPS = 10
+export const MAX_JOBS_PER_RECORD = 1_000
+export const MAX_RECORD_BYTES = 512 * 1024
 
-const FETCHABLE_SCHEMES = new Set(['http:', 'https:'])
-
-/**
- * The producer splits a record at 64 URLs. A record above this came from a producer that does not
- * agree with this one, and its size drives a Redis pipeline and a batch's memory, so it is refused
- * rather than trusted.
- */
-const MAX_URLS_PER_RECORD = 128
+export type UrlDropReason =
+    | 'malformed'
+    | 'unsupported_version'
+    | 'bad_ref'
+    | 'bad_url'
+    | 'foreign_domain'
+    | 'oversized_record'
+/** Why the parser dropped a job on its own, without rejecting the record that carries it. */
+export type UrlSkipReason = UrlPolicyDecline
+export type StoredRepublishReason =
+    | 'redirect'
+    | 'retry'
+    | 'not_ready'
+    | 'pass_deadline'
+    | 'origin_map_full'
+    | 'registrable_domain_map_full'
+export type RepublishReason = StoredRepublishReason
 
 export interface FetchCandidate {
-    ref: string
-    urlHash: string
-    url: string
+    originalRef: string
+    currentUrl: string
     host: string
-    domain: string
-    pseudoTeam: string
-    capturedAtMs: number
+    origin: string
+    registrableDomain: string
+    remainingHops: number
+    notBeforeMs: number
+    firstSeenAtMs: number
+    fetchCount: number
+    republishCount: number
+    lastRepublishReason: StoredRepublishReason | null
+    lastBlockReason?: ImageFetchBlockReason
+    sourcePartitions?: readonly number[]
+}
+
+export interface FrontierRecord {
+    v: 2
+    jobs: Array<
+        Pick<
+            FetchCandidate,
+            | 'originalRef'
+            | 'currentUrl'
+            | 'remainingHops'
+            | 'notBeforeMs'
+            | 'firstSeenAtMs'
+            | 'fetchCount'
+            | 'republishCount'
+            | 'lastRepublishReason'
+            | 'lastBlockReason'
+        >
+    >
 }
 
 export type RecordParse =
-    | { ok: true; candidates: FetchCandidate[]; urlCount: number; rejected: { reason: UrlDropReason }[] }
-    | { ok: false; reason: Extract<UrlDropReason, 'malformed' | 'unsupported_version' | 'oversized_record'> }
+    | {
+          ok: true
+          candidates: FetchCandidate[]
+          urlCount: number
+          rejected: { reason: UrlDropReason }[]
+          skipped: { reason: UrlSkipReason }[]
+      }
+    | {
+          ok: false
+          reason: Extract<
+              UrlDropReason,
+              'malformed' | 'unsupported_version' | 'oversized_record' | 'bad_ref' | 'bad_url' | 'foreign_domain'
+          >
+      }
 
-function isStringRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/**
- * Read one record off the fetch topic.
- *
- * The producer and this consumer ship from separate deployments, so a record can arrive from a
- * mirror older or newer than this code. Every field is therefore checked rather than trusted, and a
- * record that does not parse is counted and dropped instead of throwing: one bad record must not
- * stall the partition it shares with every other site.
- *
- * `domain` comes from the Kafka key rather than the record body, because the key is what routed the
- * record to this partition and so is what the politeness budget must be scoped to.
- */
+function isNonNegativeSafeInteger(value: unknown): value is number {
+    return Number.isSafeInteger(value) && (value as number) >= 0
+}
+
+function isStoredRepublishReason(value: unknown): value is StoredRepublishReason | null {
+    return (
+        value === null ||
+        value === 'redirect' ||
+        value === 'retry' ||
+        value === 'not_ready' ||
+        value === 'pass_deadline' ||
+        value === 'origin_map_full' ||
+        value === 'registrable_domain_map_full'
+    )
+}
+
 export function parseCollectedUrlsRecord(value: Buffer | null, key: string | null): RecordParse {
     if (!value || !key) {
         return { ok: false, reason: 'malformed' }
     }
+    if (value.length > MAX_RECORD_BYTES) {
+        return { ok: false, reason: 'oversized_record' }
+    }
+
     let parsed: unknown
     try {
         parsed = parseJSON(value.toString())
     } catch {
         return { ok: false, reason: 'malformed' }
     }
-    if (!isStringRecord(parsed)) {
+    if (!isRecord(parsed)) {
         return { ok: false, reason: 'malformed' }
     }
-    if (parsed.v !== 1) {
+    if (parsed.v === 1 && Array.isArray(parsed.urls)) {
+        return parseLegacyRecord(parsed, key)
+    }
+    if (parsed.v !== 2 && !(parsed.v === 1 && Array.isArray(parsed.jobs))) {
         return { ok: false, reason: 'unsupported_version' }
     }
-    const { pseudoTeam, capturedAtMs, urls } = parsed
-    if (typeof pseudoTeam !== 'string' || !pseudoTeam || typeof capturedAtMs !== 'number' || !Array.isArray(urls)) {
+    if (!Array.isArray(parsed.jobs) || parsed.jobs.length === 0) {
         return { ok: false, reason: 'malformed' }
     }
-    // Finite, not merely a number: JSON carries `-1e400`, which parses to -Infinity and would reach
-    // a histogram as an infinite age. prom-client throws on that, and a throw here stops the
-    // consumer and replays the same record forever.
-    if (!Number.isFinite(capturedAtMs)) {
-        return { ok: false, reason: 'malformed' }
-    }
-    if (urls.length > MAX_URLS_PER_RECORD) {
+    if (parsed.jobs.length > MAX_JOBS_PER_RECORD) {
         return { ok: false, reason: 'oversized_record' }
     }
 
     const candidates: FetchCandidate[] = []
     const rejected: { reason: UrlDropReason }[] = []
+    const skipped: { reason: UrlSkipReason }[] = []
+    for (const job of parsed.jobs) {
+        const parsedJob = parseJob(job, key)
+        if (parsedJob.kind === 'rejected') {
+            return { ok: false, reason: parsedJob.reason }
+        }
+        if (parsedJob.kind === 'skipped') {
+            skipped.push({ reason: parsedJob.reason })
+            continue
+        }
+        candidates.push(parsedJob.candidate)
+    }
+    return { ok: true, candidates, urlCount: parsed.jobs.length, rejected, skipped }
+}
+
+function parseLegacyRecord(parsed: Record<string, unknown>, kafkaKey: string): RecordParse {
+    const { pseudoTeam, capturedAtMs, urls, hopsRemaining, notBeforeMs } = parsed
+    if (
+        typeof pseudoTeam !== 'string' ||
+        pseudoTeam.length === 0 ||
+        !isNonNegativeSafeInteger(capturedAtMs) ||
+        !Array.isArray(urls) ||
+        urls.length === 0
+    ) {
+        return { ok: false, reason: 'malformed' }
+    }
+    if (urls.length > MAX_JOBS_PER_RECORD) {
+        return { ok: false, reason: 'oversized_record' }
+    }
+    const remainingHops = isNonNegativeSafeInteger(hopsRemaining) ? Math.min(hopsRemaining, MAX_HOPS) : MAX_HOPS
+    const readyAtMs = isNonNegativeSafeInteger(notBeforeMs) ? notBeforeMs : 0
+    const candidates: FetchCandidate[] = []
+    const rejected: { reason: UrlDropReason }[] = []
+    const skipped: { reason: UrlSkipReason }[] = []
     for (const entry of urls) {
-        if (!isStringRecord(entry) || typeof entry.ref !== 'string' || typeof entry.url !== 'string') {
-            rejected.push({ reason: 'bad_ref' })
+        if (!isRecord(entry) || typeof entry.ref !== 'string' || typeof entry.url !== 'string') {
+            rejected.push({ reason: 'bad_url' })
             continue
         }
         const ref = parseImageRef(entry.ref)
@@ -86,47 +174,123 @@ export function parseCollectedUrlsRecord(value: Buffer | null, key: string | nul
             rejected.push({ reason: 'bad_ref' })
             continue
         }
-        const host = typeof entry.host === 'string' ? entry.host : ''
-        if (!isFetchableUrl(entry.url, host)) {
-            rejected.push({ reason: 'bad_url' })
+        const verdict = tryCanonicalizeUrl(entry.url)
+        if (!verdict.ok) {
+            if (verdict.unwanted) {
+                skipped.push({ reason: verdict.decline })
+            } else {
+                rejected.push({ reason: 'bad_url' })
+            }
             continue
         }
-        // The key is what the per-site budget is scoped to, so a host outside it would be rate
-        // limited against another site's allowance.
-        if (!hostBelongsToDomain(host, key)) {
+        const canonical = verdict.url
+        if (canonical.domain !== kafkaKey.replace(/\.$/, '')) {
             rejected.push({ reason: 'foreign_domain' })
             continue
         }
         candidates.push({
-            ref: entry.ref,
-            urlHash: ref.hash,
-            url: entry.url,
-            host,
-            domain: key,
-            pseudoTeam,
-            capturedAtMs,
+            originalRef: entry.ref,
+            currentUrl: canonical.fetch,
+            host: canonical.host,
+            origin: new URL(canonical.fetch).origin,
+            registrableDomain: canonical.domain,
+            remainingHops,
+            notBeforeMs: readyAtMs,
+            firstSeenAtMs: capturedAtMs,
+            fetchCount: 0,
+            republishCount: 0,
+            lastRepublishReason: null,
         })
     }
-    return { ok: true, candidates, urlCount: urls.length, rejected }
+    return { ok: true, candidates, urlCount: urls.length, rejected, skipped }
 }
 
-function hostBelongsToDomain(host: string, domain: string): boolean {
-    return host === domain || host.endsWith(`.${domain}`)
+type ParsedJob =
+    | { kind: 'candidate'; candidate: FetchCandidate }
+    | { kind: 'rejected'; reason: Extract<UrlDropReason, 'bad_ref' | 'bad_url' | 'foreign_domain'> }
+    | { kind: 'skipped'; reason: UrlSkipReason }
+
+function parseJob(job: unknown, kafkaKey: string): ParsedJob {
+    if (!isRecord(job)) {
+        return { kind: 'rejected', reason: 'bad_url' }
+    }
+    const {
+        originalRef,
+        currentUrl,
+        remainingHops,
+        notBeforeMs,
+        firstSeenAtMs,
+        fetchCount,
+        republishCount,
+        lastRepublishReason,
+        lastBlockReason,
+        lowOriginDiversityDeferred,
+    } = job
+    if (
+        typeof originalRef !== 'string' ||
+        typeof currentUrl !== 'string' ||
+        !isNonNegativeSafeInteger(remainingHops) ||
+        remainingHops > MAX_HOPS ||
+        !isNonNegativeSafeInteger(notBeforeMs) ||
+        !isNonNegativeSafeInteger(firstSeenAtMs) ||
+        !isNonNegativeSafeInteger(fetchCount) ||
+        !isNonNegativeSafeInteger(republishCount) ||
+        !isStoredRepublishReason(lastRepublishReason) ||
+        (lastBlockReason !== undefined && !isImageFetchBlockReason(lastBlockReason)) ||
+        (lowOriginDiversityDeferred !== undefined && typeof lowOriginDiversityDeferred !== 'boolean')
+    ) {
+        return { kind: 'rejected', reason: 'bad_url' }
+    }
+    const ref = parseImageRef(originalRef)
+    if (!ref || ref.source !== 'url' || ref.pseudoTeam !== undefined) {
+        return { kind: 'rejected', reason: 'bad_ref' }
+    }
+    const verdict = tryCanonicalizeUrl(currentUrl)
+    if (!verdict.ok) {
+        // A rejected job sends its whole record to the dead-letter topic, and a record can hold an
+        // unwanted URL next to real images, so an unwanted URL is skipped on its own instead.
+        return verdict.unwanted ? { kind: 'skipped', reason: verdict.decline } : { kind: 'rejected', reason: 'bad_url' }
+    }
+    const canonical = verdict.url
+    if (canonical.fetch !== currentUrl) {
+        return { kind: 'rejected', reason: 'bad_url' }
+    }
+    if (canonical.domain !== kafkaKey) {
+        return { kind: 'rejected', reason: 'foreign_domain' }
+    }
+    return {
+        kind: 'candidate',
+        candidate: {
+            originalRef,
+            currentUrl,
+            host: canonical.host,
+            origin: new URL(currentUrl).origin,
+            registrableDomain: canonical.domain,
+            remainingHops,
+            notBeforeMs,
+            firstSeenAtMs,
+            fetchCount,
+            republishCount,
+            lastRepublishReason,
+            lastBlockReason,
+        },
+    }
 }
 
-/**
- * The mirror already applied the full URL policy before producing, so this repeats only the checks
- * that a wrong or stale producer could get past. It is not the SSRF gate: that belongs immediately
- * before a request goes out, against the host of every redirect, and no request goes out here.
- */
-function isFetchableUrl(url: string, host: string): boolean {
-    if (url.length > MAX_URL_LENGTH || !host) {
-        return false
+export function serializeFrontierRecord(candidates: FetchCandidate[]): Buffer {
+    const record: FrontierRecord = {
+        v: 2,
+        jobs: candidates.map((candidate) => ({
+            originalRef: candidate.originalRef,
+            currentUrl: candidate.currentUrl,
+            remainingHops: candidate.remainingHops,
+            notBeforeMs: candidate.notBeforeMs,
+            firstSeenAtMs: candidate.firstSeenAtMs,
+            fetchCount: candidate.fetchCount,
+            republishCount: candidate.republishCount,
+            lastRepublishReason: candidate.lastRepublishReason,
+            lastBlockReason: candidate.lastBlockReason,
+        })),
     }
-    try {
-        const parsed = new URL(url)
-        return FETCHABLE_SCHEMES.has(parsed.protocol) && parsed.hostname === host
-    } catch {
-        return false
-    }
+    return Buffer.from(JSON.stringify(record))
 }

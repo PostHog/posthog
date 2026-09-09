@@ -5,7 +5,7 @@ from django.http.response import JsonResponse
 
 import structlog
 from rest_framework import status
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, Throttled, ValidationError
 from rest_framework.response import Response
 
 from posthog.clickhouse.query_tagging import get_query_tags
@@ -27,6 +27,19 @@ class QuotaLimitExceeded(APIException):
     status_code = status.HTTP_402_PAYMENT_REQUIRED
     default_code = "quota_limit_exceeded"
     default_detail = "Your organization reached its billing limit for this resource. Increase the limits in Billing settings, or ask an org admin to do so."
+
+
+class APIQueriesBudgetExceeded(Throttled):
+    # DRF sets this in Throttled.__init__ and its handler turns it into Retry-After; the stubs omit it.
+    wait: Optional[float]
+
+    default_code = "api_queries_budget_exceeded"
+    # DRF appends "Expected available in N seconds." to this, so the wait is not repeated here.
+    default_detail = (
+        "This project used its hourly budget of data read by API queries. "
+        "To stay under it, read less data per query or run queries less often. "
+        "See https://posthog.com/docs/sql/optimizing-queries for ways to read less."
+    )
 
 
 class EnterpriseFeatureException(APIException):
@@ -85,12 +98,20 @@ class ClickHouseQuerySizeExceeded(APIException):
     default_detail = "Query size exceeded."
 
 
+class ClickHouseBytesLimitExceeded(ValidationError):
+    # A fresh TOO_MANY_BYTES surfaces as ValidationError(str(error), "too_many_bytes") in the
+    # query API, so the breaker's replay must produce the same status and machine code.
+    default_code = "too_many_bytes"
+
+
 class ClickHouseQueryTimeOut(APIException):
+    user_safe = True
     status_code = 504
     default_detail = "Query has hit the max execution time before completing. See our docs for how to improve your query performance. You may need to materialize."
 
 
 class ClickHouseQueryMemoryLimitExceeded(APIException):
+    user_safe = True
     # Custom code in the actionable-validation family (400/512/513) the frontend routes to the
     # "problem with this query" panel. Distinct from 512 (query-too-slow) so an out-of-memory
     # failure is never mistaken for a timeout on either the client or in status-based alerting.
@@ -100,9 +121,20 @@ class ClickHouseQueryMemoryLimitExceeded(APIException):
     # CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE constant.
     default_code = "clickhouse_memory_limit_exceeded"
     default_detail = "This query ran out of memory before it could finish, usually because it's scanning too much data. Try a shorter date range or narrower filters, or see our docs for more ways to speed it up: https://posthog.com/docs/product-analytics/troubleshooting#how-do-i-speed-up-my-insights-and-queries"
-    # True only when ClickHouse hit this query's own memory ceiling, meaning a retry will fail
-    # the same way. Server-wide and per-user limits are transient cluster pressure.
     is_per_query_limit = False
+
+
+class ClickHouseClusterMemoryLimitExceeded(ClickHouseQueryMemoryLimitExceeded):
+    """ClickHouse refused the query because the server-wide or per-user memory ceiling was full.
+
+    The query itself can be sized fine, so this belongs to `CH_TRANSIENT_ERRORS` and every retry
+    mechanism that references that tuple can get past it. Subclassing keeps the 513 status and the
+    machine-readable code, but the detail tells the user to wait rather than shrink a fine query.
+    """
+
+    default_detail = (
+        "We're under heavy load right now and couldn't finish this query. Please try again in a few minutes."
+    )
 
 
 class ExceptionContext(TypedDict):

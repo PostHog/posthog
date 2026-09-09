@@ -49,6 +49,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         useSingleExec: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
+        oauthClientId: undefined,
         clientProfile: {
             capabilities: { supportsInstructions: true },
             isCliModeEnabled: vi.fn(() => false),
@@ -67,10 +68,12 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         sessionContext: null,
         allTools: tools as any,
         scopeGatedTools: [],
+        flagGatedTools: [],
         gatewayToolsEnabled: false,
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
         metadata: undefined,
+        metadataCompact: undefined,
         groupTypes: undefined,
         ...overrides,
     }
@@ -192,7 +195,7 @@ describe('ToolExecutor intent capture', () => {
         await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
         const arg = captureSpy.mock.calls[0]![0]
         expect(arg.toolName).toBe('execute-sql')
-        const expected = new InstructionsBuilder('').formatExecuteSqlDescription(undefined)
+        const expected = new InstructionsBuilder('').formatExecuteSqlDescription()
         expect(arg.properties?.$mcp_tool_description).toBe(expected.slice(0, MAX_CAPTURED_DESCRIPTION_LENGTH))
 
         captureSpy.mockRestore()

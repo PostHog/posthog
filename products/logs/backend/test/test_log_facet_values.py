@@ -200,6 +200,47 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            ("facetResourceAttribute", "k8s.namespace.name"),
+            ("facetAttribute", "log.iostream"),
+        ]
+    )
+    def test_attribute_facet_ignores_a_column_filter_with_no_value(self, target, key):
+        # The search bar writes a filter as soon as its key is picked, so a severity filter sits in
+        # the group with no value while the user chooses one. Translating that to `IN ()` matches
+        # nothing and empties the very list they are picking from.
+        base = self._facet_attr(key, target=target)
+        filter_group = [{"key": "severity_level", "type": "log", "operator": "exact", "value": []}]
+
+        self.assertEqual(self._facet_attr(key, target=target, filterGroup=filter_group), base)
+
+    @parameterized.expand(
+        [
+            ("facetResourceAttribute", "k8s.namespace.name", "severity_level", "exact"),
+            ("facetResourceAttribute", "k8s.namespace.name", "severity_level", "is_not"),
+            ("facetResourceAttribute", "k8s.namespace.name", "service_name", "exact"),
+            ("facetResourceAttribute", "k8s.namespace.name", "service_name", "is_not"),
+            ("facetAttribute", "log.iostream", "severity_level", "exact"),
+            ("facetAttribute", "log.iostream", "service_name", "is_not"),
+        ]
+    )
+    def test_attribute_facet_honors_column_filter_in_group(self, target, key, filter_key, operator):
+        # The viewer keeps a level or service selection in filterGroup as a `log` filter, so these
+        # counts read it from there rather than from the dedicated fields. Exclusions have only ever
+        # existed in the group, which is why both polarities are covered.
+        base = self._facet_attr(key, target=target)
+        self.assertGreater(len(base), 0)
+        facet_field = "severity_text" if filter_key == "severity_level" else "service_name"
+        one_value = next(iter(self._facet(facet_field)))
+        filter_group = [{"key": filter_key, "type": "log", "operator": operator, "value": [one_value]}]
+
+        scoped = self._facet_attr(key, target=target, filterGroup=filter_group)
+
+        self.assertGreater(len(scoped), 0)
+        self.assertTrue(set(scoped).issubset(set(base)))
+        self.assertLess(sum(scoped.values()), sum(base.values()))
+
+    @parameterized.expand(
+        [
             ("facetResourceAttribute", "k8s.pod.name", "exact"),
             ("facetResourceAttribute", "k8s.pod.name", "is_not"),
             ("facetAttribute", "log.iostream", "exact"),

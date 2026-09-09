@@ -104,7 +104,7 @@ class _SpanAggregationMixin:
                     self.span_attribute_filters.append(cast(SpanPropertyFilter, prop))
 
     def validate_query_runner_access(self, user: "User") -> bool:
-        from posthog.rbac.user_access_control import UserAccessControlError
+        from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
         raise UserAccessControlError("tracing", "viewer")
 

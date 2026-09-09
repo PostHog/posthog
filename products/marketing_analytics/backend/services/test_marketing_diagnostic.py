@@ -207,7 +207,7 @@ class TestGetMarketingDiagnostic(APIBaseTest):
     @pytest.mark.asyncio
     async def test_misconfigured_goals_surface_in_global_actions(self):
         goal = ConversionGoalSummary(
-            id="999",
+            conversion_goal_id="999",
             name="Sign up",
             kind="ActionsNode",
             target_label="Action #999",

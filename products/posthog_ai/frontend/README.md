@@ -7,6 +7,10 @@ badge, or registering a product's tool cards, you consume it from here.
 > Building _on_ the surface (adding a thread-item type, a permission rule, stream telemetry)? That's the
 > contributor guide — [`AGENTS.md`](./AGENTS.md) — not this file.
 
+> Integrating a **product scene** with the agent — attaching context, injecting instructions, reacting to
+> tool calls, registering your product's tool cards? Start at [`../README.md`](../README.md), which walks
+> those seams end to end and routes you back here for the detail.
+
 ## 1. How to import — the one rule
 
 Import from a domain-scoped **`api/<module>`** entry. Never reach into deep internal paths
@@ -101,6 +105,10 @@ const { cancelRun } = useActions(runInteractionLogic(props))
 Pass `isTurnActive` + `onStop` to make the send button a **Stop** button while the agent is working a turn and
 the input is empty (clicking cancels the run); with drafted text it stays **Send** and queues the follow-up.
 Omit both for a send-only composer.
+
+Task creation and resumption keep the submitted draft and unsent context while a warm run starts.
+Web retries confirmed startup failures for up to 20 seconds, then leaves the message available to
+submit again.
 
 ### Custom layout via the `RunSurface` compound
 

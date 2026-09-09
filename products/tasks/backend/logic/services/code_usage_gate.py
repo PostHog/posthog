@@ -1,18 +1,31 @@
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
+from uuid import UUID
 
 from django.conf import settings
 
 import requests
 from rest_framework import status
+from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.models import OAuthAccessToken
-from posthog.temporal.oauth import create_oauth_access_token_for_user
+from posthog.permissions import get_authenticator_scopes
+
+if TYPE_CHECKING:
+    from posthog.models import Organization, User
+from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS, create_oauth_access_token_for_user
 from posthog.utils import get_instance_region
 
-from products.tasks.backend.logic.services.compute_quota import COMPUTE_QUOTA_DENIAL_CODE
+from products.tasks.backend.access import DesktopAccessResolutionError, get_desktop_access_decision
+from products.tasks.backend.facade.contracts import DesktopAccessReason
+from products.tasks.backend.logic.services.compute_quota import (
+    COMPUTE_QUOTA_DENIAL_CODE,
+    ORGANIZATION_DEACTIVATED_DENIAL_CODE,
+    organization_deactivated,
+)
 from products.tasks.backend.metrics import observe_code_usage_gate_check
 from products.tasks.backend.presentation.serializers import TaskRunErrorResponseSerializer
 
@@ -137,27 +150,122 @@ def rate_limit_error_payload(usage: CodeUsageStatus) -> dict[str, Any]:
     return payload
 
 
-def compute_quota_limit_response() -> Response:
+def _billing_limit_response(code: str, error: str) -> Response:
     return Response(
-        TaskRunErrorResponseSerializer(
-            {
-                "type": "billing_limit",
-                "code": COMPUTE_QUOTA_DENIAL_CODE,
-                "error": "Your organization reached its PostHog Desktop usage limit.",
-            }
-        ).data,
+        TaskRunErrorResponseSerializer({"type": "billing_limit", "code": code, "error": error}).data,
         status=status.HTTP_429_TOO_MANY_REQUESTS,
+    )
+
+
+def organization_deactivated_response() -> Response:
+    return _billing_limit_response(
+        ORGANIZATION_DEACTIVATED_DENIAL_CODE,
+        "Your organization has been deactivated. Contact PostHog support if you think this is a mistake.",
+    )
+
+
+def compute_quota_limit_response(reason: str = COMPUTE_QUOTA_DENIAL_CODE) -> Response:
+    if reason == ORGANIZATION_DEACTIVATED_DENIAL_CODE:
+        return organization_deactivated_response()
+    return _billing_limit_response(
+        COMPUTE_QUOTA_DENIAL_CODE,
+        "Your organization reached its PostHog Desktop usage limit.",
+    )
+
+
+def _task_bound_internal_run(request: Request, task_id: str | UUID | None) -> bool:
+    authenticator = getattr(request, "successful_authenticator", None)
+    authenticator_scopes = get_authenticator_scopes(authenticator) or []
+    if "internal_run:read" not in authenticator_scopes or task_id is None:
+        return False
+    if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return False
+
+    access_token = authenticator.access_token
+    application = access_token.application
+    if application is None or application.client_id not in SANDBOX_OAUTH_APP_CLIENT_IDS:
+        return False
+
+    try:
+        parsed_task_id = UUID(str(task_id))
+    except ValueError:
+        return False
+    return access_token.sandbox_task_id == parsed_task_id
+
+
+def code_access_required_response(
+    request: Request,
+    organization: "Organization",
+    *,
+    task_id: str | UUID | None = None,
+    fail_open_on_resolution_error: bool = False,
+) -> Response | None:
+    if _task_bound_internal_run(request, task_id):
+        return None
+
+    try:
+        decision = get_desktop_access_decision(cast("User", request.user), organization)
+    except DesktopAccessResolutionError:
+        logger.warning(
+            "desktop_access_resolution_failed",
+            extra={"organization_id": organization.id, "fail_open": fail_open_on_resolution_error},
+        )
+        if fail_open_on_resolution_error:
+            return None
+        return Response(
+            TaskRunErrorResponseSerializer(
+                {
+                    "type": "service_unavailable",
+                    "code": "desktop_access_unavailable",
+                    "error": "We couldn't verify PostHog Desktop access. Try again.",
+                }
+            ).data,
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    if decision.allowed:
+        return None
+
+    messages = {
+        DesktopAccessReason.STARTUP_PLAN: (
+            "PostHog Desktop isn't available for Startup or YC program organizations. "
+            "Select another organization to continue."
+        ),
+        DesktopAccessReason.PREPAID_CREDITS: (
+            "PostHog Desktop isn't available while this organization has prepaid credits. "
+            "Select another organization to continue."
+        ),
+    }
+    reason = decision.reason
+    error_message = (
+        messages[reason] if reason is not None else "PostHog Desktop access is required to run tasks in the cloud."
+    )
+    payload: dict[str, Any] = {
+        "type": "permission_denied",
+        "code": "code_access_required",
+        "error": error_message,
+    }
+    if reason is not None:
+        payload["reason"] = reason.value
+    return Response(
+        TaskRunErrorResponseSerializer(payload).data,
+        status=status.HTTP_403_FORBIDDEN,
     )
 
 
 def usage_limit_response(user, team_id: int) -> Response | None:
     """Return a 429 when the team is over its PostHog Desktop usage limit, else None.
 
-    Since Desktop moved to usage-based billing, this is the whole cost control on cloud runs —
-    no waitlist check is involved. Fails open when the gateway can't be reached, so every check
-    is counted by outcome (`checked_allowed` / `checked_blocked` / `fail_open`) and a degraded
-    gateway silently removing the backstop is visible, not just logged.
+    The cost backstop on cloud runs, applied on top of the entitlement gate above. Fails
+    open when the gateway can't be reached, so every check is counted by outcome
+    (`checked_allowed` / `checked_blocked` / `fail_open`) and a degraded gateway silently
+    removing the backstop is visible, not just logged. Deactivated organizations are blocked
+    locally first, so that block holds even when the gateway check fails open.
     """
+    if organization_deactivated(team_id):
+        observe_code_usage_gate_check(outcome="org_deactivated")
+        return organization_deactivated_response()
+
     usage = get_posthog_code_usage(user, team_id)
     if usage is None:
         observe_code_usage_gate_check(outcome="fail_open")

@@ -5,9 +5,13 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import {
+    demoteValueShortcutGroups,
+    fillSurplusSlots,
+    injectAutoMetaGroups,
     isSkeletonItem,
     propertyTaxonomicGroupProps,
     redistributeTopMatches,
+    resolveAvailableGroupTypes,
     SKELETON_ROWS_PER_GROUP,
     taxonomicFilterLogic,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -35,10 +39,16 @@ window.POSTHOG_APP_CONTEXT = {
 
 describe('taxonomicFilterLogic', () => {
     let logic: ReturnType<typeof taxonomicFilterLogic.build>
+    let actionRequestCount: number
 
     beforeEach(() => {
+        actionRequestCount = 0
         useMocks({
             get: {
+                '/api/projects/:team/actions/': () => {
+                    actionRequestCount++
+                    return [200, { results: [], count: 0 }]
+                },
                 '/api/projects/:team/event_definitions': ({ request }) => {
                     const search = new URL(request.url).searchParams.get('search')
                     const results = search
@@ -69,7 +79,6 @@ describe('taxonomicFilterLogic', () => {
         })
         initKeaTests()
         featureFlagLogic.mount()
-        actionsModel.mount()
         groupsModel.mount()
 
         const logicProps: TaxonomicFilterLogicProps = {
@@ -100,6 +109,25 @@ describe('taxonomicFilterLogic', () => {
         expect(
             infiniteListLogic({ ...logic.props, listGroupType: TaxonomicFilterGroupType.Cohorts }).isMounted()
         ).toBeFalsy()
+    })
+
+    it('loads actions when a taxonomic filter mounts', async () => {
+        await expectLogic(actionsModel).toDispatchActions(['loadActionsSuccess'])
+        expect(actionRequestCount).toBe(1)
+    })
+
+    it('does not request actions for a filter without the Actions group', () => {
+        const actionRequestsBeforeMount = actionRequestCount
+        const noActionsLogic = taxonomicFilterLogic({
+            taxonomicFilterLogicKey: 'noActions',
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties],
+        })
+        noActionsLogic.mount()
+
+        expect(actionsModel({ shouldLoad: false }).isMounted()).toBe(true)
+        expect(actionRequestCount).toBe(actionRequestsBeforeMount)
+
+        noActionsLogic.unmount()
     })
 
     it('keeps infiniteListCounts in sync', async () => {
@@ -505,6 +533,41 @@ describe('taxonomicFilterLogic', () => {
             const afterLoading = quickLogic.values.topMatchItemsWithSkeletons
             expect(afterLoading.filter(isSkeletonItem)).toHaveLength(0)
             expect(quickLogic.values.revealBarrierOpen).toBe(true)
+        })
+
+        it('renders pageview URL rows below property name rows once the reveal barrier opens', async () => {
+            const logicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: 'testDemotedShortcuts',
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.PageviewUrls,
+                    TaxonomicFilterGroupType.EventProperties,
+                ],
+            }
+            const demotedLogic = taxonomicFilterLogic(logicProps)
+            demotedLogic.mount()
+
+            await expectLogic(demotedLogic, () => {
+                demotedLogic.actions.setSearchQuery('host')
+                demotedLogic.actions.appendTopMatches([
+                    {
+                        name: 'https://posthog.com/a/very/long/url',
+                        group: TaxonomicFilterGroupType.PageviewUrls,
+                    } as any,
+                    { name: '$host', group: TaxonomicFilterGroupType.EventProperties } as any,
+                ])
+                demotedLogic.actions.openRevealBarrier()
+            }).toMatchValues({
+                topMatchItemsWithSkeletons: [
+                    expect.objectContaining({ name: '$host', group: TaxonomicFilterGroupType.EventProperties }),
+                    expect.objectContaining({
+                        name: 'https://posthog.com/a/very/long/url',
+                        group: TaxonomicFilterGroupType.PageviewUrls,
+                    }),
+                ],
+            })
+
+            demotedLogic.unmount()
         })
 
         it('does not insert skeletons when search query is empty', async () => {
@@ -1493,6 +1556,29 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
+    describe('error tracking issue property selection', () => {
+        it('provides issue severity as a filter with value suggestions', () => {
+            const issueLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'errorTrackingIssuePropertySelection',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.ErrorTrackingIssues],
+                onChange: jest.fn(),
+            })
+            issueLogic.mount()
+
+            const group = issueLogic.values.taxonomicGroups.find(
+                (candidate) => candidate.type === TaxonomicFilterGroupType.ErrorTrackingIssues
+            )
+            const option = group?.options?.find((candidate) => candidate.name === 'Issue severity') as
+                | { name: string; value: string }
+                | undefined
+
+            expect(group?.getValue?.(option)).toBe('severity')
+            expect(group?.valuesEndpoint?.('severity')).toContain('/error_tracking/issues/values?key=severity')
+
+            issueLogic.unmount()
+        })
+    })
+
     describe('event feature flag properties are a separate group from event properties', () => {
         let splitLogic: ReturnType<typeof taxonomicFilterLogic.build>
 
@@ -1630,6 +1716,45 @@ describe('redistributeTopMatches', () => {
     })
 })
 
+describe('demoteValueShortcutGroups', () => {
+    it.each([
+        {
+            description: 'moves value shortcut groups below the name matching groups',
+            groupTypes: [
+                TaxonomicFilterGroupType.PageviewUrls,
+                TaxonomicFilterGroupType.EmailAddresses,
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.PersonProperties,
+            ],
+            expected: [
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.PageviewUrls,
+                TaxonomicFilterGroupType.EmailAddresses,
+            ],
+        },
+        {
+            description: 'keeps the relative order inside each set',
+            groupTypes: [
+                TaxonomicFilterGroupType.EmailAddresses,
+                TaxonomicFilterGroupType.PageviewUrls,
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.Events,
+            ],
+            expected: [
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.Events,
+                TaxonomicFilterGroupType.EmailAddresses,
+                TaxonomicFilterGroupType.PageviewUrls,
+            ],
+        },
+    ])('$description', ({ groupTypes, expected }) => {
+        expect(demoteValueShortcutGroups(groupTypes)).toEqual(expected)
+    })
+})
+
 describe('isSkeletonItem', () => {
     it.each([
         {
@@ -1701,5 +1826,74 @@ describe('propertyTaxonomicGroupProps', () => {
         ])('$description', ({ property, expected }) => {
             expect(getPopoverHeader!(makePropDef(property))).toBe(expected)
         })
+    })
+})
+
+describe('resolveAvailableGroupTypes', () => {
+    it('drops group types that no taxonomic group serves', () => {
+        expect(
+            resolveAvailableGroupTypes(
+                [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Cohorts],
+                new Set([TaxonomicFilterGroupType.Events])
+            )
+        ).toEqual([TaxonomicFilterGroupType.Events])
+    })
+
+    it.each([
+        {
+            description: 'drops pageview events when pageview URLs are also requested',
+            requested: [TaxonomicFilterGroupType.PageviewUrls, TaxonomicFilterGroupType.PageviewEvents],
+            expected: [TaxonomicFilterGroupType.PageviewUrls],
+        },
+        {
+            description: 'drops screen events when screens are also requested',
+            requested: [TaxonomicFilterGroupType.Screens, TaxonomicFilterGroupType.ScreenEvents],
+            expected: [TaxonomicFilterGroupType.Screens],
+        },
+        {
+            description: 'keeps the second half of a pair when the first half is absent',
+            requested: [TaxonomicFilterGroupType.PageviewEvents],
+            expected: [TaxonomicFilterGroupType.PageviewEvents],
+        },
+    ])('$description', ({ requested, expected }) => {
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+        try {
+            expect(resolveAvailableGroupTypes(requested, new Set(requested))).toEqual(expected)
+        } finally {
+            warnSpy.mockRestore()
+        }
+    })
+})
+
+describe('injectAutoMetaGroups', () => {
+    it('skips a meta group that no taxonomic group serves', () => {
+        expect(
+            injectAutoMetaGroups(
+                [TaxonomicFilterGroupType.Events],
+                new Set([TaxonomicFilterGroupType.RecentFilters]),
+                false
+            )
+        ).toEqual([TaxonomicFilterGroupType.RecentFilters, TaxonomicFilterGroupType.Events])
+    })
+
+    it('does not add a meta group the caller already listed', () => {
+        const groupTypes = [TaxonomicFilterGroupType.RecentFilters, TaxonomicFilterGroupType.Events]
+
+        expect(injectAutoMetaGroups(groupTypes, new Set([TaxonomicFilterGroupType.RecentFilters]), false)).toEqual(
+            groupTypes
+        )
+    })
+})
+
+describe('fillSurplusSlots', () => {
+    it('never takes a group past MAX_TOP_MATCHES_PER_GROUP', () => {
+        const groupItems: any[] = Array.from({ length: 20 }, (_, i) => ({
+            name: `ce${i + 1}`,
+            group: TaxonomicFilterGroupType.CustomEvents,
+        }))
+        const byGroup = new Map([[TaxonomicFilterGroupType.CustomEvents, groupItems]])
+        const allocated = new Map([[TaxonomicFilterGroupType.CustomEvents, groupItems.slice(0, 5)]])
+
+        expect(fillSurplusSlots(byGroup, allocated, 50).get(TaxonomicFilterGroupType.CustomEvents)).toHaveLength(10)
     })
 })

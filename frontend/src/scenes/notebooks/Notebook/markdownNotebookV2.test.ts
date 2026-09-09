@@ -1,5 +1,7 @@
 import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
+import { NotebookComponentProps } from 'lib/components/MarkdownNotebook/types'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 
 import {
     ArtifactContentType,
@@ -7,6 +9,7 @@ import {
     VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
 import { NodeKind } from '~/queries/schema/schema-general'
+import { ChartDisplayType } from '~/types'
 
 import { NotebookNodeType } from '../types'
 import {
@@ -17,6 +20,7 @@ import {
     convertNotebookContentToMarkdown,
     getMarkdownNotebookMarkdown,
     getMarkdownNotebookTitle,
+    getSqlV2PropsFromQueryProp,
     insertMarkdownNotebookBlockAfterNode,
     isMarkdownNotebookContent,
     notebookArtifactContentToMarkdown,
@@ -248,6 +252,30 @@ Wrapped paragraph`)
 Dashboard 123
 
 <Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event from events limit 1"}}} />`)
+    })
+
+    it.each([
+        [NotebookNodeType.Dashboard, 'Dashboard'],
+        [NotebookNodeType.Action, 'Action'],
+        [NotebookNodeType.Workflow, 'Workflow'],
+        [NotebookNodeType.ErrorTrackingIssue, 'ErrorTrackingIssue'],
+        [NotebookNodeType.GeneratedWidget, 'Widget'],
+    ])('converts the %s widget node to its markdown component', (nodeType, tagName) => {
+        expect(
+            convertNotebookContentToMarkdown({
+                type: 'doc',
+                content: [{ type: nodeType, attrs: { id: 'resource-id' } }],
+            })
+        ).toEqual(`<${tagName} id="resource-id" />`)
+    })
+
+    it('converts query nodes with an insight ID to the Insight component', () => {
+        expect(
+            convertNotebookContentToMarkdown({
+                type: 'doc',
+                content: [{ type: NotebookNodeType.Query, attrs: { id: 'insight-id', view: 'summary' } }],
+            })
+        ).toEqual('<Insight id="insight-id" view="summary" />')
     })
 
     it('keeps the stable id vector for markdown query blocks without nodeId props', () => {
@@ -587,7 +615,7 @@ after`)
                                     attrs: { level: 2 },
                                     content: [{ type: 'text', text: 'Where to improve' }],
                                 },
-                                { type: NotebookNodeType.Python, attrs: { code: 'print(1)', hideFilters: true } },
+                                { type: NotebookNodeType.PythonV2, attrs: { code: 'print(1)', hideFilters: true } },
                             ],
                         },
                     ],
@@ -600,14 +628,14 @@ after`)
         expect(markdown).toContain('> Quoted context')
         expect(markdown).toContain('\n\n<Query ')
         expect(markdown).toContain('> ## Where to improve')
-        expect(markdown).toContain('\n\n<Python ')
+        expect(markdown).toContain('\n\n<PythonV2 ')
         expect(markdown).not.toContain('> <')
 
         const parsed = parseMarkdownNotebook(markdown)
         expect(parsed.errors).toEqual([])
         expect(parsed.nodes.flatMap((node) => (node.type === 'component' ? [node.tagName] : []))).toEqual([
             'Query',
-            'Python',
+            'PythonV2',
         ])
         const quotedHeading = parsed.nodes.find((node) => node.type === 'heading')
         expect(quotedHeading?.type === 'heading' && quotedHeading.blockquote).toBe(true)
@@ -899,6 +927,59 @@ Body`)
 
         it('ignores URLs from other origins', () => {
             expect(convertDroppedPostHogUrlToMarkdownNode('https://example.com/feature_flags/123')).toBeNull()
+        })
+    })
+
+    describe('getSqlV2PropsFromQueryProp', () => {
+        const hogqlQuery = { kind: NodeKind.HogQLQuery, query: 'select event from events' }
+        const visualizationQuery = {
+            kind: NodeKind.DataVisualizationNode,
+            source: hogqlQuery,
+            display: ChartDisplayType.ActionsBar,
+        }
+
+        it.each<[string, NotebookComponentProps, NotebookComponentProps]>([
+            [
+                'a visualization query',
+                { query: visualizationQuery },
+                {
+                    code: 'select event from events',
+                    vizQuery: visualizationQuery,
+                    outputTab: OutputTab.Visualization,
+                },
+            ],
+            [
+                'a data table query',
+                { query: { kind: NodeKind.DataTableNode, source: hogqlQuery } },
+                { code: 'select event from events' },
+            ],
+            ['a bare HogQL query', { query: hogqlQuery }, { code: 'select event from events' }],
+            ['a plain SQL string', { query: 'select event from events' }, { code: 'select event from events' }],
+            [
+                'a query serialized to a JSON string',
+                { query: JSON.stringify(visualizationQuery) },
+                {
+                    code: 'select event from events',
+                    vizQuery: visualizationQuery,
+                    outputTab: OutputTab.Visualization,
+                },
+            ],
+        ])('recovers the SQL from a cell written with %s', (_case, props, expected) => {
+            expect(getSqlV2PropsFromQueryProp(props)).toEqual(expected)
+        })
+
+        it.each<[string, NotebookComponentProps]>([
+            ['the cell already has code', { code: 'select 1', query: hogqlQuery }],
+            ['there is no query prop', { title: 'Events' }],
+            [
+                'the query holds no SQL',
+                { query: { kind: NodeKind.DataTableNode, source: { kind: NodeKind.EventsQuery, select: ['event'] } } },
+            ],
+            // Never fall through to the plain-SQL reading here: the editor would show JSON and run it.
+            ['a JSON string does not parse', { query: '{"kind":"HogQLQuery",' }],
+            ['a JSON string carries no SQL', { query: JSON.stringify({ kind: NodeKind.EventsQuery }) }],
+        ])('leaves the cell untouched when %s', (_case, props) => {
+            expect(getSqlV2PropsFromQueryProp(props)).toBeNull()
         })
     })
 

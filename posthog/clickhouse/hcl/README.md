@@ -5,7 +5,8 @@ Source of truth for satellite ClickHouse clusters, managed declaratively with
 Schemas are written in HCL, **composed per node** `(env, role)`, verified against
 captured cluster dumps, and used to generate the migration that applies a change.
 
-Covers the satellite roles (ops, logs, aux, `ai_events`, sessions, sessionsv3, `batch_exports`) in the cloud envs (dev, prod-us, prod-eu) where each exists, plus the local `data` node.
+Covers the satellite roles (ops, logs, aux, `ai_events`, sessions, `batch_exports`) in the cloud envs (dev, prod-us, prod-eu) where each exists, plus the local `data` node and the three ingestion roles (`events`, `small`, `medium`) the multinode stack runs.
+The `local-single` env models the plain dev stack, where one server hosts every role's objects under the role `all`, composed as the union of the roles the multinode stack splits across nodes.
 The prod data clusters carry per-env `mat_` columns, so their goldens and per-env override layers live in posthog-cloud-infra (see [The cloud side](#the-cloud-side-posthog-cloud-infra)).
 
 ## Model: per-node composition
@@ -28,7 +29,8 @@ hcl/
   roles/<role>/shared/     # objects on every env of one role
   roles/<role>/prod/       # objects on both prod envs only
   roles/<role>/<env>/      # per-env overlay: env-only objects + patch_* deltas; env ∈ local/dev/prod-us/prod-eu
-  roles/data/shared/       # the events family declared once: the _event_base abstract + the events/sharded_events extenders
+  roles/shared/event_base.hcl  # the _event_base abstract every events copy extends
+  roles/data/shared/       # the events family: the events/sharded_events extenders
   roles/data/local/        # the rest of the local data node (migration-produced schema) + its patch_* deltas
   duplicates-baseline.txt  # objects still declared in >1 composed layer; check.sh gates on it, and it only shrinks
   <layer>/sql/<object>.sql # view/MV query bodies extracted from a layer, referenced as query = file("sql/<object>.sql")
@@ -37,6 +39,7 @@ hcl/
   check.sh                 # CI guard (offline): validate + diff every node vs golden + verify golden/ & sql/ are fresh
   dump-live.sh             # CI gate step 1 (live): introspect the migrated OPS/LOGS nodes into HCL dumps
   check-live.sh            # CI gate step 2 (offline): diff those dumps vs golden — catches migrations that desync from the HCL
+  check-cloud.sh           # manual, needs sibling checkouts: compose vs the cloud node dumps + posthog-cloud-infra still composes
   exclude.hcl              # objects the gate drops (transient + cross-cluster proxies + out-of-band-managed, not in the managed set)
   diff.sh                  # preview the DDL your uncommitted edits produce, per node
   gen-golden.sh            # (re)generate golden/  — hclexp load per node
@@ -49,20 +52,22 @@ hcl/
 `check.sh` is **offline** — it proves the HCL is internally consistent and that `golden/`/`sql/` are
 fresh, but it never contacts a cluster, so it cannot tell whether the imperative migrations in
 `posthog/clickhouse/migrations/` still produce the schema the HCL declares. That gap is how old
-migrations silently desynced the live OPS/LOGS schema from the HCL.
+migrations silently desynced the live schema from the HCL.
 
 The convergence gate closes it, in **two steps** that run inside the multinode migration smoke
 (`tools/infra-scripts/clickhouse-multinode/`, workflow `ci-clickhouse-multinode-migrations.yml`)
 **after** `manage.py migrate_clickhouse`:
 
-1. **`dump-live.sh [outdir]`** — `hclexp introspect` each managed role's live node into
+1. **`dump-live.sh [outdir]`** — `hclexp introspect` each role's live node into
    `<outdir>/<env>-<role>.hcl`, dropping unmanaged / transient objects via `exclude.hcl`. Needs the
    cluster (a `--network host` container, or `HCLEXP_BIN` locally). Also writes
    `<outdir>/hclexp-version.txt` (`hclexp -version`) recording the tool build that produced the dump —
    informational provenance, not gated by `check-live.sh`.
-2. **`check-live.sh <dumpdir>`** — for each role, `hclexp diff -format json` the committed
-   `golden/<env>/<role>.hcl` against the dump, drop the ignored operations (named_collections +
-   `exclude.hcl` globs), and require nothing left. Offline — only needs `hclexp`.
+2. **`check-live.sh <dumpdir>`** — for each role, `hclexp diff -exclude exclude.hcl -format json` the
+   committed `golden/<env>/<role>.hcl` against the dump, and require an empty operation list.
+   The exclusion is native: `hclexp` drops named_collections (`object_types`) and unmanaged /
+   transient names (`patterns`) from both sides before diffing, so `check-live.sh` filters nothing
+   itself. Offline — only needs `hclexp`.
 
 ```bash
 DUMP=$(bash posthog/clickhouse/hcl/dump-live.sh)   # step 1 -> prints the dump dir
@@ -75,13 +80,16 @@ versa). Fix the migration to match the HCL, or — if the change is intended —
 **enforced** (drift fails the smoke); export `VERIFY_LIVE_WARN=1` to make it informational while
 reconciling a new role.
 
-Each managed role is compared against its `golden/local-multi/<role>.hcl`. The local LOGS node runs a
-partial/newer schema than the cloud logs nodes, so `local logs` composes a self-contained
-`roles/logs/local` (extracted from the live node) rather than the shared cloud layers.
+Every role `manifest.hcl` composes for the gate's env is dumped and gated — for `local-multi` that is
+each node the multinode stack runs, one per published port in `dump-live.sh`'s `ROLES`, compared
+against its `golden/local-multi/<role>.hcl` (`aux` is filed as `auxiliary`, see `golden_name` in
+`lib.sh`). Every logs node composes `roles/logs/{base,traces,traces_kafka_metrics,metrics}`; the
+local one adds a self-contained `roles/logs/local` (extracted from the live node) for the legacy
+`logs32` family it still runs.
 
 `node_roles` is **derived**: an object in `roles/shared/` appears in every node's composition →
-`node_roles` = every managed role (currently `[LOGS, OPS]`); an object under `roles/ops/` appears
-only in the ops nodes → `[OPS]`; one under `roles/logs/` → `[LOGS]`.
+`node_roles` = every role the manifest declares; an object under `roles/ops/` appears only in the ops
+nodes → `[OPS]`; one under `roles/logs/` → `[LOGS]`.
 
 Per-node `{shard}` / `{replica}` stay as ClickHouse macros, so replicas collapse to one definition.
 A cross-cluster Distributed proxy references a table on another cluster's composition; `check.sh`
@@ -101,7 +109,7 @@ Two consequences:
 - The **Cloud compose gate** job (in `ci-clickhouse-hcl-schema.yml`) dispatches to posthog-cloud-infra and composes the cloud envs against your PR head; it fails when a change breaks composition there (a patch that no longer resolves, a redeclaration, a validation error).
 - A change that composes cleanly may still legitimately _shift_ cloud goldens (say, a new column on `_event_base`) — that regen happens in cloud-infra's next `base-ref` bump PR, not here, and is expected.
 
-The events family is the canonical example: `roles/data/shared/` declares `_event_base` + `sharded_events` + `events` once; cloud env deltas (mat\_ columns, env specs) live as patches in cloud-infra's `overrides/`.
+The events family is the canonical example: `roles/shared/event_base.hcl` declares `_event_base` once, `roles/data/shared/` declares the `sharded_events` and `events` extenders, `roles/sessions/shared/` the sessions replica of the proxy; cloud env deltas (mat\_ columns, env specs) live as patches in cloud-infra's `overrides/`.
 Schema changes to those tables belong in `roles/data/shared/`, never re-declared per env.
 
 ## Making a change (edit HCL → migration)
@@ -123,12 +131,18 @@ The wrapper resolves `$HCLEXP_BIN` → `hclexp` on `$PATH` → that image, so a 
 wins: run `bash $HCL/bin/install-hclexp` to extract one from the pinned image (what CI does), or
 build it yourself with `go build -o hclexp ./cmd/hclexp` in `../../../../python-clickhouse-schema`.
 
+**Pass `-ignore-column-order` to every `hclexp diff` and `hclexp plan`.**
+`check.sh`, `check-live.sh`, `diff.sh` and `check-cloud.sh` all do.
+Column order carries no meaning here, and the layers cannot express it anyway: a patch cannot reorder the columns it inherits ([chschema#240](https://github.com/PostHog/chschema/issues/240)), so an object whose order differs between two compositions could otherwise only be written out in full.
+Without the flag, two identical schemas whose columns sit in a different order report a column change, which reads as real drift and is expensive to disprove.
+On our three cloud envs the flag removes 10 of the 26 `unsafe` rows the reconcile used to report.
+
 1. **Edit the right layer** for what you're changing.
    Placement = which node stacks compose the layer, declared in `manifest.hcl`; find an existing object's single declaration with `hclexp locate` (or grep) rather than assuming:
    - an object on every role (the `query_log_archive` path, `custom_metrics_*` sub-views) → `roles/shared/`
    - an object a specific set of roles co-hosts (a data table plus the nodes holding its Distributed proxies) → `roles/coshared/<member-set>/`, and wire a new set into each member's stack in `manifest.hcl`
    - one role → `roles/<role>/shared/` (all its envs), `roles/<role>/prod/` (both prods), or `roles/<role>/<env>/` (one env)
-   - the events family → the `_event_base` abstract + extenders in `roles/data/shared/`
+   - the events family → the `_event_base` abstract in `roles/shared/event_base.hcl`, its extenders in `roles/data/shared/` and `roles/sessions/shared/`
    - a brand-new object → add it to the layer above **and**, if it's on a new role, add that role's
      block to `manifest.hcl` (+ a golden for it).
    - **declare an object once, everywhere it differs use a patch.**
@@ -218,6 +232,24 @@ Edit the existing `patch_*` block in that env's layer (cloud envs: in posthog-cl
 The cloud envs compose the same base layers, vendored by commit sha, plus private per-env `overrides/` (mat\_ columns and other cloud-only deltas), in posthog-cloud-infra's `clickhouse/hcl/`.
 After a base change merges here, a **base-ref bump PR** there advances the pinned sha, regenerates the cloud goldens (your change now appears in every env's composed output), and produces the ordered migration SQL for the cloud clusters.
 That PR runs the strict check (goldens asserted, baseline exact), so the golden movement the compose gate waved through gets reviewed and applied there.
+
+### Checking both sides locally (`check-cloud.sh`)
+
+`check.sh` is hermetic and deliberately knows nothing about the cloud.
+`check-cloud.sh` is the manual pass that answers the two questions it cannot, given the sibling checkouts:
+
+```bash
+bash posthog/clickhouse/hcl/check-cloud.sh            # ../clickhouse-schema and ../posthog-cloud-infra
+bash posthog/clickhouse/hcl/check-cloud.sh prod-us    # one env
+DUMPS=<path> CLOUD_INFRA=<path> bash posthog/clickhouse/hcl/check-cloud.sh
+```
+
+It reconciles every composed node against the per-node dumps in PostHog/clickhouse-schema, and replays the compose gate against your working tree, so you learn before pushing whether a layer you moved or renamed breaks posthog-cloud-infra.
+Each half is skipped, loudly, when its checkout is absent.
+It copies posthog-cloud-infra's tree to a scratch dir before vendoring into it, so it never leaves that checkout in a state that disagrees with its own `base-ref`.
+
+A red run is not a build break: the dump repo refreshes daily, so its answer changes without this repo changing.
+Read it as drift to catalog or a fix to make.
 
 ## Build a node from scratch
 

@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console import (
     GoogleSearchConsoleResumeConfig,
+    _is_quota_error,
     google_search_console_session,
     google_search_console_source,
     list_sites,
@@ -61,6 +62,27 @@ _LOAD_CONNECTION_ERROR = (
 _LIST_SITES_ERROR = (
     "PostHog couldn't reach Google Search Console to list your properties. Please try again in a few minutes."
 )
+
+# Listing properties fails three ways that need three different next steps, and Google reports the
+# first two both as a 403: an exhausted quota, an account that can't read any property, and a token
+# that no longer works. Telling a user to reconnect covers only the last one.
+_PROPERTY_LIST_QUOTA_ERROR = "Google is rate limiting Search Console requests. Wait a minute, then try again."
+_PROPERTY_LIST_ACCESS_ERROR = (
+    "The connected Google account can't read any Search Console property. Reconnect and allow "
+    "Search Console access, or use the account that owns the property."
+)
+_PROPERTY_LIST_CREDENTIALS_ERROR = (
+    "Google rejected the credentials for this connection. Reconnect your Google account, then pick a property."
+)
+
+
+def _property_list_http_error(error: requests.HTTPError) -> str:
+    response = error.response
+    if response is not None and _is_quota_error(response):
+        return _PROPERTY_LIST_QUOTA_ERROR
+    if response is not None and response.status_code == 403:
+        return _PROPERTY_LIST_ACCESS_ERROR
+    return _PROPERTY_LIST_CREDENTIALS_ERROR
 
 
 @SourceRegistry.register
@@ -109,13 +131,10 @@ class GoogleSearchConsoleSource(
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else None
             if status in (401, 403):
-                # The token refreshed fine but the connected Google account isn't authorized to read
-                # Search Console — a customer-side connection issue. Surface an actionable message the
-                # endpoint turns into a 400 rather than an unhandled 500.
-                raise IntegrationAccountListingError(
-                    "Google Search Console rejected the credentials. Please reconnect your account "
-                    "and ensure it has read access to the property."
-                )
+                # The token refreshed fine but Google still refused the listing — a customer-side
+                # connection issue. Surface an actionable message the endpoint turns into a 400
+                # rather than an unhandled 500.
+                raise IntegrationAccountListingError(_property_list_http_error(e))
             raise
         except RefreshError:
             # The stored OAuth token is revoked/expired/missing scopes — raised while AuthorizedSession
@@ -252,10 +271,7 @@ class GoogleSearchConsoleSource(
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else None
             if status in (401, 403):
-                return (
-                    False,
-                    "Google Search Console rejected the credentials. Please reconnect your account and ensure it has read access to the property.",
-                )
+                return False, _property_list_http_error(e)
             capture_exception(e)
             return False, _LIST_SITES_ERROR
         except RefreshError:

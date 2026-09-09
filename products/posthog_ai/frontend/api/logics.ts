@@ -14,6 +14,7 @@ export type { RunStreamLogicProps, RunSseStatus, RunStatus } from '../logics/run
 
 // --- Interaction facade (follow-up / queue) ---
 export { runInteractionLogic } from '../logics/runInteractionLogic'
+export { messageRatingsLogic } from '../logics/messageRatingsLogic'
 export type { RunInteractionLogicProps, QueuedMessage } from '../logics/runInteractionLogic'
 
 // --- Thinking-message helpers ---
@@ -21,6 +22,7 @@ export { getThinkingMessageFromResponse, getRandomThinkingMessage, THINKING_MESS
 
 // --- Composer model/effort helpers (pure — no component imports) ---
 export { resolveEffortForModel, DEFAULT_COMPOSER_MODEL, DEFAULT_COMPOSER_EFFORT } from '../utils/composerModels'
+export { modelCatalogueLogic } from '../logics/modelCatalogueLogic'
 
 // --- Attached-context store + injection hook (headless) ---
 // Global registry of on-screen context providers; `contextItems` is what the send paths wrap into the
@@ -52,6 +54,7 @@ export { toolStreamEventsLogic } from '../logics/toolStreamEventsLogic'
 export type { ToolStreamSubscription } from '../logics/toolStreamEventsLogic'
 export { useToolStreamListener } from '../hooks/useToolStream'
 export type { UseToolStreamListenerOptions } from '../hooks/useToolStream'
+export { resolveToolCall } from '../utils/toolResolver'
 
 // --- Foreground stream registry + MCP tool apply-back (headless) ---
 // `foregroundStreamLogic` marks the single stream rendered in the side panel the user is watching; a

@@ -15,7 +15,7 @@ from products.canvas.backend import build_service
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.canvas.backend.tests.test_canvas_api import InMemoryStorage
-from products.tasks.backend.models import Channel
+from products.tasks.backend.models import Channel, Task, TaskThreadMessage
 
 
 def _builder_result(files: dict[str, str], capabilities: dict | None = None) -> dict:
@@ -152,6 +152,48 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         assert failing.diagnostics[0]["code"] == "bundle_error"
         assert self.canvas.published_build_id == build.id
 
+    def test_failed_build_files_report_in_authoring_task_thread(self):
+        # A failed build must reach the authoring task's thread — dropping this
+        # hook makes build failures silent again (telemetry only, nobody told).
+        # A cancelled build is churn, not a defect, and must not be reported.
+        task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Build canvas",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        Canvas.objects.unscoped().filter(id=self.canvas.id).update(generation_task_id=task.id)
+        flag = patch("products.tasks.backend.facade.api._agent_thread_updates_enabled", return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
+
+        failing = self._publish()
+        with patch.object(
+            build_service,
+            "run_cloud_builder",
+            return_value={
+                "contractVersion": 1,
+                "status": "failed",
+                "diagnostics": [{"severity": "error", "code": "bundle_error", "message": "boom"}],
+            },
+        ):
+            build_service.run_canvas_build(self.team.id, str(failing.id))
+
+        reports = TaskThreadMessage.objects.for_team(self.team.id).filter(
+            task_id=task.id, event="canvas_error_reported"
+        )
+        assert reports.count() == 1
+        payload = reports.get().payload
+        assert payload["origin"] == "build"
+        assert payload["build_id"] == str(failing.id)
+        assert payload["error_codes"] == ["bundle_error"]
+
+        cancelled = self._publish()
+        build_service.act_on_build(self.canvas, cancelled.id, "cancel")
+        assert reports.count() == 1
+
     def test_builder_crash_fails_with_generic_unavailable(self):
         build = self._publish()
         with patch.object(build_service, "run_cloud_builder", side_effect=RuntimeError("node exploded: secret path")):
@@ -216,6 +258,29 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         assert build.status == CanvasBuild.STATUS_FAILED
         assert self.canvas.published_build_id is None
 
+    def test_losing_finalize_race_to_ready_winner_keeps_shared_artifacts(self) -> None:
+        # Two attempts of the SAME build share the deterministic artifact prefix. When a
+        # redelivered attempt finalizes READY while a stalled attempt is still uploading,
+        # the loser must not delete the keys — the winner's manifest references them.
+        build = self._publish()
+        prefix = build_service.artifact_object_prefix(self.team.id, build.canvas_id, build.id)
+
+        def winner_finalizes_mid_build(project: dict) -> dict:
+            CanvasBuild.objects.unscoped().filter(id=build.id).update(
+                status=CanvasBuild.STATUS_READY,
+                artifact_object_prefix=prefix,
+                finished_at=timezone.now(),
+                lease_expires_at=None,
+            )
+            return _builder_result({"index.html": "<html></html>"})
+
+        with patch.object(build_service, "run_cloud_builder", side_effect=winner_finalizes_mid_build):
+            build_service.run_canvas_build(self.team.id, str(build.id))
+
+        assert self.storage.objects[f"{prefix}/index.html"] == b"<html></html>"
+        build.refresh_from_db()
+        assert build.status == CanvasBuild.STATUS_READY
+
     @parameterized.expand(
         [
             ("ready", _builder_result({"index.html": "<html></html>"}), []),
@@ -244,6 +309,38 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         assert properties["outcome"] == outcome
         assert properties["error_codes"] == error_codes
         assert properties["build_id"] == str(build.id)
+
+
+class TestBuildDispatch(BuildServiceBaseTest):
+    def test_flagged_in_team_dispatches_to_temporal_instead_of_celery(self) -> None:
+        with (
+            patch.object(build_service.posthoganalytics, "feature_enabled", return_value=True),
+            patch("products.canvas.backend.temporal.client.execute_canvas_build_workflow") as start_workflow,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            build = self._publish()
+        start_workflow.assert_called_once_with(self.team.id, str(build.id))
+        self.enqueue.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("flag_check_fails", RuntimeError("flag service down"), None),
+            ("workflow_start_fails", True, RuntimeError("temporal down")),
+        ]
+    )
+    def test_temporal_failure_falls_back_to_celery(
+        self, _name: str, flag_result: bool | Exception, workflow_error: Exception | None
+    ) -> None:
+        with (
+            patch.object(build_service.posthoganalytics, "feature_enabled", side_effect=[flag_result]),
+            patch(
+                "products.canvas.backend.temporal.client.execute_canvas_build_workflow",
+                side_effect=workflow_error,
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            build = self._publish()
+        self.enqueue.assert_called_once_with(self.team.id, str(build.id))
 
 
 class TestSweeper(BuildServiceBaseTest):

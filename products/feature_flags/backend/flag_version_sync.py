@@ -22,15 +22,15 @@ definition change. The same goes for flag edits that leave the flag's conditions
 comparison below guarantees only real definition changes bump.
 
 The bumps run synchronously inside the triggering save's transaction rather than on
-commit: ``refresh_flag_cache_on_updates`` connects at model-import time, i.e. before
-this module is wired in ``apps.ready()``, so its own ``on_commit`` callback runs first
-and would rebuild the flag cache with the pre-bump versions.
+commit: the flag-change signals schedule cache rebuilds via ``on_commit`` callbacks,
+so a bump deferred to commit time could run after a rebuild has already read the
+pre-bump versions.
 """
 
 from collections import defaultdict
 from typing import Any
 
-from django.db import models, transaction
+from django.db import transaction
 from django.db.models import Value
 from django.db.models.functions import Coalesce
 from django.db.models.signals import post_save, pre_save
@@ -43,6 +43,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, LogActi
 from posthog.models.activity_logging.utils import activity_storage
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
+from products.feature_flags.backend.field_snapshots import capture_fields_before_save, snapshot_if_changed
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 logger = structlog.get_logger(__name__)
@@ -71,42 +72,6 @@ FLAG_DEFINITION_FIELDS = frozenset({"filters", "active", "deleted", "key"})
 _DEFINITION_BEFORE_SAVE_ATTR = "_definition_before_save"
 
 
-def _capture_definition_before_save(
-    instance: models.Model,
-    manager: models.Manager[Any],
-    definition_fields: frozenset[str],
-    update_fields: frozenset[str] | None,
-    raw: bool,
-) -> None:
-    """Snapshot the persisted definition fields this save may overwrite.
-
-    Always resets the snapshot first so a failed earlier save can never leak a stale
-    capture into a later save's comparison.
-    """
-    setattr(instance, _DEFINITION_BEFORE_SAVE_ATTR, None)
-    if raw or instance.pk is None:
-        return
-    # Only fields this save will actually persist: a definition field changed in
-    # memory but excluded from update_fields is not written, so it must not count.
-    fields = definition_fields if update_fields is None else definition_fields.intersection(update_fields)
-    if not fields:
-        return
-    # sorted(): set iteration order varies between processes, and it reaches the SELECT's
-    # column list — an unstable query string defeats plan reuse and makes the query
-    # snapshots that cover flag saves fail at random.
-    setattr(instance, _DEFINITION_BEFORE_SAVE_ATTR, manager.filter(pk=instance.pk).values(*sorted(fields)).first())
-
-
-def _changed_definition_fields(instance: models.Model) -> dict[str, Any] | None:
-    """Pop the pre_save snapshot and return it only if a snapshotted value changed."""
-    before = instance.__dict__.pop(_DEFINITION_BEFORE_SAVE_ATTR, None)
-    if before is None:
-        return None
-    if all(getattr(instance, field) == value for field, value in before.items()):
-        return None
-    return before
-
-
 @receiver(pre_save, sender=Cohort)
 def capture_cohort_definition_before_save(
     sender: type[Cohort],
@@ -115,7 +80,14 @@ def capture_cohort_definition_before_save(
     update_fields: frozenset[str] | None = None,
     **kwargs: Any,
 ) -> None:
-    _capture_definition_before_save(instance, Cohort.objects, COHORT_DEFINITION_FIELDS, update_fields, raw)
+    capture_fields_before_save(
+        instance,
+        Cohort.objects,
+        COHORT_DEFINITION_FIELDS,
+        attr=_DEFINITION_BEFORE_SAVE_ATTR,
+        update_fields=update_fields,
+        raw=raw,
+    )
 
 
 @receiver(pre_save, sender=FeatureFlag)
@@ -128,8 +100,13 @@ def capture_flag_definition_before_save(
 ) -> None:
     # objects_including_soft_deleted so restoring a soft-deleted flag reads as a
     # deleted True -> False change instead of snapshotting nothing.
-    _capture_definition_before_save(
-        instance, FeatureFlag.objects_including_soft_deleted, FLAG_DEFINITION_FIELDS, update_fields, raw
+    capture_fields_before_save(
+        instance,
+        FeatureFlag.objects_including_soft_deleted,
+        FLAG_DEFINITION_FIELDS,
+        attr=_DEFINITION_BEFORE_SAVE_ATTR,
+        update_fields=update_fields,
+        raw=raw,
     )
 
 
@@ -143,7 +120,7 @@ def bump_flag_versions_on_cohort_definition_change(
 ) -> None:
     if raw or created:
         return
-    if _changed_definition_fields(instance) is None:
+    if snapshot_if_changed(instance, attr=_DEFINITION_BEFORE_SAVE_ATTR) is None:
         return
 
     project_id = instance.team.project_id
@@ -171,7 +148,7 @@ def bump_dependent_flag_versions_on_flag_definition_change(
 ) -> None:
     if raw or created:
         return
-    before = _changed_definition_fields(instance)
+    before = snapshot_if_changed(instance, attr=_DEFINITION_BEFORE_SAVE_ATTR)
     if before is None:
         return
     # An already-deleted flag is in no payload, so edits to it (e.g. the tombstone rename

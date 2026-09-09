@@ -252,6 +252,21 @@ export interface teamLogicActions {
         currentTeam: TeamPublicType | TeamType | null
         payload?: ProductOnboardingCompleteProperties
     }
+    refreshCurrentTeam: () => any
+    refreshCurrentTeamFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    refreshCurrentTeamSuccess: (
+        currentTeam: TeamPublicType | TeamType | null,
+        payload?: any
+    ) => {
+        currentTeam: TeamPublicType | TeamType | null
+        payload?: any
+    }
     resetToken: () => any
     resetTokenFailure: (
         error: string,
@@ -368,6 +383,14 @@ export const teamLogic = kea<teamLogicType>([
 
                     try {
                         return await api.get('api/environments/@current')
+                    } catch {
+                        return values.currentTeam
+                    }
+                },
+                refreshCurrentTeam: async () => {
+                    try {
+                        const team = await api.get('api/environments/@current')
+                        return team?.id === values.currentTeam?.id ? team : values.currentTeam
                     } catch {
                         return values.currentTeam
                     }
@@ -665,6 +688,10 @@ export const teamLogic = kea<teamLogicType>([
                 },
                 icon: <IconSwapHoriz />,
             })
+            // Clear the flag so a later remount of this logic does not re-announce the same switch.
+            if (appContext) {
+                appContext.switched_team = null
+            }
         }
 
         if (currentTeam) {

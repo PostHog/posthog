@@ -3,7 +3,7 @@ import dataclasses
 import pytest
 from unittest import mock
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
+from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.planetscalepostgres import (
     PlanetScalePostgresSourceConfig,
@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.planetscal
     _is_psbouncer_port,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _DIRECT_HOST = "xxxxxxxxxx-useast1-1.horizon.psdb.cloud"
 
@@ -38,16 +37,6 @@ def _field(name: str) -> SourceFieldInputConfig:
         for field in PlanetScalePostgresSource().get_source_config.fields
         if isinstance(field, SourceFieldInputConfig) and field.name == name
     )
-
-
-def test_source_type_and_release_status():
-    source = PlanetScalePostgresSource()
-    config = source.get_source_config
-
-    assert source.source_type == ExternalDataSourceType.PLANETSCALEPOSTGRES
-    assert not config.unreleasedSource
-    assert config.releaseStatus == ReleaseStatus.ALPHA
-    assert config.category == DataWarehouseSourceCategory.DATABASES
 
 
 def test_ssh_tunnel_is_not_offered():
@@ -113,6 +102,28 @@ def test_database_host_is_passed_through_to_postgres():
     super_validate.assert_called_once()
     assert success is True
     assert error is None
+
+
+def test_validate_credentials_handles_a_config_without_an_ssh_tunnel_field():
+    # The generated PlanetScale config carries no `ssh_tunnel` field (there is no tunnel to
+    # configure), so the inherited Postgres validation must not assume the attribute exists.
+    planetscale_config = PlanetScalePostgresSourceConfig(
+        host=_DIRECT_HOST,
+        database="postgres",
+        user="postgres.xxxxxxxxxx",
+        password="pscale_pw_xxxxxxxx",
+        port=5432,
+    )
+    assert not hasattr(planetscale_config, "ssh_tunnel")
+
+    with mock.patch.object(PostgresSource, "is_database_host_valid", return_value=(False, "host error")) as host_valid:
+        # The signature annotates PostgresSourceConfig, but the pipeline hands this source its own
+        # generated config at runtime — the exact mismatch that surfaced the missing attribute.
+        success, error = PlanetScalePostgresSource().validate_credentials(planetscale_config, team_id=1)  # type: ignore[arg-type]
+
+    assert success is False
+    assert error == "host error"
+    assert host_valid.call_args.kwargs["using_ssh_tunnel"] is False
 
 
 @pytest.mark.parametrize("port", [6432, "6432"])

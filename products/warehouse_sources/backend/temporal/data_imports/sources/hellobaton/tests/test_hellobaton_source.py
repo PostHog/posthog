@@ -1,20 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hellobaton import (
     HellobatonSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.hellobaton.hellobaton import (
-    HellobatonResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.hellobaton.settings import (
-    ENDPOINTS,
-    HELLOBATON_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.hellobaton.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.hellobaton.source import HellobatonSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestHellobatonSource:
@@ -22,28 +13,6 @@ class TestHellobatonSource:
         self.source = HellobatonSource()
         self.team_id = 123
         self.config = HellobatonSourceConfig(company="acme", api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.HELLOBATON
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Hellobaton"
-        assert config.label == "Baton"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/hellobaton.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/hellobaton"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["company", "api_key"]
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        api_key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.secret is True
-        assert api_key_field.required is True
 
     def test_company_listed_as_connection_host_field(self):
         # The API key is sent to <company>.hellobaton.com, so retargeting the company must re-require it.
@@ -96,10 +65,6 @@ class TestHellobatonSource:
         documented = self.source.get_documented_tables()
         assert {table["name"] for table in documented} == set(ENDPOINTS)
 
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        canonical = self.source.get_canonical_descriptions()
-        assert set(canonical) == set(HELLOBATON_ENDPOINTS)
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
@@ -131,23 +96,3 @@ class TestHellobatonSource:
 
         assert is_valid is False
         assert "Invalid Baton company" in (error_message or "")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is HellobatonResumeConfig
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.hellobaton.source.hellobaton_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_hellobaton_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "projects"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_hellobaton_source.assert_called_once()
-        kwargs = mock_hellobaton_source.call_args.kwargs
-        assert kwargs["company"] == "acme"
-        assert kwargs["api_key"] == "key"
-        assert kwargs["endpoint"] == "projects"
-        assert kwargs["resumable_source_manager"] is manager

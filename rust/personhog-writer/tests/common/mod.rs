@@ -3,6 +3,7 @@
 // would otherwise fire `dead_code` per-binary; suppress at the module level.
 #![allow(dead_code)]
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use common_kafka::kafka_producer::KafkaContext;
@@ -26,6 +27,11 @@ pub fn test_store_config() -> StoreConfig {
         chunk_size: 500,
         row_fallback_concurrency: 8,
     }
+}
+
+/// Upsert permit budget large enough to never constrain a test.
+pub fn test_permits() -> Arc<tokio::sync::Semaphore> {
+    Arc::new(tokio::sync::Semaphore::new(64))
 }
 
 /// Create a mock Kafka cluster with the personhog_updates topic.

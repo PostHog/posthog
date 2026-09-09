@@ -32,6 +32,7 @@ import {
 import { inject, injectable } from "inversify";
 import type {
   ClaudePermissions,
+  HostInfo,
   ImageAttachment,
   MessageBoxOptions,
   SavedAttachment,
@@ -470,8 +471,16 @@ export class OsService {
     return this.appMeta.version;
   }
 
+  getHostInfo(): HostInfo {
+    return { platform: this.appMeta.platform, arch: this.appMeta.arch };
+  }
+
   getWorktreeLocation(): string {
     return this.workspaceSettings.getWorktreeLocation();
+  }
+
+  setWorktreeLocation(location: string): void {
+    this.workspaceSettings.setWorktreeLocation(location);
   }
 
   async readFileAsDataUrl(

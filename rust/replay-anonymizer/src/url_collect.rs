@@ -2,28 +2,25 @@
 //!
 //! The sibling of [`crate::collect`]. That module handles an image the page inlined into the
 //! recording; this one handles an image the page referred to by URL. With collection enabled, a
-//! media source attribute holding an `http(s)` URL is replaced by a content ref instead of the
-//! media placeholder. The message then carries the original URL back to the caller.
+//! media source attribute holding an `http(s)` URL keeps the media placeholder and a namespaced
+//! sibling attribute carries the content ref. The message also carries the original URL back to
+//! the caller.
 //!
-//! **Two URLs come out of this module. Do not confuse them.**
+//! **Two forms of one URL come out of this module. Do not confuse them.**
 //!
 //! The *dedup* URL is canonical, and its volatile parameters are removed. It is the only input to
 //! the hash, so it sets the ref and the dedup key of the fetch lane.
 //!
-//! The *fetch* URL is canonical, and every parameter stays. The fetcher requests this one. A
-//! signed URL works only in this form, and it dedups only in the first form.
+//! The *fetch* URL keeps the original query bytes, and every permitted parameter stays. The
+//! fetcher requests this one. URLs that carry credentials or signatures are refused before either
+//! form is created.
 //!
-//! That split is what makes the ref stable. A URL that carries a fresh signature on each page
-//! load would otherwise mint a new ref every time. A ref that appears once joins to nothing
-//! downstream. Removing the volatile parameters matters more for that than it does for
-//! the request count.
+//! That split is what makes the ref stable across non-credential cache busters. A ref that appears
+//! once joins to nothing downstream. Removing the volatile parameters matters more for that than
+//! it does for the request count.
 //!
-//! The hash is a *keyed* HMAC, for the same reason as the image hash. The ML bucket is not
-//! encrypted. An unkeyed digest of a URL would let a reader of the bucket learn which sites the
-//! users of a team visited.
-//!
-//! The caller derives the per-team key from the same KMS-held secret as the team pseudonym.
-//! Neither the secret nor the key leaves the ingester.
+//! The hash is a *keyed* HMAC. The caller derives one global URL key from the KMS-held secret. The
+//! secret does not leave the ingester.
 
 use std::collections::{HashMap, HashSet};
 
@@ -38,20 +35,23 @@ use crate::url_policy::{try_canonicalize, MAX_URL_LEN};
 /// collector declined, and a decline is exactly what a repeat should not pay for twice. Past this
 /// the memo stops growing and repeats fall back to the full check, which is slower and bounded
 /// rather than unbounded.
-const MAX_MEMO_ENTRIES: usize = 1024;
+const MAX_MEMO_ENTRIES: usize = 2048;
 
-/// Distinct URLs collected from one message. A page with more media than this is already past the
-/// point where the extra images teach a model anything, and the cap bounds the Kafka fan-out.
-pub const MAX_URLS_PER_MESSAGE: usize = 256;
+/// Distinct URLs collected from one message.
+///
+/// One message holds a batch of rrweb events for one session, so this budget covers a full snapshot
+/// and every mutation after it, including those describing a different page after a navigation. A
+/// message at the cap loses its later images rather than its least useful ones.
+///
+/// What bounds it is the payload: the whole set crosses the FFI boundary in one call, and each URL
+/// can be [`MAX_URL_LEN`] bytes. Read ml_urls_declined{reason="over_cap"} against ml_urls_collected
+/// before changing it, and keep [`MAX_MEMO_ENTRIES`] above it.
+pub const MAX_URLS_PER_MESSAGE: usize = 512;
 
 /// Enables URL collection for one anonymize call.
 #[derive(Debug, Clone)]
 pub struct UrlCollection {
-    /// The non-reversible HMAC team pseudonym (32 hex chars), computed by the caller. Embedded
-    /// verbatim in every emitted ref, exactly as on the image lane.
-    pub pseudo_team: String,
-    /// Per-team key for the URL HMAC. The caller derives it under its own domain separator, so a
-    /// URL ref and an image ref stay distinct for one team.
+    /// Global key for the URL HMAC. The caller derives it under a URL-specific domain separator.
     pub url_key: String,
 }
 
@@ -60,7 +60,7 @@ pub struct UrlCollection {
 pub struct CollectedUrl {
     /// First 22 base64url chars of `HMAC-SHA256(url_key, dedup_url)`.
     pub hash: String,
-    /// The canonical URL with every parameter intact. This is what the fetcher requests.
+    /// The URL with its original query bytes intact. This is what the fetcher requests.
     pub url: String,
     /// The host the request goes to. robots.txt and the connection limit are scoped to this.
     pub host: String,
@@ -83,7 +83,6 @@ pub fn hash_url(url_key: &[u8], dedup_url: &str) -> String {
 
 /// Accumulates the remote image URLs of one message, deduplicated on the hash.
 pub struct UrlCollector {
-    pseudo_team: String,
     url_key: String,
     urls: Vec<CollectedUrl>,
     seen: HashSet<String>,
@@ -93,18 +92,36 @@ pub struct UrlCollector {
     /// A refusal is invisible in the collected count, so the lane would look like traffic carries
     /// fewer images than it does.
     declines: HashMap<&'static str, u32>,
+    /// URLs the walker refused before they reached the policy. A repeat, or a re-walk after the
+    /// byte walker hands an event to the tree path, must not count twice. The memo cannot hold
+    /// these, because a `None` there would also stop a later visible use of the same URL.
+    walker_declined: HashSet<String>,
 }
 
 impl UrlCollector {
     pub fn new(collection: UrlCollection) -> Self {
         Self {
-            pseudo_team: collection.pseudo_team,
             url_key: collection.url_key,
             urls: Vec::new(),
             seen: HashSet::new(),
             memo: HashMap::new(),
             declines: HashMap::new(),
+            walker_declined: HashSet::new(),
         }
+    }
+
+    /// Count a refusal the walker made for `raw`, once per distinct URL in this message. Past the
+    /// memo cap, or for an over-length URL, the refusal counts every time, because a second count
+    /// costs less than unbounded memory.
+    pub(crate) fn decline_once(&mut self, raw: &str, reason: &'static str) {
+        let remember = raw.len() <= MAX_URL_LEN && self.walker_declined.len() < MAX_MEMO_ENTRIES;
+        if self.walker_declined.contains(raw) {
+            return;
+        }
+        if remember {
+            self.walker_declined.insert(raw.to_string());
+        }
+        self.decline(reason);
     }
 
     /// Collect a remote image URL and return its ref, or `None` when the URL is not fetchable or a
@@ -134,7 +151,7 @@ impl UrlCollector {
         raw.len() <= MAX_URL_LEN && self.memo.len() < MAX_MEMO_ENTRIES
     }
 
-    fn decline(&mut self, reason: &'static str) {
+    pub(crate) fn decline(&mut self, reason: &'static str) {
         *self.declines.entry(reason).or_insert(0) += 1;
     }
 
@@ -148,7 +165,7 @@ impl UrlCollector {
         };
         let hash = hash_url(self.url_key.as_bytes(), &canonical.dedup);
         if self.seen.contains(&hash) {
-            return Some(crate::collect::url_ref(&self.pseudo_team, &hash));
+            return Some(crate::collect::url_ref(&hash));
         }
         self.seen.insert(hash.clone());
         self.urls.push(CollectedUrl {
@@ -157,7 +174,7 @@ impl UrlCollector {
             host: canonical.host,
             domain: canonical.domain,
         });
-        Some(crate::collect::url_ref(&self.pseudo_team, &hash))
+        Some(crate::collect::url_ref(&hash))
     }
 
     /// Counts by reason for the URLs this collector refused.
@@ -186,7 +203,6 @@ mod tests {
 
     fn collector() -> UrlCollector {
         UrlCollector::new(UrlCollection {
-            pseudo_team: "a".repeat(32),
             url_key: String::from_utf8(TEST_KEY.to_vec()).unwrap(),
         })
     }
@@ -211,19 +227,13 @@ mod tests {
     }
 
     #[test]
-    fn two_signatures_of_one_image_share_a_ref() {
+    fn a_signed_url_produces_no_global_ref() {
         let mut c = collector();
-        let first = c
+        assert!(c
             .collect("https://cdn.example.com/a.png?X-Amz-Signature=aaa")
-            .unwrap();
-        let second = c
-            .collect("https://cdn.example.com/a.png?X-Amz-Signature=bbb")
-            .unwrap();
-        assert_eq!(first, second);
-        // One entry, and it keeps the URL of the first sighting, which is a URL that still works.
-        let urls = c.into_urls();
-        assert_eq!(urls.len(), 1);
-        assert!(urls[0].url.contains("X-Amz-Signature=aaa"));
+            .is_none());
+        assert_eq!(c.into_declines(), vec![("credential".to_string(), 1)]);
+        assert_eq!(c.into_urls(), Vec::new());
     }
 
     #[test]
@@ -234,6 +244,21 @@ mod tests {
         let large = c.collect("https://cdn.example.com/a.png?w=900").unwrap();
         assert_ne!(small, large);
         assert_eq!(c.into_urls().len(), 2);
+    }
+
+    #[test]
+    fn cache_busters_share_one_global_ref_and_fetch_candidate() {
+        let mut c = collector();
+        let first_url = "https://cdn.example.com/a.png?w=100&cb=first";
+        let first = c.collect(first_url).unwrap();
+        let second = c
+            .collect("https://cdn.example.com/a.png?w=100&cb=second")
+            .unwrap();
+
+        assert_eq!(first, second);
+        let urls = c.into_urls();
+        assert_eq!(urls.len(), 1);
+        assert_eq!(urls[0].url, first_url);
     }
 
     #[test]

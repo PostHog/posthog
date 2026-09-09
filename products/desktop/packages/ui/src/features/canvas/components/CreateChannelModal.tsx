@@ -27,20 +27,28 @@ import {
   Switch,
   Textarea,
 } from "@posthog/quill";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import { RepositoriesField } from "@posthog/ui/features/canvas/components/RepositoriesField";
+import {
+  ANALYTICS_EVENTS,
+  type ChannelsSurface,
+} from "@posthog/shared/analytics-events";
+import type { UserBasic } from "@posthog/shared/domain-types";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { MemberList } from "@posthog/ui/features/canvas/components/MemberList";
+import { MemberSearch } from "@posthog/ui/features/canvas/components/MemberSearch";
 import { useChannelMutations } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useGenerateContext } from "@posthog/ui/features/canvas/hooks/useGenerateContext";
+import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { useUpdateTaskChannelRepositories } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { RepositoriesField } from "@posthog/ui/features/integrations/components/RepositoriesField";
 import { AnimatedHeight } from "@posthog/ui/primitives/AnimatedHeight";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
-// Matches Slack's "Create a channel" naming constraint.
 const MAX_CONTEXT_NAME_LENGTH = 80;
 
 const DESCRIPTION_EXAMPLES = [
@@ -53,17 +61,12 @@ const DESCRIPTION_EXAMPLES = [
 
 const DESCRIPTION_ROTATION_INTERVAL_MS = 5000;
 
-const CREATE_STEPS = ["name", "describe", "repositories"] as const;
+const CREATE_STEPS = ["name", "describe", "repositories", "members"] as const;
 type CreateStep = (typeof CREATE_STEPS)[number];
 
-// quill's dialog curves, so a step swap reads as part of the same surface. A
-// step enters and leaves (ease-out); the card's height morphs in place behind
-// it (ease-in-out), starting once the arriving step has been measured.
 const EASE_OUT: [number, number, number, number] = [0.215, 0.61, 0.355, 1];
 const EASE_IN_OUT: [number, number, number, number] = [0.645, 0.045, 0.355, 1];
 const STEP_DURATION = 0.2;
-// Enough travel to say which way the flow went without the text sliding far
-// enough to read as a page turn.
 const STEP_SHIFT = 12;
 
 function RotatingDescriptionPlaceholder({ visible }: { visible: boolean }) {
@@ -102,26 +105,15 @@ function RotatingDescriptionPlaceholder({ visible }: { visible: boolean }) {
 interface CreateChannelModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  // When set, the dialog is the "Create your CONTEXT.md" flow for an existing
-  // context: no name field, just a description that seeds the planning session.
   existingContext?: { channelId: string; channelName: string };
+  surface?: ChannelsSurface;
 }
 
-// Two dialogs in one, split on `existingContext`:
-// - Create mode: three steps in one dialog, swapping its content as you go.
-//   Step one names the channel, step two asks what it's about, step three
-//   carries the settings. Nothing is created until that last step resolves —
-//   "Create" makes the channel, links the chosen repositories and launches the
-//   context.md plan session seeded by the description, "Skip" makes the channel
-//   alone. Either way the user lands in the channel's feed, whose intro card
-//   carries the onboarding (and offers context.md later if skipped).
-// - Describe mode: the "Create your context.md" dialog (opened from the intro
-//   card or the CONTEXT.md empty state). A single textarea whose text seeds
-//   a plan-mode session that builds the context's CONTEXT.md with the user.
 export function CreateChannelModal({
   open,
   onOpenChange,
   existingContext,
+  surface = "sidebar",
 }: CreateChannelModalProps) {
   const isDescribeMode = !!existingContext;
   const spacesLayout = useChannelsLayout();
@@ -136,10 +128,22 @@ export function CreateChannelModal({
     number | null
   >(null);
   const [star, setStar] = useState(true);
-  // Create mode's step. Describe mode returns before this is read.
+  const [visibility, setVisibility] = useState<"public" | "private">("public");
+  const [memberIds, setMemberIds] = useState<number[]>([]);
+  const authClient = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client: authClient });
+  const { members: orgMembers } = useOrgMembers();
+  const selectedMembers = useMemo(
+    () =>
+      memberIds
+        .map((id) => orgMembers.find((member) => member.id === id))
+        .filter((member): member is UserBasic => !!member),
+    [memberIds, orgMembers],
+  );
+  const memberSearchExcludes = currentUser
+    ? [...memberIds, currentUser.id]
+    : memberIds;
   const [step, setStep] = useState<CreateStep>("name");
-  // Which way the last move went, so a step slides in from the side it came
-  // from. Derived from the step order, so no call site can disagree.
   const [direction, setDirection] = useState(1);
   const descriptionHelperId = useId();
   const reduceMotion = useReducedMotion();
@@ -152,9 +156,6 @@ export function CreateChannelModal({
     setStep(next);
   };
 
-  // Reset the fields each time the modal opens so a previous draft never
-  // lingers. Adjusted inline during render (prev-prop comparison) rather than in
-  // an effect, which would flash a stale value for one commit.
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
@@ -164,6 +165,8 @@ export function CreateChannelModal({
       setRepositories([]);
       setRepositoryIntegration(null);
       setStar(true);
+      setVisibility("public");
+      setMemberIds([]);
       setStep("name");
     }
   }
@@ -177,10 +180,6 @@ export function CreateChannelModal({
   const canAdvance = !busy && !!trimmedName && !nameError;
   const canDescribe = !busy && !!trimmedDescription;
 
-  // `busy` only disables the buttons a render after the mutation starts, so a
-  // double-click lands two submits before it applies. Create is resolve-or-
-  // create (idempotent), but a double submit would still double-launch the
-  // plan session. Latch synchronously; the buttons stay the user-visible half.
   const submittingRef = useRef(false);
   const submitOnce = async (submit: () => Promise<void>) => {
     if (submittingRef.current) return;
@@ -192,13 +191,17 @@ export function CreateChannelModal({
     }
   };
 
-  const submitCreate = async (linkSelectedRepositories: boolean) => {
+  const submitCreate = async () => {
     let contextId: string;
     try {
-      const channel = await createChannel(trimmedName, { star });
+      const channel = await createChannel(trimmedName, {
+        star,
+        channelType: visibility,
+        memberIds: visibility === "private" ? memberIds : [],
+      });
       track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
         action_type: "create",
-        surface: "sidebar",
+        surface,
         channel_id: channel.id,
         success: true,
       });
@@ -206,7 +209,7 @@ export function CreateChannelModal({
     } catch (error) {
       track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
         action_type: "create",
-        surface: "sidebar",
+        surface,
         success: false,
       });
       toast.error(`Couldn't create ${spacesLayout ? "space" : "channel"}`, {
@@ -215,7 +218,7 @@ export function CreateChannelModal({
       return;
     }
 
-    if (linkSelectedRepositories && repositories.length > 0) {
+    if (repositories.length > 0) {
       try {
         await linkRepositories.mutateAsync({
           channelId: contextId,
@@ -234,9 +237,6 @@ export function CreateChannelModal({
         action_type: "generate_started",
         channel_id: contextId,
       });
-      // Failure is fine to swallow here (generate() already toasted): the
-      // context exists, so land the user on it — the intro card offers the
-      // retry.
       await generate({
         channelId: contextId,
         channelName: trimmedName,
@@ -246,14 +246,11 @@ export function CreateChannelModal({
 
     onOpenChange(false);
     void navigate({
-      to: "/website/$channelId",
+      to: "/spaces/$channelId",
       params: { channelId: contextId },
     });
   };
 
-  // Describe mode: launch the plan-mode session that builds CONTEXT.md. On
-  // failure (generate() already toasted) the dialog stays open, state intact,
-  // for a clean retry.
   const submitDescribe = async () => {
     if (!existingContext) return;
     track(ANALYTICS_EVENTS.CONTEXT_ACTION, {
@@ -267,11 +264,9 @@ export function CreateChannelModal({
     });
     if (!task) return;
 
-    // Land on the context index (its feed), where the announcement and the plan
-    // task card show. The user clicks the card to open the session.
     onOpenChange(false);
     void navigate({
-      to: "/website/$channelId",
+      to: "/spaces/$channelId",
       params: { channelId: existingContext.channelId },
     });
   };
@@ -285,8 +280,6 @@ export function CreateChannelModal({
     if (canDescribe) goToStep("repositories");
   };
 
-  // Both surfaces ask the same thing — the create step in its header, describe
-  // mode on the field itself — so the copy is written once.
   const aboutTitle = `What's this ${spacesLayout ? "space" : "channel"} about?`;
   const aboutBlurb = `Tell PostHog about this ${
     spacesLayout ? "space" : "channel"
@@ -314,8 +307,6 @@ export function CreateChannelModal({
           disabled={busy}
           onChange={(e) => setDescription(e.target.value)}
           onKeyDown={(e) => {
-            // ⌘/Ctrl+Enter submits; a bare Enter stays a newline. Held down it
-            // repeats, so it goes through the same latch as the buttons.
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
               void submitOnce(submitDescribeStep);
@@ -329,8 +320,6 @@ export function CreateChannelModal({
     </Field>
   );
 
-  // Describe mode has no steps to walk — the channel already exists, so the
-  // dialog is only ever this one question.
   if (isDescribeMode) {
     return (
       <Dialog
@@ -368,7 +357,6 @@ export function CreateChannelModal({
     );
   }
 
-  // Only the live step is built — the others cost nothing until you reach them.
   const renderStep = () => {
     switch (step) {
       case "name":
@@ -489,6 +477,29 @@ export function CreateChannelModal({
             <DialogBody viewportClassName="flex flex-col gap-3">
               <Item variant="outline">
                 <ItemContent>
+                  <ItemTitle>
+                    <Label htmlFor="context-private">
+                      Private {spacesLayout ? "space" : "channel"}
+                    </Label>
+                  </ItemTitle>
+                  <ItemDescription>
+                    Only invited members can see it. Off means everyone in the
+                    project can.
+                  </ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                  <Switch
+                    id="context-private"
+                    checked={visibility === "private"}
+                    disabled={busy}
+                    onCheckedChange={(on) =>
+                      setVisibility(on ? "private" : "public")
+                    }
+                  />
+                </ItemActions>
+              </Item>
+              <Item variant="outline">
+                <ItemContent>
                   <ItemTitle>Repositories</ItemTitle>
                   <ItemDescription>
                     New tasks in this {spacesLayout ? "space" : "channel"} can
@@ -507,8 +518,6 @@ export function CreateChannelModal({
                   />
                 </ItemActions>
               </Item>
-              {/* Last stop before both create buttons, so the toggle is in view when
-              the space is actually made. */}
               <Item variant="outline">
                 <ItemContent>
                   <ItemTitle>
@@ -541,17 +550,70 @@ export function CreateChannelModal({
                 Back
               </Button>
               <Button
-                variant="default"
-                disabled={busy}
-                onClick={() => void submitOnce(() => submitCreate(false))}
+                variant="primary"
+                disabled={!canAdvance}
+                loading={busy}
+                onClick={() => {
+                  if (visibility === "private") {
+                    goToStep("members");
+                  } else {
+                    void submitOnce(submitCreate);
+                  }
+                }}
               >
-                Skip
+                {visibility === "private" ? "Next" : "Create"}
+              </Button>
+            </DialogFooter>
+          </>
+        );
+      case "members":
+        return (
+          <>
+            <DialogHeader>
+              <DialogTitle>Invite people</DialogTitle>
+              <DialogDescription>
+                Choose project members who can access this private{" "}
+                {spacesLayout ? "space" : "channel"}. You already have access
+                and can add people later.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="px-4 pt-4">
+              <MemberSearch
+                excludeIds={memberSearchExcludes}
+                onPick={(id) => setMemberIds((ids) => [...ids, id])}
+                disabled={busy}
+                placeholder="Add people…"
+              />
+            </div>
+            <DialogBody
+              className="flex max-h-[50vh] flex-col"
+              viewportClassName="flex flex-col"
+            >
+              <MemberList
+                members={selectedMembers}
+                currentUser={currentUser ?? null}
+                disabled={busy}
+                onRemove={(id) =>
+                  setMemberIds((ids) =>
+                    ids.filter((memberId) => memberId !== id),
+                  )
+                }
+              />
+            </DialogBody>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                className="sm:mr-auto"
+                disabled={busy}
+                onClick={() => goToStep("repositories")}
+              >
+                Back
               </Button>
               <Button
                 variant="primary"
-                disabled={busy || repositories.length === 0}
+                disabled={!canAdvance}
                 loading={busy}
-                onClick={() => void submitOnce(() => submitCreate(true))}
+                onClick={() => void submitOnce(submitCreate)}
               >
                 Create
               </Button>
@@ -561,8 +623,6 @@ export function CreateChannelModal({
     }
   };
 
-  // The exiting step is popped out of flow, so the card's height follows the
-  // arriving one. `relative` is what that pop positions against.
   const stepDirection = reduceMotion ? 0 : direction;
 
   return (
@@ -570,9 +630,6 @@ export function CreateChannelModal({
       open={open}
       onOpenChange={(next) => {
         if (busy || next) return;
-        // Escape and the backdrop walk the steps back, the way the buttons do.
-        // Closing outright from the last step would drop a filled-in draft,
-        // since reopening starts clean.
         const previous = CREATE_STEPS[CREATE_STEPS.indexOf(step) - 1];
         if (previous) {
           goToStep(previous);
@@ -603,7 +660,6 @@ export function CreateChannelModal({
                 exit: (d: number) => ({
                   opacity: 0,
                   x: -d * STEP_SHIFT,
-                  // Shorter than the entrance, so the arriving step leads.
                   transition: {
                     duration: stepDuration * 0.75,
                     ease: EASE_OUT,

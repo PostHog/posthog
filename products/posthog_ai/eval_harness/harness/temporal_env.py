@@ -12,6 +12,10 @@ from temporalio.testing import WorkflowEnvironment
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.worker import create_worker
 
+from products.notebooks.backend.facade.temporal import (
+    ACTIVITIES as NOTEBOOK_ACTIVITIES,
+    WORKFLOWS as NOTEBOOK_WORKFLOWS,
+)
 from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
@@ -89,6 +93,13 @@ class TemporalWorkerThread:
     daemon thread so it can poll Temporal without competing with the harness's
     main loop; DB access is unblocked (nothing blocks it in the harness) so
     temporal activities can use the Django ORM against the test database.
+
+    It serves the notebook workflows as well as the tasks ones. In production those
+    live on ``GENERAL_PURPOSE_TASK_QUEUE`` and the tasks ones on ``TASKS_TASK_QUEUE``,
+    but ``lifecycle`` points both settings at this run's single per-process queue, so
+    one worker covers both. Without them a notebook python or duckdb cell dispatches a
+    workflow nothing ever picks up, and the run sits at ``running`` until its poll
+    window expires.
     """
 
     def __init__(self, *, max_concurrent_workflow_tasks: int = 100, max_concurrent_activities: int = 100) -> None:
@@ -124,8 +135,8 @@ class TemporalWorkerThread:
             metrics_port=0,
             namespace=settings.TEMPORAL_NAMESPACE,
             task_queue=settings.TASKS_TASK_QUEUE,
-            workflows=TASKS_WORKFLOWS,
-            activities=TASKS_ACTIVITIES,  # type: ignore[arg-type]
+            workflows=TASKS_WORKFLOWS + NOTEBOOK_WORKFLOWS,
+            activities=TASKS_ACTIVITIES + NOTEBOOK_ACTIVITIES,  # type: ignore[arg-type]
             max_concurrent_workflow_tasks=self._max_concurrent_workflow_tasks,
             max_concurrent_activities=self._max_concurrent_activities,
             enable_combined_metrics_server=False,

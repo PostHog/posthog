@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
-import { IconCalendar, IconClock, IconHome, IconLaptop } from '@posthog/icons'
+import { IconClock, IconHome, IconLaptop } from '@posthog/icons'
+import { TooltipFooter, TooltipSurface, TooltipSwatch } from '@posthog/quill-charts'
 
 import { dayjs } from 'lib/dayjs'
 import { IconWeb } from 'lib/lemon-ui/icons'
@@ -10,7 +11,8 @@ import { teamLogic } from 'scenes/teamLogic'
 const DATE_FORMAT = 'MMM D, YYYY'
 const DATETIME_FORMAT = 'MMM D, YYYY h:mm A'
 
-const formatPercent = (value: number | null): string => (value === null ? '—' : `${(value * 100).toFixed(2)}%`)
+const formatPercent = (value: number | null): string =>
+    value === null || !Number.isFinite(value) ? '—' : `${(value * 100).toFixed(2)}%`
 
 export interface VariantTimeseriesTooltipProps {
     date: string
@@ -24,18 +26,20 @@ export interface VariantTimeseriesTooltipProps {
     hasRealData: boolean
     /** When the timeseries was computed (ISO string), or null if unknown. */
     computedAt: string | null
+    /** The variant line's color, shown as the header swatch. */
+    color: string
 }
 
 function TooltipRow({ label, value }: { label: string; value: React.ReactNode }): JSX.Element {
     return (
         <div className="flex items-center justify-between gap-4">
-            <span className="text-secondary">{label}</span>
-            <span className="font-medium tabular-nums">{value}</span>
+            <span className="opacity-60">{label}</span>
+            <strong className="tabular-nums">{value}</strong>
         </div>
     )
 }
 
-function CalculatedAtRow({
+function TimezoneRow({
     icon,
     label,
     caption,
@@ -48,17 +52,18 @@ function CalculatedAtRow({
 }): JSX.Element {
     return (
         <div className="flex items-center gap-1.5">
-            <span className="text-secondary text-base shrink-0">{icon}</span>
-            <span className="text-secondary">{label}</span>
-            {caption && <span className="text-secondary text-[0.6875rem]">{caption}</span>}
-            <span className="ml-auto font-medium tabular-nums">{value}</span>
+            <span className="opacity-60 shrink-0">{icon}</span>
+            <span className="opacity-60">{label}</span>
+            {caption && <span className="opacity-40">{caption}</span>}
+            <strong className="ml-auto tabular-nums">{value}</strong>
         </div>
     )
 }
 
 /**
- * Standalone, fully formattable tooltip for the variant timeseries chart.
- * Rendered into the shared insight-tooltip DOM via the chart's `external` callback.
+ * Tooltip body for the variant timeseries chart, returned from the chart's `tooltip` render prop.
+ * Everything below the date is per-point metadata rather than per-series values, so quill's
+ * `DefaultTooltip` — one row per series — cannot express it.
  */
 export function VariantTimeseriesTooltip({
     date,
@@ -71,6 +76,7 @@ export function VariantTimeseriesTooltip({
     significant,
     hasRealData,
     computedAt,
+    color,
 }: VariantTimeseriesTooltipProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
@@ -79,63 +85,59 @@ export function VariantTimeseriesTooltip({
     const computedDate = computed?.toDate()
 
     return (
-        <div className="bg-surface-primary border border-primary rounded shadow-md text-[0.8125rem] min-w-[15rem] overflow-hidden">
-            <div className="px-3 py-2 border-b border-primary font-semibold flex items-center gap-1.5">
-                <IconCalendar className="text-secondary text-base" />
-                {dayjs(date).format(DATE_FORMAT)}
+        <TooltipSurface>
+            <div className="flex items-center gap-2 font-semibold mb-1">
+                <TooltipSwatch color={color} />
+                <span className="truncate">{dayjs(date).format(DATE_FORMAT)}</span>
             </div>
 
-            <div className="px-3 py-2 flex flex-col gap-1">
-                <TooltipRow label="Delta" value={formatPercent(delta)} />
+            <TooltipRow label="Delta" value={formatPercent(delta)} />
+            <TooltipRow
+                label="Confidence interval"
+                value={`${formatPercent(lowerBound)} → ${formatPercent(upperBound)}`}
+            />
+            {isRatioMetric
+                ? denominator !== undefined && <TooltipRow label="Denominator" value={denominator.toLocaleString()} />
+                : exposures !== undefined && <TooltipRow label="Exposures" value={exposures.toLocaleString()} />}
+            {significant !== undefined && (
                 <TooltipRow
-                    label="Confidence interval"
-                    value={`${formatPercent(lowerBound)} → ${formatPercent(upperBound)}`}
+                    label="Significant"
+                    value={
+                        <span className={significant ? 'text-success' : undefined}>{significant ? 'Yes' : 'No'}</span>
+                    }
                 />
-                {isRatioMetric
-                    ? denominator !== undefined && (
-                          <TooltipRow label="Denominator" value={denominator.toLocaleString()} />
-                      )
-                    : exposures !== undefined && <TooltipRow label="Exposures" value={exposures.toLocaleString()} />}
-                {significant !== undefined && (
-                    <TooltipRow
-                        label="Significant"
-                        value={
-                            <span className={significant ? 'text-success' : 'text-secondary'}>
-                                {significant ? 'Yes' : 'No'}
-                            </span>
-                        }
-                    />
-                )}
-            </div>
+            )}
 
             {!hasRealData && (
-                <div className="px-3 py-1.5 border-t border-primary text-warning text-xs flex items-center gap-1.5">
-                    <IconClock className="text-base shrink-0" />
-                    Data pending — showing last known value
-                </div>
+                <TooltipFooter>
+                    <span className="flex items-center justify-center gap-1.5">
+                        <IconClock className="shrink-0" />
+                        Data pending — showing last known value
+                    </span>
+                </TooltipFooter>
             )}
 
             {computed && (
-                <div className="px-3 py-2 border-t border-primary bg-surface-secondary flex flex-col gap-1 text-xs">
-                    <div className="text-secondary uppercase tracking-wide text-[0.6875rem] font-semibold mb-0.5">
+                <div className="mt-1 pt-1 border-t border-current/25 flex flex-col gap-0.5">
+                    <div className="opacity-50 uppercase tracking-wide font-semibold text-[0.6875rem]">
                         Calculated at
                     </div>
                     {projectTimezone && (
-                        <CalculatedAtRow
+                        <TimezoneRow
                             icon={<IconHome />}
                             label="Project"
                             caption={shortTimeZone(projectTimezone, computedDate) ?? projectTimezone}
                             value={computed.tz(projectTimezone).format(DATETIME_FORMAT)}
                         />
                     )}
-                    <CalculatedAtRow
+                    <TimezoneRow
                         icon={<IconLaptop />}
                         label="Your device"
                         caption={shortTimeZone(undefined, computedDate) ?? ''}
                         value={computed.format(DATETIME_FORMAT)}
                     />
                     {projectTimezone !== 'UTC' && (
-                        <CalculatedAtRow
+                        <TimezoneRow
                             icon={<IconWeb />}
                             label="UTC"
                             caption="UTC"
@@ -144,6 +146,6 @@ export function VariantTimeseriesTooltip({
                     )}
                 </div>
             )}
-        </div>
+        </TooltipSurface>
     )
 }

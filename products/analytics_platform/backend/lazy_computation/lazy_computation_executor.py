@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
-from django.db import IntegrityError, transaction
+from django.db import DEFAULT_DB_ALIAS
 from django.db.models import Q
 from django.utils import timezone as django_timezone
 
@@ -35,6 +35,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.clickhouse.query_tagging import tags_context
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.settings import DEBUG, HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
 from posthog.utils import relative_date_parse_with_delta_mapping
@@ -140,6 +141,8 @@ LAZY_COMPUTATION_EXECUTIONS_TOTAL = Counter(
 #   - `failed`      → INSERT raised (retryable or non-retryable), row moved PENDING → FAILED.
 #   - `stale`       → another waiter detected the owning executor crashed and marked
 #                     the row FAILED via `_try_mark_stale_job_as_failed`.
+#   - `expired`     → a create conflict found the blocking PENDING row past its own
+#                     expires_at and marked it FAILED via `_try_fail_expired_pending_job`.
 LAZY_COMPUTATION_JOBS_CREATED_TOTAL = Counter(
     "lazy_computation_jobs_created_total",
     "PreaggregationJob rows inserted in PENDING status (one per missing range, per executor).",
@@ -149,6 +152,17 @@ LAZY_COMPUTATION_JOBS_FINISHED_TOTAL = Counter(
     "lazy_computation_jobs_finished_total",
     "PreaggregationJob rows that reached a terminal status, labeled by outcome and table.",
     ["outcome", "table"],
+)
+
+# Lost create races are otherwise invisible outside Postgres logs. A steady
+# background rate is expected (the baseline warmer, the dimensional DAG, and SWR
+# revalidation race on the same windows by design); a sustained elevated rate
+# means either writers piling onto the same windows or a PENDING row past its
+# own expires_at blocking a window it no longer serves.
+LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL = Counter(
+    "lazy_computation_job_create_conflicts_total",
+    "PENDING job inserts skipped because a PENDING row already covers that (team, query_hash, range).",
+    ["table"],
 )
 
 
@@ -191,7 +205,17 @@ def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False) -> dict:
     return settings
 
 
-@dataclass
+def _ttl_jitter_offset(window_start: datetime, jitter_seconds: int) -> int:
+    """Stable offset in [0, jitter_seconds) for a window, from its start date.
+
+    sha256, not hash(): hash() is salted per process, and the offset must come out the same
+    everywhere.
+    """
+    digest = hashlib.sha256(window_start.date().isoformat().encode()).digest()
+    return int.from_bytes(digest[:8], "big") % jitter_seconds
+
+
+@frozen
 class TtlSchedule:
     """Maps time windows to TTL values based on their recency.
 
@@ -234,6 +258,16 @@ class TtlSchedule:
     long warmer window). Windows older than this keep their full band TTL. `None` caps every
     empty window regardless of age.
 
+    `default_ttl_jitter_seconds` spreads out when default-band (frozen) windows expire. A
+    backfill builds every chunk on the same day, so with one uniform TTL the whole history
+    expires at once and the next read must rebuild all of it. The jitter adds a stable
+    per-window offset in [0, jitter) to the default TTL, so chunks expire days apart and a read
+    only finds a chunk or two missing. The offset comes from the window's start date, not from
+    randomness, so a rebuild gives each chunk the same offset again and chunks do not go back
+    to expiring together. Rule-matched (recent) windows never get jitter. Opt in only for
+    frozen, immutable data: jitter keeps data longer, which is safe only when the data cannot
+    change. `None` disables it.
+
     Use parse_ttl_schedule() to create from user-facing dict format.
     """
 
@@ -243,12 +277,22 @@ class TtlSchedule:
     settling_period_seconds: int | None = None
     empty_result_ttl_seconds: int | None = None
     empty_result_max_age_seconds: int | None = None
+    default_ttl_jitter_seconds: int | None = None
 
-    def get_ttl(self, window_start: datetime) -> int:
+    def get_ttl(self, window_start: datetime, *, jittered: bool = False) -> int:
+        """TTL for a window. `jittered=True` adds the default-band jitter offset.
+
+        Job creation and the freshness check must both pass `jittered=True`, or jobs get
+        recomputed before they expire. `split_ranges_by_ttl` must not: it merges windows by
+        comparing TTLs, and per-window offsets would break the merging.
+        """
         for cutoff, ttl in self.rules:
             if window_start >= cutoff:
                 return ttl
-        return self.default_ttl_seconds
+        ttl = self.default_ttl_seconds
+        if jittered and self.default_ttl_jitter_seconds:
+            ttl += _ttl_jitter_offset(window_start, self.default_ttl_jitter_seconds)
+        return ttl
 
     def empty_result_expires_at(self, computed_at: datetime, window_end: datetime) -> datetime | None:
         """When a zero-row job for this window should expire, or None to keep the band TTL.
@@ -290,6 +334,7 @@ def parse_ttl_schedule(
     settling_period_seconds: int | None = None,
     empty_result_ttl_seconds: int | None = None,
     empty_result_max_age_seconds: int | None = None,
+    default_ttl_jitter_seconds: int | None = None,
 ) -> TtlSchedule:
     """Parse a TTL specification into a TtlSchedule.
 
@@ -313,6 +358,8 @@ def parse_ttl_schedule(
         raise ValueError(f"empty_result_ttl_seconds must be positive, got {empty_result_ttl_seconds}")
     if empty_result_max_age_seconds is not None and empty_result_max_age_seconds <= 0:
         raise ValueError(f"empty_result_max_age_seconds must be positive, got {empty_result_max_age_seconds}")
+    if default_ttl_jitter_seconds is not None and default_ttl_jitter_seconds <= 0:
+        raise ValueError(f"default_ttl_jitter_seconds must be positive, got {default_ttl_jitter_seconds}")
 
     if isinstance(ttl, int):
         if ttl <= 0:
@@ -324,6 +371,7 @@ def parse_ttl_schedule(
             settling_period_seconds=settling_period_seconds,
             empty_result_ttl_seconds=empty_result_ttl_seconds,
             empty_result_max_age_seconds=empty_result_max_age_seconds,
+            default_ttl_jitter_seconds=default_ttl_jitter_seconds,
         )
 
     tz = ZoneInfo(team_timezone)
@@ -354,6 +402,7 @@ def parse_ttl_schedule(
         settling_period_seconds=settling_period_seconds,
         empty_result_ttl_seconds=empty_result_ttl_seconds,
         empty_result_max_age_seconds=empty_result_max_age_seconds,
+        default_ttl_jitter_seconds=default_ttl_jitter_seconds,
     )
 
 
@@ -515,7 +564,7 @@ def _get_ch_expires_at(job: "PreaggregationJob", table: LazyComputationTable) ->
 
 
 @dataclass
-class QueryInfo:
+class LazyComputationQuery:
     """Normalized query information for lazy computation matching."""
 
     query: ast.SelectQuery
@@ -540,9 +589,9 @@ class LazyComputationResult:
     stale: bool = False
 
 
-def compute_query_hash(query_info: QueryInfo) -> str:
+def compute_query_hash(query_info: LazyComputationQuery) -> str:
     """
-    Compute a stable hash for a QueryInfo object.
+    Compute a stable hash for a LazyComputationQuery object.
     The hash is based on the normalized query structure and timezone.
     """
     # Use repr() to get a deterministic string representation of the AST
@@ -723,17 +772,36 @@ def create_lazy_computation_job(
     time_range_start: datetime,
     time_range_end: datetime,
     ttl_seconds: int = DEFAULT_TTL_SECONDS,
-) -> PreaggregationJob:
-    """Create a new computation job in PENDING status with expiry time."""
-    expires_at = django_timezone.now() + timedelta(seconds=ttl_seconds)
-    return PreaggregationJob.objects.create(
+) -> PreaggregationJob | None:
+    """Create a new PENDING job with expiry time, or return None when another
+    PENDING row already holds the `unique_pending_job_per_range` slot.
+
+    Uses INSERT .. ON CONFLICT DO NOTHING (`ignore_conflicts`) so losing the
+    race is a silent no-op rather than a logged Postgres error with a rolled-back
+    transaction; executors race on these windows by design. Only unique
+    conflicts are suppressed: FK and check-constraint violations still raise
+    IntegrityError to the caller.
+    """
+    job = PreaggregationJob(
         team=team,
         query_hash=query_hash,
         time_range_start=time_range_start,
         time_range_end=time_range_end,
         status=PreaggregationJob.Status.PENDING,
-        expires_at=expires_at,
+        expires_at=django_timezone.now() + timedelta(seconds=ttl_seconds),
     )
+    # ignore_conflicts emits a bare ON CONFLICT DO NOTHING, which relies on the
+    # partial unique index being the only realistic unique conflict on this
+    # table; a future unique constraint would have its violations misreported
+    # as lost races.
+    PreaggregationJob.objects.bulk_create([job], ignore_conflicts=True)
+    # ignore_conflicts suppresses RETURNING and the UUID pk is generated
+    # client-side, so probe by pk to learn whether the row actually landed.
+    # Pinned to the writer: a replica-routed read here would misclassify the
+    # winner as a loser and orphan its own PENDING row.
+    if not PreaggregationJob.objects.using(DEFAULT_DB_ALIAS).filter(id=job.id).exists():
+        return None
+    return job
 
 
 def build_lazy_computation_insert_sql(
@@ -832,7 +900,7 @@ def _written_rows(insert_result: object) -> int:
 def run_lazy_computation_insert(
     team: Team,
     job: PreaggregationJob,
-    query_info: QueryInfo,
+    query_info: LazyComputationQuery,
 ) -> int:
     """Run the INSERT query to populate lazy-computed results in ClickHouse.
 
@@ -923,7 +991,7 @@ class LazyComputationExecutor:
     def execute(
         self,
         team: Team,
-        query_info: QueryInfo,
+        query_info: LazyComputationQuery,
         start: datetime,
         end: datetime,
         run_insert: Callable[[Team, PreaggregationJob], int | None] | None = None,
@@ -956,6 +1024,7 @@ class LazyComputationExecutor:
         pubsub: redis_lib.client.PubSub | None = None
         jobs_created = 0
         waited_job_ids: set[uuid.UUID] = set()
+        conflict_passes = 0
 
         had_ready_at_start: bool | None = None
 
@@ -1050,6 +1119,7 @@ class LazyComputationExecutor:
 
                 # Step 3: Insert missing ranges
                 did_work = False
+                lost_create_race = False
                 if ttl_ranges and failures <= self.max_retries:
                     for range_start, range_end, ttl in ttl_ranges:
                         # Each insert runs inline and is bounded only by the ClickHouse
@@ -1065,12 +1135,41 @@ class LazyComputationExecutor:
                             _log_execution("timeout", result)
                             return result
 
-                        try:
-                            with transaction.atomic():
-                                new_job = create_lazy_computation_job(team, query_hash, range_start, range_end, ttl)
-                        except IntegrityError:
-                            # Another executor created a PENDING job for this range — loop will pick it up
-                            did_work = True
+                        # `ttl` is the band TTL used for merging; the job's real expiry adds the jitter
+                        new_job = create_lazy_computation_job(
+                            team,
+                            query_hash,
+                            range_start,
+                            range_end,
+                            self.ttl_schedule.get_ttl(range_start, jittered=True),
+                        )
+                        if new_job is None:
+                            # Another executor created a PENDING job for this range; the
+                            # rescan at the top of the loop will pick it up. The log keeps
+                            # the per-window trace that Postgres logs no longer carry, so
+                            # investigations can still identify which windows are colliding.
+                            LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL.labels(table=str(query_info.table)).inc()
+                            logger.info(
+                                "lazy_computation.job_create_conflict",
+                                team_id=team.id,
+                                query_hash=query_hash,
+                                table=str(query_info.table),
+                                time_range_start=str(range_start),
+                                time_range_end=str(range_end),
+                            )
+                            if self._try_fail_expired_pending_job(team, query_hash, range_start, range_end):
+                                LAZY_COMPUTATION_JOBS_FINISHED_TOTAL.labels(
+                                    outcome="expired", table=str(query_info.table)
+                                ).inc()
+                                logger.warning(
+                                    "lazy_computation.expired_pending_job_failed",
+                                    team_id=team.id,
+                                    query_hash=query_hash,
+                                    table=str(query_info.table),
+                                    time_range_start=str(range_start),
+                                    time_range_end=str(range_end),
+                                )
+                            lost_create_race = True
                             continue
 
                         # `had_ready_at_start` is set above before the create loop runs and
@@ -1170,12 +1269,30 @@ class LazyComputationExecutor:
                     _log_execution("max_retries_exceeded", result)
                     return result
 
-                if did_work:
-                    interval = self.poll_interval_seconds
+                if did_work or lost_create_race:
+                    if lost_create_race and not did_work:
+                        # In the healthy race the loser's next rescan sees the winner's
+                        # committed PENDING row and moves to the wait branch, so the
+                        # first conflict pass retries immediately. An expired blocking
+                        # row is failed by _try_fail_expired_pending_job above, so the
+                        # next pass can recreate it. Conflicts that still repeat with
+                        # the window missing would hot-spin no-op inserts until the
+                        # wait budget runs out. Pace those retries with the same
+                        # backoff the wait branch uses.
+                        conflict_passes += 1
+                        if conflict_passes > 1:
+                            remaining = self.wait_timeout_seconds - (time.monotonic() - start_time)
+                            if remaining > 0:
+                                time.sleep(min(interval, remaining))
+                            interval = min(interval * 2, self.max_poll_interval_seconds)
+                    else:
+                        conflict_passes = 0
+                        interval = self.poll_interval_seconds
                     continue
 
                 # Step 4: Wait for pending jobs
                 if pending_jobs:
+                    conflict_passes = 0
                     waited_job_ids.update(j.id for j in pending_jobs)
 
                     if pubsub is None:
@@ -1226,6 +1343,46 @@ class LazyComputationExecutor:
         result = LazyComputationResult(ready=True, job_ids=[j.id for j in final_ready])
         _log_execution("success", result)
         return result
+
+    def _try_fail_expired_pending_job(
+        self, team: Team, query_hash: str, range_start: datetime, range_end: datetime
+    ) -> bool:
+        """
+        Mark an expired PENDING row as FAILED so its window can be recomputed.
+
+        A PENDING row past its expires_at is excluded by find_existing_jobs but
+        still holds the unique_pending_job_per_range slot, so its window shows as
+        missing while every attempt to create a job for it hits a conflict. The
+        wait branch never stale-marks such a row because it only sees jobs
+        find_existing_jobs returns. Without this, the window stays blocked
+        forever and every reader burns its wait budget before falling back.
+
+        The expires_at < now() guard means only rows whose data would already be
+        past its ClickHouse TTL can be failed; a live INSERT finishing afterwards
+        overwrites FAILED with READY, so at worst a takeover costs one duplicate
+        build. The publish wakes waiters that subscribed to the row before it
+        expired, so they rescan now instead of at their next poll timeout.
+        """
+        blocker = PreaggregationJob.objects.filter(
+            team=team,
+            query_hash=query_hash,
+            time_range_start=range_start,
+            time_range_end=range_end,
+            status=PreaggregationJob.Status.PENDING,
+            expires_at__lt=django_timezone.now(),
+        ).first()
+        if blocker is None:
+            return False
+        updated = PreaggregationJob.objects.filter(
+            id=blocker.id,
+            status=PreaggregationJob.Status.PENDING,
+        ).update(
+            status=PreaggregationJob.Status.FAILED,
+            error="Expired while pending (owning executor never finished)",
+        )
+        if updated > 0:
+            publish_job_completion(blocker.id, "failed")
+        return updated > 0
 
     def _try_mark_stale_job_as_failed(self, job: PreaggregationJob) -> bool:
         """
@@ -1287,7 +1444,7 @@ class LazyComputationExecutor:
             if job.status == PreaggregationJob.Status.PENDING:
                 result.append(job)
                 continue
-            desired_ttl = self.ttl_schedule.get_ttl(job.time_range_start)
+            desired_ttl = self.ttl_schedule.get_ttl(job.time_range_start, jittered=True)
             fresh_until = job.created_at + timedelta(seconds=desired_ttl + grace_seconds)
             if settling_period is not None:
                 settled_at = job.time_range_end + timedelta(seconds=settling_period)
@@ -1438,7 +1595,7 @@ def ensure_precomputed(
     }
     parsed_for_hash = _resolve_insert_query(insert_query, hash_placeholders)
 
-    query_info = QueryInfo(
+    query_info = LazyComputationQuery(
         query=parsed_for_hash,
         table=table,
         timezone=team.timezone,

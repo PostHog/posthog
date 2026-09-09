@@ -25,6 +25,7 @@ export function PullRequestsTab() {
         teammateTitle: "No pull requests for this reviewer right now",
         description:
           "When an agent ships a code change, the PR draft lands here for you to review and publish.",
+        noun: "pull requests",
       }}
     />
   );

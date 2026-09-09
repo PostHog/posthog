@@ -79,8 +79,12 @@ characters behind a "Show more" toggle. Front-load, structure, no walls:
 5. **Recommendation** — a closing `Recommend: …` line naming the next action (which insight to
    open, what to check).
 
-Cite the insight `short_id` and dashboard id inline so a human pivots straight to the source,
-and close with the notebook URL: "Full write-up with charts: `<notebook-url>`."
+Cite the insight and dashboard inline as markdown links so a human pivots straight to the
+source, and close by linking the notebook: "Full write-up with charts: [notebook](url)."
+The harness prompt (_Linking what you reference_) carries the link rule: reuse the url the
+returning tool attached (`notebooks-create` returns the notebook's), else `generate-app-url`.
+Keep the title and the summary's first line plain text, because the inbox renders both as
+text: a link there shows up as literal markdown.
 
 ### Charts on the report
 
@@ -135,15 +139,19 @@ A recurrence or escalation of an insight's anomaly you already reported is an **
 report**. Find the live report (the `report:` pointer's `report_id` → `inbox-reports-retrieve`,
 or `inbox-reports-list` by the insight), then:
 
-- **`append_note`** with the new evidence — additive, audit-friendly, and the right move on any
-  report (even a pipeline-authored one). Build a **fresh notebook** for the new window and link
-  it in the note (one notebook per window — never append a new anomaly to a prior notebook).
+- **`append_evidence`** with the new window's numbers — additive, audit-friendly, and the right move on
+  any report (even a pipeline-authored one). Each item lands in the report's evidence rail as a bound
+  signal, so the report's signal count and weight grow with the recurrence. Build a **fresh notebook**
+  for the new window and link it in the description (one notebook per window — never append a new
+  anomaly to a prior notebook).
+- **`append_note`** for commentary the numbers don't carry — the owning team already knows, or a deploy
+  explains the move. Send it in the same call as the evidence when both apply.
 - **Rewrite `title`/`summary`** only on a report you authored, and only when the framing is
   genuinely stale.
 
 `edit_report` is preflight-gated like `emit_report`, but it **raises** when the scout is gated
 (dry-run `emit=false`, un-approved AI processing, or a disabled source) rather than returning a
-`skipped_reason` — the note is never appended. So if you built a fresh recurrence notebook and
+`skipped_reason` — nothing is appended. So if you built a fresh recurrence notebook and
 the `edit_report` call is blocked (or otherwise doesn't commit), **delete that notebook with
 `notebooks-destroy`** — same orphan-cleanup rule as a non-surfacing author. Equivalently, defer
 building the notebook until the edit is about to commit.
@@ -286,27 +294,33 @@ repository: NO_REPO
 evidence:
   - source_id: 9aBcDeF
     description: >
-      'Daily signups' (insight 9aBcDeF on dashboard Growth/41233): yesterday 412 vs 8-same-weekday
-      median 1,048 (MAD 95) → robust z = 4.8. Prior 7 same-weekdays all within ±1.5 z. Latest
-      complete day only; today's partial bucket excluded.
+      [Daily signups](https://us.posthog.com/project/41233/insights/9aBcDeF), on the
+      [Growth dashboard](https://us.posthog.com/project/41233/dashboard/8123): yesterday 412 vs
+      8-same-weekday median 1,048 (MAD 95) → robust z = 4.8. Prior 7 same-weekdays all within
+      ±1.5 z. Latest complete day only; today's partial bucket excluded.
   - source_id: aB12cD34
     description: >
-      Write-up with the -63d chart, the per-weekday baseline, and the segment attribution:
-      https://us.posthog.com/project/41233/notebooks/aB12cD34
+      [Write-up](https://us.posthog.com/project/41233/notebooks/aB12cD34) with the -63d chart,
+      the per-weekday baseline, and the segment attribution.
 summary: |
-  Daily signups dropped to 412 yesterday (2026-06-06) against an ~1,048 same-weekday baseline
-  (robust z = 4.8, MAD 95) on insight 9aBcDeF, pinned to the Growth dashboard (41233).
+  Daily signups dropped to 412 yesterday (2026-06-06) against an ~1,048 same-weekday baseline (robust z = 4.8, MAD 95).
 
+  The scored series is [Daily signups](https://us.posthog.com/project/41233/insights/9aBcDeF),
+  pinned to the [Growth dashboard](https://us.posthog.com/project/41233/dashboard/8123).
   **Pattern** — a single complete-day drop of ~60%, well outside the weekday rhythm: the last 8
   same weekdays were all within ±1.5 z, so it's not seasonality, and it's not a pipeline gap (other
   insights are unaffected at the same timestamp).
   **Hypothesis** — likely a broken signup flow or a tracking regression from a recent deploy.
-  Recommend: open insight 9aBcDeF, check whether the drop is broad or segment-specific, and
-  correlate with today's deploys. Full write-up with charts:
-  https://us.posthog.com/project/41233/notebooks/aB12cD34.
+  Recommend: open the insight, check whether the drop is broad or segment-specific, and correlate
+  with today's deploys. Full write-up with charts:
+  [notebook](https://us.posthog.com/project/41233/notebooks/aB12cD34).
 ```
 
-Why it's good: quantified title and hook with the baseline and z, seasonality and pipeline-gap
-explicitly ruled out, partial bucket excluded, actionable recommendation, the notebook cited in
-evidence and linked from the summary, `requires_human_input` (a human decides the fix) with P1
-justified by business impact, and a reviewer set so it routes to an owner.
+(Example urls are what the fixture project's tools returned; take yours from a tool result or
+`generate-app-url`, never from this file.)
+
+Why it's good: quantified title and hook with the baseline and z, a plain-text headline line with
+every entity linked in the body below it, seasonality and pipeline-gap explicitly ruled out,
+partial bucket excluded, actionable recommendation, the notebook cited in evidence and linked from
+the summary, `requires_human_input` (a human decides the fix) with P1 justified by business
+impact, and a reviewer set so it routes to an owner.

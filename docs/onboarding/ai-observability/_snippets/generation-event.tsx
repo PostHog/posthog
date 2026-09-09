@@ -48,9 +48,11 @@ export const GenerationEvent = (): JSX.Element => {
                             </td>
                             <td>
                                 <p>
-                                    <em>(Optional)</em> Groups related traces together. Use this to organize traces by
-                                    whatever grouping makes sense for your application (user sessions, workflows,
-                                    conversations, or other logical boundaries).
+                                    <em>(Optional)</em> Groups related traces into a session, which is what the Sessions
+                                    tab reads. Set it if your product has multi-turn conversations. A workload that
+                                    finishes in a single trace does not need it. Send it as null to say so explicitly,
+                                    which tells the instrumentation checklist the workload is complete rather than
+                                    missing a session id.
                                     <br />
                                     Example: <code>session-abc-123</code>, <code>conv-user-456</code>
                                 </p>
@@ -371,6 +373,18 @@ export const GenerationEvent = (): JSX.Element => {
                                 </p>
                             </td>
                         </tr>
+                        <tr>
+                            <td style={propertyColumnStyle}>
+                                <code>$ai_cost_passthrough</code>
+                            </td>
+                            <td>
+                                <p>
+                                    <em>(Optional)</em> Set this when your provider reports the real cost, such as an
+                                    LLM gateway. We keep your <code>$ai_total_cost_usd</code> and leave the input and
+                                    output costs unset.
+                                </p>
+                            </td>
+                        </tr>
                     </tbody>
                 </table>
             </div>
@@ -513,11 +527,14 @@ export const GenerationEvent = (): JSX.Element => {
                             </td>
                             <td>
                                 <p>
-                                    <em>(Optional)</em> Number of tokens written to cache (Anthropic-specific)
+                                    <em>(Optional)</em> Number of tokens written to cache
                                     <br />
-                                    When both TTL-specific counts are present, PostHog uses them instead of this
-                                    aggregate. The aggregate should equal their sum; if either count is missing, PostHog
-                                    uses the aggregate.
+                                    For Anthropic events, PostHog uses the TTL-specific counts instead of this aggregate
+                                    when both are present. The aggregate should equal their sum. If either count is
+                                    missing, PostHog uses the aggregate.
+                                    <br />
+                                    Built-in Gemini pricing uses normal input rates for cache writes and does not
+                                    estimate cache storage fees. Custom pricing can override these rates.
                                 </p>
                             </td>
                         </tr>

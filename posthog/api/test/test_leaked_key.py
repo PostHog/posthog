@@ -204,32 +204,37 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         self.team.refresh_from_db()
         self.assertEqual(self.team.secret_api_token, token)
 
-    def test_expired_oauth_access_token_does_not_revoke_the_live_session(self) -> None:
-        # An expired access token authenticates nothing, so possessing one grants no
-        # capability beyond what the endpoint's "possession = already usable" argument
-        # relies on. It must not be able to force-revoke a session its holder can no
-        # longer use.
+    def test_expired_oauth_access_token_still_revokes_the_paired_refresh_token(self) -> None:
+        # An expired access token can't authenticate on its own, but revoking still
+        # matters: if the same exposure also affects the longer-lived paired refresh
+        # token (up to 30 days), that's the only way to close it. Gating this on
+        # expiry wouldn't close any capability either way - this endpoint and
+        # github.py's webhook are both triggerable by anyone holding a copy of a
+        # token, dead or alive (a public GitHub commit gets scanned and reported the
+        # same as an anonymous POST here) - so there's no less-exposed path to prefer.
         oauth_app = self._create_oauth_app()
         expired_token = "pha_expired_leaked_access_token"
-        OAuthAccessToken.objects.create(
+        access_token = OAuthAccessToken.objects.create(
             user=self.user,
             application=oauth_app,
             token=expired_token,
             expires=timezone.now() - timedelta(hours=1),
             scope="openid profile",
         )
-        live_refresh_token = OAuthRefreshToken.objects.create(
+        refresh_token = OAuthRefreshToken.objects.create(
             user=self.user,
             application=oauth_app,
-            token="phr_live_session_refresh_token",
+            token="phr_session_paired_with_expired_access",
+            access_token=access_token,
         )
 
         response = self._post(expired_token)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"found": False, "type": None})
-        live_refresh_token.refresh_from_db()
-        self.assertIsNone(live_refresh_token.revoked)
+        self.assertEqual(response.json(), {"found": True, "type": CANONICAL_OAUTH_ACCESS_TOKEN})
+        self.assertFalse(OAuthAccessToken.objects.filter(id=access_token.id).exists())
+        refresh_token.refresh_from_db()
+        self.assertIsNotNone(refresh_token.revoked)
 
     def test_oauth_access_token_revocation_does_not_touch_other_sessions_with_same_app(self) -> None:
         # A leaked token is evidence about that one token, not the user's other sessions
@@ -312,10 +317,39 @@ class TestPublicLeakedKeyReport(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"found": True, "type": CANONICAL_OAUTH_REFRESH_TOKEN})
-        leaked_refresh_token.refresh_from_db()
-        self.assertIsNotNone(leaked_refresh_token.revoked)
+        self.assertFalse(OAuthRefreshToken.objects.filter(pk=leaked_refresh_token.pk).exists())
         self.assertFalse(OAuthAccessToken.objects.filter(id=first_access_token.id).exists())
         self.assertFalse(OAuthAccessToken.objects.filter(id=second_access_token.id).exists())
+
+    @patch("posthog.api.secret_revocation.send_personal_api_key_exposed")
+    @patch("posthog.api.leaked_key.posthoganalytics.capture")
+    def test_analytics_capture_includes_token_hash_only_when_found(
+        self, mock_capture: MagicMock, mock_send_personal_api_key_exposed: MagicMock
+    ) -> None:
+        # A real PostHog key is high-entropy, so hashing it is safe to persist. An
+        # unrecognized string might be a low-entropy third-party secret pasted by
+        # mistake (a password, a short token) - an unsalted SHA-256 of that is
+        # dictionary/rainbow-table reversible, so it must not be persisted.
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="leaked",
+            secure_value=hash_key_value(token),
+            mask_value=mask_key_value(token),
+            scopes=["*"],
+        )
+
+        self._post(token)
+        found_properties = mock_capture.call_args.kwargs["properties"]
+        self.assertTrue(found_properties["found"])
+        self.assertIn("token_sha256", found_properties)
+
+        mock_capture.reset_mock()
+
+        self._post("not-a-posthog-key-at-all")
+        not_found_properties = mock_capture.call_args.kwargs["properties"]
+        self.assertFalse(not_found_properties["found"])
+        self.assertNotIn("token_sha256", not_found_properties)
 
     def test_blank_token_returns_400(self) -> None:
         response = self._post("")

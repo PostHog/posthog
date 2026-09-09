@@ -129,7 +129,7 @@ impl ReleaseRecord {
             project: self.project.clone(),
             version: self.version.clone(),
             timestamp: self.created_at,
-            metadata: self.metadata.clone(),
+            metadata: self.metadata.as_ref().map(sanitize_metadata_for_event),
         }
     }
 
@@ -163,6 +163,36 @@ fn truncate_chars(value: &mut String, max_chars: usize) {
     }
 }
 
+fn sanitize_metadata_for_event(metadata: &Value) -> Value {
+    let mut sanitized = metadata.clone();
+    if let Some(Value::String(remote_url)) = sanitized.pointer_mut("/git/remote_url") {
+        *remote_url = sanitize_remote_url(remote_url);
+    }
+    sanitized
+}
+
+fn sanitize_remote_url(url: &str) -> String {
+    let sanitized_end = url.find(['?', '#']).unwrap_or(url.len());
+    let Some(scheme_end) = url[..sanitized_end].find("://") else {
+        return url[..sanitized_end].to_string();
+    };
+    let authority_start = scheme_end + 3;
+    let authority_end = url[authority_start..sanitized_end]
+        .find('/')
+        .map_or(sanitized_end, |index| authority_start + index);
+    let authority = &url[authority_start..authority_end];
+    let Some(credentials_end) = authority.rfind('@') else {
+        return url[..sanitized_end].to_string();
+    };
+
+    format!(
+        "{}{}{}",
+        &url[..authority_start],
+        &authority[credentials_end + 1..],
+        &url[authority_end..sanitized_end]
+    )
+}
+
 /// Reconstruct the release `hash_id` the CLI wrote for a mobile build, from the app metadata the
 /// SDK sends on every event. Mobile events carry no injected `$release_id`, so this is how their
 /// release is resolved. It must stay byte-for-byte identical to the CLI, which keys releases on
@@ -186,6 +216,21 @@ fn pack_version(version: Option<&str>, build: Option<&str>) -> Option<String> {
         (Some(v), None) => Some(v.to_string()),
         (None, Some(b)) => Some(b.to_string()),
         (None, None) => None,
+    }
+}
+
+/// Split a packed release version back into the app version and the build number, inverting
+/// `pack_version`. Splitting on the last `+` recovers the build from a version that itself carries
+/// semver build metadata, such as `1.0.0+sha.abc` built as `1.0.0+sha.abc+42`.
+///
+/// The inverse is lossy in the one direction `pack_version` is: a release packed from a build
+/// alone is a bare build string on the way back out, and comes back as a version with no build.
+pub fn unpack_version(packed: &str) -> (&str, Option<&str>) {
+    match packed.rsplit_once('+') {
+        Some((version, build)) if !version.is_empty() && !build.is_empty() => {
+            (version, Some(build))
+        }
+        _ => (packed, None),
     }
 }
 
@@ -245,6 +290,30 @@ mod tests {
         }
     }
 
+    #[test]
+    fn unpack_version_recovers_the_build_pack_version_folded_in() {
+        // (packed version, app version, build number)
+        let cases: [(&str, &str, Option<&str>); 5] = [
+            ("1.0+42", "1.0", Some("42")),
+            // Splitting on the last `+` is what keeps semver build metadata with the version.
+            ("1.0.0+sha.abc+42", "1.0.0+sha.abc", Some("42")),
+            ("2.3", "2.3", None),
+            // A version whose own metadata reads as a build number: the packing is ambiguous, and
+            // the build wins so a real `--build` is never dropped.
+            ("1.0.0+sha.abc", "1.0.0", Some("sha.abc")),
+            // An empty half is not a build, or events would carry an empty `$app_build`.
+            ("1.0+", "1.0+", None),
+        ];
+
+        for (packed, version, build) in cases {
+            assert_eq!(
+                unpack_version(packed),
+                (version, build),
+                "unpacking {packed}"
+            );
+        }
+    }
+
     fn record(metadata: Option<Value>) -> ReleaseRecord {
         ReleaseRecord {
             id: Uuid::nil(),
@@ -254,6 +323,40 @@ mod tests {
             version: "1.0".to_string(),
             project: "com.app".to_string(),
             metadata,
+        }
+    }
+
+    #[test]
+    fn event_remote_urls_drop_credentials_query_and_fragment() {
+        let cases = [
+            (
+                "https://user:password@github.com/example/repo.git?token=query#access_token=fragment",
+                "https://github.com/example/repo.git",
+            ),
+            (
+                "https://github.com/example/repo.git#access_token=fragment",
+                "https://github.com/example/repo.git",
+            ),
+            (
+                "https://github.com/example/repo.git",
+                "https://github.com/example/repo.git",
+            ),
+            (
+                "git@github.com:example/repo.git",
+                "git@github.com:example/repo.git",
+            ),
+            (
+                "git@github.com:example/repo.git?token=query#access_token=fragment",
+                "git@github.com:example/repo.git",
+            ),
+        ];
+
+        for (remote_url, expected) in cases {
+            let info = serde_json::to_value(
+                record(Some(json!({"git": {"remote_url": remote_url}}))).to_info(),
+            )
+            .unwrap();
+            assert_eq!(info["metadata"]["git"]["remote_url"], expected);
         }
     }
 

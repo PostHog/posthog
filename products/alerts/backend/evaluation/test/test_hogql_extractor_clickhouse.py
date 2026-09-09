@@ -5,7 +5,7 @@ from posthog.api.services.query import ExecutionMode
 
 from products.alerts.backend.evaluation.hogql import HogQLExtractor
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestHogQLExtractorFiltersPlaceholder(APIBaseTest, ClickhouseDestroyTablesMixin):

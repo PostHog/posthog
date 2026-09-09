@@ -153,12 +153,45 @@ export const InvestigationVerdictEnumApi = {
     Inconclusive: 'inconclusive',
 } as const
 
+export interface AlertDeliveryApi {
+    /** Delivery channel: 'email' or 'hog_function' (destinations). */
+    channel: string
+    /** Email address, or destination name, that received the notification. */
+    target: string
+    /**
+     * Hog function ID, for destination deliveries. Null for email.
+     * @nullable
+     */
+    target_id?: string | null
+    /**
+     * Destination template: 'slack', 'discord', 'webhook', or 'teams'. Null for email.
+     * @nullable
+     */
+    template?: string | null
+    /** Delivery status. Always 'accepted', for a confirmed send. */
+    status: string
+    /**
+     * When the delivery was recorded.
+     * @nullable
+     */
+    at: string | null
+    /** Ready-to-display description of the delivery, e.g. 'Email: a@example.com' or 'Slack #eng-alerts'. */
+    display_label: string
+}
+
+/**
+ * @nullable
+ */
+export type AlertCheckApiError = { [key: string]: string } | null
+
 export interface AlertCheckApi {
     readonly id: string
     readonly created_at: string
     /** @nullable */
     readonly calculated_value: number | null
     readonly state: AlertCheckStateEnumApi
+    /** @nullable */
+    readonly error: AlertCheckApiError
     readonly targets_notified: boolean
     readonly anomaly_scores: unknown
     readonly triggered_points: unknown
@@ -178,6 +211,11 @@ export interface AlertCheckApi {
     /** @nullable */
     readonly notification_sent_at: string | null
     readonly notification_suppressed_by_agent: boolean
+    /**
+     * Destinations that accepted this check's notification, one record per destination (channel, target, status, at). Null when no delivery receipt was recorded, which covers checks that notified nobody and checks predating delivery receipts.
+     * @nullable
+     */
+    readonly deliveries: readonly AlertDeliveryApi[] | null
 }
 
 export type TrendsAlertConfigApiType = (typeof TrendsAlertConfigApiType)[keyof typeof TrendsAlertConfigApiType]
@@ -596,6 +634,10 @@ export interface AlertApi {
     readonly created_at: string
     /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
     insight: number
+    /** Short ID of the insight monitored by this alert. */
+    readonly insight_short_id: string
+    /** Display name of the insight monitored by this alert. */
+    readonly insight_display_name: string
     /**
      * Human-readable name for the alert.
      * @maxLength 255
@@ -653,9 +695,9 @@ export interface AlertApi {
      * @nullable
      */
     readonly last_value: number | null
-    /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
+    /** When enabled, an investigation agent runs on each check where the alert fires, up to three times per firing episode, and writes findings to a Notebook linked from the alert check. An episode is the run of consecutive firing checks since the last check that did not fire. A later investigation of the same episode that reaches a different verdict sends one follow-up notification, unless investigation_inconclusive_action suppresses it. Only effective for detector-based (anomaly) alerts. */
     investigation_agent_enabled?: boolean
-    /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
+    /** When enabled (and investigation_agent_enabled is on), the first fire of an episode is held until the investigation agent produces a verdict, and that notification is suppressed when the verdict is false_positive (and optionally when inconclusive). Later fires of the same episode notify without waiting. A safety-net task force-fires after a few minutes if the investigation stalls. */
     investigation_gates_notifications?: boolean
     /** How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.
      *
@@ -681,6 +723,10 @@ export interface PatchedAlertApi {
     readonly created_at?: string
     /** Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object. */
     insight?: number
+    /** Short ID of the insight monitored by this alert. */
+    readonly insight_short_id?: string
+    /** Display name of the insight monitored by this alert. */
+    readonly insight_display_name?: string
     /**
      * Human-readable name for the alert.
      * @maxLength 255
@@ -738,9 +784,9 @@ export interface PatchedAlertApi {
      * @nullable
      */
     readonly last_value?: number | null
-    /** When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts. */
+    /** When enabled, an investigation agent runs on each check where the alert fires, up to three times per firing episode, and writes findings to a Notebook linked from the alert check. An episode is the run of consecutive firing checks since the last check that did not fire. A later investigation of the same episode that reaches a different verdict sends one follow-up notification, unless investigation_inconclusive_action suppresses it. Only effective for detector-based (anomaly) alerts. */
     investigation_agent_enabled?: boolean
-    /** When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls. */
+    /** When enabled (and investigation_agent_enabled is on), the first fire of an episode is held until the investigation agent produces a verdict, and that notification is suppressed when the verdict is false_positive (and optionally when inconclusive). Later fires of the same episode notify without waiting. A safety-net task force-fires after a few minutes if the investigation stalls. */
     investigation_gates_notifications?: boolean
     /** How to handle an 'inconclusive' verdict: whether gated notifications fire and whether the investigation surfaces in the Signals inbox. 'notify' is the safe default — an agent that can't be sure is itself useful signal. False positives never reach the inbox regardless of this setting.
      *
@@ -749,6 +795,42 @@ export interface PatchedAlertApi {
     investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null
+}
+
+/**
+ * * `slack` - slack
+ */
+export type ChannelTypeEnumApi = (typeof ChannelTypeEnumApi)[keyof typeof ChannelTypeEnumApi]
+
+export const ChannelTypeEnumApi = {
+    Slack: 'slack',
+} as const
+
+export interface AlertCreateDestinationApi {
+    /** Destination type. Slack is the only type this endpoint creates.
+     *
+     * * `slack` - slack */
+    type?: ChannelTypeEnumApi
+    /** Integration ID of the Slack workspace to post in. List them with the integrations endpoint. */
+    slack_workspace_id: number
+    /** Slack channel ID to post in, for example C0123456789. */
+    slack_channel_id: string
+    /** Channel name shown on the destination, for example product-alerts. */
+    slack_channel_name?: string
+}
+
+export interface AlertDestinationResponseApi {
+    /** IDs of the created destination. Pass them to destinations/delete to remove it. */
+    hog_function_ids: string[]
+}
+
+export interface AlertDeleteDestinationApi {
+    /**
+     * Destination IDs to delete, as returned when the destination was created.
+     * @minItems 1
+     * @maxItems 100
+     */
+    hog_function_ids: string[]
 }
 
 /**
@@ -773,10 +855,10 @@ export interface AlertTestDeliveryResponseApi {
 }
 
 export interface AlertSimulateApi {
-    /** Insight ID to simulate the detector on. */
-    insight: number
-    /** Detector configuration to simulate. */
-    detector_config: DetectorConfigApi
+    /** Numeric insight ID or saved insight short ID to simulate the detector on. */
+    insight: number | string
+    /** Detector configuration to simulate. Omit it to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing). */
+    detector_config?: DetectorConfigApi
     /** Zero-based index of the series to analyze (trends insights only). */
     series_index?: number
     /**
@@ -867,9 +949,17 @@ export type AlertsListParams = {
      */
     created_by?: string
     /**
+     * Optional. Restrict results by whether the alert uses anomaly detection.
+     */
+    has_detector?: boolean
+    /**
      * Optional. Restrict results to alerts on this insight ID.
      */
     insight_id?: number
+    /**
+     * Optional. Restrict results to alerts whose insight has this tag.
+     */
+    insight_tag?: string
     /**
      * Number of results to return per page.
      */

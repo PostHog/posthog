@@ -33,6 +33,7 @@ interface PanelState {
     hasAiEvents: boolean
     hasAnalyticsEvents: boolean
     eventDefinitionsUnavailable: boolean
+    sourceConfigsUnavailable: boolean
 }
 
 function sourceConfig(
@@ -64,10 +65,6 @@ function sourceConfigsFor(state: PanelState): SignalSourceConfig[] {
         ),
         sourceConfig(SignalSourceProduct.Conversations, SignalSourceType.Ticket, state.supportArmed),
         sourceConfig(SignalSourceProduct.LlmAnalytics, SignalSourceType.EvaluationReport, state.aiObservabilityArmed),
-        {
-            ...sourceConfig(SignalSourceProduct.LlmAnalytics, SignalSourceType.Evaluation, state.aiObservabilityArmed),
-            config: { evaluation_ids: state.aiObservabilityArmed ? ['eval-grounded'] : [] },
-        },
         sourceConfig(SignalSourceProduct.Analytics, SignalSourceType.AnomalyInvestigation, state.productAnalyticsArmed),
         sourceConfig(SignalSourceProduct.HealthChecks, SignalSourceType.HealthIssue, state.healthChecksArmed),
     ]
@@ -95,25 +92,6 @@ function scannersFor(state: PanelState): Record<string, unknown>[] {
     ]
 }
 
-function evaluationsFor(): Record<string, unknown>[] {
-    return [
-        {
-            id: 'eval-grounded',
-            name: 'Answer grounded in context',
-            description: 'Fails when the reply states something the retrieved context does not support.',
-            evaluation_type: 'llm_judge',
-            enabled: true,
-        },
-        {
-            id: 'eval-refusal',
-            name: 'Refusal rate',
-            description: 'Counts replies that decline a question the product should answer.',
-            evaluation_type: 'hog',
-            enabled: true,
-        },
-    ]
-}
-
 function eventDefinitionsFor(state: PanelState): { name: string; last_seen_at: string }[] {
     const names = [
         ...(state.hasExceptionEvents ? ['$exception'] : []),
@@ -135,13 +113,12 @@ function PanelHarness(state: PanelState): JSX.Element {
                     conversations_enabled: state.conversationsOn,
                 },
             ],
-            '/api/projects/:team_id/signals/source_configs/': () => [200, { results: sourceConfigsFor(state) }],
+            '/api/projects/:team_id/signals/source_configs/': () =>
+                state.sourceConfigsUnavailable
+                    ? [500, { detail: 'A server error occurred.' }]
+                    : [200, { results: sourceConfigsFor(state) }],
             '/api/projects/:team_id/vision/scanners/': () => {
                 const results = scannersFor(state)
-                return [200, { count: results.length, next: null, previous: null, results }]
-            },
-            '/api/projects/:team_id/evaluations/': () => {
-                const results = evaluationsFor()
                 return [200, { count: results.length, next: null, previous: null, results }]
             },
             '/api/projects/:team_id/event_definitions/': () =>
@@ -201,6 +178,7 @@ const meta: Meta<typeof PanelHarness> = {
         hasAiEvents: false,
         hasAnalyticsEvents: true,
         eventDefinitionsUnavailable: false,
+        sourceConfigsUnavailable: false,
     },
 }
 export default meta
@@ -299,5 +277,12 @@ export const ServerSideExceptionsOnly: Story = {
         errorTrackingArmed: true,
         exceptionAutocaptureOn: false,
         hasExceptionEvents: true,
+    },
+}
+
+/** The source configs endpoint failed: the roster warns that its switches may be stale, and offers a retry. */
+export const SourceConfigsUnavailable: Story = {
+    args: {
+        sourceConfigsUnavailable: true,
     },
 }

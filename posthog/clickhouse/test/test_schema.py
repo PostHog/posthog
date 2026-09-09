@@ -1,6 +1,7 @@
 import re
 import uuid
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
@@ -24,6 +25,8 @@ from posthog.models.flag_evaluations.sql import (
     FLAG_EVALUATIONS_MV_SQL,
     FLAG_EVALUATIONS_TABLE_SQL,
 )
+from posthog.settings.data_stores import SUFFIX
+from posthog.settings.kafka import KAFKA_PREFIX
 
 
 @pytest.mark.parametrize("query", CREATE_TABLE_QUERIES, ids=get_table_name)
@@ -111,11 +114,12 @@ def test_flag_evaluations_mv_projection_matches_column_template():
 
 
 def test_flag_evaluations_read_table_declares_every_stored_column():
-    # The materialized columns are declared on sharded_flag_evaluations, which
-    # computes them, and repeated as plain columns on the Distributed read table,
-    # which computes nothing. Those two lists are maintained by hand, so a column
-    # or a type changed in one and not the other stays invisible until a query
-    # asks flag_evaluations for something only the shards have.
+    # The typed property columns carry their DEFAULT expression on
+    # sharded_flag_evaluations, which computes them, and are repeated as plain
+    # columns on the Distributed read table, which computes nothing. Those two
+    # lists are maintained by hand, so a column or a type changed in one and not
+    # the other stays invisible until a query asks flag_evaluations for
+    # something only the shards have.
     stored_columns = _flag_evaluations_table_columns(FLAG_EVALUATIONS_TABLE_SQL())
     assert stored_columns
 
@@ -127,3 +131,31 @@ def mock_uuid4(mocker):
     mock_uuid4 = mocker.patch("uuid.uuid4")
     mock_uuid4.return_value = uuid.UUID("77f1df52-4b43-11e9-910f-b8ca3a9b9f3e")
     yield mock_uuid4
+
+
+def _kafka_topics_in_schema() -> set[str]:
+    # Topic names are built as KAFKA_PREFIX + name + SUFFIX, and the test settings set a
+    # suffix the dev stack does not use. Compare the bare names the bootstrap file holds.
+    topics: set[str] = set()
+    for query in CREATE_KAFKA_TABLE_QUERIES:
+        sql = build_query(query)
+        topics.update(re.findall(r"kafka_topic_list\s*=\s*'([^']+)'", sql))
+        topics.update(re.findall(r"Kafka\('[^']*',\s*'([^']+)'", sql))
+    return {t.removeprefix(KAFKA_PREFIX).removesuffix(SUFFIX) for t in topics}
+
+
+def test_dev_stack_pre_creates_every_kafka_table_topic():
+    bootstrap = Path(__file__).parents[3] / "docker" / "kafka" / "topics.txt"
+    listed = {
+        stripped
+        for line in bootstrap.read_text().splitlines()
+        if (stripped := line.strip()) and not stripped.startswith("#")
+    }
+
+    missing = sorted(_kafka_topics_in_schema() - listed)
+
+    assert not missing, (
+        f"{bootstrap.name} does not list {missing}. A ClickHouse Kafka table whose topic is "
+        "absent never gets a partition assignment, so it holds a thread and repeats the "
+        "request for as long as a local stack runs. Add each topic to that file."
+    )

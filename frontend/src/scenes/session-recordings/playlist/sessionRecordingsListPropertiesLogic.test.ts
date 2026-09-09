@@ -166,11 +166,15 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
 
         expect(issuedQueries).toHaveLength(1)
-        expect(issuedQueries[0]).toContain('any(session.$entry_utm_medium) as $entry_utm_medium')
-        expect(issuedQueries[0]).toContain('any(session.$channel_type) as $channel_type')
+        // The WHERE clause lists every core event name, so a pin can only be found absent by looking
+        // at the select list. Searching the whole query trips over an unrelated event that shares the
+        // pin's name as a substring.
+        const selectList = issuedQueries[0].split('FROM events')[0]
+        expect(selectList).toContain('any(session.$entry_utm_medium) as $entry_utm_medium')
+        expect(selectList).toContain('any(session.$channel_type) as $channel_type')
         // non-session pins must not leak into the query
-        expect(issuedQueries[0]).not.toContain('email')
-        expect(issuedQueries[0]).not.toContain('Start')
+        expect(selectList).not.toContain('email')
+        expect(selectList).not.toContain('Start')
 
         expect(logic.values.recordingPropertiesById['s1']).toMatchObject({
             $browser: 'Chrome',

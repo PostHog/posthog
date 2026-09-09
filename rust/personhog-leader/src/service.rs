@@ -352,6 +352,8 @@ impl PersonHogLeaderService {
         key: &PersonCacheKey,
     ) -> Result<Arc<CachedPerson>, Status> {
         let Some(fallback) = &self.fallback else {
+            // Without the pool a cache miss answers NotFound, which callers
+            // read as authoritative death; production always sets it.
             return Err(Status::not_found(format!(
                 "person not found: team_id={}, person_id={}",
                 key.team_id, key.person_id
@@ -746,7 +748,7 @@ fn assert_writeable(p: &CachedPerson) -> Result<(), String> {
 }
 
 fn cached_person_to_proto(p: &CachedPerson) -> Person {
-    let properties_bytes = serde_json::to_vec(&p.properties).unwrap_or_default();
+    let properties_bytes = p.properties.clone();
     Person {
         id: p.id,
         uuid: p.uuid.clone(),
@@ -1051,13 +1053,20 @@ impl PersonHogLeader for PersonHogLeaderService {
             return Err(Status::not_found("person is destroyed"));
         }
 
+        // One parse per update: the cache stores properties serialized,
+        // and this handler reads them as a map throughout.
+        let person_properties = person
+            .parse_properties()
+            .map_err(|e| Status::internal(format!("cached properties unparseable: {e}")))?;
+
         // Compute property updates
         let updates = compute_event_property_updates(
             &req.event_name,
             &set_properties,
             &set_once_properties,
             &unset_properties,
-            &person.properties,
+            &person_properties,
+            req.force_update,
         );
 
         // OR-merge: identification never reverts through this RPC, so
@@ -1096,10 +1105,20 @@ impl PersonHogLeader for PersonHogLeaderService {
             }));
         }
 
+        // Filtered-only changes are answered without writing, matching the
+        // Postgres suppression; a scalar move or force promotes everything.
+        if !updates.has_non_filtered_changes && !identity_changed && !last_seen_changed {
+            counter!("personhog_leader_updates_total", "outcome" => "filtered_only").increment(1);
+            return Ok(Response::new(UpdatePersonPropertiesResponse {
+                person: Some(cached_person_to_proto(&person)),
+                updated: false,
+            }));
+        }
+
         // Slow path: apply diffs and check if the values actually changed
         // (has_changes can be true when $set sends the same value that already exists)
         let (new_properties, actually_updated) =
-            apply_property_updates(&updates, &person.properties);
+            apply_property_updates(&updates, &person_properties);
 
         if !actually_updated && !identity_changed && !last_seen_changed {
             counter!("personhog_leader_updates_total", "outcome" => "no_change").increment(1);
@@ -1146,9 +1165,9 @@ impl PersonHogLeader for PersonHogLeaderService {
             // visible outcome where a silent trim would be arbitrary
             // deferred data loss. Warnings and errors carry sizes, never
             // property values.
-            let existing_size = jsonb_column_size(&person.properties);
+            let existing_size = jsonb_column_size(&person_properties);
             if existing_size >= self.size_limits.threshold {
-                match trim_properties_to_fit_size(&person.properties, self.size_limits.trim_target)
+                match trim_properties_to_fit_size(&person_properties, self.size_limits.trim_target)
                 {
                     TrimResult::Trimmed(trimmed) => {
                         counter!("personhog_leader_properties_trimmed_total").increment(1);
@@ -1166,7 +1185,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                     // the update still cannot apply — keep the stored
                     // state, discarding the update like the arm above.
                     TrimResult::Fits => {
-                        new_properties = person.properties.clone();
+                        new_properties = person_properties.clone();
                     }
                     TrimResult::CannotFit => {
                         counter!(
@@ -1207,7 +1226,9 @@ impl PersonHogLeader for PersonHogLeaderService {
             }
         }
 
-        let approx_bytes = approx_person_bytes(jsonb_column_size(&new_properties));
+        let properties_bytes = serde_json::to_vec(&new_properties)
+            .map_err(|e| Status::internal(format!("serialize updated properties: {e}")))?;
+        let approx_bytes = approx_person_bytes(properties_bytes.len());
         // A version this pod already put on the wire is spent even when
         // it never learned the outcome, so the next one has to clear that
         // floor as well as the state it derived from. Reusing it produces
@@ -1220,7 +1241,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             id: person.id,
             uuid: person.uuid.clone(),
             team_id: person.team_id,
-            properties: new_properties,
+            properties: properties_bytes,
             created_at: person.created_at,
             version: base_version + 1,
             is_identified: identified_now,
@@ -1357,10 +1378,14 @@ impl PersonHogLeader for PersonHogLeaderService {
         // still-absent keys in request order; then the merge event's $set
         // overrides and $set_once fills. All inputs are sanitized, so the
         // merged document is measured in stored form.
-        let mut target_properties = if person.properties.is_object() {
-            person.properties.clone()
-        } else {
-            serde_json::Value::Object(serde_json::Map::new())
+        let mut target_properties = match person.parse_properties() {
+            Ok(value) if value.is_object() => value,
+            Ok(_) => serde_json::Value::Object(serde_json::Map::new()),
+            Err(e) => {
+                return Err(Status::internal(format!(
+                    "cached properties unparseable: {e}"
+                )))
+            }
         };
         // The cached state is an input like any other: rows loaded from
         // Postgres or warmed from records that predate sanitization can
@@ -1507,6 +1532,9 @@ impl PersonHogLeader for PersonHogLeaderService {
         // is an identify; last_seen_at max-merges like the update path —
         // the merged person was last seen whenever any constituent was
         // (snapshot values were already hour-floored when stored).
+        //
+        // The Postgres backend never passes last_seen_at to its merge
+        // update; the caller's follow-up update advances it.
         let created_at = snapshots
             .iter()
             .map(|snapshot| snapshot.created_at)
@@ -1538,12 +1566,14 @@ impl PersonHogLeader for PersonHogLeaderService {
             Status::invalid_argument("sealed versions leave no room for the folded version")
         })?;
 
-        let approx_bytes = approx_person_bytes(jsonb_column_size(&folded));
+        let folded_bytes = serde_json::to_vec(&folded)
+            .map_err(|e| Status::internal(format!("serialize folded properties: {e}")))?;
+        let approx_bytes = approx_person_bytes(folded_bytes.len());
         let folded_person = CachedPerson {
             id: person.id,
             uuid: person.uuid.clone(),
             team_id: person.team_id,
-            properties: folded,
+            properties: folded_bytes,
             created_at,
             version,
             is_identified: true,
@@ -1575,7 +1605,6 @@ impl PersonHogLeader for PersonHogLeaderService {
         if op_type == LifecycleOpType::Unspecified {
             return Err(Status::invalid_argument("op_type must be specified"));
         }
-
         // A fence installed anywhere but the current owner protects
         // nothing: the map that gates writes is the owner's. Both guards
         // are needed — ownership covers a pod that already handed the
@@ -1834,7 +1863,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                     id: req.person_id,
                     uuid: req.person_uuid.clone(),
                     team_id: req.team_id,
-                    properties: serde_json::Value::Object(serde_json::Map::new()),
+                    properties: b"{}".to_vec(),
                     // The sealed value, not the cached one: cold and warm
                     // leaders must produce the same document.
                     created_at: req.created_at,
@@ -1842,9 +1871,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                     is_identified: false,
                     is_deleted: true,
                     last_seen_at: None,
-                    approx_bytes: approx_person_bytes(jsonb_column_size(
-                        &serde_json::Value::Object(serde_json::Map::new()),
-                    )),
+                    approx_bytes: approx_person_bytes(2),
                 };
                 self.commit_document(partition, &cache_key, death).await?;
                 // The death document stays in the cache (commit_document
@@ -2135,7 +2162,7 @@ mod tests {
                 id: person_id,
                 uuid: "00000000-0000-0000-0000-000000000007".to_string(),
                 team_id,
-                properties: serde_json::json!({}),
+                properties: serde_json::to_vec(&serde_json::json!({})).unwrap(),
                 created_at: 0,
                 version: 1,
                 is_identified: false,
@@ -2184,6 +2211,71 @@ mod tests {
     /// The person is seeded deliberately: without it a removed check
     /// would still surface `FailedPrecondition` from the ownership guard
     /// further down, and the test would pass having proved nothing.
+    /// Filtered-only lanes answer updated=false with no write or produce;
+    /// force writes. A demotion regression would produce, hang on the
+    /// absent broker, and time out rather than pass.
+    #[tokio::test]
+    async fn filtered_only_update_answers_without_writing() {
+        let service = make_test_service().await;
+        let (team_id, person_id) = (7, 43);
+        service.cache.create_partition(0);
+        service.cache.put(
+            0,
+            PersonCacheKey { team_id, person_id },
+            CachedPerson {
+                id: person_id,
+                uuid: "00000000-0000-0000-0000-000000000008".to_string(),
+                team_id,
+                properties: serde_json::to_vec(
+                    &serde_json::json!({"$current_url": "https://example.com/a"}),
+                )
+                .unwrap(),
+                created_at: 0,
+                version: 3,
+                is_identified: false,
+                is_deleted: false,
+                last_seen_at: None,
+                approx_bytes: 64,
+            },
+        );
+
+        let request = |force: bool| {
+            let mut request = Request::new(UpdatePersonPropertiesRequest {
+                force_update: force,
+                team_id,
+                person_id,
+                event_name: "$pageview".to_string(),
+                set_properties: serde_json::to_vec(
+                    &serde_json::json!({"$current_url": "https://example.com/b"}),
+                )
+                .unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
+            });
+            request
+                .metadata_mut()
+                .insert("x-partition", "0".parse().unwrap());
+            request
+        };
+
+        let response = tokio::time::timeout(
+            Duration::from_secs(5),
+            service.update_person_properties(request(false)),
+        )
+        .await
+        .expect("a demoted update must answer without producing")
+        .expect("demoted update answers ok")
+        .into_inner();
+        assert!(!response.updated);
+        assert_eq!(
+            response.person.expect("carries the person").version,
+            3,
+            "a discarded change must not bump the version"
+        );
+    }
+
     #[tokio::test]
     async fn update_refuses_once_authority_is_surrendered() {
         let clock = Arc::new(AuthorityClock::unclaimed());
@@ -2201,7 +2293,7 @@ mod tests {
                 id: person_id,
                 uuid: "00000000-0000-0000-0000-000000000007".to_string(),
                 team_id,
-                properties: serde_json::json!({}),
+                properties: serde_json::to_vec(&serde_json::json!({})).unwrap(),
                 created_at: 0,
                 version: 1,
                 is_identified: false,
@@ -2213,6 +2305,7 @@ mod tests {
 
         let request = || {
             let mut request = Request::new(UpdatePersonPropertiesRequest {
+                force_update: false,
                 team_id,
                 person_id,
                 event_name: "$set".to_string(),
@@ -2303,7 +2396,7 @@ mod tests {
                 id: person_id,
                 uuid: "00000000-0000-0000-0000-000000000007".to_string(),
                 team_id,
-                properties: serde_json::json!({}),
+                properties: serde_json::to_vec(&serde_json::json!({})).unwrap(),
                 created_at: 0,
                 version: 1,
                 is_identified: false,
@@ -2349,7 +2442,7 @@ mod tests {
                 id: person_id,
                 uuid: "00000000-0000-0000-0000-000000000007".to_string(),
                 team_id,
-                properties: serde_json::json!({}),
+                properties: serde_json::to_vec(&serde_json::json!({})).unwrap(),
                 created_at: 0,
                 version: 1,
                 is_identified: false,
@@ -2370,6 +2463,7 @@ mod tests {
         let held = mutex.lock().await;
 
         let mut request = Request::new(UpdatePersonPropertiesRequest {
+            force_update: false,
             team_id,
             person_id,
             event_name: "$set".to_string(),
@@ -2453,6 +2547,7 @@ mod tests {
         assert_eq!(err.code(), Code::FailedPrecondition);
 
         let mut write = Request::new(UpdatePersonPropertiesRequest {
+            force_update: false,
             team_id,
             person_id,
             event_name: "$set".to_string(),

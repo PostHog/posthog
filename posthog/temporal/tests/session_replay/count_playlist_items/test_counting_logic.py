@@ -43,6 +43,27 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
         mock_capture_exception.assert_not_called()
 
     @patch("posthoganalytics.capture_exception")
+    def test_skips_exposure_playlists_without_counting_or_erroring(self, mock_capture_exception: MagicMock):
+        # The task runs userless and the exposure filter refuses userless callers, so counting
+        # can only fail. The skip must fire before any query runs, whether or not the
+        # experiment still exists, and must not feed the error cooldown.
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="exposed sessions",
+            filters={
+                "date_from": "-30d",
+                "filter_test_accounts": False,
+                "filter_group": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+                "experiment_exposure": {"experiment_id": 999999},
+            },
+        )
+
+        count_recordings_that_match_playlist_filters(playlist.id)
+
+        assert self.redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}") is None
+        mock_capture_exception.assert_not_called()
+
+    @patch("posthoganalytics.capture_exception")
     @patch("posthog.temporal.session_replay.count_playlist_items.counting_logic.list_recordings_from_query")
     def test_count_recordings_that_match_no_recordings(
         self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock

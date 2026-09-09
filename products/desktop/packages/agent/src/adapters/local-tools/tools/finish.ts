@@ -1,5 +1,13 @@
 import { z } from "zod";
-import { defineLocalTool, type LocalToolResult } from "../registry";
+import {
+  createSandboxPosthogClient,
+  withReportDeadline,
+} from "../../../signed-commit-artefacts";
+import {
+  defineLocalTool,
+  type LocalToolCtx,
+  type LocalToolResult,
+} from "../registry";
 
 export const FINISH_TOOL_NAME = "finish";
 
@@ -22,7 +30,7 @@ export const finishSchema = {
     ),
 };
 
-export const FINISH_TOOL_DESCRIPTION =
+const FINISH_TOOL_DESCRIPTION =
   "End this run and release the sandbox. This is an unattended background run: " +
   "nothing else will stop it promptly, so calling `finish` is how the machine " +
   "is reclaimed instead of sitting idle until a timeout fires. Call it once — " +
@@ -39,17 +47,67 @@ export const FINISH_TOOL_DESCRIPTION =
  * down. Gated to cloud runs that actually own a sandbox — local sessions have
  * no `requestFinish` and no sandbox to reclaim, so the tool stays hidden there.
  */
+// Adapters that run local tools in a separate process (codex) cannot pass the
+// in-process `requestFinish` callback through the serialized tool context, so
+// the tool falls back to the same PostHog API PATCH that callback performs.
+function resolveRequestFinish(
+  ctx: LocalToolCtx,
+): LocalToolCtx["requestFinish"] {
+  if (ctx.requestFinish) {
+    return ctx.requestFinish;
+  }
+  const { taskId, taskRunId } = ctx;
+  if (!taskId || !taskRunId) {
+    return undefined;
+  }
+  const client = createSandboxPosthogClient();
+  if (!client) {
+    return undefined;
+  }
+  return async (status, message) => {
+    await withReportDeadline(
+      (signal) =>
+        client.updateTaskRun(
+          taskId,
+          taskRunId,
+          {
+            status,
+            ...(status === "failed" && message
+              ? { error_message: message }
+              : {}),
+          },
+          signal,
+        ),
+      "run finish",
+    );
+  };
+}
+
 export const finishTool = defineLocalTool({
   name: FINISH_TOOL_NAME,
   description: FINISH_TOOL_DESCRIPTION,
   schema: finishSchema,
   alwaysLoad: true,
+  // Workflow-origin runs are excluded unless run state carries the end-run
+  // key: they reply into the Slack thread that triggered them, and that relay
+  // only fires after the turn ends. `finish` marks the run terminal mid-turn,
+  // which makes the backend drop the relay (relay_task_run_message skips
+  // terminal runs), so the reply is lost every time. Without the key those
+  // runs end via their inactivity timeout instead. The backend writes the key
+  // for every workflow run with no Slack thread binding, so only thread-bound
+  // runs pay the timeout. An unknown origin also hides the tool: the origin
+  // fetch fails soft, and exposing `finish` on a blip would silently eat a
+  // workflow run's reply, while hiding it only costs a bounded idle window.
   isEnabled: (ctx, meta) =>
     meta?.environment === "cloud" &&
     meta?.background === true &&
-    ctx.requestFinish !== undefined,
+    ((meta?.taskOriginProduct !== undefined &&
+      meta?.taskOriginProduct !== "workflow") ||
+      meta?.endRunWhenDone === true) &&
+    resolveRequestFinish(ctx) !== undefined,
   handler: async (ctx, args): Promise<LocalToolResult> => {
-    if (!ctx.requestFinish) {
+    const requestFinish = resolveRequestFinish(ctx);
+    if (!requestFinish) {
       return {
         content: [
           { type: "text", text: "finish is not available in this session." },
@@ -57,7 +115,7 @@ export const finishTool = defineLocalTool({
         isError: true,
       };
     }
-    await ctx.requestFinish(args.status, args.reason);
+    await requestFinish(args.status, args.reason);
     return {
       content: [
         {
