@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_
     SALES_REPORT_MAX_DAYS_PER_RUN,
     AppStoreConnectEndpointConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import str_to_optional_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -73,7 +74,6 @@ MAX_APPS_LISTED_IN_ERROR = 10
 _PEM_HEADER = "-----BEGIN PRIVATE KEY-----"
 _PEM_FOOTER = "-----END PRIVATE KEY-----"
 _NON_ALNUM = re.compile(r"[^0-9a-z]+")
-_APP_ID_SEPARATOR = re.compile(r"[,\s]+")
 
 
 class AppStoreConnectAuthError(Exception):
@@ -627,11 +627,10 @@ def parse_app_ids(raw: str | None) -> frozenset[str]:
     """Split the source's optional app id filter into ids.
 
     An empty result means the source syncs every app the key can read, which is what a blank field
-    has always done.
+    has always done. The generator types a text input as ``str``, so the field arrives as one
+    string and is split with the same converter every other multi-value source field uses.
     """
-    if not raw:
-        return frozenset()
-    return frozenset(part for part in _APP_ID_SEPARATOR.split(raw.strip()) if part)
+    return frozenset(str_to_optional_list(raw) or ())
 
 
 def list_apps(

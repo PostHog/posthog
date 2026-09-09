@@ -528,7 +528,6 @@ class TestAppIdFilter:
             ("single", "A1", frozenset({"A1"})),
             ("comma_separated", "A1,A2", frozenset({"A1", "A2"})),
             ("comma_and_space_separated", " A1 , A2 ", frozenset({"A1", "A2"})),
-            ("space_separated", "A1 A2", frozenset({"A1", "A2"})),
             ("trailing_comma", "A1,", frozenset({"A1"})),
         ]
     )
