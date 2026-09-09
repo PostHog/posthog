@@ -92,21 +92,48 @@ class TestFindings(SimpleTestCase):
 
         self.assertEqual(passes_persons_gate(measurements, THRESHOLDS), expected)
 
-    def test_no_event_filter_message(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                FindingKind.NO_EVENT_FILTER,
+                None,
+                "This query has no event filter, so it reads every event. If the question is about specific "
+                "events, add `WHERE event IN ('…')` naming them.",
+            ),
+            (
+                FindingKind.EVENT_FILTER_NOT_USED,
+                FindingReason.IN_OR,
+                "This query has an event filter, but it is inside an OR with another condition, so ClickHouse "
+                "could not use it. Put the event filter outside the OR: `WHERE event IN ('…') AND (… OR …)`.",
+            ),
+            (
+                FindingKind.NO_START_DATE,
+                None,
+                "This query has no start date, so it reads all your data. If you only need recent data, add "
+                "`timestamp >= now() - interval 30 day` or the range you need.",
+            ),
+            (
+                FindingKind.PERSONS_JOIN,
+                None,
+                "This query joins the persons table, which reads every person on every run. Read person "
+                "properties from the events table instead, for example `person.properties.email`.",
+            ),
+        ]
+    )
+    def test_message_pairs_the_lead_with_its_advice(
+        self, kind: FindingKind, reason: FindingReason | None, expected: str
+    ) -> None:
         warning = build_warning(
-            kind=FindingKind.NO_EVENT_FILTER,
-            measurements=ScanMeasurements(rows_read=3_000_000_000, duration_ms=6000),
+            kind=kind,
+            reason=reason,
+            measurements=ScanMeasurements(rows_read=8_400_000_000, duration_ms=19_000, person_rows=150_000_000),
         )
 
         self.assertEqual(warning.type, "query_scan")
-        self.assertEqual(
-            warning.message,
-            "This query has no event filter, so it read 3.0 billion rows in 6.0 s. If the question "
-            "is about specific events, add `WHERE event IN ('…')` naming them.",
-        )
-        self.assertEqual(warning.rows_read, 3_000_000_000)
+        self.assertEqual(warning.message, expected)
+        self.assertEqual(warning.rows_read, 8_400_000_000)
 
-    def test_event_filter_not_used_message_names_the_reason_and_quotes_the_clause(self) -> None:
+    def test_a_finding_quotes_the_clause_and_the_evidence(self) -> None:
         warning = build_warning(
             kind=FindingKind.EVENT_FILTER_NOT_USED,
             reason=FindingReason.IN_OR,
@@ -115,72 +142,8 @@ class TestFindings(SimpleTestCase):
             evidence="ClickHouse used the primary key columns team_id, toDate(timestamp).",
         )
 
-        self.assertEqual(
-            warning.message,
-            "This query has an event filter, but it is inside an OR with another condition, so ClickHouse "
-            "could not use it. It read 8.4 billion rows in 19.0 s. Put the event filter outside the OR: "
-            "`WHERE event IN ('…') AND (… OR …)`.",
-        )
         self.assertEqual(warning.clause, "properties.plan = 'pro' or event = 'upgrade'")
         self.assertEqual(warning.evidence, "ClickHouse used the primary key columns team_id, toDate(timestamp).")
-
-    @parameterized.expand(
-        [
-            (
-                "with a known span",
-                250,
-                "This query has no start date, so it read 40.0 billion rows across 250 days of data in 40.0 s.",
-            ),
-            (
-                "with no span from the count",
-                None,
-                "This query has no start date, so it read 40.0 billion rows across all your data in 40.0 s.",
-            ),
-        ]
-    )
-    def test_no_start_date_message(self, _name: str, days: int | None, expected_lead: str) -> None:
-        warning = build_warning(
-            kind=FindingKind.NO_START_DATE,
-            measurements=ScanMeasurements(rows_read=40_000_000_000, duration_ms=40_000, days=days),
-        )
-
-        self.assertTrue(warning.message.startswith(expected_lead), warning.message)
-
-    @parameterized.expand(
-        [
-            (FindingKind.NO_EVENT_FILTER, None),
-            (FindingKind.EVENT_FILTER_NOT_USED, FindingReason.WRAPPED),
-            (FindingKind.NO_START_DATE, None),
-            (FindingKind.NO_START_DATE, FindingReason.FILTERS),
-            (FindingKind.PERSONS_JOIN, None),
-            (FindingKind.ALL_EVENTS, None),
-            (FindingKind.ALL_TIME, None),
-        ]
-    )
-    def test_a_killed_run_reports_what_it_read_before_the_kill(
-        self, kind: FindingKind, reason: FindingReason | None
-    ) -> None:
-        warning = build_warning(
-            kind=kind,
-            reason=reason,
-            measurements=ScanMeasurements(
-                rows_read=8_400_000_000, duration_ms=19_000, killed=True, person_rows=150_000_000, days=250
-            ),
-        )
-
-        self.assertIn("ClickHouse stopped it after 19.0 s, having read 8.4 billion rows.", warning.message)
-
-    def test_persons_join_message_names_the_person_count(self) -> None:
-        warning = build_warning(
-            kind=FindingKind.PERSONS_JOIN,
-            measurements=ScanMeasurements(rows_read=153_000_000, duration_ms=3000, person_rows=150_000_000),
-        )
-
-        self.assertEqual(
-            warning.message,
-            "This query joins the persons table, which reads all 150.0 million person rows on every run. "
-            "Read person properties from the events table instead, for example `person.properties.email`.",
-        )
 
 
 class TestSettingsAnalysis(SimpleTestCase):

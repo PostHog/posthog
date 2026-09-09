@@ -591,9 +591,7 @@ class TestAnalyze(QueryScanCheckTest):
             plan=None,
             rows_read=8_400_000_000,
             duration_ms=19_000,
-            killed=False,
             events_in_range=8_400_000_000,
-            min_timestamp=datetime(2025, 7, 9, 12, 0),
             person_rows=None,
             has_filters_placeholder=False,
             thresholds=ScanThresholds(),
@@ -604,7 +602,6 @@ class TestAnalyze(QueryScanCheckTest):
         self.assertEqual(result.event_filter_reason, "in_or")
         self.assertEqual(result.start_date_class, "none")
         self.assertIn("event", result.findings[0].clause or "")
-        self.assertIn("250 days of data", result.findings[1].message)
 
     @freeze_time(NOW)
     def test_a_filtered_and_bounded_query_stays_quiet(self) -> None:
@@ -618,9 +615,7 @@ class TestAnalyze(QueryScanCheckTest):
             plan=parse_query_plan(load_plan("event_filter_usable")),
             rows_read=3_000_000,
             duration_ms=2000,
-            killed=False,
             events_in_range=3_000_000_000,
-            min_timestamp=None,
             person_rows=None,
             has_filters_placeholder=False,
             thresholds=ScanThresholds(),
@@ -645,9 +640,7 @@ class TestAnalyze(QueryScanCheckTest):
             plan=None,
             rows_read=3_000_000,
             duration_ms=3000,
-            killed=False,
             events_in_range=3_000_000_000,
-            min_timestamp=None,
             person_rows=150_000_000,
             has_filters_placeholder=False,
             thresholds=ScanThresholds(),
@@ -668,9 +661,7 @@ class TestAnalyze(QueryScanCheckTest):
             plan=None,
             rows_read=151_000_000,
             duration_ms=9000,
-            killed=False,
             events_in_range=100_000_000,
-            min_timestamp=None,
             person_rows=150_000_000,
             has_filters_placeholder=False,
             thresholds=ScanThresholds(),
@@ -691,9 +682,7 @@ class TestAnalyze(QueryScanCheckTest):
             plan=None,
             rows_read=3_000_000,
             duration_ms=3000,
-            killed=False,
             events_in_range=None,
-            min_timestamp=None,
             person_rows=150_000_000,
             has_filters_placeholder=False,
             thresholds=ScanThresholds(),

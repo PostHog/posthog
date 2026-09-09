@@ -4,7 +4,7 @@ Everything here is pure: no ClickHouse, no Redis, no Celery. The job gathers the
 stores the result; this module decides what the person is told.
 """
 
-from datetime import date, datetime
+from datetime import date
 
 from posthog.schema import QueryScanWarning
 
@@ -70,9 +70,7 @@ def analyze(
     plan: QueryPlan | None,
     rows_read: int,
     duration_ms: int,
-    killed: bool,
     events_in_range: int | None,
-    min_timestamp: datetime | None,
     person_rows: int | None,
     has_filters_placeholder: bool,
     thresholds: ScanThresholds,
@@ -91,10 +89,8 @@ def analyze(
     measurements = ScanMeasurements(
         rows_read=rows_read,
         duration_ms=duration_ms,
-        killed=killed,
         events_in_range=events_in_range,
         person_rows=person_rows,
-        days=_span_in_days(scan_range, min_timestamp),
         events_rows_read=events_rows_read,
     )
 
@@ -147,7 +143,6 @@ def analyze_settings(
     date_to: date | None,
     rows_read: int,
     duration_ms: int,
-    killed: bool = False,
     events_in_range: int | None,
     thresholds: ScanThresholds,
 ) -> QueryScanResult:
@@ -157,9 +152,7 @@ def analyze_settings(
     measurements = ScanMeasurements(
         rows_read=rows_read,
         duration_ms=duration_ms,
-        killed=killed,
         events_in_range=events_in_range,
-        days=_span_in_days(scan_range, None),
     )
 
     findings: list[QueryScanWarning] = []
@@ -174,20 +167,6 @@ def analyze_settings(
         event_ratio=event_ratio(rows_read, events_in_range),
         range=scan_range,
     )
-
-
-def _span_in_days(scan_range: ScanRange, min_timestamp: datetime | None) -> int | None:
-    """How many days of data the query covered.
-
-    With no start date the range has no lower end, so the earliest timestamp the count query
-    returned stands in for it.
-    """
-    if scan_range.date_to is None:
-        return None
-    start = scan_range.date_from or (min_timestamp.date() if min_timestamp is not None else None)
-    if start is None:
-        return None
-    return max((scan_range.date_to - start).days + 1, 1)
 
 
 def _print_clause(clause: ast.Expr | None, context: HogQLContext) -> str | None:
