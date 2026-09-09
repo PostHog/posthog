@@ -42,7 +42,9 @@ describe('desktopBetaTermsLogic', () => {
 
         expect(desktopBetaTermsList).toHaveBeenCalledTimes(1)
         expect(desktopBetaTermsList).toHaveBeenCalledWith(projectId)
+        expect(desktopBetaTermsList).not.toHaveBeenCalledWith(MOCK_DEFAULT_ORGANIZATION.id)
         expect(desktopBetaTermsCreate).toHaveBeenCalledTimes(1)
         expect(desktopBetaTermsCreate).toHaveBeenCalledWith(projectId)
+        expect(desktopBetaTermsCreate).not.toHaveBeenCalledWith(MOCK_DEFAULT_ORGANIZATION.id)
     })
 })
