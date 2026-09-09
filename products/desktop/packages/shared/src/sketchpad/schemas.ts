@@ -248,6 +248,23 @@ export function createSketchpadCache(
   };
 }
 
+export function expandSketchpadCache(
+  cache: SketchpadCachePayload,
+): Pick<Sketchpad, "name" | "headSeq" | "snapshot"> & { sketchpadId: string } {
+  return {
+    sketchpadId: cache.sketchpadId,
+    name: cache.name,
+    headSeq: cache.headSeq,
+    snapshot: {
+      ...cache.snapshot,
+      fragments: cache.snapshot.fragments.map(({ source, ...fragment }) => ({
+        ...fragment,
+        code: z.string().parse(cache.sources[source]),
+      })),
+    },
+  };
+}
+
 export function emptySketchpadSnapshot(): SketchpadSnapshot {
   return { schemaVersion: 1, fragments: [], state: {} };
 }

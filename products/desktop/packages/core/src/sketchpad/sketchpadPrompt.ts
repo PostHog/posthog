@@ -1,6 +1,7 @@
 import {
   escapeXmlAttr,
   formatSketchpadForAgent,
+  SKETCHPAD_ALLOWED_IMPORTS,
   SKETCHPAD_CONTENT_IS_DATA,
   type SketchpadSnapshot,
 } from "@posthog/shared";
@@ -24,11 +25,15 @@ export interface SketchpadSessionPromptInput {
 const CANVAS_SDK_SPECIFIER = "@posthog/canvas-sdk";
 
 function whitelistLines(): string {
-  const lines = FREEFORM_WHITELIST.map(
-    (entry) => `- ${entry.name} ${entry.version}`,
+  const versions = new Map(
+    FREEFORM_WHITELIST.map(({ name, version }) => [name, version]),
   );
-  lines.push(`- ${CANVAS_SDK_SPECIFIER} (provided by the board, no version)`);
-  return lines.join("\n");
+  return [...SKETCHPAD_ALLOWED_IMPORTS]
+    .map((name) => {
+      const version = versions.get(name);
+      return `- ${name}${version ? ` ${version}` : name === CANVAS_SDK_SPECIFIER ? " (provided by the board, no version)" : ""}`;
+    })
+    .join("\n");
 }
 
 function instructions(sketchpadName: string): string {

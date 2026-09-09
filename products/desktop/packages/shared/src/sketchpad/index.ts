@@ -9,4 +9,5 @@ export * from "./paths";
 export * from "./presence";
 export * from "./protocol";
 export * from "./schemas";
+export * from "./tools";
 export * from "./untrustedText";
