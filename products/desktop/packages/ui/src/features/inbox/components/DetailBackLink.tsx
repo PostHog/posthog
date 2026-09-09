@@ -7,7 +7,10 @@ import {
 import type { SignalReport } from "@posthog/shared/types";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useReportPage } from "@posthog/ui/features/inbox/components/ReportPageContext";
-import { useInboxTriageOrigin } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
+import {
+  type InboxTriageOrigin,
+  useInboxTriageOrigin,
+} from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import {
   BreadcrumbSegment,
   BreadcrumbSeparator,
@@ -41,6 +44,7 @@ export function DetailBackLink({ to, label }: DetailBackLinkProps) {
     const crumbs = reportCrumbs(
       resolveNavigationSource(sourceHref),
       report,
+      triageOrigin,
       spaceName,
     );
     return (
@@ -88,10 +92,23 @@ export function DetailBackLink({ to, label }: DetailBackLinkProps) {
 function reportCrumbs(
   source: NavigationSource | null,
   report: SignalReport,
+  triageOrigin: InboxTriageOrigin | null,
   spaceName: (id: string) => string | undefined,
 ): Crumb[] {
   const crumbs: Crumb[] = [];
-  const exact = source ? <Link to={source.href} /> : undefined;
+  // TanStack blanks history state on a plain Link, so the Reports-list crumb
+  // must carry the triage origin forward or triage focus mode dies on the way
+  // back.
+  const exact = source ? (
+    <Link
+      to={source.href}
+      state={
+        source.path === "/inbox/reports" && triageOrigin
+          ? (previous) => ({ ...previous, inboxTriageOrigin: triageOrigin })
+          : undefined
+      }
+    />
+  ) : undefined;
 
   if (source?.settingsCategory) {
     crumbs.push({
@@ -119,7 +136,16 @@ function reportCrumbs(
   } else {
     crumbs.push({
       label: "Self-driving",
-      render: <Link to="/inbox/reports" />,
+      render: (
+        <Link
+          to="/inbox/reports"
+          state={
+            triageOrigin
+              ? (previous) => ({ ...previous, inboxTriageOrigin: triageOrigin })
+              : undefined
+          }
+        />
+      ),
     });
   }
 
