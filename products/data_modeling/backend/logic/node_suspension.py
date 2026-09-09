@@ -11,13 +11,43 @@ from typing import TYPE_CHECKING
 
 from django.db import transaction
 
+import structlog
+
+from posthog.models import Team
+from posthog.ph_client import feature_enabled_or_false
+
 from products.data_modeling.backend.models.node import Node
 
 if TYPE_CHECKING:
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
+logger = structlog.get_logger(__name__)
+
 SUSPENDED_KEY = "suspended"
 RESET_KEY = "suspension_reset"
+
+SUSPENSION_ENFORCEMENT_FLAG = "data-modeling-suspend-failing-nodes"
+
+
+def is_suspension_enforced(team_id: int) -> bool:
+    """Whether a suspension marker actually stops the node from running.
+
+    Markers are written fleet-wide, but only an enforced team has its schedule stopped, so every
+    reader that reports suspension to a customer has to ask this first.
+    """
+    try:
+        team = Team.objects.only("organization_id").get(id=team_id)
+        return feature_enabled_or_false(
+            SUSPENSION_ENFORCEMENT_FLAG,
+            str(team_id),
+            groups={"organization": str(team.organization_id), "project": str(team_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}, "project": {"id": str(team_id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        logger.warning("Failed to evaluate suspension enforcement flag; treating as disabled", team_id=team_id)
+        return False
 
 
 def _now() -> str:
@@ -138,6 +168,27 @@ def suspension_state_for_saved_query(saved_query: "DataWarehouseSavedQuery") -> 
             if existing is None or (entry.get("at") or "") < (existing.get("at") or ""):
                 merged[engine] = entry
     return merged
+
+
+def suspended_saved_query_ids_by_team(engine: str) -> dict[int, list[str]]:
+    """Every saved query with a node suspended on this engine, grouped by team.
+
+    Cross-team on purpose: the daily digest classifies the whole fleet in one pass rather than one
+    query per team. Duplicate DAGs give a query several nodes, so the ids are deduplicated.
+    """
+    by_team: dict[int, set[str]] = {}
+    nodes = (
+        Node.objects.filter(
+            saved_query_id__isnull=False,
+            properties__system__suspended__has_key=str(engine),
+        )
+        .exclude(saved_query__deleted=True)
+        .values_list("team_id", "saved_query_id")
+    )
+
+    for team_id, saved_query_id in nodes.iterator():
+        by_team.setdefault(team_id, set()).add(str(saved_query_id))
+    return {team_id: sorted(ids) for team_id, ids in by_team.items()}
 
 
 def resume_saved_query(saved_query: "DataWarehouseSavedQuery", *, by: str = "api") -> int:
