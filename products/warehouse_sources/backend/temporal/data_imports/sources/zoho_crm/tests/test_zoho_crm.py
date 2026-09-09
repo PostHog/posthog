@@ -184,8 +184,6 @@ class TestZohoCRMClient:
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_non_json_token_body_is_non_retryable(self, make_session: mock.MagicMock) -> None:
-        # The accounts host answers with a login or error page when the account does not live in
-        # the picked data center; retrying that page can never mint a token.
         make_session.return_value = _session(
             [],
             post_responses=[
@@ -266,7 +264,6 @@ class TestReadableFieldNames:
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_empty_metadata_body_yields_no_projection(self, make_session: mock.MagicMock) -> None:
-        # An empty body is a complete "no fields" answer, so the module reads without a projection.
         make_session.return_value = _session([_undecodable_response(b"")])
 
         assert readable_field_names(_client(), "v8", "Leads") == []
@@ -456,8 +453,6 @@ class TestGetRows:
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_empty_records_body_stops_pagination_without_crashing(self, make_session: mock.MagicMock) -> None:
-        # An empty body is a complete "no data" answer, so pagination stops and the sync ends
-        # cleanly instead of failing with an unclassified decoder error.
         session = _session([_fields_response(1), _undecodable_response(b"")])
         make_session.return_value = session
         manager = FakeResumeManager()
@@ -467,8 +462,7 @@ class TestGetRows:
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_non_json_records_body_is_non_retryable(self, make_session: mock.MagicMock) -> None:
-        # An HTML error or login page on a 2xx cannot become data, so it must fail at once, and
-        # the message must not carry the query string.
+        # The fixture URL carries a query string, which holds the page token and the field list.
         make_session.return_value = _session(
             [_fields_response(1), _undecodable_response(b"<!DOCTYPE html><html><body>Sign in</body></html>")]
         )
@@ -480,7 +474,6 @@ class TestGetRows:
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_truncated_records_body_stays_retryable(self, make_session: mock.MagicMock) -> None:
-        # A body that starts as JSON is a partial read, so a retry can still get the page.
         make_session.return_value = _session([_fields_response(1), _undecodable_response(b'{"data": [{"id": "1"}')])
 
         with pytest.raises(RESTClientRetryableError):

@@ -52,8 +52,7 @@ class TestZohoCRMSource:
         assert self.source.api_docs_url.startswith("https://")
 
     def test_non_json_response_message_matches_non_retryable_error(self) -> None:
-        # The transport raises "Non-JSON response from <url>"; the classifier matches on the stable
-        # prefix, so the variable URL must not stop it being recognised as non-retryable.
+        # The classifier matches a prefix, so the variable URL must not stop the match.
         raised = "Non-JSON response from https://www.zohoapis.com/crm/v8/Leads"
         matches = [friendly for key, friendly in self.source.get_non_retryable_errors().items() if key in raised]
 
