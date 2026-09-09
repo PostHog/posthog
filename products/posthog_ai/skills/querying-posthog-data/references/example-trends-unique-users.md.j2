@@ -1,5 +1,42 @@
-# Trends (unique users, for specific 90 days)
+# Daily unique users over the last 30 days
+
+## Native trends insight
+
+For a native daily trends insight, call `posthog:query-trends` with this input after confirming the event with `posthog:read-data-schema`:
+
+```json
+{
+  "kind": "TrendsQuery",
+  "filterTestAccounts": false,
+  "series": [{ "kind": "EventsNode", "event": "chat with ai", "math": "dau" }],
+  "dateRange": { "date_from": "-30d" },
+  "interval": "day"
+}
+```
+
+Use the native insight controls for breakdowns or period comparisons. Do not generate SQL only to render this insight.
+
+## SQL representation
+
+This SQL represents the same query specification. Use it when inspecting or adapting SQL, not as a required step before a typed query.
 
 ```sql
 {{ render_hogql_example({"kind": "TrendsQuery", "filterTestAccounts": false, "series": [{"kind": "EventsNode", "event": "chat with ai", "math": "dau"}], "dateRange": {"date_from": "-30d"}, "interval": "day"}) }}
 ```
+
+## Simple aggregate: either method can fit
+
+For "Count `chat with ai` events in the last seven days", either a typed total or SQL can answer the question.
+The SQL form is:
+
+```sql
+SELECT count() AS event_count
+FROM events
+WHERE event = 'chat with ai'
+  AND timestamp >= now() - INTERVAL 7 DAY
+  AND timestamp <= now()
+```
+
+For a typed total, use `posthog:query-trends` with `math: "total"`, `trendsFilter.display: "BoldNumber"`, and the same time bounds.
+Set `dateRange.explicitDate` to `true` to prevent date rounding when matching the SQL window.
+Keep test-account filtering consistent. Reuse either valid form when it already fits the task. A single number does not require a method change.

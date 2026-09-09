@@ -1,14 +1,14 @@
 ### Retrieving data
 
-**Use `query-*` tools when the question maps to a supported insight type** (after any metric-routing rules above, when present). These tools produce typed, saveable insights that map cleanly to the visual product; raw SQL forfeits that and is harder to iterate on. Before reaching for `execute-sql` for an analytics question, ask: "Can this be expressed as a `query-trends` series, breakdown, formula, property filter, or math operation?" If yes, prefer the `query-*` tool — see `Choosing the right query tool` below for prompt-to-field patterns.
+Choose the query method from the requested result and calculation rules, after any metric-routing rules above. Reuse a matching approved metric or saved query when it defines the requested measure.
 
-Reach for `execute-sql` only when no `query-*` tool can express the question:
+- Use a typed query when standard PostHog calculation rules or native insight controls matter. Do not replace standard funnels or retention with approximate SQL.
+- Use `execute-sql` for record inspection, custom calculations, joins, existing SQL, or requests for SQL. It also supports entity search through `system.*` tables.
+- For simple aggregates that either method supports, choose the method that needs less work and preserves the required definition and output.
 
-- Searching PostHog entities (insights, dashboards, cohorts, flags…) via `system.*` tables — no `query-*` tool covers entity search.
-- Multi-event joins, custom CTEs, window functions, or data-warehouse joins.
-- Pre-filtering or shaping data before running a `query-*` call.
+SQL can also prepare data for a typed query. Reassess the method when the task changes, regardless of the previous tool call. A chart or table alone does not determine the method: both typed queries and SQL can support saved visualizations.
 
-When you do use `execute-sql`, run `info execute-sql` first for the full discovery workflow, worked examples, and column-handling rules — this section only summarizes routing.
+Read the selected tool's description and schema when they are not already in context. You do not need to inspect every alternative before using SQL.
 
 {entity_schema_discovery}
 
@@ -20,15 +20,15 @@ When you do use `execute-sql`, run `info execute-sql` first for the full discove
 
 Bare "retention" and "customers" are catalog terms that may have several approved definitions. Consult the catalog and clarify materially different matches instead of routing directly to an insight query.
 
-By insight type:
+For tasks that need these native analyses:
 
 - "Count / rate / latency / cost of a named thing" -> `metric-list` first; run a matching governed metric before any insight query
-- "How many / how much / over time / compare periods" -> `query-trends`
+- "Native trends / series / breakdowns / compare periods" -> `query-trends`
 - "Conversion rate / drop-off / funnel / step completion" -> `query-funnel`
 - "Do users come back / cohort retention / churn" -> `query-retention` after catalog routing
 - "How frequently / how many days per week / power users" -> `query-stickiness`
 - "What do users do after X / before X / navigation flow" -> `query-paths`
 - "New vs returning vs dormant / user composition" -> `query-lifecycle`
-- "LLM traces / AI generations / token usage" -> `query-llm-traces-list`
+- "List LLM traces with cost, token, or error metrics" -> `query-llm-traces-list`
 
 Each `query-*` tool's own description carries its full feature set, use cases, and schema documentation — read it (e.g. `info query-trends`) before constructing the query.

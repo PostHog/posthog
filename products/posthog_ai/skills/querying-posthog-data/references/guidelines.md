@@ -2,7 +2,7 @@
 
 Use the `posthog:execute-sql` MCP tool to execute HogQL queries. HogQL is PostHog's variant of SQL that supports most of ClickHouse SQL. We use terms "HogQL" and "SQL" interchangeably. More info is available in the `querying-posthog-data` skill.
 
-Do not assume that data exists. Use the SQL tool proactively to find the right data.
+Do not assume that data exists. Use `read-data-schema` to verify events and properties. For SQL tables, use `system.information_schema` as described below. Schema discovery does not determine which tool should run the analysis.
 
 #### Search types
 
