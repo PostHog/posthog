@@ -78,11 +78,9 @@ def is_column_of(expr: ast.Expr, read: EventsRead, column: str) -> bool:
     expr = strip_aliases(expr)
     if not isinstance(expr, ast.Field):
         return False
-    resolved = resolve_to_table_column(expr.type)
-    if resolved is None:
-        return False
-    table_type, name = resolved
-    return name == column and table_type is read.table_type
+    return any(
+        name == column and table_type is read.table_type for table_type, name in resolve_to_table_columns(expr.type)
+    )
 
 
 def contains_column_of(expr: ast.Expr, read: EventsRead, column: str) -> bool:
@@ -101,28 +99,37 @@ def depends_on_data(expr: ast.Expr) -> bool:
     return finder.found
 
 
-def resolve_to_table_column(type_: ast.Type | None) -> tuple[ast.TableType, str] | None:
-    """Follow a field's type down to the database table column it exports, or ``None``.
+def resolve_to_table_columns(type_: ast.Type | None) -> list[tuple[ast.TableType, str]]:
+    """Follow a field's type down to the database table columns it exports.
 
     A view or subquery column is a ``FieldType`` on that select's type; its own type is the
-    expression the select exported, which may again be a column of a deeper select.
+    expression the select exported, which may again be a column of a deeper select. A set query
+    exports one column per branch, and a condition on it constrains every branch, so the walk
+    forks there and can reach more than one table.
     """
-    for _ in range(_MAX_COLUMN_HOPS):
-        while isinstance(type_, ast.FieldAliasType):
-            type_ = type_.type
-        if not isinstance(type_, ast.FieldType):
-            return None
-        table_type = _unwrap_table_alias(type_.table_type)
+    resolved: list[tuple[ast.TableType, str]] = []
+    pending: list[tuple[ast.Type | None, int]] = [(type_, 0)]
+    seen: set[int] = set()
+
+    while pending:
+        current, hops = pending.pop()
+        if hops >= _MAX_COLUMN_HOPS or id(current) in seen:
+            continue
+        seen.add(id(current))
+        while isinstance(current, ast.FieldAliasType):
+            current = current.type
+        if not isinstance(current, ast.FieldType):
+            continue
+        table_type = _unwrap_table_alias(current.table_type)
         if isinstance(table_type, ast.TableType):
-            return table_type, type_.name
+            resolved.append((table_type, current.name))
+            continue
         select_type = _select_type_of(table_type)
         if select_type is None:
-            return None
-        column_type = _exported_column(select_type, type_.name)
-        if column_type is None:
-            return None
-        type_ = column_type
-    return None
+            continue
+        pending.extend((column, hops + 1) for column in _exported_columns(select_type, current.name))
+
+    return resolved
 
 
 def _unwrap_table_alias(table_type: ast.Type) -> ast.Type:
@@ -141,14 +148,13 @@ def _select_type_of(table_type: ast.Type) -> ast.SelectQueryType | ast.SelectSet
     return None
 
 
-def _exported_column(select_type: ast.SelectQueryType | ast.SelectSetQueryType, name: str) -> ast.Type | None:
+def _exported_columns(select_type: ast.SelectQueryType | ast.SelectSetQueryType, name: str) -> list[ast.Type]:
+    """Each type a select exports under ``name``: one for a plain select, one per branch for a
+    set query, whose own entry is a type unified across the branches and holds no lineage."""
+    if isinstance(select_type, ast.SelectSetQueryType):
+        return [column for branch in select_type.types for column in _exported_columns(branch, name)]
     column = select_type.columns.get(name)
-    if column is not None:
-        return column
-    # A set query exports the columns of its first branch when it has none of its own.
-    if isinstance(select_type, ast.SelectSetQueryType) and select_type.types:
-        return _exported_column(select_type.types[0], name)
-    return None
+    return [column] if column is not None else []
 
 
 def _slices_rows(select: ast.SelectQuery) -> bool:

@@ -135,6 +135,12 @@ class TestEventFilterCheck(QueryScanCheckTest):
                 "none",
                 None,
             ),
+            (
+                "filter outside a union of two events reads",
+                "SELECT count() FROM (SELECT event FROM events UNION ALL SELECT event FROM events) WHERE event = 'a'",
+                "usable",
+                None,
+            ),
         ]
     )
     @freeze_time(NOW)
@@ -258,6 +264,13 @@ class TestStartDateCheck(QueryScanCheckTest):
                 "WHERE timestamp >= '2026-01-01'",
                 "none",
                 None,
+            ),
+            (
+                "bound outside a union of two events reads",
+                "SELECT count() FROM (SELECT timestamp FROM events UNION ALL SELECT timestamp FROM events) "
+                "WHERE timestamp >= '2026-01-01'",
+                "bound",
+                date(2026, 1, 1),
             ),
         ]
     )
