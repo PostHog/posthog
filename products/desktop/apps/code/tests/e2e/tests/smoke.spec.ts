@@ -50,13 +50,21 @@ test.describe("Smoke Tests", () => {
   });
 
   test("window has correct minimum dimensions", async ({ window }) => {
-    const bounds = await window.evaluate(() => ({
-      width: window.innerWidth,
-      height: window.innerHeight,
-    }));
+    // The main process maximizes the window on ready-to-show, which can land
+    // after domcontentloaded. Poll so the assertion sees the final size, not
+    // the 600px outer frame the window opens with.
+    const bounds = () =>
+      window.evaluate(() => ({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      }));
 
-    expect(bounds.width).toBeGreaterThanOrEqual(900);
-    expect(bounds.height).toBeGreaterThanOrEqual(600);
+    await expect
+      .poll(async () => (await bounds()).width, { timeout: 10000 })
+      .toBeGreaterThanOrEqual(900);
+    await expect
+      .poll(async () => (await bounds()).height, { timeout: 10000 })
+      .toBeGreaterThanOrEqual(600);
   });
 
   test("app does not crash within 10 seconds of boot", async ({
