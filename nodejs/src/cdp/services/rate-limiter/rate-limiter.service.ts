@@ -47,12 +47,14 @@ const claimLatency = new Histogram({
 // the bucket on this code path.
 //
 // Returns {granted, retryAfterMs, reserved}. A full denial with ARGV[5] > 0 also advances
-// the bucket's `resv` slot cursor by requested/refill and returns the caller's
-// distance to that slot, so each denied caller parks for a distinct time instead
-// of every caller re-claiming against the same next token. The cursor never
-// advances past the horizon; callers beyond it get the horizon back and
-// re-contend when they wake. `reserved` is 1 only when the cursor moved, which is
-// what tells a caller its slot is exclusive and needs no spreading.
+// the bucket's `resv` slot cursor and returns the caller's distance to that slot,
+// so each denied caller parks for a distinct time instead of every caller
+// re-claiming against the same next token. The first caller of an episode waits
+// only for the tokens the bucket is short of; callers behind it chain a further
+// requested/refill each. The cursor never advances past the horizon; callers beyond
+// it get the horizon back and re-contend when they wake. `reserved` is 1 only when
+// the cursor moved, which is what tells a caller its slot is exclusive and needs no
+// spreading.
 const CLAIM_UP_TO_LUA = `
 local key = KEYS[1]
 local requested = tonumber(ARGV[1])
@@ -105,12 +107,21 @@ if granted > 0 or reserveOnDenyMaxMs <= 0 or refillPerSecond <= 0 then
     return {granted, 0, 0}
 end
 
-local slotMs = (requested / refillPerSecond) * 1000
-local base = now
+-- Behind a live cursor, the caller in front drains its request at its own slot, so this
+-- caller waits a further full interval on top of it. First in line, it waits only for the
+-- tokens the bucket is still short of: the partial refill already in the pool is credit it
+-- has earned, and charging the full interval would both delay the send and let the accrual
+-- run past capacity, where the cap discards it. Same deficit the pair script charges below.
+local slotAt
 if rawResv ~= false and tonumber(rawResv) > now then
-    base = tonumber(rawResv)
+    slotAt = tonumber(rawResv) + (requested / refillPerSecond) * 1000
+else
+    local deficit = requested - available
+    if deficit < 0 then
+        deficit = 0
+    end
+    slotAt = now + (deficit / refillPerSecond) * 1000
 end
-local slotAt = base + slotMs
 if slotAt - now > reserveOnDenyMaxMs then
     return {0, reserveOnDenyMaxMs, 0}
 end
@@ -245,8 +256,11 @@ export class RateLimiterService {
 
     /**
      * Like claimUpTo, but a full denial also reserves the caller's place in line.
-     * The bucket keeps a "next free slot" cursor; each denial advances it by
-     * requested/refill and returns how long to park until the reserved slot. That
+     * The bucket keeps a "next free slot" cursor; each denial advances it and returns
+     * how long to park until the reserved slot. The first denial of an episode is charged
+     * only the tokens the bucket is short of, so a partly refilled bucket does not make a
+     * caller sit out an interval it has already served part of; denials behind it chain a
+     * further requested/refill each. That
      * gives every denied caller a distinct wake time, so a backlog spreads itself
      * over future refill instead of the whole backlog re-claiming against the same
      * next token on every retry. The cursor never advances past `reserveOnDenyMs`,

@@ -307,6 +307,25 @@ describe('RateLimiterService', () => {
             expect([first.reserved, second.reserved, third.reserved]).toEqual([true, true, true])
         })
 
+        it('charges the first denial only for the tokens the bucket is short of', async () => {
+            // Capacity 1 at 0.25 tokens/s, so a whole token interval is 4s. Drain, then let
+            // part of a token accrue. The reserved slot must be the shortfall, not the full
+            // interval: the accrued part is credit already earned, and waiting the interval out
+            // also lets accrual run past a capacity of 1, where the cap throws the surplus away.
+            const partialReq = { key: `${RESERVE_KEY}/partial`, requested: 1, capacity: 1, refillPerSecond: 0.25 }
+            await limiter.claimUpTo(partialReq)
+            await new Promise((resolve) => setTimeout(resolve, 1_000))
+
+            const denial = await limiter.claimOrReserve(partialReq, 60_000)
+
+            expect(denial.granted).toBe(0)
+            expect(denial.reserved).toBe(true)
+            // The slot is 4s minus whatever accrued during the wait, so a runner that oversleeps
+            // only shortens it. Charging the full interval would report 4s and fail here.
+            expect(denial.retryAfterMs).toBeGreaterThan(0)
+            expect(denial.retryAfterMs).toBeLessThanOrEqual(3_000)
+        })
+
         it('stops advancing the cursor at the horizon', async () => {
             // Slot interval 1s with a 1s horizon: the first denial can reserve the one
             // slot inside the horizon; everyone after gets the horizon back unchanged
