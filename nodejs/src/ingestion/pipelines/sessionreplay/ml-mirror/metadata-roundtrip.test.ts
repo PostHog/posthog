@@ -30,16 +30,30 @@ const block = (sessionId: string, teamId: number, distinctId: string): SessionBl
     urls: ['https://example.com/[redacted]'],
     snapshotSource: 'web',
     replayIndexEntries: [
-        { kind: 'full_snapshot', windowId: 'w1', eventTimestamp: 1_700_000_000_001.5, eventIndex: 0 },
+        {
+            kind: 'page',
+            windowId: 'w1',
+            eventTimestamp: 1_700_000_000_001.5,
+            eventIndex: 0,
+            url: 'https://example.com/[redacted]',
+        },
+        { kind: 'full_snapshot', windowId: 'w1', eventTimestamp: 1_700_000_000_001.5, eventIndex: 1 },
         {
             kind: 'json_ld',
             windowId: 'w1',
             eventTimestamp: 1_700_000_000_001.5,
-            eventIndex: 1,
+            eventIndex: 2,
             fullSnapshotTimestamp: 1_700_000_000_001.5,
             rootTypes: ['Product'],
+        },
+        {
+            kind: 'page',
+            windowId: 'w1',
+            eventTimestamp: 1_700_000_000_001.5,
+            eventIndex: 2,
             url: 'https://example.com/[redacted]',
         },
+        { kind: 'json_ld', windowId: 'w1', eventTimestamp: 1_700_000_000_001.5, eventIndex: 3, rootTypes: ['Article'] },
     ],
 })
 
@@ -92,19 +106,25 @@ describe('ML metadata producer → sink round-trip', () => {
         await batcher.handleBatch(messages, 0)
         await batcher.flush(1) // force the window out
 
-        expect(puts).toHaveLength(3)
+        expect(puts).toHaveLength(4)
         const labelPut = puts.find((put) => put.Key!.includes('kind=json_ld'))!
         expect(labelPut.Key).toContain('session_start_date=2023-11-14')
         const labels = await readRows(labelPut.Body)
-        expect(labels).toHaveLength(1)
+        expect(labels).toHaveLength(2)
+        expect(labels[1].url ?? null).toBeNull()
         expect(labels[0]).toMatchObject({
             session_id: pseudonymize(SECRET, PSEUDONYM_SESSION, SESSION_A),
             window_id: 'w1',
-            event_index: 1,
+            event_index: 2,
             full_snapshot_ts_ms: 1_700_000_000_001.5,
             root_types: ['Product'],
             url: 'https://example.com/[redacted]',
         })
+        const snapshots = await readRows(puts.find((put) => put.Key!.includes('kind=full_snapshot'))!.Body)
+        expect(snapshots[0]).toMatchObject({ event_index: 1, url: 'https://example.com/[redacted]' })
+        const pages = await readRows(puts.find((put) => put.Key!.includes('kind=page'))!.Body)
+        expect(pages).toHaveLength(1)
+        expect(pages[0].event_index).toBe(0)
         const rows = await readRows(puts.find((put) => put.Key!.startsWith('block-metadata/dt='))!.Body)
         expect(rows).toHaveLength(2)
 

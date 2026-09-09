@@ -112,7 +112,6 @@ pub const FLAG_CLICK: u8 = 2;
 pub const FLAG_KEYPRESS: u8 = 4;
 pub const FLAG_MOUSE_ACTIVITY: u8 = 8;
 pub const FLAG_FULL_SNAPSHOT: u8 = 16;
-pub const FLAG_META: u8 = 32;
 
 // `DateTime.fromMillis` validity bound (JS Date range: ±8.64e15 ms).
 const MAX_JS_DATE_MS: f64 = 8.64e15;
@@ -123,7 +122,7 @@ const MAX_JS_DATE_MS: f64 = 8.64e15;
 pub struct EventMeta {
     /// The event's `timestamp` (epoch ms; can be fractional).
     pub ts: f64,
-    /// Bitmask of FLAG_ACTIVE / FLAG_CLICK / FLAG_KEYPRESS / FLAG_MOUSE_ACTIVITY / FLAG_FULL_SNAPSHOT / FLAG_META.
+    /// Bitmask of FLAG_ACTIVE / FLAG_CLICK / FLAG_KEYPRESS / FLAG_MOUSE_ACTIVITY / FLAG_FULL_SNAPSHOT.
     pub flags: u8,
     /// Post-scrub `hrefFrom(event)` (`data.href` or `data.payload.href`, trimmed, non-empty).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1390,9 +1389,6 @@ fn scanned_href(inner: &[u8], d: &EventScan) -> Option<String> {
 }
 
 fn flags_of(ty: Option<u8>, source: Option<u8>, interaction: Option<u8>) -> u8 {
-    if ty == Some(TYPE_META) {
-        return FLAG_META;
-    }
     if ty == Some(TYPE_FULL_SNAPSHOT) {
         return FLAG_FULL_SNAPSHOT;
     }

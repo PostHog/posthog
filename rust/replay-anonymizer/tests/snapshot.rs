@@ -116,7 +116,7 @@ fn end_to_end_contract() {
     assert_eq!(
         flags,
         vec![
-            posthog_replay_anonymizer::snapshot::FLAG_META,
+            0,
             FLAG_ACTIVE | FLAG_KEYPRESS,
             FLAG_ACTIVE | FLAG_CLICK | FLAG_MOUSE_ACTIVITY,
             0,
@@ -134,24 +134,6 @@ fn end_to_end_contract() {
         TS0 + 2000.5,
         "fractional timestamps survive"
     );
-}
-
-#[test]
-fn metadata_marks_meta_events_without_a_url() {
-    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
-    for data in [
-        json!({}),
-        json!({"href": null}),
-        json!({"href": "https://example.com/private"}),
-    ] {
-        let inner = snapshot_message(json!([{ "type": 4, "timestamp": TS0, "data": data }]));
-        assert_stream_matches_tree(&allow, &inner.to_string(), "Meta flag");
-        let out = run(&allow, &payload_of(&inner)).unwrap();
-        assert_eq!(
-            out.meta.events[0].flags,
-            posthog_replay_anonymizer::snapshot::FLAG_META
-        );
-    }
 }
 
 #[test]

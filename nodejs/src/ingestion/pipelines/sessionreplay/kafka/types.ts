@@ -65,7 +65,6 @@ export const PRE_SERIALIZED_FLAG_CLICK = 2
 export const PRE_SERIALIZED_FLAG_KEYPRESS = 4
 export const PRE_SERIALIZED_FLAG_MOUSE_ACTIVITY = 8
 export const PRE_SERIALIZED_FLAG_FULL_SNAPSHOT = 16
-export const PRE_SERIALIZED_FLAG_META = 32
 
 export const PreSerializedEventMetaSchema = z.object({
     ts: z.number(),

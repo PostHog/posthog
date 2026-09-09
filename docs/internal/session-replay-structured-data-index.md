@@ -38,17 +38,22 @@ For an event-time search, include the preceding seven session-start dates and fi
 
 ## Full snapshot URLs
 
-A `full_snapshot` row receives the scrubbed URL from the preceding Meta event in the same recording window.
-The recorder requires consecutive events within that window and nondecreasing timestamps.
-Other windows and payload boundaries within a block do not break this association.
-The URL enriches the index row; it does not change the stored rrweb event.
+The ML-mirror metadata consumer enriches index rows before writing Parquet.
+For JSON-LD, it copies the URL from the `page` entry at the same event index, then omits that duplicate page row.
+For a full snapshot, it uses a URL entry at the same event index or the immediately preceding event index.
+The URL entry must belong to the same window and have a timestamp no later than the snapshot.
+An explicit URL already on the index entry takes precedence.
 
-The recorder keeps this pending Meta only within its current block.
-A block boundary, an intervening event, or reversed arrival order can leave the snapshot row without a URL.
-Older anonymizer metadata also lacks the Meta flag required for this association.
-Readers can use the durable `page` rows to find candidates across blocks, without an ingestion-side session cache.
-A Meta event without a usable URL still creates a `page` row, which stops readers from carrying an earlier URL forward.
-Do not filter out these rows before a temporal join.
+This uses the block metadata that the shared recorder already produces.
+It adds no state or behavior to the shared replay recorder and does not change stored rrweb events.
+Payload boundaries within a block do not affect the lookup, but any intervening event prevents the preceding-event association.
+A block boundary or reversed timestamps can leave the snapshot without a URL.
+Readers can use durable `page` rows to find candidates across blocks, without an ingestion-side session cache.
+
+The sparse index identifies URL-bearing events, not their original rrweb types.
+An adjacent URL is useful candidate metadata, but does not prove that the source was a Meta event.
+The shared recorder omits Meta events without URLs, so the index cannot reliably identify every unknown-URL boundary.
+Payload validation must account for this limit.
 
 ## Pairing labels with snapshots
 
@@ -115,7 +120,7 @@ This query returns candidates, not verified pairs.
 A matching scrubbed URL and timestamp gap cannot prove that a JSON-LD mutation describes an earlier DOM snapshot.
 The index cannot prove adjacency across blocks because it omits most event kinds.
 Missing events, masked Meta events, and URL collisions can also conceal a navigation.
-Do not treat a fallback URL as equivalent to an observed Meta-to-snapshot association.
+Neither an adjacent URL nor a temporal fallback proves the label describes that snapshot.
 A later query can find late arrivals once both blocks exist; record the input object list to make a dataset run reproducible.
 
 Fetch each distinct block key and inclusive byte range once, then decompress its Snappy JSONL recording lines.
@@ -134,13 +139,14 @@ Exclude JSON-LD rows without URLs; do not infer those URLs from older SDK naviga
 
 Use the `url` on each `json_ld` row for site and page coverage.
 The SDK captures it in `data.href` at the same time as the label, after applying replay URL masking and hash settings.
+The shared recorder emits a label entry and a URL entry for that event; the ML-mirror consumer combines them by event index.
 The anonymizer scrubs it again before extracting index metadata.
 This works when navigation events and JSON-LD arrive in separate payloads and needs no session URL cache.
 
 Exclude rows without a usable URL from coverage counts and dataset selection.
 Older SDKs do not send this field; URL masking can also omit it.
 The index retains those rows, but coverage queries do not infer their URLs from `page` events.
-JSON-LD events with a URL do not also create a `page` index row.
+JSON-LD events with a URL do not also create a `page` row in Parquet.
 
 Count distinct normalized scrubbed URLs as page families.
 Scrubbing can group similar paths, which helps deduplicate similar pages.
@@ -190,6 +196,8 @@ This change does not backfill old recordings.
 
 ## JSON-LD URL rollout
 
-Deploy the anonymizer and mirror changes that scrub and index `data.href` before releasing the SDK change that sends it.
-The existing index schema already accepts the optional URL column, so this addition needs no metadata-consumer rollout.
+Deploy the anonymizer that scrubs `data.href` before releasing the SDK change that sends it.
+Deploy the updated ML-mirror metadata consumer to populate URLs on JSON-LD and full-snapshot Parquet rows.
+The existing schema and shared recorder already provide the fields needed by that consumer.
+Full-snapshot URL enrichment also works with older SDKs that send Meta events; JSON-LD coverage still requires the SDK URL addition.
 Existing events without `data.href` remain readable and do not contribute to URL-based coverage.
