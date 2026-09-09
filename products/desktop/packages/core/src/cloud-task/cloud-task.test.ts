@@ -4834,3 +4834,170 @@ describe("CloudTaskEngine credential relay", () => {
     ]);
   });
 });
+
+describe("CloudTaskEngine codex credential relay", () => {
+  let relayService: CloudTaskEngine;
+  let tokenSource: { read: ReturnType<typeof vi.fn> };
+  const commandResponse = vi.fn();
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mockAuthService.getCloudContext.mockResolvedValue({
+      apiHost: "https://app.example.com",
+      teamId: 2,
+      accountKey: "account-a",
+    });
+    const scopedLog = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    tokenSource = { read: vi.fn() };
+    relayService = createCloudTaskEngine({
+      auth: mockAuthService as never,
+      analytics: { track: vi.fn() } as never,
+      logger: { ...scopedLog, scope: vi.fn(() => scopedLog) },
+      codexSubscriptionTokenSource: tokenSource as never,
+      streamFetch: fetchRouter,
+    });
+
+    mockNetFetch.mockReset();
+    commandResponse.mockReset();
+    commandResponse.mockImplementation(() =>
+      createJsonResponse({ result: {} }),
+    );
+    mockNetFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/command/")
+          ? commandResponse()
+          : url.includes("/api/users/@me/")
+            ? createJsonResponse({ id: 1 })
+            : createJsonResponse({
+                id: "run-1",
+                status: "in_progress",
+                state: {
+                  codex_model_access: "own-subscription",
+                  codex_subscription_user_id: 1,
+                },
+              }),
+      ),
+    );
+    mockStreamFetch.mockReset();
+    mockStreamTokenFetch.mockReset();
+    mockStreamTokenFetch.mockImplementation(() =>
+      Promise.resolve(
+        createJsonResponse({ token: "test-token", stream_base_url: null }),
+      ),
+    );
+    mockAuthService.authenticatedFetch.mockReset();
+    vi.stubGlobal("fetch", fetchRouter);
+    mockAuthService.authenticatedFetch.mockImplementation(
+      async (input: string | Request, init?: RequestInit) =>
+        fetchRouter(input, {
+          ...init,
+          headers: {
+            ...(init?.headers ?? {}),
+            Authorization: "Bearer token",
+          },
+        }),
+    );
+  });
+
+  afterEach(() => {
+    relayService.unwatchAll();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  function codexRequestSseLine(force?: boolean): string {
+    return `data: ${JSON.stringify({
+      type: "credential_request",
+      requestId: force ? "cred-req-2" : "cred-req-1",
+      credential: "codex_subscription_tokens",
+      expiresAt: new Date(Date.now() + 120_000).toISOString(),
+      ...(force ? { force: true } : {}),
+    })}\n\n`;
+  }
+
+  async function watchRun(sseLine: string): Promise<void> {
+    mockStreamFetch.mockResolvedValueOnce(createOpenSseResponse(sseLine));
+    relayService.watch({
+      taskId: "task-1",
+      runId: "run-1",
+      apiHost: "https://app.example.com",
+      teamId: 2,
+      resumeFromEntryCount: 0,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+  }
+
+  function commandPosts(): Array<{ method: string; params: unknown }> {
+    return mockNetFetch.mock.calls
+      .filter(([url]) => (url as string).includes("/command/"))
+      .map(
+        ([, init]) =>
+          JSON.parse((init as RequestInit).body as string) as {
+            method: string;
+            params: unknown;
+          },
+      );
+  }
+
+  it("sends the live ChatGPT tokens for a run the signed-in user owns", async () => {
+    tokenSource.read.mockResolvedValue({
+      accessToken: "header.payload.signature",
+      chatgptAccountId: "workspace-7",
+      chatgptPlanType: "pro",
+    });
+
+    await watchRun(codexRequestSseLine());
+
+    expect(commandPosts()).toMatchObject([
+      {
+        method: "credential_response",
+        params: {
+          requestId: "cred-req-1",
+          credential: "codex_subscription_tokens",
+          token: JSON.stringify({
+            accessToken: "header.payload.signature",
+            chatgptAccountId: "workspace-7",
+            chatgptPlanType: "pro",
+          }),
+        },
+      },
+    ]);
+  });
+
+  it("asks codex to rotate the token when the sandbox reports a 401", async () => {
+    tokenSource.read.mockResolvedValue({ accessToken: "rotated" });
+
+    await watchRun(codexRequestSseLine(true));
+
+    expect(tokenSource.read).toHaveBeenCalledWith(true);
+  });
+
+  it("refuses a run owned by another user", async () => {
+    mockNetFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/command/")
+          ? commandResponse()
+          : url.includes("/api/users/@me/")
+            ? createJsonResponse({ id: 1 })
+            : createJsonResponse({
+                id: "run-1",
+                status: "in_progress",
+                state: {
+                  codex_model_access: "own-subscription",
+                  codex_subscription_user_id: 2,
+                },
+              }),
+      ),
+    );
+
+    await watchRun(codexRequestSseLine());
+
+    expect(tokenSource.read).not.toHaveBeenCalled();
+    expect(commandPosts()).toEqual([]);
+  });
+});

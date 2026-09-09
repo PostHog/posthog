@@ -2573,9 +2573,9 @@ export const InitialPermissionModeEnumApi = {
  * * `posthog-gateway` - posthog-gateway
  * * `own-subscription` - own-subscription
  */
-export type ClaudeModelAccessEnumApi = (typeof ClaudeModelAccessEnumApi)[keyof typeof ClaudeModelAccessEnumApi]
+export type ModelAccessEnumApi = (typeof ModelAccessEnumApi)[keyof typeof ModelAccessEnumApi]
 
-export const ClaudeModelAccessEnumApi = {
+export const ModelAccessEnumApi = {
     PosthogGateway: 'posthog-gateway',
     OwnSubscription: 'own-subscription',
 } as const
@@ -2684,7 +2684,12 @@ export interface ClaudeTaskRunCreateSchemaApi {
      *
      * * `posthog-gateway` - posthog-gateway
      * * `own-subscription` - own-subscription */
-    claude_model_access?: ClaudeModelAccessEnumApi | null
+    claude_model_access?: ModelAccessEnumApi | null
+    /** How the Codex runtime pays for model use. 'own-subscription' makes the sandbox request a ChatGPT access token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    codex_model_access?: ModelAccessEnumApi | null
 }
 
 /**
@@ -2815,7 +2820,12 @@ export interface CodexTaskRunCreateSchemaApi {
      *
      * * `posthog-gateway` - posthog-gateway
      * * `own-subscription` - own-subscription */
-    claude_model_access?: ClaudeModelAccessEnumApi | null
+    claude_model_access?: ModelAccessEnumApi | null
+    /** How the Codex runtime pays for model use. 'own-subscription' makes the sandbox request a ChatGPT access token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    codex_model_access?: ModelAccessEnumApi | null
 }
 
 export interface TaskRunResumeRequestSchemaApi {
@@ -3190,7 +3200,12 @@ export interface TaskRunBootstrapCreateRequestApi {
      *
      * * `posthog-gateway` - posthog-gateway
      * * `own-subscription` - own-subscription */
-    claude_model_access?: ClaudeModelAccessEnumApi | null
+    claude_model_access?: ModelAccessEnumApi | null
+    /** How the Codex runtime pays for model use. 'own-subscription' makes the sandbox request a ChatGPT access token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+     *
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription */
+    codex_model_access?: ModelAccessEnumApi | null
 }
 
 /**

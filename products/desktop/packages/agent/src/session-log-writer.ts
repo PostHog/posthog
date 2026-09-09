@@ -6,7 +6,7 @@ import type { PostHogAPIClient } from "./posthog-api";
 import type { StoredNotification } from "./types";
 import { isEmptyContentBlock } from "./utils/acp-content";
 import { Logger } from "./utils/logger";
-import { redactClaudeTokens } from "./utils/redact-claude-tokens";
+import { redactSubscriptionTokens } from "./utils/redact-subscription-tokens";
 
 /**
  * Session context for a registered session.
@@ -81,7 +81,7 @@ function redactAuthorizationHeaders(value: unknown): unknown {
     return value.map(redactAuthorizationHeaders);
   }
   if (value === null || typeof value !== "object") {
-    return redactClaudeTokens(value);
+    return redactSubscriptionTokens(value);
   }
 
   const record = value as Record<string, unknown>;
@@ -593,7 +593,7 @@ export class SessionLogWriter {
     if (!session.chunkBuffer) return;
 
     const { firstTimestamp, firstEventId, lastEventId } = session.chunkBuffer;
-    const text = redactClaudeTokens(session.chunkBuffer.text);
+    const text = redactSubscriptionTokens(session.chunkBuffer.text);
     session.chunkBuffer = undefined;
     session.lastAgentMessage = text;
     session.currentTurnMessages.push(text);

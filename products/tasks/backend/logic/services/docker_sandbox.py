@@ -958,6 +958,7 @@ class DockerSandbox(SandboxBase):
         peer_messaging: bool = False,
         posthog_exec_permission_regex: str | None = None,
         claude_model_access: str | None = None,
+        codex_model_access: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
         # rewrite it the same way POSTHOG_API_URL is for Docker sandboxes.
@@ -983,6 +984,8 @@ class DockerSandbox(SandboxBase):
             peer_messaging=peer_messaging,
         )
         subscription_flag = " --claudeSubscription" if claude_model_access == "own-subscription" else ""
+        if codex_model_access == "own-subscription":
+            subscription_flag = " --codexSubscription"
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown
         # flags, so default runs (and resumes of old snapshots) must not see it.
@@ -1078,6 +1081,7 @@ class DockerSandbox(SandboxBase):
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
         claude_model_access: str | None = None,
+        codex_model_access: str | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -1161,6 +1165,7 @@ class DockerSandbox(SandboxBase):
             peer_messaging=peer_messaging,
             posthog_exec_permission_regex=exec_permission_regex,
             claude_model_access=claude_model_access,
+            codex_model_access=codex_model_access,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
@@ -1175,7 +1180,8 @@ class DockerSandbox(SandboxBase):
                 )
             return
 
-        max_attempts = 300 if claude_model_access == "own-subscription" else 20
+        own_subscription = "own-subscription" in (claude_model_access, codex_model_access)
+        max_attempts = 300 if own_subscription else 20
         if self._launch_and_check(command, max_attempts=max_attempts):
             logger.info(f"Agent-server started on port {self._host_port}")
             return
@@ -1220,6 +1226,7 @@ class DockerSandbox(SandboxBase):
                 peer_messaging=peer_messaging,
                 posthog_exec_permission_regex=exec_permission_regex,
                 claude_model_access=claude_model_access,
+                codex_model_access=codex_model_access,
             )
             if self._launch_and_check(command, max_attempts=max_attempts):
                 logger.info(f"Agent-server started on port {self._host_port} (without --baseBranch)")
@@ -1237,9 +1244,14 @@ class DockerSandbox(SandboxBase):
         )
 
     def wait_for_agent_server_ready(
-        self, allowed_domains: list[str] | None = None, *, claude_model_access: str | None = None
+        self,
+        allowed_domains: list[str] | None = None,
+        *,
+        claude_model_access: str | None = None,
+        codex_model_access: str | None = None,
     ) -> None:
-        if self._wait_for_health_check(max_attempts=300 if claude_model_access == "own-subscription" else 240):
+        own_subscription = "own-subscription" in (claude_model_access, codex_model_access)
+        if self._wait_for_health_check(max_attempts=300 if own_subscription else 240):
             logger.info(f"Agent-server ready on port {self._host_port}")
             return
         log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)

@@ -173,6 +173,20 @@ The PID check applies only when the PID file exists, so servers launched before 
 Continuation inherits the selected billing mode unless the caller explicitly changes it.
 Subscription runs do not reuse prewarmed sessions, because those processes have already selected their credentials.
 
+### ChatGPT subscription token relay
+
+A run created with `codex_model_access: "own-subscription"` uses the user's ChatGPT plan for model usage.
+The `posthog-code-codex-own-subscription-cloud` flag controls rollout, and the run must use the Codex runtime.
+Owner recording, the owner check on `/command/`, the sandbox-credential rule, and the direct event ingest match the Claude path.
+
+Nothing is stored: the codex on the user's machine keeps the refresh token and rotates it.
+Desktop reads a live access token from that codex for each request, so the sandbox holds a short access token in memory only.
+Codex in the sandbox signs in with `chatgptAuthTokens`, which forces ephemeral storage and writes no auth file.
+On a 401 codex asks the host for a new access token and waits ten seconds, so Desktop answers from a short cache and asks codex for a rotation only when the sandbox reports the failure.
+
+Subscription runs require the `--codexSubscription` startup option, and the launcher checks support before it starts the process.
+Cloud usage and local usage share one plan allowance, so a run can stop at a plan rate limit that no PostHog quota controls.
+
 Keep the flag off while deploying the backend and publishing the sandbox agent build, then enable it for the intended users.
 Desktop and backend use the same flag; a stale client cannot bypass the backend check.
 

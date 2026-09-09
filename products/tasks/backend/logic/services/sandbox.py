@@ -600,6 +600,7 @@ class SandboxBase(ABC):
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
         claude_model_access: str | None = None,
+        codex_model_access: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -613,7 +614,11 @@ class SandboxBase(ABC):
 
     @abstractmethod
     def wait_for_agent_server_ready(
-        self, allowed_domains: list[str] | None = None, *, claude_model_access: str | None = None
+        self,
+        allowed_domains: list[str] | None = None,
+        *,
+        claude_model_access: str | None = None,
+        codex_model_access: str | None = None,
     ) -> None: ...
 
     @abstractmethod

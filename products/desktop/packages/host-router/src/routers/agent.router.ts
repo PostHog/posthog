@@ -12,8 +12,12 @@ import {
   claudeAuthTerminalInput,
   claudeAuthTerminalOutput,
   claudeSubscriptionStatusOutput,
+  codexRateLimitsOutput,
+  codexSubscriptionDeviceLoginOutput,
   codexSubscriptionLoginOutput,
   codexSubscriptionStatusOutput,
+  codexSubscriptionTokensInput,
+  codexSubscriptionTokensOutput,
   getPiModelCatalogInput,
   getPiModelCatalogOutput,
   getPreviewConfigOptionsInput,
@@ -120,6 +124,29 @@ export const agentRouter = router({
       ctx.container
         .get<AgentService>(AGENT_SERVICE)
         .startCodexSubscriptionLogin(),
+    ),
+
+  codexSubscriptionDeviceLoginStart: publicProcedure
+    .output(codexSubscriptionDeviceLoginOutput)
+    .mutation(({ ctx }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .startCodexSubscriptionDeviceLogin(),
+    ),
+
+  codexSubscriptionTokens: publicProcedure
+    .input(codexSubscriptionTokensInput)
+    .output(codexSubscriptionTokensOutput)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .readCodexSubscriptionTokens(input.force),
+    ),
+
+  codexRateLimits: publicProcedure
+    .output(codexRateLimitsOutput)
+    .query(({ ctx }) =>
+      ctx.container.get<AgentService>(AGENT_SERVICE).getCodexRateLimits(),
     ),
 
   codexSubscriptionSignOut: publicProcedure.mutation(({ ctx }) =>

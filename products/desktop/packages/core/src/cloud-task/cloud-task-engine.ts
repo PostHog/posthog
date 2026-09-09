@@ -14,6 +14,7 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { z } from "zod";
 import type {
   ClaudeSubscriptionTokenStore,
+  CodexSubscriptionTokenSource,
   ICloudTaskAuth,
   McpRelayExecutor,
 } from "./identifiers";
@@ -248,11 +249,23 @@ function isMcpRequestEvent(data: unknown): data is McpRequestEventData {
   );
 }
 
+const RELAYED_CREDENTIALS = [
+  "claude_subscription_token",
+  "codex_subscription_tokens",
+] as const;
+
+type RelayedCredential = (typeof RELAYED_CREDENTIALS)[number];
+
 interface CredentialRequestEventData {
   type: "credential_request";
   requestId: string;
-  credential: "claude_subscription_token";
+  credential: RelayedCredential;
   expiresAt: string;
+  /**
+   * The sandbox saw a 401 and needs a rotated token, not the one it holds.
+   * Only the codex credential can honor this; codex owns the rotation.
+   */
+  force?: boolean;
 }
 
 function isCredentialRequestEvent(
@@ -264,9 +277,15 @@ function isCredentialRequestEvent(
     candidate.type === "credential_request" &&
     typeof candidate.requestId === "string" &&
     typeof candidate.expiresAt === "string" &&
-    candidate.credential === "claude_subscription_token"
+    RELAYED_CREDENTIALS.includes(candidate.credential as RelayedCredential)
   );
 }
+
+/**
+ * A codex access token lives about an hour, so a short cache keeps the refresh
+ * answer inside the 10 seconds codex waits without holding a stale token.
+ */
+const CODEX_TOKEN_CACHE_MS = 45_000;
 
 /** Prefix marking a desktop-issued relay approval prompt, so `sendCommand` can
  *  resolve its response locally instead of POSTing it to the sandbox. */
@@ -469,6 +488,7 @@ export interface CloudTaskEngineDependencies {
   logger: RootLogger;
   mcpRelayExecutor?: McpRelayExecutor | null;
   claudeSubscriptionTokenStore?: ClaudeSubscriptionTokenStore | null;
+  codexSubscriptionTokenSource?: CodexSubscriptionTokenSource | null;
   streamFetch?: CloudTaskFetch;
   /**
    * Cap on the entries a snapshot carries, for hosts that page older history
@@ -497,6 +517,8 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
   private readonly analytics: IAnalytics;
   private readonly mcpRelayExecutor: McpRelayExecutor | null;
   private readonly claudeSubscriptionTokenStore: ClaudeSubscriptionTokenStore | null;
+  private readonly codexSubscriptionTokenSource: CodexSubscriptionTokenSource | null;
+  private codexTokenCache: { token: string; readAt: number } | null = null;
   private readonly streamFetch: CloudTaskFetch;
   private readonly transcriptTailWindow: number | undefined;
 
@@ -506,6 +528,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     logger,
     mcpRelayExecutor = null,
     claudeSubscriptionTokenStore = null,
+    codexSubscriptionTokenSource = null,
     streamFetch = globalThis.fetch.bind(globalThis),
     transcriptTailWindow,
   }: CloudTaskEngineDependencies) {
@@ -514,6 +537,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     this.analytics = analytics;
     this.mcpRelayExecutor = mcpRelayExecutor;
     this.claudeSubscriptionTokenStore = claudeSubscriptionTokenStore;
+    this.codexSubscriptionTokenSource = codexSubscriptionTokenSource;
     this.streamFetch = streamFetch;
     this.transcriptTailWindow = transcriptTailWindow;
     this.log = logger.scope("cloud-task");
@@ -526,7 +550,8 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
    * runs or names are dropped.
    */
   private readonly relayDesignations = new Map<string, Set<string>>();
-  private readonly claudeSubscriptionRuns = new Map<string, string>();
+  /** runKey -> account key allowed to relay that run's subscription token. */
+  private readonly subscriptionRuns = new Map<string, string>();
   private readonly credentialRequestsInFlight = new Set<string>();
   /** requestId dedupe — the event stream is at-least-once and replays on reconnect. */
   private readonly handledRelayRequestIds = new Set<string>();
@@ -570,9 +595,29 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     input: DesignateClaudeSubscriptionInput,
   ): Promise<void> {
     if (!this.claudeSubscriptionTokenStore) return;
+    await this.designateSubscription(input, "claude", "Claude plan");
+  }
+
+  async designateCodexSubscription(
+    input: DesignateClaudeSubscriptionInput,
+  ): Promise<void> {
+    if (!this.codexSubscriptionTokenSource) return;
+    await this.designateSubscription(input, "codex", "ChatGPT plan");
+  }
+
+  /**
+   * Binds a run to the signed-in account before any token leaves this machine.
+   * The run must name this user as its subscription owner, so a teammate who
+   * can see the run still cannot spend the owner's plan allowance.
+   */
+  private async designateSubscription(
+    input: DesignateClaudeSubscriptionInput,
+    adapter: "claude" | "codex",
+    planName: string,
+  ): Promise<void> {
     const context = await this.auth.getCloudContext({ includeAccount: true });
     if (!context?.accountKey)
-      throw new Error("Sign in before using your Claude plan.");
+      throw new Error(`Sign in before using your ${planName}.`);
     const base = new URL(context.apiHost);
     if (
       base.protocol !== "https:" &&
@@ -581,7 +626,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         ["localhost", "127.0.0.1", "[::1]"].includes(base.hostname)
       )
     ) {
-      throw new Error("Claude tokens require a secure connection.");
+      throw new Error("Subscription tokens require a secure connection.");
     }
     const [userResponse, runResponse] = await Promise.all([
       this.auth.authenticatedFetch(`${base.origin}/api/users/@me/`, {
@@ -594,34 +639,30 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       ),
     ]);
     if (!userResponse.ok || !runResponse.ok)
-      throw new Error("Cannot check the Claude run owner. Try again.");
+      throw new Error("Cannot check the run owner. Try again.");
     const user = z
       .object({ id: z.number() })
       .safeParse(await userResponse.json());
     const run = z
-      .object({
-        state: z.object({
-          claude_subscription_user_id: z.number(),
-          claude_model_access: z.literal("own-subscription"),
-        }),
-      })
+      .object({ state: z.record(z.string(), z.unknown()) })
       .safeParse(await runResponse.json());
+    const state = run.success ? run.data.state : undefined;
     if (
       !user.success ||
-      !run.success ||
-      run.data.state.claude_subscription_user_id !== user.data.id
+      state?.[`${adapter}_model_access`] !== "own-subscription" ||
+      state?.[`${adapter}_subscription_user_id`] !== user.data.id
     ) {
       throw new Error(
-        "Only the user who started this run can send a Claude token.",
+        `Only the user who started this run can use its ${planName}.`,
       );
     }
-    this.claudeSubscriptionRuns.set(
+    this.subscriptionRuns.set(
       this.credentialRunKey({ ...input, ...context }),
       context.accountKey,
     );
-    if (this.claudeSubscriptionRuns.size > MAX_HANDLED_RELAY_REQUEST_IDS) {
-      const oldest = this.claudeSubscriptionRuns.keys().next().value;
-      if (oldest !== undefined) this.claudeSubscriptionRuns.delete(oldest);
+    if (this.subscriptionRuns.size > MAX_HANDLED_RELAY_REQUEST_IDS) {
+      const oldest = this.subscriptionRuns.keys().next().value;
+      if (oldest !== undefined) this.subscriptionRuns.delete(oldest);
     }
   }
 
@@ -713,7 +754,13 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     watcher: WatcherState,
     data: CredentialRequestEventData,
   ): Promise<void> {
-    if (!this.claudeSubscriptionTokenStore) return;
+    if (
+      data.credential === "codex_subscription_tokens"
+        ? !this.codexSubscriptionTokenSource
+        : !this.claudeSubscriptionTokenStore
+    ) {
+      return;
+    }
     const runKey = this.credentialRunKey(watcher);
     const requestKey = `${runKey}:${data.requestId}`;
     if (
@@ -732,7 +779,10 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         outcome,
       });
       if (outcome === "expired" || outcome === "rejected") {
-        this.log.warn("Claude token delivery failed", { outcome });
+        this.log.warn("Subscription token delivery failed", {
+          credential: data.credential,
+          outcome,
+        });
       }
     };
     if (expiresAt <= Date.now()) {
@@ -771,7 +821,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     deadline: number,
   ): Promise<"sent" | "no_token" | "rejected" | "retry"> {
     try {
-      if (!this.claudeSubscriptionRuns.has(this.credentialRunKey(watcher))) {
+      if (!this.subscriptionRuns.has(this.credentialRunKey(watcher))) {
         const context = await this.auth.getCloudContext();
         if (
           !context ||
@@ -780,14 +830,13 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         ) {
           return "rejected";
         }
-        await this.designateClaudeSubscription(watcher);
+        await (data.credential === "codex_subscription_tokens"
+          ? this.designateCodexSubscription(watcher)
+          : this.designateClaudeSubscription(watcher));
       }
       const destination = await this.credentialDestination(watcher);
       if (!destination) return "rejected";
-      const token =
-        (await this.claudeSubscriptionTokenStore?.get(
-          this.claudeSubscriptionRuns.get(this.credentialRunKey(watcher)),
-        )) ?? null;
+      const token = await this.readRelayedCredential(watcher, data);
       const response = await this.auth.authenticatedFetch(destination, {
         method: "POST",
         redirect: "error",
@@ -825,6 +874,35 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     }
   }
 
+  private async readRelayedCredential(
+    watcher: WatcherState,
+    data: CredentialRequestEventData,
+  ): Promise<string | null> {
+    if (data.credential === "claude_subscription_token") {
+      return (
+        (await this.claudeSubscriptionTokenStore?.get(
+          this.subscriptionRuns.get(this.credentialRunKey(watcher)),
+        )) ?? null
+      );
+    }
+    const cached = this.codexTokenCache;
+    if (
+      !data.force &&
+      cached &&
+      Date.now() - cached.readAt < CODEX_TOKEN_CACHE_MS
+    ) {
+      return cached.token;
+    }
+    const tokens = await this.codexSubscriptionTokenSource?.read(data.force);
+    if (!tokens) {
+      this.codexTokenCache = null;
+      return null;
+    }
+    const token = JSON.stringify(tokens);
+    this.codexTokenCache = { token, readAt: Date.now() };
+    return token;
+  }
+
   private async credentialDestination(
     watcher: WatcherState,
   ): Promise<string | null> {
@@ -832,7 +910,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     if (
       !context ||
       context.accountKey !==
-        this.claudeSubscriptionRuns.get(this.credentialRunKey(watcher)) ||
+        this.subscriptionRuns.get(this.credentialRunKey(watcher)) ||
       this.credentialRunKey({ ...watcher, ...context }) !==
         this.credentialRunKey(watcher)
     )
@@ -1274,7 +1352,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
   }
 
   unwatchAll(): void {
-    this.claudeSubscriptionRuns.clear();
+    this.subscriptionRuns.clear();
     for (const key of [...this.watchers.keys()]) {
       this.stopWatcher(key);
     }
@@ -2474,7 +2552,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     // A terminal run gets no further relay requests; drop its designation and
     // approval state so the maps don't grow for the lifetime of the app session.
     if (isTerminalStatus(watcher.lastStatus)) {
-      this.claudeSubscriptionRuns.delete(this.credentialRunKey(watcher));
+      this.subscriptionRuns.delete(this.credentialRunKey(watcher));
       this.relayDesignations.delete(watcher.runId);
       this.evictRelayApprovalState(watcher.runId);
     }

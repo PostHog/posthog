@@ -9,6 +9,8 @@ const state = vi.hoisted(() => ({
   onNotification: undefined as
     | ((method: string, params: unknown) => void)
     | undefined,
+  authToken: null as string | null,
+  loginParams: undefined as Record<string, unknown> | undefined,
   requests: [] as string[],
   spawnOptions: undefined as { useMachineAuth?: boolean } | undefined,
 }));
@@ -43,14 +45,20 @@ vi.mock("./app-server-client", () => ({
       state.onNotification = handlers.onNotification;
     }
 
-    async request(method: string): Promise<unknown> {
+    async request(method: string, params?: unknown): Promise<unknown> {
       state.requests.push(method);
       if (method === APP_SERVER_METHODS.ACCOUNT_READ) {
         return { account: state.account };
       }
+      if (method === APP_SERVER_METHODS.GET_AUTH_STATUS) {
+        return { authMethod: "chatgpt", authToken: state.authToken };
+      }
       if (method === APP_SERVER_METHODS.ACCOUNT_LOGIN_START) {
+        state.loginParams = params as Record<string, unknown>;
         return {
           authUrl: "https://chatgpt.com/login",
+          verificationUrl: "https://auth.openai.com/codex/device",
+          userCode: "3JAD-AER05",
           loginId: "login-1",
         };
       }
@@ -68,9 +76,17 @@ vi.mock("./app-server-client", () => ({
 
 import {
   hasCodexChatgptLogin,
+  readCodexChatgptTokens,
   signOutCodexChatgpt,
+  startCodexChatgptDeviceCodeLogin,
   startCodexChatgptLogin,
 } from "./subscription-login";
+
+function accessToken(claims: Record<string, unknown>): string {
+  const encode = (value: unknown): string =>
+    Buffer.from(JSON.stringify(value)).toString("base64url");
+  return `${encode({ alg: "RS256" })}.${encode(claims)}.signature`;
+}
 
 const options = { binaryPath: "/bundle/codex" };
 
@@ -82,6 +98,8 @@ beforeEach(() => {
   state.onNotification = undefined;
   state.requests = [];
   state.spawnOptions = undefined;
+  state.authToken = null;
+  state.loginParams = undefined;
 });
 
 describe("Codex account", () => {
@@ -136,6 +154,40 @@ describe("Codex account", () => {
 
     await expect(login.completed).resolves.toBe(false);
     expect(state.requests).toContain(APP_SERVER_METHODS.ACCOUNT_LOGIN_CANCEL);
+  });
+
+  it("starts a device-code login and returns the code to show", async () => {
+    const login = await startCodexChatgptDeviceCodeLogin(options);
+
+    expect(state.loginParams).toEqual({ type: "chatgptDeviceCode" });
+    expect(login).toMatchObject({
+      verificationUrl: "https://auth.openai.com/codex/device",
+      userCode: "3JAD-AER05",
+    });
+
+    state.onNotification?.(APP_SERVER_NOTIFICATIONS.ACCOUNT_LOGIN_COMPLETED, {
+      loginId: "login-1",
+      success: true,
+    });
+    await expect(login.completed).resolves.toBe(true);
+  });
+
+  it("reads a live access token and the workspace it belongs to", async () => {
+    state.account = { type: "chatgpt", planType: "pro" };
+    state.authToken = accessToken({
+      "https://api.openai.com/auth": { chatgpt_account_id: "workspace-7" },
+    });
+
+    await expect(readCodexChatgptTokens(options)).resolves.toEqual({
+      accessToken: state.authToken,
+      chatgptAccountId: "workspace-7",
+      chatgptPlanType: "pro",
+    });
+    expect(state.requests).toContain(APP_SERVER_METHODS.GET_AUTH_STATUS);
+  });
+
+  it("returns nothing when codex holds no token", async () => {
+    await expect(readCodexChatgptTokens(options)).resolves.toBeNull();
   });
 
   it("reports a logout failure", async () => {

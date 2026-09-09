@@ -151,6 +151,7 @@ class AgentServerLaunchMixin(SandboxBase):
         peer_messaging: bool = False,
         posthog_exec_permission_regex: str | None = None,
         claude_model_access: str | None = None,
+        codex_model_access: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -173,6 +174,8 @@ class AgentServerLaunchMixin(SandboxBase):
             unset_bedrock=self.disable_direct_bedrock,
         )
         subscription_flag = " --claudeSubscription" if claude_model_access == "own-subscription" else ""
+        if codex_model_access == "own-subscription":
+            subscription_flag = " --codexSubscription"
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown
         # flags, so default runs (and resumes of old snapshots) must not see it.
@@ -302,6 +305,7 @@ class AgentServerLaunchMixin(SandboxBase):
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
         claude_model_access: str | None = None,
+        codex_model_access: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -389,10 +393,13 @@ class AgentServerLaunchMixin(SandboxBase):
             peer_messaging=peer_messaging,
             posthog_exec_permission_regex=exec_permission_regex,
             claude_model_access=claude_model_access,
+            codex_model_access=codex_model_access,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
-        max_attempts = 300 if claude_model_access == "own-subscription" else AGENT_SERVER_HEALTH_MAX_ATTEMPTS
+        max_attempts = (
+            300 if "own-subscription" in (claude_model_access, codex_model_access) else AGENT_SERVER_HEALTH_MAX_ATTEMPTS
+        )
         execute_command = _start_and_wait_command(command, max_attempts) if wait_for_health else command
         timeout_seconds = 30 + health_check_timeout_seconds(max_attempts) if wait_for_health else 30
         start_time = time.perf_counter()
@@ -441,9 +448,15 @@ class AgentServerLaunchMixin(SandboxBase):
         return None
 
     def wait_for_agent_server_ready(
-        self, allowed_domains: list[str] | None = None, *, claude_model_access: str | None = None
+        self,
+        allowed_domains: list[str] | None = None,
+        *,
+        claude_model_access: str | None = None,
+        codex_model_access: str | None = None,
     ) -> None:
-        max_attempts = 300 if claude_model_access == "own-subscription" else AGENT_SERVER_HEALTH_MAX_ATTEMPTS
+        max_attempts = (
+            300 if "own-subscription" in (claude_model_access, codex_model_access) else AGENT_SERVER_HEALTH_MAX_ATTEMPTS
+        )
         if self._wait_for_health_check(max_attempts=max_attempts):
             if allowed_domains is not None and not self._agentsh_daemon_is_healthy():
                 raise SandboxExecutionError(

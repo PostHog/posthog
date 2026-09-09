@@ -16,6 +16,9 @@ export const APP_SERVER_METHODS = {
   ACCOUNT_LOGIN_START: "account/login/start",
   ACCOUNT_LOGIN_CANCEL: "account/login/cancel",
   ACCOUNT_LOGOUT: "account/logout",
+  ACCOUNT_RATE_LIMITS_READ: "account/rateLimits/read",
+  /** Returns the live ChatGPT access token; `includeToken` opts into the token itself. */
+  GET_AUTH_STATUS: "getAuthStatus",
   THREAD_START: "thread/start",
   THREAD_RESUME: "thread/resume",
   THREAD_FORK: "thread/fork",
@@ -34,6 +37,7 @@ export const APP_SERVER_METHODS = {
 export const APP_SERVER_NOTIFICATIONS = {
   INITIALIZED: "initialized",
   ACCOUNT_LOGIN_COMPLETED: "account/login/completed",
+  ACCOUNT_RATE_LIMITS_UPDATED: "account/rateLimits/updated",
   THREAD_STARTED: "thread/started",
   // Carries the active turn id — precondition for turn/steer + turn/interrupt.
   TURN_STARTED: "turn/started",
@@ -73,7 +77,16 @@ export const APP_SERVER_REQUESTS = {
   TOOL_USER_INPUT: "item/tool/requestUserInput",
   PERMISSIONS_APPROVAL: "item/permissions/requestApproval",
   MCP_ELICITATION: "mcpServer/elicitation/request",
+  /**
+   * Sent when a `chatgptAuthTokens` login gets a 401. Codex holds no refresh
+   * token in that mode, so the host must answer with a fresh access token.
+   * Codex waits 10 seconds, then fails the turn.
+   */
+  CHATGPT_AUTH_TOKENS_REFRESH: "account/chatgptAuthTokens/refresh",
 } as const;
+
+/** Codex waits this long for a `CHATGPT_AUTH_TOKENS_REFRESH` answer. */
+export const CHATGPT_AUTH_TOKENS_REFRESH_TIMEOUT_MS = 10_000;
 
 /** JSON-RPC ids are `string | number` per the codex schema (`RequestId.ts`). */
 export type RequestId = string | number;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ClaudeTokenEventRedactor } from "./redact-claude-tokens";
+import { ClaudeTokenEventRedactor } from "./redact-subscription-tokens";
 
 describe("ClaudeTokenEventRedactor", () => {
   it.each(["agent_message_chunk", "agent_thought_chunk"])(

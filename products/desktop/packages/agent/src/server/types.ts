@@ -60,6 +60,7 @@ export interface AgentServerConfig {
   runtimeAdapter?: Adapter;
   model?: string;
   claudeModelAccess?: "posthog-gateway" | "own-subscription";
+  codexModelAccess?: "posthog-gateway" | "own-subscription";
   reasoningEffort?: EffortLevel | "off" | "minimal";
   contextWindow?: "200k" | "1m";
   fastMode?: boolean;

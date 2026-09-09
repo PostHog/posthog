@@ -424,6 +424,8 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "benjamin_enabled",
         "claude_model_access",
         "claude_subscription_user_id",
+        "codex_model_access",
+        "codex_subscription_user_id",
         "context_window",
         "custom_image_id",
         "fast_mode",
@@ -2266,6 +2268,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "reasoning_effort",
         "claude_model_access",
         "claude_subscription_user_id",
+        "codex_model_access",
+        "codex_subscription_user_id",
         "rtk_effective",
         "benjamin_effective",
         "usage_metrics_recorded",
@@ -3996,10 +4000,11 @@ def signal_task_run_user_message(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    if (run.state or {}).get("claude_model_access") == "own-subscription" and (run.state or {}).get(
-        "claude_subscription_user_id"
-    ) != actor_user_id:
-        raise PermissionDenied("Only the user who started this run can use its Claude plan.")
+    for adapter, plan_name in (("claude", "Claude plan"), ("codex", "ChatGPT plan")):
+        if (run.state or {}).get(f"{adapter}_model_access") == "own-subscription" and (run.state or {}).get(
+            f"{adapter}_subscription_user_id"
+        ) != actor_user_id:
+            raise PermissionDenied(f"Only the user who started this run can use its {plan_name}.")
     if run.is_terminal or (run.state or {}).get("cancel_requested_at"):
         if not run.is_terminal:
             raise RuntimeError("Task run is still stopping. Try again shortly.")
@@ -4728,6 +4733,7 @@ def bootstrap_task_run(
         "rtk_enabled": validated_data.get("rtk_enabled"),
         "benjamin_enabled": validated_data.get("benjamin_enabled"),
         "claude_model_access": validated_data.get("claude_model_access"),
+        "codex_model_access": validated_data.get("codex_model_access"),
     }.items():
         if value is not None:
             extra_state = extra_state or {}
@@ -6992,7 +6998,7 @@ def warm_task_resume_sandbox(
         return None
 
     previous_state = parse_run_state(previous_run.state)
-    if previous_state.claude_model_access == "own-subscription":
+    if "own-subscription" in (previous_state.claude_model_access, previous_state.codex_model_access):
         return None
     resolved_runtime_adapter = runtime_adapter or previous_state.runtime_adapter
     resolved_model = model or previous_state.model
@@ -7189,9 +7195,14 @@ def run_task(
     claude_model_access = validated_data.get("claude_model_access")
     if claude_model_access is None and previous_state is not None:
         claude_model_access = previous_state.claude_model_access
+    codex_model_access = validated_data.get("codex_model_access")
+    if codex_model_access is None and previous_state is not None:
+        codex_model_access = previous_state.codex_model_access
 
     warm_run = _idling_warm_run_for_task(task)
-    if warm_run is not None and claude_model_access == "own-subscription":
+    # A run on the user's own plan needs its Desktop for the whole run, so it
+    # cannot adopt a sandbox warmed for gateway billing.
+    if warm_run is not None and "own-subscription" in (claude_model_access, codex_model_access):
         warm_run = None
     if warm_run is not None:
         _warm_retry_message_id(warm_retry_token, warm_run)
@@ -7331,6 +7342,7 @@ def run_task(
         ("rtk_enabled", validated_data.get("rtk_enabled")),
         ("benjamin_enabled", validated_data.get("benjamin_enabled")),
         ("claude_model_access", claude_model_access),
+        ("codex_model_access", codex_model_access),
     ):
         if value is not None:
             extra_state = extra_state or {}

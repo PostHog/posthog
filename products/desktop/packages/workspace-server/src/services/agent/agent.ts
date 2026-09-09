@@ -28,9 +28,14 @@ import {
   hasClaudeLogin,
 } from "@posthog/agent/adapters/claude/subscription-login";
 import {
+  type CodexDeviceLoginSession,
   type CodexLoginSession,
+  type CodexRateLimits,
   hasCodexChatgptLogin,
+  readCodexChatgptTokens,
+  readCodexRateLimits,
   signOutCodexChatgpt,
+  startCodexChatgptDeviceCodeLogin,
   startCodexChatgptLogin,
 } from "@posthog/agent/adapters/codex-app-server/subscription-login";
 import {
@@ -130,7 +135,9 @@ import {
   type AgentServiceEvents,
   type ClaudeAuthTerminal,
   type ClaudeSubscriptionStatus,
+  type CodexSubscriptionDeviceLogin,
   type CodexSubscriptionStatus,
+  type CodexSubscriptionTokensResult,
   type Credentials,
   type EffortLevel,
   type InterruptReason,
@@ -529,11 +536,14 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   }
 
   private codexLogin?: CodexLoginSession;
+  private codexDeviceLogin?: CodexDeviceLoginSession;
   private codexAuthGeneration = 0;
   private claudeAuthGeneration = 0;
 
   async getCodexSubscriptionStatus(): Promise<CodexSubscriptionStatus> {
-    if (this.codexLogin) return { loginState: "logged-out" };
+    if (this.codexLogin || this.codexDeviceLogin) {
+      return { loginState: "logged-out" };
+    }
     const status = await hasCodexChatgptLogin({
       binaryPath: this.getCodexBinaryPath(),
     });
@@ -607,6 +617,41 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     return { authUrl: login.authUrl };
   }
 
+  async startCodexSubscriptionDeviceLogin(): Promise<CodexSubscriptionDeviceLogin> {
+    await this.prepareCodexAccountChange();
+    const login = await startCodexChatgptDeviceCodeLogin({
+      binaryPath: this.getCodexBinaryPath(),
+    });
+    this.codexDeviceLogin = login;
+    void login.completed.then((loggedIn) => {
+      if (this.codexDeviceLogin === login) this.codexDeviceLogin = undefined;
+      this.log.info("Codex device-code login finished", { loggedIn });
+    });
+    return {
+      verificationUrl: login.verificationUrl,
+      userCode: login.userCode,
+    };
+  }
+
+  /**
+   * Hands a live access token to the caller that relays it into a cloud run.
+   * The local codex keeps the refresh token and stays the only holder of it.
+   */
+  async readCodexSubscriptionTokens(
+    force?: boolean,
+  ): Promise<CodexSubscriptionTokensResult> {
+    return await readCodexChatgptTokens({
+      binaryPath: this.getCodexBinaryPath(),
+      force,
+    });
+  }
+
+  async getCodexRateLimits(): Promise<CodexRateLimits | null> {
+    return await readCodexRateLimits({
+      binaryPath: this.getCodexBinaryPath(),
+    });
+  }
+
   async signOutCodexSubscription(): Promise<void> {
     await this.prepareCodexAccountChange();
     await signOutCodexChatgpt({
@@ -617,9 +662,12 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   private async prepareCodexAccountChange(): Promise<void> {
     this.codexAuthGeneration += 1;
     const currentLogin = this.codexLogin;
+    const currentDeviceLogin = this.codexDeviceLogin;
     this.codexLogin = undefined;
+    this.codexDeviceLogin = undefined;
     await Promise.all([
       currentLogin?.cancel(),
+      currentDeviceLogin?.cancel(),
       this.stopCodexSubscriptionSessions(),
     ]);
   }

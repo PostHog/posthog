@@ -1548,11 +1548,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         run = tasks_facade.get_task_run_detail(run_id, task_id, self.team_id)
         if run is None:
             raise NotFound()
-        if (
-            run.state.get("claude_model_access") == "own-subscription"
-            and run.state.get("claude_subscription_user_id") != self._user_id()
-        ):
-            raise PermissionDenied("Only the user who started this run can use its Claude plan.")
+        for adapter, plan_name in (("claude", "Claude plan"), ("codex", "ChatGPT plan")):
+            if (
+                run.state.get(f"{adapter}_model_access") == "own-subscription"
+                and run.state.get(f"{adapter}_subscription_user_id") != self._user_id()
+            ):
+                raise PermissionDenied(f"Only the user who started this run can use its {plan_name}.")
 
     @validated_request(
         responses={
@@ -2832,12 +2833,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self._ensure_subscription_owner(task_id, pk)
         if method == "credential_response":
             run = tasks_facade.get_task_run_detail(pk, task_id, self.team_id)
-            if (
-                run is None
-                or is_sandbox_oauth_request(request)
-                or run.state.get("claude_subscription_user_id") != self._user_id()
-            ):
-                raise PermissionDenied("Only the user who started this run can send a Claude token.")
+            owner_ids = (
+                {
+                    run.state.get(f"{adapter}_subscription_user_id")
+                    for adapter in ("claude", "codex")
+                    if run.state.get(f"{adapter}_model_access") == "own-subscription"
+                }
+                if run is not None
+                else set()
+            )
+            if run is None or is_sandbox_oauth_request(request) or owner_ids != {self._user_id()}:
+                raise PermissionDenied("Only the user who started this run can send its subscription token.")
         # Steering an analysis run spends model tokens on a task whose generations are excluded
         # from the customer's rollup, so these are the reuse path the one-shot rule closes. Cancel
         # and the agent's own operations stay open.

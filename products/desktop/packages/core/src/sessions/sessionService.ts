@@ -327,6 +327,7 @@ export interface SessionTrpc {
     onSessionEvent: TrpcSubscription;
     onPermissionRequest: TrpcSubscription;
     onSessionIdleKilled: TrpcSubscription;
+    codexSubscriptionStatus?: TrpcQuery;
   };
   workspace: { verify: TrpcQuery };
   claudeSubscriptionToken: { has: TrpcQuery };
@@ -338,6 +339,7 @@ export interface SessionTrpc {
     stop: TrpcMutation;
     designateRelayedMcpServers: TrpcMutation;
     designateClaudeSubscription: TrpcMutation;
+    designateCodexSubscription: TrpcMutation;
     onUpdate: TrpcSubscription;
   };
   logs: {
@@ -507,6 +509,8 @@ export interface SessionServiceDeps {
     claudeModelAccess?: ModelAccess;
     claudeCloudSubscriptionOn?: boolean;
     claudeCloudSubscriptionEnabled?: boolean;
+    codexCloudSubscriptionOn?: boolean;
+    codexCloudSubscriptionEnabled?: boolean;
   };
   usageLimit: { show: (...args: any[]) => any };
   readonly addDirectoryDialog: { open: boolean };
@@ -5304,7 +5308,11 @@ export class SessionService {
       });
 
       runtimeOptions = getCloudRuntimeOptions(session, previousRun);
-      if (previousState.claude_model_access === "own-subscription") {
+      const resumeOnClaudePlan =
+        previousState.claude_model_access === "own-subscription";
+      const resumeOnCodexPlan =
+        previousState.codex_model_access === "own-subscription";
+      if (resumeOnClaudePlan || resumeOnCodexPlan) {
         if (session.isTaskAuthor === false) {
           const task = await authCredentials.client.getTask(session.taskId);
           if (task.channel) {
@@ -5313,7 +5321,9 @@ export class SessionService {
             );
           }
         }
-        await this.resolveClaudeCloudModelAccess("own-subscription");
+        await (resumeOnClaudePlan
+          ? this.resolveClaudeCloudModelAccess("own-subscription")
+          : this.resolveCodexCloudModelAccess("own-subscription"));
       }
       const artifactIds = await this.d.h.uploadTaskStagedAttachments(
         authCredentials.client,
@@ -5334,10 +5344,12 @@ export class SessionService {
             reasoningLevel: runtimeOptions.reasoningLevel,
             initialPermissionMode: runtimeOptions.initialPermissionMode,
             resumeFromRunId: session.taskRunId,
-            claudeModelAccess:
-              previousState.claude_model_access === "own-subscription"
-                ? "own-subscription"
-                : undefined,
+            claudeModelAccess: resumeOnClaudePlan
+              ? "own-subscription"
+              : undefined,
+            codexModelAccess: resumeOnCodexPlan
+              ? "own-subscription"
+              : undefined,
             pendingUserMessage: transport.messageText,
             pendingUserArtifactIds:
               artifactIds.length > 0 ? artifactIds : undefined,
@@ -5352,14 +5364,19 @@ export class SessionService {
           },
         );
         if (
-          previousState.claude_model_access === "own-subscription" &&
+          (resumeOnClaudePlan || resumeOnCodexPlan) &&
           updatedTask.latest_run?.id
         ) {
           try {
-            await this.designateClaudeSubscription(
-              session.taskId,
-              updatedTask.latest_run.id,
-            );
+            await (resumeOnClaudePlan
+              ? this.designateClaudeSubscription(
+                  session.taskId,
+                  updatedTask.latest_run.id,
+                )
+              : this.designateCodexSubscription(
+                  session.taskId,
+                  updatedTask.latest_run.id,
+                ));
           } catch (error) {
             await authCredentials.client
               .cancelTaskRun(session.taskId, updatedTask.latest_run.id)
@@ -6520,11 +6537,44 @@ export class SessionService {
     return access;
   }
 
+  async resolveCodexCloudModelAccess(
+    requested?: ModelAccess,
+  ): Promise<ModelAccess> {
+    const access =
+      requested ??
+      (this.d.settings.codexCloudSubscriptionOn
+        ? "own-subscription"
+        : "posthog-gateway");
+    if (access !== "own-subscription") return access;
+    if (!this.d.settings.codexCloudSubscriptionEnabled) {
+      throw new Error(
+        "ChatGPT plan billing is unavailable for cloud tasks. Try again later.",
+      );
+    }
+    const status = await this.d.trpc.agent.codexSubscriptionStatus?.query();
+    if (status?.loginState !== "logged-in") {
+      throw new Error(
+        "Connect your ChatGPT account in Settings > Harness before you start or resume this task.",
+      );
+    }
+    return access;
+  }
+
   async designateClaudeSubscription(
     taskId: string,
     runId: string,
   ): Promise<void> {
     await this.d.trpc.cloudTask.designateClaudeSubscription.mutate({
+      taskId,
+      runId,
+    });
+  }
+
+  async designateCodexSubscription(
+    taskId: string,
+    runId: string,
+  ): Promise<void> {
+    await this.d.trpc.cloudTask.designateCodexSubscription.mutate({
       taskId,
       runId,
     });
@@ -6560,8 +6610,18 @@ export class SessionService {
       runState?.claude_model_access === "posthog-gateway"
         ? runState.claude_model_access
         : undefined;
-    if (claudeModelAccess && watchedSession?.taskRunId === taskRunId) {
-      this.d.store.updateSession(taskRunId, { claudeModelAccess });
+    const codexModelAccess =
+      runState?.codex_model_access === "own-subscription" ||
+      runState?.codex_model_access === "posthog-gateway"
+        ? runState.codex_model_access
+        : undefined;
+    if (watchedSession?.taskRunId === taskRunId) {
+      if (claudeModelAccess) {
+        this.d.store.updateSession(taskRunId, { claudeModelAccess });
+      }
+      if (codexModelAccess) {
+        this.d.store.updateSession(taskRunId, { codexModelAccess });
+      }
     }
     const persistedConfigOptions = this.d.getPersistedConfigOptions(taskRunId);
     const persistedAdapter = this.d.adapterStore.getAdapter(taskRunId);

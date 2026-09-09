@@ -7,6 +7,16 @@ import type { ContextWikiEnv, ProcessSpawnedCallback } from "../../types";
 import { Logger } from "../../utils/logger";
 
 /**
+ * A live ChatGPT access token plus the workspace hints codex needs to route
+ * requests. Codex holds these in memory only and writes no auth file.
+ */
+export interface ChatgptAuthTokens {
+  accessToken: string;
+  chatgptAccountId?: string;
+  chatgptPlanType?: string;
+}
+
+/**
  * Host-facing codex options passed through `createAcpConnection`'s
  * `codexOptions`. The connection layer maps these onto
  * `CodexAppServerProcessOptions` plus the agent-level model settings.
@@ -33,6 +43,17 @@ export interface CodexOptions {
   binaryPath?: string;
   codexHome?: string;
   useMachineAuth?: boolean;
+  /**
+   * Run on the user's own ChatGPT plan with a relayed access token. Codex keeps
+   * the token in memory only, so the user's local login stays the sole owner of
+   * the refresh chain.
+   */
+  chatgptAuthTokens?: ChatgptAuthTokens;
+  /**
+   * Answers codex's refresh request after a 401. Codex waits ten seconds, so
+   * this must resolve fast or the turn fails.
+   */
+  refreshChatgptAuthTokens?: () => Promise<ChatgptAuthTokens>;
   /** Extra codex `-c key=value` config overrides. */
   configOverrides?: Record<string, string | number>;
   /**
@@ -52,6 +73,11 @@ export interface CodexAppServerProcessOptions {
   apiKey?: string;
   codexHome?: string;
   useMachineAuth?: boolean;
+  /**
+   * The host signs this process in with a relayed ChatGPT access token, so pin
+   * the ChatGPT login method and keep an ambient API key from taking over.
+   */
+  useChatgptAuthTokens?: boolean;
   /** Guidance appended to Codex's base prompt via `developer_instructions`. */
   developerInstructions?: string;
   /**
@@ -151,7 +177,7 @@ export function buildAppServerArgs(
   args.push("-c", `otel.trace_exporter="none"`);
   args.push("-c", "otel.log_user_prompt=false");
 
-  if (options.useMachineAuth) {
+  if (options.useMachineAuth || options.useChatgptAuthTokens) {
     args.push("-c", `model_provider="openai"`);
     args.push("-c", `forced_login_method="chatgpt"`);
     args.push("-c", `history.persistence="none"`);

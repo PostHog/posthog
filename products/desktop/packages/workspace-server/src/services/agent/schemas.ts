@@ -289,6 +289,52 @@ export const codexSubscriptionLoginOutput = z.object({
   authUrl: z.string(),
 });
 
+/** Device-code login shows a code instead of opening a redirect URL. */
+export const codexSubscriptionDeviceLoginOutput = z.object({
+  verificationUrl: z.string(),
+  userCode: z.string(),
+});
+
+export type CodexSubscriptionDeviceLogin = z.infer<
+  typeof codexSubscriptionDeviceLoginOutput
+>;
+
+export const codexSubscriptionTokensInput = z.object({
+  /** Ask codex to rotate the token first. Set after the sandbox saw a 401. */
+  force: z.boolean().optional(),
+});
+
+export const codexSubscriptionTokensOutput = z
+  .object({
+    accessToken: z.string(),
+    chatgptAccountId: z.string().optional(),
+    chatgptPlanType: z.string().optional(),
+  })
+  .nullable();
+
+export type CodexSubscriptionTokensResult = z.infer<
+  typeof codexSubscriptionTokensOutput
+>;
+
+export const codexRateLimitsOutput = z
+  .object({
+    primary: z
+      .object({
+        usedPercent: z.number(),
+        windowDurationMins: z.number().optional(),
+        resetsAt: z.string().optional(),
+      })
+      .optional(),
+    secondary: z
+      .object({
+        usedPercent: z.number(),
+        windowDurationMins: z.number().optional(),
+        resetsAt: z.string().optional(),
+      })
+      .optional(),
+  })
+  .nullable();
+
 // Set config option input (for Codex reasoning level, etc.)
 export const setConfigOptionInput = z.object({
   sessionId: z.string(),

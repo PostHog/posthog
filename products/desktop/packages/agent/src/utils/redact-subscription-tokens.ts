@@ -1,28 +1,41 @@
-export function redactClaudeTokens(value: string): string;
-export function redactClaudeTokens(
+export function redactSubscriptionTokens(value: string): string;
+export function redactSubscriptionTokens(
   value: string | undefined,
 ): string | undefined;
-export function redactClaudeTokens(value: unknown): unknown;
-export function redactClaudeTokens(value: unknown): unknown {
-  if (typeof value === "string")
-    return value.replace(/sk-ant-oat01-[A-Za-z0-9_-]+/g, "[REDACTED]");
-  if (Array.isArray(value)) return value.map(redactClaudeTokens);
+export function redactSubscriptionTokens(value: unknown): unknown;
+export function redactSubscriptionTokens(value: unknown): unknown {
+  if (typeof value === "string") return redactTokenText(value);
+  if (Array.isArray(value)) return value.map(redactSubscriptionTokens);
   if (value instanceof Error)
     return {
       name: value.name,
-      message: redactClaudeTokens(value.message),
-      stack: redactClaudeTokens(value.stack),
+      message: redactSubscriptionTokens(value.message),
+      stack: redactSubscriptionTokens(value.stack),
     };
   if (value instanceof Date) return value;
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value).map(([key, nested]) => [
         key,
-        redactClaudeTokens(nested),
+        redactSubscriptionTokens(nested),
       ]),
     );
   }
   return value;
+}
+
+/**
+ * Claude setup tokens carry a fixed prefix; ChatGPT access tokens are JWTs, so
+ * the shape of the value is the only marker. Both reach logs through error
+ * messages, which is why every log and event write passes through here.
+ */
+function redactTokenText(value: string): string {
+  return value
+    .replace(/sk-ant-oat01-[A-Za-z0-9_-]+/g, "[REDACTED]")
+    .replace(
+      /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
+      "[REDACTED]",
+    );
 }
 
 type TextEvent = Record<string, unknown> & {
@@ -83,7 +96,7 @@ export class ClaudeTokenEventRedactor {
     }
     this.chunkKind = kind;
     if (!chunk) {
-      events.push(redactClaudeTokens(event) as Record<string, unknown>);
+      events.push(redactSubscriptionTokens(event) as Record<string, unknown>);
       return events;
     }
     const previous = this.pending;
@@ -103,7 +116,9 @@ export class ClaudeTokenEventRedactor {
         return "[REDACTED]";
       },
     );
-    const redacted = redactClaudeTokens(withText(event, text)) as TextEvent;
+    const redacted = redactSubscriptionTokens(
+      withText(event, text),
+    ) as TextEvent;
     if (!this.redacting) {
       for (let length = prefix.length - 1; length > 0; length--) {
         if (text.endsWith(prefix.slice(0, length))) {

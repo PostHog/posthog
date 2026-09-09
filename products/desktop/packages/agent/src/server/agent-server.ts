@@ -66,6 +66,8 @@ import {
 } from "../adapters/claude/session/jsonl-hydration";
 import type { GatewayEnv } from "../adapters/claude/session/options";
 import { codexKeyMatchesMcpServerName } from "../adapters/codex-app-server/mcp-config";
+import { CHATGPT_AUTH_TOKENS_REFRESH_TIMEOUT_MS } from "../adapters/codex-app-server/protocol";
+import type { ChatgptAuthTokens } from "../adapters/codex-app-server/spawn";
 import { hasCodexThreadState } from "../adapters/codex-app-server/thread-state";
 import { mergeUsage } from "../adapters/codex-app-server/usage-tracker";
 import {
@@ -126,8 +128,8 @@ import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
 import {
   ClaudeTokenEventRedactor,
-  redactClaudeTokens,
-} from "../utils/redact-claude-tokens";
+  redactSubscriptionTokens,
+} from "../utils/redact-subscription-tokens";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
 import { AgentBootTracker } from "./boot-phases";
 import {
@@ -277,6 +279,14 @@ interface BuiltPrompt {
 export const PREWARMED_RESUME_IDLE_CAPABILITY = "prewarmedResumeIdle";
 export const CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE =
   "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.";
+const chatgptAuthTokensSchema = z.object({
+  accessToken: z.string().min(1),
+  chatgptAccountId: z.string().optional(),
+  chatgptPlanType: z.string().optional(),
+});
+
+export const CODEX_SUBSCRIPTION_TOKEN_MISSING_MESSAGE =
+  "The ChatGPT token did not arrive. Open Desktop and check your ChatGPT account in Settings > Harness. Then start the task again.";
 
 function hiddenTextBlock(text: string): ContentBlock {
   return {
@@ -1110,9 +1120,9 @@ export class AgentServer {
   async reportFatalError(error: unknown): Promise<void> {
     if (error instanceof CredentialRelayError && error.code === "cancelled")
       return;
-    const errorMessage = redactClaudeTokens(
+    const errorMessage = redactSubscriptionTokens(
       error instanceof CredentialRelayError
-        ? CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE
+        ? this.subscriptionTokenMissingMessage()
         : error instanceof Error
           ? error.message
           : String(error),
@@ -1172,11 +1182,42 @@ export class AgentServer {
     }
   }
 
-  private async reportClaudeSubscriptionTokenMissing(
+  private subscriptionTokenMissingMessage(): string {
+    return this.getRuntimeAdapter() === "codex"
+      ? CODEX_SUBSCRIPTION_TOKEN_MISSING_MESSAGE
+      : CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE;
+  }
+
+  /**
+   * Borrows a live ChatGPT access token from the user's Desktop. The refresh
+   * path runs while codex holds a turn open and gives up after ten seconds, so
+   * it asks for less time than the session-start path.
+   */
+  private async requestCodexSubscriptionTokens(
+    options: { force?: boolean } = {},
+  ): Promise<ChatgptAuthTokens> {
+    const relayed = await this.credentialRelay.request(
+      "codex_subscription_tokens",
+      options.force
+        ? {
+            force: true,
+            timeoutMs: CHATGPT_AUTH_TOKENS_REFRESH_TIMEOUT_MS - 1_000,
+          }
+        : {},
+    );
+    const tokens = chatgptAuthTokensSchema.safeParse(JSON.parse(relayed));
+    if (!tokens.success) {
+      throw new CredentialRelayError("no_token");
+    }
+    return tokens.data;
+  }
+
+  private async reportSubscriptionTokenMissing(
+    adapter: "claude" | "codex",
     reason: string,
   ): Promise<void> {
-    this.initializationFailureCode = "claude_credential_unavailable";
-    this.logger.warn("claude_credential_unavailable");
+    this.initializationFailureCode = `${adapter}_credential_unavailable`;
+    this.logger.warn(this.initializationFailureCode);
     try {
       this.broadcastEvent({
         type: "notification",
@@ -1188,7 +1229,10 @@ export class AgentServer {
             runtimeAdapter: this.getRuntimeAdapter(),
             initializationPhase: "credential_relay",
             reason,
-            message: CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE,
+            message:
+              adapter === "codex"
+                ? CODEX_SUBSCRIPTION_TOKEN_MISSING_MESSAGE
+                : CLAUDE_SUBSCRIPTION_TOKEN_MISSING_MESSAGE,
           },
         },
       });
@@ -1800,7 +1844,10 @@ export class AgentServer {
       if (this.shutdownController.signal.aborted) throw error;
       this.bootTracker.markFailed();
       if (error instanceof CredentialRelayError) {
-        this.initializationFailureCode = "claude_credential_unavailable";
+        this.initializationFailureCode =
+          this.getRuntimeAdapter() === "codex"
+            ? "codex_credential_unavailable"
+            : "claude_credential_unavailable";
       }
       const telemetry = this.initializingTelemetry;
       telemetry?.append(payload.run_id, {
@@ -2056,7 +2103,23 @@ export class AgentServer {
         if (this.shutdownController.signal.aborted) throw error;
         const reason = error instanceof Error ? error.message : String(error);
         this.logger.warn("Claude subscription token relay failed", { reason });
-        await this.reportClaudeSubscriptionTokenMissing(reason);
+        await this.reportSubscriptionTokenMissing("claude", reason);
+        throw error;
+      }
+    }
+
+    let codexSubscriptionTokens: ChatgptAuthTokens | null = null;
+    if (
+      this.config.codexModelAccess === "own-subscription" &&
+      runtimeAdapter === "codex"
+    ) {
+      try {
+        codexSubscriptionTokens = await this.requestCodexSubscriptionTokens();
+      } catch (error) {
+        if (this.shutdownController.signal.aborted) throw error;
+        const reason = error instanceof Error ? error.message : String(error);
+        this.logger.warn("ChatGPT token relay failed", { reason });
+        await this.reportSubscriptionTokenMissing("codex", reason);
         throw error;
       }
     }
@@ -2084,7 +2147,11 @@ export class AgentServer {
         runtimeAdapter === "codex"
           ? {
               cwd: this.config.repositoryPath ?? "/tmp/workspace",
-              ...codexAuthFromGatewayEnv(gatewayEnv),
+              // The plan token and the gateway key are alternatives: pointing
+              // codex at the gateway would send the run's spend back to us.
+              ...(codexSubscriptionTokens
+                ? {}
+                : codexAuthFromGatewayEnv(gatewayEnv)),
               // Bundled-binary hint for the native codex CLI: the codex
               // binary itself, or any file in its directory. Set in the
               // sandbox image (POSTHOG_CODEX_BINARY_PATH); when unset the
@@ -2102,7 +2169,13 @@ export class AgentServer {
                   ? this.config.reasoningEffort
                   : undefined,
               developerInstructions: codexInstructions,
-              httpHeaders: gatewayEnv.openaiCustomHeaders,
+              httpHeaders: codexSubscriptionTokens
+                ? undefined
+                : gatewayEnv.openaiCustomHeaders,
+              chatgptAuthTokens: codexSubscriptionTokens ?? undefined,
+              refreshChatgptAuthTokens: codexSubscriptionTokens
+                ? () => this.requestCodexSubscriptionTokens({ force: true })
+                : undefined,
             }
           : undefined,
       onStructuredOutput: async (output) => {
@@ -4902,7 +4975,7 @@ ${commonInstructions}
     errorMessage?: string,
     options?: { errorCategory?: AgentErrorClassification },
   ): Promise<void> {
-    errorMessage = redactClaudeTokens(errorMessage);
+    errorMessage = redactSubscriptionTokens(errorMessage);
     const currentSession = this.session;
     const sessionMatchesRun = currentSession?.payload.run_id === payload.run_id;
     const terminalErrorMessage = errorMessage ?? "Agent error";

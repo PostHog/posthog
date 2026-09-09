@@ -153,19 +153,25 @@ export class TaskService {
       }
     }
 
-    if (
-      input.workspaceMode === "cloud" &&
-      input.runtime !== "pi" &&
-      (input.adapter ?? "claude") === "claude"
-    ) {
+    if (input.workspaceMode === "cloud" && input.runtime !== "pi") {
+      const adapter = input.adapter ?? "claude";
       try {
-        input = {
-          ...input,
-          claudeCloudModelAccess:
-            await this.sessionService.resolveClaudeCloudModelAccess(
-              input.claudeCloudModelAccess,
-            ),
-        };
+        input =
+          adapter === "claude"
+            ? {
+                ...input,
+                claudeCloudModelAccess:
+                  await this.sessionService.resolveClaudeCloudModelAccess(
+                    input.claudeCloudModelAccess,
+                  ),
+              }
+            : {
+                ...input,
+                codexCloudModelAccess:
+                  await this.sessionService.resolveCodexCloudModelAccess(
+                    input.codexCloudModelAccess,
+                  ),
+              };
       } catch (error) {
         return {
           success: false,
@@ -173,7 +179,7 @@ export class TaskService {
           error:
             error instanceof Error
               ? error.message
-              : "Could not check Claude plan billing.",
+              : "Could not check subscription billing.",
         };
       }
     }

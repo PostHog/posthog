@@ -40,6 +40,7 @@ export interface TaskCreationInput {
   codexModelAccess?: ModelAccess;
   claudeModelAccess?: ModelAccess;
   claudeCloudModelAccess?: ModelAccess;
+  codexCloudModelAccess?: ModelAccess;
   runtime?: AgentRuntime;
   model?: string;
   reasoningLevel?: string;

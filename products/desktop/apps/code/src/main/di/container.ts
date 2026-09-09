@@ -24,6 +24,7 @@ import {
   CLAUDE_SUBSCRIPTION_TOKEN_STORE,
   CLOUD_TASK_AUTH,
   CLOUD_TASK_SERVICE,
+  CODEX_SUBSCRIPTION_TOKEN_SOURCE,
   MCP_RELAY_EXECUTOR,
 } from "@posthog/core/cloud-task/identifiers";
 import { contextMenuCoreModule } from "@posthog/core/context-menu/context-menu.module";
@@ -660,6 +661,15 @@ container
         () => ctx.get<AuthService>(MAIN_AUTH_SERVICE).getAccountKey(),
       ),
   )
+  .inSingletonScope();
+// Codex on this machine owns the ChatGPT refresh token; the cloud path only
+// ever borrows a live access token from it, so nothing is stored here.
+container
+  .bind(CODEX_SUBSCRIPTION_TOKEN_SOURCE)
+  .toDynamicValue((ctx) => ({
+    read: (force?: boolean) =>
+      ctx.get<AgentService>(AGENT_SERVICE).readCodexSubscriptionTokens(force),
+  }))
   .inSingletonScope();
 container.load(claudeCliSessionsModule);
 container.load(additionalDirectoriesModule);

@@ -19,6 +19,7 @@ const WARM_DEBOUNCE_MS = 600;
 interface UseWarmTaskOptions {
   workspaceMode: WorkspaceMode;
   claudeModelAccess?: string;
+  codexModelAccess?: string;
   selectedRepository?: string | null;
   repositories?: string[];
   githubIntegrationId?: number;
@@ -35,6 +36,7 @@ interface UseWarmTaskOptions {
 export function useWarmTask({
   workspaceMode,
   claudeModelAccess,
+  codexModelAccess,
   selectedRepository,
   repositories,
   githubIntegrationId,
@@ -80,6 +82,7 @@ export function useWarmTask({
   const eligible =
     enabled &&
     claudeModelAccess !== "own-subscription" &&
+    codexModelAccess !== "own-subscription" &&
     isCloud &&
     !!client &&
     (allowNoRepo || (!!warmRepository && warmGithubIntegrationId !== null)) &&
@@ -113,7 +116,8 @@ export function useWarmTask({
       if (
         client &&
         leaseRef.current &&
-        claudeModelAccess === "own-subscription"
+        (claudeModelAccess === "own-subscription" ||
+          codexModelAccess === "own-subscription")
       ) {
         const lease = leaseRef.current;
         forgetWarmTaskLease(lease);
@@ -199,6 +203,7 @@ export function useWarmTask({
   }, [
     eligible,
     claudeModelAccess,
+    codexModelAccess,
     key,
     client,
     warmRepository,

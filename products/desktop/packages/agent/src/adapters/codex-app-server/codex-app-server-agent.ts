@@ -103,6 +103,7 @@ import {
   SessionConfigState,
 } from "./session-config";
 import {
+  type ChatgptAuthTokens,
   type CodexAppServerProcess,
   type CodexAppServerProcessOptions,
   spawnCodexAppServerProcess,
@@ -282,6 +283,10 @@ export interface CodexAppServerAgentOptions {
   processCallbacks?: ProcessSpawnedCallback;
   logger?: Logger;
   onStructuredOutput?: (output: Record<string, unknown>) => Promise<void>;
+  /** Run on the user's own ChatGPT plan instead of the PostHog gateway. */
+  chatgptAuthTokens?: ChatgptAuthTokens;
+  /** Supplies a rotated access token when codex reports a 401. */
+  refreshChatgptAuthTokens?: () => Promise<ChatgptAuthTokens>;
   /** Test seam: build the JSON-RPC client (defaults to spawning the process). */
   rpcFactory?: (handlers: AppServerClientHandlers) => AppServerRpc;
 }
@@ -302,6 +307,8 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   private readonly developerInstructions?: string;
   private readonly contextWiki?: ContextWikiEnv;
   private readonly gatewayConfigured: boolean;
+  private readonly chatgptAuthTokens?: ChatgptAuthTokens;
+  private readonly refreshChatgptAuthTokens?: () => Promise<ChatgptAuthTokens>;
   private threadId?: string;
   /** JSON schema constraining the final message; set per session via `_meta`. */
   private jsonSchema?: Record<string, unknown>;
@@ -371,6 +378,8 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     this.developerInstructions = options.processOptions.developerInstructions;
     this.contextWiki = options.processOptions.contextWiki;
     this.gatewayConfigured = Boolean(options.processOptions.apiBaseUrl);
+    this.chatgptAuthTokens = options.chatgptAuthTokens;
+    this.refreshChatgptAuthTokens = options.refreshChatgptAuthTokens;
 
     const handlers: AppServerClientHandlers = {
       logger: this.logger,
@@ -414,6 +423,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       capabilities: { experimentalApi: true, requestAttestation: false },
     });
     this.rpc.notify(APP_SERVER_NOTIFICATIONS.INITIALIZED, {});
+    await this.loginWithChatgptAuthTokens();
     return {
       protocolVersion: request.protocolVersion,
       agentCapabilities: {
@@ -2339,10 +2349,44 @@ export class CodexAppServerAgent extends BaseAcpAgent {
    * string is rejected); richer ones (AskUserQuestion / permission profile / elicitation) go
    * to `handleServerRequest`. Whatever we return is sent back as the JSON-RPC result.
    */
+  /**
+   * Signs codex in with a relayed access token. This login mode forces
+   * ephemeral storage inside codex, so the sandbox never writes an auth file
+   * and never holds a refresh token.
+   */
+  private async loginWithChatgptAuthTokens(): Promise<void> {
+    if (!this.chatgptAuthTokens) return;
+    await this.rpc.request(APP_SERVER_METHODS.ACCOUNT_LOGIN_START, {
+      type: "chatgptAuthTokens",
+      accessToken: this.chatgptAuthTokens.accessToken,
+      chatgptAccountId: this.chatgptAuthTokens.chatgptAccountId,
+      chatgptPlanType: this.chatgptAuthTokens.chatgptPlanType,
+    });
+    this.logger.info("Codex signed in with a relayed ChatGPT access token", {
+      hasAccountId: Boolean(this.chatgptAuthTokens.chatgptAccountId),
+      planType: this.chatgptAuthTokens.chatgptPlanType,
+    });
+  }
+
+  private async handleChatgptAuthTokensRefresh(): Promise<ChatgptAuthTokens> {
+    if (!this.refreshChatgptAuthTokens) {
+      throw new Error("No ChatGPT token refresh is configured for this run.");
+    }
+    const tokens = await this.refreshChatgptAuthTokens();
+    // Never include the cause: a token refresh error can carry the token.
+    if (!tokens.accessToken) {
+      throw new Error("PostHog Desktop returned no ChatGPT access token.");
+    }
+    return tokens;
+  }
+
   private async handleApproval(
     method: string,
     params: unknown,
   ): Promise<unknown> {
+    if (method === APP_SERVER_REQUESTS.CHATGPT_AUTH_TOKENS_REFRESH) {
+      return await this.handleChatgptAuthTokensRefresh();
+    }
     const richer = await handleServerRequest(method, params, this.client, {
       sessionId: this.sessionId,
       logger: this.logger,

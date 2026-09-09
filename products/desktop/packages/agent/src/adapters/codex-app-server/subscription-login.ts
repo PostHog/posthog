@@ -42,6 +42,40 @@ export interface CodexLoginStatus {
   planType?: string;
 }
 
+/**
+ * Device-code login. Unlike the browser flow, the user reads a code off the
+ * card and types it into ChatGPT, so no local redirect listener is needed.
+ */
+export interface CodexDeviceLoginSession {
+  verificationUrl: string;
+  userCode: string;
+  completed: Promise<boolean>;
+  cancel: () => Promise<void>;
+}
+
+/**
+ * A live ChatGPT access token plus the workspace hints codex needs to route
+ * requests. The refresh token stays with the local codex, which owns the
+ * rotation; a second holder would break the chain for both.
+ */
+export interface CodexSubscriptionTokens {
+  accessToken: string;
+  chatgptAccountId?: string;
+  chatgptPlanType?: string;
+}
+
+/** The two rolling windows OpenAI enforces against a ChatGPT plan. */
+export interface CodexRateLimitWindow {
+  usedPercent: number;
+  windowDurationMins?: number;
+  resetsAt?: string;
+}
+
+export interface CodexRateLimits {
+  primary?: CodexRateLimitWindow;
+  secondary?: CodexRateLimitWindow;
+}
+
 export async function hasCodexChatgptLogin(
   options: CodexAccountOptions,
 ): Promise<CodexLoginStatus> {
@@ -76,6 +110,122 @@ export async function signOutCodexChatgpt(
 export async function startCodexChatgptLogin(
   options: CodexAccountOptions,
 ): Promise<CodexLoginSession> {
+  const login = await startLoginSession<{ authUrl: string }>(options, {
+    type: "chatgpt",
+    useHostedLoginSuccessPage: true,
+    appBrand: "chatgpt",
+  });
+  return {
+    authUrl: login.reply.authUrl,
+    completed: login.completed,
+    cancel: login.cancel,
+  };
+}
+
+/**
+ * Device-code login for cloud tasks. The user must first turn on device code
+ * login in their ChatGPT security settings; a workspace member needs an admin
+ * to turn it on for the workspace.
+ */
+export async function startCodexChatgptDeviceCodeLogin(
+  options: CodexAccountOptions,
+): Promise<CodexDeviceLoginSession> {
+  const login = await startLoginSession<{
+    verificationUrl: string;
+    userCode: string;
+  }>(options, { type: "chatgptDeviceCode" });
+  return {
+    verificationUrl: login.reply.verificationUrl,
+    userCode: login.reply.userCode,
+    completed: login.completed,
+    cancel: login.cancel,
+  };
+}
+
+/**
+ * Read a live ChatGPT access token from the user's own codex login. `force`
+ * asks codex to rotate the token first, which is what a 401 in the sandbox
+ * needs; without it codex answers from its cache until the token nears expiry.
+ */
+export async function readCodexChatgptTokens(
+  options: CodexAccountOptions & { force?: boolean },
+): Promise<CodexSubscriptionTokens | null> {
+  const client = openCodexAccountClient(options);
+  try {
+    await initialize(client.rpc);
+    const status = await requestWithTimeout<{
+      authMethod?: string;
+      authToken?: string | null;
+    }>(client.rpc, APP_SERVER_METHODS.GET_AUTH_STATUS, {
+      includeToken: true,
+      refreshToken: options.force ?? true,
+    });
+    if (!status.authToken) return null;
+    const account = await requestWithTimeout<{
+      account?: { planType?: string } | null;
+    }>(client.rpc, APP_SERVER_METHODS.ACCOUNT_READ, {
+      refreshToken: false,
+    }).catch(() => ({ account: null }));
+    return {
+      accessToken: status.authToken,
+      chatgptAccountId: chatgptAccountIdFromToken(status.authToken),
+      chatgptPlanType: account.account?.planType,
+    };
+  } finally {
+    client.close();
+  }
+}
+
+/** Remaining plan allowance, so a task can show it before it spends any. */
+export async function readCodexRateLimits(
+  options: CodexAccountOptions,
+): Promise<CodexRateLimits | null> {
+  const client = openCodexAccountClient(options);
+  try {
+    await initialize(client.rpc);
+    const limits = await requestWithTimeout<{
+      rateLimits?: CodexRateLimits | null;
+    }>(client.rpc, APP_SERVER_METHODS.ACCOUNT_RATE_LIMITS_READ, {});
+    return limits.rateLimits ?? null;
+  } catch {
+    return null;
+  } finally {
+    client.close();
+  }
+}
+
+/**
+ * Codex puts the workspace id in the `https://api.openai.com/auth` claim of the
+ * access token, so reading it needs no extra request. Returns undefined for a
+ * token that carries no claim; codex then falls back to the default workspace.
+ */
+function chatgptAccountIdFromToken(accessToken: string): string | undefined {
+  const payload = accessToken.split(".")[1];
+  if (!payload) return undefined;
+  try {
+    const claims: unknown = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf8"),
+    );
+    if (typeof claims !== "object" || claims === null) return undefined;
+    const auth = Reflect.get(claims, "https://api.openai.com/auth");
+    if (typeof auth !== "object" || auth === null) return undefined;
+    const accountId = Reflect.get(auth, "chatgpt_account_id");
+    return typeof accountId === "string" ? accountId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+interface StartedLoginSession<TReply> {
+  reply: TReply;
+  completed: Promise<boolean>;
+  cancel: () => Promise<void>;
+}
+
+async function startLoginSession<TReply>(
+  options: CodexAccountOptions,
+  params: Record<string, unknown>,
+): Promise<StartedLoginSession<TReply>> {
   let loginId: string | undefined;
   let settled = false;
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -108,19 +258,16 @@ export async function startCodexChatgptLogin(
 
   try {
     await initialize(client.rpc);
-    const login = await requestWithTimeout<{
-      authUrl: string;
-      loginId: string;
-    }>(client.rpc, APP_SERVER_METHODS.ACCOUNT_LOGIN_START, {
-      type: "chatgpt",
-      useHostedLoginSuccessPage: true,
-      appBrand: "chatgpt",
-    });
+    const login = await requestWithTimeout<TReply & { loginId: string }>(
+      client.rpc,
+      APP_SERVER_METHODS.ACCOUNT_LOGIN_START,
+      params,
+    );
     loginId = login.loginId;
     if (!settled) timeout = setTimeout(() => finish(false), LOGIN_TIMEOUT_MS);
 
     return {
-      authUrl: login.authUrl,
+      reply: login,
       completed,
       cancel: async (): Promise<void> => {
         if (settled) return;

@@ -17455,18 +17455,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `posthog-gateway` - posthog-gateway
-     * * `own-subscription` - own-subscription
-     */
-    export type ClaudeModelAccessEnum = typeof ClaudeModelAccessEnum[keyof typeof ClaudeModelAccessEnum];
-
-
-    export const ClaudeModelAccessEnum = {
-      PosthogGateway: 'posthog-gateway',
-      OwnSubscription: 'own-subscription',
-    } as const;
-
-    /**
      * * `claude` - claude
      */
     export type ClaudeRuntimeAdapterEnum = typeof ClaudeRuntimeAdapterEnum[keyof typeof ClaudeRuntimeAdapterEnum];
@@ -17602,6 +17590,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription
+     */
+    export type ModelAccessEnum = typeof ModelAccessEnum[keyof typeof ModelAccessEnum];
+
+
+    export const ModelAccessEnum = {
+      PosthogGateway: 'posthog-gateway',
+      OwnSubscription: 'own-subscription',
+    } as const;
+
+    /**
      * Request body for creating a new task run
      */
     export interface ClaudeTaskRunCreateSchema {
@@ -17705,7 +17705,12 @@ export namespace Schemas {
        *
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
-      claude_model_access?: ClaudeModelAccessEnum | null;
+      claude_model_access?: ModelAccessEnum | null;
+      /** How the Codex runtime pays for model use. 'own-subscription' makes the sandbox request a ChatGPT access token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+       *
+       * * `posthog-gateway` - posthog-gateway
+       * * `own-subscription` - own-subscription */
+      codex_model_access?: ModelAccessEnum | null;
     }
 
     export type ClickhouseEventProperties = { [key: string]: unknown };
@@ -18120,7 +18125,12 @@ export namespace Schemas {
        *
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
-      claude_model_access?: ClaudeModelAccessEnum | null;
+      claude_model_access?: ModelAccessEnum | null;
+      /** How the Codex runtime pays for model use. 'own-subscription' makes the sandbox request a ChatGPT access token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+       *
+       * * `posthog-gateway` - posthog-gateway
+       * * `own-subscription` - own-subscription */
+      codex_model_access?: ModelAccessEnum | null;
     }
 
     export type PropertyGroupOperatorEnum = typeof PropertyGroupOperatorEnum[keyof typeof PropertyGroupOperatorEnum];
@@ -86380,7 +86390,12 @@ export namespace Schemas {
        *
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
-      claude_model_access?: ClaudeModelAccessEnum | null;
+      claude_model_access?: ModelAccessEnum | null;
+      /** How the Codex runtime pays for model use. 'own-subscription' makes the sandbox request a ChatGPT access token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+       *
+       * * `posthog-gateway` - posthog-gateway
+       * * `own-subscription` - own-subscription */
+      codex_model_access?: ModelAccessEnum | null;
     }
 
     export interface TaskRunCancelRequest {

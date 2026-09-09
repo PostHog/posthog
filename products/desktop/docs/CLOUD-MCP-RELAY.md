@@ -316,6 +316,22 @@ Subscription runs skip prewarming because a warm Claude process has already sele
 An unused warm run expires through its idle timeout; its cleanup does not block a subscription run.
 Sandbox compute still uses PostHog credits.
 
+## ChatGPT subscription credentials
+
+The Codex cloud subscription uses the same transport under `posthog-code-codex-own-subscription-cloud`.
+Desktop stores no ChatGPT token. The codex on the user's machine owns the login and the refresh token, and Desktop reads a live access token from it for each request.
+Copying `~/.codex/auth.json` into a sandbox would break that: the refresh token rotates and is single use, so a second holder logs the user out.
+
+Users connect with a device code. Desktop asks codex to start a `chatgptDeviceCode` login, then shows the sign-in link and the code.
+The code stops working after 15 minutes. Device code login must be on in the user's ChatGPT security settings, and a workspace member needs an admin to turn it on.
+
+A subscription run emits a `credential_request` for `codex_subscription_tokens` before it starts codex.
+The reply carries an access token, the workspace id, and the plan type. Codex signs in with `chatgptAuthTokens`, which keeps the token in memory and writes no auth file.
+On a 401 codex asks the host for a fresh token and waits ten seconds. The request carries a `force` marker, and Desktop asks codex to rotate the token before it answers.
+The owner check, the run binding, the redirect block, and the retry rules match the Claude path.
+
+Codex tokens are JSON Web Tokens, so logs and events redact anything with that shape as well as `sk-ant-oat01-` tokens.
+
 Claude tokens go only to the signed-in PostHog server and project. Token requests cannot follow redirects.
 Desktop checks for a token before all Claude cloud starts and resumes, including Inbox actions.
 If delivery fails after a new run starts, Desktop cancels that run. It releases unused warm runs when the billing choice changes.

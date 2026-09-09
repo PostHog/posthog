@@ -1884,6 +1884,17 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .describe(
                     "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
                 ),
+            codex_model_access: zod
+                .union([
+                    zod
+                        .enum(['posthog-gateway', 'own-subscription'])
+                        .describe('\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "How the Codex runtime pays for model use. 'own-subscription' makes the sandbox request a ChatGPT access token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                ),
         })
         .describe('Request body for creating a new task run'),
     zod
@@ -2047,6 +2058,17 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .optional()
                 .describe(
                     "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+                ),
+            codex_model_access: zod
+                .union([
+                    zod
+                        .enum(['posthog-gateway', 'own-subscription'])
+                        .describe('\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "How the Codex runtime pays for model use. 'own-subscription' makes the sandbox request a ChatGPT access token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
                 ),
         })
         .describe('Request body for creating a new task run'),
@@ -2503,6 +2525,17 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
+            ),
+        codex_model_access: zod
+            .union([
+                zod
+                    .enum(['posthog-gateway', 'own-subscription'])
+                    .describe('\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "How the Codex runtime pays for model use. 'own-subscription' makes the sandbox request a ChatGPT access token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.\n\n\* `posthog-gateway` - posthog-gateway\n\* `own-subscription` - own-subscription"
             ),
     })
     .describe('Request body for creating a task run without starting execution yet.')

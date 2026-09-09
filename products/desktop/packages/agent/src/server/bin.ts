@@ -144,6 +144,7 @@ program
   )
   .option("--repositoryPath <path>", "Path to the repository")
   .option("--claudeSubscription", "Use a relayed Claude subscription token")
+  .option("--codexSubscription", "Use a relayed ChatGPT subscription token")
   .option(
     "--repoReadyFile <path>",
     "Sentinel file; session creation blocks until it exists (set while cloning concurrently)",
@@ -195,6 +196,13 @@ program
         env.POSTHOG_CODE_RUNTIME_ADAPTER === "codex")
     ) {
       program.error("--claudeSubscription requires the Claude runtime");
+    }
+    if (
+      options.codexSubscription &&
+      (env.POSTHOG_AGENT_RUNTIME === "pi" ||
+        env.POSTHOG_CODE_RUNTIME_ADAPTER !== "codex")
+    ) {
+      program.error("--codexSubscription requires the Codex runtime");
     }
     delete process.env.POSTHOG_AGENT_LAUNCH_STARTED_AT_MS;
 
@@ -296,6 +304,9 @@ program
       runtimeAdapter: env.POSTHOG_CODE_RUNTIME_ADAPTER,
       model: env.POSTHOG_CODE_MODEL,
       claudeModelAccess: options.claudeSubscription
+        ? "own-subscription"
+        : "posthog-gateway",
+      codexModelAccess: options.codexSubscription
         ? "own-subscription"
         : "posthog-gateway",
       reasoningEffort: env.POSTHOG_CODE_REASONING_EFFORT,

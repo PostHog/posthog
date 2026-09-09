@@ -1088,6 +1088,7 @@ export interface CloudRunOptions {
   /** Only false is sent: opts the run out of rtk command-output compression. */
   rtkEnabled?: boolean;
   claudeModelAccess?: ModelAccess;
+  codexModelAccess?: ModelAccess;
   runSource?: CloudRunSource;
   signalReportId?: string;
   initialPermissionMode?: ExecutionMode;
@@ -1240,6 +1241,9 @@ function buildCloudRunRequestBody(
   }
   if (!options?.piRuntime && options?.claudeModelAccess) {
     body.claude_model_access = options.claudeModelAccess;
+  }
+  if (!options?.piRuntime && options?.codexModelAccess) {
+    body.codex_model_access = options.codexModelAccess;
   }
   if (options?.runSource) {
     body.run_source = options.runSource;

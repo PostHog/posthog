@@ -187,13 +187,20 @@ describe("TaskService.createTask validation", () => {
     { runtime: "acp" as const, adapter: "codex" as const, blocked: false },
     { runtime: "pi" as const, adapter: "claude" as const, blocked: false },
     { runtime: "acp" as const, adapter: "claude" as const, blocked: true },
+    { runtime: "acp" as const, adapter: "codex" as const, blocked: true },
   ])(
-    "checks Claude billing before cloud creation for %s",
+    "checks subscription billing before cloud creation for %s",
     async ({ runtime, adapter, blocked }) => {
       const resolveClaudeCloudModelAccess = vi
         .fn()
         .mockImplementation(async () => {
           if (blocked) throw new Error("Save a Claude token first.");
+          return "own-subscription";
+        });
+      const resolveCodexCloudModelAccess = vi
+        .fn()
+        .mockImplementation(async () => {
+          if (blocked) throw new Error("Connect your ChatGPT account first.");
           return "own-subscription";
         });
       const run = vi
@@ -206,6 +213,7 @@ describe("TaskService.createTask validation", () => {
       try {
         const result = await makeService({
           resolveClaudeCloudModelAccess,
+          resolveCodexCloudModelAccess,
         }).createTask(
           {
             content: "Check the build",
@@ -220,15 +228,26 @@ describe("TaskService.createTask validation", () => {
           expect(run).not.toHaveBeenCalled();
           expect(result).toMatchObject({
             success: false,
-            error: "Save a Claude token first.",
+            error:
+              adapter === "claude"
+                ? "Save a Claude token first."
+                : "Connect your ChatGPT account first.",
           });
-        } else if (runtime === "acp" && adapter === "claude") {
+        } else if (runtime === "pi") {
+          expect(resolveClaudeCloudModelAccess).not.toHaveBeenCalled();
+          expect(resolveCodexCloudModelAccess).not.toHaveBeenCalled();
+          expect(run.mock.calls[0][0].claudeCloudModelAccess).toBeUndefined();
+          expect(run.mock.calls[0][0].codexCloudModelAccess).toBeUndefined();
+        } else if (adapter === "claude") {
+          expect(resolveCodexCloudModelAccess).not.toHaveBeenCalled();
           expect(run.mock.calls[0][0].claudeCloudModelAccess).toBe(
             "own-subscription",
           );
         } else {
           expect(resolveClaudeCloudModelAccess).not.toHaveBeenCalled();
-          expect(run.mock.calls[0][0].claudeCloudModelAccess).toBeUndefined();
+          expect(run.mock.calls[0][0].codexCloudModelAccess).toBe(
+            "own-subscription",
+          );
         }
       } finally {
         run.mockRestore();

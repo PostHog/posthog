@@ -22,6 +22,25 @@ export const CLAUDE_SUBSCRIPTION_TOKEN_STORE = Symbol.for(
   "posthog.cloud-task.claudeSubscriptionTokenStore",
 );
 
+export interface CodexSubscriptionTokens {
+  accessToken: string;
+  chatgptAccountId?: string;
+  chatgptPlanType?: string;
+}
+
+/**
+ * Reads a live ChatGPT access token from the codex on this machine. Codex owns
+ * the refresh token and rotates it, so nothing is stored here — `force` asks
+ * codex to rotate before it answers, which is what a 401 in a sandbox needs.
+ */
+export interface CodexSubscriptionTokenSource {
+  read(force?: boolean): Promise<CodexSubscriptionTokens | null>;
+}
+
+export const CODEX_SUBSCRIPTION_TOKEN_SOURCE = Symbol.for(
+  "posthog.cloud-task.codexSubscriptionTokenSource",
+);
+
 /**
  * Host-bound executor for MCP relay requests (docs/CLOUD-MCP-RELAY.md).
  * Desktop binds this to the workspace-server relay service; hosts without a
