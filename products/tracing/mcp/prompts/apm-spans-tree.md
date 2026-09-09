@@ -1,4 +1,19 @@
-Aggregate trace span statistics as a call tree — one row per `(parent_service, parent_name) → (service_name, name)` edge.
+Answers "where does the time go inside this operation?" — the aggregate call tree under one span name, across every trace that contains it.
+
+Use it for:
+
+- "What does the `/checkout` flow actually call downstream?"
+- "Which child operation under `POST /orders` is the slowest?"
+- "Where is time spent inside `process_payment` — DB, external API, or something else?"
+- "Did the call tree under `/api/feed` change between last week and this week?" (with `compareFilter`)
+
+One call aggregates every matching trace. Do not answer these by reading spans from `query-apm-spans` or `apm-trace-get` — those show one trace at a time, so a slow child that only shows up on some requests is invisible.
+
+Sibling tools: for a flat per-operation view with no parent linkage use `apm-spans-aggregate`; for the shape of the latency distribution use `apm-spans-duration-histogram`; for when it changed use `apm-spans-latency-heatmap`.
+
+# Return shape
+
+One row per `(parent_service, parent_name) → (service_name, name)` edge.
 
 Requires a `spanName` to bound the matched trace set (the `(trace_id, parent_span_id)` self-join is unsafe at high cardinality without it), and a `serviceName` to scope the returned tree to a single service. All traces that contain at least one span with the given name in the given service are included, and every span in those traces from that service is aggregated against its parent.
 
@@ -13,15 +28,6 @@ Returns rows with:
 - `calls_per_parent_invocation` — how many times this child runs per parent invocation (null for root edges). A child can top `total_duration_nano` purely by fan-out volume; divide by this to compare per-call cost
 
 Rows are ordered by `total_duration_nano` DESC and capped at 5000.
-
-Use to answer:
-
-- "What does the `/checkout` flow actually call downstream?"
-- "Which child operation under `POST /orders` is the slowest?"
-- "Where is time spent inside `process_payment` — DB, external API, or something else?"
-- "Did the call tree under `/api/feed` change between last week and this week?" (with `compareFilter`)
-
-For a flat per-operation view (no parent linkage), use `apm-spans-aggregate` instead.
 
 All parameters must be nested inside a `query` object.
 
@@ -138,5 +144,4 @@ Property filters applied to both windows. See the "Property filters" section.
 - Duration values are in nanoseconds.
 - Results are ordered by `total_duration_nano` DESC and capped at 5000 rows.
 - `calls_per_parent_invocation` is derived from the returned rows. If results hit the 5000-row cap (only happens with very high span-name cardinality in one service), a parent's edges can be split across the cut and the ratio can read high — treat it as approximate when the row count is at the cap.
-- For a flat per-operation aggregate without parent linkage, use `apm-spans-aggregate`.
 - Use `apm-services-list`, `apm-attributes-list`, `apm-attribute-values-list` to discover values before filtering.

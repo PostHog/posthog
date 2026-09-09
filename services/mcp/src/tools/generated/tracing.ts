@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/tracing/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { withPostHogUrl, pickResponseFields } from '@/tools/tool-utils'
+import { withPostHogUrl, withAgentNote, pickResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ApmAttributeBreakdownSchema = () => {
@@ -315,7 +315,10 @@ const queryApmSpans = (): ToolBase<ReturnType<typeof QueryApmSpansSchema>, unkno
                 body,
             })
             const filtered = pickResponseFields(result, ['results']) as typeof result
-            return filtered
+            return withAgentNote(
+                filtered,
+                'These are individual spans, so they show a bounded sample rather than the population. Answer a latency or volume question in one call with an aggregate instead. Use apm-spans-duration-histogram for the shape of the distribution, apm-spans-latency-heatmap for when it changed, apm-spans-tree for where the time goes inside an operation, and apm-spans-aggregate for p95 per operation. Use this tool to pull the spans an aggregate has pointed you at.'
+            )
         },
     })
 

@@ -4,8 +4,10 @@ description: >
   Investigates distributed application performance using PostHog APM (OpenTelemetry span) data via MCP.
   Use when the user asks about service traces, slow HTTP/database spans, error spans, error-rate trends or
   spikes, latency distributions, trace IDs, or span attributes — not AI observability traces or product logs.
-  Uses posthog:query-apm-spans, posthog:apm-trace-get, posthog:apm-spans-sparkline,
-  posthog:apm-services-list, posthog:apm-attributes-list, and posthog:apm-attribute-values-list.
+  Uses posthog:query-apm-spans, posthog:apm-trace-get, posthog:apm-spans-aggregate,
+  posthog:apm-spans-tree, posthog:apm-spans-duration-histogram, posthog:apm-spans-latency-heatmap,
+  posthog:apm-spans-sparkline, posthog:apm-services-list, posthog:apm-attributes-list, and
+  posthog:apm-attribute-values-list.
 ---
 
 # Exploring APM traces (OpenTelemetry spans)
@@ -20,21 +22,38 @@ When the question asks for SLO burn, call `posthog:metric-list` before the APM t
 
 ## Available tools
 
-| Tool                                   | Purpose                                           |
-| -------------------------------------- | ------------------------------------------------- |
-| `posthog:query-apm-spans`              | Search and filter spans (compact list view)       |
-| `posthog:apm-trace-get`                | Get the full span list for one hex `trace_id`     |
-| `posthog:apm-spans-aggregate`          | Per-operation aggregates (count, p50/p95, errors) |
-| `posthog:apm-spans-tree`               | Call-tree aggregates per `(parent, child)` edge   |
-| `posthog:apm-spans-count`              | Scalar span count — cheap filter pre-flight       |
-| `posthog:apm-spans-sparkline`          | Span counts over time (zero-filled time series)   |
-| `posthog:apm-spans-duration-histogram` | Trace counts per log-scale duration bucket        |
-| `posthog:apm-attribute-breakdown`      | Span counts grouped by one attribute's value      |
-| `posthog:apm-services-list`            | List distinct service names                       |
-| `posthog:apm-attributes-list`          | List span or resource attribute keys              |
-| `posthog:apm-attribute-values-list`    | List values for a specific attribute key          |
+| Tool                                   | Purpose                                              |
+| -------------------------------------- | ---------------------------------------------------- |
+| `posthog:query-apm-spans`              | Search and filter spans (compact list view)          |
+| `posthog:apm-trace-get`                | Get the full span list for one hex `trace_id`        |
+| `posthog:apm-spans-aggregate`          | Per-operation aggregates (count, p50/p95, errors)    |
+| `posthog:apm-spans-tree`               | Call-tree aggregates per `(parent, child)` edge      |
+| `posthog:apm-spans-count`              | Scalar span count — cheap filter pre-flight          |
+| `posthog:apm-spans-sparkline`          | Span counts over time (zero-filled time series)      |
+| `posthog:apm-spans-duration-histogram` | Trace counts per log-scale duration bucket           |
+| `posthog:apm-spans-latency-heatmap`    | Latency distribution over time — onset of a slowdown |
+| `posthog:apm-attribute-breakdown`      | Span counts grouped by one attribute's value         |
+| `posthog:apm-services-list`            | List distinct service names                          |
+| `posthog:apm-attributes-list`          | List span or resource attribute keys                 |
+| `posthog:apm-attribute-values-list`    | List values for a specific attribute key             |
 
 See [references/spans-and-fields.md](./references/spans-and-fields.md) for the response schema and the `kind`/`status_code` enums.
+
+## Which tool answers which question
+
+Latency and volume questions are answered in one aggregate call. Reach for `query-apm-spans` to pull the actual spans **after** an aggregate has told you which ones to look at — a span list is capped and sorted, so it shows the tail, not the population.
+
+| The user asks                                                      | Call                                    |
+| ------------------------------------------------------------------ | --------------------------------------- |
+| "How slow is X?" / "What does the latency distribution look like?" | `apm-spans-duration-histogram`          |
+| "When did X get slow?" / "Did the deploy change latency?"          | `apm-spans-latency-heatmap`             |
+| "Where does the time go inside X?" / "Which child is slowest?"     | `apm-spans-tree`                        |
+| "What's the p95 of X?" / "Which operations error most?"            | `apm-spans-aggregate`                   |
+| "When did errors spike?" / "Is traffic up?"                        | `apm-spans-sparkline`                   |
+| "What's different about the slow or failing requests?"             | `apm-attribute-breakdown`               |
+| "Show me the slow requests" / "Find traces where …"                | `query-apm-spans`, then `apm-trace-get` |
+
+The two duration tools bucket **root-span** duration by default (`rootSpans: true`) — that is request latency. When X is a child operation (a DB query, a `Client` call), pass `rootSpans: false` alongside the service and `name` filters: under the default, an exact child-name filter matches no rows and you get an empty result instead of an answer.
 
 ## Workflow: debug a trace from a URL
 
@@ -134,9 +153,15 @@ To rebuild the tree:
 
 ### "What does the latency distribution look like?"
 
-1. `apm-spans-duration-histogram` → trace counts per log-scale (1-2-5 series) duration bucket of the ROOT span.
+1. `apm-spans-duration-histogram` → trace counts per log-scale (1-2-5 series) duration bucket of the ROOT span. For a child operation, add `rootSpans: false` with the service and `name` filters.
 2. A second hump or a fat tail = a distinct slow population; note its `bucket_ns` range.
 3. Fetch the actual slow traces with `query-apm-spans` using a `duration` filter (nanoseconds) and `orderBy: "duration"`.
+
+### "When did it get slow?"
+
+1. `apm-spans-latency-heatmap` → the same duration buckets, but per time bucket, and under the same `rootSpans` rule. Group rows by `bucket_ns` and read each one as a band over time.
+2. A band that starts at a specific `time` is the onset. The whole distribution stepping up one or two buckets is a uniform slowdown, not a new slow population.
+3. Narrow `dateRange` around the onset, then pull the traces with `query-apm-spans` plus a `duration` filter.
 
 ### "Did the fan-out look right?"
 

@@ -129,7 +129,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: Trace duration distribution (histogram)
+        title: Latency distribution across requests (histogram)
         description_file: ./prompts/apm-spans-duration-histogram.md
         feature_flag: tracing
         response:
@@ -144,7 +144,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: Latency over time (heatmap)
+        title: When latency changed (heatmap over time)
         description_file: ./prompts/apm-spans-latency-heatmap.md
         feature_flag: tracing
         response:
@@ -174,7 +174,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: Aggregate span call tree
+        title: Where time goes inside an operation (call tree)
         description_file: ./prompts/apm-spans-tree.md
         feature_flag: tracing
         response:
@@ -222,6 +222,14 @@ tools:
             idempotent: true
         title: Query tracing spans
         description_file: ./prompts/query-apm-spans.md
+        system_prompt_hint: Individual trace spans. For latency shape, onset, or where time goes inside an operation use
+            apm-spans-duration-histogram, apm-spans-latency-heatmap, apm-spans-tree
+        agent_note:
+            These are individual spans, so they show a bounded sample rather than the population. Answer a latency or
+            volume question in one call with an aggregate instead. Use apm-spans-duration-histogram for the shape of the
+            distribution, apm-spans-latency-heatmap for when it changed, apm-spans-tree for where the time goes inside
+            an operation, and apm-spans-aggregate for p95 per operation. Use this tool to pull the spans an aggregate
+            has pointed you at.
         ui_app: trace-span-list
         feature_flag: tracing
         response:

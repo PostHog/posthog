@@ -2,6 +2,22 @@ Query trace spans with filtering by service name, status code, date range, and s
 
 Use 'apm-attributes-list' and 'apm-attribute-values-list' to discover available attributes before building filters. Use 'apm-services-list' to discover available services.
 
+# Answer aggregate questions with an aggregate tool
+
+A latency, volume, or "where does the time go" question is answered in one call by a sibling tool. Reading raw spans instead is slower, and a span list is capped and sorted, so it shows a bounded sample rather than the population.
+
+| Question                                                            | Tool                           |
+| ------------------------------------------------------------------- | ------------------------------ |
+| How slow is it? What shape is the latency distribution?             | `apm-spans-duration-histogram` |
+| When did it get slow? Did a deploy change the latency profile?      | `apm-spans-latency-heatmap`    |
+| Where does the time go inside one operation? Which child dominates? | `apm-spans-tree`               |
+| p50/p95 and error rate per operation                                | `apm-spans-aggregate`          |
+| Span counts over time, error spikes                                 | `apm-spans-sparkline`          |
+| How many spans match this filter?                                   | `apm-spans-count`              |
+| Which attribute value explains the bad spans?                       | `apm-attribute-breakdown`      |
+
+Use `query-apm-spans` to pull the actual spans once an aggregate tool has told you which ones to look at — typically with a `duration` filter (nanoseconds) on the slow bucket the histogram or heatmap found.
+
 # Return shape
 
 Results are **grouped by trace**, not a flat list of matching spans. For each trace that contains at least one span matching your filters, the response includes spans from that trace (up to `prefetchSpans` per trace, root span first). Two fields tell you which spans actually matched:

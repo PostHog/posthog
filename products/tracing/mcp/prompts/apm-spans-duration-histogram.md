@@ -1,21 +1,24 @@
-Trace counts per logarithmic duration bucket — the latency distribution of requests.
+Answers "how slow is it, across all requests?" — the latency distribution, as trace counts per logarithmic duration bucket.
 
-Returns one row per `(duration bucket, service)` pair:
+Use it for:
+
+- "What does the latency distribution look like — one population or bimodal?"
+- "How many requests took longer than 1 second?"
+- "Is the long tail a handful of outliers or a real second mode?"
+
+One call reads the whole population. Rows are capped at the top 10 services per duration bucket, so summing `count` undercounts a bucket that more than ten services land in; filter `serviceNames` to ten or fewer services for an exact total. Do not estimate the distribution by listing spans with `query-apm-spans` — that result is capped and sorted, so it shows the tail, not the shape.
+
+Sibling tools: for when the distribution changed use `apm-spans-latency-heatmap`; for p50/p95 per operation use `apm-spans-aggregate`; for counts over time use `apm-spans-sparkline`; for where the time goes inside one operation use `apm-spans-tree`.
+
+# Return shape
+
+One row per `(duration bucket, service)` pair:
 
 - `bucket_ns` — bucket floor in nanoseconds, on the 1-2-5 series (1ms, 2ms, 5ms, 10ms, 20ms, ...)
 - `service` — service name (top 10 services per bucket)
 - `count` — traces whose ROOT span duration falls in the bucket
 
 Buckets count **traces by their root span's duration** (the request the user experienced), never child spans. Only non-empty buckets are returned.
-
-Use to answer:
-
-- "What does the latency distribution look like — one population or bimodal?"
-- "How many requests took longer than 1 second?"
-- "Is the long tail a handful of outliers or a real second mode?"
-- "Which duration range should I filter on before pulling slow traces?"
-
-For percentiles per operation (p50/p95), use `apm-spans-aggregate`. For counts over time, use `apm-spans-sparkline`.
 
 All parameters must be nested inside a `query` object.
 

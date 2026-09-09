@@ -7,7 +7,8 @@ compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the apm-* tool family
   (query-apm-spans, apm-trace-get, apm-spans-aggregate, apm-spans-tree, apm-spans-count,
-  apm-spans-sparkline, apm-spans-duration-histogram, apm-attribute-breakdown,
+  apm-spans-sparkline, apm-spans-duration-histogram, apm-spans-latency-heatmap,
+  apm-attribute-breakdown,
   apm-services-list, apm-attributes-list, apm-attribute-values-list) and the bundled
   exploring-apm-traces deep-dive skill.
 allowed_tools:
@@ -100,7 +101,7 @@ From the discriminator engine, find operations where error rate stepped up mater
 
 #### Latency p95 regression
 
-Find operations where `p95_duration_nano` stepped up with steady `count`. Localize the cause: `apm-spans-tree` exposes per-`(parent, child)` edges — read `calls_per_parent_invocation` to separate a child that got slower _per call_ from one that merely runs more times per parent. On a sample slow trace, sort spans by `self_time_nano`: a parent with a large self-time gap is **uninstrumented work**, not a slow child. `apm-spans-duration-histogram` reveals a second hump or fat tail = a distinct slow population worth isolating with a `duration` filter — but it buckets **root-span** duration only (root scoping is unconditional), so reserve it for root-operation latency; for a child-span regression use `apm-spans-tree` and `query-apm-spans` (`flatSpans: true`) instead.
+Find operations where `p95_duration_nano` stepped up with steady `count`. Localize the cause: `apm-spans-tree` exposes per-`(parent, child)` edges — read `calls_per_parent_invocation` to separate a child that got slower _per call_ from one that merely runs more times per parent. On a sample slow trace, sort spans by `self_time_nano`: a parent with a large self-time gap is **uninstrumented work**, not a slow child. `apm-spans-latency-heatmap` puts those same duration buckets on a time axis, so the first time bucket carrying the slow band is the onset — read it before hunting for a cause. `apm-spans-duration-histogram` reveals a second hump or fat tail = a distinct slow population worth isolating with a `duration` filter. **Both bucket root-span duration by default** (`rootSpans: true`), so when the regressed operation is a child span (a DB or `Client` call), pass `rootSpans: false` alongside the service and `name` filters or both come back empty — then corroborate with `apm-spans-tree` and `query-apm-spans` (`flatSpans: true`).
 
 When several operations in the same service (or sharing a subsystem — e.g. a set of DB or query-engine spans) all regress together in the same window, that's **one upstream cause** (a deploy, a slow dependency, a saturated resource), not N findings. Recognize the cluster and file a single report naming the shared cause with the operations as evidence, rather than one report per operation.
 
@@ -152,7 +153,7 @@ When in doubt, write memory instead of filing a report.
 
 ## MCP tools
 
-Direct (read-only): `apm-services-list`, `apm-spans-aggregate`, `apm-spans-sparkline`, `apm-spans-tree`, `apm-spans-duration-histogram`, `apm-attribute-breakdown`, `apm-attributes-list`, `apm-attribute-values-list`, `apm-spans-count`, `query-apm-spans`, `apm-trace-get`.
+Direct (read-only): `apm-services-list`, `apm-spans-aggregate`, `apm-spans-sparkline`, `apm-spans-tree`, `apm-spans-duration-histogram`, `apm-spans-latency-heatmap`, `apm-attribute-breakdown`, `apm-attributes-list`, `apm-attribute-values-list`, `apm-spans-count`, `query-apm-spans`, `apm-trace-get`.
 
 Inbox & reviewer routing (mechanics in `authoring-scouts` → `references/report-contract.md`):
 

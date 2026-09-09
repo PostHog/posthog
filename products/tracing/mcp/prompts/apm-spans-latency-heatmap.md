@@ -1,21 +1,25 @@
-Latency over time — trace counts per (time bucket, duration bucket) cell, combining `apm-spans-sparkline` and `apm-spans-duration-histogram` into one call: "when did latency change, and how".
+Answers "when did it get slow, and how?" — the latency distribution over time, as trace counts per (time bucket, duration bucket) cell.
 
-Returns one row per non-empty `(time bucket, duration bucket)` cell:
-
-- `time` — ISO 8601 bucket start (UTC)
-- `bucket_ns` — duration bucket floor in nanoseconds, on the 1-2-5 series (1ms, 2ms, 5ms, 10ms, 20ms, ...)
-- `count` — traces whose ROOT span duration falls in that cell (or spans, when `rootSpans` is false)
-
-Time buckets are sized adaptively to the window (roughly 50 buckets regardless of range, e.g. `-1h` → ~minute buckets, `-7d` → ~4-hour buckets). A time bucket with no matching traces returns a single sentinel row `{time, bucket_ns: 0, count: 0}`, so the full time axis can be read off the response — ignore sentinel rows when reading densities.
-
-Use to answer:
+Use it for:
 
 - "When did this service get slow?" — the slow band's first non-empty `time` is the onset.
 - "Is the latency regression a shift (whole distribution moved) or a new mode (a second band appeared)?"
 - "Did the deploy at 14:00 change the latency profile, not just the p95?"
 - "Is the slow tail constant background or bursty?"
 
-For a single distribution with per-service breakdown, use `apm-spans-duration-histogram`; for counts over time, `apm-spans-sparkline`; for per-operation percentiles, `apm-spans-aggregate`.
+This is the first call for any "it got slower" report. Do not open the investigation by listing spans with `query-apm-spans` — a span list carries no baseline, so it cannot tell you when the change started.
+
+Sibling tools: for a single distribution with a per-service breakdown use `apm-spans-duration-histogram`; for counts over time use `apm-spans-sparkline`; for per-operation percentiles use `apm-spans-aggregate`; for where the time goes inside one operation use `apm-spans-tree`.
+
+# Return shape
+
+One row per non-empty `(time bucket, duration bucket)` cell:
+
+- `time` — ISO 8601 bucket start (UTC)
+- `bucket_ns` — duration bucket floor in nanoseconds, on the 1-2-5 series (1ms, 2ms, 5ms, 10ms, 20ms, ...)
+- `count` — traces whose ROOT span duration falls in that cell (or spans, when `rootSpans` is false)
+
+Time buckets are sized adaptively to the window (roughly 50 buckets regardless of range, e.g. `-1h` → ~minute buckets, `-7d` → ~4-hour buckets). A time bucket with no matching traces returns a single sentinel row `{time, bucket_ns: 0, count: 0}`, so the full time axis can be read off the response — ignore sentinel rows when reading densities.
 
 All parameters must be nested inside a `query` object.
 
