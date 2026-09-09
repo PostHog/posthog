@@ -204,7 +204,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         assert isinstance(conversion_column, ast.Alias)
         assert conversion_column.alias == self.config.get_conversion_goal_column_name(0)
         assert isinstance(conversion_column.expr, ast.Call)
-        assert conversion_column.expr.name == "sum"
+        assert conversion_column.expr.name == "sumIf"
 
     def test_unified_cte_multiple_processors(self):
         goal1 = self._create_test_conversion_goal("multi_goal1", "Goal 1")
@@ -232,7 +232,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
             assert isinstance(column, ast.Alias)
             assert column.alias == self.config.get_conversion_goal_column_name(i)
             assert isinstance(column.expr, ast.Call)
-            assert column.expr.name == "sum"
+            assert column.expr.name == "sumIf"
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_unified_cte_sql_snapshot(self):
@@ -635,7 +635,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         assert isinstance(conversion_column, ast.Alias)
         assert conversion_column.alias == self.config.get_conversion_goal_column_name(999)
         assert isinstance(conversion_column.expr, ast.Call)
-        assert conversion_column.expr.name == "sum"
+        assert conversion_column.expr.name == "sumIf"
 
     def test_duplicate_goal_names(self):
         goal1 = self._create_test_conversion_goal("dup1", "Duplicate Goal")
@@ -671,6 +671,23 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
 
         fallback_columns = aggregator.get_coalesce_fallback_columns()
         assert len(fallback_columns) == 3  # campaign, id, source
+
+    def test_union_branch_width_does_not_grow_with_goal_count(self):
+        def branch_widths(goal_count: int) -> set[int]:
+            processors = [
+                self._create_test_processor(self._create_test_conversion_goal(f"width_goal_{i}", f"Width Goal {i}"), i)
+                for i in range(goal_count)
+            ]
+            aggregator = ConversionGoalsAggregator(processors=processors, config=self.config)
+            cte = aggregator.generate_unified_cte(self.date_range, self._create_mock_additional_conditions_getter())
+            assert isinstance(cte.expr, ast.SelectQuery) and cte.expr.select_from is not None
+            union = cte.expr.select_from.table
+            assert isinstance(union, ast.SelectSetQuery)
+            return {len(branch.select) for branch in union.select_queries()}
+
+        # A branch that also carries a column per goal grows the query text with the square of the
+        # goal count, and ClickHouse rejects a query over `max_query_size` before it runs.
+        assert branch_widths(3) == branch_widths(12)
 
     def test_attribution_compatibility(self):
         goal = self._create_test_conversion_goal("attribution_test", "Attribution Test", "purchase")
