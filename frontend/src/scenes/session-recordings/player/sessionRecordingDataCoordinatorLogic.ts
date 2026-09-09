@@ -25,9 +25,7 @@ import {
     SourceLoadingState,
 } from '@posthog/replay-shared'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { metricCount } from 'lib/operationalMetrics'
 
 import {
@@ -151,7 +149,6 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     sessionEventsDataLoading: boolean // eventsLogic
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined // eventsLogic
     webVitalsEvents: RecordingEventType[] // eventsLogic
-    featureFlags: FeatureFlagsSet // featureFlagLogic
     annotations: AnnotationType[] // metaLogic
     annotationsLoading: boolean // metaLogic
     currentTeam: TeamPublicType | TeamType | null // metaLogic
@@ -383,13 +380,9 @@ export interface sessionRecordingDataCoordinatorLogicActions {
 export interface sessionRecordingDataCoordinatorLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        recordingTooLargeToPlay: (
-            sessionPlayerMetaData: SessionRecordingType | null,
-            featureFlags: FeatureFlagsSet
-        ) => boolean
+        recordingTooLargeToPlay: (sessionPlayerMetaData: SessionRecordingType | null) => boolean
         oversizedMutationRanges: (
-            snapshotsByWindowId: Record<number, eventWithTime[]>,
-            featureFlags: FeatureFlagsSet
+            snapshotsByWindowId: Record<number, eventWithTime[]>
         ) => Record<number, OversizedMutationRange[]>
         hasOversizedMutations: (oversizedMutationRanges: Record<number, OversizedMutationRange[]>) => boolean
         playableSnapshotsByWindowId: (
@@ -572,8 +565,6 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 ],
                 snapLogic,
                 ['snapshotStore', 'storeVersion', 'sourceLoadingStates'],
-                featureFlagLogic,
-                ['featureFlags'],
             ],
         }
     }),
@@ -744,11 +735,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
     })),
     selectors(() => ({
         recordingTooLargeToPlay: [
-            (s) => [s.sessionPlayerMetaData, s.featureFlags],
-            (meta: SessionRecordingType | null, featureFlags: FeatureFlagsSet): boolean => {
-                if (!featureFlags[FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE]) {
-                    return false
-                }
+            (s) => [s.sessionPlayerMetaData],
+            (meta: SessionRecordingType | null): boolean => {
                 // Mobile recordings are screenshot-based: large events, but cheap to play
                 if (meta?.snapshot_source !== 'web') {
                     return false
@@ -764,14 +752,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         ],
 
         oversizedMutationRanges: [
-            (s) => [s.snapshotsByWindowId, s.featureFlags],
-            (
-                snapshotsByWindowId: Record<number, eventWithTime[]>,
-                featureFlags: FeatureFlagsSet
-            ): Record<number, OversizedMutationRange[]> => {
-                if (!featureFlags[FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE]) {
-                    return {}
-                }
+            (s) => [s.snapshotsByWindowId],
+            (snapshotsByWindowId: Record<number, eventWithTime[]>): Record<number, OversizedMutationRange[]> => {
                 const rangesByWindowId: Record<number, OversizedMutationRange[]> = {}
                 for (const [windowId, events] of Object.entries(snapshotsByWindowId)) {
                     const ranges = findOversizedMutationRanges(events)
