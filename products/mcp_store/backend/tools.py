@@ -13,8 +13,11 @@ from django.utils import timezone
 import httpx
 import structlog
 
+from posthog.security.pinned_requests import SSRFBlockedError
+
 from .models import MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, is_token_expiring, refresh_installation_token
+from .pinned_transport import ValidatingPinnedTransport
 from .policy import SYNC_DEFAULT_APPROVAL_STATE
 from .proxy import build_upstream_auth_headers, validated_same_origin_redirect_url
 from .url_policy import check_mcp_url_policy, trust_environment_proxy
@@ -91,9 +94,14 @@ def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, 
     }
 
     try:
+        # The transport validates each request URL and pins the connection to the
+        # validated IP at connect time — check_mcp_url_policy above cannot carry
+        # its resolution across to this connection, so pinning closes the
+        # DNS-rebinding window between validate and connect.
         with httpx.Client(
             timeout=HANDSHAKE_TIMEOUT,
             trust_env=trust_environment_proxy(installation.url, installation.team_id),
+            transport=ValidatingPinnedTransport(installation.url, installation.team_id),
         ) as client:
             session_id, upstream_url = _mcp_initialize(client, installation.url, base_headers)
             session_headers = dict(base_headers)
@@ -108,6 +116,8 @@ def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, 
                 # here are purely janitorial and must not mask real errors above.
                 if session_id:
                     _mcp_terminate_session(client, upstream_url, session_headers)
+    except SSRFBlockedError as exc:
+        raise ToolsFetchError(f"URL not allowed: {exc}") from exc
     except httpx.ConnectError as exc:
         raise ToolsFetchError("Upstream MCP server unreachable") from exc
     except httpx.TimeoutException as exc:
@@ -143,9 +153,12 @@ def call_upstream_tool(
     }
 
     try:
+        # Same connect-time validation + pinning as fetch_upstream_tools — the
+        # two paths share the SSRF guard, auth headers and redirect handling.
         with httpx.Client(
             timeout=CALL_TIMEOUT,
             trust_env=trust_environment_proxy(installation.url, installation.team_id),
+            transport=ValidatingPinnedTransport(installation.url, installation.team_id),
         ) as client:
             session_id, upstream_url = _mcp_initialize(client, installation.url, base_headers)
             session_headers = dict(base_headers)
@@ -158,6 +171,8 @@ def call_upstream_tool(
             finally:
                 if session_id:
                     _mcp_terminate_session(client, upstream_url, session_headers)
+    except SSRFBlockedError as exc:
+        raise ToolCallError(f"URL not allowed: {exc}") from exc
     except httpx.ConnectError as exc:
         raise ToolCallError("Upstream MCP server unreachable") from exc
     except httpx.TimeoutException as exc:
