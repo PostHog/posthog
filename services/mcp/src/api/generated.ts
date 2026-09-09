@@ -70663,10 +70663,10 @@ export namespace Schemas {
      * * `stale` - Stale
      * * `failed` - Failed
      */
-    export type PrecomputeDebugBucketStatusEnum = typeof PrecomputeDebugBucketStatusEnum[keyof typeof PrecomputeDebugBucketStatusEnum];
+    export type PreaggregationJobStatusEnum = typeof PreaggregationJobStatusEnum[keyof typeof PreaggregationJobStatusEnum];
 
 
-    export const PrecomputeDebugBucketStatusEnum = {
+    export const PreaggregationJobStatusEnum = {
       Pending: 'pending',
       Ready: 'ready',
       Stale: 'stale',
@@ -70684,7 +70684,7 @@ export namespace Schemas {
        * * `ready` - Ready
        * * `stale` - Stale
        * * `failed` - Failed */
-      status: PrecomputeDebugBucketStatusEnum;
+      status: PreaggregationJobStatusEnum;
       /**
          * When the bucket's data was last computed; null if never computed.
          * @nullable

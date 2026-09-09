@@ -55,10 +55,10 @@ export interface PrecomputeDebugSampleApi {
  * * `stale` - Stale
  * * `failed` - Failed
  */
-export type PrecomputeDebugBucketStatusEnumApi =
-    (typeof PrecomputeDebugBucketStatusEnumApi)[keyof typeof PrecomputeDebugBucketStatusEnumApi]
+export type PreaggregationJobStatusEnumApi =
+    (typeof PreaggregationJobStatusEnumApi)[keyof typeof PreaggregationJobStatusEnumApi]
 
-export const PrecomputeDebugBucketStatusEnumApi = {
+export const PreaggregationJobStatusEnumApi = {
     Pending: 'pending',
     Ready: 'ready',
     Stale: 'stale',
@@ -76,7 +76,7 @@ export interface PrecomputeDebugBucketApi {
      * * `ready` - Ready
      * * `stale` - Stale
      * * `failed` - Failed */
-    status: PrecomputeDebugBucketStatusEnumApi
+    status: PreaggregationJobStatusEnumApi
     /**
      * When the bucket's data was last computed; null if never computed.
      * @nullable
