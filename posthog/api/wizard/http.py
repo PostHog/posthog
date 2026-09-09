@@ -28,6 +28,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.email_verification import email_verification_pending
 from posthog.api.wizard.utils import json_schema_to_gemini_schema
 from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.cloud_utils import get_api_host
@@ -82,6 +83,10 @@ OPENAI_SUPPORTED_MODELS = {"o4-mini", "gpt-5-mini", "gpt-5-nano", "gpt-5"}
 # parallel requests; this cache.incr cannot, so it is the hard bound a start-cancel or crash
 # loop lands on. Only requests that reach creation consume it.
 WIZARD_CLOUD_RUN_DAILY_ATTEMPT_CAP = 15
+
+WIZARD_EMAIL_UNVERIFIED_DETAIL = (
+    "Verify your email address, then run the wizard again. The link is in the welcome email from PostHog."
+)
 
 WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL = Counter(
     "posthog_wizard_gateway_token_requests_total",
@@ -561,6 +566,11 @@ class SetupWizardViewSet(viewsets.ViewSet):
             # 403: a vanished team is an authorization failure, not a missing route.
             refuse("team_missing", exceptions.PermissionDenied(ERROR_PROJECT_NOT_FOUND), user=user)
         posture = wizard_posture(team.organization, team)
+
+        # Named ahead of the generic authorization check so the CLI can tell the user what to do.
+        if email_verification_pending(user):
+            WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="email_unverified").inc()
+            raise exceptions.PermissionDenied(WIZARD_EMAIL_UNVERIFIED_DETAIL)
 
         # scoped_teams is frozen at consent, so re-check what it cannot see.
         if not oauth_credential_authorized(access_token, team):

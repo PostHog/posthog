@@ -6,8 +6,9 @@ import {
   SelectValue,
   Text,
 } from "@posthog/quill";
-import { type CloudRegion, REGION_LABELS } from "@posthog/shared";
+import { type CloudRegion, describeRegion } from "@posthog/shared";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
+import { getSelectableRegions } from "./selectableRegions";
 
 interface RegionSelectProps {
   region: CloudRegion;
@@ -15,24 +16,17 @@ interface RegionSelectProps {
   disabled?: boolean;
   /** Host decides whether development regions are offered. */
   includeDevRegion?: boolean;
-}
-
-const PRODUCTION_REGIONS: CloudRegion[] = ["us", "eu"];
-const DEVELOPMENT_REGIONS: CloudRegion[] = ["dev-cloud", "dev"];
-
-export function getSelectableRegions(includeDevRegion: boolean): CloudRegion[] {
-  return includeDevRegion
-    ? [...PRODUCTION_REGIONS, ...DEVELOPMENT_REGIONS]
-    : PRODUCTION_REGIONS;
+  /** Custom needs a host that can hold the target, so it is a separate flag. */
+  includeCustomRegion?: boolean;
 }
 
 function RegionOptionLabel({ region }: { region: CloudRegion }) {
-  const { flag, hint, label } = REGION_LABELS[region];
+  const { flag, hint, label } = describeRegion(region);
   return (
-    <span className="flex items-center gap-2">
+    <span className="flex min-w-0 items-center gap-2">
       <span className="shrink-0 leading-none">{flag}</span>
-      <span className="font-medium">{label}</span>
-      <span className="text-(--gray-10) text-xs">{hint}</span>
+      <span className="shrink-0 font-medium">{label}</span>
+      <span className="truncate text-(--gray-10) text-xs">{hint}</span>
     </span>
   );
 }
@@ -42,8 +36,9 @@ export function RegionSelect({
   onRegionChange,
   disabled = false,
   includeDevRegion = false,
+  includeCustomRegion = false,
 }: RegionSelectProps) {
-  const offered = getSelectableRegions(includeDevRegion);
+  const offered = getSelectableRegions(includeDevRegion, includeCustomRegion);
 
   return (
     <div className="flex items-center justify-center gap-2">
@@ -57,7 +52,7 @@ export function RegionSelect({
         }
         items={offered.map((candidate) => ({
           value: candidate,
-          label: `${REGION_LABELS[candidate].label} - ${REGION_LABELS[candidate].hint}`,
+          label: `${describeRegion(candidate).label} - ${describeRegion(candidate).hint}`,
         }))}
       >
         {/* Fixed width so switching regions never reflows the row beneath the button. */}
