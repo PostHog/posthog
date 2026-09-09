@@ -2036,6 +2036,27 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
             endpoint or self.endpoint, {"definition": str(definition_id), "value": value}, format="json"
         )
 
+    @parameterized.expand([("text", "enterprise"), ("number", 42)])
+    def test_clear_value_preserves_history(self, property_type: str, value: str | int) -> None:
+        definition = self.text_def if property_type == "text" else self.number_def
+        created = self._set(definition.id, value).json()
+        self._set(
+            self.number_def.id if property_type == "text" else self.text_def.id,
+            7 if property_type == "text" else "other",
+        )
+
+        response = self._set(definition.id, None)
+
+        self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
+        self.assertTrue(CustomPropertyValue.objects.for_team(self.team.id).get(id=created["id"]).is_deleted)
+        active = self.client.get(self.endpoint).json()
+        self.assertEqual(1, len(active))
+        self.assertNotEqual(str(definition.id), active[0]["definition_id"])
+        self.assertEqual(status.HTTP_204_NO_CONTENT, self._set(definition.id, None).status_code)
+
+    def test_clear_unknown_definition_is_rejected(self) -> None:
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, self._set(uuid4(), None).status_code)
+
     def test_create_value_success(self):
         response = self._set(self.text_def.id, "enterprise")
 
@@ -2082,12 +2103,13 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
         values = {v["definition_id"]: v["value"] for v in response.json()}
         self.assertEqual({str(self.text_def.id): "enterprise", str(self.number_def.id): 42}, values)
 
-    def test_account_from_another_team_returns_404(self):
+    @parameterized.expand([("write", "x"), ("clear", None)])
+    def test_account_from_another_team_returns_404(self, _name: str, value: str | None) -> None:
         other_team = Team.objects.create(organization=self.organization)
         other_account = create_account(team_id=other_team.id)
         endpoint = f"/api/projects/{self.team.id}/accounts/{other_account.id}/custom_property_values/"
 
-        response = self._set(self.text_def.id, "x", endpoint=endpoint)
+        response = self._set(self.text_def.id, value, endpoint=endpoint)
 
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
 
@@ -2107,7 +2129,30 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
 
         self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
 
-    def test_source_backed_definition_rejects_manual_write(self):
+    @parameterized.expand([("write", "2026-01-01T00:00:00Z"), ("clear", None)])
+    def test_canonical_definition_rejects_manual_write(self, _name: str, value: str | None) -> None:
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name="Last Slack message at", display_type=DisplayType.DATETIME
+        )
+        recorded_at = timezone.now()
+        current = CustomPropertyValue.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            account=self.account,
+            definition=definition,
+            value_datetime=recorded_at,
+        )
+
+        response = self._set(definition.id, value)
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
+        self.assertEqual("definition", response.json()["attr"])
+        current.refresh_from_db()
+        self.assertFalse(current.is_deleted)
+        self.assertEqual(recorded_at, current.value_datetime)
+        self.assertEqual(1, len(self.client.get(self.endpoint).json()))
+
+    @parameterized.expand([("write", "manual"), ("clear", None)])
+    def test_source_backed_definition_rejects_manual_write(self, _name: str, value: str | None) -> None:
         saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
         view = saved_query_model.objects.create(team=self.team, name="v", columns={"k": {}, "c": {}})
         CustomPropertySource.objects.unscoped().create(
@@ -2118,7 +2163,7 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
             key_column="k",
         )
 
-        response = self._set(self.text_def.id, "manual")
+        response = self._set(self.text_def.id, value)
 
         self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
         self.assertEqual("definition", response.json()["attr"])

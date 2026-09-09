@@ -344,6 +344,11 @@ export interface SettingChangedProperties {
   old_value?: string | boolean | number;
 }
 
+export interface CloudCredentialRelayProperties {
+  credential: "claude_subscription_token";
+  outcome: "sent" | "no_token" | "expired" | "rejected";
+}
+
 export interface CustomSoundAddedProperties {
   // How the clip was captured.
   source: "recording" | "import";
@@ -832,7 +837,6 @@ export interface InboxReportScrolledProperties {
 }
 
 export interface UsageViewedProperties {
-  is_pro: boolean;
   /** Monthly bucket percent (0-100), null when usage is unavailable. */
   sustained_used_percent: number | null;
   /** Daily bucket percent (0-100), null when usage is unavailable. */
@@ -1303,7 +1307,6 @@ export interface UpgradePromptClickedProperties {
 
 export interface CloudTaskUsageBlockedProperties {
   bucket: "burst" | "sustained" | null;
-  is_pro: boolean;
 }
 
 // Claude Code session import events
@@ -1595,6 +1598,9 @@ export const ANALYTICS_EVENTS = {
   CODEX_SUBSCRIPTION_SIGNED_OUT: "Codex subscription signed out",
   CLAUDE_SUBSCRIPTION_CONNECTED: "Claude subscription connected",
   CLAUDE_SUBSCRIPTION_SIGNED_OUT: "Claude subscription signed out",
+  CLAUDE_CLOUD_TOKEN_SAVED: "Claude cloud token saved",
+  CLAUDE_CLOUD_TOKEN_REMOVED: "Claude cloud token removed",
+  CLOUD_CREDENTIAL_RELAY: "Cloud credential relay",
 
   // Feedback events
   AI_METRIC: "$ai_metric",
@@ -1799,6 +1805,9 @@ export type EventPropertyMap = {
 
   // Settings events
   [ANALYTICS_EVENTS.SETTING_CHANGED]: SettingChangedProperties;
+  [ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_SAVED]: never;
+  [ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_REMOVED]: never;
+  [ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY]: CloudCredentialRelayProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_ADDED]: CustomSoundAddedProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_RECORDING_SILENT]: never;
   [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_CONNECTED]: never;

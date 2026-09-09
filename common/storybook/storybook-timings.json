@@ -803,10 +803,6 @@
         "chromium": 5.93,
         "webkit": 1.497
     },
-    "frontend/src/scenes/data-management/comments/Comments.stories.tsx": {
-        "chromium": 16.358,
-        "webkit": 2.867
-    },
     "frontend/src/scenes/data-management/definition/DefinitionView.stories.tsx": {
         "chromium": 19.557,
         "webkit": 2.311
@@ -1379,7 +1375,7 @@
         "chromium": 1.94,
         "webkit": 1.587
     },
-    "frontend/src/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/CellActionsMenu.stories.tsx": {
+    "frontend/src/scenes/web-analytics/tabs/marketing-analytics/frontend/components/CampaignMapping/CampaignMappingCellActions.stories.tsx": {
         "chromium": 25.403,
         "webkit": 3.212
     },

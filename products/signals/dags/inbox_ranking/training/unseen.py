@@ -3,12 +3,12 @@
 The trainer grades a candidate on a holdout cut from the same example set and then refits the
 shipped booster on train plus holdout, so `holdout_auc` grades the recipe rather than the model
 that ships. This module is the offline batch proxy for the number that is missing: each day it
-samples reports that appear in no training example, scores them with the day's models, and grades
-those scores at each head's horizon against a snapshot the model could not have seen.
+scores the reports born that day with the day's models, and grades those scores at each head's
+horizon against a snapshot the model could not have seen.
 
-The pool, the cohort, the label and the horizon come from the same `Head` definitions the trainer
-uses, so the unseen AUC is directly comparable to the holdout AUC of the same head and model
-version. Pure functions over frames; `training/dag.py` owns the S3 and telemetry plumbing.
+The cohort, the label and the horizon come from the same `Head` definitions the trainer uses, so
+the unseen AUC is directly comparable to the holdout AUC of the same head and model version. Pure
+functions over frames; `training/dag.py` owns the S3 and telemetry plumbing.
 """
 
 import datetime
@@ -24,13 +24,16 @@ from sklearn.metrics import roc_auc_score
 from posthog.dataclasses import frozen
 
 from products.signals.backend.ranking.features import FEATURE_NAMES, FEATURE_SCHEMA_VERSION, feature_frame
+from products.signals.dags.inbox_ranking.common import snapshot_bounds
 from products.signals.dags.inbox_ranking.training.examples import STATE_COLUMNS, point_in_time_mask
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
 
-# How many unseen reports one day's read scores. Large enough that a head with a low base rate
-# still collects positives over a few days, small enough that the event volume stays under the
-# label streams this project already carries.
-UNSEEN_SAMPLE_SIZE = 1000
+# Stamped on every scored event, so a chart can tell this pool definition from a later one.
+POOL_NAME = "newborn"
+# The pool of a scores object written before the column existed: a seeded sample of the state rows
+# the day's examples did not cover. The grader reads objects up to 14 days old, so a change of pool
+# definition puts two populations in one AUC series unless the older one keeps its own name.
+LEGACY_POOL_NAME = "sampled"
 
 CANDIDATE_ROLE = "candidate"
 CHAMPION_ROLE = "champion"
@@ -43,6 +46,7 @@ _SCORE_TYPES: dict[str, pa.DataType] = {
     "team_id": pa.int64(),
     "report_created_at": pa.timestamp("us", tz="UTC"),
     "snapshot_date": pa.date32(),
+    "pool": pa.string(),
     "model_version": pa.string(),
     "model_role": pa.string(),
     "feature_schema_version": pa.int64(),
@@ -69,7 +73,7 @@ FEATURE_INPUT_COLUMNS = (
 
 @frozen
 class UnseenModel:
-    """One model to score the sample with, and the readable heads it can score."""
+    """One model to score the pool with, and the readable heads it can score."""
 
     model_version: str
     model_role: str
@@ -83,6 +87,9 @@ class HeadGrade:
     horizon_days: int
     # The partition the scores were written on, which is `horizon_days` before the grading day.
     scoring_partition: str
+    # The pool definition the scored rows came from, carried so the AUC series can be read per pool
+    # rather than split by hand on the day a definition changed.
+    pool: str
     model_version: str
     model_role: str
     rows: int
@@ -107,6 +114,7 @@ class HeadGrade:
             "head": self.head,
             "horizon_days": self.horizon_days,
             "scoring_partition": self.scoring_partition,
+            "pool": self.pool,
             "model_version": self.model_version,
             "model_role": self.model_role,
             **self.metrics(),
@@ -143,33 +151,51 @@ def readable_head_files(metadata: Mapping[str, Any]) -> dict[str, str]:
     }
 
 
-def unseen_pool(
-    state: pd.DataFrame, snapshot_date: datetime.date, example_report_ids: Collection[object]
-) -> pd.DataFrame:
-    """The dt=D state rows no training example covers.
+def unseen_pool(state: pd.DataFrame, snapshot_date: datetime.date) -> pd.DataFrame:
+    """The dt=D state rows of the reports created on D.
 
-    A set difference against the example ids rather than a date rule, so the pool stays correct if
-    the example builder changes. The two extra filters mirror `build_examples`: a backfilled state
-    row carries current Postgres state rather than the state as of the day, and a row without
-    `signal_count` has no features to score.
+    A newborn has no scoring moment before D, and the dt=D examples reach no later than D minus the
+    head's horizon, so no training example can cover it. Leakage-freedom is therefore structural
+    rather than a set difference over whatever the example builder did that day, and the read stays
+    on the fresh reports the inbox actually ranks. The two extra filters mirror `build_examples`: a
+    backfilled state row carries current Postgres state rather than the state as of the day, and a
+    row without `signal_count` has no features to score.
     """
-    keep = ~state.index.isin(set(example_report_ids))
-    keep &= state["signal_count"].notna().to_numpy()
-    keep &= point_in_time_mask(state, snapshot_date).to_numpy()
-    return state.loc[keep]
+    start, end = snapshot_bounds(snapshot_date.isoformat())
+    created = pd.to_datetime(state["report_created_at"], utc=True)
+    # Newborns first: the remaining filters then run over the slice, not every live report.
+    newborn = state.loc[((created >= start) & (created < end)).to_numpy()]
+    keep = newborn["signal_count"].notna().to_numpy()
+    keep &= point_in_time_mask(newborn, snapshot_date).to_numpy()
+    return newborn.loc[keep]
 
 
-def sample_unseen(pool: pd.DataFrame, partition_key: str, *, size: int = UNSEEN_SAMPLE_SIZE) -> pd.DataFrame:
-    """A uniform sample of the pool without replacement, seeded from the partition day so a re-run
-    of the partition reproduces it. A pool at or below `size` is scored in full."""
-    if len(pool) <= size:
-        return pool
-    rng = np.random.default_rng(int(partition_key.replace("-", "")))
-    return pool.iloc[np.sort(rng.choice(len(pool), size=size, replace=False))]
+def leaked_report_ids(pool: pd.DataFrame, example_report_ids: Collection[object]) -> list[str]:
+    """Pool reports a training example already covers.
+
+    Empty while every head horizon stays above zero. A non-empty result means the example builder
+    now reaches the partition day, so the read would grade a model on its own training data; the
+    caller fails the asset instead of publishing that number.
+    """
+    covered = set(example_report_ids)
+    return sorted(str(report_id) for report_id in pool.index if report_id in covered)
 
 
-def score_sample(
-    sample: pd.DataFrame, labels: pd.DataFrame, models: Sequence[UnseenModel], *, snapshot_date: datetime.date
+def scored_pool(scores: pd.DataFrame) -> str:
+    """The pool definition a scores object was written under.
+
+    One partition is written by one run, so the column holds a single value. An object written
+    before the column existed is a sample of the old pool, and must not be graded as the current
+    one.
+    """
+    if "pool" not in scores:
+        return LEGACY_POOL_NAME
+    values = scores["pool"].dropna().unique()
+    return str(values[0]) if len(values) else LEGACY_POOL_NAME
+
+
+def score_pool(
+    pool: pd.DataFrame, labels: pd.DataFrame, models: Sequence[UnseenModel], *, snapshot_date: datetime.date
 ) -> pd.DataFrame:
     """One row per (report, model, head) in SCORE_COLUMNS order.
 
@@ -178,26 +204,29 @@ def score_sample(
     head's outcome had already happened on the scoring day; the grader drops those rows, the same
     way the example builder drops a scoring moment whose label is already 1.
     """
-    rows = sample[list(STATE_COLUMNS)].copy()
+    rows = pool[list(STATE_COLUMNS)].copy()
     rows["age_hours"] = rows.pop("report_age_hours").astype(float)
     matrix = xgb.DMatrix(feature_frame(rows), feature_names=list(FEATURE_NAMES))
-    aligned_labels = labels.reindex(sample.index)
-    team_id = (
-        sample["report_team_id"] if "report_team_id" in sample else pd.Series(None, index=sample.index, dtype=object)
-    )
+    aligned_labels = labels.reindex(pool.index)
+    team_id = pool["report_team_id"] if "report_team_id" in pool else pd.Series(None, index=pool.index, dtype=object)
+    report_ids = pool.index.to_numpy()
+    team_ids = pd.to_numeric(team_id, errors="coerce").astype("Int64").to_numpy()
+    created_at = pd.to_datetime(rows["report_created_at"], utc=True).to_numpy()
+    age_hours = rows["age_hours"].to_numpy()
     frames = [
         pd.DataFrame(
             {
-                "report_id": sample.index.to_numpy(),
-                "team_id": pd.to_numeric(team_id, errors="coerce").astype("Int64").to_numpy(),
-                "report_created_at": pd.to_datetime(rows["report_created_at"], utc=True).to_numpy(),
+                "report_id": report_ids,
+                "team_id": team_ids,
+                "report_created_at": created_at,
                 "snapshot_date": snapshot_date,
+                "pool": POOL_NAME,
                 "model_version": model.model_version,
                 "model_role": model.model_role,
                 "feature_schema_version": model.feature_schema_version,
                 "head": head_name,
                 "score": _predict(booster_ubj, matrix),
-                "age_hours": rows["age_hours"].to_numpy(),
+                "age_hours": age_hours,
                 "label_at_scoring": HEADS_BY_NAME[head_name].label(aligned_labels).to_numpy(),
             }
         )
@@ -221,35 +250,34 @@ def scores_table(scores: pd.DataFrame) -> pa.Table:
     return pa.Table.from_pandas(scores[list(SCORE_COLUMNS)], schema=SCORES_SCHEMA, preserve_index=False)
 
 
-def score_event_rows(scores: pd.DataFrame, sample: pd.DataFrame, *, unseen_pool_size: int) -> list[dict[str, object]]:
+def score_event_rows(scores: pd.DataFrame, pool: pd.DataFrame) -> list[dict[str, object]]:
     """One dict per (report, model): every head's score as `p_<head>`, plus the raw feature inputs.
 
     The Parquet is long so that a head can be added without a schema change; an event is wide so a
     trends insight can aggregate a head's scores without a join.
     """
+    columns = [column for column in FEATURE_INPUT_COLUMNS if column in pool]
+    inputs = {
+        report_id: {column: _plain(value) for column, value in row.items()}
+        for report_id, row in pool[columns].to_dict("index").items()
+    }
     rows: dict[tuple[str, str], dict[str, object]] = {}
     for record in scores.to_dict("records"):
         key = (str(record["report_id"]), str(record["model_role"]))
-        entry = rows.setdefault(
-            key,
-            {
+        if key not in rows:
+            rows[key] = {
                 "report_id": record["report_id"],
                 "team_id": _int_or_none(record["team_id"]),
                 "report_created_at": _isoformat_or_none(record["report_created_at"]),
                 "model_version": record["model_version"],
                 "model_role": record["model_role"],
                 "feature_schema_version": record["feature_schema_version"],
-                "unseen_pool": unseen_pool_size,
-                "sample_size": len(sample),
+                "pool": POOL_NAME,
+                "unseen_pool": len(pool),
                 "age_hours": float(record["age_hours"]),
-                **{
-                    column: _plain(sample[column].get(record["report_id"]))
-                    for column in FEATURE_INPUT_COLUMNS
-                    if column in sample
-                },
-            },
-        )
-        entry[f"p_{record['head']}"] = float(record["score"])
+                **inputs.get(record["report_id"], {}),
+            }
+        rows[key][f"p_{record['head']}"] = float(record["score"])
     return list(rows.values())
 
 
@@ -285,7 +313,7 @@ def graded_rows(head_scores: pd.DataFrame, labels: pd.DataFrame, head: Head) -> 
     return graded
 
 
-def head_grades(graded: pd.DataFrame, head: Head, *, scoring_partition: str) -> list[HeadGrade]:
+def head_grades(graded: pd.DataFrame, head: Head, *, pool: str, scoring_partition: str) -> list[HeadGrade]:
     """The unseen read per model that scored this head, over the in-cohort rows."""
     grades: list[HeadGrade] = []
     kept = graded[graded["in_cohort"]]
@@ -296,6 +324,7 @@ def head_grades(graded: pd.DataFrame, head: Head, *, scoring_partition: str) -> 
                 head=head.name,
                 horizon_days=head.horizon_days,
                 scoring_partition=scoring_partition,
+                pool=pool,
                 model_version=str(model_version),
                 model_role=str(model_role),
                 rows=len(rows),
@@ -309,7 +338,7 @@ def head_grades(graded: pd.DataFrame, head: Head, *, scoring_partition: str) -> 
 
 
 def report_grade_rows(
-    graded_by_head: Mapping[str, pd.DataFrame], *, horizon_days: int, scoring_partition: str
+    graded_by_head: Mapping[str, pd.DataFrame], *, pool: str, horizon_days: int, scoring_partition: str
 ) -> list[dict[str, object]]:
     """One dict per (report, model) carrying every head graded at this horizon.
 
@@ -326,6 +355,7 @@ def report_grade_rows(
                     "report_id": record["report_id"],
                     "team_id": _int_or_none(record["team_id"]),
                     "scoring_partition": scoring_partition,
+                    "pool": pool,
                     "model_version": record["model_version"],
                     "model_role": record["model_role"],
                     "horizon_days": horizon_days,

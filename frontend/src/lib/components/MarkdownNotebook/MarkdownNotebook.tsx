@@ -1143,7 +1143,10 @@ function MarkdownNotebookEditor({
 
         const firstTextNode = getRenderedNodes()[0]
         const firstElement = firstTextNode ? blockRefs.current[firstTextNode.id] : null
-        firstElement?.focus()
+        if (firstElement) {
+            firstElement.focus()
+            restoreSelection(firstElement, 0, 0)
+        }
         // oxlint-disable-next-line exhaustive-deps
     }, [autoFocus, mode])
 
@@ -5429,7 +5432,7 @@ function MarkdownNotebookEditor({
         }
 
         let responseNodeIndex = -1
-        const keepQuestion = currentPromptNode?.props.keepQuestion === true
+        const keepQuestion = currentPromptNode?.props.keepQuestion !== false
         const nodesWithResponse = nodes.flatMap((currentNode, index): NotebookBlockNode[] => {
             if (currentNode.id !== nodeId || !isPromptComponentNode(currentNode)) {
                 return [currentNode]
