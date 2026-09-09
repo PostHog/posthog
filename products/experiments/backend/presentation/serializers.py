@@ -2030,7 +2030,11 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
     )
     variants = ExperimentWatchVariantSerializer(
         many=True,
-        help_text="Every variant's compared population, in the flag's variant order.",
+        help_text=(
+            "Every variant the analysis compares, with its population, in the flag's variant order. "
+            "A variant the experiment excludes never appears here, because the analysis does not count it "
+            "either, so read a missing key as excluded rather than as zero people."
+        ),
     )
     multiple_variant_persons = serializers.IntegerField(
         help_text=(

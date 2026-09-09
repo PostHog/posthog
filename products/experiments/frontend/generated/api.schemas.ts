@@ -2465,7 +2465,7 @@ export const ExperimentWatchEmptyReasonEnumApi = {
 export interface ExperimentSessionEventDeltaResponseApi {
     /** The shelf, strongest comparison first, then the variant's own rendering, then metric shortcuts. Events the variants can't be told apart on get no card at all rather than a weak one, so an empty shelf means no difference was big enough to be sure of, not that nothing was measured. Empty also takes the metric shortcuts with it: a shelf of shortcuts and no finding restates what the experiment's results already answer while reading as a finding, so it is withheld. Read empty_reason and say what it reports instead of presenting an empty shelf. Group by kind before presenting: a 'variant_only' card outranks every real difference by construction, and reading the shelf in order would report it as the headline. */
     cards: ExperimentWatchCardApi[]
-    /** Every variant's compared population, in the flag's variant order. */
+    /** Every variant the analysis compares, with its population, in the flag's variant order. A variant the experiment excludes never appears here, because the analysis does not count it either, so read a missing key as excluded rather than as zero people. */
     variants: ExperimentWatchVariantApi[]
     /** People who saw more than one variant and were left out of every card. Always 0 when the experiment attributes such users to the variant they saw first. */
     multiple_variant_persons: number
