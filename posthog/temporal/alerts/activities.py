@@ -100,9 +100,7 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
         due_alert_metrics = due_alerts_query.aggregate(
             due_count=Count("id"), oldest_due_at=Min(Coalesce("next_check_at", "created_at"))
         )
-        record_due_insight_alert_metrics(
-            due_alert_metrics["due_count"], due_alert_metrics["oldest_due_at"], polled_at
-        )
+        record_due_insight_alert_metrics(due_alert_metrics["due_count"], due_alert_metrics["oldest_due_at"], polled_at)
 
         alerts_query = (
             due_alerts_query.annotate(_interval_order=calculation_interval_order)
