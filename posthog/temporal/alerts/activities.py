@@ -55,7 +55,7 @@ from products.alerts.backend.destinations import count_active_alert_destinations
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError, InsufficientHistoryError
 from products.alerts.backend.evaluation.validation import validate_alert_config
-from products.alerts.backend.forecasting.capacity import ForecastCapacityUnavailable
+from products.alerts.backend.forecasting.capacity import ForecastCapacityUnavailable, ForecastEvaluationCapacityExceeded
 from products.alerts.backend.forecasting.engine import ForecastExecutionError
 from products.alerts.backend.insight_alert_state_machine import apply_unsnooze, disable_if_target_date_passed
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
@@ -285,7 +285,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         try:
             alert_evaluation_result = check_alert_for_insight(alert)
             breaches = alert_evaluation_result.breaches
-        except (ForecastExecutionError, ForecastCapacityUnavailable):
+        except (ForecastExecutionError, ForecastCapacityUnavailable, ForecastEvaluationCapacityExceeded):
             # Forecast infrastructure failed, not the alert. Retrying beats an errored check, which
             # would flip the alert and email its subscribers on the first blip.
             raise

@@ -49,6 +49,7 @@ from products.alerts.backend.forecasting.engine import (
     validate_forecast_display,
     validate_forecast_horizon,
     validate_forecast_interval,
+    validate_forecast_smoothing,
 )
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
@@ -371,6 +372,7 @@ def evaluate_with_forecast(
             horizon,
             DEFAULT_INTERVAL_WIDTH,
             result.interval_type,
+            timezone=result.forecast_timezone,
         )
     except ForecastConfigurationError as error:
         raise AlertExtractionError(str(error)) from error
@@ -411,6 +413,7 @@ class TrendsForecastExtractor:
             user=alert.created_by,
         )
         result.value_formatter = make_trends_value_formatter(trends_query.trendsFilter, alert.team.base_currency)
+        result.forecast_timezone = alert.team.timezone
         result.forecast_horizon = horizon
         result.forecast_last_completed_bucket = reference_date.isoformat() if reference_date is not None else None
         return result
@@ -434,6 +437,7 @@ class TrendsForecastExtractor:
             user=ctx.user,
         )
         result.value_formatter = make_trends_value_formatter(trends_query.trendsFilter, ctx.team.base_currency)
+        result.forecast_timezone = ctx.team.timezone
         result.forecast_horizon = horizon
         result.forecast_last_completed_bucket = reference_date.isoformat() if reference_date is not None else None
         interval_value = trends_query.interval.value if trends_query.interval else None
@@ -495,6 +499,7 @@ def simulate_forecast_on_insight(
     if is_non_time_series_trend(trends_query):
         raise ValueError("Forecast alerts require a time series trends insight")
     validate_forecast_display(trends_query.trendsFilter.display if trends_query.trendsFilter else None)
+    validate_forecast_smoothing(trends_query.trendsFilter.smoothingIntervals if trends_query.trendsFilter else None)
     if _has_breakdown(trends_query):
         raise ValueError("Forecast alerts don't support breakdowns yet")
     if (
@@ -557,6 +562,7 @@ def simulate_forecast_on_insight(
         horizon,
         DEFAULT_INTERVAL_WIDTH,
         result.interval_type,
+        timezone=result.forecast_timezone,
     )
     return {
         "data": values,

@@ -136,6 +136,13 @@ def validate_forecast_days_of_week(date_range: DateRange | None, interval: Inter
         )
 
 
+def validate_forecast_smoothing(smoothing_intervals: int | None) -> None:
+    if smoothing_intervals is not None and smoothing_intervals > 1:
+        raise ValueError(
+            "Forecast alerts don't support smoothed trends yet. Turn smoothing off before creating the alert."
+        )
+
+
 def validate_forecast_display(display: ChartDisplayType | None) -> None:
     if display in SPECIALIZED_RUNNER_DISPLAY_TYPES:
         raise ValueError(
@@ -180,6 +187,7 @@ class ForecastEngine(Protocol):
         horizon: int,
         interval_width: float,
         interval: IntervalType | None,
+        timezone: str = "UTC",
     ) -> ForecastResult: ...
 
 

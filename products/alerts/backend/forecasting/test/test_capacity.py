@@ -10,6 +10,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, Concurrenc
 from products.alerts.backend.forecasting.capacity import (
     FORECAST_SIMULATION_GLOBAL_CONCURRENCY,
     ForecastCapacityUnavailable,
+    ForecastEvaluationCapacityExceeded,
     ForecastSimulationCapacityExceeded,
     forecast_evaluation_slot,
     forecast_simulation_slot,
@@ -103,8 +104,22 @@ def test_preview_saturation_leaves_scheduled_evaluations_their_own_capacity() ->
         with pytest.raises(ForecastSimulationCapacityExceeded), forecast_simulation_slot(team_id=1):
             pass
 
-        with forecast_evaluation_slot(team_id=1) as capacity_available:
-            assert capacity_available
+        with forecast_evaluation_slot(team_id=1):
+            pass
+
+
+def test_scheduled_evaluation_reports_saturation_for_the_workflow_to_defer() -> None:
+    global_limiter = MagicMock()
+    global_limiter.use.side_effect = ConcurrencyLimitExceeded("full")
+
+    with (
+        patch("products.alerts.backend.forecasting.capacity.TEST", False),
+        patch("products.alerts.backend.forecasting.capacity._get_global_limiter", return_value=global_limiter),
+        patch("products.alerts.backend.forecasting.capacity._get_team_limiter", return_value=MagicMock()),
+        pytest.raises(ForecastEvaluationCapacityExceeded),
+        forecast_evaluation_slot(team_id=1),
+    ):
+        pass
 
 
 @pytest.mark.parametrize("unreachable_limiter", ["global", "team"])

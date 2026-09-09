@@ -54,7 +54,7 @@ from posthog.temporal.alerts.types import (
 from products.alerts.backend.destinations import AlertDelivery
 from products.alerts.backend.evaluation.contract import AlertExtractionError, InsufficientHistoryError
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
-from products.alerts.backend.forecasting.capacity import ForecastCapacityUnavailable
+from products.alerts.backend.forecasting.capacity import ForecastCapacityUnavailable, ForecastEvaluationCapacityExceeded
 from products.alerts.backend.forecasting.engine import ForecastExecutionError
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.facade.models import Insight
@@ -538,6 +538,18 @@ class TestEvaluateAlert:
         ):
             env = ActivityEnvironment()
             with pytest.raises(ForecastCapacityUnavailable):
+                await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
+
+        count = await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).count)()
+        assert count == 0
+
+    async def test_scheduled_forecast_saturation_is_retryable(self, alert) -> None:
+        with patch(
+            "posthog.temporal.alerts.activities.check_alert_for_insight",
+            side_effect=ForecastEvaluationCapacityExceeded,
+        ):
+            env = ActivityEnvironment()
+            with pytest.raises(ForecastEvaluationCapacityExceeded):
                 await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
 
         count = await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).count)()

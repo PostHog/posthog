@@ -29,6 +29,10 @@ class ForecastSimulationCapacityExceeded(Exception):
     pass
 
 
+class ForecastEvaluationCapacityExceeded(Exception):
+    """Scheduled forecast capacity is full, so the next sweep must retry the due check."""
+
+
 class ForecastCapacityUnavailable(Exception):
     """The capacity store could not be reached, so no slot decision was made.
 
@@ -126,13 +130,13 @@ def forecast_simulation_slot(*, team_id: int) -> Iterator[None]:
 
 
 @contextmanager
-def forecast_evaluation_slot(*, team_id: int) -> Iterator[bool]:
-    """Limit a scheduled fit against its own pool, without making saturation retryable.
+def forecast_evaluation_slot(*, team_id: int) -> Iterator[None]:
+    """Limit a scheduled fit against its own pool and surface saturation as retryable.
 
     Scheduled checks never draw on the preview budget, so a burst of previews cannot take the slot
-    a due alert needs. A preview should tell its caller to retry, while a scheduled check should be
-    inconclusive and wait for its next normal cadence. Returning a flag lets the dispatcher skip
-    both the query and the fit without turning capacity pressure into a Temporal retry storm.
+    a due alert needs. A saturated scheduled check must not write an inconclusive result because
+    that advances ``next_check_at`` by a full cadence. The workflow retries briefly, then leaves the
+    alert overdue for the next one-minute sweep.
 
     An unreachable store is not capacity pressure, so ForecastCapacityUnavailable propagates to the
     caller's retry policy rather than spending the alert's cadence on a failed slot lookup.
@@ -147,7 +151,6 @@ def forecast_evaluation_slot(*, team_id: int) -> Iterator[bool]:
                     team_concurrency=FORECAST_EVALUATION_TEAM_CONCURRENCY,
                 )
             )
-        except ForecastSimulationCapacityExceeded:
-            yield False
-            return
-        yield True
+        except ForecastSimulationCapacityExceeded as error:
+            raise ForecastEvaluationCapacityExceeded from error
+        yield

@@ -39,6 +39,7 @@ from products.alerts.backend.forecasting.engine import (
     validate_forecast_display,
     validate_forecast_horizon,
     validate_forecast_interval,
+    validate_forecast_smoothing,
 )
 
 THRESHOLD_BOUNDS_REQUIRED_MESSAGE = "At least one threshold bound (lower or upper) must be provided."
@@ -145,8 +146,17 @@ def _validate_trends_alert_config(ctx: _AlertConfigValidationContext) -> None:
             f"Relative alert condition '{ctx.parsed_condition.type}' is not compatible with non time series trends"
         )
 
-    formula_nodes = trends_query.trendsFilter.formulaNodes if trends_query.trendsFilter else None
-    result_count = len(formula_nodes) if formula_nodes else len(trends_query.series)
+    trends_filter = trends_query.trendsFilter
+    formula_nodes = trends_filter.formulaNodes if trends_filter else None
+    formulas = trends_filter.formulas if trends_filter else None
+    if formula_nodes:
+        result_count = len(formula_nodes)
+    elif formulas:
+        result_count = len(formulas)
+    elif trends_filter and trends_filter.formula:
+        result_count = 1
+    else:
+        result_count = len(trends_query.series)
     if parsed_config.series_index >= result_count:
         raise ValueError(f"series_index {parsed_config.series_index} is out of range (query has {result_count} series)")
 
@@ -272,6 +282,7 @@ def _validate_forecast_config(
     if is_non_time_series_trend(trends_query):
         raise ValueError("Forecast alerts require a time series trends insight")
     validate_forecast_display(trends_query.trendsFilter.display if trends_query.trendsFilter else None)
+    validate_forecast_smoothing(trends_query.trendsFilter.smoothingIntervals if trends_query.trendsFilter else None)
     if _has_breakdown(trends_query):
         raise ValueError("Forecast alerts don't support breakdowns yet")
     if (

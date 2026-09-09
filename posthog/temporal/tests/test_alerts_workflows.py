@@ -37,6 +37,7 @@ from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleDueAle
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.tests.test_alerts_activities import _email_delivery
 
+from products.alerts.backend.forecasting.capacity import ForecastEvaluationCapacityExceeded
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.facade.models import Insight
 
@@ -379,6 +380,39 @@ async def test_check_alert_workflow_records_errored_check_when_evaluation_keeps_
     completed_props = _completed_slo_props(mock_slo_analytics)
     assert completed_props["outcome"] == expected_outcome
     assert completed_props["alert_state"] == AlertState.ERRORED
+
+
+@patch("posthog.slo.events.posthoganalytics")
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_check_alert_workflow_defers_saturated_forecast_without_advancing_schedule(
+    mock_slo_analytics: MagicMock,
+    alert_with_subscriber: AlertConfiguration,
+) -> None:
+    next_check_at = datetime.now(UTC)
+    alert_with_subscriber.next_check_at = next_check_at
+    await sync_to_async(alert_with_subscriber.save)(update_fields=["next_check_at"])
+
+    with patch(
+        "posthog.temporal.alerts.activities.check_alert_for_insight",
+        side_effect=ForecastEvaluationCapacityExceeded,
+    ) as mock_evaluate:
+        await _run_check_alert_workflow(
+            alert_id=str(alert_with_subscriber.id),
+            slo=_slo_config(alert_with_subscriber),
+            team_id=alert_with_subscriber.team_id,
+            insight_id=alert_with_subscriber.insight_id,
+        )
+
+    assert mock_evaluate.call_count == ALERT_EVALUATE_RETRY_POLICY.maximum_attempts
+    assert await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert_with_subscriber).exists)() is False
+    refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_subscriber.pk)
+    assert refreshed.next_check_at == next_check_at
+
+    completed_props = _completed_slo_props(mock_slo_analytics)
+    assert completed_props["outcome"] == SloOutcome.SUCCESS
+    assert completed_props["skip_reason"] == "capacity"
+    assert "alert_state" not in completed_props
 
 
 @patch("posthog.slo.events.posthoganalytics")

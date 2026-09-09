@@ -2,6 +2,7 @@ import os
 import logging
 import datetime
 from dataclasses import fields
+from zoneinfo import ZoneInfo
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -88,6 +89,44 @@ class TestProphetEngine:
         assert [forecast_date[:10] for forecast_date in result.dates] == [
             (week_start + datetime.timedelta(weeks=history + step)).isoformat() for step in range(4)
         ]
+
+    def test_hourly_forecast_skips_a_nonexistent_spring_forward_hour(self):
+        engine = get_forecast_engine({"engine": "prophet"})
+        history_end = datetime.datetime(2026, 3, 8, 1)
+        dates = [(history_end - datetime.timedelta(hours=47 - index)).isoformat() for index in range(48)]
+
+        result = engine.forecast(
+            dates,
+            [float(100 + index) for index in range(48)],
+            horizon=3,
+            interval_width=0.95,
+            interval=IntervalType.HOUR,
+            timezone="America/New_York",
+        )
+
+        assert [forecast_date[:19] for forecast_date in result.dates] == [
+            "2026-03-08T03:00:00",
+            "2026-03-08T04:00:00",
+            "2026-03-08T05:00:00",
+        ]
+
+    def test_hourly_forecast_accepts_offset_labels_that_span_a_dst_change(self):
+        engine = get_forecast_engine({"engine": "prophet"})
+        timezone = ZoneInfo("America/New_York")
+        start_utc = datetime.datetime(2026, 3, 7, 5, tzinfo=datetime.UTC)
+        dates = [(start_utc + datetime.timedelta(hours=index)).astimezone(timezone).isoformat() for index in range(48)]
+
+        result = engine.forecast(
+            dates,
+            [float(100 + index) for index in range(48)],
+            horizon=1,
+            interval_width=0.95,
+            interval=IntervalType.HOUR,
+            timezone="America/New_York",
+        )
+
+        assert {date[-6:] for date in dates} == {"-05:00", "-04:00"}
+        assert result.dates[0].endswith("-04:00")
 
     @parameterized.expand(
         [

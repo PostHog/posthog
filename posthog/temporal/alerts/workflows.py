@@ -161,6 +161,12 @@ class CheckAlertWorkflow(PostHogWorkflow):
                     retry_policy=timeouts.evaluate_retry_policy,
                 )
             except Exception as evaluation_error:
+                cause = unwrap_temporal_cause(evaluation_error) or evaluation_error
+                if getattr(cause, "type", type(cause).__name__) == "ForecastEvaluationCapacityExceeded":
+                    # Capacity pressure is neither a completed check nor an alert error. Leave
+                    # next_check_at overdue so the next one-minute sweep tries this alert again.
+                    skip_reason = "capacity"
+                    return
                 # Transient ClickHouse errors re-raise so the retry policy can get past a busy
                 # cluster. Once those run out no AlertCheck exists and next_check_at is still in the
                 # past, so record the failure to stop the sweep restarting the chain forever. Set
