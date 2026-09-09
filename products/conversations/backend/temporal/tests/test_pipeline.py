@@ -12,6 +12,9 @@ from posthog.models import Organization, Team
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.temporal.ai_reply.activities.classify import _classify
 from products.conversations.backend.temporal.ai_reply.activities.draft import _draft_async
+from products.conversations.backend.temporal.ai_reply.activities.persist_knowledge_gap import (
+    support_persist_knowledge_gap_activity,
+)
 from products.conversations.backend.temporal.ai_reply.activities.persist_reply import _persist_reply_sync
 from products.conversations.backend.temporal.ai_reply.activities.record_triage import _record_triage_sync
 from products.conversations.backend.temporal.ai_reply.activities.refine_queries import _refine_queries
@@ -84,6 +87,7 @@ DRAFT_MODULE = f"{ACTIVITIES}.draft"
 VALIDATE_MODULE = f"{ACTIVITIES}.validate"
 REVIEW_REPLY_MODULE = f"{ACTIVITIES}.review_reply"
 PERSIST_REPLY_MODULE = f"{ACTIVITIES}.persist_reply"
+PERSIST_KNOWLEDGE_GAP_MODULE = f"{ACTIVITIES}.persist_knowledge_gap"
 RECORD_TRIAGE_MODULE = f"{ACTIVITIES}.record_triage"
 
 
@@ -241,10 +245,14 @@ async def test_workflow_widens_on_low_score(
     assert "persisted" in result
     assert validate_count["n"] == 3
     assert mock_refine.call_count >= 3
+    refine_missing = [call.args[0].missing for call in mock_refine.call_args_list]
+    assert refine_missing[0] == []
+    assert ["pricing info"] in refine_missing[1:]
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+@patch(f"{PERSIST_KNOWLEDGE_GAP_MODULE}._persist_sync")
 @patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
 @patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
 @patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
@@ -266,6 +274,7 @@ async def test_workflow_escalates_after_max_attempts(
     mock_review,
     mock_persist,
     mock_record_triage,
+    mock_persist_gaps,
     workflow_input,
     sample_chunk_ids,
 ):
@@ -300,6 +309,7 @@ async def test_workflow_escalates_after_max_attempts(
                 support_validate_activity,
                 support_review_reply_activity,
                 support_persist_reply_activity,
+                support_persist_knowledge_gap_activity,
                 support_record_triage_activity,
             ],
         ):
@@ -313,6 +323,9 @@ async def test_workflow_escalates_after_max_attempts(
     assert "escalated_with_best" in result
     assert mock_validate.call_count == MAX_ATTEMPTS
     mock_persist.assert_called_once()
+    mock_persist_gaps.assert_not_called()
+    last_triage = mock_record_triage.call_args_list[-1][0][0].patch
+    assert last_triage["missing"] == ["everything"]
 
 
 @pytest.mark.django_db
