@@ -7,6 +7,41 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface AIUsageProductApi {
+    /** What a person calls the product, e.g. `PostHog Desktop`. */
+    name: string
+    /** Credits the product spent over the reported period. */
+    credits: number
+    /** True when the product bills against its own credit counter, so its credits are not part of the PostHog AI total in this response. */
+    separate_bucket: boolean
+}
+
+export interface AIUsageResponseApi {
+    /**
+     * Credits spent in the requested conversation. Null when no conversation was requested.
+     * @nullable
+     */
+    conversation_credits: number | null
+    /** PostHog AI credits the team spent over the reported period, across every product. */
+    period_credits: number
+    /** The team's free tier limit in credits. */
+    free_tier_credits: number
+    /** Free tier credits left. Negative once the team is over the limit. */
+    remaining_credits: number
+    /** `Billing period`, or `Past 30 days` when billing has not told us the team's period. Every credit figure in the response covers this period. */
+    period_label: string
+    period_start: string
+    period_end: string
+    /**
+     * When the conversation started, when that is known.
+     * @nullable
+     */
+    conversation_start: string | null
+    product: AIUsageProductApi | null
+    /** The whole report as Markdown, so every surface renders one wording. Clients that lay the numbers out themselves read the fields above instead. */
+    message: string
+}
+
 /**
  * * `idle` - Idle
  * * `in_progress` - In progress
@@ -580,6 +615,22 @@ export interface DocsSearchRequestApi {
 export interface DocsSearchResponseApi {
     /** Markdown-formatted documentation results. Each block has a title, URL and excerpt; an empty result set returns guidance to navigate to https://posthog.com/docs. */
     content: string
+}
+
+export type AiUsageRetrieveParams = {
+    /**
+     * The conversation to report on, which is the `$ai_session_id` its generations carry: the Max conversation for a chat, the task for an agent run. Omitted, the report covers the team only.
+     */
+    conversation_id?: string
+    /**
+     * When the conversation started. Only a Max conversation can be looked up here, so a caller that knows its own start time passes it; without one the reported period bounds the search and a conversation older than the period is undercounted.
+     */
+    conversation_started_at?: string
+    /**
+     * The `ai_product` of the calling surface, e.g. `slack_app` or `posthog_code`. Adds a row for what that product alone spent. A product with no credit counter is reported as null.
+     * @minLength 1
+     */
+    product?: string
 }
 
 export type ConversationsListParams = {
