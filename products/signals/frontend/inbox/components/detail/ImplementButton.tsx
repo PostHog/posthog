@@ -84,7 +84,7 @@ export function ImplementButton({ report }: { report: SignalReport }): JSX.Eleme
                         <div className="flex w-96 flex-col gap-2 p-2">
                             <div className="flex flex-col gap-2 border-b pb-2">
                                 <span className="text-xs font-semibold text-tertiary">
-                                    Instructions for the PostHog agent
+                                    Add instructions for the PostHog agent
                                 </span>
                                 <LemonTextArea
                                     value={instructions}
