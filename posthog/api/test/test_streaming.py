@@ -243,6 +243,38 @@ class TestSSEConcurrencyCap:
         with mock.patch.object(streaming, "_active_stream_count", 0):
             yield
 
+    @parameterized.expand([("consumed",), ("unconsumed",), ("gc",), ("deferred_gc",)])
+    def test_principal_cap_isolated_and_released(self, close_mode: str) -> None:
+        with (
+            override_settings(SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS=3),
+            mock.patch.object(streaming, "MAX_SSE_STREAMS_PER_PRINCIPAL", 1),
+            mock.patch.object(streaming, "_principal_stream_counts", {}),
+        ):
+            first = sse_streaming_response(_gen(), principal="user:one")
+            assert isinstance(first, StreamingHttpResponse)
+            factory = mock.Mock(side_effect=AssertionError("rejected stream must not open"))
+            assert sse_streaming_response(factory, principal="user:one").status_code == 503
+            other = sse_streaming_response(_gen(), principal="user:two")
+            assert isinstance(other, StreamingHttpResponse)
+            other.close()
+            if close_mode == "consumed":
+                next(_sync_content(first))
+            if close_mode == "deferred_gc":
+                with streaming._stream_cap_lock:
+                    del first
+                    gc.collect()
+            elif close_mode == "gc":
+                del first
+                gc.collect()
+            else:
+                first.close()
+                first.close()
+            readmitted = sse_streaming_response(_gen(), principal="user:one")
+            assert isinstance(readmitted, StreamingHttpResponse)
+            readmitted.close()
+            assert streaming._active_stream_count == 0
+            assert streaming._principal_stream_counts == {}
+
     @parameterized.expand([("iterable", False), ("factory", True)])
     def test_over_cap_rejects_with_503_and_jittered_retry_after(self, _name, use_factory):
         # The slot is reserved at admission, before any iterator is pulled:

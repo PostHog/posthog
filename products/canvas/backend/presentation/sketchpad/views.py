@@ -1,19 +1,23 @@
+from copy import copy
 from functools import partial
 from typing import Any, cast
 from uuid import UUID
 
+from django.contrib.auth import get_user
+from django.contrib.auth.models import AnonymousUser
 from django.contrib.postgres.expressions import ArraySubquery
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.db.models import Count, Func, JSONField, OuterRef, QuerySet, Subquery
 from django.db.models.functions import Coalesce, JSONObject
-from django.http import HttpResponse, StreamingHttpResponse
+from django.http import Http404, HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
@@ -290,7 +294,8 @@ class SketchpadViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         team_id = sketchpad.team_id
         sketchpad_id = str(sketchpad.id)
         last_event_id = request.headers.get("Last-Event-ID")
-        can_read = database_sync_to_async(self.get_queryset().filter(pk=sketchpad.pk).exists)
+        can_read = database_sync_to_async(self._can_read_stream)
+        user = self._request_user()
 
         return sse_streaming_response(
             partial(
@@ -301,7 +306,28 @@ class SketchpadViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
                 last_event_id=last_event_id,
             ),
             endpoint="sketchpad_stream",
+            principal=f"user:{user.pk}" if user else f"team:{team_id}",
         )
+
+    def _can_read_stream(self) -> bool:
+        raw_request = copy(self.request._request)
+        if hasattr(raw_request, "session"):
+            raw_request.session = type(raw_request.session)(session_key=raw_request.session.session_key)
+            raw_request.user = get_user(raw_request)
+        else:
+            raw_request.user = AnonymousUser()
+        view = type(self)(basename=self.basename, detail=True, required_scopes=["canvas:read"])
+        view.action_map = {"get": "stream"}
+        view.args, view.kwargs = self.args, self.kwargs.copy()
+        view.format_kwarg = None
+        view.request = view.initialize_request(raw_request, *view.args, **view.kwargs)
+        try:
+            view.perform_authentication(view.request)
+            view.check_permissions(view.request)
+            view.get_object()
+        except (APIException, Http404, ObjectDoesNotExist):
+            return False
+        return True
 
 
 def _apply_sketchpad_patch(sketchpad: Sketchpad, data: dict[str, Any]) -> list[str]:

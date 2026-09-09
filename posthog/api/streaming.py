@@ -77,12 +77,14 @@ SSE_REJECTED_OVER_CAP_COUNTER = Counter(
 # actually started being consumed.
 _stream_cap_lock = threading.Lock()
 _active_stream_count = 0
+_principal_stream_counts: dict[str, int] = {}
+MAX_SSE_STREAMS_PER_PRINCIPAL = 20
 
 # Slots freed by the GC backstop while the cap lock was unavailable. ``__del__``
 # can fire at any allocation point, including on a thread that already holds the
 # non-reentrant lock, so it must never block on it; ``deque.append`` is atomic,
 # and admission drains this queue under the lock.
-_deferred_slot_releases: deque[None] = deque()
+_deferred_slot_releases: deque[str | None] = deque()
 
 # Rejected clients get "come back in base + [0, jitter) seconds" so a burst that
 # hits the cap spreads its retries out instead of reconnecting in lockstep.
@@ -114,49 +116,62 @@ class _StreamSlotReservation:
     process restarts.
     """
 
-    __slots__ = ("_released",)
+    __slots__ = ("_released", "_principal")
 
-    def __init__(self) -> None:
+    def __init__(self, principal: str | None = None) -> None:
         self._released = False
+        self._principal = principal
 
     def release(self) -> None:
-        global _active_stream_count
         with _stream_cap_lock:
             if self._released:
                 return
             self._released = True
-            _active_stream_count -= 1
+            _release_stream_slot(self._principal)
 
     def __del__(self) -> None:
         # GC can run while this thread holds the cap lock, so never block on it
         # here: decrement inline when the lock is free, otherwise defer to the
         # queue the next admission drains. No lock guards the flag because an
         # object being finalized has no other referents left to race with.
-        global _active_stream_count
         if self._released:
             return
         if _stream_cap_lock.acquire(blocking=False):
             try:
                 self._released = True
-                _active_stream_count -= 1
+                _release_stream_slot(self._principal)
             finally:
                 _stream_cap_lock.release()
         else:
             self._released = True
-            _deferred_slot_releases.append(None)
+            _deferred_slot_releases.append(self._principal)
 
 
-def _try_reserve_stream_slot() -> _StreamSlotReservation | None:
+def _release_stream_slot(principal: str | None) -> None:
+    global _active_stream_count
+    _active_stream_count -= 1
+    if principal is not None:
+        remaining = _principal_stream_counts[principal] - 1
+        if remaining:
+            _principal_stream_counts[principal] = remaining
+        else:
+            del _principal_stream_counts[principal]
+
+
+def _try_reserve_stream_slot(principal: str | None = None) -> _StreamSlotReservation | None:
     global _active_stream_count
     cap = settings.SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS
     with _stream_cap_lock:
         while _deferred_slot_releases:
-            _deferred_slot_releases.popleft()
-            _active_stream_count -= 1
+            _release_stream_slot(_deferred_slot_releases.popleft())
+        if principal is not None and _principal_stream_counts.get(principal, 0) >= MAX_SSE_STREAMS_PER_PRINCIPAL:
+            return None
         if cap is not None and _active_stream_count >= cap:
             return None
         _active_stream_count += 1
-    return _StreamSlotReservation()
+        if principal is not None:
+            _principal_stream_counts[principal] = _principal_stream_counts.get(principal, 0) + 1
+    return _StreamSlotReservation(principal)
 
 
 def _stream_cap_rejection(endpoint: str) -> HttpResponse:
@@ -322,6 +337,7 @@ def sse_streaming_response(
     stream: StreamContent | Callable[[], AsyncGenerator[bytes | str]],
     *,
     endpoint: str = "unknown",
+    principal: str | None = None,
     status: int = HTTPStatus.OK,
     headers: dict[str, str] | None = None,
 ) -> StreamingHttpResponse | HttpResponse:
@@ -366,7 +382,7 @@ def sse_streaming_response(
     released when the stream ends, when a never-consumed response is closed,
     or by a GC backstop when the response is dropped without being closed.
     """
-    reservation = _try_reserve_stream_slot()
+    reservation = _try_reserve_stream_slot(principal)
     if reservation is None:
         return _stream_cap_rejection(endpoint)
     try:

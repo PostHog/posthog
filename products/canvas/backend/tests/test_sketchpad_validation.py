@@ -1,5 +1,6 @@
 import json
 from collections.abc import AsyncGenerator
+from datetime import timedelta
 from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
@@ -9,11 +10,13 @@ from django.db import connection
 from django.http import StreamingHttpResponse
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog import redis
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.sync import database_sync_to_async
 
 from products.canvas.backend.models import Sketchpad, SketchpadOp, SketchpadRecord
@@ -356,7 +359,9 @@ class TestSketchpadValidationEndpoint(APIBaseTest):
         assert not SketchpadRecord.objects.for_team(self.team.id).filter(sketchpad=sketchpad).exists()
         assert not SketchpadOp.objects.for_team(self.team.id).filter(sketchpad=sketchpad).exists()
 
-    @parameterized.expand([("deleted",), ("private",)])
+    @parameterized.expand(
+        [("deleted",), ("private",), ("membership",), ("disabled_user",), ("token_scope",), ("token_revoked",)]
+    )
     def test_open_stream_stops_after_access_changes(self, change: str) -> None:
         channel = Channel.objects.for_team(self.team.id).create(team_id=self.team.id, name="general")
         private_channel = Channel.objects.for_team(self.team.id).create(
@@ -368,11 +373,49 @@ class TestSketchpadValidationEndpoint(APIBaseTest):
         sketchpad = Sketchpad.objects.for_team(self.team.id).create(
             team_id=self.team.id, channel=channel, name="Test sketchpad"
         )
+        token = None
+        if change.startswith("token_"):
+            app = OAuthApplication.objects.create(
+                name="desktop",
+                user=self.user,
+                organization=self.organization,
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                algorithm="RS256",
+                redirect_uris="https://example.com/callback",
+            )
+            token = OAuthAccessToken.objects.create(
+                user=self.user,
+                application=app,
+                token="pha_sketchpad_stream_test",
+                scope="canvas:read",
+                expires=timezone.now() + timedelta(hours=1),
+                scoped_teams=[],
+                scoped_organizations=[],
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
         client = AsyncMock()
         client.xrevrange.return_value = []
         client.time.return_value = (1_800_000_000, 0)
         client.xread.return_value = [(b"ops", [(b"1-0", {b"data": b'{"type":"op","seq":1}'})])]
-        update_board = database_sync_to_async(Sketchpad.objects.for_team(self.team.id).filter(pk=sketchpad.pk).update)
+
+        def revoke_access() -> None:
+            if change == "membership":
+                self.organization.memberships.filter(user=self.user).delete()
+            elif change == "disabled_user":
+                self.user.is_active = False
+                self.user.save(update_fields=["is_active"])
+            elif change == "token_scope":
+                assert token is not None
+                token.scope = "annotation:read"
+                token.save(update_fields=["scope"])
+            elif change == "token_revoked":
+                assert token is not None
+                token.delete()
+            else:
+                updates = {"deleted": True} if change == "deleted" else {"channel_id": private_channel.pk}
+                Sketchpad.objects.for_team(self.team.id).filter(pk=sketchpad.pk).update(**updates)
 
         with (
             patch("posthog.api.streaming.settings.SERVER_GATEWAY_INTERFACE", "ASGI"),
@@ -390,8 +433,7 @@ class TestSketchpadValidationEndpoint(APIBaseTest):
                 assert isinstance(frames, AsyncGenerator)
                 try:
                     assert b"event: op" in await anext(frames)
-                    updates = {"deleted": True} if change == "deleted" else {"channel_id": private_channel.pk}
-                    await update_board(**updates)
+                    await database_sync_to_async(revoke_access)()
                     with self.assertRaises(StopAsyncIteration):
                         await anext(frames)
                 finally:
