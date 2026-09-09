@@ -8,7 +8,15 @@ The Alerts product registers two queues through `products/alerts/backend/facade/
 | `ALERTS_PRODUCT_DELIVERY_TASK_QUEUE`      | `alerts-product-delivery-task-queue`   | `alerts-product-deliver`   |
 
 These queue names are hardcoded and stay separate even with `DEBUG=True`.
-Start a worker for each queue with the command's `--task-queue` option.
+Start one worker for each queue:
+
+```bash
+python manage.py start_temporal_worker --task-queue alerts-product-evaluation-task-queue --metrics-port 8102
+python manage.py start_temporal_worker --task-queue alerts-product-delivery-task-queue --metrics-port 8103
+```
+
+Give every worker its own `--metrics-port`.
+The option defaults to 8001, which the shared development worker already binds, so a worker that keeps the default stops with `Address already in use`.
 The shared development worker does not poll these queues.
 See [Temporal development guidance](../../posthog/temporal/README.md) for worker setup.
 
