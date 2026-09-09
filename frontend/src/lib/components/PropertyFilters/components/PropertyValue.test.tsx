@@ -157,6 +157,7 @@ describe('PropertyValue', () => {
             label: 'trims surrounding whitespace from a pasted value before committing it',
             propertyKey: '$ai_trace_id',
             operator: PropertyOperator.Exact,
+            staticValues: null,
             pastedValue: ' 9c8a6265-382a-4972-9640-b400dabdd83e ',
             expectedArg: ['9c8a6265-382a-4972-9640-b400dabdd83e'],
         },
@@ -164,10 +165,19 @@ describe('PropertyValue', () => {
             label: 'preserves surrounding whitespace for regex operators, where it can be meaningful',
             propertyKey: '$current_url',
             operator: PropertyOperator.Regex,
+            staticValues: null,
             pastedValue: 'foo ',
             expectedArg: 'foo ',
         },
-    ])('$label', async ({ propertyKey, operator, pastedValue, expectedArg }) => {
+        {
+            label: 'keeps a trailing space that a suggested value also has, so exact matching still works',
+            propertyKey: 'name',
+            operator: PropertyOperator.Exact,
+            staticValues: [{ name: 'Hedgebox Inc ' }],
+            pastedValue: 'Hedgebox Inc ',
+            expectedArg: ['Hedgebox Inc '],
+        },
+    ])('$label', async ({ propertyKey, operator, staticValues, pastedValue, expectedArg }) => {
         const onSet = jest.fn()
         render(
             <Provider>
@@ -177,6 +187,7 @@ describe('PropertyValue', () => {
                     operator={operator}
                     onSet={onSet}
                     value={[]}
+                    staticValues={staticValues}
                 />
             </Provider>
         )
@@ -189,6 +200,32 @@ describe('PropertyValue', () => {
 
         await waitFor(() => {
             expect(onSet).toHaveBeenCalledWith(expectedArg)
+        })
+    })
+
+    it('keeps a typed comma inside the value when the suggested values contain commas', async () => {
+        const onSet = jest.fn()
+        render(
+            <Provider>
+                <PropertyValue
+                    propertyKey="name"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={onSet}
+                    value={[]}
+                    staticValues={[{ name: 'Hedgebox, Inc.' }]}
+                />
+            </Provider>
+        )
+
+        const user = userEvent.setup()
+        const input = screen.getByRole('textbox')
+        await user.click(input)
+        await user.type(input, 'Hedgebox, Inc.')
+        await user.keyboard('{Enter}')
+
+        await waitFor(() => {
+            expect(onSet).toHaveBeenLastCalledWith(['Hedgebox, Inc.'])
         })
     })
 

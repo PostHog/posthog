@@ -273,6 +273,18 @@ export function PropertyValue({
         return [...suggestedOptions, ...otherOptions]
     }, [propertyOptions?.values, initialSuggestedValues, staticValues])
 
+    // The suggestions are the values the property really holds, so they answer two questions that
+    // the raw user input cannot: whether a chosen value is a real value, and whether a comma is
+    // part of a value instead of a separator between values.
+    const availableValues = useMemo(
+        () => new Set(displayOptions.map((option) => toString(option.name))),
+        [displayOptions]
+    )
+    const someValueContainsComma = useMemo(
+        () => Array.from(availableValues).some((availableValue) => availableValue.includes(',')),
+        [availableValues]
+    )
+
     const onSearchTextChange = (newInput: string): void => {
         const trimmedInput = newInput.trim()
         if (trimmedInput !== currentSearchInput.current && !(operator && isOperatorFlag(operator))) {
@@ -423,8 +435,11 @@ export function PropertyValue({
         return <>{formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)}</>
     }
 
-    // Disable comma splitting for user agent properties that contain commas in their values
+    // Comma-separated entry cuts the input in two at each comma, which makes a value that contains a
+    // comma impossible to type. The suggestions show when that applies. User agent strings always
+    // contain commas, so they stay in the list for the moment before the suggestions arrive.
     const isUserAgentProperty = ['$raw_user_agent', '$initial_raw_user_agent', '$user_agent'].includes(propertyKey)
+    const disableCommaSplitting = isUserAgentProperty || someValueContainsComma
 
     const suggestionsLabel = staticValues
         ? staticValues.length > 0
@@ -482,16 +497,16 @@ export function PropertyValue({
                         : undefined
                 }
                 onChange={(nextVal) => {
-                    // Trim whitespace so a stray leading/trailing space (common when pasting an ID)
-                    // doesn't silently break the filter — the snack display hides the space.
-                    // Skip regex operators, where leading/trailing whitespace can be a meaningful
-                    // part of the pattern (e.g. `^ foo`, `bar $`).
-                    const trimmedVal = isOperatorRegex(operator)
+                    // A leading or trailing space is invisible in the value snack, so a pasted ID that
+                    // keeps one breaks the filter with no sign of why. Trim it away, with two
+                    // exceptions. A regex operator can use the space as part of the pattern (for
+                    // example `^ foo`). A value that the suggestions hold with that same space is a
+                    // real property value, and the filter must keep the space to match it.
+                    const committedVal = isOperatorRegex(operator)
                         ? nextVal
-                        : nextVal.map((v) => (typeof v === 'string' ? v.trim() : v))
-                    const newValues = trimmedVal.filter((v) => !formattedValues.includes(String(v)))
+                        : nextVal.map((v) => (typeof v === 'string' && !availableValues.has(v) ? v.trim() : v))
+                    const newValues = committedVal.filter((v) => !formattedValues.includes(String(v)))
                     if (newValues.length > 0) {
-                        const availableValues = new Set(displayOptions.map((o) => toString(o.name)))
                         const fromSuggestion = newValues.every((v) => availableValues.has(toString(v)))
 
                         posthog.capture('property_value_selected', {
@@ -502,12 +517,12 @@ export function PropertyValue({
                             had_search_input: currentSearchInput.current !== '',
                         })
                     }
-                    isMultiSelect ? setValue(trimmedVal) : setValue(trimmedVal[0])
+                    isMultiSelect ? setValue(committedVal) : setValue(committedVal[0])
                 }}
                 onInputChange={onSearchTextChange}
                 placeholder={placeholder}
                 size={size}
-                disableCommaSplitting={isUserAgentProperty}
+                disableCommaSplitting={disableCommaSplitting}
                 status={validationError ? 'danger' : 'default'}
                 title={titleNode}
                 popoverClassName="max-w-200"
