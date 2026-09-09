@@ -5,6 +5,7 @@ import api from 'lib/api'
 
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+import { ruleSaveErrorMessage } from '../rules/ruleSaveError'
 import { rulesLogic } from '../rules/rulesLogic'
 import { ErrorTrackingBypassRule, ErrorTrackingRuleType } from '../rules/types'
 import type { ErrorTrackingBaseRule } from '../rules/types'
@@ -25,6 +26,7 @@ export interface bypassRuleModalLogicValues {
     hasFilters: boolean
     isOpen: boolean
     rule: ErrorTrackingBypassRule
+    saveError: string | null
     saving: boolean
     savingLoading: boolean
 }
@@ -104,6 +106,16 @@ export const bypassRuleModalLogic = kea<bypassRuleModalLogicType>([
 
     reducers({
         isOpen: [false, { openModal: () => true, closeModal: () => false }],
+        saveError: [
+            null as string | null,
+            {
+                openModal: () => null,
+                updateRule: () => null,
+                saveRule: () => null,
+                saveRuleFailure: (_: string | null, { errorObject }: { errorObject?: unknown }) =>
+                    ruleSaveErrorMessage(errorObject),
+            },
+        ],
         rule: [
             emptyRule() as ErrorTrackingBypassRule,
             {

@@ -52,13 +52,19 @@ def compile_filter_bytecode(team_id: int, filters: dict) -> list[Any]:
 
     from posthog.hogql import ast  # noqa: PLC0415
     from posthog.hogql.compiler.bytecode import create_bytecode  # noqa: PLC0415
+    from posthog.hogql.errors import ExposedHogQLError  # noqa: PLC0415
     from posthog.hogql.property import property_to_expr  # noqa: PLC0415
 
     from posthog.models.team.team import Team  # noqa: PLC0415
 
     team = Team.objects.get(id=team_id)
-    expr = property_to_expr(PropertyGroupFilterValue(**filters), team, strict=True)
-    bytecode = create_bytecode(ast.ReturnStatement(expr=expr)).bytecode
+    try:
+        expr = property_to_expr(PropertyGroupFilterValue(**filters), team, strict=True)
+        bytecode = create_bytecode(ast.ReturnStatement(expr=expr)).bytecode
+    except ExposedHogQLError as err:
+        # HogQL refuses filters it cannot compile, such as a regex the RE2 engine rejects. Its
+        # message is written for the user, so the caller can answer 400 instead of failing with 500.
+        raise ErrorTrackingInvalidBytecodeError(str(err)) from err
     _validate_rule_bytecode(bytecode)
     return bytecode
 

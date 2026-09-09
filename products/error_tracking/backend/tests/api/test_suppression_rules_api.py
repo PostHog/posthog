@@ -222,7 +222,27 @@ class TestSuppressionRuleAPI(APIBaseTest):
         body = response.json()
         assert body["type"] == "validation_error"
         assert body["attr"] == "filters"
-        assert body["detail"] == "Invalid filters payload."
+        assert body["detail"] == "Filter 1 is not valid. Check its property, operator, and value."
+
+    def test_create_names_the_rejected_filter(self) -> None:
+        response = self.client.post(
+            self._url(),
+            data={
+                "filters": {
+                    "type": "AND",
+                    "values": [
+                        {"type": "event", "operator": "exact", "key": "$exception_types", "value": "TypeError"},
+                        {"type": "event", "operator": "not_an_operator", "key": "$exception_values", "value": "x"},
+                    ],
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            "Filter 2 ($exception_values) is not valid. Check its property, operator, and value."
+        )
 
     def test_create_rejects_invalid_filters_shape_without_leaking_exception(self) -> None:
         response = self.client.post(
@@ -423,6 +443,31 @@ class TestSuppressionRuleAPI(APIBaseTest):
         assert body["type"] == "validation_error"
         assert body["attr"] == "filters"
         assert body["detail"] == "Invalid filters payload."
+
+    def test_update_rejects_a_regex_the_matcher_cannot_compile(self) -> None:
+        create_response = self.client.post(
+            self._url(),
+            data={"filters": VALID_FILTERS},
+            format="json",
+        )
+        rule_id = create_response.json()["id"]
+
+        response = self.client.patch(
+            self._url(rule_id),
+            data={
+                "filters": {
+                    "type": "AND",
+                    # RE2 has no lookahead, so this compiles in a browser and not in the matcher.
+                    "values": [
+                        {"type": "event", "operator": "regex", "key": "$exception_types", "value": "(?=Type)Error"}
+                    ],
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Invalid regular expression" in response.json()["detail"]
 
     def test_update_rejects_invalid_sampling_rate(self) -> None:
         create_response = self.client.post(
