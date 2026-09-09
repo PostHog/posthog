@@ -6,7 +6,7 @@
             "type": "string"
         },
         "include_materialization": {
-            "description": "Also return `sync_frequency_bounds` and `suspended`. These cost a DAG walk per view, so they are omitted unless the caller renders the materialization panel.",
+            "description": "Pass `false` to leave out `sync_frequency_bounds` and `suspended`. Each costs a DAG walk, which a caller that only needs the query body can skip.",
             "type": "boolean"
         }
     },
