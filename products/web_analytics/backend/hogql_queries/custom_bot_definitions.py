@@ -257,21 +257,34 @@ def validate_rule(rule: "CustomBotRule") -> None:
         raise ValueError("A rule needs at least one condition.")
     if len(rule.items) > MAX_CONDITIONS_PER_RULE:
         raise ValueError(f"A rule can have at most {MAX_CONDITIONS_PER_RULE} conditions.")
+    # The settings editor keys rules and conditions in one id-keyed drag-and-drop context, where
+    # a shared id collapses entries and the next save persists the collapsed list.
+    seen_ids = {rule.id}
     for item in rule.items:
         if len(item.id) > MAX_ID_LENGTH:
             raise ValueError(f"Condition id cannot be longer than {MAX_ID_LENGTH} characters.")
+        if item.id in seen_ids:
+            raise ValueError("Condition ids must be unique within a rule and differ from the rule id.")
+        seen_ids.add(item.id)
         if item.key not in CUSTOM_BOT_FIELDS:
             raise ValueError(f"Cannot match on property '{item.key}'.")
         validate_pattern(item.pattern, item.matcher.value, item.key)
 
 
-def upcast_rules(raw: list, strict: bool = False) -> list["CustomBotRule"]:
+def upcast_rules(raw: list, strict: bool = False, warn_on_drop: bool = True) -> list["CustomBotRule"]:
     """Parse stored or submitted definitions into rules, reading the pre-combiner flat shape too.
 
     A flat `{key, matcher, pattern}` entry saved before rules grew conditions becomes a
     one-condition rule, so old storage keeps working without a migration. By default an entry that
     does not parse is dropped — one bad entry must not take a project's whole bot list out of every
     query. `strict` raises instead, for the save paths, where dropping would lose a rule silently.
+
+    A missing id is minted only in strict mode, where the result is persisted once. In lenient mode
+    the id must be deterministic: the parsed rules feed the query cache key, so a per-call uuid
+    would silently zero the team's cache hit rate.
+
+    `warn_on_drop=False` is for the per-query path, where one permanently bad stored entry would
+    otherwise log in proportion to the team's query volume.
     """
     from pydantic import ValidationError  # noqa: PLC0415 — keeps pydantic models off the django.setup import path
 
@@ -280,7 +293,7 @@ def upcast_rules(raw: list, strict: bool = False) -> list["CustomBotRule"]:
     from posthog.schema_enums import FilterLogicalOperator  # noqa: PLC0415 — same
 
     rules: list[CustomBotRule] = []
-    for entry in raw:
+    for index, entry in enumerate(raw):
         if isinstance(entry, CustomBotRule):
             rules.append(entry)
             continue
@@ -288,15 +301,19 @@ def upcast_rules(raw: list, strict: bool = False) -> list["CustomBotRule"]:
             if not isinstance(entry, dict):
                 raise ValueError("Each rule must be an object.")
             if "items" in entry:
+                # A client that learned the shape from the rules API may omit the combiner, which
+                # that API defaults; default it here too so the two write paths agree.
+                if "combiner" not in entry:
+                    entry = {**entry, "combiner": FilterLogicalOperator.AND_}
                 rules.append(CustomBotRule(**entry))
             else:
                 # The condition id must differ from the rule id: the settings editor registers
                 # rules and conditions in one id-keyed drag-and-drop context, where a shared id
                 # collapses them.
-                rule_id = str(entry.get("id") or "") or str(uuid4())
+                rule_id = str(entry.get("id") or "") or (str(uuid4()) if strict else f"legacy-{index}")
                 condition_id = f"{rule_id}-condition"
                 if len(condition_id) > MAX_ID_LENGTH:
-                    condition_id = str(uuid4())
+                    condition_id = str(uuid4()) if strict else f"legacy-{index}-condition"
                 condition = CustomBotCondition(
                     id=condition_id,
                     key=entry["key"],
@@ -314,15 +331,18 @@ def upcast_rules(raw: list, strict: bool = False) -> list["CustomBotRule"]:
                 )
         except (ValidationError, KeyError, ValueError, TypeError) as error:
             if strict:
+                if isinstance(error, KeyError):
+                    raise ValueError("Each bot rule needs a name, key, matcher, and pattern.") from error
                 raise ValueError(f"Invalid bot rule: {error}") from error
-            # A dropped rule stops classifying with no other trace, so make the drop visible the
-            # same way the bypassed compile probe is.
-            logger.warning(
-                "custom_bot_rule_dropped",
-                entry_id=str(entry.get("id", "")) if isinstance(entry, dict) else "",
-                name=str(entry.get("name", "")) if isinstance(entry, dict) else "",
-                error=str(error),
-            )
+            if warn_on_drop:
+                # A dropped rule stops classifying with no other trace, so make the drop visible
+                # the same way the bypassed compile probe is.
+                logger.warning(
+                    "custom_bot_rule_dropped",
+                    entry_id=str(entry.get("id", ""))[:MAX_ID_LENGTH] if isinstance(entry, dict) else "",
+                    name=str(entry.get("name", ""))[:MAX_NAME_LENGTH] if isinstance(entry, dict) else "",
+                    error=str(error),
+                )
     return rules
 
 
@@ -400,10 +420,10 @@ def _compile_composite(rule: "CustomBotRule") -> CompositeGroup:
 def compile_definitions(rules: list["CustomBotRule"] | None) -> list[CustomBotGroup]:
     """Compile a project's rules into the groups the HogQL builder emits.
 
-    One-condition rules that match the same property the same way share a group — one hyperscan
-    pass over that property at query time. A rule with several conditions becomes its own group.
-    The groups come back in the order their first rule appears, which is the order they are
-    checked at query time.
+    Contiguous one-condition rules that match the same property the same way share a group — one
+    hyperscan pass over that property at query time. A rule with several conditions becomes its
+    own group. The groups come back in list order, which is the order they are checked at query
+    time, so the editor's drag-to-reorder is the precedence.
 
     Unusable rules are dropped rather than raised on: one saved before a rule tightened, or
     written straight to the API, must not break every query for the project.
@@ -411,11 +431,13 @@ def compile_definitions(rules: list["CustomBotRule"] | None) -> list[CustomBotGr
     if not rules:
         return []
 
-    # (property, kind) -> the one-condition rules that share that group. A bucket takes its place
-    # in `order` at first appearance, which keeps precedence meaningful. A composite rule closes
-    # every open bucket: a later same-property rule must not slide into a bucket positioned above
-    # the composite, because the editor promises list order is precedence.
-    open_buckets: dict[tuple[str, str], list[CustomBotRule]] = {}
+    # Contiguous one-condition rules on the same (property, kind) share a group — one hyperscan
+    # pass. Any other rule in between (a composite, or a rule on another property) closes the run:
+    # the editor promises list order is precedence, so a later rule must never slide into a group
+    # positioned above something listed before it. Interleaved orderings therefore degrade to one
+    # group per rule; a raised MAX_CUSTOM_BOT_DEFINITIONS should revisit this.
+    open_bucket_key: tuple[str, str] | None = None
+    open_bucket: list[CustomBotRule] = []
     order: list[Union[tuple[str, str, list[CustomBotRule]], CustomBotRule]] = []
     for rule in rules[:MAX_CUSTOM_BOT_DEFINITIONS]:
         try:
@@ -424,17 +446,16 @@ def compile_definitions(rules: list["CustomBotRule"] | None) -> list[CustomBotGr
             continue
         if len(rule.items) > 1:
             order.append(rule)
-            open_buckets = {}
+            open_bucket_key = None
             continue
         item = rule.items[0]
         kind = CIDR_MATCHER if item.matcher.value == CIDR_MATCHER else "pattern"
         bucket_key = (str(item.key), kind)
-        bucket = open_buckets.get(bucket_key)
-        if bucket is None:
-            bucket = []
-            open_buckets[bucket_key] = bucket
-            order.append((str(item.key), kind, bucket))
-        bucket.append(rule)
+        if bucket_key != open_bucket_key:
+            open_bucket_key = bucket_key
+            open_bucket = []
+            order.append((str(item.key), kind, open_bucket))
+        open_bucket.append(rule)
 
     groups: list[CustomBotGroup] = []
     for entry in order:

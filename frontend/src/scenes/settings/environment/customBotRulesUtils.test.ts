@@ -10,7 +10,7 @@ import {
 } from './customBotRulesUtils'
 
 const condition = (overrides: Partial<CustomBotCondition> = {}): CustomBotCondition => ({
-    id: '1',
+    id: 'c1',
     key: CustomBotField.RawUserAgent,
     pattern: 'AcmeBot',
     matcher: CustomBotMatcher.Contains,
@@ -253,22 +253,34 @@ describe('customBotRulesUtils', () => {
         })
 
         it('mints ids so rules without one do not collapse in the id-keyed editor', () => {
-            const upcast = upcastCustomBotRules([
+            const raw = [
                 { name: 'One', key: '$raw_user_agent', matcher: 'contains', pattern: 'One' },
                 { name: 'Two', key: '$raw_user_agent', matcher: 'contains', pattern: 'Two' },
-            ])
+            ]
+            const upcast = upcastCustomBotRules(raw)
 
             expect(upcast).toHaveLength(2)
             expect(upcast[0].id).toBeTruthy()
             expect(upcast[0].id).not.toEqual(upcast[1].id)
             expect(upcast[0].items[0].id).not.toEqual(upcast[0].id)
+            // Deterministic: a random id would differ per render and read as an endless unsaved
+            // change against the saved state.
+            expect(upcastCustomBotRules(raw)).toEqual(upcast)
+        })
+
+        it('re-mints colliding ids so rules do not collapse in the id-keyed editor', () => {
+            const upcast = upcastCustomBotRules([rule({ id: 'dup' }), rule({ id: 'dup', name: 'Second' })])
+
+            expect(upcast).toHaveLength(2)
+            expect(upcast[0].id).not.toEqual(upcast[1].id)
         })
 
         it('keeps the current shape and drops what does not parse', () => {
             const current = rule()
 
             // A malformed items-shape entry must be dropped, not blind-cast: it would otherwise
-            // throw in validation during render and crash the settings scene.
+            // throw in validation during render and crash the settings scene. An unknown matcher
+            // must also drop, or the editor calls valid what the server 400s.
             expect(
                 upcastCustomBotRules([
                     current,
@@ -276,6 +288,7 @@ describe('customBotRulesUtils', () => {
                     { pattern: 'no key' },
                     { id: 'x', items: [{}] },
                     { items: [condition()], name: null },
+                    { id: 'y', name: 'n', items: [{ ...condition(), matcher: 'startswith' }] },
                 ])
             ).toEqual([current])
         })

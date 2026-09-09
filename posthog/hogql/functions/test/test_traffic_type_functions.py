@@ -658,7 +658,7 @@ class TestMacroExpansionGuard(BaseTest):
                     id="1",
                     name="Acme",
                     combiner=FilterLogicalOperator.AND_,
-                    items=[CustomBotCondition(id="1", key=key, pattern=pattern, matcher=matcher)],
+                    items=[CustomBotCondition(id="c1", key=key, pattern=pattern, matcher=matcher)],
                 )
             ]
         )
@@ -714,7 +714,7 @@ CHROME_USER_AGENT = (
 def _custom_condition(**kwargs) -> CustomBotCondition:
     return CustomBotCondition(
         **{
-            "id": "1",
+            "id": "c1",
             "key": CustomBotField.FIELD_RAW_USER_AGENT,
             "pattern": "AcmeBot",
             "matcher": CustomBotMatcher.CONTAINS,

@@ -1917,7 +1917,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 try:
                     validate_custom_bot_rule(rule)
                 except ValueError as error:
-                    raise exceptions.ValidationError({"customBotDefinitions": f"{rule.name}: {error}"})
+                    # An empty name would render as an orphaned leading colon.
+                    message = f"{rule.name}: {error}" if rule.name else str(error)
+                    raise exceptions.ValidationError({"customBotDefinitions": message})
             try:
                 assert_custom_bot_patterns_compile(compiled_custom_bot_patterns(rules))
             except ValueError as error:

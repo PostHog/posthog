@@ -29,7 +29,7 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
 def condition(**kwargs) -> CustomBotCondition:
     return CustomBotCondition(
         **{
-            "id": "1",
+            "id": "c1",
             "key": CustomBotField.FIELD_RAW_USER_AGENT,
             "pattern": "AcmeBot",
             "matcher": CustomBotMatcher.CONTAINS,
@@ -139,10 +139,24 @@ class TestValidation:
 
     def test_rejects_a_rule_with_too_many_conditions(self):
         # Every condition is a read added to every query that selects a classification field.
-        overloaded = rule(items=[condition(id=str(i)) for i in range(MAX_CONDITIONS_PER_RULE + 1)])
+        overloaded = rule(items=[condition(id=str(i + 10)) for i in range(MAX_CONDITIONS_PER_RULE + 1)])
 
         with pytest.raises(ValueError, match="at most"):
             validate_rule(overloaded)
+
+    @parameterized.expand(
+        [
+            # The editor keys rules and conditions by id in one drag-and-drop context, so a shared
+            # id collapses entries and the next save persists the collapsed list.
+            ("two conditions share an id", [{"id": "a"}, {"id": "a"}]),
+            ("a condition reuses the rule id", [{"id": "1"}]),
+        ]
+    )
+    def test_rejects_colliding_condition_ids(self, _name: str, item_overrides: list[dict]):
+        colliding = rule(items=[condition(**overrides) for overrides in item_overrides])
+
+        with pytest.raises(ValueError, match="unique"):
+            validate_rule(colliding)
 
     @parameterized.expand(
         [
@@ -238,6 +252,23 @@ class TestUpcastRules:
         assert upcast[0].id
         assert upcast[0].items[0].id != upcast[0].id
 
+    def test_lenient_minted_ids_are_deterministic(self):
+        # The parsed rules feed the query cache key, so a per-call random id would silently zero
+        # the team's cache hit rate.
+        raw = [{"name": "Acme", "key": "$raw_user_agent", "matcher": "contains", "pattern": "AcmeBot"}]
+
+        assert upcast_rules(raw) == upcast_rules(raw)
+
+    def test_an_items_shape_entry_without_a_combiner_defaults_to_and(self):
+        # The rules API defaults the combiner, so a client that learned the shape there must not
+        # 400 on the team save path.
+        upcast = upcast_rules(
+            [{"id": "1", "name": "Acme", "items": [condition().model_dump()]}],
+            strict=True,
+        )
+
+        assert upcast[0].combiner == FilterLogicalOperator.AND_
+
     def test_keeps_the_current_shape_and_drops_what_does_not_parse(self):
         current = rule().model_dump(exclude_none=True)
 
@@ -246,8 +277,9 @@ class TestUpcastRules:
         assert [r.name for r in upcast] == ["Acme scraper"]
 
     def test_strict_raises_instead_of_dropping(self):
-        # On the save paths a silently dropped rule reads as saved; the error has to surface.
-        with pytest.raises(ValueError, match="Invalid bot rule"):
+        # On the save paths a silently dropped rule reads as saved; the error has to surface, and
+        # a missing key must not leak a bare KeyError repr to the caller.
+        with pytest.raises(ValueError, match="needs a name, key, matcher, and pattern"):
             upcast_rules([{"pattern": "no key"}], strict=True)
 
 
@@ -297,6 +329,23 @@ class TestCompileDefinitions:
             CustomBotField.FIELD_HOST.value,
             CustomBotField.FIELD_IP.value,
             CustomBotField.FIELD_RAW_USER_AGENT.value,
+        ]
+
+    def test_only_contiguous_rules_share_a_group(self):
+        # The editor promises list order is precedence, so a later same-property rule must not
+        # slide into a group positioned above a rule listed between them.
+        groups = compile_definitions(
+            [
+                rule(id="1", name="First UA", pattern="First"),
+                rule(id="2", name="By host", key=CustomBotField.FIELD_HOST, pattern="scraper.example.com"),
+                rule(id="3", name="Last UA", pattern="Last"),
+            ]
+        )
+
+        assert [[bot.name for bot in group.definitions] for group in groups if isinstance(group, PatternGroup)] == [
+            ["First UA"],
+            ["By host"],
+            ["Last UA"],
         ]
 
     def test_a_property_matched_two_ways_gets_a_group_each(self):

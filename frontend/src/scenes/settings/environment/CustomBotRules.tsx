@@ -103,7 +103,11 @@ export function CustomBotRules(): JSX.Element {
 
     // The saved state is whatever the server currently holds, so a save that the backend rejects
     // leaves the editor dirty and retryable instead of falsely reading as saved.
-    const savedRules = upcastCustomBotRules(currentTeam?.modifiers?.customBotDefinitions)
+    const rawSavedRules = currentTeam?.modifiers?.customBotDefinitions
+    const savedRules = upcastCustomBotRules(rawSavedRules)
+    // A save writes the parsed list back in full, so entries the upcast dropped would be removed
+    // silently. Tell the user instead of losing them without a trace.
+    const droppedCount = (Array.isArray(rawSavedRules) ? rawSavedRules.length : 0) - savedRules.length
     const [rules, setRules] = useState<CustomBotRule[]>(savedRules)
     const [testValues, setTestValues] = useState<Partial<Record<CustomBotField, string>>>({})
 
@@ -156,6 +160,13 @@ export function CustomBotRules(): JSX.Element {
                 <p className="text-muted mb-0">
                     No bots added yet. PostHog's built-in list still applies. Add one to extend it.
                 </p>
+            ) : null}
+
+            {droppedCount > 0 ? (
+                <LemonBanner type="warning">
+                    {droppedCount === 1 ? 'One saved rule' : `${droppedCount} saved rules`} could not be read and will
+                    be removed if you save. Contact support if you did not expect this.
+                </LemonBanner>
             ) : null}
 
             {!canEdit ? (
@@ -308,7 +319,8 @@ export function CustomBotRules(): JSX.Element {
             {ipRulesAreDead ? (
                 <LemonBanner type="warning">
                     This project anonymizes IP addresses, so events arrive without one and a condition on the IP address
-                    never matches. Turn off IP anonymization in Project settings, or match on another property.
+                    never matches. Turn off "Discard client IP data" in your project settings, or match on another
+                    property.
                 </LemonBanner>
             ) : null}
 

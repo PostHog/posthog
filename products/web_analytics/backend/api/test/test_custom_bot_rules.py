@@ -109,6 +109,18 @@ class TestCustomBotRulesAPI(ClickhouseTestMixin, APIBaseTest):
             ("cidr on a non-ip property", {"key": "$raw_user_agent", "matcher": "cidr", "pattern": "192.0.2.0/24"}),
             ("regex clickhouse cannot run", {"key": "$raw_user_agent", "matcher": "regex", "pattern": "(?=lookahead)"}),
             ("blank category", {"key": "$raw_user_agent", "matcher": "contains", "pattern": "AcmeBot", "category": ""}),
+            (
+                # The id-keyed editor collapses conditions that share an id, and its next save
+                # would persist the collapsed rule.
+                "duplicate condition ids",
+                {
+                    "combiner": "AND",
+                    "items": [
+                        {"id": "a", "key": "$screen_width", "matcher": "exact", "pattern": "800"},
+                        {"id": "a", "key": "$screen_height", "matcher": "exact", "pattern": "600"},
+                    ],
+                },
+            ),
         ]
     )
     def test_rejects_unusable_rules(self, _name: str, body: dict) -> None:

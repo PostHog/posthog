@@ -133,7 +133,9 @@ def _composite_branch(group: CompositeGroup, args: list[ast.Expr], attr: str) ->
         property_expr = _property_expr(condition.key, args)
         if property_expr is None:
             # One unreachable property makes the rule unanswerable as written, so skip the whole
-            # rule rather than evaluate a partial version of it.
+            # rule rather than evaluate a partial version of it. For OR this under-matches — the
+            # reachable conditions could still fire — but a partial rule answering differently
+            # from its definition is worse than not answering.
             return None
         condition_exprs.append(_condition_expr(condition, property_expr))
     matched: ast.Expr

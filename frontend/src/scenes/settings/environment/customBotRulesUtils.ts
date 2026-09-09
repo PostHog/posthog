@@ -1,5 +1,3 @@
-import { uuid } from 'lib/utils/dom'
-
 import { CustomBotCondition, CustomBotField, CustomBotMatcher, CustomBotRule } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator } from '~/types'
 
@@ -323,40 +321,55 @@ function isCondition(value: unknown): value is CustomBotCondition {
         return false
     }
     const condition = value as CustomBotCondition
+    // Enum membership matters: an unknown matcher would read as valid in the editor and then 400
+    // on save against the server's strict parsing.
     return (
-        typeof condition.key === 'string' &&
-        typeof condition.matcher === 'string' &&
-        typeof condition.pattern === 'string'
+        typeof condition.pattern === 'string' &&
+        CUSTOM_BOT_FIELD_OPTIONS.some((option) => option.value === condition.key) &&
+        Object.values(CustomBotMatcher).includes(condition.matcher)
     )
 }
 
 /** Read stored rules, upcasting the pre-combiner flat shape into a one-condition rule.
 
 Entries that do not parse are dropped, mirroring the backend: one bad entry must not take down
-the one surface that could be used to fix it. */
+the one surface that could be used to fix it. The caller compares lengths against the raw list to
+tell the user when a save would remove dropped entries.
+
+Minted ids must be deterministic (index-based, not random): the saved-rules comparison runs per
+render, and a random id would read as an endless unsaved change. */
 export function upcastCustomBotRules(raw: unknown): CustomBotRule[] {
     if (!Array.isArray(raw)) {
         return []
     }
     const rules: CustomBotRule[] = []
-    for (const entry of raw) {
+    // The editor keys rules and conditions by id in one drag-and-drop context, so every id must
+    // exist and be unique or entries silently collapse and the next save persists the loss.
+    const seenIds = new Set<string>()
+    const uniqueId = (candidate: string, fallback: string): string => {
+        const id = candidate && !seenIds.has(candidate) ? candidate : fallback
+        seenIds.add(id)
+        return id
+    }
+    raw.forEach((entry, index) => {
         if (!entry || typeof entry !== 'object') {
-            continue
+            return
         }
         const current = entry as CustomBotRule
         if (Array.isArray(current.items)) {
             if (typeof current.name !== 'string' || !current.items.every(isCondition)) {
-                continue
+                return
             }
-            // The editor keys rules and conditions by id in one drag-and-drop context, so every
-            // id must exist and be unique or entries silently collapse.
             rules.push({
                 ...current,
-                id: current.id || uuid(),
+                id: uniqueId(current.id, `legacy-${index}`),
                 combiner: current.combiner === FilterLogicalOperator.Or ? current.combiner : FilterLogicalOperator.And,
-                items: current.items.map((condition) => ({ ...condition, id: condition.id || uuid() })),
+                items: current.items.map((condition, conditionIndex) => ({
+                    ...condition,
+                    id: uniqueId(condition.id, `legacy-${index}-${conditionIndex}`),
+                })),
             })
-            continue
+            return
         }
         const flat = entry as {
             id?: string
@@ -366,18 +379,29 @@ export function upcastCustomBotRules(raw: unknown): CustomBotRule[] {
             pattern?: string
             category?: string
         }
-        if (!flat.key || !flat.matcher || typeof flat.pattern !== 'string') {
-            continue
+        if (
+            !CUSTOM_BOT_FIELD_OPTIONS.some((option) => option.value === flat.key) ||
+            !Object.values(CustomBotMatcher).includes(flat.matcher as CustomBotMatcher) ||
+            typeof flat.pattern !== 'string'
+        ) {
+            return
         }
-        const id = flat.id || uuid()
+        const id = uniqueId(flat.id ?? '', `legacy-${index}`)
         rules.push({
             id,
             name: flat.name ?? '',
             category: flat.category,
             combiner: FilterLogicalOperator.And,
-            items: [{ id: `${id}-condition`, key: flat.key, matcher: flat.matcher, pattern: flat.pattern }],
+            items: [
+                {
+                    id: uniqueId(`${id}-condition`, `legacy-${index}-condition`),
+                    key: flat.key as CustomBotField,
+                    matcher: flat.matcher as CustomBotMatcher,
+                    pattern: flat.pattern,
+                },
+            ],
         })
-    }
+    })
     return rules
 }
 
