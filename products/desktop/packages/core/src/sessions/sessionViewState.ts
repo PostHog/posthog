@@ -58,8 +58,7 @@ export function deriveSessionLifecycleState(
   const hasStarted =
     sessionMatchesActiveRun && session.firstPromptForRunId === activeTaskRunId;
   const expectsInitialPrompt =
-    !!session &&
-    (!!task.description || !!task.latest_run?.id || session.isPromptPending);
+    !!session && (!!session.initialPrompt?.length || session.isPromptPending);
 
   let isInitializing = isTaskStarting;
   if (!isTaskStarting && !hasError && !isCloudRunTerminal && !hasStarted) {

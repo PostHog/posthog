@@ -330,6 +330,7 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(call_args.kwargs["id"], f"materialize-view-{self.view_node.id}")
         self.assertEqual(call_args.kwargs["id_conflict_policy"], WorkflowIDConflictPolicy.USE_EXISTING)
         self.assertEqual(call_args.kwargs["id_reuse_policy"], WorkflowIDReusePolicy.ALLOW_DUPLICATE)
+        self.assertEqual(call_args.kwargs["retry_policy"].maximum_attempts, 1)
 
     def test_lineage_returns_subgraph(self):
         response = self.client.get(

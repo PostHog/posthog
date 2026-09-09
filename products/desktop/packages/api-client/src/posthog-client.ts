@@ -296,6 +296,12 @@ export interface TaskListOptions {
   channel?: string;
   /** Case-insensitive substring match over task title, description, and number. */
   search?: string;
+  /**
+   * Ask for the basic list payload: a summary shape with heavy fields dropped. Defaults to
+   * false. A surface that does not render the description sets this to skip the field that
+   * dominates the list payload.
+   */
+  basic?: boolean;
   /** Filter by the status of the task's most recent run. */
   status?: string;
   /** Filter by the state of the latest run's pull request (open/draft/merged/closed). */
@@ -3025,6 +3031,10 @@ export class PostHogAPIClient {
 
     if (options?.ordering) {
       params.ordering = options.ordering;
+    }
+
+    if (options?.basic) {
+      params.basic = true;
     }
 
     const data = await this.api.get(`/api/projects/{project_id}/tasks/`, {
