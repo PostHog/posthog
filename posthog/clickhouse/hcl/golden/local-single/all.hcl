@@ -4049,10 +4049,11 @@ database "posthog" {
       type = "String"
     }
     engine "kafka" {
-      collection = "warpstream_ingestion"
-      topic_list = "clickhouse_events_json"
-      group_name = "clickhouse_person_property_mutation_log"
-      format     = "JSONEachRow"
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_events_json"
+      group_name           = "clickhouse_person_property_mutation_log"
+      format               = "JSONEachRow"
+      skip_broken_messages = 100
     }
   }
 

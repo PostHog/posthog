@@ -657,6 +657,7 @@
       properties String
   )
   ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_person_property_mutation_log', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100
   
   '''
 # ---
@@ -2974,6 +2975,7 @@
       properties String
   )
   ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_events_json_test', kafka_group_name = 'clickhouse_person_property_mutation_log', kafka_format = 'JSONEachRow')
+  SETTINGS kafka_skip_broken_messages = 100
   
   '''
 # ---

@@ -59,7 +59,7 @@ CREATE TABLE posthog.kafka_person_property_mutation_log (
   team_id Int64,
   uuid UUID,
   properties String
-) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_person_property_mutation_log', kafka_topic_list = 'clickhouse_events_json';
+) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_person_property_mutation_log', kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_events_json';
 CREATE TABLE posthog.person_property_mutation_log (
   team_id Int64,
   event_uuid UUID,

@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS kafka_person_property_mutation_log
     properties String
 )
 ENGINE = {kafka_engine(topic=KAFKA_EVENTS_JSON, group="clickhouse_person_property_mutation_log", named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION)}
+SETTINGS kafka_skip_broken_messages = 100
 """
 
 
