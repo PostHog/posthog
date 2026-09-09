@@ -30,9 +30,6 @@ from posthog.scopes import (
     scopes_within_ceiling,
 )
 
-# Scope rules are pure functions over constants, so no case here needs a database.
-# Keep it that way: one database-backed case makes the whole file wait for setup.
-
 
 class TestDowngradeScopesToReadOnly(SimpleTestCase):
     @parameterized.expand(
