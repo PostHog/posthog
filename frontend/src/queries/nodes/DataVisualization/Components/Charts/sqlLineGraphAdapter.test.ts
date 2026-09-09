@@ -971,6 +971,10 @@ describe('sqlLineGraphAdapter', () => {
                 visualizationType: ChartDisplayType.ActionsBarValue,
                 ySeriesData: [ySeries('revenue', [1200, 1800], { formatting: { prefix: '$' } })],
                 goalLines: [{ label: 'Target', value: 2000 }],
+                series: buildSeries(
+                    [ySeries('revenue', [1200, 1800], { formatting: { prefix: '$' } })],
+                    ChartDisplayType.ActionsBarValue
+                ),
                 embedded: true,
             })
 
@@ -985,9 +989,29 @@ describe('sqlLineGraphAdapter', () => {
                 maxCategoryLabelWidth: MAX_CATEGORY_LABEL_WIDTH,
                 bars: { fitToHeight: true, valueDomain: { include: [2000] } },
             })
-            expect(config.xTickFormatter?.('0', 0)).toBe('/pricing')
-            expect(config.yTickFormatter?.(1200)).toBe('$1200')
-            expect(config.tooltip?.labelFormatter?.('1')).toBe('/signup')
+            expect(config.xTickFormatter!('0', 0)).toBe('/pricing')
+            expect(config.yTickFormatter!(1200)).toBe('$1200')
+            expect(config.tooltip!.labelFormatter!('1')).toBe('/signup')
+            expect(config.referenceLines).toEqual([
+                expect.objectContaining({ label: 'Target', value: 2000, axisOrientation: 'horizontal' }),
+            ])
+        })
+
+        it.each([
+            { category: null, label: '0', expected: '[No value]' },
+            { category: undefined, label: '0', expected: '[No value]' },
+            { category: 42, label: '0', expected: '42' },
+            { category: '/pricing', label: 'invalid', expected: 'invalid' },
+        ])('formats $expected when a category is $category', ({ category, label, expected }) => {
+            const config = buildBarValueChartConfig({
+                xData: { ...xData, data: [category] as unknown as string[] },
+                chartSettings: {},
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBarValue,
+            })
+
+            expect(config.xTickFormatter!(label, 0)).toBe(expected)
+            expect(config.tooltip!.labelFormatter!(label)).toBe(expected)
         })
     })
 

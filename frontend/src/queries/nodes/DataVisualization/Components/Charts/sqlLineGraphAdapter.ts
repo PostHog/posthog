@@ -4,6 +4,7 @@ import {
     type AxisLinesConfig,
     type BarChartConfig,
     type ChartLegendConfig,
+    type ReferenceLineProps,
     type Series,
     type SeriesType,
     type TimeSeriesBarChartConfig,
@@ -324,6 +325,7 @@ interface BuildConfigArgs {
     timezone: string
     goalLines?: GoalLine[]
     ySeriesData?: SqlLineYSeries[] | null
+    series?: Series<SqlLineSeriesMeta>[]
     embedded?: boolean
     /** Wraps each legend row, e.g. with the series right-click menu. Passed straight through to
      *  quill so this module stays free of JSX. */
@@ -334,7 +336,8 @@ export interface BuildBarConfigArgs extends BuildConfigArgs {
     visualizationType: ChartDisplayType
 }
 
-export type SqlBarGraphConfig = BarChartConfig & TimeSeriesBarChartConfig & { yAxis?: YAxisConfig }
+export type SqlBarGraphConfig = BarChartConfig &
+    TimeSeriesBarChartConfig & { yAxis?: YAxisConfig; referenceLines?: ReferenceLineProps[] }
 
 const SQL_BAR_TICK_LABEL_ROTATION = -45
 
@@ -529,8 +532,8 @@ export function buildBarValueChartConfig({
     chartSettings,
     timezone,
     goalLines,
-    visualizationType,
     ySeriesData,
+    series,
     legendRenderItem,
     embedded,
 }: BuildBarConfigArgs): SqlBarGraphConfig {
@@ -538,20 +541,25 @@ export function buildBarValueChartConfig({
     const valueAxis = buildYAxisConfig(chartSettings.leftYAxisSettings, ySeriesData ?? [], chartSettings.yAxisAtZero)
     const dateLabelFormatter = buildSqlDateLabelFormatter(xData, timezone)
     const categoryLabelFormatter = (label: string): string => {
-        const value = String(xData.data[Number(label)] ?? label)
-        return dateLabelFormatter?.(value) ?? value
+        const index = Number(label)
+        if (!Number.isInteger(index) || index < 0 || index >= xData.data.length) {
+            return label
+        }
+        const value = xData.data[index]
+        if (value == null) {
+            return '[No value]'
+        }
+        const stringValue = String(value)
+        return dateLabelFormatter?.(stringValue) ?? stringValue
     }
-    const referenceLines = goalLinesToReferenceLines(
-        goalLines,
-        buildSeries(ySeriesData ?? [], visualizationType),
-        'horizontal'
-    )
+    const referenceLines = goalLinesToReferenceLines(goalLines, series ?? [], 'horizontal')
     const referenceLineValues = referenceLines.flatMap((line) => (typeof line.value === 'number' ? [line.value] : []))
 
     return {
         axisOrientation: 'horizontal',
         barLayout: 'grouped',
         barCornerRadius: 4,
+        referenceLines,
         xTickFormatter: categoryLabelFormatter,
         yTickFormatter: valueAxis.tickFormatter,
         yScaleType: valueAxis.scale,

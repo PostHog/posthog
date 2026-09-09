@@ -139,8 +139,8 @@ describe('dashboard SQL visualization support', () => {
             columns,
             response.result.length
         )
-        expect(saved.chartSettings?.xAxis?.column).toBe('day')
-        expect(saved.chartSettings?.yAxis?.map((series) => series.column)).toEqual(['total'])
+        expect(saved.chartSettings!.xAxis!.column).toBe('day')
+        expect(saved.chartSettings!.yAxis!.map((series) => series.column)).toEqual(['total'])
     })
 
     it('does not offer Auto when it resolves to a type the card cannot set up', () => {

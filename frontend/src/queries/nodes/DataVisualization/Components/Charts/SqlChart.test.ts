@@ -1,7 +1,7 @@
 import { ChartDisplayType } from '~/types'
 
 import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
-import { SqlChartProps, sqlChartComponentFor } from './SqlChart'
+import { SqlChartProps, isSqlChartVisualizationType, sqlChartComponentFor } from './SqlChart'
 
 const baseProps = (visualizationType: ChartDisplayType): SqlChartProps => ({
     xData: null,
@@ -23,6 +23,16 @@ const mixedYData: AxisSeries<number | null>[] = [
 ]
 
 describe('sqlChartComponentFor', () => {
+    it.each([
+        ChartDisplayType.ActionsLineGraph,
+        ChartDisplayType.ActionsBar,
+        ChartDisplayType.ActionsBarValue,
+        ChartDisplayType.ActionsAreaGraph,
+        ChartDisplayType.ActionsStackedBar,
+    ])('routes %s through SqlChart', (visualizationType) => {
+        expect(isSqlChartVisualizationType(visualizationType)).toBe(true)
+    })
+
     it.each([
         ['line', ChartDisplayType.ActionsLineGraph, 'SqlLineGraph'],
         ['bar', ChartDisplayType.ActionsBar, 'SqlBarGraph'],

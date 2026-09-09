@@ -8,6 +8,17 @@ import { SqlComboGraph } from './SqlComboGraph'
 import { SqlLineGraph } from './SqlLineGraph'
 import { sqlChartKind } from './sqlLineGraphAdapter'
 
+const SQL_CHART_VISUALIZATION_TYPES: ChartDisplayType[] = [
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsBarValue,
+    ChartDisplayType.ActionsAreaGraph,
+    ChartDisplayType.ActionsStackedBar,
+]
+
+export const isSqlChartVisualizationType = (visualizationType: ChartDisplayType): boolean =>
+    SQL_CHART_VISUALIZATION_TYPES.includes(visualizationType)
+
 export type SqlChartProps = {
     xData: AxisSeries<string> | null
     yData: AxisSeries<number | null>[] | AxisBreakdownSeries<number | null>[]

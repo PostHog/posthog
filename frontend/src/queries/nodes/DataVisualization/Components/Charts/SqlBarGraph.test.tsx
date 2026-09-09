@@ -94,8 +94,8 @@ describe('SqlBarGraph', () => {
             expect(
                 getHogChart()
                     .xTicks()
-                    .every((tick) => tick.startsWith('$'))
-            ).toBe(true)
+                    .map((tick) => tick.startsWith('$'))
+            ).not.toContain(false)
         })
 
         it('renders percentage y-axis ticks for the 100%-stacked layout', async () => {

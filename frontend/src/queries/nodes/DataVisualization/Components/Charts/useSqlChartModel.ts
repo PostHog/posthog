@@ -59,6 +59,7 @@ export function useSqlChartModel<TConfig extends object>(
                       goalLines,
                       visualizationType,
                       ySeriesData,
+                      series,
                       legendRenderItem,
                       embedded,
                   })
@@ -71,6 +72,7 @@ export function useSqlChartModel<TConfig extends object>(
             visualizationType,
             buildConfig,
             ySeriesData,
+            series,
             legendRenderItem,
             embedded,
         ]

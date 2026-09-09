@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useCallback, useMemo } from 'react'
+import { useCallback } from 'react'
 
 import {
     BarChart,
@@ -15,7 +15,6 @@ import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsL
 import { ChartDisplayType } from '~/types'
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
-import { goalLinesToReferenceLines } from 'products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter'
 
 import { type SqlChartProps } from './SqlChart'
 import {
@@ -45,10 +44,6 @@ export const SqlBarGraph = (props: SqlChartProps): JSX.Element => {
     )
 
     const series = model?.series
-    const referenceLines = useMemo(
-        () => (series && isHorizontal ? goalLinesToReferenceLines(props.goalLines, series, 'horizontal') : []),
-        [isHorizontal, series, props.goalLines]
-    )
 
     const valueLabelFormatter = useCallback(
         (_value: number, seriesIndex: number, _dataIndex: number, context: ValueLabelContext): string =>
@@ -75,7 +70,7 @@ export const SqlBarGraph = (props: SqlChartProps): JSX.Element => {
                         onPointClick={onPointClickProp ? onPointClick : undefined}
                         onError={handleChartError}
                     >
-                        <ReferenceLines lines={referenceLines} />
+                        <ReferenceLines lines={model.config.referenceLines ?? []} />
                         {props.chartSettings.showValuesOnSeries && <ValueLabels valueFormatter={valueLabelFormatter} />}
                     </BarChart>
                 ) : (
