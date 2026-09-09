@@ -1,9 +1,20 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { LemonButton, LemonInput, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { IconFilter } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonMenuItems,
+    LemonMenuOverlay,
+    LemonTable,
+    LemonTableColumns,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -13,6 +24,39 @@ import { getAccountRelatedUserAdminUrl } from './accountRelatedUserAdminUrl'
 import { accountRelatedUsersLogic, AccountOrganizationMember, PAGE_SIZE } from './accountRelatedUsersLogic'
 import { AccountsEvents } from './constants'
 
+// Highest access first, matching the table's default sort direction for the column.
+const LEVEL_FILTER_OPTIONS: OrganizationMembershipLevel[] = [
+    OrganizationMembershipLevel.Owner,
+    OrganizationMembershipLevel.Admin,
+    OrganizationMembershipLevel.Member,
+]
+
+function LevelFilterOverlay({
+    levels,
+    onChange,
+}: {
+    levels: OrganizationMembershipLevel[]
+    onChange: (levels: OrganizationMembershipLevel[]) => void
+}): JSX.Element {
+    const items: LemonMenuItems = [
+        {
+            title: 'Show only',
+            items: LEVEL_FILTER_OPTIONS.map((level) => ({
+                icon: <LemonCheckbox checked={levels.includes(level)} className="pointer-events-none" />,
+                label: capitalizeFirstLetter(membershipLevelToName.get(level) ?? 'Unknown'),
+                'data-attr': 'customer-analytics-account-users-level-option',
+                onClick: () =>
+                    onChange(
+                        levels.includes(level)
+                            ? levels.filter((selected) => selected !== level)
+                            : LEVEL_FILTER_OPTIONS.filter((option) => levels.includes(option) || option === level)
+                    ),
+            })),
+        },
+    ]
+    return <LemonMenuOverlay items={items} />
+}
+
 export function AccountRelatedUsersExpansion({
     externalId,
     embedded = true,
@@ -21,9 +65,9 @@ export function AccountRelatedUsersExpansion({
     embedded?: boolean
 }): JSX.Element {
     const logic = accountRelatedUsersLogic({ externalId })
-    const { membersResponse, membersResponseLoading, page, searchTerm } = useValues(logic)
+    const { membersResponse, membersResponseLoading, page, searchTerm, levels, sorting } = useValues(logic)
     const { user } = useValues(userLogic)
-    const { setPage, setSearchTerm } = useActions(logic)
+    const { setPage, setSearchTerm, setLevels, setSorting } = useActions(logic)
 
     const columns: LemonTableColumns<AccountOrganizationMember> = [
         {
@@ -52,11 +96,18 @@ export function AccountRelatedUsersExpansion({
         {
             title: 'Access level',
             key: 'level',
+            sorter: true,
+            defaultSortOrder: -1,
+            more: <LevelFilterOverlay levels={levels} onChange={setLevels} />,
+            moreIcon: <IconFilter />,
+            moreFilterCount: levels.length,
             render: (_, member) => capitalizeFirstLetter(membershipLevelToName.get(member.level) ?? 'Unknown'),
         },
         {
             title: 'Last logged in',
             key: 'last_login',
+            sorter: true,
+            defaultSortOrder: -1,
             render: (_, member) => (member.last_login ? <TZLabel time={member.last_login} /> : 'Never'),
         },
     ]
@@ -107,6 +158,10 @@ export function AccountRelatedUsersExpansion({
                 rowKey="id"
                 loading={membersResponseLoading}
                 columns={columns}
+                sorting={sorting}
+                onSort={setSorting}
+                // Sorting is per expanded row and the accounts URL already carries the list's view state.
+                useURLForSorting={false}
                 pagination={{
                     controlled: true,
                     pageSize: PAGE_SIZE,
@@ -121,8 +176,8 @@ export function AccountRelatedUsersExpansion({
                         ? 'This account has no linked organization.'
                         : membersResponse === null
                           ? 'Failed to load related users.'
-                          : searchTerm
-                            ? 'No users match your search.'
+                          : searchTerm || levels.length
+                            ? 'No users match your filters.'
                             : 'No users related to this account yet.'
                 }
             />
