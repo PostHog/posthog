@@ -209,6 +209,172 @@ MCP_TOOL_CALL_FAIL_PCT_METRIC_DEFINITION: dict = {
         "ORDER BY day DESC"
     ),
 }
+WEB_SESSIONS_DAILY_METRIC_NAME = "web_sessions_daily"
+WEB_SESSIONS_DAILY_METRIC_DISPLAY_NAME = "Daily web sessions and bounce rate"
+WEB_SESSIONS_DAILY_METRIC_DESCRIPTION = (
+    "Daily count of distinct marketing-site sessions over the trailing 30 days, with the share of those "
+    "sessions that saw exactly one pageview reported as the bounce rate."
+)
+WEB_SESSIONS_DAILY_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT\n"
+        "    day,\n"
+        "    count() AS sessions,\n"
+        "    round(100 * countIf(pageviews = 1) / nullIf(count(), 0), 2) AS bounce_rate_pct\n"
+        "FROM (\n"
+        "    SELECT\n"
+        "        toStartOfDay(min(timestamp)) AS day,\n"
+        "        toString(properties.$session_id) AS session_id,\n"
+        "        count() AS pageviews\n"
+        "    FROM events\n"
+        "    WHERE event = '$pageview'\n"
+        "      AND notEmpty(toString(properties.$session_id))\n"
+        "      AND timestamp >= now() - INTERVAL 30 DAY\n"
+        "    GROUP BY session_id\n"
+        ")\n"
+        "GROUP BY day\n"
+        "ORDER BY day DESC"
+    ),
+}
+
+WEBSITE_404_HITS_DAILY_METRIC_NAME = "website_404_hits_daily"
+WEBSITE_404_HITS_DAILY_METRIC_DISPLAY_NAME = "Daily website 404 hits"
+WEBSITE_404_HITS_DAILY_METRIC_DESCRIPTION = (
+    "Daily count of marketing-site pageviews that landed on the not-found page, over the trailing 30 days. "
+    "Measured from $pageview on the /404 path, not from the in-app not_found_shown event, which fires for "
+    "missing files inside the product and counts a different thing."
+)
+WEBSITE_404_HITS_DAILY_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT\n"
+        "    toStartOfDay(timestamp) AS day,\n"
+        "    count() AS not_found_hits\n"
+        "FROM events\n"
+        "WHERE event = '$pageview'\n"
+        "  AND toString(properties.$pathname) = '/404'\n"
+        "  AND timestamp >= now() - INTERVAL 30 DAY\n"
+        "GROUP BY day\n"
+        "ORDER BY day DESC"
+    ),
+}
+
+FEEDBACK_BY_SURVEY_METRIC_NAME = "in_app_feedback_submissions_by_survey"
+FEEDBACK_BY_SURVEY_METRIC_DISPLAY_NAME = "In-app feedback submissions by survey"
+FEEDBACK_BY_SURVEY_METRIC_DESCRIPTION = (
+    "Count of completed in-app survey responses per survey over the trailing 30 days, measured from "
+    "'survey sent' events grouped by $survey_name. Survey impressions and dismissals are excluded."
+)
+FEEDBACK_BY_SURVEY_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT\n"
+        "    toString(properties.$survey_name) AS survey_name,\n"
+        "    count() AS submissions\n"
+        "FROM events\n"
+        "WHERE event = 'survey sent'\n"
+        "  AND timestamp >= now() - INTERVAL 30 DAY\n"
+        "GROUP BY survey_name\n"
+        "ORDER BY submissions DESC"
+    ),
+}
+
+SCOUT_COST_PER_RUN_METRIC_NAME = "scout_cost_per_run"
+SCOUT_COST_PER_RUN_METRIC_DISPLAY_NAME = "Cost per scout run"
+SCOUT_COST_PER_RUN_METRIC_DESCRIPTION = (
+    "Average and 95th-percentile model spend for one scout run over the trailing 30 days. A run is one "
+    "$ai_trace_id; its cost is the sum of $ai_total_cost_usd across that trace's generations."
+)
+SCOUT_COST_PER_RUN_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT\n"
+        "    round(avg(run_cost_usd), 4) AS avg_cost_usd,\n"
+        "    round(quantile(0.95)(run_cost_usd), 4) AS p95_cost_usd\n"
+        "FROM (\n"
+        "    SELECT\n"
+        "        toString(properties.$ai_trace_id) AS run_id,\n"
+        "        sum(toFloat(properties.$ai_total_cost_usd)) AS run_cost_usd\n"
+        "    FROM events\n"
+        "    WHERE event = '$ai_generation'\n"
+        "      AND timestamp >= now() - INTERVAL 30 DAY\n"
+        "    GROUP BY run_id\n"
+        ")"
+    ),
+}
+
+PAYING_CUSTOMERS_METRIC_NAME = "paying_customers"
+PAYING_CUSTOMERS_METRIC_DISPLAY_NAME = "Paying customers"
+PAYING_CUSTOMERS_METRIC_DESCRIPTION = (
+    "Count of Hedgebox accounts that paid at least one bill in the last full calendar month."
+)
+PAYING_CUSTOMERS_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT count(DISTINCT distinct_id) AS paying_customers\n"
+        "FROM paid_bills\n"
+        "WHERE timestamp >= toStartOfMonth(now() - INTERVAL 1 MONTH)\n"
+        "  AND timestamp < toStartOfMonth(now())"
+    ),
+}
+
+SIGNED_UP_CUSTOMERS_METRIC_NAME = "signed_up_customers"
+SIGNED_UP_CUSTOMERS_METRIC_DISPLAY_NAME = "Signed-up customers"
+SIGNED_UP_CUSTOMERS_METRIC_DESCRIPTION = (
+    "Count of Hedgebox accounts that have ever completed signup, whether or not they ever paid."
+)
+SIGNED_UP_CUSTOMERS_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": ("SELECT count(DISTINCT distinct_id) AS signed_up_customers\nFROM events\nWHERE event = 'signed_up'"),
+}
+
+ACTIVE_CUSTOMERS_METRIC_NAME = "active_customers_30d"
+ACTIVE_CUSTOMERS_METRIC_DISPLAY_NAME = "Active customers (30 days)"
+ACTIVE_CUSTOMERS_METRIC_DESCRIPTION = (
+    "Count of Hedgebox accounts with at least one product event in the trailing 30 days, paying or not."
+)
+ACTIVE_CUSTOMERS_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT count(DISTINCT distinct_id) AS active_customers\nFROM events\nWHERE timestamp >= now() - INTERVAL 30 DAY"
+    ),
+}
+
+YOY_MRR_GROWTH_METRIC_NAME = "yoy_mrr_growth"
+YOY_MRR_GROWTH_METRIC_DISPLAY_NAME = "Year-over-year MRR growth"
+YOY_MRR_GROWTH_METRIC_DESCRIPTION = (
+    "Percentage change in recurring revenue against the same month last year. Awaiting review: its "
+    "window handling has not been checked against the approved MRR definition."
+)
+YOY_MRR_GROWTH_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT round(100 * (this_year - last_year) / nullIf(last_year, 0), 2) AS yoy_growth_pct\n"
+        "FROM (\n"
+        "    SELECT\n"
+        "        sumIf(amount_usd, timestamp >= toStartOfMonth(now() - INTERVAL 1 MONTH)) AS this_year,\n"
+        "        sumIf(amount_usd, timestamp >= toStartOfMonth(now() - INTERVAL 13 MONTH)\n"
+        "              AND timestamp < toStartOfMonth(now() - INTERVAL 12 MONTH)) AS last_year\n"
+        "    FROM paid_bills\n"
+        ")"
+    ),
+}
+
+LONG_SERIES_METRIC_NAME = "daily_uploads_three_years"
+LONG_SERIES_METRIC_DISPLAY_NAME = "Daily file uploads (three years)"
+LONG_SERIES_METRIC_DESCRIPTION = "Daily count of Hedgebox file uploads for the trailing three years, one row per day."
+LONG_SERIES_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT\n"
+        "    toStartOfDay(now() - toIntervalDay(number)) AS day,\n"
+        "    number AS uploads\n"
+        "FROM numbers(1095)\n"
+        "ORDER BY day DESC"
+    ),
+}
+
 SCOUT_PRESCRIBED_OPS_SWEEP_SQL = (
     "SELECT\n"
     "    toStartOfDay(timestamp) AS day,\n"

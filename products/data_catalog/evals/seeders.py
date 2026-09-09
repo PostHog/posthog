@@ -29,6 +29,10 @@ from products.data_catalog.evals.constants import (
     ACCEPTED_RELATIONSHIP_FIELD,
     ACCEPTED_RELATIONSHIP_REASONING,
     ACCEPTED_RELATIONSHIP_TARGET_NAME,
+    ACTIVE_CUSTOMERS_METRIC_DEFINITION,
+    ACTIVE_CUSTOMERS_METRIC_DESCRIPTION,
+    ACTIVE_CUSTOMERS_METRIC_DISPLAY_NAME,
+    ACTIVE_CUSTOMERS_METRIC_NAME,
     APPROVED_METRIC_DEFINITION,
     APPROVED_METRIC_DESCRIPTION,
     APPROVED_METRIC_DISTINGUISHING_FILTER,
@@ -54,10 +58,18 @@ from products.data_catalog.evals.constants import (
     DRIFTED_METRIC_DESCRIPTION,
     DRIFTED_METRIC_NAME,
     FAILING_TOP_CUSTOMERS_METRIC_DEFINITION,
+    FEEDBACK_BY_SURVEY_METRIC_DEFINITION,
+    FEEDBACK_BY_SURVEY_METRIC_DESCRIPTION,
+    FEEDBACK_BY_SURVEY_METRIC_DISPLAY_NAME,
+    FEEDBACK_BY_SURVEY_METRIC_NAME,
     INJECTION_RELATIONSHIP_FIELD,
     INJECTION_RELATIONSHIP_REASONING,
     INJECTION_RELATIONSHIP_SOURCE_NAME,
     INJECTION_RELATIONSHIP_TARGET_NAME,
+    LONG_SERIES_METRIC_DEFINITION,
+    LONG_SERIES_METRIC_DESCRIPTION,
+    LONG_SERIES_METRIC_DISPLAY_NAME,
+    LONG_SERIES_METRIC_NAME,
     MCP_TOOL_CALL_FAIL_PCT_METRIC_DEFINITION,
     MCP_TOOL_CALL_FAIL_PCT_METRIC_DESCRIPTION,
     MCP_TOOL_CALL_FAIL_PCT_METRIC_DISPLAY_NAME,
@@ -66,6 +78,10 @@ from products.data_catalog.evals.constants import (
     OPERATIONAL_METRIC_DESCRIPTION,
     OPERATIONAL_METRIC_DISPLAY_NAME,
     OPERATIONAL_METRIC_NAME,
+    PAYING_CUSTOMERS_METRIC_DEFINITION,
+    PAYING_CUSTOMERS_METRIC_DESCRIPTION,
+    PAYING_CUSTOMERS_METRIC_DISPLAY_NAME,
+    PAYING_CUSTOMERS_METRIC_NAME,
     PROPOSED_METRIC_DEFINITION,
     PROPOSED_METRIC_DESCRIPTION,
     PROPOSED_METRIC_NAME,
@@ -73,10 +89,30 @@ from products.data_catalog.evals.constants import (
     RELATIONSHIP_SOURCE_KEY,
     RELATIONSHIP_SOURCE_NAME,
     RELATIONSHIP_TARGET_KEY,
+    SCOUT_COST_PER_RUN_METRIC_DEFINITION,
+    SCOUT_COST_PER_RUN_METRIC_DESCRIPTION,
+    SCOUT_COST_PER_RUN_METRIC_DISPLAY_NAME,
+    SCOUT_COST_PER_RUN_METRIC_NAME,
+    SIGNED_UP_CUSTOMERS_METRIC_DEFINITION,
+    SIGNED_UP_CUSTOMERS_METRIC_DESCRIPTION,
+    SIGNED_UP_CUSTOMERS_METRIC_DISPLAY_NAME,
+    SIGNED_UP_CUSTOMERS_METRIC_NAME,
     TOP_CUSTOMERS_METRIC_DEFINITION,
     TOP_CUSTOMERS_METRIC_DESCRIPTION,
     TOP_CUSTOMERS_METRIC_DISPLAY_NAME,
     TOP_CUSTOMERS_METRIC_NAME,
+    WEB_SESSIONS_DAILY_METRIC_DEFINITION,
+    WEB_SESSIONS_DAILY_METRIC_DESCRIPTION,
+    WEB_SESSIONS_DAILY_METRIC_DISPLAY_NAME,
+    WEB_SESSIONS_DAILY_METRIC_NAME,
+    WEBSITE_404_HITS_DAILY_METRIC_DEFINITION,
+    WEBSITE_404_HITS_DAILY_METRIC_DESCRIPTION,
+    WEBSITE_404_HITS_DAILY_METRIC_DISPLAY_NAME,
+    WEBSITE_404_HITS_DAILY_METRIC_NAME,
+    YOY_MRR_GROWTH_METRIC_DEFINITION,
+    YOY_MRR_GROWTH_METRIC_DESCRIPTION,
+    YOY_MRR_GROWTH_METRIC_DISPLAY_NAME,
+    YOY_MRR_GROWTH_METRIC_NAME,
 )
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.product_analytics.backend.facade.models import Insight
@@ -294,6 +330,130 @@ def seed_mcp_tool_call_fail_pct_metric(context: CustomPromptSandboxContext) -> d
         unit="percent",
         definition=MCP_TOOL_CALL_FAIL_PCT_METRIC_DEFINITION,
     )
+
+
+def seed_web_sessions_daily_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _seed_named_operational_metric(
+        context,
+        name=WEB_SESSIONS_DAILY_METRIC_NAME,
+        display_name=WEB_SESSIONS_DAILY_METRIC_DISPLAY_NAME,
+        description=WEB_SESSIONS_DAILY_METRIC_DESCRIPTION,
+        unit="sessions",
+        definition=WEB_SESSIONS_DAILY_METRIC_DEFINITION,
+    )
+
+
+def seed_website_404_hits_daily_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _seed_named_operational_metric(
+        context,
+        name=WEBSITE_404_HITS_DAILY_METRIC_NAME,
+        display_name=WEBSITE_404_HITS_DAILY_METRIC_DISPLAY_NAME,
+        description=WEBSITE_404_HITS_DAILY_METRIC_DESCRIPTION,
+        unit="hits",
+        definition=WEBSITE_404_HITS_DAILY_METRIC_DEFINITION,
+    )
+
+
+def seed_feedback_by_survey_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _seed_named_operational_metric(
+        context,
+        name=FEEDBACK_BY_SURVEY_METRIC_NAME,
+        display_name=FEEDBACK_BY_SURVEY_METRIC_DISPLAY_NAME,
+        description=FEEDBACK_BY_SURVEY_METRIC_DESCRIPTION,
+        unit="submissions",
+        definition=FEEDBACK_BY_SURVEY_METRIC_DEFINITION,
+    )
+
+
+def seed_scout_cost_per_run_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _seed_named_operational_metric(
+        context,
+        name=SCOUT_COST_PER_RUN_METRIC_NAME,
+        display_name=SCOUT_COST_PER_RUN_METRIC_DISPLAY_NAME,
+        description=SCOUT_COST_PER_RUN_METRIC_DESCRIPTION,
+        unit="usd",
+        definition=SCOUT_COST_PER_RUN_METRIC_DEFINITION,
+    )
+
+
+def seed_long_series_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _seed_named_operational_metric(
+        context,
+        name=LONG_SERIES_METRIC_NAME,
+        display_name=LONG_SERIES_METRIC_DISPLAY_NAME,
+        description=LONG_SERIES_METRIC_DESCRIPTION,
+        unit="uploads",
+        definition=LONG_SERIES_METRIC_DEFINITION,
+    )
+
+
+def seed_ambiguous_customer_count_metrics(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    for name, display_name, description, definition in (
+        (
+            PAYING_CUSTOMERS_METRIC_NAME,
+            PAYING_CUSTOMERS_METRIC_DISPLAY_NAME,
+            PAYING_CUSTOMERS_METRIC_DESCRIPTION,
+            PAYING_CUSTOMERS_METRIC_DEFINITION,
+        ),
+        (
+            SIGNED_UP_CUSTOMERS_METRIC_NAME,
+            SIGNED_UP_CUSTOMERS_METRIC_DISPLAY_NAME,
+            SIGNED_UP_CUSTOMERS_METRIC_DESCRIPTION,
+            SIGNED_UP_CUSTOMERS_METRIC_DEFINITION,
+        ),
+        (
+            ACTIVE_CUSTOMERS_METRIC_NAME,
+            ACTIVE_CUSTOMERS_METRIC_DISPLAY_NAME,
+            ACTIVE_CUSTOMERS_METRIC_DESCRIPTION,
+            ACTIVE_CUSTOMERS_METRIC_DEFINITION,
+        ),
+    ):
+        metric = upsert_metric(
+            team=team,
+            user=user,
+            name=name,
+            display_name=display_name,
+            description=description,
+            unit="customers",
+            definition=definition,
+        )
+        approve_metric(metric, user)
+    return {
+        "metrics": [
+            {"name": PAYING_CUSTOMERS_METRIC_NAME, "meaning": "paid a bill last full calendar month"},
+            {"name": SIGNED_UP_CUSTOMERS_METRIC_NAME, "meaning": "ever completed signup"},
+            {"name": ACTIVE_CUSTOMERS_METRIC_NAME, "meaning": "any product event in 30 days"},
+        ]
+    }
+
+
+def seed_proposed_growth_with_approved_mrr(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    approved = upsert_metric(
+        team=team,
+        user=user,
+        name=APPROVED_METRIC_NAME,
+        description=APPROVED_METRIC_DESCRIPTION,
+        unit="usd",
+        definition=APPROVED_METRIC_DEFINITION,
+    )
+    approve_metric(approved, user)
+    upsert_metric(
+        team=team,
+        user=user,
+        name=YOY_MRR_GROWTH_METRIC_NAME,
+        display_name=YOY_MRR_GROWTH_METRIC_DISPLAY_NAME,
+        description=YOY_MRR_GROWTH_METRIC_DESCRIPTION,
+        unit="percent",
+        definition=YOY_MRR_GROWTH_METRIC_DEFINITION,
+    )
+    return {
+        "metrics": [
+            {"name": APPROVED_METRIC_NAME, "status": "approved"},
+            {"name": YOY_MRR_GROWTH_METRIC_NAME, "status": "proposed"},
+        ]
+    }
 
 
 def seed_proposed_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:

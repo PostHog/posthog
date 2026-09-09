@@ -82,7 +82,9 @@ def _successful_sql(parser: LogParser) -> list[ToolCall]:
 
 
 def _is_catalog_lookup(call: ToolCall) -> bool:
-    return call.name == METRIC_LIST_TOOL or (call.name == SQL_TOOL and METRICS_CATALOG_MARKER in _query_text(call))
+    return call.name in (METRIC_LIST_TOOL, METRIC_DESCRIBE_TOOL) or (
+        call.name == SQL_TOOL and METRICS_CATALOG_MARKER in _query_text(call)
+    )
 
 
 def _successful_catalog_lookups(parser: LogParser) -> list[ToolCall]:
@@ -110,7 +112,7 @@ def _is_tool_discovery(call: ToolCall) -> bool:
 
 
 def _is_data_bearing(call: ToolCall) -> bool:
-    if _is_tool_discovery(call) or call.name == METRIC_LIST_TOOL:
+    if _is_tool_discovery(call) or call.name in (METRIC_LIST_TOOL, METRIC_DESCRIBE_TOOL):
         return False
     if call.name in _KNOWN_DATA_BEARING_TOOLS or call.name.startswith("query-"):
         return True
