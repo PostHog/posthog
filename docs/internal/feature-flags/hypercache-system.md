@@ -350,11 +350,16 @@ the tier rather than at the cluster, but the label does not prove the entry is g
 go to the replica, so replication lag reads as absence too. Confirm it in step 2 before you
 rebuild anything.
 
-**2. Compare the endpoints for one affected team.** Django writes the dedicated instance
-and mirrors to the shared one, and the reader serves from the shared copy, so the two can
-disagree. Take a team id from a reader `Cache hit for flag definitions` record with
-`source="s3"`. It logs at info, carries `team_id`, and names a team the alert is counting.
-The absent-ETag record carries the key but logs at debug, so production does not keep it.
+**2. Compare the endpoints for one affected team.** Django writes the dedicated instance and
+mirrors to the shared one, so the two can disagree. Which copy the reader served depends on
+`FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED`, so read
+`flags_flag_definitions_reads_dedicated_redis` first and start from the cluster it names.
+Reading the wrong endpoint makes a healthy mirror look broken.
+
+Take a team id from a reader `Cache hit for flag definitions` record with `source="s3"`. It
+logs at info, carries `team_id`, and names a team the alert is counting. An absent ETag
+writes no log record at all, so the `redis_missing` counter is the only signal that it
+happened.
 
 Query the shared replica first.
 That endpoint answered the read the metric counted, and the shared primary can hold a key the replica does not.
@@ -371,7 +376,8 @@ redis-cli -u "$REDIS_URL" exists "posthog:1:cache/teams/{team_id}/feature_flags/
 redis-cli -u "$FLAGS_REDIS_URL" exists "posthog:1:cache/teams/{team_id}/feature_flags/flags_with_cohorts.json:etag"
 ```
 
-Absent on the shared replica and present on the shared primary is replication lag, not a lost entry.
+Absent on the replica of the cluster the reader served, and present on that cluster's primary,
+is replication lag rather than a lost entry.
 Rebuilding fixes nothing.
 Check replication lag on the shared cluster instead, and expect the alert to clear on its own.
 
