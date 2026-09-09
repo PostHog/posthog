@@ -29,6 +29,19 @@ logger = structlog.get_logger(__name__)
 DEFAULT_DIGEST_EXECUTION_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 
+class DigestDataUnavailableError(Exception):
+    """A digest section could not be loaded, so its numbers are unknown rather than zero.
+
+    ClickHouse rejects these queries when it is at capacity. A caller that gets zeros back cannot
+    tell "nobody visited the site" apart from "the query never ran". Callers decide what to do: the
+    API reports the failure, the digest email drops the project instead of mailing a false zero.
+    """
+
+    def __init__(self, section: str) -> None:
+        self.section = section
+        super().__init__(f"Could not load the {section} section of the web analytics digest")
+
+
 def _default_overview() -> dict:
     return {
         "visitors": {"current": 0, "previous": None, "change": None},
@@ -59,9 +72,9 @@ def get_overview_for_team(
         )
         runner = WebOverviewQueryRunner(team=team, query=query)
         response = runner.run(execution_mode=execution_mode, user=user)
-    except Exception:
+    except Exception as error:
         logger.exception("failed to query web overview", team_id=team.pk)
-        return result
+        raise DigestDataUnavailableError("overview") from error
 
     results = getattr(response, "results", None)
     if not results:
@@ -166,9 +179,9 @@ def get_top_pages(
             }
             for row in results
         ]
-    except Exception:
+    except Exception as error:
         logger.exception("failed to query top pages", team_id=team.pk)
-        return []
+        raise DigestDataUnavailableError("top pages") from error
 
 
 def get_top_sources(
@@ -208,9 +221,9 @@ def get_top_sources(
             for row in results
             if row[0]
         ]
-    except Exception:
+    except Exception as error:
         logger.exception("failed to query top sources", team_id=team.pk)
-        return []
+        raise DigestDataUnavailableError("top sources") from error
 
 
 def get_goals_for_team(
@@ -234,9 +247,9 @@ def get_goals_for_team(
         response = runner.run(execution_mode=execution_mode, user=user)
     except NoActionsError:
         return []
-    except Exception:
+    except Exception as error:
         logger.exception("failed to query goals", team_id=team.pk)
-        return []
+        raise DigestDataUnavailableError("goals") from error
 
     results = []
     for row in (getattr(response, "results", None) or [])[:limit]:

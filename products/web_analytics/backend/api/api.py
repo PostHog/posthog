@@ -2,6 +2,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
@@ -19,11 +20,20 @@ from products.web_analytics.backend.serializers import (
     WebAnalyticsRecapResponseSerializer,
     WeeklyDigestResponseSerializer,
 )
-from products.web_analytics.backend.weekly_digest import build_team_digest
+from products.web_analytics.backend.weekly_digest import DigestDataUnavailableError, build_team_digest
 
 MIN_DAYS = 1
 MAX_DAYS = 90
 DEFAULT_DAYS = 7
+
+
+class WebAnalyticsDigestUnavailable(APIException):
+    # ClickHouse rejects the digest's queries when it is at capacity. Reporting that as a 200 full of
+    # zeros makes an active project look like it has no traffic, and the caller has no way to tell.
+    # A stable code lets clients retry instead of believing the zero.
+    status_code = 503
+    default_detail = "Couldn't load your web analytics right now. Try again, and if it keeps happening contact support."
+    default_code = "web_analytics_digest_unavailable"
 
 
 class _DigestQuerySerializer(serializers.Serializer):
@@ -68,7 +78,8 @@ class WebAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "Summarizes a project's web analytics over a lookback window (default 7 days): unique "
             "visitors, pageviews, sessions, bounce rate, and average session duration with "
             "period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and "
-            "goal conversions."
+            "goal conversions. Always excludes internal and test users. Fails with a 503 when the "
+            "underlying queries cannot run, so a zero total always means the project had no traffic."
         ),
         parameters=[
             OpenApiParameter(
@@ -92,7 +103,10 @@ class WebAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 ),
             ),
         ],
-        responses={200: OpenApiResponse(response=WeeklyDigestResponseSerializer)},
+        responses={
+            200: OpenApiResponse(response=WeeklyDigestResponseSerializer),
+            503: OpenApiResponse(description="The web analytics data could not be loaded. Retry the request."),
+        },
         tags=["web_analytics"],
     )
     @action(detail=False, methods=["get"], url_path="weekly_digest")
@@ -100,12 +114,15 @@ class WebAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query_serializer = _DigestQuerySerializer(data=request.query_params)
         query_serializer.is_valid(raise_exception=True)
         params = query_serializer.validated_data
-        digest = build_team_digest(
-            self.team,
-            days=params["days"],
-            compare=params["compare"],
-            user=request.user if isinstance(request.user, User) else None,
-        )
+        try:
+            digest = build_team_digest(
+                self.team,
+                days=params["days"],
+                compare=params["compare"],
+                user=request.user if isinstance(request.user, User) else None,
+            )
+        except DigestDataUnavailableError as error:
+            raise WebAnalyticsDigestUnavailable() from error
         serializer = self.get_serializer(instance=digest)
         return Response(serializer.data)
 
@@ -139,7 +156,10 @@ class WebAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 ),
             ),
         ],
-        responses={200: OpenApiResponse(response=WebAnalyticsRecapResponseSerializer)},
+        responses={
+            200: OpenApiResponse(response=WebAnalyticsRecapResponseSerializer),
+            503: OpenApiResponse(description="The web analytics data could not be loaded. Retry the request."),
+        },
         tags=["web_analytics"],
     )
     @action(detail=False, methods=["get"], url_path="recap")
@@ -147,11 +167,14 @@ class WebAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query_serializer = _DigestQuerySerializer(data=request.query_params)
         query_serializer.is_valid(raise_exception=True)
         params = query_serializer.validated_data
-        recap = build_team_recap(
-            self.team,
-            days=params["days"],
-            compare=params["compare"],
-            user=request.user if isinstance(request.user, User) else None,
-        )
+        try:
+            recap = build_team_recap(
+                self.team,
+                days=params["days"],
+                compare=params["compare"],
+                user=request.user if isinstance(request.user, User) else None,
+            )
+        except DigestDataUnavailableError as error:
+            raise WebAnalyticsDigestUnavailable() from error
         serializer = WebAnalyticsRecapResponseSerializer(instance=recap, context=self.get_serializer_context())
         return Response(serializer.data)

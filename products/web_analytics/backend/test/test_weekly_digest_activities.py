@@ -13,6 +13,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.organization import Organization
 
 from products.web_analytics.backend.temporal.weekly_digest.activities import (
+    _build_and_send_for_org,
     _get_org_batch_page,
     _is_user_targeted_for_digest,
     _run_wa_digest_batch,
@@ -28,6 +29,7 @@ from products.web_analytics.backend.temporal.weekly_digest.types import (
     OrgDigestCounts,
     WAWeeklyDigestInput,
 )
+from products.web_analytics.backend.weekly_digest import DigestDataUnavailableError
 
 
 def _make_team_digest(team, visitors=10):
@@ -226,6 +228,50 @@ class TestSendDigestForUser(_DigestTestBase):
         assert outcome == DigestOutcome.SENT
         sections = self.mock_email_class.call_args.kwargs["template_context"]["project_sections"]
         assert [s["team"].id for s in sections] == [team_b.id, team_c.id, self.team.id]
+
+
+class TestBuildAndSendForOrg(_DigestTestBase):
+    def setUp(self):
+        super().setUp()
+        self.targeted_patcher = patch(
+            "products.web_analytics.backend.temporal.weekly_digest.activities._is_user_targeted_for_digest",
+            return_value=True,
+        )
+        self.targeted_patcher.start()
+
+    def tearDown(self):
+        self.targeted_patcher.stop()
+        super().tearDown()
+
+    def test_omits_a_project_whose_data_could_not_be_loaded(self):
+        healthy_team = Team.objects.create(organization=self.organization, name="Healthy")
+
+        def build(team):
+            if team.id == self.team.id:
+                raise DigestDataUnavailableError("overview")
+            return _make_team_digest(team, visitors=7)
+
+        with patch(
+            "products.web_analytics.backend.temporal.weekly_digest.activities.build_team_digest",
+            side_effect=build,
+        ):
+            counts = _build_and_send_for_org(str(self.organization.id))
+
+        assert counts.sent == 1
+        assert counts.team_count == 1
+        sections = self.mock_email_class.call_args.kwargs["template_context"]["project_sections"]
+        assert [section["team"].id for section in sections] == [healthy_team.id]
+
+    def test_skips_the_org_when_no_project_data_could_be_loaded(self):
+        with patch(
+            "products.web_analytics.backend.temporal.weekly_digest.activities.build_team_digest",
+            side_effect=DigestDataUnavailableError("overview"),
+        ):
+            counts = _build_and_send_for_org(str(self.organization.id))
+
+        assert counts.skipped_reason == "no_team_data"
+        assert counts.sent == 0
+        self.mock_email_class.assert_not_called()
 
 
 class TestSendTestDigestSingleTeamMode(_DigestTestBase):

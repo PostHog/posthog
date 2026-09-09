@@ -2,16 +2,22 @@ from datetime import timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.schema import CompareFilter, DateRange, WebOverviewQuery
+
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import Team
 from posthog.models.utils import uuid7
 
 from products.actions.backend.models.action import Action
+from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 from products.web_analytics.backend.weekly_digest import (
+    DigestDataUnavailableError,
     _format_duration,
     auto_select_project_for_user,
     build_team_digest,
@@ -369,6 +375,51 @@ class TestBuildTeamDigest(ClickhouseTestMixin, APIBaseTest):
         assert "dashboard_url" in result
         assert "utm_source=web_analytics_weekly_digest" in result["dashboard_url"]
         assert f"/project/{self.team.pk}/web" in result["dashboard_url"]
+
+    @parameterized.expand(
+        [
+            ("overview", "web_overview.WebOverviewQueryRunner", "overview"),
+            ("top_pages", "stats_table.WebStatsTableQueryRunner", "top pages"),
+            ("goals", "web_goals.WebGoalsQueryRunner", "goals"),
+        ]
+    )
+    def test_raises_instead_of_reporting_zero_when_a_query_fails(self, _name, runner_path, section):
+        with freeze_time(QUERY_TIMESTAMP):
+            with patch(
+                f"products.web_analytics.backend.hogql_queries.{runner_path}.run",
+                side_effect=ClickHouseAtCapacity(),
+            ):
+                with self.assertRaises(DigestDataUnavailableError) as caught:
+                    build_team_digest(self.team)
+
+        assert caught.exception.section == section
+
+    def test_headline_totals_match_a_direct_query_over_the_same_period(self):
+        with freeze_time(QUERY_TIMESTAMP):
+            _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
+            _create_person(team_id=self.team.pk, distinct_ids=["user_2"])
+            for distinct_id in ("user_1", "user_2"):
+                session = str(uuid7("2025-01-25"))
+                for _ in range(2):
+                    _create_pageview(self.team, distinct_id=distinct_id, session_id=session, timestamp="2025-01-25")
+            flush_persons_and_events()
+
+            digest = build_team_digest(self.team, compare=False)
+            direct = WebOverviewQueryRunner(
+                team=self.team,
+                query=WebOverviewQuery(
+                    dateRange=DateRange(date_from="-7d"),
+                    compareFilter=CompareFilter(compare=False),
+                    filterTestAccounts=True,
+                    properties=[],
+                ),
+            ).run()
+
+        direct_totals = {item.key: item.value for item in direct.results}
+        assert digest["visitors"]["current"] == direct_totals["visitors"]
+        assert digest["pageviews"]["current"] == direct_totals["views"]
+        assert digest["sessions"]["current"] == direct_totals["sessions"]
+        assert digest["visitors"]["current"] > 0
 
     def test_works_with_no_events(self):
         with freeze_time(QUERY_TIMESTAMP):
