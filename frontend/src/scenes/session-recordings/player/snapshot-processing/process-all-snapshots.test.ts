@@ -689,6 +689,38 @@ describe('process all snapshots', () => {
             expect(hasFullSnapshot).toBe(false)
         })
 
+        it('forwards the snapshot windowId to the viewport lookup when patching meta', async () => {
+            const sessionId = 'test-window-aware-viewport'
+
+            const snapshotJson = JSON.stringify({
+                window_id: 'window-uuid',
+                data: [
+                    {
+                        type: 2,
+                        timestamp: 1000,
+                        data: { node: { type: 0, childNodes: [] }, initialOffset: { top: 0, left: 0 } },
+                    },
+                ],
+            })
+
+            const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
+            expect(parsed[0].windowId).toBe(1)
+
+            const viewportForTimestamp = jest.fn(() => ({ width: '800', height: '600', href: 'https://example.com' }))
+            const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
+            await processAllSnapshots(
+                [{ source: 'blob_v2', blob_key: '0' } as any],
+                { [key]: { snapshots: parsed } } as any,
+                { snapshots: {} },
+                viewportForTimestamp,
+                sessionId
+            )
+
+            // Without the windowId the lookup cannot pick a same-window viewport, which is the whole
+            // point of the fix — so guard that the caller forwards it.
+            expect(viewportForTimestamp).toHaveBeenCalledWith(1000, 1)
+        })
+
         it('creates synthetic snapshot with correct windowId from original event', async () => {
             const sessionId = 'test-mobile-session'
 

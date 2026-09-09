@@ -116,7 +116,7 @@ export async function processAllSnapshots(
     sources: SessionRecordingSnapshotSource[] | null,
     snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
     processingCache: ProcessingCache,
-    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
+    viewportForTimestamp: (timestamp: number, windowId?: number) => ViewportResolution | undefined,
     sessionRecordingId: string,
     telemetry: ReplayTelemetry = noOpTelemetry
 ): Promise<RecordingSnapshot[]> {
@@ -227,7 +227,7 @@ type ProcessSnapshotContext = {
 function createPushPatchedMeta(
     context: ProcessSnapshotContext,
     sourceKey: SourceKey,
-    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
+    viewportForTimestamp: (timestamp: number, windowId?: number) => ViewportResolution | undefined,
     sessionRecordingId: string,
     telemetry: ReplayTelemetry
 ): (ts: number, winId?: number, fullSnapshot?: RecordingSnapshot) => boolean {
@@ -239,10 +239,13 @@ function createPushPatchedMeta(
         let viewport: ViewportResolution | undefined
         if (fullSnapshot) {
             viewport = extractDimensionsFromMobileSnapshot(fullSnapshot)
+            if (viewport) {
+                viewport.source = 'mobile-snapshot'
+            }
         }
 
         if (!viewport) {
-            viewport = viewportForTimestamp(ts)
+            viewport = viewportForTimestamp(ts, winId)
         }
 
         if (viewport && viewport.width && viewport.height) {
@@ -258,17 +261,22 @@ function createPushPatchedMeta(
             }
             context.result.push(metaEvent)
             context.sourceResult.push(metaEvent)
+            // Records how the invented viewport was resolved, so we can tell a same-window match
+            // from a weaker cross-window fallback — the fabrication path had no signal before.
+            telemetry.count?.('replay_meta_patched', { viewport_source: viewport.source ?? 'unknown' })
             throttleCapture(`${sessionRecordingId}-patched-meta`, () => {
                 telemetry.capture('patched meta into web recording', {
                     throttleCaptureKey: `${sessionRecordingId}-patched-meta`,
                     sessionRecordingId,
                     sourceKey: sourceKey,
+                    viewportSource: viewport.source ?? 'unknown',
                     feature: 'session-recording-meta-patching',
                 })
             })
             return true
         }
         context.sourceHadViewportGap = true
+        telemetry.count?.('replay_meta_patched', { viewport_source: 'none' })
         throttleCapture(`${sessionRecordingId}-no-viewport-found`, () => {
             telemetry.captureException(new Error('No event viewport or meta snapshot found for full snapshot'), {
                 throttleCaptureKey: `${sessionRecordingId}-no-viewport-found`,

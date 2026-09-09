@@ -8,6 +8,7 @@ import {
     RegisterWindowIdCallback,
 } from '@posthog/replay-shared'
 
+import { metricCount } from 'lib/operationalMetrics'
 import { getDecompressionWorkerManager } from 'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
 
 import { EncodedRecordingSnapshot, RecordingSnapshot } from '~/types'
@@ -15,6 +16,7 @@ import { EncodedRecordingSnapshot, RecordingSnapshot } from '~/types'
 export const posthogTelemetry: ReplayTelemetry = {
     capture: (event, properties) => posthog.capture(event, properties),
     captureException: (error, properties) => posthog.captureException(error, properties),
+    count: (name, attributes) => metricCount(name, 1, attributes),
 }
 
 const createBrowserDecompressor = (posthogInstance?: PostHog): SnappyDecompressor => {
