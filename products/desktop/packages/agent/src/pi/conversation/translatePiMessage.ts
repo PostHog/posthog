@@ -25,6 +25,8 @@ import { readTranslator } from "./tools/readTranslator";
 import { writeTranslator } from "./tools/writeTranslator";
 import type { PiToolTranslator } from "./toolTranslator";
 
+const HIDDEN_PI_TOOL_NAMES = new Set(["set_current_work"]);
+
 const TRANSLATOR_BY_NAME: Record<PiToolName, PiToolTranslator> = {
   read: readTranslator,
   bash: bashTranslator,
@@ -34,6 +36,10 @@ const TRANSLATOR_BY_NAME: Record<PiToolName, PiToolTranslator> = {
   find: findTranslator,
   ls: lsTranslator,
 };
+
+function isHiddenPiTool(toolName: string): boolean {
+  return HIDDEN_PI_TOOL_NAMES.has(toolName);
+}
 
 interface PendingToolCall {
   name: string;
@@ -190,6 +196,10 @@ export function createPiMessageTranslator(): PiMessageTranslator {
       }
 
       if (block.type === "toolCall") {
+        if (isHiddenPiTool(block.name)) {
+          continue;
+        }
+
         pendingToolCalls.set(block.id, {
           name: block.name,
           arguments: block.arguments,
@@ -230,6 +240,10 @@ export function createPiMessageTranslator(): PiMessageTranslator {
     status: AgentToolCallStatus,
     timestamp: number,
   ): AgentConversationEvent[] {
+    if (isHiddenPiTool(toolName)) {
+      return [];
+    }
+
     const toolCall: Extract<
       AgentConversationEvent,
       { type: "tool_call_updated" }
@@ -319,6 +333,10 @@ export function createPiMessageTranslator(): PiMessageTranslator {
     },
 
     translateToolExecutionStart(toolCallId, toolName, args, timestamp) {
+      if (isHiddenPiTool(toolName)) {
+        return [];
+      }
+
       pendingToolCalls.set(toolCallId, { name: toolName, arguments: args });
 
       return [
