@@ -378,6 +378,17 @@ def preview_alert_messages(
     return {"issue_id": issue.id if issue is not None else None, "messages": messages}
 
 
+def issue_environment_id(project_id: int, issue_id: UUID | str) -> int | None:
+    parsed_id = _parse_alert_id(issue_id)
+    if parsed_id is None:
+        return None
+    return (
+        ErrorTrackingIssue.objects.filter(id=parsed_id, team__project_id=project_id)
+        .values_list("team_id", flat=True)
+        .first()
+    )
+
+
 def list_issue_threads(team_id: int, issue_id: UUID | str) -> QuerySet[ErrorTrackingAlertThread]:
     parsed_id = _parse_alert_id(issue_id)
     if parsed_id is None:

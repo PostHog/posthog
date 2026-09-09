@@ -552,3 +552,45 @@ class TestErrorTrackingAlertThreads(APIBaseTest):
         assert response.json()[0]["external_url"] is None
 
         assert self.client.get(f"/api/projects/{self.team.id}/error_tracking/alerts/threads/").status_code == 400
+
+    def test_threads_follow_the_issues_environment_access(self):
+        # Thread rows live on the project, but the issue belongs to one environment: a
+        # caller must be allowed on that environment, and a key confined elsewhere is not.
+        integration = Integration.objects.create(team=self.team, kind="slack", config={"team": {"name": "PostHog"}})
+        sibling = Team.objects.create(organization=self.organization, project_id=self.team.project_id, name="staging")
+        sibling_issue = ErrorTrackingIssue.objects.create(team=sibling, name="Sibling secret")
+        elsewhere = Team.objects.create(organization=self.organization, name="elsewhere")
+        foreign_issue = ErrorTrackingIssue.objects.create(team=elsewhere, name="Foreign")
+        with team_scope(self.team.id):
+            alert = ErrorTrackingAlert.objects.create(team=self.team, name="Alert", triggers=["issue_created"])
+            destination = alert.destinations.create(
+                team=self.team, channel_type="slack", integration=integration, config={"channel": "C1"}
+            )
+            ErrorTrackingAlertThread.objects.create(
+                team=self.team, alert=alert, issue=sibling_issue, destination=destination
+            )
+        url = f"/api/projects/{self.team.id}/error_tracking/alerts/threads/"
+
+        allowed = self.client.get(url, {"issue_id": str(sibling_issue.id)})
+        assert allowed.status_code == 200, allowed.json()
+        assert len(allowed.json()) == 1
+
+        assert self.client.get(url, {"issue_id": str(foreign_issue.id)}).status_code == 404
+
+        with patch(
+            "products.error_tracking.backend.presentation.views.alerts.UserAccessControl.check_access_level_for_resource",
+            return_value=False,
+        ):
+            assert self.client.get(url, {"issue_id": str(sibling_issue.id)}).status_code == 403
+
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="scoped",
+            user=self.user,
+            secure_value=hash_key_value(raw_key),
+            scopes=["error_tracking:read"],
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+        scoped = self.client.get(url, {"issue_id": str(sibling_issue.id)}, HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        assert scoped.status_code == 403, scoped.json()
