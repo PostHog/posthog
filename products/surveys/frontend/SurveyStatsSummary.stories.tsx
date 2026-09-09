@@ -38,10 +38,12 @@ const meta: Meta<typeof SurveyStatsSummaryWithData> = {
     title: 'Surveys/Survey performance',
     component: SurveyStatsSummaryWithData,
     decorators: [
-        (Story) => (
-            <BindLogic logic={surveyLogic} props={{ id: 'new' }}>
-                <Story />
-            </BindLogic>
+        (Story, { parameters }) => (
+            <div style={{ width: parameters.width ?? 960 }}>
+                <BindLogic logic={surveyLogic} props={{ id: 'new' }}>
+                    <Story />
+                </BindLogic>
+            </div>
         ),
     ],
     args: {
@@ -61,18 +63,11 @@ type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
 
-export const Narrow: Story = {
-    decorators: [
-        (Story) => (
-            <div className="w-full max-w-lg">
-                <Story />
-            </div>
-        ),
-    ],
-}
+export const Narrow: Story = { parameters: { width: 512 } }
 
 export const Loading: Story = {
     args: { isLoading: true },
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 
 export const NoResponses: Story = {
