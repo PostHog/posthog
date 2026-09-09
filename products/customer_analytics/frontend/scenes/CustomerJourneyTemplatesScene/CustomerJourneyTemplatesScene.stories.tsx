@@ -2,11 +2,12 @@
 import { Meta, StoryObj } from '@storybook/react'
 
 import { App } from 'scenes/App'
-import { JOURNEY_FEATURE_FLAGS } from 'scenes/funnels/FunnelFlowGraph/__mocks__/journeyMocks'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { NodeKind } from '~/queries/schema/schema-general'
+
+import { JOURNEY_FEATURE_FLAGS } from 'products/product_analytics/frontend/insights/funnels/FunnelFlowGraph/__mocks__/journeyMocks'
 
 const SAMPLE_FUNNELS = {
     count: 2,

@@ -23,7 +23,7 @@ from posthog.utils import DATERANGE_MAP
 
 from products.cohorts.backend.models.cohort import Cohort
 
-# Server-side mirror of TIME_INTERVAL_BOUNDS in frontend/src/scenes/funnels/funnelUtils.tsx;
+# Server-side mirror of TIME_INTERVAL_BOUNDS in products/product_analytics/frontend/insights/funnels/funnelUtils.tsx;
 # keep both in sync. Inclusive (min, max) per unit, shared by funnel conversion windows and
 # the paths v2 gap so the two can never drift apart.
 CONVERSION_WINDOW_INTERVAL_BOUNDS: dict[FunnelConversionWindowTimeUnit, tuple[int, int]] = {

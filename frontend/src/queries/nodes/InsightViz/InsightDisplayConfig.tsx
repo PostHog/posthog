@@ -10,19 +10,20 @@ import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/datetime'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
-import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
-import { FunnelDisplayLayoutPicker } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
 import { PathStepPicker } from 'scenes/insights/views/Paths/PathStepPicker'
 import { RetentionBreakdownFilter } from 'scenes/retention/RetentionBreakdownFilter'
 
 import { hasBreakdownFilter, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
+
+import { FunnelBinsPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelBinsPicker'
+import { FunnelDisplayLayoutPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelDisplayLayoutPicker'
+import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 
 import { useInsightDisplayOptions } from './insightDisplayOptions'
 

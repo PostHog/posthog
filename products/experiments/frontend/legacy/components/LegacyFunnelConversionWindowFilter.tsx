@@ -4,15 +4,16 @@ import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
-import { TIME_INTERVAL_BOUNDS } from 'scenes/funnels/funnelUtils'
 
 import { FunnelConversionWindowTimeUnit } from '~/types'
+
+import { TIME_INTERVAL_BOUNDS } from 'products/product_analytics/frontend/insights/funnels/funnelUtils'
 
 /**
  * @deprecated
  * Legacy funnel conversion window filter for ExperimentView.
  * Frozen copy for legacy experiments - do not modify.
- * Forked from https://github.com/PostHog/posthog/blob/master/frontend/src/scenes/insights/views/Funnels/FunnelConversionWindowFilter.tsx
+ * Forked from https://github.com/PostHog/posthog/blob/master/products/product_analytics/frontend/insights/funnels/filters/FunnelConversionWindowFilter.tsx
  */
 export function LegacyFunnelConversionWindowFilter({
     funnelWindowInterval,

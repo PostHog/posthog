@@ -9,12 +9,12 @@ import type {
     TaxonomicFilterGroup,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 import type { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
+import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 
 import type { TaxonomicDefinitionTypes } from '../../../lib/components/TaxonomicFilter/types'
 import type {

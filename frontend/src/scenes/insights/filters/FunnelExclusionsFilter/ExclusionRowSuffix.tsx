@@ -4,12 +4,13 @@ import { IconFilter, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { IconWithCount } from 'lib/lemon-ui/icons'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { AnyEntityNode, FunnelsDataWarehouseNode, NodeKind } from '~/queries/schema/schema-general'
+
+import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
+import { getClampedFunnelStepRange } from 'products/product_analytics/frontend/insights/funnels/funnelUtils'
 
 type ExclusionRowSuffixComponentBaseProps = {
     index: number

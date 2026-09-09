@@ -28,7 +28,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEventNamesForAction } from 'lib/utils/events'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
@@ -46,6 +45,8 @@ import {
     PropertyFilterValue,
     PropertyOperator,
 } from '~/types'
+
+import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 
 import { ActionFilterRowMenu } from './ActionFilterRowMenu'
 import { getValue, taxonomicFilterGroupTypeToEntityType } from './actionFilterRowUtils'
