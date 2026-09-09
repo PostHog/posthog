@@ -7601,9 +7601,9 @@ snapshots:
     scenes-app-inbox-scene--self-driving-verdict-pending--light:
         hash: v1.k794b7964.18a04e43d0b1598e406b105dcdfe548f7d26376ad3ba606401c6795ae3ea1b1f.8uOUfAOgA04AY2GECIDr5Mf98040a17lVfVUA3QpRGM
     scenes-app-inbox-scene--settings--dark:
-        hash: v1.k794b7964.1af5812ea7514da4b7682c458680777a3465755635fe3bd55c63d9003f5dbf35.Tn_xNyX_ZAAAwef19CcNR9ODGCkFlv_x89jNmmECg2Q
+        hash: v1.k794b7964.56e6e806e53ad186a6e7eca6aeb2b691e95e2c6d27de81d6539406d3c946e73c.lQbazW62nbdlf-uOlroYbXxWnrbL5kDefBDHOvKHkFw
     scenes-app-inbox-scene--settings--light:
-        hash: v1.k794b7964.dd753e8a7abdbfa5891a5b2c62da90282c08aa5e3a608a20cafdd3b35628cfa5._lag-pvviMbZ2S8iO_qLEgggn2Tv4UKDraQEzVgLlYA
+        hash: v1.k794b7964.86fff9ce30a1cd376c9fd259ad22f99edadaa6cb66c75c18f10df207f0a2ff11.QTCPpndHx79lzLxyqzbZMOyaXjYXC_tGZj06-UQsQiA
     scenes-app-inbox-scene--triage--dark:
         hash: v1.k794b7964.77e43b36fdcd81befecf4de80e489050f525840924ec6ddef37c23a9179dbe8a.B3qkZFYBncFaPn2EBg4cBoYu_LIwW29imNwBdLXF5eo
     scenes-app-inbox-scene--triage--light:
@@ -7741,25 +7741,29 @@ snapshots:
     scenes-app-inbox-scoutwritescopespicker--with-granted-scopes--light:
         hash: v1.k794b7964.b3f53357dbbbc84b6580fa82faf34538e4f6e4e3c15691c14848541cae742227.I9ecpLcQZZ47Wrm82d-qMSDOzcmvbXUSlgD_VSYMUrg
     scenes-app-inbox-selfdrivingsection--daily-limit-reached--dark:
-        hash: v1.k794b7964.6bb86cc044462ca9b5d59151d279fb763b8ffc1918c913a4ba5786e9714a9675.F8GMUyNcVBI5ASlEgXgZaNW4sL-8zvLioKKu0JVua34
+        hash: v1.k794b7964.69ce4baa2544ecb014be73be66ea26b07711546838a529e1ecc31ffc34f2af56.XZMsxseOg8qWoHNMRWbgu6Ae9nlB-bPk0rLXGDa-lcs
     scenes-app-inbox-selfdrivingsection--daily-limit-reached--light:
-        hash: v1.k794b7964.09d9141ceb1ff5059446b3e4583b800a7a1484945eb2a2ae021ee11adfb5a54a.TEhNbKPIY7p3Wgy1AP-qVErXN8NjGZibeZBtzIKxw7w
+        hash: v1.k794b7964.b6721831e5715a9cfb279937c0080c13d25ed0ea3bf8460f9edd6abf8b92acbf.UxuexKk4f3iuOl3ZMz3tPeOL40pDsnUUp66p5isN5iA
     scenes-app-inbox-selfdrivingsection--daily-limit-set--dark:
         hash: v1.k794b7964.3fa4e975d9966a9bc3557d63ff5017a07d8b2428cec986c16f386c8d0f341022.UVEV2Z_N7DdU_THXbBI8uEURPwirfncvsbjodaYYmVY
     scenes-app-inbox-selfdrivingsection--daily-limit-set--light:
         hash: v1.k794b7964.219716b5c72f7c5fc968cd475c15536bf10734cff3200a34c89f162f3ab62b80.j-EMqzNiG7OjMvEVhhQkAYxwkbvWKi3iSsGmwaFN1I0
     scenes-app-inbox-selfdrivingsection--disabled--dark:
-        hash: v1.k794b7964.9c00d82a802ea3747ecb8103976d2e9ec72e10ef7b4218b8a94a2ae109047e4e.J724EJP49eq-Nmb6i-xbzg15ap2rBI6sRph2z-aIn2I
+        hash: v1.k794b7964.071a28e3ab3abce2710a949e50f8de965df209331a157db20dd69dce715b2847.r_kgmkiy6YRYoWVIw5ulrR_CBoCjwMQzVSsRF7OEcv4
     scenes-app-inbox-selfdrivingsection--disabled--light:
-        hash: v1.k794b7964.4d826910ae7ac8562380f11fda97e336bd221d328a146766249d07f310773ba8.HK0vgBXyANWRwWSk3juGunet3UaBLQNFNnoq2NpYA-s
+        hash: v1.k794b7964.178259484871df5abf309f7eeb353a93cf0f66422b7f7dd0251528a622eb6c16.GKEmpHunYzDJ3pPWI44ZGFDJtxN0pBM82Y7zAkSnChg
+    scenes-app-inbox-selfdrivingsection--git-hub-assignment-on--dark:
+        hash: v1.k794b7964.fdf6252fecf8caf2be0cdb6d8e44d6e35d4ae3e03ac9b000a34ccd010d90e9c8.uDpQbLO8JlmHKRa9exi2KIKbxfo42e2PB3YQpIdPiFE
+    scenes-app-inbox-selfdrivingsection--git-hub-assignment-on--light:
+        hash: v1.k794b7964.68b75610d1b49fe25451736ec8369bb96142714f05cb7c7930a837ec2d06a36f.VKfjM0_AmlmZLZ20LjETXpH3LYbuBJHKnkuuyv2WqVI
     scenes-app-inbox-selfdrivingsection--no-daily-limit--dark:
         hash: v1.k794b7964.3e355e2b561a2a3b3d38b00258e51531d6e9116d42129731a3c4b71bf6cb5e7e.VxAxGwO-zZ-B9OtgXOMp53Lvq5dOJjbs-qh60r-bT88
     scenes-app-inbox-selfdrivingsection--no-daily-limit--light:
         hash: v1.k794b7964.9837d5c2833b8def4c88c221e6ab65699e274a2515b210320b49f13ea0572a0a.hqgSLSsKWsmf3zXL3sEwl6kOe1jzwGeG-Fd0Zpoek70
     scenes-app-inbox-selfdrivingsection--personal-default--dark:
-        hash: v1.k794b7964.3e355e2b561a2a3b3d38b00258e51531d6e9116d42129731a3c4b71bf6cb5e7e.w0F2JmpN8qW-IWxh6c8DNhd2ipQW8pmSkNsYNkRD8Y0
+        hash: v1.k794b7964.24ced759b7b95ec1f8103e3b4eb150f5cb36b1a3d5d5231b98c3e52783707a77.isVQpWqSVqdGNjo3daqgwb_QJ7rmInIYEPL2L3TA_F4
     scenes-app-inbox-selfdrivingsection--personal-default--light:
-        hash: v1.k794b7964.9837d5c2833b8def4c88c221e6ab65699e274a2515b210320b49f13ea0572a0a.VRNeiMzZoqUTG5CHNsUYUBicIUDYvJKShp6072WLLWA
+        hash: v1.k794b7964.d82d81d1f9d06fb3ccede3c5ca3d00a61ae5f0f61c7c5af729a610fe9ca1953a.vlmxxVfAFDADdCWfjqF_Md36hGF1NRa4nnlmxQXPMug
     scenes-app-inbox-selfdrivingsection--personal-override--dark:
         hash: v1.k794b7964.aa42dc763078e1431c621efad3dae9f298485890910510fccd861fb1bc9f7d77.Go-OjRKiACFptGQ39DNGs4H4H83nh48PwJQBaoW59CI
     scenes-app-inbox-selfdrivingsection--personal-override--light:
