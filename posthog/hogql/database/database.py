@@ -1100,6 +1100,8 @@ class Database(BaseModel):
         include_hidden_posthog_tables: bool = False,
         include_fields: bool = True,
     ) -> dict[str, DatabaseSchemaTable]:
+        from django.db.models import Prefetch  # noqa: PLC0415
+
         from posthog.schema import (  # noqa: PLC0415
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaEndpointTable,
