@@ -9,7 +9,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
 
-from ee.hogai.tool_errors import MaxToolRetryableError, MaxToolTransientError
+from ee.hogai.tool_errors import MaxToolError, MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.tools.read_taxonomy.core import ReadEventProperties, ReadEvents, ReadTaxonomyToolArgs
 from ee.hogai.tools.read_taxonomy.mcp_tool import ReadTaxonomyMCPTool
 
@@ -76,7 +76,7 @@ class TestReadTaxonomyMCPTool(NonAtomicBaseTest):
         ]
     )
     async def test_query_failures_reach_the_caller_classified(
-        self, _name: str, error: Exception, expected_exception: type, expected_retry: str
+        self, _name: str, error: Exception, expected_exception: type[MaxToolError], expected_retry: str
     ):
         with patch("ee.hogai.tools.read_taxonomy.mcp_tool.execute_taxonomy_query", side_effect=error):
             with self.assertRaises(expected_exception) as raised:

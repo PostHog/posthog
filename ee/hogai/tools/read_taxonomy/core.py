@@ -115,8 +115,6 @@ def describe_taxonomy_query(query: ReadTaxonomyQuery) -> str:
             return f"properties of entity `{query.entity}`"
         case ReadEntitySamplePropertyValues():
             return f"values of property `{query.property_name}` on entity `{query.entity}`"
-        case _:
-            return "the taxonomy"
 
 
 def _optional_event_description(team: Team, event_name: str) -> str | None:
