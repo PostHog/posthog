@@ -1,4 +1,4 @@
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -7,9 +7,13 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 export function OIDCConfigFields({
     siteUrl,
     hasClientSecret,
+    clientSecretCleared,
+    onClearClientSecret,
 }: {
     siteUrl: string
     hasClientSecret: boolean
+    clientSecretCleared: boolean
+    onClearClientSecret: () => void
 }): JSX.Element {
     return (
         <div className="space-y-4">
@@ -26,17 +30,29 @@ export function OIDCConfigFields({
             <LemonField label="Client ID" name="oidc_client_id">
                 <LemonInput autoComplete="off" />
             </LemonField>
-            <LemonField
-                label="Client secret"
-                name="oidc_client_secret"
-                info={hasClientSecret ? 'A client secret is saved. Leave this empty to keep it.' : undefined}
-            >
-                <LemonInput
-                    type="password"
-                    autoComplete="new-password"
-                    className="ph-no-capture"
-                    data-attr="oidc-client-secret"
-                />
+            <LemonField label="Client secret" name="oidc_client_secret">
+                {hasClientSecret && !clientSecretCleared ? (
+                    <div className="space-y-3">
+                        <p className="text-secondary mb-0">
+                            A client secret is saved. You cannot view it after saving. Update it to enter a new client
+                            secret.
+                        </p>
+                        <LemonButton
+                            type="secondary"
+                            onClick={onClearClientSecret}
+                            data-attr="clear-oidc-client-secret"
+                        >
+                            Update client secret
+                        </LemonButton>
+                    </div>
+                ) : (
+                    <LemonInput
+                        type="password"
+                        autoComplete="new-password"
+                        className="ph-no-capture"
+                        data-attr="oidc-client-secret"
+                    />
+                )}
             </LemonField>
             <LemonBanner type="info">
                 <p>
@@ -51,9 +67,6 @@ export function OIDCConfigFields({
                     </li>
                     <li>
                         <code>email</code>: the user's email address
-                    </li>
-                    <li>
-                        <code>email_verified</code>: <code>true</code>
                     </li>
                 </ul>
                 <p>

@@ -199,19 +199,17 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertTrue(params["state"])
         self.assertTrue(params["nonce"])
 
-    @parameterized.expand([("missing", None), ("false", False), ("string", "true")])
-    def test_oidc_requires_verified_email(self, _name, email_verified):
-        self.backend.id_token = {"sub": "example-user", "email": "member@example.com", "email_verified": email_verified}
-        with self.assertRaises(AuthFailed):
-            self.backend.user_data("example-access-token")
-
     def test_oidc_rejects_another_domain(self):
         self.backend.id_token = {"sub": "example-user", "email": "member@other.example", "email_verified": True}
         with self.assertRaises(AuthFailed):
             self.backend.user_data("example-access-token")
 
-    def test_oidc_accepts_verified_email_and_scopes_subject_to_config(self):
-        self.backend.id_token = {"sub": "example-user", "email": "member@example.com", "email_verified": True}
+    @parameterized.expand([("missing", None), ("false", False), ("string", "true"), ("true", True)])
+    def test_oidc_accepts_email_without_relying_on_email_verified(self, _name, email_verified):
+        claims: dict[str, Any] = {"sub": "example-user", "email": "member@example.com"}
+        if email_verified is not None:
+            claims["email_verified"] = email_verified
+        self.backend.id_token = claims
         response = self.backend.user_data("example-access-token")
         self.assertEqual(self.backend.get_user_id({}, response), f"{self.config.id}:example-user")
         self.assertEqual(self.backend.extra_data(None, "uid", response, {}), {})

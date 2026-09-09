@@ -57,6 +57,7 @@ export interface IdentityProviderConfigForm {
     oidc_issuer_url: string
     oidc_client_id: string
     oidc_client_secret: string
+    oidc_client_secret_cleared: boolean
     scim_enabled: boolean
     id_jag_issuer_url: string
     id_jag_jwks_url: string
@@ -94,6 +95,7 @@ const emptyIdentityProviderConfigForm = (): IdentityProviderConfigForm => ({
     oidc_issuer_url: '',
     oidc_client_id: '',
     oidc_client_secret: '',
+    oidc_client_secret_cleared: false,
     scim_enabled: false,
     id_jag_issuer_url: '',
     id_jag_jwks_url: '',
@@ -113,6 +115,7 @@ const formValuesFromConfig = (config: IdentityProviderConfigApi | null): Identit
     oidc_issuer_url: config?.oidc_issuer_url ?? '',
     oidc_client_id: config?.oidc_client_id ?? '',
     oidc_client_secret: '',
+    oidc_client_secret_cleared: false,
     scim_enabled: config?.scim_enabled ?? false,
     id_jag_issuer_url: config?.id_jag_issuer_url ?? '',
     id_jag_jwks_url: config?.id_jag_jwks_url ?? '',
@@ -148,7 +151,11 @@ const payloadFromForm = (
             ...commonPayload,
             oidc_issuer_url: formValues.oidc_issuer_url.trim(),
             oidc_client_id: formValues.oidc_client_id.trim(),
-            ...(formValues.oidc_client_secret ? { oidc_client_secret: formValues.oidc_client_secret } : {}),
+            ...(formValues.oidc_client_secret_cleared
+                ? { oidc_client_secret: '' }
+                : formValues.oidc_client_secret
+                  ? { oidc_client_secret: formValues.oidc_client_secret }
+                  : {}),
         }
     }
 

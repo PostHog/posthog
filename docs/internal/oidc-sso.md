@@ -15,7 +15,7 @@ OIDC is a platform feature. Billing grants it to the same plans as SAML. Self-ho
 
 The issuer must publish an OIDC discovery document. Its `issuer` must exactly match the configured URL, including any trailing slash. Discovery, token, and signing-key endpoints must use HTTPS. Server requests reject private addresses and redirects.
 
-PostHog requests `openid`, `profile`, and `email`. ID tokens must use RS256. They must include `email` and a Boolean `email_verified` claim set to `true`. The email domain must belong to this configuration. PostHog does not use the userinfo endpoint to obtain these claims.
+PostHog requests `openid`, `profile`, and `email`. ID tokens must use RS256 and include an `email` claim. The email domain must belong to this configuration. PostHog does not use the userinfo endpoint to obtain this claim.
 
 The token endpoint must support `client_secret_basic` or `client_secret_post` authentication.
 
