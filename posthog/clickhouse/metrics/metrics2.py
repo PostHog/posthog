@@ -107,7 +107,6 @@ def METRICS2_TABLE_SQL() -> str:
     return f"""
 CREATE TABLE IF NOT EXISTS {_db()}.{METRICS2_TABLE_NAME}
 (
-    `uuid` String,
     `team_id` Int32,
     `metric_name` LowCardinality(String),
     `time_bucket` DateTime MATERIALIZED toStartOfHour(timestamp),
@@ -139,31 +138,6 @@ CREATE TABLE IF NOT EXISTS {_db()}.{METRICS2_TABLE_NAME}
     INDEX idx_trace_id_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_resource_fingerprint resource_fingerprint TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
-    PROJECTION projection_series_minute
-    (
-        SELECT
-            team_id,
-            metric_name,
-            service_name,
-            metric_type,
-            resource_fingerprint,
-            series_fingerprint,
-            toStartOfMinute(timestamp) AS minute,
-            count() AS sample_count,
-            sum(value) AS total_value,
-            min(value) AS min_value,
-            max(value) AS max_value,
-            argMin(value, timestamp) AS first_value,
-            argMax(value, timestamp) AS last_value
-        GROUP BY
-            team_id,
-            metric_name,
-            service_name,
-            metric_type,
-            resource_fingerprint,
-            series_fingerprint,
-            minute
-    ),
     PROJECTION projection_series_activity
     (
         SELECT
@@ -318,12 +292,9 @@ SETTINGS
 """
 
 
-def METRICS2_INPUT_TO_METRICS_MV() -> str:
+def METRICS2_INPUT_TO_METRICS_MV_SELECT() -> str:
     db = _db()
-    return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS2_INPUT_TABLE_NAME}_to_metrics TO {db}.{METRICS2_TABLE_NAME}
-AS SELECT
-    uuid,
+    return f"""SELECT
     team_id,
     metric_name,
     series_fingerprint,
@@ -350,6 +321,28 @@ AS SELECT
     _offset
 FROM {db}.{METRICS2_INPUT_TABLE_NAME}
 """
+
+
+def METRICS2_INPUT_TO_METRICS_MV() -> str:
+    db = _db()
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS2_INPUT_TABLE_NAME}_to_metrics TO {db}.{METRICS2_TABLE_NAME}
+AS {METRICS2_INPUT_TO_METRICS_MV_SELECT()}"""
+
+
+def METRICS2_INPUT_TO_METRICS_MV_MODIFY_QUERY() -> str:
+    db = _db()
+    return (
+        f"ALTER TABLE {db}.{METRICS2_INPUT_TABLE_NAME}_to_metrics MODIFY QUERY\n{METRICS2_INPUT_TO_METRICS_MV_SELECT()}"
+    )
+
+
+def METRICS2_DROP_SERIES_MINUTE_PROJECTION_SQL() -> str:
+    return f"ALTER TABLE {_db()}.{METRICS2_TABLE_NAME} DROP PROJECTION IF EXISTS projection_series_minute"
+
+
+def METRICS2_DROP_UUID_COLUMN_SQL() -> str:
+    return f"ALTER TABLE {_db()}.{METRICS2_TABLE_NAME} DROP COLUMN IF EXISTS uuid"
 
 
 def METRICS2_INPUT_TO_METRIC_SERIES_MV() -> str:
