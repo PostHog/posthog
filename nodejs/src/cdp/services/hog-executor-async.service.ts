@@ -311,6 +311,17 @@ export class HogExecutorAsyncService {
             { finished: false }
         )
 
+        // Nothing else happens to this run until the email worker dequeues it, and
+        // `routingOnlyReschedule` suppresses the generic "Resuming" / "Workflow will pause"
+        // pair around the hand-off (see actions/hog_function.ts). Without this line an email
+        // queue nobody drains reads exactly like a healthy send, because the run log simply
+        // stops after "Executing action". With it, a stuck run reads as queued and not sent.
+        result.logs.push({
+            level: 'info',
+            timestamp: DateTime.now(),
+            message: 'Email queued for sending',
+        })
+
         result.metrics.push({
             team_id: invocation.teamId,
             app_source_id: invocation.parentRunId ?? invocation.functionId,

@@ -76,6 +76,16 @@ const queueDepthGauge = new Gauge({
     labelNames: ['queue'],
 })
 
+// Depth alone cannot tell a busy queue from an unworked one, because a large backlog
+// and a queue with no worker both read as deep. Age separates them: a queue whose
+// oldest ready job keeps getting older has nobody draining it. This is the only signal
+// a parked run gives before a customer reports a step stuck at RUNNING.
+const queueOldestAvailableGauge = new Gauge({
+    name: 'cdp_cyclotron_v2_queue_oldest_available_seconds',
+    help: 'Age in seconds of the oldest job that is ready to run per queue',
+    labelNames: ['queue'],
+})
+
 interface PoisonRow {
     id: string
     team_id: number
@@ -520,8 +530,10 @@ export class CyclotronV2Janitor {
     }
 
     async measureQueueDepths(): Promise<Map<string, number>> {
-        const result = await this.pool.query<{ queue_name: string; count: string }>(
-            `SELECT queue_name, COUNT(*) as count
+        const result = await this.pool.query<{ queue_name: string; count: string; oldest_seconds: string }>(
+            `SELECT queue_name,
+                    COUNT(*) as count,
+                    EXTRACT(EPOCH FROM (NOW() - MIN(scheduled))) as oldest_seconds
              FROM cyclotron_jobs
              WHERE status = 'available' AND scheduled <= NOW()
              GROUP BY queue_name`
@@ -533,6 +545,7 @@ export class CyclotronV2Janitor {
             depths.set(row.queue_name, count)
             this.seenQueues.add(row.queue_name)
             queueDepthGauge.labels({ queue: row.queue_name }).set(count)
+            queueOldestAvailableGauge.labels({ queue: row.queue_name }).set(parseFloat(row.oldest_seconds))
         }
 
         // GROUP BY returns no row for a queue that is empty. Without the write below,
@@ -543,6 +556,7 @@ export class CyclotronV2Janitor {
         for (const queue of this.seenQueues) {
             if (!depths.has(queue)) {
                 queueDepthGauge.labels({ queue }).set(0)
+                queueOldestAvailableGauge.labels({ queue }).set(0)
             }
         }
 

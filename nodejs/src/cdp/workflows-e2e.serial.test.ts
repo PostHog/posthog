@@ -2982,6 +2982,13 @@ describe('Workflows E2E (email queue)', () => {
         // Sanity check: the test wired up correctly (email actually sent).
         expect(logMessages.some((msg) => msg.includes('Email sent to recipient@example.com'))).toBe(true)
 
+        // The queue hand-off must stay visible. The suppression below hides the generic
+        // Resuming / pause pair around it, so without this line a run parked on an email queue
+        // nobody drains reads exactly like a healthy send. Exactly once, which also proves the
+        // suppression still holds on the continuation dequeue.
+        const queuedEmailLogs = logMessages.filter((msg) => msg === '[Action:email_1] Email queued for sending')
+        expect(queuedEmailLogs).toHaveLength(1)
+
         // The email action's "Executing action" debug log must fire EXACTLY ONCE despite the
         // two dequeues it takes to switch queues. Anchor on the action id ('email_1') so we
         // don't accidentally also match the trigger or exit action's lines.
