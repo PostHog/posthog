@@ -36,19 +36,6 @@ export const HorizontalGoal: Story = {
     },
 }
 
-export const HoverValueOff: Story = {
-    render: () => {
-        const theme = useReactiveTheme()
-        return (
-            <Stage>
-                <LineChart series={SERIES} labels={LABELS} config={CONFIG} theme={theme}>
-                    <ReferenceLine value={50} label="Target · 50" variant="goal" showValueOnHover={false} />
-                </LineChart>
-            </Stage>
-        )
-    },
-}
-
 export const HorizontalVariants: Story = {
     render: () => {
         const theme = useReactiveTheme()

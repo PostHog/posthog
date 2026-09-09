@@ -2,113 +2,218 @@ import { dayjs } from 'lib/dayjs'
 
 import { makeQuota } from '../../utils/quotaTestUtils'
 import type { SpendSeries } from '../visionUsageLogic'
-import { PROJECTED_SERIES_KEY, SPENT_SERIES_KEY, buildSpendTrajectory } from './spendTrajectoryTransforms'
+import {
+    PROJECTED_SERIES_KEY,
+    type SpendCrossing,
+    type SpendMarker,
+    type SpendTrajectory,
+    buildProjectedSeries,
+    buildSpendMarkers,
+    buildSpendPeriodAxis,
+    buildSpendTrajectory,
+    buildSpentSeries,
+    resolveFreeCreditsLine,
+    resolveSpendCrossing,
+} from './spendTrajectoryTransforms'
 
-const PERIOD = { period_start: '2026-05-01T00:00:00Z', period_end: '2026-06-01T00:00:00Z' }
+const PERIOD_START = '2026-05-01T00:00:00Z'
+const PERIOD_END = '2026-06-01T00:00:00Z'
 const NOW = dayjs.utc('2026-05-12T10:00:00Z')
+const AXIS = buildSpendPeriodAxis(PERIOD_START, PERIOD_END, NOW)
 const TODAY_INDEX = 11
 const END_INDEX = 31
 const STATUS = 'var(--success)'
 const DANGER = 'var(--danger)'
+const CROSSING: SpendCrossing = { index: 19, value: 10_000, date: dayjs.utc('2026-05-20T06:00:00Z') }
 
 function ledger(total: number, days: number): SpendSeries {
     return Array.from({ length: days }, (_, i) => ({
-        date: dayjs.utc(PERIOD.period_start).add(i, 'day').format('YYYY-MM-DD'),
+        date: dayjs.utc(PERIOD_START).add(i, 'day').format('YYYY-MM-DD'),
         credits: Math.round(total / days),
     }))
 }
 
-function build(
-    overrides: Parameters<typeof makeQuota>[0],
-    extra: { dailyCredits?: SpendSeries; projectedTotal?: number; capReachDate?: dayjs.Dayjs | null } = {}
-): ReturnType<typeof buildSpendTrajectory> {
-    const quota = makeQuota({ ...PERIOD, ...overrides })
-    return buildSpendTrajectory({
-        quota,
-        dailyCredits: extra.dailyCredits ?? ledger(quota.credits_used, TODAY_INDEX + 1),
-        projectedTotal: extra.projectedTotal ?? quota.credits_used,
-        capReachDate: extra.capReachDate ?? null,
-        statusColor: STATUS,
-        dangerColor: DANGER,
-        now: NOW,
-    })
+function markerByKey(markers: SpendMarker[], key: SpendMarker['key']): SpendMarker {
+    const marker = markers.find((m) => m.key === key)
+    expect(marker).not.toBeUndefined()
+    return marker as SpendMarker
 }
 
-function seriesData(trajectory: ReturnType<typeof buildSpendTrajectory>, key: string): number[] {
-    return trajectory.series.find((s) => s.key === key)!.data as number[]
+function projectedSeries(trajectory: SpendTrajectory): { data: number[]; color?: string } {
+    const series = trajectory.series.find((s) => s.key === PROJECTED_SERIES_KEY)
+    expect(series).not.toBeUndefined()
+    return { data: series!.data as number[], color: series!.color }
 }
 
-describe('buildSpendTrajectory', () => {
-    it('lays one UTC day per label across the period and stops the spent line at today', () => {
-        const trajectory = build({ credits_used: 4_000 })
-        expect(trajectory.labels).toHaveLength(END_INDEX + 1)
-        expect(trajectory.labels[0]).toBe('2026-05-01')
-        expect(trajectory.labels[END_INDEX]).toBe('2026-06-01')
-        const spent = seriesData(trajectory, SPENT_SERIES_KEY)
-        expect(spent[TODAY_INDEX]).toBe(4_000)
-        expect(spent[TODAY_INDEX + 1]).toBeNaN()
-    })
-
-    // The series and the quota are fetched together, so the series can be a moment newer. Today has to
-    // read the same number the card header shows, and only the days that overshoot it are pulled down.
-    it('pins today to the quota total when the ledger runs ahead', () => {
-        const trajectory = build({ credits_used: 4_000 }, { dailyCredits: ledger(4_400, 4) })
-        const spent = seriesData(trajectory, SPENT_SERIES_KEY)
-        expect(spent[2]).toBe(3_300)
-        expect(spent[3]).toBe(4_000)
-        expect(spent[TODAY_INDEX]).toBe(4_000)
-        expect(trajectory.markers.find((m) => m.key === 'today')?.text).toBe('Today · 4,000')
-    })
-
-    it.each([
-        [
-            'it would sit on the axis',
-            { credit_limit: 240_000, credits_used: 168_000, free_monthly_credits: 1_000 },
-            null,
-        ],
-        [
-            'it clears the axis and the limit',
-            { credit_limit: 10_000, credits_used: 4_000, free_monthly_credits: 2_500 },
-            2_500,
-        ],
-        ['it is the limit itself', { credit_limit: 2_500, credits_used: 1_000, free_monthly_credits: 2_500 }, null],
-    ])('draws the free-credits line only when %s', (_, overrides, expected) => {
-        expect(build(overrides).freeCredits).toBe(expected)
-    })
-
-    it('runs the projection to the crossing in the danger colour when demand hits the limit', () => {
-        const trajectory = build(
-            { credit_limit: 10_000, credits_used: 4_000 },
-            { projectedTotal: 10_000, capReachDate: dayjs.utc('2026-05-20T06:00:00Z') }
-        )
-        const projected = seriesData(trajectory, PROJECTED_SERIES_KEY)
-        expect(projected[TODAY_INDEX]).toBe(4_000)
-        expect(projected[20]).toBe(10_000)
-        expect(projected[21]).toBeNaN()
-        expect(trajectory.series.find((s) => s.key === PROJECTED_SERIES_KEY)?.color).toBe(DANGER)
-        expect(trajectory.markers.find((m) => m.key === 'crossing')).toMatchObject({
-            label: '2026-05-21',
-            value: 10_000,
-            text: 'Limit · May 20',
+describe('spendTrajectoryTransforms', () => {
+    describe('buildSpendPeriodAxis', () => {
+        it('lays one UTC day per label across the period and places today on its UTC day', () => {
+            expect(AXIS.labels).toHaveLength(END_INDEX + 1)
+            expect(AXIS.labels[0]).toBe('2026-05-01')
+            expect(AXIS.labels[END_INDEX]).toBe('2026-06-01')
+            expect(AXIS.todayIndex).toBe(TODAY_INDEX)
+            expect(AXIS.endIndex).toBe(END_INDEX)
         })
-        expect(trajectory.crossingDate?.format('YYYY-MM-DD')).toBe('2026-05-20')
+
+        it('clamps today into the period', () => {
+            expect(buildSpendPeriodAxis(PERIOD_START, PERIOD_END, dayjs.utc('2026-07-01')).todayIndex).toBe(END_INDEX)
+            expect(buildSpendPeriodAxis(PERIOD_START, PERIOD_END, dayjs.utc('2026-04-01')).todayIndex).toBe(0)
+        })
     })
 
-    it('runs the projection to demand at period end when there is no limit', () => {
-        const trajectory = build({ credit_limit: null, credits_used: 4_000 }, { projectedTotal: 6_000 })
-        const projected = seriesData(trajectory, PROJECTED_SERIES_KEY)
-        expect(trajectory.cap).toBeNull()
-        expect(projected[END_INDEX]).toBe(6_000)
-        expect(trajectory.series.find((s) => s.key === PROJECTED_SERIES_KEY)?.color).toBe(STATUS)
-        expect(trajectory.markers.find((m) => m.key === 'end')?.text).toBe('Jun 1 · ~6,000')
+    describe('buildSpentSeries', () => {
+        it('accumulates the ledger up to today and leaves the rest empty', () => {
+            const spent = buildSpentSeries(ledger(4_000, 4), 4_000, AXIS)
+            expect(spent[0]).toBe(1_000)
+            expect(spent[3]).toBe(4_000)
+            expect(spent[TODAY_INDEX]).toBe(4_000)
+            expect(spent[TODAY_INDEX + 1]).toBeNaN()
+        })
+
+        it('pins today to the quota total when the ledger runs ahead', () => {
+            const spent = buildSpentSeries(ledger(4_400, 4), 4_000, AXIS)
+            expect(spent[2]).toBe(3_300)
+            expect(spent[3]).toBe(4_000)
+            expect(spent[TODAY_INDEX]).toBe(4_000)
+        })
+
+        it('draws only today when there is no ledger', () => {
+            const spent = buildSpentSeries([], 4_000, AXIS)
+            expect(spent[0]).toBeNaN()
+            expect(spent[TODAY_INDEX]).toBe(4_000)
+        })
     })
 
-    it('holds the projection flat at the limit once spend has reached it', () => {
-        const trajectory = build({ credit_limit: 10_000, credits_used: 10_000 }, { projectedTotal: 14_000 })
-        const projected = seriesData(trajectory, PROJECTED_SERIES_KEY)
-        expect(trajectory.pausedAtLimit).toBe(true)
-        expect(projected[TODAY_INDEX]).toBe(10_000)
-        expect(projected[END_INDEX]).toBe(10_000)
-        expect(trajectory.series.find((s) => s.key === PROJECTED_SERIES_KEY)?.color).toBe(DANGER)
+    describe('resolveSpendCrossing', () => {
+        it('lands the crossing on the UTC day of the verdict date', () => {
+            const crossing = resolveSpendCrossing(dayjs.utc('2026-05-20T06:00:00Z'), 10_000, 4_000, AXIS)
+            expect(crossing).not.toBeNull()
+            expect(crossing!.index).toBe(19)
+            expect(crossing!.value).toBe(10_000)
+            expect(crossing!.date.format('YYYY-MM-DD')).toBe('2026-05-20')
+        })
+
+        it.each([
+            ['there is no limit', dayjs.utc('2026-05-20'), null, 4_000],
+            ['spend is already at the limit', dayjs.utc('2026-05-20'), 10_000, 10_000],
+            ['the crossing is today', dayjs.utc('2026-05-12T18:00:00Z'), 10_000, 4_000],
+            ['the crossing is after the period', dayjs.utc('2026-06-02'), 10_000, 4_000],
+        ])('returns null when %s', (_, capReachDate, cap, spentTotal) => {
+            expect(resolveSpendCrossing(capReachDate, cap, spentTotal, AXIS)).toBeNull()
+        })
+    })
+
+    describe('buildProjectedSeries', () => {
+        it('runs from today to the crossing and stops there', () => {
+            const projected = buildProjectedSeries(4_000, 10_000, CROSSING, AXIS)
+            expect(projected[TODAY_INDEX - 1]).toBeNaN()
+            expect(projected[TODAY_INDEX]).toBe(4_000)
+            expect(projected[19]).toBe(10_000)
+            expect(projected[20]).toBeNaN()
+        })
+
+        it('runs from today to period end otherwise', () => {
+            const projected = buildProjectedSeries(4_000, 6_000, null, AXIS)
+            expect(projected[TODAY_INDEX]).toBe(4_000)
+            expect(projected[END_INDEX]).toBe(6_000)
+        })
+    })
+
+    describe('resolveFreeCreditsLine', () => {
+        it.each([
+            ['it would sit on the axis', 1_000, 240_000, 240_000, null],
+            ['it clears the axis and the limit', 2_500, 10_000, 10_000, 2_500],
+            ['it is the limit itself', 2_500, 2_500, 2_500, null],
+            ['there is no limit', 2_500, null, 6_000, 2_500],
+        ])('draws the free-credits line only when %s', (_, free, cap, axisMax, expected) => {
+            expect(resolveFreeCreditsLine(free, cap, axisMax)).toBe(expected)
+        })
+    })
+
+    describe('buildSpendMarkers', () => {
+        it('names the crossing day when demand crosses the limit', () => {
+            const markers = buildSpendMarkers(4_000, 10_000, CROSSING, AXIS)
+            expect(markerByKey(markers, 'today')).toMatchObject({ label: '2026-05-12', text: 'Today · 4,000' })
+            expect(markerByKey(markers, 'crossing')).toMatchObject({
+                label: '2026-05-20',
+                value: 10_000,
+                text: 'Limit · May 20',
+            })
+        })
+
+        it('names the period end otherwise', () => {
+            const markers = buildSpendMarkers(4_000, 6_000, null, AXIS)
+            expect(markerByKey(markers, 'end')).toMatchObject({ label: '2026-06-01', text: 'Jun 1 · ~6,000' })
+        })
+    })
+
+    describe('buildSpendTrajectory', () => {
+        it('colours the projection danger and stops it at the crossing when demand hits the limit', () => {
+            const trajectory = buildSpendTrajectory({
+                quota: makeQuota({
+                    period_start: PERIOD_START,
+                    period_end: PERIOD_END,
+                    credit_limit: 10_000,
+                    credits_used: 4_000,
+                }),
+                dailyCredits: ledger(4_000, TODAY_INDEX + 1),
+                projectedTotal: 16_000,
+                capReachDate: dayjs.utc('2026-05-20T06:00:00Z'),
+                statusColor: STATUS,
+                dangerColor: DANGER,
+                now: NOW,
+            })
+            const projected = projectedSeries(trajectory)
+            expect(projected.color).toBe(DANGER)
+            expect(projected.data[19]).toBe(10_000)
+            expect(projected.data[20]).toBeNaN()
+            expect(trajectory.crossing).not.toBeNull()
+            expect(trajectory.crossing!.date.format('YYYY-MM-DD')).toBe('2026-05-20')
+            expect(trajectory.endValue).toBe(10_000)
+        })
+
+        it('holds the projection flat at the limit once spend has reached it', () => {
+            const trajectory = buildSpendTrajectory({
+                quota: makeQuota({
+                    period_start: PERIOD_START,
+                    period_end: PERIOD_END,
+                    credit_limit: 10_000,
+                    credits_used: 10_000,
+                }),
+                dailyCredits: ledger(10_000, TODAY_INDEX + 1),
+                projectedTotal: 14_000,
+                capReachDate: null,
+                statusColor: STATUS,
+                dangerColor: DANGER,
+                now: NOW,
+            })
+            const projected = projectedSeries(trajectory)
+            expect(trajectory.pausedAtLimit).toBe(true)
+            expect(projected.color).toBe(DANGER)
+            expect(projected.data[TODAY_INDEX]).toBe(10_000)
+            expect(projected.data[END_INDEX]).toBe(10_000)
+        })
+
+        it('runs the projection to demand in the status colour when there is no limit', () => {
+            const trajectory = buildSpendTrajectory({
+                quota: makeQuota({
+                    period_start: PERIOD_START,
+                    period_end: PERIOD_END,
+                    credit_limit: null,
+                    credits_used: 4_000,
+                }),
+                dailyCredits: ledger(4_000, TODAY_INDEX + 1),
+                projectedTotal: 6_000,
+                capReachDate: null,
+                statusColor: STATUS,
+                dangerColor: DANGER,
+                now: NOW,
+            })
+            const projected = projectedSeries(trajectory)
+            expect(trajectory.cap).toBeNull()
+            expect(projected.color).toBe(STATUS)
+            expect(projected.data[END_INDEX]).toBe(6_000)
+            expect(markerByKey(trajectory.markers, 'end').text).toBe('Jun 1 · ~6,000')
+        })
     })
 })

@@ -68,6 +68,19 @@ export const HitsTheLimit: Story = {
     },
 }
 
+// A 1280px window with the nav and side panel open leaves the scene about 520px.
+export const HitsTheLimitNarrow: Story = {
+    args: HitsTheLimit.args,
+    decorators: [
+        (Story) => (
+            // eslint-disable-next-line react/forbid-dom-props
+            <div style={{ width: 520 }}>
+                <Story />
+            </div>
+        ),
+    ],
+}
+
 export const PausedAtTheLimit: Story = {
     args: {
         quota: { ...quota, credits_used: 10_000, credits_settled: 10_000, remaining: 0, exhausted: true },

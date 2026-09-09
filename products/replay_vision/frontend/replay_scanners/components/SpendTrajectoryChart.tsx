@@ -1,28 +1,28 @@
-import posthog from 'posthog-js'
-import { type ErrorInfo, memo, useMemo } from 'react'
+import { memo, useMemo } from 'react'
 
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
-import type { GoalLineConfig } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 
+import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
+
 import type { VisionQuotaApi } from '../../generated/api.schemas'
 import { formatCreditCount, formatCreditNumber } from '../../utils/credits'
 import type { SpendSeries } from '../visionUsageLogic'
-import { type SpendReferenceLabel, SpendTrajectoryMarkers } from './SpendTrajectoryMarkers'
-import { buildSpendTrajectory } from './spendTrajectoryTransforms'
+import { SpendTrajectoryMarkers } from './SpendTrajectoryMarkers'
+import { type SpendMarkerTone, type SpendReferenceLabel, buildSpendTrajectory } from './spendTrajectoryTransforms'
 
 const DANGER_VAR = 'var(--danger)'
-const MUTED_VAR = 'var(--muted)'
 
-const handleChartError = (error: Error, info: ErrorInfo): void => {
-    posthog.captureException(error, {
-        feature: 'replay-vision-spend-trajectory',
-        componentStack: info.componentStack ?? undefined,
-    })
+const REFERENCE_LINE_VAR: Record<SpendMarkerTone, string> = {
+    default: 'var(--primary)',
+    muted: 'var(--muted)',
+    danger: DANGER_VAR,
 }
+
+const handleChartError = makeChartErrorHandler('replay-vision-spend-trajectory')
 
 const formatTooltipValue = (value: number): string => formatCreditCount(value)
 
@@ -64,7 +64,7 @@ function SpendTrajectoryChartInner({
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [quota, dailyCredits, projectedTotal, capReachDate, statusVar, theme]
     )
-    const { cap, freeCredits, spentTotal, endValue, crossingDate, pausedAtLimit, periodEnd } = trajectory
+    const { cap, freeCredits, spentTotal, endValue, crossing, pausedAtLimit, periodEnd } = trajectory
 
     const referenceLabels = useMemo(() => {
         const labels: SpendReferenceLabel[] = []
@@ -89,32 +89,30 @@ function SpendTrajectoryChartInner({
         return labels
     }, [cap, freeCredits])
 
-    const config = useChartConfig(() => {
-        const goalLines: GoalLineConfig[] = []
-        if (cap !== null) {
-            goalLines.push({ value: cap, color: DANGER_VAR, showValueOnHover: false })
-        }
-        if (freeCredits !== null) {
-            goalLines.push({ value: freeCredits, color: MUTED_VAR, showValueOnHover: false })
-        }
-        return {
+    const config = useChartConfig(
+        () => ({
             xAxis: { timezone: 'UTC', interval: 'day' as const },
             yAxis: { format: 'short' as const },
-            goalLines,
+            goalLines: referenceLabels.map((line) => ({
+                value: line.value,
+                color: REFERENCE_LINE_VAR[line.tone],
+                showValueOnHover: false,
+            })),
             curve: 'linear' as const,
             tooltip: { valueFormatter: formatTooltipValue },
-        }
-    }, [cap, freeCredits])
+        }),
+        [referenceLabels]
+    )
 
-    const crossingDay = crossingDate?.format('MMM D')
     const resetDay = periodEnd.format('MMM D')
+    const crossingDay = crossing?.date.format('MMM D')
     const caption = crossingDay
         ? `Hits the limit around ${crossingDay}. Scanning pauses until ${resetDay}.`
         : pausedAtLimit
           ? `Scanning is paused at the limit until ${resetDay}.`
           : null
-    const summary = crossingDay
-        ? `Cumulative spend this period: ${formatCreditCount(spentTotal)} so far, projected to reach the ${formatCreditCount(cap ?? 0)} limit around ${crossingDay}`
+    const summary = crossing
+        ? `Cumulative spend this period: ${formatCreditCount(spentTotal)} so far, projected to reach the ${formatCreditCount(crossing.value)} limit around ${crossingDay}`
         : `Cumulative spend this period: ${formatCreditCount(spentTotal)} so far, projected ${formatCreditCount(endValue)} by ${periodEnd.format('MMMM D')}${cap !== null ? `, limit ${formatCreditCount(cap)}` : ''}`
 
     return (
