@@ -20,7 +20,8 @@ Do not loop it after every push, and do not re-run it after you address findings
 
 ## Never substitute an agent review
 
-If the CLI is absent, signed out, or rate limited, **say so and stop**.
+If the CLI is absent, signed out, or rate limited, **say so, stop the review, and continue to `gh pr create`**.
+Stop means the review, not the task: the PR still opens, without a local pass.
 
 Do not run `/code-review`.
 Do not spawn review subagents.
@@ -30,6 +31,9 @@ That is why this skill exists in place of the one it replaces.
 The correct outcome is a PR that opens without a local pass.
 
 ## Setup
+
+This section is for a person at the terminal, once per machine.
+An agent never runs these commands: sign-in opens a browser, and an absent or signed-out CLI is the stop case above.
 
 Flox activation installs the pinned CLI and puts `coderabbit` and `cr` on PATH.
 Sign in once per machine:
@@ -84,5 +88,6 @@ An activation that failed to install the CLI prints a warning and keeps the prev
 - **This is the weaker pass.**
   It reads code your own session may have written, with no independent context.
   It never replaces human review.
-- **Point it at the risky part.**
-  When one part of the diff is the part you are least sure about, review that path rather than sweeping the branch.
+- **Read the risky part's findings first.**
+  When one part of the diff worries you most, start with its findings and read that code again yourself.
+  The recorded pass is always the whole-branch run.

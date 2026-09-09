@@ -382,6 +382,17 @@ fi
 # the user's shell profile whenever its target directory is off PATH, and this
 # store is off PATH by design.
 _CODERABBIT_VERSION="0.7.6"
+# Digests come from https://cli.coderabbit.ai/releases/<version>/SHA256SUMS
+# and change with the version.
+_coderabbit_zip_sha256() {
+  case "$1" in
+    darwin-arm64) printf '%s' "f970e608e383114e1edf214eea71a99d6604ea1dd09c01e754ee6b8d4b852cb1" ;;
+    darwin-x64) printf '%s' "1c6242dec8a0983ff70842bc1d0e8c888d1a92b1ad80afb969c00c94c482a704" ;;
+    linux-arm64) printf '%s' "2270641a6314bef0da32e5903ddc6de6265354962f7cf651fc581a4a91f22447" ;;
+    linux-x64) printf '%s' "853a1727609ab0ff1f56863fa6de7acf3de593a6dc1bd7f91a32f11c5724ffc9" ;;
+    *) return 1 ;;
+  esac
+}
 _CODERABBIT_STORE="$HOME/.config/posthog/tools/coderabbit/$_CODERABBIT_VERSION"
 _CODERABBIT_BIN="$_CODERABBIT_STORE/coderabbit"
 _CODERABBIT_STAMP="$_CODERABBIT_STORE/.complete"
@@ -413,6 +424,10 @@ _install_coderabbit() {
       tmp=$(mktemp -d) || exit 1
       trap 'rm -rf "$tmp"' EXIT
       curl -fsSL "$url" -o "$tmp/coderabbit.zip" || exit 1
+      local expected actual
+      expected=$(_coderabbit_zip_sha256 "$os-$arch") || exit 1
+      actual=$(_sha256_file "$tmp/coderabbit.zip")
+      [[ -n "$actual" && "$actual" == "$expected" ]] || exit 1
       unzip -qo "$tmp/coderabbit.zip" -d "$tmp" || exit 1
       [[ -f "$tmp/coderabbit" ]] || exit 1
       chmod +x "$tmp/coderabbit" || exit 1
@@ -493,7 +508,7 @@ else
   wait_bg_step "CodeRabbit CLI" "$_BG_CODERABBIT_PID" "$_BG_CODERABBIT_START" "$_BG_CODERABBIT_LOG" \
     || warn_step "CodeRabbit CLI install failed  ${C_DIM}(reviews skip until it installs)${C_RESET}"
 fi
-if [[ -x "$_CODERABBIT_BIN" && -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
+if [[ -x "$_CODERABBIT_BIN" && -f "$_CODERABBIT_STAMP" && -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   ln -sf "$_CODERABBIT_BIN" "$UV_PROJECT_ENVIRONMENT/bin/coderabbit"
   ln -sf "$_CODERABBIT_BIN" "$UV_PROJECT_ENVIRONMENT/bin/cr"
 fi
