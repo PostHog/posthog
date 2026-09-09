@@ -66,6 +66,76 @@ class JiraIntegration:
         except Exception:
             logger.warning("JiraIntegration: token refresh pre-check failed", exc_info=True)
 
+    def _refresh_after_unauthorized(self) -> bool:
+        """Refresh the token after a 401 and report whether the retry is worth making.
+
+        The proactive check cannot see a token as stale when the integration config has no
+        expiry metadata, so Atlassian is the first to tell us the token is dead.
+        """
+        if not self.integration.sensitive_config.get("refresh_token"):
+            return False
+
+        try:
+            self.refresh_access_token()
+        except Exception:
+            logger.warning("JiraIntegration: token refresh after 401 failed", exc_info=True)
+            return False
+
+        return not self.integration.errors
+
+    def _check_auth_error(self, response: requests.Response, context: str) -> None:
+        if response.status_code == 401:
+            logger.warning(
+                f"JiraIntegration: Auth error {context}",
+                status_code=response.status_code,
+                integration_id=self.integration.id,
+            )
+            self.integration.errors = common.ERROR_TOKEN_REFRESH_FAILED
+            self.integration.save(update_fields=["errors"])
+            raise ValidationError(
+                "This integration's authentication is no longer valid. "
+                "Please reconnect or disconnect this integration and connect a different account."
+            )
+        if response.status_code == 403:
+            raise ValidationError(
+                "This integration does not have permission to access this resource. "
+                "Please check the account permissions on the provider side."
+            )
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        context: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> requests.Response:
+        """Call the Jira REST API with a valid token, and refresh once if Atlassian rejects it."""
+        cloud_id = self.cloud_id()
+        if not cloud_id:
+            raise ValidationError("Jira integration missing cloud_id - the integration may not be properly configured")
+
+        self._ensure_token_valid()
+
+        url = f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/{path}"
+
+        def send() -> requests.Response:
+            headers = {
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "Accept": "application/json",
+            }
+            if json_body is not None:
+                headers["Content-Type"] = "application/json"
+            return requests.request(method, url, headers=headers, json=json_body, params=params, timeout=10)
+
+        response = send()
+        if response.status_code == 401 and self._refresh_after_unauthorized():
+            response = send()
+
+        self._check_auth_error(response, context)
+        return response
+
     def _raise_create_issue_error(self, response: requests.Response, response_body: Any) -> NoReturn:
         properties: dict[str, Any] = {
             "jira_status_code": response.status_code,
@@ -87,32 +157,13 @@ class JiraIntegration:
 
     def list_projects(self) -> list[dict]:
         """List all Jira projects accessible to the user"""
-        cloud_id = self.cloud_id()
-        if not cloud_id:
-            raise ValidationError("Jira integration missing cloud_id - the integration may not be properly configured")
-
-        self._ensure_token_valid()
-
-        response = requests.get(
-            f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/project/search",
-            headers={
-                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "Accept": "application/json",
-            },
-            timeout=10,
-        )
+        response = self._request("GET", "project/search", "listing projects")
         body = response.json()
         projects = body.get("values", [])
         return [{"id": p["id"], "key": p["key"], "name": p["name"]} for p in projects]
 
     def create_issue(self, config: dict[str, str]) -> dict[str, str]:
         """Create a Jira issue and return the issue key"""
-        cloud_id = self.cloud_id()
-        if not cloud_id:
-            raise ValidationError("Jira integration missing cloud_id - the integration may not be properly configured")
-
-        self._ensure_token_valid()
-
         title = config.get("title")
         description = config.get("description")
         project_key = config.get("project_key")
@@ -136,16 +187,7 @@ class JiraIntegration:
             }
         }
 
-        response = requests.post(
-            f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/issue",
-            headers={
-                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-            timeout=10,
-        )
+        response = self._request("POST", "issue", "creating an issue", json_body=payload)
 
         try:
             issue = response.json()
@@ -166,25 +208,26 @@ class JiraIntegration:
         Uses Jira's purpose-built issue picker endpoint, which matches on summary and
         issue key without us having to build (and escape) a JQL string from user input.
         """
-        cloud_id = self.cloud_id()
-        if not cloud_id:
-            raise ValidationError("Jira integration missing cloud_id - the integration may not be properly configured")
-
-        self._ensure_token_valid()
-
-        response = requests.get(
-            f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/issue/picker",
-            headers={
-                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "Accept": "application/json",
-            },
+        response = self._request(
+            "GET",
+            "issue/picker",
+            "searching issues",
             # Without currentJQL the picker only returns history suggestions (issues the
             # user recently viewed); this constant JQL makes it search all accessible issues.
             params={"query": query, "currentJQL": "order by created DESC", "showSubTasks": "true"},
-            timeout=10,
         )
         if response.status_code != 200:
-            raise ValidationError(f"Failed to search Jira issues (status {response.status_code})")
+            # Record the metadata only, because the response body can echo the search text.
+            capture_exception(
+                Exception("Jira issue search failed"),
+                additional_properties={
+                    "jira_status_code": response.status_code,
+                    "jira_response_content_type": response.headers.get("Content-Type"),
+                    "integration_id": self.integration.id,
+                    "team_id": self.integration.team_id,
+                },
+            )
+            raise ValidationError("Could not search Jira issues. Check the Jira connection and try again.")
         body = response.json()
 
         site_url = self.site_url()
