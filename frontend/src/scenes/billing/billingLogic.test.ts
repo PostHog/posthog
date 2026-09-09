@@ -244,6 +244,7 @@ describe('billingLogic', () => {
         const flat = (value: number, days: number): number[] => Array(days).fill(value)
 
         let usageData: number[]
+        let usageRequestCount: number
 
         const mountWithFlag = async (flagOn: boolean = true): Promise<void> => {
             featureFlagLogic.mount()
@@ -259,6 +260,8 @@ describe('billingLogic', () => {
         }
 
         beforeEach(() => {
+            localStorage.clear()
+            usageRequestCount = 0
             // A paying product with nothing capping the bill - the case no alert covered before.
             billingState = billingWithProducts([productWithUsage(0, { usage_limit: null })])
             usageData = [...flat(10_000, 21), ...flat(40_000, 7)]
@@ -267,24 +270,27 @@ describe('billingLogic', () => {
                     '/_preflight': [200, { ...preflightJson, cloud: true }],
                     '/api/billing': () => [200, billingState],
                     '/api/billing/credits/overview': [200, creditOverviewResponse],
-                    '/api/billing/usage/': () => [
-                        200,
-                        {
-                            status: 'ok',
-                            type: 'timeseries',
-                            customer_id: 'cus_1',
-                            results: [
-                                {
-                                    id: 0,
-                                    label: 'events',
-                                    data: usageData,
-                                    dates: usageData.map((_, index) => `2026-08-${index + 1}`),
-                                    breakdown_type: 'type',
-                                    breakdown_value: 'events',
-                                },
-                            ],
-                        },
-                    ],
+                    '/api/billing/usage/': () => {
+                        usageRequestCount += 1
+                        return [
+                            200,
+                            {
+                                status: 'ok',
+                                type: 'timeseries',
+                                customer_id: 'cus_1',
+                                results: [
+                                    {
+                                        id: 0,
+                                        label: 'events',
+                                        data: usageData,
+                                        dates: usageData.map((_, index) => `2026-08-${index + 1}`),
+                                        breakdown_type: 'type',
+                                        breakdown_value: 'events',
+                                    },
+                                ],
+                            },
+                        ]
+                    },
                 },
             })
         })
@@ -319,6 +325,20 @@ describe('billingLogic', () => {
             billingState = billingWithProducts([productWithUsage(0.1, { usage_limit: 100_000 })])
             await mountWithFlag()
 
+            expect(billingLogic.values.billingAlert).toBeNull()
+        })
+
+        it('asks billing for nothing more once the banner is closed for the period', async () => {
+            await mountWithFlag()
+            expect(usageRequestCount).toBeGreaterThan(0)
+            const requestsBeforeClosing = usageRequestCount
+
+            billingLogic.values.billingAlert?.onClose?.()
+            await expectLogic(billingLogic, () => {
+                billingLogic.actions.loadBilling()
+            }).toFinishAllListeners()
+
+            expect(usageRequestCount).toEqual(requestsBeforeClosing)
             expect(billingLogic.values.billingAlert).toBeNull()
         })
     })

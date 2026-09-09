@@ -1679,12 +1679,17 @@ export const billingLogic = kea<billingLogicType>([
             actions.resetUsageLimitApproachingKey()
             clearBillingAlert()
 
-            // Nothing here caps the bill, so the only warning left is the volume itself.
+            // Nothing here caps the bill, so the only warning left is the volume itself. A
+            // dismissal lasts to the end of the billing period and billing reloads often, so
+            // dismissed products drop out before the request and not only after it.
             if (
                 values.featureFlags[FEATURE_FLAGS.BILLING_USAGE_SPIKE_ALERT] &&
                 values.billing.has_active_subscription &&
                 values.canViewUsageAndSpend &&
-                values.productsWithoutBillingLimit.length > 0
+                values.productsWithoutBillingLimit.some(
+                    (product: BillingProductV2Type) =>
+                        !isBillingAlertDismissed(values.currentOrganizationId, product.type, billingPeriodEnd, '-spike')
+                )
             ) {
                 actions.loadUsageSpikes()
             }
