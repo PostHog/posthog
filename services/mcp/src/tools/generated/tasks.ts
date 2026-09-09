@@ -528,6 +528,60 @@ const loopsRunsRetrieve = (): ToolBase<
     },
 })
 
+const TasksConfigCreateSchema = () => {
+    const TasksConfigCreateBody = orvalSchemas.TasksConfigCreateBody()
+    return TasksConfigCreateBody
+}
+
+const tasksConfigCreate = (): ToolBase<
+    ReturnType<typeof TasksConfigCreateSchema>,
+    Schemas.TasksTeamConfigResponse
+> => ({
+    name: 'tasks-config-create',
+    schema: TasksConfigCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksConfigCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.runtime_adapter !== undefined) {
+            body['runtime_adapter'] = params.runtime_adapter
+        }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        if (params.reasoning_effort !== undefined) {
+            body['reasoning_effort'] = params.reasoning_effort
+        }
+        const result = await context.api.request<Schemas.TasksTeamConfigResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/config/`,
+            body,
+        })
+        return result
+    },
+})
+
+const TasksConfigListSchema = () => {
+    const TasksConfigListQueryParams = orvalSchemas.TasksConfigListQueryParams()
+    return TasksConfigListQueryParams
+}
+
+const tasksConfigList = (): ToolBase<ReturnType<typeof TasksConfigListSchema>, Schemas.TasksTeamConfigResponse> => ({
+    name: 'tasks-config-list',
+    schema: TasksConfigListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksConfigListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TasksTeamConfigResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/config/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return result
+    },
+})
+
 const TasksCreateSchema = () => {
     const TasksCreateBody = orvalSchemas.TasksCreateBody()
     return TasksCreateBody.omit({
@@ -674,6 +728,81 @@ const tasksList = (): ToolBase<
     },
 })
 
+const TasksMeConfigCreateSchema = () => {
+    const TasksMeConfigCreateBody = orvalSchemas.TasksMeConfigCreateBody()
+    return TasksMeConfigCreateBody
+}
+
+const tasksMeConfigCreate = (): ToolBase<
+    ReturnType<typeof TasksMeConfigCreateSchema>,
+    Schemas.TasksUserConfigResponse
+> => ({
+    name: 'tasks-me-config-create',
+    schema: TasksMeConfigCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksMeConfigCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.runtime_adapter !== undefined) {
+            body['runtime_adapter'] = params.runtime_adapter
+        }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        if (params.reasoning_effort !== undefined) {
+            body['reasoning_effort'] = params.reasoning_effort
+        }
+        const result = await context.api.request<Schemas.TasksUserConfigResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/@me/config/`,
+            body,
+        })
+        return result
+    },
+})
+
+const TasksMeConfigListSchema = () => {
+    const TasksMeConfigListQueryParams = orvalSchemas.TasksMeConfigListQueryParams()
+    return TasksMeConfigListQueryParams
+}
+
+const tasksMeConfigList = (): ToolBase<
+    ReturnType<typeof TasksMeConfigListSchema>,
+    Schemas.TasksUserConfigResponse
+> => ({
+    name: 'tasks-me-config-list',
+    schema: TasksMeConfigListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof TasksMeConfigListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TasksUserConfigResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/@me/config/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return result
+    },
+})
+
+const TasksModelsRetrieveSchema = () => z.object({})
+
+const tasksModelsRetrieve = (): ToolBase<
+    ReturnType<typeof TasksModelsRetrieveSchema>,
+    Schemas.ModelCatalogueResponse
+> => ({
+    name: 'tasks-models-retrieve',
+    schema: TasksModelsRetrieveSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof TasksModelsRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ModelCatalogueResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/models/`,
+        })
+        return result
+    },
+})
+
 const TasksRetrieveSchema = () => {
     const TasksRetrieveParams = orvalSchemas.TasksRetrieveParams()
     return TasksRetrieveParams.omit({ project_id: true })
@@ -814,8 +943,13 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'loops-retrieve': loopsRetrieve,
     'loops-run-create': loopsRunCreate,
     'loops-runs-retrieve': loopsRunsRetrieve,
+    'tasks-config-create': tasksConfigCreate,
+    'tasks-config-list': tasksConfigList,
     'tasks-create': tasksCreate,
     'tasks-list': tasksList,
+    'tasks-me-config-create': tasksMeConfigCreate,
+    'tasks-me-config-list': tasksMeConfigList,
+    'tasks-models-retrieve': tasksModelsRetrieve,
     'tasks-retrieve': tasksRetrieve,
     'tasks-runs-list': tasksRunsList,
     'tasks-runs-retrieve': tasksRunsRetrieve,
