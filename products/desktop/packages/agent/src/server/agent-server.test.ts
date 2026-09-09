@@ -2579,6 +2579,47 @@ describe("AgentServer HTTP Mode", () => {
 
       expect(testServer.pendingEvents).toEqual([event]);
     });
+
+    it("redacts authorization headers before an event leaves the sandbox", () => {
+      // The wire tap broadcasts the session/new request with the MCP server
+      // configs, so an unredacted broadcast hands the user's tokens to
+      // teammates who can only read the run.
+      const testServer = exposeBroadcastEvent(createServer());
+      testServer.eventStreamSender = {
+        enqueue: vi.fn(),
+        stop: vi.fn(async () => {}),
+      };
+      testServer.session = null;
+
+      testServer.broadcastEvent({
+        type: "notification",
+        notification: {
+          method: "session/new",
+          params: {
+            mcpServers: [
+              {
+                name: "posthog",
+                headers: [
+                  { name: "Authorization", value: "Bearer pair-secret" },
+                  { name: "x-posthog-mcp-consumer", value: "cloud" },
+                ],
+              },
+              {
+                name: "slack",
+                headers: { authorization: "Bearer map-secret" },
+              },
+            ],
+          },
+        },
+      });
+
+      const [broadcast] = testServer.eventStreamSender.enqueue.mock.calls[0];
+      const serialized = JSON.stringify(broadcast);
+      expect(serialized).not.toContain("pair-secret");
+      expect(serialized).not.toContain("map-secret");
+      expect(serialized).toContain("cloud");
+      expect(testServer.pendingEvents).toEqual([broadcast]);
+    });
   });
 
   describe("relayed MCP server tool permissions", () => {

@@ -124,6 +124,7 @@ import { createEventIdSource } from "../utils/event-id";
 import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
 import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
+import { redactAuthorizationHeaders } from "../utils/redact-authorization-headers";
 import {
   ClaudeTokenEventRedactor,
   redactClaudeTokens,
@@ -5993,7 +5994,14 @@ ${commonInstructions}
   }
 
   private broadcastEvent(event: Record<string, unknown>): void {
-    for (const redacted of this.tokenEventRedactor.redact(event)) {
+    // The wire tap broadcasts the `session/new` request, whose MCP server
+    // configs hold the acting user's tokens. Teammates who can only read the
+    // run also read this stream, so the credentials go out redacted.
+    const sanitized = redactAuthorizationHeaders(event) as Record<
+      string,
+      unknown
+    >;
+    for (const redacted of this.tokenEventRedactor.redact(sanitized)) {
       this.deliverEvent(redacted);
     }
   }

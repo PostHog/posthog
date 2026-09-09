@@ -6,6 +6,7 @@ import type { PostHogAPIClient } from "./posthog-api";
 import type { StoredNotification } from "./types";
 import { isEmptyContentBlock } from "./utils/acp-content";
 import { Logger } from "./utils/logger";
+import { redactAuthorizationHeaders } from "./utils/redact-authorization-headers";
 import { redactClaudeTokens } from "./utils/redact-claude-tokens";
 
 /**
@@ -74,31 +75,6 @@ interface SessionState {
   currentTurnMessages: string[];
   toolUpdateCache: Map<string, BufferedToolUpdate>;
   pendingRawInputSnapshots: Map<string, StoredNotification>;
-}
-
-function redactAuthorizationHeaders(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(redactAuthorizationHeaders);
-  }
-  if (value === null || typeof value !== "object") {
-    return redactClaudeTokens(value);
-  }
-
-  const record = value as Record<string, unknown>;
-  if (
-    typeof record.name === "string" &&
-    record.name.toLowerCase() === "authorization" &&
-    "value" in record
-  ) {
-    return { ...record, value: "[REDACTED]" };
-  }
-
-  return Object.fromEntries(
-    Object.entries(record).map(([key, nestedValue]) => [
-      key,
-      redactAuthorizationHeaders(nestedValue),
-    ]),
-  );
 }
 
 export class SessionLogWriter {
@@ -269,7 +245,9 @@ export class SessionLogWriter {
         this.emitCoalescedMessage(sessionId, session);
       }
 
-      message = redactAuthorizationHeaders(message) as Record<string, unknown>;
+      message = redactClaudeTokens(
+        redactAuthorizationHeaders(message),
+      ) as Record<string, unknown>;
       const nonChunkAgentText = this.extractAgentMessageText(message);
       if (nonChunkAgentText) {
         session.lastAgentMessage = nonChunkAgentText;
