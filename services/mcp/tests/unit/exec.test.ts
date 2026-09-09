@@ -19,6 +19,7 @@ import {
     type ExecInnerCallProperties,
     type ExecToolOptions,
     formatInputValidationError,
+    rewrapFlattenedArguments,
     parseExecCallInnerToolName,
 } from '@/tools/exec'
 import { ExecLearnCatalog } from '@/tools/exec-learn'
@@ -1981,6 +1982,58 @@ describe('exec tool', () => {
                 expect(formatInputValidationError('query-logs', result.error!, input, tool.schema)).toContain(
                     'resend them as {"query": {"dateRange": ..., "limit": ...}}'
                 )
+            })
+
+            // Naming the mistake still costs the caller a retry. These lock in the
+            // rewrap that spends the call instead, and the cases it must leave alone.
+            describe('rewrapping it into the call the caller meant', () => {
+                const rewrapFor = (schema: ZodObjectAny, input: unknown): Record<string, unknown> | undefined => {
+                    const result = schema.safeParse(input, { reportInput: true })
+                    expect(result.success).toBe(false)
+                    return rewrapFlattenedArguments(result.error!, input, schema)
+                }
+
+                it('nests the flattened fields under the wrapper', () => {
+                    expect(rewrapFor(wrapperSchema, { dateRange: { date_from: '-1h' }, limit: 10 })).toEqual({
+                        query: { dateRange: { date_from: '-1h' }, limit: 10 },
+                    })
+                })
+
+                it('leaves a sibling the outer schema declares at the top level', () => {
+                    // `logs-patterns-diff` takes `baselineDateRange` beside `query`. Folding
+                    // it inside would have the nested schema strip it, and the caller would
+                    // get a diff against the default baseline without being told.
+                    const tool = GENERATED_TOOL_MAP['logs-patterns-diff']!()
+                    const input = {
+                        serviceNames: ['api'],
+                        dateRange: { date_from: '-1d' },
+                        baselineDateRange: { date_from: '-2d', date_to: '-1d' },
+                    }
+
+                    expect(rewrapFor(tool.schema, input)).toEqual({
+                        query: { serviceNames: ['api'], dateRange: { date_from: '-1d' } },
+                        baselineDateRange: { date_from: '-2d', date_to: '-1d' },
+                    })
+                })
+
+                it.each([
+                    ['an empty input, which is a caller that sent nothing', {}],
+                    ['keys the nested schema does not declare', { nonsense: 1, alsoNonsense: 2 }],
+                    ['a nested field the wrapper still rejects', { orderBy: 'newest' }],
+                ])('leaves %s to its own rejection', (_label, input) => {
+                    expect(rewrapFor(wrapperSchema, input)).toBeUndefined()
+                })
+
+                it('leaves a rejection that names more than the missing wrapper alone', () => {
+                    // Two complaints mean the payload is wrong in a way nesting cannot fix,
+                    // so guessing at one of them would hide the other.
+                    const strictWrapper = z.object({
+                        query: z.object({ limit: z.number().optional() }),
+                        mode: z.enum(['fast', 'full']),
+                    })
+
+                    expect(rewrapFor(strictWrapper, { limit: 10, mode: 'quick' })).toBeUndefined()
+                })
             })
         })
 

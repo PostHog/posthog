@@ -28,6 +28,7 @@ import {
     formatInputValidationError,
     parseExecCallInnerArgs,
     parseExecCallInnerToolName,
+    rewrapFlattenedArguments,
     type ExecCommandMeta,
     type ExecInnerCallTracker,
 } from '@/tools/exec'
@@ -237,8 +238,15 @@ export class ToolExecutor {
         state: ResolvedState,
         intentMeta?: ToolCallIntentMeta
     ): Promise<unknown> {
-        const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
-        const validation = tool.schema.safeParse(toolArgs, { reportInput: true })
+        const rawToolArgs = (params?.arguments ?? {}) as Record<string, unknown>
+        const firstPass = tool.schema.safeParse(rawToolArgs, { reportInput: true })
+        // A caller that sent a wrapper parameter's contents in its place gets the
+        // call it meant, rather than a round trip spent on the rejection.
+        const rewrapped = firstPass.success
+            ? undefined
+            : rewrapFlattenedArguments(firstPass.error, rawToolArgs, tool.schema)
+        const toolArgs = rewrapped ?? rawToolArgs
+        const validation = rewrapped ? tool.schema.safeParse(toolArgs, { reportInput: true }) : firstPass
         if (!validation.success) {
             toolCallsTotal.inc({ tool: tool.name, status: 'validation_error' })
             const message = formatInputValidationError(tool.name, validation.error, toolArgs, tool.schema)

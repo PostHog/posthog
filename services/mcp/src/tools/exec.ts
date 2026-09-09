@@ -510,6 +510,60 @@ function looksLikeUnwrappedPayload(
 }
 
 /**
+ * Rebuilds a flattened payload under the wrapper the schema wanted, so the call
+ * the caller meant runs instead of failing.
+ *
+ * Naming the mistake in the rejection still spends a round trip, and the tools
+ * built this way — the logs, APM, and metrics read tools — see the flattened
+ * shape often enough that the round trip is the dominant cost of using them.
+ *
+ * Keys the outer schema declares beside the wrapper stay at the top level. Folding
+ * a sibling such as `baselineDateRange` into `query` would have the nested schema
+ * strip it, and the caller would silently get a different query than it asked for.
+ *
+ * Returns undefined unless the rebuilt payload parses, so a payload that is
+ * malformed for some other reason keeps its own rejection.
+ */
+export function rewrapFlattenedArguments(
+    error: z.ZodError,
+    input: unknown,
+    schema: ZodObjectAny | undefined
+): Record<string, unknown> | undefined {
+    if (!schema || !isRecord(input) || error.issues.length !== 1) {
+        return undefined
+    }
+    const issue = error.issues[0]!
+    if (issue.code !== 'invalid_type' || !('input' in issue) || issue.input !== undefined) {
+        return undefined
+    }
+    if (!looksLikeUnwrappedPayload(issue.path, input, schema)) {
+        return undefined
+    }
+
+    const key = String(issue.path[0])
+    const siblings = topLevelFieldNames(schema)
+    const rebuilt: Record<string, unknown> = {}
+    const nested: Record<string, unknown> = {}
+    for (const [name, value] of Object.entries(input)) {
+        if (name !== key && siblings.has(name)) {
+            rebuilt[name] = value
+        } else {
+            nested[name] = value
+        }
+    }
+    rebuilt[key] = nested
+
+    return schema.safeParse(rebuilt).success ? rebuilt : undefined
+}
+
+/** The names the schema declares at the top level. */
+function topLevelFieldNames(schema: ZodObjectAny): ReadonlySet<string> {
+    const root = inputJsonSchema(schema)
+    const properties = isRecord(root) ? root['properties'] : undefined
+    return new Set(isRecord(properties) ? Object.keys(properties) : [])
+}
+
+/**
  * The field names a wrapper parameter declares directly, including the fields of
  * each variant when the wrapper is a union (`read-data-schema` keys its shape off
  * a `kind` discriminator). Composition keywords are walked one level; nothing
@@ -1325,7 +1379,16 @@ export function createExecTool(
                     // otherwise bad input reaches the HTTP layer and builds URLs like
                     // `.../actions/undefined/`, a misleading 404 that hides the offending
                     // field. Dispatch the parsed output so coerced values and defaults apply.
-                    const validation = toolSchema.safeParse(input, { reportInput: true })
+                    let validation = toolSchema.safeParse(input, { reportInput: true })
+                    if (!validation.success) {
+                        // Run the call the caller meant when it flattened a wrapper
+                        // parameter, instead of spending a round trip on the rejection.
+                        const rewrapped = rewrapFlattenedArguments(validation.error, input, toolSchema)
+                        if (rewrapped) {
+                            input = rewrapped
+                            validation = toolSchema.safeParse(input, { reportInput: true })
+                        }
+                    }
                     if (!validation.success) {
                         const message = formatInputValidationError(tool.name, validation.error, input, tool.schema)
                         trackInnerCall?.(tool.name, {
