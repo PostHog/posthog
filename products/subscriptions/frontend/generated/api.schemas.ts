@@ -788,6 +788,28 @@ export interface ProactiveHistoryEntryApi {
      * @nullable
      */
     why_now: string | null
+    /**
+     * Recommendation confidence from zero to one.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    confidence: number | null
+    /**
+     * Estimated implementation effort: small, medium, or large.
+     * @nullable
+     */
+    effort: string | null
+    /**
+     * Expected direction for the recommendation metric.
+     * @nullable
+     */
+    metric_direction: string | null
+    /**
+     * Expected metric movement captured with the recommendation.
+     * @nullable
+     */
+    expected_metric_movement: string | null
     /** Up to three supporting evidence citations. */
     citations: ProactiveHistoryCitationApi[]
     /** Prepared artifact, when the recommendation created one. */

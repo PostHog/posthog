@@ -157,7 +157,13 @@ def test_proactive_history_returns_compact_recommendation_artifact_and_outcome(t
         team_id=team.id,
         run=run,
         semantic_key="signup-friction",
-        recommendation={"title": "Reduce sign-up friction", "why_now": "New users are leaving before account setup."},
+        recommendation={
+            "title": "Reduce sign-up friction",
+            "why_now": "New users are leaving before account setup.",
+            "confidence": 0.8,
+            "effort": "small",
+            "expected_metric_movement": "Increase completed sign-ups.",
+        },
         citations=[
             {"title": "Sign-up trend", "url": "https://example.com/sign-up-trend"},
             {"title": "Unsafe", "url": "javascript:alert(1)"},
@@ -197,6 +203,10 @@ def test_proactive_history_returns_compact_recommendation_artifact_and_outcome(t
     assert len(history) == 1
     entry = history[0]
     assert entry.recommendation_title == "Reduce sign-up friction"
+    assert entry.confidence == 0.8
+    assert entry.effort == "small"
+    assert entry.metric_direction == "increase"
+    assert entry.expected_metric_movement == "Increase completed sign-ups."
     assert entry.citations[0].url == "https://example.com/sign-up-trend"
     assert entry.citations[1].url is None
     assert entry.artifact is not None

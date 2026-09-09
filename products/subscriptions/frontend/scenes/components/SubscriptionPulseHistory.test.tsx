@@ -11,6 +11,10 @@ const history: ProactiveHistoryEntryApi[] = [
         delivery_id: '019fd71b-1df8-0000-6b5f-2c35bb4aacc2',
         recommendation_title: 'Reduce sign-up friction',
         why_now: 'New users are leaving before they complete account setup.',
+        confidence: 0.8,
+        effort: 'small',
+        metric_direction: 'increase',
+        expected_metric_movement: 'Increase completed sign-ups.',
         citations: [{ title: 'Sign-up trend', url: 'https://example.com/sign-up-trend' }],
         artifact: {
             kind: 'draft_pr',
@@ -42,8 +46,10 @@ describe('SubscriptionPulseHistory', () => {
 
         expect(screen.getByText('Prepared')).toBeInTheDocument()
         expect(screen.getAllByText('Adopted')).toHaveLength(2)
+        expect(screen.getByText('80% confidence · Small effort')).toBeInTheDocument()
+        expect(screen.getByText('Expected impact:')).toBeInTheDocument()
+        expect(screen.getByText('Increase completed sign-ups.')).toBeInTheDocument()
         expect(screen.getByText(/Baseline 120, observed 146\.5, delta 26\.5/)).toBeInTheDocument()
-        expect(screen.getByText(/Expected: Increase completed sign-ups/)).toBeInTheDocument()
         expect(screen.getByText(/Baseline window: 2026-09-01 to 2026-09-07/)).toBeInTheDocument()
     })
 

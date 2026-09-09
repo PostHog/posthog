@@ -170,6 +170,53 @@ describe('subscriptionSceneLogic', () => {
         }
     )
 
+    it('loads Pulse history when Pulse becomes enabled after the AI subscription loads', async () => {
+        let pulseHistoryRequests = 0
+        const pulseHistory = [
+            {
+                delivery_id: 'delivery-1',
+                recommendation_title: 'Reduce sign-up friction',
+                why_now: null,
+                confidence: null,
+                effort: null,
+                metric_direction: null,
+                expected_metric_movement: null,
+                citations: [],
+                artifact: null,
+                outcome: null,
+            },
+        ]
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/`]: [200, MOCK_AI_SUBSCRIPTION],
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/deliveries/`]: [
+                    200,
+                    { results: [], next: null, previous: null },
+                ],
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/pulse-history/`]: () => {
+                    pulseHistoryRequests += 1
+                    return [200, pulseHistory]
+                },
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PULSE]: false })
+
+        const logic = subscriptionSceneLogic({ id: '2' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.subscription?.resource_type).toBe(SubscriptionResourceTypeEnumApi.AiPrompt)
+        expect(pulseHistoryRequests).toBe(0)
+
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PULSE], { [FEATURE_FLAGS.PULSE]: true })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(pulseHistoryRequests).toBe(1)
+        expect(logic.values.pulseHistory).toEqual(pulseHistory)
+        expect(logic.values.showPulseHistory).toBe(true)
+        logic.unmount()
+    })
+
     it.each([
         [403, true],
         [404, false],

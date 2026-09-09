@@ -53,6 +53,13 @@ function formatDecimal(value: string): string {
     return normalized === '-0' ? '0' : normalized
 }
 
+function formatExpectedImpact(direction: string | null | undefined, movement: string): string {
+    if (!direction || movement.toLowerCase().startsWith(direction.toLowerCase())) {
+        return movement
+    }
+    return `${titleCase(direction)} ${movement}`
+}
+
 export function SubscriptionPulseHistory({ history, loading, hasError }: PulseHistoryProps): JSX.Element {
     return (
         <section className="flex min-w-0 flex-col gap-3" aria-labelledby="subscription-pulse-history-heading">
@@ -78,6 +85,12 @@ export function SubscriptionPulseHistory({ history, loading, hasError }: PulseHi
                 <div className="grid min-w-0 gap-3">
                     {history.map((entry) => {
                         const { artifact, outcome } = entry
+                        const recommendationMeta = [
+                            entry.confidence === null || entry.confidence === undefined
+                                ? null
+                                : `${Math.round(entry.confidence * 100)}% confidence`,
+                            entry.effort ? `${titleCase(entry.effort)} effort` : null,
+                        ].filter(Boolean)
                         const metricValues =
                             outcome?.baseline_value !== null &&
                             outcome?.baseline_value !== undefined &&
@@ -98,6 +111,18 @@ export function SubscriptionPulseHistory({ history, loading, hasError }: PulseHi
                                     <h3 className="text-sm font-semibold">{entry.recommendation_title}</h3>
                                     {entry.why_now ? (
                                         <p className="m-0 text-sm text-secondary">{entry.why_now}</p>
+                                    ) : null}
+                                    {recommendationMeta.length > 0 ? (
+                                        <p className="m-0 text-sm text-secondary">{recommendationMeta.join(' · ')}</p>
+                                    ) : null}
+                                    {entry.expected_metric_movement ? (
+                                        <p className="m-0 text-sm">
+                                            <span className="font-medium">Expected impact:</span>{' '}
+                                            {formatExpectedImpact(
+                                                entry.metric_direction,
+                                                entry.expected_metric_movement
+                                            )}
+                                        </p>
                                     ) : null}
                                 </div>
                                 {entry.citations.length > 0 ? (
@@ -161,12 +186,6 @@ export function SubscriptionPulseHistory({ history, loading, hasError }: PulseHi
                                                 <span className="text-secondary">{outcome.metric_name}</span>
                                             ) : null}
                                         </div>
-                                        {outcome.direction && outcome.expected_metric_movement ? (
-                                            <span className="text-secondary">
-                                                Expected: {titleCase(outcome.direction)}{' '}
-                                                {outcome.expected_metric_movement}
-                                            </span>
-                                        ) : null}
                                         {metricValues ? <span>{metricValues}</span> : null}
                                         {outcome.baseline_from && outcome.baseline_to ? (
                                             <span className="text-secondary">

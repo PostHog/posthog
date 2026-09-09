@@ -11,6 +11,10 @@ const HISTORY: ProactiveHistoryEntryApi[] = [
         delivery_id: '019fd71b-1df8-0000-6b5f-2c35bb4aacc2',
         recommendation_title: 'Reduce sign-up friction',
         why_now: 'New users are leaving before they complete account setup.',
+        confidence: 0.8,
+        effort: 'small',
+        metric_direction: 'increase',
+        expected_metric_movement: 'Increase completed sign-ups.',
         citations: [{ title: 'Sign-up trend', url: 'https://example.com/sign-up-trend' }],
         artifact: {
             kind: 'draft_pr',

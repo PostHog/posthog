@@ -1534,6 +1534,24 @@ class ProactiveHistoryEntrySerializer(serializers.Serializer):
         allow_null=True,
         help_text="Concise reason this recommendation was generated for that delivery.",
     )
+    confidence = serializers.FloatField(
+        allow_null=True,
+        min_value=0,
+        max_value=1,
+        help_text="Recommendation confidence from zero to one.",
+    )
+    effort = serializers.CharField(
+        allow_null=True,
+        help_text="Estimated implementation effort: small, medium, or large.",
+    )
+    metric_direction = serializers.CharField(
+        allow_null=True,
+        help_text="Expected direction for the recommendation metric.",
+    )
+    expected_metric_movement = serializers.CharField(
+        allow_null=True,
+        help_text="Expected metric movement captured with the recommendation.",
+    )
     citations = ProactiveHistoryCitationSerializer(
         many=True,
         help_text="Up to three supporting evidence citations.",
