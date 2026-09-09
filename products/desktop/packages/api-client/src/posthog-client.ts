@@ -5797,6 +5797,7 @@ export class PostHogAPIClient {
       slack_notification_integration_id: number | null;
       slack_notification_channel: string | null;
       slack_notification_min_priority: string | null;
+      github_assign_on_pull_request: boolean;
     }>,
   ): Promise<SignalUserAutonomyConfig> {
     const url = new URL(`${this.api.baseUrl}/api/users/@me/signal_autonomy/`);
