@@ -15,6 +15,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog import celery, redis
+from posthog.api_queries_budget import get_request_query_cost, reset_request_query_cost
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
@@ -320,6 +321,7 @@ def execute_process_query(
 
     error_category: Optional[QueryErrorCategory] = None
     error_retryable = False
+    reset_request_query_cost()
     try:
         results = process_query_dict(
             team=team,
@@ -375,6 +377,12 @@ def execute_process_query(
         # Do not raise here, the task itself did its job and we cannot recover
     finally:
         query_status.end_time = datetime.datetime.now(datetime.UTC)
+        cost = get_request_query_cost()
+        if cost is not None:
+            query_status.bytes_read = cost.bytes_read
+            query_status.budget_remaining_bytes = (
+                int(cost.remaining_bytes) if cost.remaining_bytes is not None else None
+            )
         manager.store_query_status(
             query_status,
             error_category=error_category,

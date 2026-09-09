@@ -4025,8 +4025,12 @@ class TaskRunCommandResponseSerializer(serializers.Serializer):
 
     jsonrpc = serializers.CharField(help_text="JSON-RPC version")
     id = serializers.JSONField(required=False, default=None, help_text="Request ID echoed back (string or number)")
-    result = serializers.JSONField(required=False, help_text="Command result on success")
-    error = serializers.DictField(required=False, help_text="Error details on failure")
+    result = serializers.JSONField(
+        required=False, help_text="Command result. Permission responses confirm acceptance only with resolved=true."
+    )
+    error = serializers.DictField(
+        required=False, help_text="JSON-RPC error details, including failures returned with HTTP 200"
+    )
 
 
 class TaskRunSessionLogsQuerySerializer(serializers.Serializer):

@@ -585,41 +585,23 @@ services:
                         exit 1
                     fi
                 done
-                # The combined analytics ingestion consumer checks topic existence at
-                # startup for every output it produces to (see analytics/outputs/registry.ts).
-                # Auto-create only fires on producer-first writes, so pre-create them here.
-                TOPICS="document_embeddings_input \
-                    document_embedding_results \
-                    error_tracking_ingestion_notifications \
-                    clickhouse_events_json \
-                    clickhouse_ai_events_json \
-                    clickhouse_heatmap_events \
-                    clickhouse_flag_evaluations \
-                    clickhouse_ingestion_warnings \
-                    events_plugin_ingestion_ai \
-                    events_plugin_ingestion_dlq \
-                    events_plugin_ingestion_overflow \
-                    events_plugin_ingestion_async \
-                    ingestion-clientwarnings-main-1 \
-                    heatmaps_ingestion \
-                    clickhouse_groups \
-                    clickhouse_person \
-                    clickhouse_person_distinct_id \
-                    clickhouse_app_metrics2 \
-                    log_entries \
-                    clickhouse_property_values \
-                    clickhouse_tophog \
-                    clickhouse_billing_usage_records"
+                # The topic list is docker/kafka/topics.txt, mounted below. It is a
+                # shared file rather than a literal here so a test can check it against the
+                # Kafka tables in schema.py; that header explains what needs pre-creating.
+                TOPICS=$$(grep -vE '^[[:space:]]*#|^[[:space:]]*$$' /topics.txt)
+                EXISTING=$$(rpk topic list --brokers kafka:9092 | awk '{print $$1}')
                 for topic in $$TOPICS; do
                     if rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1 2>&1; then
                         echo "Topic $$topic created"
-                    elif rpk topic list --brokers kafka:9092 | grep -q "$$topic"; then
+                    elif echo "$$EXISTING" | grep -qx "$$topic"; then
                         echo "Topic $$topic already exists"
                     else
                         echo "Failed to create topic $$topic"
                         exit 1
                     fi
                 done
+        volumes:
+            - ./docker/kafka/topics.txt:/topics.txt:ro
         depends_on:
             kafka:
                 condition: service_healthy

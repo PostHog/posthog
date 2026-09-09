@@ -22,6 +22,7 @@ from products.tasks.backend.constants import (
     ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
+    EVAL_INTERACTION_ORIGIN,
     INITIAL_PERMISSION_MODE_CHOICES,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
@@ -32,6 +33,8 @@ from products.tasks.backend.constants import (
     is_same_run_resume_state,
 )
 from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
+from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
 
 # Re-exported so existing activity/workflow imports keep working after the move to
@@ -840,9 +843,9 @@ def get_imported_mcp_server_configs(task_run: TaskRun, existing_names: Iterable[
 def _resolve_mcp_consumer(interaction_origin: str | None, *, slack_reply_context: bool = False) -> str:
     """Map the task's reply context to the `x-posthog-mcp-consumer` value.
 
-    Slack reply contexts send `"slack"` and posthog_ai (Max) runs send
-    `"posthog_ai"`; everything else (the PostHog Desktop UI, API callers, missing
-    origin) is treated as PostHog Desktop. Only `"posthog-code"` is a UI-apps host
+    Slack reply contexts send `"slack"`, posthog_ai (Max) runs send `"posthog_ai"`,
+    and eval harness runs send `"eval"`; everything else (the PostHog Desktop UI,
+    API callers, missing origin) is treated as PostHog Desktop. Only `"posthog-code"` is a UI-apps host
     on the MCP server — it gates UI-apps payload emission, so `"posthog_ai"` and
     `"slack"` deliberately don't get UI apps. Keep the `"posthog-code"` literal
     in sync with `POSTHOG_CODE_CONSUMER` in
@@ -852,7 +855,23 @@ def _resolve_mcp_consumer(interaction_origin: str | None, *, slack_reply_context
         return "slack"
     if interaction_origin == "posthog_ai":
         return "posthog_ai"
+    if interaction_origin == EVAL_INTERACTION_ORIGIN:
+        return EVAL_INTERACTION_ORIGIN
     return "posthog-code"
+
+
+def mcp_exec_skills_env_vars(ctx) -> dict[str, str]:
+    """Env that launches the sandbox without bundled product skills when this run gets them
+    through the MCP `learn` command instead.
+
+    Desktop runs keep their bundled skills: the MCP server excludes the `posthog-code`
+    consumer from `learn`, so stripping them there would leave the agent with no skills.
+    """
+    if _resolve_mcp_consumer(ctx.interaction_origin) == "posthog-code":
+        return {}
+    if not is_mcp_exec_skills_enabled(ctx.organization_id, ctx.distinct_id):
+        return {}
+    return {ENV_DISABLE_BUNDLED_SKILLS: "1"}
 
 
 # Names capabilities rather than describing the server, because the agent's tool search reads
@@ -1383,6 +1402,7 @@ def build_sandbox_environment_variables(
         env_vars["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
     env_vars.update(run_gateway_env_vars(ctx, task))
+    env_vars.update(mcp_exec_skills_env_vars(ctx))
 
     if otel_telemetry_enabled:
         env_vars.update(get_sandbox_otel_env_vars())
