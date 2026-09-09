@@ -21,6 +21,9 @@ class TestStripExternalLinks(BaseTest):
             # Not a CommonMark link, but the destination URL would otherwise survive bare after `](`.
             ("newline_mid_dest", "[x](https://evil.example.com\nmore)"),
             ("unquoted_title", "[x](https://evil.example.com/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa invalid title)"),
+            # A `[` run used to cost the label class quadratic time, because the engine rescanned the
+            # same suffix from every start. 32,000 of them took over three seconds.
+            ("leading_bracket_run", "[" * 32000 + "](https://evil.example.com invalid title)"),
         ]
     )
     @pytest.mark.timeout(1, func_only=True)
