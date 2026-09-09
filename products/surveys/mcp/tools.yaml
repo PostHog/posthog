@@ -118,9 +118,6 @@ tools:
                     user explicitly asks to customize the hosted form content beyond the standard question flow.
         ui_app: survey
     survey-delete:
-        param_overrides:
-            id:
-                aliases: [surveyId, survey_id]
         operation: surveys_destroy
         enabled: true
         scopes:
@@ -134,9 +131,6 @@ tools:
             Delete a survey by ID (soft delete - marks as archived).
         soft_delete: archived
     survey-get:
-        param_overrides:
-            id:
-                aliases: [surveyId, survey_id]
         operation: surveys_retrieve
         enabled: true
         scopes:
@@ -153,9 +147,6 @@ tools:
             with survey-update.
         ui_app: survey
     survey-launch:
-        param_overrides:
-            id:
-                aliases: [surveyId, survey_id]
         operation: surveys_launch
         enabled: true
         scopes:
@@ -174,9 +165,6 @@ tools:
         ui_app: survey
     survey-stats:
         operation: surveys_stats_retrieve
-        param_overrides:
-            id:
-                aliases: [surveyId, survey_id]
         enabled: true
         scopes:
             - survey:read
@@ -191,9 +179,6 @@ tools:
             unique respondents, conversion rates, and timing data. Supports optional date filtering.
         ui_app: survey-stats
     survey-stop:
-        param_overrides:
-            id:
-                aliases: [surveyId, survey_id]
         operation: surveys_stop
         enabled: true
         scopes:
@@ -259,8 +244,6 @@ tools:
                     When changing it, fetch the survey first and preserve existing appearance fields. whiteLabel=true requires
                     the organization to have the white-labelling entitlement (Enterprise); leave it unset unless
                     requested and available. surveyPopupDelaySeconds must be non-negative.
-            id:
-                aliases: [surveyId, survey_id]
             questions:
                 description: >
                     Complete replacement question list. Existing question IDs are tied to response data and must be
@@ -351,9 +334,6 @@ tools:
         operation: surveys_responses_count_retrieve
         enabled: false
     surveys-responses-list:
-        param_overrides:
-            id:
-                aliases: [surveyId, survey_id]
         operation: surveys_responses_list
         enabled: true
         scopes:
@@ -384,9 +364,6 @@ tools:
         operation: surveys_responses_unarchive_create
         enabled: false
     surveys-summarize-responses-create:
-        param_overrides:
-            id:
-                aliases: [surveyId, survey_id]
         operation: surveys_summarize_responses_create
         enabled: true
         scopes:

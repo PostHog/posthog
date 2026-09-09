@@ -64,8 +64,7 @@ for a draft. If the user already asked for immediate launch, continue through
 the readiness check and launch without asking for the same approval again.
 
 Keep the returned survey `id`. Subsequent survey tools use `id`, not a question
-ID, feature flag ID, or survey name. `surveyId` and `survey_id` are accepted
-compatibility aliases; write new calls with the canonical `id` field.
+ID, feature flag ID, or survey name.
 
 Read the saved survey with `posthog:survey-get`. Review the questions, type,
 audience, schedule, response limit, and branding with the user. Show the MCP

@@ -37,6 +37,6 @@ Use `survey-stats` or `surveys-responses-list` to check activity. Use `survey-st
 
 ## Survey identifiers
 
-Survey tools use the returned survey `id`. They also accept `surveyId` and `survey_id` as compatibility aliases. Prefer `id` in new calls; if both a canonical ID and an alias are supplied, `id` takes precedence. Question IDs and feature flag IDs are different identifiers.
+Pass the returned survey `id` as the `id` argument to subsequent survey tools. Question IDs and feature flag IDs are different identifiers.
 
 Creation is not idempotent. After a timeout, inspect existing surveys before retrying to avoid creating a duplicate.
