@@ -319,9 +319,11 @@ class WatchEmptyReason(StrEnum):
     NO_SEPARATION = "no_separation"
     # Events told the variants apart, but no recording behind them can be opened.
     NO_RECORDINGS = "no_recordings"
-    # People were exposed in the window and none of them has a session the scan can see. Checked
-    # over the window only, so the copy must date the claim. More time alone cannot fix it: more
-    # traffic captured the same way produces more exposed people without sessions.
+    # The experiment has exposed people and none of them has a session the scan can see in the
+    # window. Only the sessions are read over the window; who counts as exposed is read over the
+    # whole run, so the exposures can predate the window, which is why the copy must date the claim
+    # to the window rather than to the exposures. More time alone cannot fix it: more traffic
+    # captured the same way produces more exposed people without sessions.
     NO_SESSION_LINKED_EXPOSURES = "no_session_linked_exposures"
 
 
@@ -670,7 +672,9 @@ class SessionEventDeltaScan:
     # session ceiling bit. Carried here rather than recomputed by the caller: it is a property of
     # the scan, and reporting the requested window instead would claim coverage that never happened.
     covered_from: datetime
-    # True when people were exposed in the window and none of their sessions could be nominated.
+    # True when the experiment has exposed people and none of their sessions could be nominated in
+    # the window. The population is the analysis's, read over the whole run, so the exposures behind
+    # a True can be older than the window this scan reports.
     # Only asked when the scan covered no sessions; False on any populated scan.
     exposed_persons_without_session: bool
 
