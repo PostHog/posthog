@@ -1,11 +1,13 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonLabel } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { workflowLogic } from '../../../workflowLogic'
 import { HogFlowAction } from '../../types'
@@ -24,6 +26,8 @@ import { triggerVolumeLogic } from '../triggerVolumeLogic'
  */
 export function TriggerVolumeEstimate({ action }: { action: HogFlowAction }): JSX.Element | null {
     const { workflow } = useValues(workflowLogic)
+    const { preflight } = useValues(preflightLogic)
+    const { openSupportForm } = useActions(supportLogic)
     const filters = eventTriggerVolumeFilters(action)
     const { volume, volumeLoading, volumeFailed } = useValues(triggerVolumeLogic({ id: action.id, filters }))
 
@@ -66,10 +70,27 @@ export function TriggerVolumeEstimate({ action }: { action: HogFlowAction }): JS
                         </p>
                     ) : null}
                     {overAiLimit ? (
-                        <LemonBanner type="warning">
+                        <LemonBanner
+                            type="warning"
+                            action={
+                                preflight?.cloud
+                                    ? {
+                                          children: 'Ask for a higher limit',
+                                          onClick: () =>
+                                              openSupportForm({
+                                                  kind: 'support',
+                                                  message: `Please raise the daily AI task limit for my workflow "${workflow.name}". Its trigger matches about ${humanFriendlyNumber(volume.perDay)} events a day.`,
+                                              }),
+                                      }
+                                    : undefined
+                            }
+                        >
                             Each run starts an AI task, and a workflow creates at most {AI_TASKS_PER_WORKFLOW_PER_DAY}{' '}
                             tasks a day. At this volume most runs would be skipped, and the tasks that do run count
-                            toward your AI usage. Narrow the trigger with filters, or set a frequency limit.
+                            toward your AI usage.{' '}
+                            {preflight?.cloud
+                                ? 'Narrow the trigger with filters, set a frequency limit, or ask PostHog to raise the limit.'
+                                : 'Narrow the trigger with filters, or set a frequency limit.'}
                         </LemonBanner>
                     ) : startsAiRuns ? (
                         <p className="mb-0 text-secondary">

@@ -2,6 +2,7 @@ import { Meta, StoryFn } from '@storybook/react'
 import { BindLogic } from 'kea'
 
 import { mswDecorator } from '~/mocks/browser'
+import preflightFixture from '~/mocks/fixtures/_preflight.json'
 
 import { NEW_WORKFLOW, WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
 import { HogFlow, HogFlowAction } from '../../types'
@@ -49,6 +50,8 @@ const meta: Meta<typeof TriggerVolumeEstimate> = {
     decorators: [
         mswDecorator({
             get: {
+                // Cloud, so the warning can offer the support route that only cloud projects get.
+                '/_preflight': { ...preflightFixture, cloud: true, realm: 'cloud' },
                 // nosemgrep: no-environments-api-urls-frontend -- api.hogFlows has not migrated to generated project routes.
                 '/api/environments/:team_id/hog_flows/:id/': ({ params }) => [
                     200,
