@@ -175,6 +175,43 @@ fn replay_index_metadata_tracks_snapshots_and_root_types() {
 }
 
 #[test]
+fn json_ld_page_url_is_scrubbed_before_metadata_extraction() {
+    let allow = AllowLists::new(Vec::<String>::new(), ["products"]);
+    for (href, expected) in [
+        (
+            json!("https://user:secret@example.com/products/private-name?email=private#secret"),
+            Some("https://example.com/products/[redacted]"),
+        ),
+        (
+            json!("https://example.com/products"),
+            Some("https://example.com/products"),
+        ),
+        (json!({"secret": "private"}), None),
+        (json!(42), None),
+        (Value::Null, None),
+    ] {
+        let inner = snapshot_message(json!([
+            {"type":5,"timestamp":TS0,"data":{"tag":"$json_ld","href":href,"payload":{"@context":"https://schema.org","@type":"Product"}}}
+        ]));
+        assert_stream_matches_tree(&allow, &inner.to_string(), "JSON-LD page URL");
+        let out = run(&allow, &payload_of(&inner)).unwrap();
+        assert_eq!(out.meta.events[0].href.as_deref(), expected);
+        let lines = parse_lines(&out.lines);
+        assert_eq!(
+            lines[0][1]["data"].get("href").and_then(Value::as_str),
+            expected
+        );
+        if expected.is_none() {
+            assert!(lines[0][1]["data"].get("href").is_none());
+        }
+        assert_eq!(
+            out.meta.events[0].json_ld.as_ref().unwrap().root_types,
+            ["Product"]
+        );
+    }
+}
+
+#[test]
 fn failure_classification_matches_the_ts_parse_step() {
     let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
     let ok_items = r#"[{"type":3,"timestamp":1700000000000,"data":{"source":1}}]"#;
