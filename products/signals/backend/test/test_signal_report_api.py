@@ -1818,6 +1818,47 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         )
         assert json.loads(selections[-1].content)["repository"] is None
 
+    def test_repeat_wrong_repo_dismissal_does_not_record_the_correction_as_the_rejected_repo(self):
+        # The first dismissal makes the correction the report's newest selection, so the repeat reads
+        # it back as the "selected" repository. Recorded as-is, the pair says the reviewer rejected the
+        # repository they named, which tells scouts to avoid the correction and renders a
+        # self-contradictory lesson into the selection prompt.
+        report = self._create_report()
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=RepoSelectionResult(repository="acme/website", reason="initial pick"),
+            attribution=ArtefactAttribution.system(),
+        )
+        payload = json.dumps(
+            {
+                "state": "suppressed",
+                "dismissal_reason": "wrong_repo",
+                "corrected_repository": "acme/checkout",
+            }
+        )
+
+        with patch(
+            "products.tasks.backend.facade.repo_selection.list_team_connected_repositories",
+            return_value=["acme/website", "acme/checkout"],
+        ):
+            for _ in range(2):
+                response = self.client.post(
+                    self._state_url(str(report.id)), data=payload, content_type="application/json"
+                )
+                assert response.status_code == status.HTTP_200_OK, response.json()
+
+        dismissals = list(
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
+            ).order_by("created_at")
+        )
+        assert len(dismissals) == 2
+        first = json.loads(dismissals[0].content)
+        assert (first["selected_repository"], first["corrected_repository"]) == ("acme/website", "acme/checkout")
+        repeat = json.loads(dismissals[1].content)
+        assert (repeat["selected_repository"], repeat["corrected_repository"]) == (None, "acme/checkout")
+
     def test_rejects_unknown_state(self):
         report = self._create_report()
         response = self.client.post(

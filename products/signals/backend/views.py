@@ -2620,6 +2620,16 @@ class SignalReportViewSet(
                 selected_repository = (
                     sanitized_repository(self._latest_selected_repository(str(report.id))) if is_wrong_repo else None
                 )
+                # A connected correction becomes the report's newest selection, so a repeat wrong-repo
+                # dismissal reads that correction back here. Recording it as the rejected pick would
+                # claim the reviewer rejected the repository they just named: the scout note would say
+                # "do not pick it again" about the correction, and the selection prompt would render a
+                # lesson that contradicts itself. Record the selection as unknown, so both keep the
+                # half that is true.
+                if selected_repository is not None and selected_repository == sanitized_repository(
+                    corrected_repository
+                ):
+                    selected_repository = None
                 SignalReportArtefact.append_dismissal(
                     team_id=self.team.id,
                     report_id=str(report.id),
