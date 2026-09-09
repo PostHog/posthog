@@ -1001,6 +1001,7 @@ layer = "modules"
 path = "products.visual_review"
 depends_on = [
     "posthog",
+    "products.engineering_analytics",
 ]
 layer = "modules"
 

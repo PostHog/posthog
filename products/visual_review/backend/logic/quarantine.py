@@ -70,6 +70,16 @@ def list_expiring_quarantines(repo_id: UUID, *, now: datetime) -> list[Quarantin
     )
 
 
+def active_quarantine_keys(repo_id: UUID, *, now: datetime) -> set[tuple[str, str]]:
+    """Every `(run_type, identifier)` under a quarantine that has not run out, whatever its expiry."""
+    return set(
+        QuarantinedIdentifier.objects.using(READER_DB)
+        .filter(repo_id=repo_id)
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+        .values_list("run_type", "identifier")
+    )
+
+
 @transaction.atomic(using=WRITER_DB)
 def quarantine_identifier(
     repo_id: UUID,
