@@ -13,6 +13,7 @@ import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { DashboardEditBarAdvancedFilters } from 'scenes/dashboard/DashboardEditBarAdvancedFilters'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardTestAccountsFilter } from 'scenes/dashboard/DashboardTestAccountsFilter'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -152,6 +153,9 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                         TaxonomicFilterGroupType.DataWarehousePersonProperties,
                     ]}
                 />
+            </div>
+            <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                <DashboardTestAccountsFilter />
             </div>
             {/* Single flex item so the "…" button always wraps together with the breakdown button */}
             <div className={clsx('content-end flex items-end gap-2', { 'h-[61px]': hasVariables })}>

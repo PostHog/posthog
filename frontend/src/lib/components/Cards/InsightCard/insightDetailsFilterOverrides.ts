@@ -1,7 +1,9 @@
-import { DashboardFilter, TileFilters } from '~/queries/schema/schema-general'
+import { DashboardFilter, Node, TileFilters } from '~/queries/schema/schema-general'
+import { isDataTableNodeWithHogQLQuery, isDataVisualizationNode, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { AnyPropertyFilter, InsightFilterOverrideContext, IntervalType, PropertyGroupFilter } from '~/types'
 
 export type OverrideSource = 'dashboard' | 'tile'
+export type TestAccountFilteringSource = OverrideSource | 'insight'
 
 export interface EffectiveFilterOverrides {
     propertyGroups: { properties: AnyPropertyFilter[]; source: OverrideSource }[]
@@ -77,6 +79,39 @@ export function getEffectiveFilterOverrides(
         filterTestAccounts,
         ignoresDashboardFilters: tileIgnoresDashboard,
     }
+}
+
+// The insight's own setting, or null when the query kind has no test account filter at all.
+// An insight that never set the flag counts as including test users, same as the query does.
+function ownTestAccountFiltering(query: Node | null | undefined): boolean | null {
+    if (isInsightVizNode(query)) {
+        return query.source.filterTestAccounts ?? false
+    }
+    if (isDataVisualizationNode(query) || isDataTableNodeWithHogQLQuery(query)) {
+        const source = query.source
+        return isHogQLQuery(source) ? (source.filters?.filterTestAccounts ?? false) : null
+    }
+    return null
+}
+
+// Which layer decides whether internal and test users are counted: tile beats dashboard beats the
+// insight's own setting. Null when the query kind has no test account filter.
+export function getEffectiveTestAccountFiltering(
+    query: Node | null | undefined,
+    filterOverrideContext: InsightFilterOverrideContext | null | undefined,
+    filtersOverride: DashboardFilter | undefined,
+    tileFiltersOverride: TileFilters | null | undefined
+): { value: boolean; source: TestAccountFilteringSource } | null {
+    const override = getEffectiveFilterOverrides(
+        filterOverrideContext,
+        filtersOverride,
+        tileFiltersOverride
+    ).filterTestAccounts
+    if (override) {
+        return override
+    }
+    const own = ownTestAccountFiltering(query)
+    return own == null ? null : { value: own, source: 'insight' }
 }
 
 interface DateRangeSource {
