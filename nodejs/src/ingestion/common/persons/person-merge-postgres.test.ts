@@ -177,6 +177,52 @@ describe('PostgresPersonMerge merge events', () => {
         await expect(result.kafkaAck).resolves.toBeUndefined()
     })
 
+    // Same contract as the one-exists case: createPerson returns its messages and the
+    // branch produces after commit, so the creation transaction never spans Kafka.
+    it('a neither-exists merge produces the creation messages after the transaction', async () => {
+        const order: string[] = []
+        mockOutputs = {
+            produce: jest.fn().mockImplementation(() => {
+                order.push('produce')
+                return Promise.resolve()
+            }),
+        }
+        const createdPerson = { id: 'p1', uuid: targetPerson.uuid, team_id: 2, is_identified: true } as InternalPerson
+        const creationMessage = {
+            output: PERSON_DISTINCT_IDS_OUTPUT,
+            value: Buffer.from('{}'),
+        }
+        const tx = {
+            createPerson: jest.fn().mockResolvedValue({
+                success: true,
+                person: createdPerson,
+                created: true,
+                messages: [creationMessage],
+            }),
+        }
+        const store = {
+            fetchForUpdate: jest.fn().mockResolvedValue(null),
+            inTransaction: jest
+                .fn()
+                .mockImplementation(async (_description: string, body: (tx: unknown) => Promise<unknown>) => {
+                    const result = await body(tx)
+                    order.push('commit')
+                    return result
+                }),
+        }
+        const merge = buildSingleSourceMerge(store, new UUIDT().toString())
+
+        const result = await merge.execute()
+
+        expect(order).toEqual(['commit', 'produce'])
+        expect(mockOutputs.produce).toHaveBeenCalledWith(
+            PERSON_DISTINCT_IDS_OUTPUT,
+            expect.objectContaining({ teamId: 2, value: creationMessage.value })
+        )
+        expect(result.results).toEqual([{ sourceDistinctId: 'anon', outcome: 'attached' }])
+        await expect(result.kafkaAck).resolves.toBeUndefined()
+    })
+
     // Both directions matter: never emitting loses the healing, and emitting on every
     // duplicate $identify floods the topic and keeps the overrides table from converging.
     it('an already-satisfied merge re-emits the committed mappings once per debounce window', async () => {

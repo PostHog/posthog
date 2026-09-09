@@ -408,7 +408,7 @@ export class PostgresPersonMerge {
             const distinctId2 = otherPersonDistinctId
 
             this.discardOverrideCounts()
-            const [person, needsPersonUpdate] = await this.inTransaction(
+            const [person, needsPersonUpdate, kafkaMessages] = await this.inTransaction(
                 'mergeDistinctIds-NeitherExist',
                 async (tx) => {
                     // See comment above about `distinctIdVersion`: the first Distinct ID derives the
@@ -417,7 +417,7 @@ export class PostgresPersonMerge {
                     const distinctId2Version = 1
                     this.recordOverrideCount('neitherExist')
 
-                    const [created, wasCreated] = await this.createService.createPerson(
+                    const [created, wasCreated, messages] = await this.createService.createPerson(
                         this.timestamp,
                         this.request.eventOps.set,
                         this.request.eventOps.setOnce,
@@ -431,14 +431,16 @@ export class PostgresPersonMerge {
                     )
                     // If person was not created (creation conflict) and is not identified,
                     // we need to update it later
-                    return [created, !wasCreated && !created.is_identified] as const
+                    return [created, !wasCreated && !created.is_identified, messages] as const
                 }
             )
             this.flushOverrideCounts()
+            const kafkaAck = this.produceMessages(kafkaMessages)
             return {
                 survivor: person,
                 results: [{ sourceDistinctId: otherPersonDistinctId, outcome: 'attached' }],
                 survivorNeedsUpdate: needsPersonUpdate,
+                kafkaAck,
             }
         }
     }
