@@ -107,6 +107,22 @@ describe('webAnalyticsAddToDashboardLogic', () => {
             .toMatchValues({ isAddToDashboardModalOpen: false, savingTileKey: null })
     })
 
+    // Regression: the bot tables are web table queries that only read as a table inside web
+    // analytics, so saving one put a JSON dump on the dashboard instead of a table.
+    it('does not offer a tile whose query cannot become an insight query', async () => {
+        const crawlers = logic.values.combinedTiles.find((tile) => tile.tileId === TileId.BOT_CRAWLERS)
+        expect(crawlers?.kind === 'query' && crawlers.query.kind).toBe(NodeKind.DataTableNode)
+
+        expect(logic.values.canAddTileToDashboard(TileId.PATHS, 'PATH')).toBe(true)
+        expect(logic.values.canAddTileToDashboard(TileId.BOT_CRAWLERS)).toBe(false)
+
+        await expectLogic(logic, () => {
+            logic.actions.addTileToDashboard(TileId.BOT_CRAWLERS)
+        }).toNotHaveDispatchedActions(['saveTileAsInsight'])
+
+        expect(createSpy).not.toHaveBeenCalled()
+    })
+
     it('does nothing for a tile that carries no query', async () => {
         await expectLogic(logic, () => {
             logic.actions.addTileToDashboard(TileId.REPLAY)

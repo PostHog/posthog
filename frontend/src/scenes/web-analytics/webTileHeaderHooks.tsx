@@ -190,9 +190,9 @@ export function useWebTileAddToDashboard({
     canOpenInsight,
 }: UseWebTileAddToDashboardArgs): WebTileAddToDashboardProps | undefined {
     const { addTileToDashboard } = useActions(webAnalyticsAddToDashboardLogic)
-    const { savingTileKey } = useValues(webAnalyticsAddToDashboardLogic)
+    const { savingTileKey, canAddTileToDashboard } = useValues(webAnalyticsAddToDashboardLogic)
 
-    if (!canOpenInsight) {
+    if (!canOpenInsight || !canAddTileToDashboard(tileId, tabId)) {
         return undefined
     }
 
