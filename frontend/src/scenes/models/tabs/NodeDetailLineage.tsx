@@ -83,7 +83,7 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
                             <LemonButton
                                 type="secondary"
                                 size="small"
-                                to={urls.models('graph')}
+                                to={urls.models('lineage')}
                                 tooltip="Open the full graph"
                                 icon={<IconExternal />}
                             />

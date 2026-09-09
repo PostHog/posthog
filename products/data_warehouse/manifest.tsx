@@ -113,7 +113,7 @@ export const manifest: ProductManifest = {
             const query = params.toString()
             return query ? `/data-ops?${query}` : '/data-ops'
         },
-        models: (tab?: ModelsSceneTab): string => (tab && tab !== 'models' ? `/models?tab=${tab}` : '/models'),
+        models: (tab?: ModelsSceneTab): string => (tab && tab !== 'overview' ? `/models?tab=${tab}` : '/models'),
         nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
         sources: (): string => '/data-management/sources',
         dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>

@@ -70,11 +70,11 @@ describe('modelsSceneLogic', () => {
     })
 
     it.each([
-        ['/models', 'models'],
-        ['/models?tab=runs', 'runs'],
-        ['/models?tab=graph', 'graph'],
-        ['/models?tab=nope', 'models'],
-        ['/models?tab=data-quality', 'models'],
+        ['/models', 'overview'],
+        ['/models?tab=models', 'models'],
+        ['/models?tab=lineage', 'lineage'],
+        ['/models?tab=nope', 'overview'],
+        ['/models?tab=data-quality', 'overview'],
     ])('%s opens the %s tab', async (path, tab) => {
         await mount(path)
         expect(logic.values.activeTab).toEqual(tab)

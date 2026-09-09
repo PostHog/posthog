@@ -13,9 +13,9 @@ import { DataModelingNode } from '~/types'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { DataWarehouseSavedQuery } from '../../types'
 
-export type ModelsSceneTab = 'models' | 'runs' | 'graph' | 'data-quality'
+export type ModelsSceneTab = 'overview' | 'models' | 'lineage' | 'data-quality'
 
-const MODELS_SCENE_TABS: ModelsSceneTab[] = ['models', 'runs', 'graph', 'data-quality']
+const MODELS_SCENE_TABS: ModelsSceneTab[] = ['overview', 'models', 'lineage', 'data-quality']
 
 function isModelsSceneTab(tab: unknown): tab is ModelsSceneTab {
     return typeof tab === 'string' && (MODELS_SCENE_TABS as string[]).includes(tab)
@@ -86,7 +86,7 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
     }),
     reducers({
         activeTab: [
-            'models' as ModelsSceneTab,
+            'overview' as ModelsSceneTab,
             {
                 setActiveTab: (_, { tab }) => tab,
             },
@@ -131,9 +131,9 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
     }),
     urlToAction(({ actions, values }) => ({
         [urls.models()]: (_, searchParams) => {
-            let tab: ModelsSceneTab = isModelsSceneTab(searchParams.tab) ? searchParams.tab : 'models'
+            let tab: ModelsSceneTab = isModelsSceneTab(searchParams.tab) ? searchParams.tab : 'overview'
             if (tab === 'data-quality' && !values.dataQualityTabEnabled) {
-                tab = 'models'
+                tab = 'overview'
             }
             if (tab !== values.activeTab) {
                 actions.setActiveTab(tab)

@@ -1,6 +1,15 @@
 import '@xyflow/react/dist/style.css'
 
-import { Background, BackgroundVariant, Controls, MiniMap, Panel, ReactFlow, ReactFlowProvider } from '@xyflow/react'
+import {
+    Background,
+    BackgroundVariant,
+    Controls,
+    MiniMap,
+    Panel,
+    PanelPosition,
+    ReactFlow,
+    ReactFlowProvider,
+} from '@xyflow/react'
 import { useValues } from 'kea'
 import { ReactNode } from 'react'
 
@@ -26,6 +35,7 @@ export interface LineageGraphProps {
     /** Enable zoom/pan. Off by default for inline previews */
     interactive?: boolean
     showMinimap?: boolean
+    minimapPosition?: PanelPosition
     showControls?: boolean
     className?: string
     loading?: boolean
@@ -36,8 +46,9 @@ export interface LineageGraphProps {
     nodeCallbacks?: (node: DataModelingNode) => LineageNodeCallbacks
     /** Convenience click handler, used when nodeCallbacks is not provided */
     onNodeClick?: (node: DataModelingNode) => void
-    /** Caller-specific chrome (search, legend, layout toggle) rendered over the canvas */
+    /** Caller-specific chrome (legend, layout toggle) rendered over the canvas */
     panels?: ReactNode
+    panelPosition?: PanelPosition
 }
 
 function LineageGraphContent(props: LineageGraphProps): JSX.Element {
@@ -95,9 +106,15 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
             {props.showControls && <Controls showInteractive={false} position="bottom-right" />}
             {props.showMinimap && (
-                <MiniMap zoomable pannable position="bottom-left" nodeStrokeWidth={2} className="hidden lg:block" />
+                <MiniMap
+                    zoomable
+                    pannable
+                    position={props.minimapPosition ?? 'bottom-left'}
+                    nodeStrokeWidth={2}
+                    className="hidden lg:block border rounded shadow-sm"
+                />
             )}
-            {props.panels && <Panel position="top-right">{props.panels}</Panel>}
+            {props.panels && <Panel position={props.panelPosition ?? 'top-right'}>{props.panels}</Panel>}
         </ReactFlow>
     )
 }
