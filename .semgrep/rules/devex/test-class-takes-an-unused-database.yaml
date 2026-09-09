@@ -57,7 +57,10 @@ rules:
           # A shared base other tests inherit names nothing itself, while every
           # subclass reaches the database. Semgrep reads one file, so it cannot see
           # who inherits what and goes by the name instead. The repo-invariant
-          # ratchet has the whole tree and excludes these exactly.
+          # ratchet has the whole tree and excludes these exactly, and also skips a
+          # class with no test method of its own. Neither is expressible here: a
+          # pattern that reaches inside the class narrows the match, and the token
+          # filter above needs the whole class to read.
           - pattern-not-regex: ^class ((_|Base|Abstract)\w*|\w*Mixin)\(
       metadata:
           category: best-practice

@@ -36,8 +36,10 @@ SCANNED_ROOTS = ("posthog", "ee", "products", "common")
 SKIPPED_DIRS = {"node_modules", ".venv", "venv", "__pycache__", ".git", ".mypy_cache"}
 REGENERATE = "python posthog/test/repo_invariants/test_database_free_test_classes.py"
 
-# Cheap enough to run over every file in the repo, unlike a full parse.
-CLASS_BASES = re.compile(r"^class\s+\w+\s*\(([^)]*)\)", re.MULTILINE)
+# Cheap enough to run over every file in the repo, unlike a full parse. `[^)]*`
+# spans newlines, so a signature broken over several lines still gives up its bases,
+# and the leading `\s*` reaches a nested class too.
+CLASS_BASES = re.compile(r"^\s*class\s+\w+\s*\(([^)]*)\)", re.MULTILINE)
 
 # Bases that bring Django `TestCase` with them. A class that inherits one of these
 # through a project-specific subclass is out of scope, which keeps the scan cheap.
@@ -115,7 +117,9 @@ def collect_candidates() -> list[str]:
     # the database, so reporting it would ask for `BaseTest` to move to
     # `SimpleTestCase`. Collect what the repo inherits from with a regex, which is
     # cheap enough for every file, and parse only the files that could hold a
-    # candidate. Over-collecting a base name only hides a candidate.
+    # candidate. A name the regex picks up wrongly only hides a candidate, which is
+    # safe; a base it fails to see is the direction that reports one, so the pattern
+    # errs towards taking too much.
     inherited: set[str] = set()
     found: list[tuple[str, str]] = []
     for root in SCANNED_ROOTS:
