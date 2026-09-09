@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 
+import structlog
 import temporalio.exceptions
 from temporalio import workflow
 
@@ -28,6 +29,8 @@ from posthog.temporal.ai_observability.trace_clustering.metrics import (
     record_noise_points,
 )
 from posthog.temporal.common.base import PostHogWorkflow
+
+logger = structlog.get_logger(__name__)
 
 
 @workflow.defn(name=SAMPLER_WORKFLOW_NAME)
@@ -181,7 +184,7 @@ class AIObservabilityEvaluationClusteringWorkflow(PostHogWorkflow):
         )
 
         if compute_result.skip_reason or not compute_result.eval_ids:
-            workflow.logger.info(
+            logger.info(
                 "skipping eval clustering run",
                 reason=compute_result.skip_reason,
                 job_id=inputs.job_id,
@@ -214,6 +217,7 @@ class AIObservabilityEvaluationClusteringWorkflow(PostHogWorkflow):
         )
 
         item_metadata = compute_item_labeling_metadata(compute_result)
+        trace_id = str(workflow.uuid4())
 
         # 3. Labels (LangGraph agent)
         labels_result = await workflow.execute_activity(
@@ -227,6 +231,10 @@ class AIObservabilityEvaluationClusteringWorkflow(PostHogWorkflow):
                 eval_metadata=metadata_result.metadata,
                 window_start=window_start,
                 window_end=window_end,
+                trace_id=trace_id,
+                session_id=f"{trace_id}:session",
+                clustering_run_id=compute_result.clustering_run_id,
+                clustering_job_id=inputs.job_id,
             ),
             start_to_close_timeout=LLM_ACTIVITY_TIMEOUT,
             schedule_to_close_timeout=LLM_SCHEDULE_TO_CLOSE_TIMEOUT,

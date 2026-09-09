@@ -19,7 +19,7 @@
         "chromium": 11.882,
         "webkit": 2.322
     },
-    "frontend/src/layout/FeaturePreviews/FeaturePreviews.stories.tsx": {
+    "frontend/src/lib/components/FeaturePreviews/FeaturePreviews.stories.tsx": {
         "chromium": 8.528,
         "webkit": 1.752
     },
@@ -30,10 +30,6 @@
     "frontend/src/layout/navigation/ImpersonationNotice/ImpersonationReasonModal.stories.tsx": {
         "chromium": 11.725,
         "webkit": 1.981
-    },
-    "frontend/src/layout/navigation/SelfReadOnlyNotice/SelfReadOnlyNotice.stories.tsx": {
-        "chromium": 5.614,
-        "webkit": 1.513
     },
     "frontend/src/layout/panel-layout/InstallationStatusNavButton.stories.tsx": {
         "chromium": 28.015,
@@ -190,10 +186,6 @@
     "frontend/src/lib/components/Map/Map.stories.tsx": {
         "chromium": 1.667,
         "webkit": 1.22
-    },
-    "frontend/src/lib/components/MarkdownEditor/inline/InlineRichMarkdownEditor.stories.tsx": {
-        "chromium": 12.076,
-        "webkit": 2.125
     },
     "frontend/src/lib/components/MarkdownEditor/rich/RichMarkdownEditor.stories.tsx": {
         "chromium": 5.579,
@@ -811,10 +803,6 @@
         "chromium": 5.93,
         "webkit": 1.497
     },
-    "frontend/src/scenes/data-management/comments/Comments.stories.tsx": {
-        "chromium": 16.358,
-        "webkit": 2.867
-    },
     "frontend/src/scenes/data-management/definition/DefinitionView.stories.tsx": {
         "chromium": 19.557,
         "webkit": 2.311
@@ -967,31 +955,31 @@
         "chromium": 28.171,
         "webkit": 5.876
     },
-    "frontend/src/scenes/inbox/InboxScene.stories.tsx": {
+    "products/signals/frontend/inbox/InboxScene.stories.tsx": {
         "chromium": 20.612,
         "webkit": 4.663
     },
-    "frontend/src/scenes/inbox/components/badges/InboxBadges.stories.tsx": {
+    "products/signals/frontend/inbox/components/badges/InboxBadges.stories.tsx": {
         "chromium": 5.184,
         "webkit": 1.435
     },
-    "frontend/src/scenes/inbox/components/cards/InboxCards.stories.tsx": {
+    "products/signals/frontend/inbox/components/cards/InboxCards.stories.tsx": {
         "chromium": 18.545,
         "webkit": 2.834
     },
-    "frontend/src/scenes/inbox/components/detail/InboxDetail.stories.tsx": {
+    "products/signals/frontend/inbox/components/detail/InboxDetail.stories.tsx": {
         "chromium": 26.069,
         "webkit": 8.057
     },
-    "frontend/src/scenes/inbox/components/detail/PullRequestDiffView.stories.tsx": {
+    "products/signals/frontend/inbox/components/detail/PullRequestDiffView.stories.tsx": {
         "chromium": 15.643,
         "webkit": 3.188
     },
-    "frontend/src/scenes/inbox/components/shell/InboxUsageWidget.stories.tsx": {
+    "products/signals/frontend/inbox/components/shell/InboxUsageWidget.stories.tsx": {
         "chromium": 18.696,
         "webkit": 2.603
     },
-    "frontend/src/scenes/inbox/components/tabs/InboxTabs.stories.tsx": {
+    "products/signals/frontend/inbox/components/tabs/InboxTabs.stories.tsx": {
         "chromium": 25.134,
         "webkit": 3.292
     },
@@ -1387,7 +1375,7 @@
         "chromium": 1.94,
         "webkit": 1.587
     },
-    "frontend/src/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/CellActionsMenu.stories.tsx": {
+    "frontend/src/scenes/web-analytics/tabs/marketing-analytics/frontend/components/CampaignMapping/CampaignMappingCellActions.stories.tsx": {
         "chromium": 25.403,
         "webkit": 3.212
     },

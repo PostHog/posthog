@@ -1,1 +1,1 @@
-0088_signalscoutconfig_model
+0119_squash_2026_09_07_schema_addons

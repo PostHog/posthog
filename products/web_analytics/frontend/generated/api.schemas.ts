@@ -12,12 +12,23 @@
  * * `iframe` - Iframe
  * * `recording` - Recording
  */
-export type HeatmapTypeApi = (typeof HeatmapTypeApi)[keyof typeof HeatmapTypeApi]
+export type SavedHeatmapTypeEnumApi = (typeof SavedHeatmapTypeEnumApi)[keyof typeof SavedHeatmapTypeEnumApi]
 
-export const HeatmapTypeApi = {
+export const SavedHeatmapTypeEnumApi = {
     Screenshot: 'screenshot',
     Iframe: 'iframe',
     Recording: 'recording',
+} as const
+
+/**
+ * * `server` - Server
+ * * `toolbar` - Toolbar
+ */
+export type SavedHeatmapSourceEnumApi = (typeof SavedHeatmapSourceEnumApi)[keyof typeof SavedHeatmapSourceEnumApi]
+
+export const SavedHeatmapSourceEnumApi = {
+    Server: 'server',
+    Toolbar: 'toolbar',
 } as const
 
 /**
@@ -25,10 +36,9 @@ export const HeatmapTypeApi = {
  * * `completed` - Completed
  * * `failed` - Failed
  */
-export type HeatmapScreenshotResponseStatusEnumApi =
-    (typeof HeatmapScreenshotResponseStatusEnumApi)[keyof typeof HeatmapScreenshotResponseStatusEnumApi]
+export type SavedHeatmapStatusEnumApi = (typeof SavedHeatmapStatusEnumApi)[keyof typeof SavedHeatmapStatusEnumApi]
 
-export const HeatmapScreenshotResponseStatusEnumApi = {
+export const SavedHeatmapStatusEnumApi = {
     Processing: 'processing',
     Completed: 'completed',
     Failed: 'failed',
@@ -116,26 +126,27 @@ export interface HeatmapScreenshotResponseApi {
      * @maxLength 2000
      */
     url: string
-    /**
-     * URL whose heatmap data is overlaid on the screenshot (defaults to 'url').
-     * @maxLength 2000
-     * @nullable
-     */
+    /** URL whose heatmap data is overlaid on the screenshot (defaults to 'url'). */
     data_url?: string | null
     /** Viewport widths (CSS pixels) the screenshot is rendered at. */
-    target_widths?: unknown
+    readonly target_widths: readonly number[]
     /** Render mode: 'screenshot', 'iframe', or 'recording'.
      *
      * * `screenshot` - Screenshot
      * * `iframe` - Iframe
      * * `recording` - Recording */
-    type?: HeatmapTypeApi
+    type?: SavedHeatmapTypeEnumApi
+    /** How the screenshot was captured: 'server' (rendered headlessly via Browserless) or 'toolbar' (captured client-side from the on-page toolbar, e.g. for pages behind a login).
+     *
+     * * `server` - Server
+     * * `toolbar` - Toolbar */
+    readonly source: SavedHeatmapSourceEnumApi
     /** Screenshot generation status: 'processing', 'completed', or 'failed'.
      *
      * * `processing` - Processing
      * * `completed` - Completed
      * * `failed` - Failed */
-    readonly status: HeatmapScreenshotResponseStatusEnumApi
+    readonly status: SavedHeatmapStatusEnumApi
     /** Whether at least one rendered image is ready to fetch. */
     readonly has_content: boolean
     /** Per-width render metadata. Fetch the actual image bytes for a width from the content endpoint. */
@@ -223,11 +234,7 @@ export interface SavedHeatmapRequestApi {
      * @maxLength 2000
      */
     url: string
-    /**
-     * URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted.
-     * @maxLength 2000
-     * @nullable
-     */
+    /** URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted. */
     data_url?: string | null
     /**
      * Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. Defaults to [320, 375, 425, 768, 1024, 1440, 1920] when omitted. At most 16 widths.
@@ -241,7 +248,7 @@ export interface SavedHeatmapRequestApi {
      * * `screenshot` - Screenshot
      * * `iframe` - Iframe
      * * `recording` - Recording */
-    type?: HeatmapTypeApi
+    type?: SavedHeatmapTypeEnumApi
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
     /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
@@ -260,11 +267,7 @@ export interface PatchedSavedHeatmapRequestApi {
      * @maxLength 2000
      */
     url?: string
-    /**
-     * URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted.
-     * @maxLength 2000
-     * @nullable
-     */
+    /** URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted. */
     data_url?: string | null
     /**
      * Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. Defaults to [320, 375, 425, 768, 1024, 1440, 1920] when omitted. At most 16 widths.
@@ -278,11 +281,47 @@ export interface PatchedSavedHeatmapRequestApi {
      * * `screenshot` - Screenshot
      * * `iframe` - Iframe
      * * `recording` - Recording */
-    type?: HeatmapTypeApi
+    type?: SavedHeatmapTypeEnumApi
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
     /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
     block_consent_modals?: boolean
+}
+
+export interface SavedHeatmapCaptureRequestApi {
+    /**
+     * Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. Pair with 'width'. Use 'images'/'widths' instead to save several viewport widths on one heatmap.
+     * @nullable
+     */
+    image?: string | null
+    /**
+     * Viewport width (CSS pixels) the single 'image' was captured at.
+     * @minimum 100
+     * @maximum 3000
+     */
+    width?: number
+    /**
+     * One screenshot per viewport width, parallel to 'widths' (same length, same order). Lets a single toolbar capture cover the same viewport widths the server renders. At most 16 widths.
+     * @maxItems 16
+     */
+    images?: string[]
+    /**
+     * Viewport widths (CSS pixels) the 'images' were captured at, parallel to 'images'.
+     * @maxItems 16
+     * @items.minimum 100
+     * @items.maximum 3000
+     */
+    widths?: number[]
+    /**
+     * Exact page URL the screenshot was captured on. Wildcards are not allowed; this is stored as both the heatmap URL and its data URL, so the overlay reads aggregate data for this exact URL.
+     * @maxLength 2000
+     */
+    url: string
+    /**
+     * Human-readable label for the saved heatmap. Defaults to the URL when omitted.
+     * @maxLength 400
+     */
+    name?: string
 }
 
 export interface HeatmapPreflightRequestApi {
@@ -343,6 +382,21 @@ export interface HeatmapPrewarmRequestApi {
     url: string
     /** When true, ask the headless browser to dismiss cookie/consent banners before capturing. Must match the value used at creation time for the prewarmed render to be reused. */
     block_consent_modals?: boolean
+}
+
+export interface LlmsTxtFetchRequestApi {
+    /**
+     * Public HTTP or HTTPS URL of the llms.txt file to load.
+     * @maxLength 2048
+     */
+    url: string
+}
+
+export interface LlmsTxtFetchResponseApi {
+    /** UTF-8 contents of the fetched llms.txt file. */
+    content: string
+    /** Final public URL after redirects. */
+    url: string
 }
 
 /**
@@ -637,6 +691,380 @@ export interface RecordVisitResponseApi {
     recorded: boolean
 }
 
+export interface CustomBotRuleApi {
+    /** Stable id for the rule. Pass it to the delete endpoint. */
+    readonly id: string
+    /** Label reported by the `Bot name` property when the rule matches. Also the operator for a rule on a bot PostHog does not know. */
+    name: string
+    /** Event property the rule reads. One of: $raw_user_agent, $ip, $lib, $host, $pathname, $current_url, $browser, $os, $browser_language, $screen_width, $screen_height, $geoip_country_code, $referrer, $referring_domain. */
+    key: string
+    /** How `pattern` is compared: 'contains' (case-insensitive substring), 'regex' (RE2), or 'cidr' (an IP network range, only valid with the `$ip` property). */
+    matcher: string
+    /** Value matched against the property named by `key`. For 'cidr' this is a network range like 192.0.2.0/24. */
+    pattern: string
+    /** Reported by the `Traffic category` property. Defaults to 'custom'. A built-in category such as ai_crawler or search_crawler relabels the traffic type too. */
+    category?: string
+}
+
+export interface ContentAutopilotSiteProfileApi {
+    readonly id: string
+    /**
+     * Name used to identify this site in the workspace.
+     * @maxLength 255
+     */
+    name?: string
+    /**
+     * Authorized site origin for this profile.
+     * @maxLength 2048
+     */
+    domain: string
+    /** Public sitemap and factual source URLs used to build the site profile. */
+    source_urls: string[]
+    /** Same-origin URL path prefixes allowed for research. */
+    content_boundaries: string[]
+    /** Brand, terminology, and editorial rules applied to every proposal. */
+    brand_rules: string[]
+    /** Whether to use connected Google Search Console data. */
+    search_console_enabled?: boolean
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedContentAutopilotSiteProfileListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ContentAutopilotSiteProfileApi[]
+}
+
+export interface PatchedContentAutopilotSiteProfileApi {
+    readonly id?: string
+    /**
+     * Name used to identify this site in the workspace.
+     * @maxLength 255
+     */
+    name?: string
+    /**
+     * Authorized site origin for this profile.
+     * @maxLength 2048
+     */
+    domain?: string
+    /** Public sitemap and factual source URLs used to build the site profile. */
+    source_urls?: string[]
+    /** Same-origin URL path prefixes allowed for research. */
+    content_boundaries?: string[]
+    /** Brand, terminology, and editorial rules applied to every proposal. */
+    brand_rules?: string[]
+    /** Whether to use connected Google Search Console data. */
+    search_console_enabled?: boolean
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+export interface ContentAutopilotSiteDiscoveryRequestApi {
+    /** Public site URL to inspect for onboarding defaults. */
+    domain: string
+}
+
+export interface ContentAutopilotSiteDiscoveryResponseApi {
+    /** Site name inferred from the homepage or hostname. */
+    name: string
+    /** Normalized site origin. */
+    domain: string
+    /** Detected sitemap URLs or an editable conventional suggestion. */
+    source_urls: string[]
+    /** Editable same-origin path boundaries. */
+    content_boundaries: string[]
+    /** Whether at least one sitemap was verified. */
+    sitemap_detected: boolean
+    /** Non-blocking discovery warnings. */
+    warnings: string[]
+}
+
+/**
+ * * `new_content` - New content
+ * * `page_improvement` - Page improvement
+ */
+export type ContentAutopilotProposalProposalTypeEnumApi =
+    (typeof ContentAutopilotProposalProposalTypeEnumApi)[keyof typeof ContentAutopilotProposalProposalTypeEnumApi]
+
+export const ContentAutopilotProposalProposalTypeEnumApi = {
+    NewContent: 'new_content',
+    PageImprovement: 'page_improvement',
+} as const
+
+/**
+ * * `generating` - Generating
+ * * `ready_for_review` - Ready for review
+ * * `rejected` - Rejected
+ * * `exported` - Exported
+ * * `failed` - Failed
+ */
+export type ContentAutopilotProposalLifecycleStatusEnumApi =
+    (typeof ContentAutopilotProposalLifecycleStatusEnumApi)[keyof typeof ContentAutopilotProposalLifecycleStatusEnumApi]
+
+export const ContentAutopilotProposalLifecycleStatusEnumApi = {
+    Generating: 'generating',
+    ReadyForReview: 'ready_for_review',
+    Rejected: 'rejected',
+    Exported: 'exported',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `poor_ctr` - Poor click-through rate
+ * * `content_gap` - Content gap
+ * * `organic_decline` - Organic decline
+ * * `ai_visibility_gap` - AI visibility gap
+ * * `site_hygiene` - Site hygiene
+ */
+export type OpportunityKindEnumApi = (typeof OpportunityKindEnumApi)[keyof typeof OpportunityKindEnumApi]
+
+export const OpportunityKindEnumApi = {
+    PoorCtr: 'poor_ctr',
+    ContentGap: 'content_gap',
+    OrganicDecline: 'organic_decline',
+    AiVisibilityGap: 'ai_visibility_gap',
+    SiteHygiene: 'site_hygiene',
+} as const
+
+export interface ContentAutopilotEvidenceApi {
+    /** Reason the opportunity was selected.
+     *
+     * * `poor_ctr` - Poor click-through rate
+     * * `content_gap` - Content gap
+     * * `organic_decline` - Organic decline
+     * * `ai_visibility_gap` - AI visibility gap
+     * * `site_hygiene` - Site hygiene */
+    opportunity_kind: OpportunityKindEnumApi
+    /** Plain-language explanation of the supporting evidence. */
+    explanation: string
+    /** Page supported by this evidence. */
+    page_url?: string
+    /** Search query supported by this evidence. */
+    query?: string
+}
+
+export interface ContentAutopilotValidationCheckApi {
+    /** Stable identifier for the validation gate. */
+    check_key: string
+    /** Human-readable validation name. */
+    label: string
+    /** Whether the proposal passed this validation. */
+    passed: boolean
+    /** Validation result and any action needed. */
+    message: string
+    /** Whether failure prevents export. */
+    blocking: boolean
+}
+
+export interface ContentAutopilotValidationReportApi {
+    /** Whether every blocking validation passed. */
+    passed: boolean
+    /** Factual, brand, intent, originality, linking, crawlability, and schema checks. */
+    checks: ContentAutopilotValidationCheckApi[]
+}
+
+export interface ContentAutopilotProposalListApi {
+    readonly id: string
+    readonly run_id: string
+    readonly proposal_type: ContentAutopilotProposalProposalTypeEnumApi
+    readonly lifecycle_status: ContentAutopilotProposalLifecycleStatusEnumApi
+    readonly title: string
+    readonly target_query: string
+    /** Performance evidence for this proposal. */
+    evidence: ContentAutopilotEvidenceApi[]
+    /** Blocking and advisory validation results. */
+    validation_report: ContentAutopilotValidationReportApi
+    /** Repository-relative export path. */
+    readonly file_path: string
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedContentAutopilotProposalListListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ContentAutopilotProposalListApi[]
+}
+
+export interface ContentAutopilotFrontmatterEntryApi {
+    /** Frontmatter field name. */
+    key: string
+    /** Serialized frontmatter value. */
+    value: string
+}
+
+export interface ContentAutopilotPackageApi {
+    /** Repository-relative Markdown or MDX file path. */
+    file_path: string
+    /** Content title. */
+    title: string
+    /** Search description or summary. */
+    description: string
+    /** URL slug. */
+    slug: string
+    /** Ordered frontmatter entries. */
+    frontmatter: ContentAutopilotFrontmatterEntryApi[]
+    /** Validated same-origin internal links included in the content. */
+    internal_links: string[]
+    /** Portable source notes included with the export. */
+    source_notes: string[]
+}
+
+export interface ContentAutopilotProposalApi {
+    readonly id: string
+    /** Run that generated this proposal. */
+    readonly run_id: string
+    /** New article or bounded page improvement.
+     *
+     * * `new_content` - New content
+     * * `page_improvement` - Page improvement */
+    readonly proposal_type: ContentAutopilotProposalProposalTypeEnumApi
+    /** Review and export lifecycle status.
+     *
+     * * `generating` - Generating
+     * * `ready_for_review` - Ready for review
+     * * `rejected` - Rejected
+     * * `exported` - Exported
+     * * `failed` - Failed */
+    readonly lifecycle_status: ContentAutopilotProposalLifecycleStatusEnumApi
+    /** Review title for this proposal. */
+    readonly title: string
+    /** Primary query or topic targeted by this proposal. */
+    readonly target_query: string
+    /** Existing or intended public URL. */
+    readonly target_url: string
+    /** Performance evidence for this proposal. */
+    evidence: ContentAutopilotEvidenceApi[]
+    /** Blocking and advisory validation results. */
+    validation_report: ContentAutopilotValidationReportApi
+    /** Structured package that accompanies the exported Markdown. */
+    content_package: ContentAutopilotPackageApi
+    /** Existing content for page-improvement diffs. */
+    readonly original_markdown: string
+    /** Full proposed Markdown after edits. */
+    readonly proposed_markdown: string
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface ContentAutopilotProposalEditRequestApi {
+    /**
+     * Edited Markdown to save for review.
+     * @maxLength 500000
+     */
+    proposed_markdown: string
+    /** Updated structured package to save with the proposal. */
+    content_package: ContentAutopilotPackageApi
+}
+
+export interface ContentAutopilotExportResponseApi {
+    /** Suggested export filename. */
+    filename: string
+    /** Validated Markdown content. */
+    markdown: string
+    /** Structured JSON package for a CMS adapter. */
+    content_package: ContentAutopilotPackageApi
+}
+
+/**
+ * * `pending` - Pending
+ * * `generating` - Generating
+ * * `ready_for_review` - Ready for review
+ * * `completed` - Completed
+ * * `canceled` - Canceled
+ * * `failed` - Failed
+ */
+export type ContentAutopilotRunRunStatusEnumApi =
+    (typeof ContentAutopilotRunRunStatusEnumApi)[keyof typeof ContentAutopilotRunRunStatusEnumApi]
+
+export const ContentAutopilotRunRunStatusEnumApi = {
+    Pending: 'pending',
+    Generating: 'generating',
+    ReadyForReview: 'ready_for_review',
+    Completed: 'completed',
+    Canceled: 'canceled',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `standard` - Standard
+ * * `lower` - Lower
+ */
+export type ContentAutopilotSnapshotConfidenceEnumApi =
+    (typeof ContentAutopilotSnapshotConfidenceEnumApi)[keyof typeof ContentAutopilotSnapshotConfidenceEnumApi]
+
+export const ContentAutopilotSnapshotConfidenceEnumApi = {
+    Standard: 'standard',
+    Lower: 'lower',
+} as const
+
+export interface ContentAutopilotSnapshotApi {
+    /** Site domain used for the run. */
+    domain?: string
+    /** Confidence level based on the available data sources.
+     *
+     * * `standard` - Standard
+     * * `lower` - Lower */
+    confidence?: ContentAutopilotSnapshotConfidenceEnumApi
+    /** Public sources authorized for this run. */
+    source_urls?: string[]
+    /** Site paths authorized for this run. */
+    content_boundaries?: string[]
+    /** Editorial rules captured for this run. */
+    brand_rules?: string[]
+}
+
+export interface ContentAutopilotErrorApi {
+    /** Stable machine-readable error code. */
+    error_code: string
+    /** Error explanation suitable for the review workspace. */
+    message: string
+}
+
+export interface ContentAutopilotRunApi {
+    readonly id: string
+    /** Site profile used by this run. */
+    readonly profile_id: string
+    /** Current durable workflow status.
+     *
+     * * `pending` - Pending
+     * * `generating` - Generating
+     * * `ready_for_review` - Ready for review
+     * * `completed` - Completed
+     * * `canceled` - Canceled
+     * * `failed` - Failed */
+    readonly run_status: ContentAutopilotRunRunStatusEnumApi
+    /** Immutable inputs captured at run start. */
+    input_snapshot: ContentAutopilotSnapshotApi
+    /** Inspectable workflow errors from this run. */
+    errors: ContentAutopilotErrorApi[]
+    readonly created_at: string
+    readonly updated_at: string
+    /** @nullable */
+    readonly completed_at: string | null
+}
+
+export interface PaginatedContentAutopilotRunListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ContentAutopilotRunApi[]
+}
+
+export interface ContentAutopilotRunStartRequestApi {
+    /** Site profile to research. */
+    profile_id: string
+}
+
 export interface WebAnalyticsFilterPresetApi {
     readonly id: string
     readonly short_id: string
@@ -767,6 +1195,11 @@ export type HeatmapsListParams = {
      */
     date_to?: string
     /**
+     * JSON array of event filters (e.g. '[{"id": "purchase", "properties": []}]') to restrict results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and may carry a 'properties' array of property filters applied to that event, each of type 'event' or 'element'. Several entries are combined with AND: the session must contain a matching event for every entry. At most 10 entries, each with at most 20 property filters. Requires project-wide heatmap access, since the filter reads the project's events rather than one saved heatmap. Feature-flagged; ignored when the event filter is not enabled for the caller.
+     * @nullable
+     */
+    events?: string | null
+    /**
      * When true, exclude sessions from internal/test accounts using the project's test-account filters.
      * @nullable
      */
@@ -843,6 +1276,11 @@ export type HeatmapsEventsRetrieveParams = {
      * @minLength 1
      */
     date_to?: string
+    /**
+     * JSON array of event filters (e.g. '[{"id": "purchase", "properties": []}]') to restrict results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and may carry a 'properties' array of property filters applied to that event, each of type 'event' or 'element'. Several entries are combined with AND: the session must contain a matching event for every entry. At most 10 entries, each with at most 20 property filters. Requires project-wide heatmap access, since the filter reads the project's events rather than one saved heatmap. Feature-flagged; ignored when the event filter is not enabled for the caller.
+     * @nullable
+     */
+    events?: string | null
     /**
      * When true, exclude sessions from internal/test accounts using the project's test-account filters.
      * @nullable
@@ -956,6 +1394,51 @@ export type WebAnalyticsWeeklyDigestParams = {
      * Lookback window in days (1–90). Defaults to 7.
      */
     days?: number
+}
+
+export type WebAnalyticsContentAutopilotProfilesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WebAnalyticsContentAutopilotProposalsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Only return proposals for this site profile.
+     */
+    profile_id?: string
+    /**
+     * Only return proposals from this content run.
+     */
+    run_id?: string
+}
+
+export type WebAnalyticsContentAutopilotRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Only return runs for this site profile.
+     */
+    profile_id?: string
 }
 
 export type WebAnalyticsFilterPresetsListParams = {

@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { ReportCard } from 'scenes/inbox/components/cards/ReportCard'
 import { urls } from 'scenes/urls'
+
+import { ReportCard } from 'products/signals/frontend/inbox/components/cards/ReportCard'
 
 import { FeedFilterBar } from './FeedFilterBar'
 import { feedLogic } from './feedLogic'
@@ -40,7 +41,7 @@ export function FeedTabContent(): JSX.Element {
                             key={report.id}
                             report={report}
                             backUrl={urls.customerAnalyticsFeed()}
-                            onArchive={(reason, note) => archiveReport(report.id, reason, note)}
+                            onDismiss={(dismissal) => archiveReport(report.id, dismissal)}
                         />
                     ))}
                 </div>

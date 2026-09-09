@@ -64,6 +64,12 @@ CURRENT_TOP_CUSTOMERS_METRIC_DEFINITION: dict = {
     ),
 }
 
+# Scout-bypass arm: the prescriptive "validated query" a scout-style prompt ships verbatim.
+# Reuses the current-snapshot definition on purpose: it computes the measure the approved
+# last-full-calendar-month metric owns with materially different time semantics, so following
+# it verbatim is both a catalog bypass and a silently wrong number.
+SCOUT_PRESCRIBED_SNAPSHOT_SQL = CURRENT_TOP_CUSTOMERS_METRIC_DEFINITION["query"]
+
 FAILING_TOP_CUSTOMERS_METRIC_DEFINITION: dict = {
     "kind": "HogQLQuery",
     "query": TOP_CUSTOMERS_METRIC_DEFINITION["query"].replace(
@@ -108,6 +114,21 @@ PROPOSED_METRIC_DEFINITION: dict = {
     ),
 }
 
+# Proactive-offer arm: a saved insight is the only place the measure is written down, so the
+# agent has to reconstruct the definition from it and then offer to catalog it. No metric is
+# seeded — the catalog is empty for this measure.
+DEFINITION_INSIGHT_NAME = "Active uploaders (weekly)"
+DEFINITION_INSIGHT_DESCRIPTION = "Users who uploaded at least one file in the trailing 7 days."
+DEFINITION_INSIGHT_QUERY: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT count(DISTINCT person_id) AS active_uploaders\n"
+        "FROM events\n"
+        "WHERE event = 'uploaded_file'\n"
+        "  AND timestamp >= now() - INTERVAL 7 DAY"
+    ),
+}
+
 # Listing arm decoys: saved insights whose names a lazy `system.insights ILIKE '%metric%'`
 # search would surface — the trap the listing case must not fall into.
 DECOY_INSIGHT_NAMES = ("Key metrics overview", "Revenue metrics by plan")
@@ -124,6 +145,82 @@ DRIFTED_INSIGHT_MUTATED_QUERY: dict = {
     "kind": "HogQLQuery",
     "query": "SELECT count(DISTINCT person_id) FROM events WHERE timestamp >= now() - INTERVAL 14 DAY",
 }
+
+# Operational-telemetry arm: a governed measure that is not business-shaped — a reliability
+# rate a scheduled scout re-derives every run. The canonical denominator is pageviews over a
+# trailing 30 days; the prescribed sweep below is per-user over 7 days, so following it
+# verbatim is both a catalog bypass and a silently different number.
+OPERATIONAL_METRIC_NAME = "site_error_rate"
+OPERATIONAL_METRIC_DISPLAY_NAME = "Site error rate (daily)"
+OPERATIONAL_METRIC_DESCRIPTION = (
+    "Daily site reliability: exceptions per 100 pageviews over the trailing 30 days. "
+    "The governed denominator is pageviews, not users or sessions."
+)
+OPERATIONAL_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT\n"
+        "    toStartOfDay(timestamp) AS day,\n"
+        "    countIf(event = '$pageview') AS pageviews,\n"
+        "    countIf(event = '$exception') AS exceptions,\n"
+        "    round(100 * countIf(event = '$exception') / nullIf(countIf(event = '$pageview'), 0), 2) AS error_rate_pct\n"
+        "FROM events\n"
+        "WHERE event IN ('$pageview', '$exception')\n"
+        "  AND timestamp >= now() - INTERVAL 30 DAY\n"
+        "GROUP BY day\n"
+        "ORDER BY day DESC"
+    ),
+}
+
+DAILY_ACTIVE_ORGS_METRIC_NAME = "daily_active_orgs"
+DAILY_ACTIVE_ORGS_METRIC_DISPLAY_NAME = "Daily active organizations"
+DAILY_ACTIVE_ORGS_METRIC_DESCRIPTION = "Daily count of Hedgebox organizations with at least one event on that day, over the trailing 30 days, using the account group attached to the event."
+DAILY_ACTIVE_ORGS_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT\n"
+        "    toStartOfDay(timestamp) AS day,\n"
+        "    uniq(toString(properties.$group_0)) AS active_organizations\n"
+        "FROM events\n"
+        "WHERE notEmpty(toString(properties.$group_0))\n"
+        "  AND timestamp >= now() - INTERVAL 30 DAY\n"
+        "GROUP BY day\n"
+        "ORDER BY day DESC"
+    ),
+}
+
+MCP_TOOL_CALL_FAIL_PCT_METRIC_NAME = "mcp_tool_call_fail_pct"
+MCP_TOOL_CALL_FAIL_PCT_METRIC_DISPLAY_NAME = "MCP tool-call failure rate"
+MCP_TOOL_CALL_FAIL_PCT_METRIC_DESCRIPTION = (
+    "Daily percentage of PostHog's hosted MCP tool calls that failed, measured from canonical $mcp_tool_call events "
+    "whose $mcp_server_name is PostHog, so calls to separately instrumented MCP servers are excluded."
+)
+MCP_TOOL_CALL_FAIL_PCT_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT\n"
+        "    toStartOfDay(timestamp) AS day,\n"
+        "    round(100 * countIf(toBool(properties.$mcp_is_error)) / nullIf(count(), 0), 2) AS failure_rate_pct\n"
+        "FROM events\n"
+        "WHERE event = '$mcp_tool_call'\n"
+        "  AND toString(properties.$mcp_server_name) = 'PostHog'\n"
+        "  AND timestamp >= now() - INTERVAL 30 DAY\n"
+        "GROUP BY day\n"
+        "ORDER BY day DESC"
+    ),
+}
+SCOUT_PRESCRIBED_OPS_SWEEP_SQL = (
+    "SELECT\n"
+    "    toStartOfDay(timestamp) AS day,\n"
+    "    uniq(distinct_id) AS users,\n"
+    "    countIf(event = '$exception') AS exceptions,\n"
+    "    round(100 * countIf(event = '$exception') / nullIf(uniq(distinct_id), 0), 2) AS error_rate_pct\n"
+    "FROM events\n"
+    "WHERE event IN ('$pageview', '$exception')\n"
+    "  AND timestamp >= now() - INTERVAL 7 DAY\n"
+    "GROUP BY day\n"
+    "ORDER BY day DESC"
+)
 
 CERTIFIED_SOURCE_NAME = "eval_catalog_billing_ledger"
 DEPRECATED_SOURCE_NAME = "eval_catalog_billing_ledger_legacy"

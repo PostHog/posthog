@@ -1,4 +1,5 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi, type MockInstance } from 'vitest'
+import { z } from 'zod'
 
 vi.mock('@/resources/internals', () => ({
     fetchContextMillResources: vi.fn().mockRejectedValue(new Error('mocked')),
@@ -11,13 +12,16 @@ vi.mock('@/resources', () => ({
     getPromptsFromManifest: vi.fn().mockResolvedValue([]),
 }))
 
+import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import { buildToolDomainsCompact } from '@/lib/instructions'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
+import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import { getToolDefinition } from '@/tools/toolDefinitions'
+import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
 
 // A tool with a renderable (dispatchable) UI app — used to exercise the render-ui path.
 const uiAppTool = {
@@ -47,6 +51,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         useSingleExec: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
+        oauthClientId: undefined,
         clientProfile: {
             capabilities: { supportsInstructions: true },
             isCliModeEnabled: vi.fn(() => false),
@@ -55,6 +60,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             isClaudeChatHost: vi.fn(() => false),
         } as any,
         requestContext: {
+            authMethod: 'personal_api_key',
             sessionId: 'sess-1',
             mcpClientName: 'test',
             mcpClientVersion: '1.0',
@@ -64,10 +70,12 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         sessionContext: null,
         allTools: tools as any,
         scopeGatedTools: [],
+        flagGatedTools: [],
         gatewayToolsEnabled: false,
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
         metadata: undefined,
+        metadataCompact: undefined,
         groupTypes: undefined,
         ...overrides,
     }
@@ -187,33 +195,235 @@ describe('ToolExecutor', () => {
             expect(result.tools[0]!.name).toBe('exec')
         })
 
-        // Env-context (active project metadata + tool-domain index) must reach the model
-        // on the exec `command` for clients that don't otherwise receive the `instructions`
-        // payload: Codex reports `supportsInstructions: false` so never gets it, and Claude
-        // web/desktop report `true` but silently ignore it. Claude Code and Cowork strip
-        // it here because it arrives via `instructions` instead.
+        // The flag decides skill exposure per client; guides stay a Claude chat-host
+        // feature; plugin and sandbox consumers get neither because they carry their
+        // own skills. A regression in any row silently changes what an agent is told.
+        it.each([
+            {
+                label: 'Claude web/desktop with flag off',
+                isClaudeChatHost: true,
+                skillsEnabled: false,
+                consumer: undefined,
+                expectGuides: true,
+                expectSkills: false,
+            },
+            {
+                label: 'Claude web/desktop with flag on',
+                isClaudeChatHost: true,
+                skillsEnabled: true,
+                consumer: undefined,
+                expectGuides: true,
+                expectSkills: true,
+            },
+            {
+                label: 'Claude Code with flag off',
+                isClaudeChatHost: false,
+                skillsEnabled: false,
+                consumer: undefined,
+                expectGuides: false,
+                expectSkills: false,
+            },
+            {
+                label: 'Claude Code with flag on',
+                isClaudeChatHost: false,
+                skillsEnabled: true,
+                consumer: undefined,
+                expectGuides: false,
+                expectSkills: true,
+            },
+            {
+                label: 'plugin consumer with flag on',
+                isClaudeChatHost: true,
+                skillsEnabled: true,
+                consumer: 'plugin',
+                expectGuides: false,
+                expectSkills: false,
+            },
+            {
+                label: 'posthog-code consumer with flag on',
+                isClaudeChatHost: false,
+                skillsEnabled: true,
+                consumer: 'posthog-code',
+                expectGuides: false,
+                expectSkills: false,
+            },
+        ])(
+            'advertises and serves the expected learn capabilities for $label',
+            async ({ isClaudeChatHost, skillsEnabled, consumer, expectGuides, expectSkills }) => {
+                const skills = new SkillCatalog([
+                    {
+                        name: 'sample-skill',
+                        description: 'A sample skill.',
+                        files: [makeSkillFile('SKILL.md', '# Sample skill')],
+                    },
+                ])
+                const skillExecutor = new ToolExecutor(catalog, new InstructionsBuilder(''), {
+                    getCatalog: () => skills,
+                } as any)
+                const state = makeState([], {
+                    useSingleExec: true,
+                    toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: skillsEnabled },
+                    clientProfile: {
+                        capabilities: { supportsInstructions: true },
+                        isCliModeEnabled: vi.fn(() => true),
+                        isClaudeUiHost: vi.fn(() => isClaudeChatHost),
+                        isInlineExecUiHost: vi.fn(() => false),
+                        isClaudeChatHost: vi.fn(() => isClaudeChatHost),
+                    } as any,
+                    ...(consumer
+                        ? {
+                              sessionContext: {
+                                  mcpClientName: 'claude-ai',
+                                  mcpClientVersion: '1.0',
+                                  mcpProtocolVersion: '2025-03-26',
+                                  mcpConsumer: consumer,
+                                  mcpVendorClient: undefined,
+                              },
+                          }
+                        : {}),
+                })
+
+                const listed = await skillExecutor.handleToolsList(state)
+                const commandDescription = (listed.tools[0]!.inputSchema.properties as any).command
+                    .description as string
+                const advertisesSkills =
+                    commandDescription.includes('learn posthog:<skill>') ||
+                    commandDescription.includes('(posthog|project):<skill>')
+                expect(commandDescription.includes('- analytics:')).toBe(expectGuides)
+                expect(advertisesSkills).toBe(expectSkills)
+                expect(commandDescription.includes('**SKILLS FIRST: HARD REQUIREMENT**')).toBe(expectSkills)
+                expect(commandDescription.includes('learn <topic...>')).toBe(expectGuides)
+                expect(listed.tools[0]!.description!.includes('SKILLS FIRST')).toBe(expectSkills)
+
+                const result = (await skillExecutor.handleToolCall(
+                    { name: 'exec', arguments: { command: 'learn' } },
+                    state
+                )) as { content: { text: string }[]; isError?: boolean }
+                if (!expectGuides && !expectSkills) {
+                    expect(result.isError).toBe(true)
+                    expect(result.content[0]!.text).toContain('learn command is not available')
+                    return
+                }
+
+                const catalogResult = JSON.parse(result.content[0]!.text)
+                expect(catalogResult.guides.length > 0).toBe(expectGuides)
+                expect('skills' in catalogResult).toBe(expectSkills)
+
+                if (!expectSkills) {
+                    const skillResult = (await skillExecutor.handleToolCall(
+                        { name: 'exec', arguments: { command: 'learn skills' } },
+                        state
+                    )) as { content: { text: string }[]; isError?: boolean }
+                    expect(skillResult.isError).toBeFalsy()
+                    expect(JSON.parse(skillResult.content[0]!.text)).toEqual({
+                        available: false,
+                        reason: 'Skill discovery is not enabled for this connection.',
+                    })
+                }
+            }
+        )
+
+        it('discovers and searches current-project skills when the connection has read scope', async () => {
+            const apiRequest = vi.fn().mockImplementation(async ({ path }: { path: string }) => {
+                if (path.endsWith('/search/')) {
+                    return {
+                        count: 1,
+                        results: [
+                            {
+                                name: 'team-retention',
+                                description: 'Project-specific retention guidance.',
+                                matches: [
+                                    {
+                                        matched_field: 'body',
+                                        path: 'SKILL.md',
+                                        line: 3,
+                                        excerpt: 'Use weekly retention cohorts.',
+                                    },
+                                ],
+                            },
+                        ],
+                    }
+                }
+                return { count: 1, results: [{ name: 'team-retention' }] }
+            })
+            const state = makeState([], {
+                useSingleExec: true,
+                toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
+                apiKeyScopes: ['llm_skill:read'],
+                context: {
+                    api: { request: apiRequest },
+                    stateManager: { getProjectId: vi.fn().mockResolvedValue(12) },
+                } as any,
+            })
+
+            const result = (await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'learn -s retention' } },
+                state
+            )) as { content: { text: string }[] }
+
+            expect(result.content[0]!.text).toContain('## project:team-retention')
+            expect(apiRequest).toHaveBeenCalledWith({
+                method: 'GET',
+                path: '/api/projects/12/llm_skills/search/',
+                query: { query: 'retention' },
+            })
+
+            const listResult = (await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'learn skills' } },
+                state
+            )) as { content: { text: string }[] }
+            expect(listResult.content[0]!.text).toContain('project:team-retention')
+            expect(apiRequest).toHaveBeenCalledWith({
+                method: 'GET',
+                path: '/api/projects/12/llm_skills/',
+                query: { category: '', limit: 100, offset: 0, order_by: 'name' },
+            })
+        })
+
+        it('tells the agent project skills need the read scope instead of failing silently', async () => {
+            const state = makeState([], {
+                useSingleExec: true,
+                toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
+                apiKeyScopes: ['insight:read'],
+            })
+
+            const result = (await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'learn skills' } },
+                state
+            )) as { content: { text: string }[] }
+
+            expect(JSON.parse(result.content[0]!.text).project).toEqual({
+                available: false,
+                reason: expect.stringContaining('llm_skill:read'),
+            })
+        })
+
+        // Active project metadata reaches the model on the exec `command` for every
+        // single-exec client, including the ones that honor `instructions`: that payload is
+        // capped at MCP_INSTRUCTIONS_CHAR_BUDGET and spends all of it on the tool-domain
+        // index, so env-context would be the first thing a client-side truncation ate. The
+        // command description has no cap. The domain index is the mirror image — it stays
+        // out of the command description except for Claude web/desktop, which ignores
+        // `instructions` and has nowhere else to receive it.
         it.each([
             {
                 label: 'Claude web/desktop (ignores instructions)',
                 supportsInstructions: true,
                 isClaudeChatHost: true,
-                expectEnv: true,
             },
             {
                 label: 'Codex (supportsInstructions: false)',
                 supportsInstructions: false,
                 isClaudeChatHost: false,
-                expectEnv: true,
             },
             {
                 label: 'Claude Code / Cowork (consume instructions)',
                 supportsInstructions: true,
                 isClaudeChatHost: false,
-                expectEnv: false,
             },
         ])(
-            'injects project metadata into the exec command for $label → $expectEnv',
-            async ({ supportsInstructions, isClaudeChatHost, expectEnv }) => {
+            'injects project metadata into the exec command for $label',
+            async ({ supportsInstructions, isClaudeChatHost }) => {
                 const tools = catalog
                     .getPreBuiltEntries()
                     .slice(0, 5)
@@ -243,11 +453,7 @@ describe('ToolExecutor', () => {
                 expect(commandDesc.includes('- analytics:')).toBe(isClaudeChatHost)
                 expect(commandDesc.includes('### Retrieving data')).toBe(!isClaudeChatHost)
                 expect(commandDesc.includes(compactDomains)).toBe(isClaudeChatHost)
-                if (expectEnv) {
-                    expect(commandDesc).toContain(metadataMarker)
-                } else {
-                    expect(commandDesc).not.toContain(metadataMarker)
-                }
+                expect(commandDesc).toContain(metadataMarker)
             }
         )
 
@@ -333,6 +539,63 @@ describe('ToolExecutor', () => {
 
             expect(result.isError).toBe(true)
             expect(result.content[0].text).toContain('not found')
+        })
+    })
+
+    // A render-ui app loads its own data with a direct `tools/call`, reading
+    // `structuredContent` and ignoring the text channel. The formatted-table
+    // suppression that serves text-reading CLI clients must not reach that fetch,
+    // or the app has nothing to draw and shows its error state instead of the chart.
+    describe('structuredContent on a UI-app data fetch', () => {
+        const formattedTable = 'date|count\n2026-08-31|28'
+        let getToolByNameSpy: MockInstance | undefined
+
+        afterEach(() => {
+            getToolByNameSpy?.mockRestore()
+            getToolByNameSpy = undefined
+        })
+
+        it.each([
+            {
+                label: 'keeps it for a render-ui host, where this call is the app',
+                useSingleExec: true,
+                renderUiEnabled: true,
+                expectStructuredContent: true,
+            },
+            {
+                label: 'drops it for a CLI client without render-ui, which reads the table',
+                useSingleExec: true,
+                renderUiEnabled: false,
+                expectStructuredContent: false,
+            },
+            {
+                label: 'drops it in tools mode, where a direct call may be the model',
+                useSingleExec: false,
+                renderUiEnabled: true,
+                expectStructuredContent: false,
+            },
+        ])('$label', async ({ useSingleExec, renderUiEnabled, expectStructuredContent }) => {
+            getToolByNameSpy = vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                build() {
+                    return this.base
+                },
+                base: {
+                    schema: z.object({}),
+                    handler: async () => ({
+                        results: [{ count: 28, label: '$pageview' }],
+                        [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: formattedTable,
+                    }),
+                    _meta: uiAppTool._meta,
+                },
+            } as any)
+
+            const state = makeState([uiAppTool], { useSingleExec, renderUiEnabled })
+            vi.mocked(state.clientProfile.isCliModeEnabled).mockReturnValue(true)
+
+            const result = (await executor.handleToolCall({ name: 'survey-get', arguments: {} }, state)) as any
+
+            expect(result.content[0].text).toContain(formattedTable)
+            expect('structuredContent' in result).toBe(expectStructuredContent)
         })
     })
 })

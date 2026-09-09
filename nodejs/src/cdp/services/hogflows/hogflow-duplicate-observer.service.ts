@@ -5,7 +5,7 @@ import { RedisClient, RedisV2 } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 
 import { CyclotronJobInvocationHogFlow } from '../../types'
-import { mirrorCompare } from '../../utils/mirror-call'
+import { dualRead } from '../../utils/dual-store'
 
 const DUPLICATE_OBSERVATION_TTL_SECONDS = 15 * 60
 
@@ -16,14 +16,13 @@ const hogflowDuplicateInvocationDetectedTotal = new Counter({
 })
 
 /**
- * Detects duplicate workflow invocations via a Redis SET-NX key per
- * (workflow, event, action). Every observation also fires against the Valkey mirror
- * in parallel — load is realised on the mirror; only the primary drives the
- * duplicate-detected metric.
+ * Detects duplicate workflow invocations via a SET-NX key per (workflow, event, action).
+ * Every observation fires against both Redis and Valkey in parallel; the store this feature
+ * currently reads from is the one whose verdict drives the duplicate-detected metric.
  */
 export class HogFlowDuplicateObserverService {
     constructor(
-        private readonly redis: RedisV2 | null,
+        private readonly redis: RedisV2,
         private readonly redisMirror: RedisV2
     ) {}
 
@@ -32,7 +31,7 @@ export class HogFlowDuplicateObserverService {
         currentAction: HogFlowAction
     ): Promise<{ duplicate: boolean }> {
         const eventUuid = invocation.state?.event?.uuid
-        if (!this.redis || !eventUuid) {
+        if (!eventUuid) {
             return { duplicate: false }
         }
         const key = `hogflow:observe:${invocation.functionId}:${eventUuid}:${currentAction.id}`
@@ -47,11 +46,11 @@ export class HogFlowDuplicateObserverService {
 
         let duplicate = false
         try {
-            const existingId = await mirrorCompare(
+            const existingId = await dualRead(
                 'hog-flow-duplicate-observer.observe',
-                () => this.redis!.useClient({ name: 'hogflow-observe', failOpen: true }, setNxGet),
+                () => this.redis.useClient({ name: 'hogflow-observe', failOpen: true }, setNxGet),
                 () => this.redisMirror.useClient({ name: 'hogflow-observe-mirror', failOpen: true }, setNxGet),
-                (primary, mirror) => Boolean(primary) === Boolean(mirror)
+                (primary, secondary) => Boolean(primary) === Boolean(secondary)
             )
             if (existingId && existingId !== invocation.id) {
                 duplicate = true

@@ -1,45 +1,96 @@
 import time
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 from django.conf import settings
+from django.db import InterfaceError, OperationalError
 from django.db.models import Case, DurationField, ExpressionWrapper, F, Q, QuerySet, When
 from django.utils import timezone
 
+import grpc
 import structlog
 import posthoganalytics
-from celery import Task, chain, current_task, shared_task
+from celery import Task, chain, shared_task
+from celery.exceptions import Retry, SoftTimeLimitExceeded
+from celery.utils.time import get_exponential_backoff_interval
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter, Gauge, Histogram
+
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.monitoring import Feature
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
-from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.personhog_client.interceptor import is_transient_rpc_error
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.cohorts.backend.backfill.finalize import finalize_backfill_runs
+from products.cohorts.backend.backfill.observe import publish_backfill_run_gauges
 from products.cohorts.backend.backfill.runs import (
+    BackfillRefusalReason,
+    attempt_backfill_run_for_cohort,
+    attempt_person_backfill_run_for_cohort,
     check_person_run_preconditions,
     check_run_preconditions,
-    create_backfill_run_for_cohort,
-    create_person_backfill_run_for_cohort,
 )
 from products.cohorts.backend.models.backfill import CohortBackfillKind
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
-from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
+from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, ImportResolution
 from products.cohorts.backend.models.util import (
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
     get_all_cohort_dependencies,
     get_all_cohort_dependents,
     get_clickhouse_query_stats,
+    save_recovery_bookkeeping,
     sort_cohorts_topologically,
 )
 from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_team
+
+COHORT_RECALCULATION_MAX_RETRIES = 6
+STATIC_POPULATION_MAX_RETRIES = 6
+STATIC_POPULATION_RETRY_BACKOFF_SECONDS = 60
+STATIC_POPULATION_RETRY_BACKOFF_MAX_SECONDS = 1800
+STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS = 4 * 60 * 60
+
+# The RetryInterceptor set plus RESOURCE_EXHAUSTED and INTERNAL, which an in-process retry must not
+# hammer but a task backoff of minutes is the right answer to. Personhog sheds load with
+# RESOURCE_EXHAUSTED and maps every Postgres query error (deadlock, lock or statement timeout, a
+# read-only primary after a failover) to INTERNAL. UNKNOWN stays in because an HTTP/2 stream reset
+# ("Stream removed") surfaces as UNKNOWN, and that is the outage shape that leaves a static cohort
+# half-synced.
+STATIC_POPULATION_RETRYABLE_RPC_CODES = frozenset(
+    {
+        grpc.StatusCode.UNAVAILABLE,
+        grpc.StatusCode.DEADLINE_EXCEEDED,
+        grpc.StatusCode.ABORTED,
+        grpc.StatusCode.UNKNOWN,
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        grpc.StatusCode.INTERNAL,
+    }
+)
+
+# CH_TRANSIENT_ERRORS plus the Postgres errors the cohort tasks' own ORM statements can hit (e.g. a
+# connection-pooler blip before the ClickHouse work even starts, or between two personhog batches).
+# Recalculation and static population are background jobs nobody cancels by hand, so a cancelled
+# query here means a deploy, not an operator shedding load - which is why they opt into 394 where
+# the shared tuple leaves it out.
+COHORT_RECALCULATION_TRANSIENT_ERRORS = (
+    *CH_TRANSIENT_ERRORS,
+    CHQueryErrorQueryWasCancelled,
+    OperationalError,
+    InterfaceError,
+)
+
+# The recalculation set plus the soft time limit, which static population opts into because it can
+# resume: the ClickHouse insert excludes the actors it already wrote and personhog ignores existing
+# membership. Recording the limit as terminal would strand a half-written cohort instead.
+STATIC_POPULATION_TRANSIENT_ERRORS = (*COHORT_RECALCULATION_TRANSIENT_ERRORS, SoftTimeLimitExceeded)
 
 COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(
     "cohort_recalculations_backlog",
@@ -110,6 +161,12 @@ COHORT_CALCULATION_DURATION_SECONDS = Histogram(
     buckets=[1, 5, 10, 30, 60, 120, 300, 600, 1800, 3600],
 )
 
+COHORT_STATIC_POPULATION_RETRIES_COUNTER = Counter(
+    "cohort_static_population_retries_total",
+    "Static cohort population attempts that failed transiently and scheduled a task retry",
+    ["task", "error_type"],
+)
+
 logger = structlog.get_logger(__name__)
 
 MAX_AGE_MINUTES = 15
@@ -152,6 +209,9 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
       (initial population never completed)
     - OR is_calculating=True AND last_calculation > 1 hour ago
       (re-population never completed)
+    - AND it has not errored within the last hour. A population task stamps last_error_at when
+      it schedules a retry, and reset_stuck_cohorts stamps it when it re-dispatches, so a recent
+      error means the run is alive and resetting it would dispatch a duplicate population.
     """
     one_hour_ago = timezone.now() - relativedelta(hours=1)
     return (
@@ -165,6 +225,7 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
             Q(last_calculation__isnull=True, created_at__lte=one_hour_ago)
             | Q(last_calculation__lte=one_hour_ago, last_calculation__isnull=False)
         )
+        .filter(Q(last_error_at__isnull=True) | Q(last_error_at__lte=one_hour_ago))
         .filter(
             # Only fetch cohorts that have a retriggerable population source
             # (HogQL query or filter criteria). Excludes CSV-upload cohorts
@@ -455,72 +516,183 @@ def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional
 
 
 @shared_task(
+    bind=True,
     ignore_result=True,
     queue=CeleryQueue.LONG_RUNNING.value,
-    # Auto-retry for transient ClickHouse errors with exponential backoff
-    autoretry_for=CH_TRANSIENT_ERRORS,
+    # Auto-retry for transient ClickHouse and Postgres errors with exponential backoff
+    autoretry_for=COHORT_RECALCULATION_TRANSIENT_ERRORS,
     retry_backoff=60,
     retry_backoff_max=1800,
-    max_retries=6,
+    max_retries=COHORT_RECALCULATION_MAX_RETRIES,
 )
 @skip_team_scope_audit
-def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
+def calculate_cohort_ch(
+    self: Task, cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None
+) -> None:
     with posthoganalytics.new_context():
         posthoganalytics.tag("feature", Feature.COHORT.value)
         posthoganalytics.tag("cohort_id", cohort_id)
 
-        cohort: Cohort = Cohort.objects.get(pk=cohort_id)
+        try:
+            cohort: Cohort = Cohort.objects.get(pk=cohort_id)
 
-        # Skip calculation if this version is now obsolete (superseded by newer save)
-        if cohort.pending_version and pending_version < cohort.pending_version:
-            logger.info(
-                "cohort_calculation_skipped_obsolete",
-                cohort_id=cohort_id,
-                task_version=pending_version,
-                current_pending_version=cohort.pending_version,
-            )
-            return
+            # Skip calculation if this version is now obsolete (superseded by newer save)
+            if cohort.pending_version and pending_version < cohort.pending_version:
+                logger.info(
+                    "cohort_calculation_skipped_obsolete",
+                    cohort_id=cohort_id,
+                    task_version=pending_version,
+                    current_pending_version=cohort.pending_version,
+                )
+                return
 
-        posthoganalytics.tag("team_id", cohort.team.id)
+            posthoganalytics.tag("team_id", cohort.team_id)
 
-        staleness_hours = 0.0
-        if cohort.last_calculation is not None:
-            staleness_hours = (timezone.now() - cohort.last_calculation).total_seconds() / 3600
-        COHORT_STALENESS_HOURS_GAUGE.set(staleness_hours)
+            staleness_hours = 0.0
+            if cohort.last_calculation is not None:
+                staleness_hours = (timezone.now() - cohort.last_calculation).total_seconds() / 3600
+            COHORT_STALENESS_HOURS_GAUGE.set(staleness_hours)
 
-        tags = QueryTags(cohort_id=cohort_id, feature=query_tagging.Feature.COHORT)
-        if initiating_user_id:
-            tags.user_id = initiating_user_id
-        if current_task and current_task.request and current_task.request.id:
-            tags.celery_task_id = current_task.request.id
-        update_tags(tags)
+            tags = QueryTags(cohort_id=cohort_id, feature=query_tagging.Feature.COHORT)
+            if initiating_user_id:
+                tags.user_id = initiating_user_id
+            if self.request.id:
+                tags.celery_task_id = self.request.id
+            update_tags(tags)
+        except Exception as err:
+            # Recalculation never started - calculate_people_ch's own bookkeeping (which handles
+            # is_calculating/errors_calculating for failures during recalculation) never ran either.
+            # When nothing will retry, clear is_calculating here rather than leaving the cohort
+            # stranded "in flight" until the hourly reset_stuck_cohorts job, which would then charge
+            # it an errors_calculating increment for a recalculation that never actually ran.
+            if _is_final_attempt(self, isinstance(err, COHORT_RECALCULATION_TRANSIENT_ERRORS)):
+                # pending_version guard extends _safe_reset_calculating_state with a null leg: never
+                # clear the flag out from under a newer calculation that superseded this one. A null
+                # pending_version means nothing newer is queued, so it clears too.
+                #
+                # errors_calculating and last_error_at are stamped alongside because they are the
+                # only brakes on re-enqueueing: last_error_at drives the exponential backoff and
+                # errors_calculating drives the MAX_ERRORS_CALCULATING cutoff. Clearing
+                # is_calculating without them would make a cohort failing here eligible again every
+                # cycle, forever. A later successful run resets both in calculate_people_ch.
+                save_recovery_bookkeeping(
+                    lambda: Cohort.objects.filter(
+                        Q(pending_version__lte=pending_version) | Q(pending_version__isnull=True),
+                        pk=cohort_id,
+                        is_calculating=True,
+                    ).update(
+                        is_calculating=False,
+                        errors_calculating=F("errors_calculating") + 1,
+                        last_error_at=timezone.now(),
+                    ),
+                    cohort_id=cohort_id,
+                )
+            raise
 
-        cohort.calculate_people_ch(pending_version, initiating_user_id=initiating_user_id)
+        cohort.calculate_people_ch(
+            pending_version,
+            initiating_user_id=initiating_user_id,
+            # calculate_people_ch charges errors_calculating in its own except block and cannot see
+            # the retry machinery above it. Without this it would charge one increment per attempt,
+            # so a single fully-failed run would push a cohort most of the way to the
+            # MAX_ERRORS_CALCULATING cutoff that permanently drops it from recalculation.
+            will_retry=lambda err: not _is_final_attempt(self, isinstance(err, COHORT_RECALCULATION_TRANSIENT_ERRORS)),
+        )
 
 
-def _is_final_attempt(task: Task, err: Exception) -> bool:
-    """Whether a failure is permanent, so the task must finalize terminal state now.
+def _is_transient_population_error(err: BaseException) -> bool:
+    # Static population runs the same ORM statements as recalculation, so it shares the Postgres
+    # legs: a pooler blip between two personhog batches must not be recorded as a permanent failure.
+    return isinstance(err, STATIC_POPULATION_TRANSIENT_ERRORS) or is_transient_rpc_error(
+        err, codes=STATIC_POPULATION_RETRYABLE_RPC_CODES
+    )
 
-    Nothing retries an error outside CH_TRANSIENT_ERRORS, a direct (synchronous) call, which has no
-    Celery retry machinery behind it, or the last autoretry attempt.
-    """
-    if not isinstance(err, CH_TRANSIENT_ERRORS):
+
+def _is_final_attempt(task: Task, retryable: bool) -> bool:
+    """Whether the caller must finalize failure state instead of leaving it for a retry."""
+    if not retryable:
         return True
     if task.request.called_directly:
         return True
     return task.max_retries is not None and (task.request.retries or 0) >= task.max_retries
 
 
+def _schedule_population_retry(
+    task: Task, cohort_id: int, err: Exception, *, team_id: int | None, kwargs: dict[str, Any] | None = None
+) -> Retry:
+    """Schedule the next attempt and return the Retry for the caller to raise.
+
+    Returns instead of raising so the caller can note that a retry is pending before it raises.
+    When the broker publish fails, Celery raises Reject from here instead of returning, and the
+    caller then finalizes the failure like any other terminal outcome. Takes the id rather than the
+    cohort because the first read of the task is itself retryable: CONN_MAX_AGE is 0, so a pooler
+    blip lands on the connection that read opens. ``kwargs`` carries progress the next attempt can
+    resume from.
+    """
+    retries = task.request.retries or 0
+    countdown = get_exponential_backoff_interval(
+        factor=STATIC_POPULATION_RETRY_BACKOFF_SECONDS,
+        retries=retries,
+        maximum=STATIC_POPULATION_RETRY_BACKOFF_MAX_SECONDS,
+        full_jitter=True,
+    )
+    # reset_stuck_cohorts treats a static cohort that errored within the hour as alive. Without the
+    # stamp it reads the backoff window as a stalled run and dispatches a duplicate population.
+    save_recovery_bookkeeping(
+        lambda: Cohort.objects.filter(pk=cohort_id).update(last_error_at=timezone.now()),
+        cohort_id=cohort_id,
+        team_id=team_id,
+    )
+    error_type = type(err).__name__
+    COHORT_STATIC_POPULATION_RETRIES_COUNTER.labels(task=task.name, error_type=error_type).inc()
+    logger.warning(
+        "static_cohort_population_retry",
+        cohort_id=cohort_id,
+        team_id=team_id,
+        task=task.name,
+        retries=retries,
+        max_retries=task.max_retries,
+        countdown=countdown,
+        error_type=error_type,
+        error=str(err),
+    )
+    # Merge, because task.retry(kwargs=...) replaces the whole set and would drop whatever the
+    # dispatch site passed by keyword.
+    retry_kwargs = {**(task.request.kwargs or {}), **kwargs} if kwargs else None
+    return task.retry(exc=err, countdown=countdown, throw=False, kwargs=retry_kwargs)
+
+
+def _tag_population_queries(task: Task, *, cohort_id: int, team_id: int) -> None:
+    tags = QueryTags(cohort_id=cohort_id, team_id=team_id)
+    if task.request.id:
+        tags.celery_task_id = task.request.id
+    update_tags(tags)
+
+
+def _static_population_obsolete(task: Task, cohort: Cohort) -> bool:
+    """Whether the cohort was deleted or flipped to dynamic while this attempt waited in a backoff.
+
+    A flip enqueues calculate_cohort_ch, which owns is_calculating and count from then on. A late
+    static attempt would clear the flag under that calculation and overwrite count with the static
+    member count, so it must not write anything, including its own final state.
+    """
+    if not cohort.deleted and cohort.is_static:
+        return False
+    logger.info(
+        "static_cohort_population_skipped",
+        cohort_id=cohort.pk,
+        team_id=cohort.team_id,
+        task=task.name,
+        deleted=cohort.deleted,
+        is_static=cohort.is_static,
+    )
+    return True
+
+
 @shared_task(
     bind=True,
     ignore_result=True,
-    # Auto-retry transient ClickHouse capacity errors with exponential backoff, matching the
-    # dynamic-cohort sibling calculate_cohort_ch. Without this, a brief capacity blip during
-    # the person_static_cohort insert leaves the static cohort permanently half-populated.
-    autoretry_for=CH_TRANSIENT_ERRORS,
-    retry_backoff=60,
-    retry_backoff_max=1800,
-    max_retries=6,
+    max_retries=STATIC_POPULATION_MAX_RETRIES,
 )
 @skip_team_scope_audit
 def calculate_cohort_from_list(
@@ -536,48 +708,187 @@ def calculate_cohort_from_list(
     All new tasks should pass team_id explicitly.
     """
     start_time = time.time()
-    cohort = Cohort.objects.get(pk=cohort_id)
-    if team_id is None:
-        team_id = cohort.team_id
-
+    import_resolution = ImportResolution()
     if id_type not in ("distinct_id", "person_id", "email"):
         raise ValueError(f"Unsupported id_type: {id_type}")
 
-    # raise_on_error surfaces a batch insert failure instead of swallowing it, so a transient
-    # capacity blip propagates and triggers the backed-off retry above. Retries are safe: the
-    # insert path dedupes members already in the cohort (ClickHouse excludes existing UUIDs, the
-    # InsertCohortMembers RPC dedupes on person id), so re-running the whole list adds no duplicates.
+    cohort: Cohort | None = None
+    processing_error: BaseException | None = None
+    retry: Retry | None = None
+    # Whole-list retries are safe because both stores ignore members already in the cohort.
+    # raise_on_error lets this task distinguish a retryable partial insert from final success.
     try:
+        cohort = Cohort.objects.get(pk=cohort_id)
+        if team_id is None:
+            team_id = cohort.team_id
+        if _static_population_obsolete(self, cohort):
+            return
+
         if id_type == "distinct_id":
-            batch_count = cohort.insert_users_by_list(items, team_id=team_id, raise_on_error=True)
+            batch_count = cohort.insert_users_by_list(
+                items, team_id=team_id, raise_on_error=True, import_resolution=import_resolution
+            )
         elif id_type == "person_id":
-            batch_count = cohort.insert_users_list_by_uuid(items, team_id=team_id, raise_on_error=True)
+            batch_count = cohort.insert_users_list_by_uuid(
+                items, team_id=team_id, raise_on_error=True, import_resolution=import_resolution
+            )
         else:
             batch_count = cohort.insert_users_by_email(
-                items, team_id=team_id, email_property_key=email_property_key, raise_on_error=True
+                items,
+                team_id=team_id,
+                email_property_key=email_property_key,
+                raise_on_error=True,
+                import_resolution=import_resolution,
+            )
+
+        cohort.last_import_total_count = import_resolution.total
+        cohort.last_import_unmatched_count = import_resolution.unmatched
+        cohort.save(update_fields=["last_import_total_count", "last_import_unmatched_count"])
+        if import_resolution.unmatched:
+            logger.warning(
+                "cohort_import_unmatched_ids",
+                cohort_id=cohort.id,
+                team_id=team_id,
+                total=import_resolution.total,
+                unmatched=import_resolution.unmatched,
             )
     except Exception as err:
-        # raise_on_error also hands terminal-state finalization to us, so record the failure, but
-        # only when nothing will retry. Recording it while attempts remain would leave a cohort
-        # that is still being retried looking errored and no longer calculating.
-        if _is_final_attempt(self, err):
-            cohort._safe_save_cohort_state(team_id=team_id, processing_error=err)
+        processing_error = err
+        if _is_final_attempt(self, _is_transient_population_error(err)):
+            raise
+        retry = _schedule_population_retry(self, cohort_id, err, team_id=team_id)
+        raise retry
+    except BaseException as err:
+        # A run the worker cut short (shutdown, revoke) failed; it must not stay in flight.
+        processing_error = err
         raise
-
+    finally:
+        # The batching helper finalizes success itself and leaves failure to this task, which has
+        # to record it on every exit but a scheduled retry. That includes a retry whose broker
+        # publish failed, where Celery raises Reject in place of Retry.
+        if cohort is not None and processing_error is not None and retry is None:
+            cohort._safe_save_cohort_state(team_id=cohort.team_id, processing_error=processing_error)
     logger.warn(
         "Cohort {}: {:,} items in {} batches from CSV completed in {:.2f}s".format(
-            cohort.pk, len(items), batch_count, (time.time() - start_time)
+            cohort_id, len(items), batch_count, (time.time() - start_time)
         )
     )
 
 
+def _populate_static_cohort(
+    task: Task,
+    *,
+    cohort_id: int,
+    team_id: Optional[int],
+    ch_insert_done: bool,
+    insert_actors_into_ch: Callable[..., None],
+    log_prefix: str,
+) -> None:
+    """Run one static population attempt: claim the cohort, fill ClickHouse, then sync Postgres.
+
+    Both population tasks delegate here, so the claim, retry and finalize protocol has one home
+    and cannot drift between them.
+    """
+    from products.cohorts.backend.models.util import insert_cohort_people_into_pg
+
+    # The cohort this attempt marked is_calculating. Only that attempt finalizes the flag, so a
+    # skipped or never-started attempt leaves whoever owns it (the API, a newer calculation) alone.
+    claimed: Cohort | None = None
+    processing_error: BaseException | None = None
+    retry: Retry | None = None
+    try:
+        if team_id is not None:
+            cohort = Cohort.objects.get(pk=cohort_id, team_id=team_id)
+        else:
+            cohort = Cohort.objects.get(pk=cohort_id)
+            team_id = cohort.team_id
+        if _static_population_obsolete(task, cohort):
+            return
+        team = Team.objects.get(pk=team_id)
+        _tag_population_queries(task, cohort_id=cohort_id, team_id=team_id)
+        logger.info(
+            f"{log_prefix}_started",
+            cohort_id=cohort_id,
+            team_id=team_id,
+            query=cohort.query,
+            filters=cohort.filters,
+        )
+
+        cohort.is_calculating = True
+        cohort.save(update_fields=["is_calculating"])
+        claimed = cohort
+        cohort.refresh_from_db()
+
+        # The CH insert is idempotent: it excludes person_ids already in the cohort.
+        # This handles both the retry-after-OOM case (no duplicates) and the
+        # add-more-people-via-query case (only new people inserted). A retry whose earlier attempt
+        # finished this phase skips it, because re-evaluating the source query costs the same hours
+        # again and inserts nothing.
+        if not ch_insert_done:
+            insert_actors_into_ch(cohort, team=team)
+            ch_insert_done = True
+            logger.info(
+                f"{log_prefix}_ch_complete",
+                cohort_id=cohort_id,
+                team_id=team_id,
+            )
+
+        # Re-running the sync is safe because InsertCohortMembers ignores existing membership.
+        insert_cohort_people_into_pg(cohort, team_id=team_id)
+        logger.info(
+            f"{log_prefix}_pg_complete",
+            cohort_id=cohort_id,
+            team_id=team_id,
+        )
+    except Exception as err:
+        processing_error = err
+        if not _is_final_attempt(task, _is_transient_population_error(err)):
+            retry = _schedule_population_retry(
+                task, cohort_id, err, team_id=team_id, kwargs={"ch_insert_done": ch_insert_done}
+            )
+            raise retry
+        logger.exception(
+            f"{log_prefix}_failed",
+            cohort_id=cohort_id,
+            team_id=team_id,
+            error=str(err),
+        )
+        # ExposedHogQLError is a user validation failure, so do not send it to error tracking.
+        if not isinstance(err, ExposedHogQLError):
+            capture_exception()
+    except BaseException as err:
+        # A run the worker cut short (shutdown, revoke) failed; it must not be saved as a success.
+        processing_error = err
+        raise
+    finally:
+        # Every exit but a scheduled retry finalizes state, so a retry whose broker publish failed
+        # (Celery raises Reject in place of Retry) records the failure instead of stranding the
+        # cohort in flight. A scheduled retry keeps is_calculating set for the next attempt.
+        if claimed is not None and retry is None:
+            claimed._safe_save_cohort_state(team_id=claimed.team_id, processing_error=processing_error)
+            claimed.refresh_from_db(fields=["is_calculating", "errors_calculating"])
+            logger.info(
+                f"{log_prefix}_finished",
+                cohort_id=cohort_id,
+                team_id=claimed.team_id,
+                is_calculating=claimed.is_calculating,
+                errors_calculating=claimed.errors_calculating,
+            )
+    if settings.DEBUG and processing_error is not None:
+        raise processing_error
+
+
 @shared_task(
+    bind=True,
     ignore_result=True,
-    max_retries=1,
+    max_retries=STATIC_POPULATION_MAX_RETRIES,
     queue=CeleryQueue.LONG_RUNNING.value,
+    soft_time_limit=STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS,
 )
 @skip_team_scope_audit
-def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> None:
+def insert_cohort_from_query(
+    self: Task, cohort_id: int, team_id: Optional[int] = None, ch_insert_done: bool = False
+) -> None:
     """
     One-time population task for static cohorts created from a HogQL query
     (e.g. duplicating a dynamic cohort as static).
@@ -585,140 +896,54 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
     Inserts actors into ClickHouse person_static_cohort, then syncs to Postgres.
 
     team_id is only optional for backwards compatibility with the old celery task signature.
-    All new tasks should pass team_id explicitly.
+    All new tasks should pass team_id explicitly. Only a retry sets ch_insert_done.
     """
-    from products.cohorts.backend.models.util import insert_cohort_people_into_pg, insert_cohort_query_actors_into_ch
+    from products.cohorts.backend.models.util import insert_cohort_query_actors_into_ch
 
-    cohort = Cohort.objects.get(pk=cohort_id)
-    if team_id is None:
-        team_id = cohort.team_id
-    team = Team.objects.get(pk=team_id)
-
-    logger.info(
-        "insert_cohort_from_query_started",
+    _populate_static_cohort(
+        self,
         cohort_id=cohort_id,
         team_id=team_id,
-        query=cohort.query,
+        ch_insert_done=ch_insert_done,
+        insert_actors_into_ch=insert_cohort_query_actors_into_ch,
+        log_prefix="insert_cohort_from_query",
     )
-
-    processing_error = None
-    try:
-        cohort.is_calculating = True
-        cohort.save(update_fields=["is_calculating"])
-        cohort.refresh_from_db()
-
-        # The CH insert is idempotent: it excludes person_ids already in the cohort.
-        # This handles both the retry-after-OOM case (no duplicates) and the
-        # add-more-people-via-query case (only new people inserted).
-        insert_cohort_query_actors_into_ch(cohort, team=team)
-        logger.info(
-            "insert_cohort_from_query_ch_complete",
-            cohort_id=cohort_id,
-            team_id=team_id,
-        )
-
-        # PG sync is already resumable: _insert_users_list_with_batching checks
-        # existing_person_ids each batch and skips people already in the cohort.
-        insert_cohort_people_into_pg(cohort, team_id=team_id)
-        logger.info(
-            "insert_cohort_from_query_pg_complete",
-            cohort_id=cohort_id,
-            team_id=team_id,
-        )
-    except Exception as err:
-        processing_error = err
-        logger.exception(
-            "insert_cohort_from_query_failed",
-            cohort_id=cohort_id,
-            team_id=team_id,
-            error=str(err),
-        )
-        capture_exception()
-        if settings.DEBUG:
-            raise
-    finally:
-        cohort._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
-        cohort.refresh_from_db(fields=["is_calculating", "errors_calculating"])
-        logger.info(
-            "insert_cohort_from_query_finished",
-            cohort_id=cohort_id,
-            team_id=team_id,
-            is_calculating=cohort.is_calculating,
-            errors_calculating=cohort.errors_calculating,
-        )
 
 
 @shared_task(
+    bind=True,
     ignore_result=True,
-    max_retries=1,
+    max_retries=STATIC_POPULATION_MAX_RETRIES,
     queue=CeleryQueue.LONG_RUNNING.value,
+    soft_time_limit=STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS,
 )
 @skip_team_scope_audit
-def insert_cohort_from_filters(cohort_id: int, team_id: Optional[int] = None) -> None:
+def insert_cohort_from_filters(
+    self: Task, cohort_id: int, team_id: Optional[int] = None, ch_insert_done: bool = False
+) -> None:
     """
     One-time population task for static cohorts created from saved cohort criteria.
+
+    Only a retry sets ch_insert_done.
     """
-    from products.cohorts.backend.models.util import insert_cohort_filter_actors_into_ch, insert_cohort_people_into_pg
+    from products.cohorts.backend.models.util import insert_cohort_filter_actors_into_ch
 
-    if team_id is not None:
-        cohort = Cohort.objects.get(pk=cohort_id, team_id=team_id)
-    else:
-        cohort = Cohort.objects.get(pk=cohort_id)
-        team_id = cohort.team_id
-    team = Team.objects.get(pk=team_id)
-
-    logger.info(
-        "insert_cohort_from_filters_started",
+    _populate_static_cohort(
+        self,
         cohort_id=cohort_id,
         team_id=team_id,
-        filters=cohort.filters,
+        ch_insert_done=ch_insert_done,
+        insert_actors_into_ch=insert_cohort_filter_actors_into_ch,
+        log_prefix="insert_cohort_from_filters",
     )
 
-    processing_error = None
-    try:
-        cohort.is_calculating = True
-        cohort.save(update_fields=["is_calculating"])
 
-        insert_cohort_filter_actors_into_ch(cohort, team=team)
-        logger.info(
-            "insert_cohort_from_filters_ch_complete",
-            cohort_id=cohort_id,
-            team_id=team_id,
-        )
-
-        insert_cohort_people_into_pg(cohort, team_id=team_id)
-        logger.info(
-            "insert_cohort_from_filters_pg_complete",
-            cohort_id=cohort_id,
-            team_id=team_id,
-        )
-    except Exception as err:
-        processing_error = err
-        logger.exception(
-            "insert_cohort_from_filters_failed",
-            cohort_id=cohort_id,
-            team_id=team_id,
-            error=str(err),
-        )
-        capture_exception()
-        if settings.DEBUG:
-            raise
-    finally:
-        cohort._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
-        cohort.refresh_from_db(fields=["is_calculating", "errors_calculating"])
-        logger.info(
-            "insert_cohort_from_filters_finished",
-            cohort_id=cohort_id,
-            team_id=team_id,
-            is_calculating=cohort.is_calculating,
-            errors_calculating=cohort.errors_calculating,
-        )
-
-
-# No task-level retry: transient failures are already retried per page with backoff
-# inside get_cohort_actors_for_feature_flag, and by the time an exception propagates
-# here the task has recorded final error state (calculation history, errors_calculating,
-# is_calculating=False) — a Celery retry after that would contradict the recorded state.
+# No task-level retry. The per-page backoff inside get_cohort_actors_for_feature_flag covers the
+# call to the flags service and nothing else, so a transient personhog or ClickHouse error from the
+# member insert is terminal here, unlike in the sibling static population tasks. By the time any
+# exception propagates to this task, get_cohort_actors_for_feature_flag has recorded final error
+# state (calculation history, errors_calculating, is_calculating=False), and a Celery retry would
+# contradict what the cohort already reports.
 # Runs on the long-running queue (like the sibling cohort tasks) so a large paging run
 # can't clog the default workers, with a generous soft limit as a backstop ceiling.
 # SoftTimeLimitExceeded subclasses Exception, so get_cohort_actors_for_feature_flag's
@@ -893,11 +1118,38 @@ COHORT_BACKFILL_TRIGGER_TASK_COUNTER = Counter(
     labelnames=["backfill_kind", "outcome"],
 )
 
+# Refusals grouped by the operator response they call for, not one label per reason: a budget
+# refusal means raise the budget or wait for in-flight runs, an occupied slot means an active run
+# already covers the cohort, and the rest are the cohort not being a candidate for this trigger.
+# Collapsing them into a single `refused`, as this used to, made the first two indistinguishable.
+# The full reason stays on the log line, so cardinality does not have to carry it.
+#
+# An occupied slot is the expected outcome of an ordinary backfill, not a wedge: a team-enablement
+# run covers every cohort on the team, and each cohort saved during one refuses this way. Read
+# `posthog_cohort_backfill_oldest_active_run_age_seconds` to tell a stuck run from normal progress.
+COHORT_BACKFILL_REFUSAL_OUTCOMES: dict[BackfillRefusalReason, str] = {
+    BackfillRefusalReason.OVER_BUDGET: "refused_over_budget",
+    BackfillRefusalReason.RUN_SLOT_OCCUPIED: "refused_slot_occupied",
+    BackfillRefusalReason.PARTICIPATION_ACTIVE: "refused_slot_occupied",
+    BackfillRefusalReason.SLOT_RACE: "refused_slot_occupied",
+    BackfillRefusalReason.TEAM_NOT_REALTIME: "refused_ineligible",
+    BackfillRefusalReason.COHORT_MISSING: "refused_ineligible",
+    BackfillRefusalReason.COHORT_INELIGIBLE: "refused_ineligible",
+    BackfillRefusalReason.INVALID_HORIZON: "refused_ineligible",
+    BackfillRefusalReason.PINNING_CAP_EXCEEDED: "refused_ineligible",
+    # Not transient: the sizing scan's read and time caps are deterministic, so a cohort that trips
+    # one trips it again on every later trigger until someone raises the limit. Nothing clears on
+    # its own.
+    BackfillRefusalReason.SIZING_SCAN_CAP_EXCEEDED: "refused_ineligible",
+    BackfillRefusalReason.DEFINITION_CHANGED: "refused_transient",
+}
+
 
 # acks_late: a countdown message acked on receipt sits in one worker's memory for the whole window
 # and dies with it, after the edit's supersession already ran. The creators refuse duplicates, so
 # the redelivery this trades into is harmless. The queue matches the module's other
-# ClickHouse-touching tasks: the person creator runs a sizing scan capped at 30 s.
+# ClickHouse-touching tasks: the person creator runs a sizing scan bounded by
+# `BEHAVIORAL_BACKFILL_PERSON_SIZING_MAX_SECONDS`.
 @shared_task(
     ignore_result=True,
     acks_late=True,
@@ -946,19 +1198,24 @@ def trigger_cohort_backfill_run_task(team_id: int, cohort_id: int, trigger_kind:
                 missing=missing,
             )
             return
-        run = (
-            create_person_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
+        attempt = (
+            attempt_person_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
             if person
-            else create_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
+            else attempt_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
         )
+        run = attempt.run
         if run is None:
-            COHORT_BACKFILL_TRIGGER_TASK_COUNTER.labels(backfill_kind=backfill_kind, outcome="refused").inc()
+            # An unmapped reason falls back to the old flat `refused` rather than vanishing, so
+            # adding an enum member can never silently drop refusals out of the metric.
+            outcome = COHORT_BACKFILL_REFUSAL_OUTCOMES.get(attempt.reason, "refused") if attempt.reason else "refused"
+            COHORT_BACKFILL_TRIGGER_TASK_COUNTER.labels(backfill_kind=backfill_kind, outcome=outcome).inc()
             logger.info(
                 "skipping_cohort_backfill_run_task",
                 cohort_id=cohort_id,
                 team_id=team_id,
                 trigger_kind=trigger_kind,
                 backfill_kind=backfill_kind,
+                refusal_reason=attempt.reason,
             )
             return
         COHORT_BACKFILL_TRIGGER_TASK_COUNTER.labels(backfill_kind=backfill_kind, outcome="created").inc()
@@ -982,6 +1239,17 @@ def trigger_cohort_backfill_run_task(team_id: int, cohort_id: int, trigger_kind:
             error=str(error),
         )
         raise
+
+
+@shared_task(ignore_result=True)
+def publish_cohort_backfill_run_gauges() -> None:
+    """Publish backfill run/chunk state for alerting.
+
+    Ungated on purpose, unlike ``finalize_cohort_backfill_runs``: a stalled run has to be alertable
+    while the finalizer is still dark, and the seeder's own metrics cannot see the transitions
+    Django owns.
+    """
+    publish_backfill_run_gauges()
 
 
 @shared_task(ignore_result=True)

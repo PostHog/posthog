@@ -3,16 +3,19 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
+import { exactMatchOperatorFor } from 'scenes/web-analytics/common'
 
 import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import { FilterLogicalOperator, PropertyFilterType } from '~/types'
 
 interface ErrorTrackingButtonProps {
     breakdownBy: WebStatsBreakdown
     value: string
+    /** Web analytics can clean paths; error tracking can't, so the operator has to clean both sides. */
+    doPathCleaning?: boolean
 }
 
-export const ErrorTrackingButton = ({ breakdownBy, value }: ErrorTrackingButtonProps): JSX.Element => {
+export const ErrorTrackingButton = ({ breakdownBy, value, doPathCleaning }: ErrorTrackingButtonProps): JSX.Element => {
     // Only show for FrustrationMetrics or Page breakdowns
     if (breakdownBy !== WebStatsBreakdown.FrustrationMetrics && breakdownBy !== WebStatsBreakdown.Page) {
         return <></>
@@ -24,6 +27,8 @@ export const ErrorTrackingButton = ({ breakdownBy, value }: ErrorTrackingButtonP
 
     return (
         <LemonButton
+            // Both supported breakdowns are built on `$pathname`, so `value` is a bare path such as
+            // `/pricing`. Matching it against `$current_url` never hits, as that holds the absolute URL.
             to={urls.errorTracking({
                 filterGroup: {
                     type: FilterLogicalOperator.And,
@@ -32,9 +37,13 @@ export const ErrorTrackingButton = ({ breakdownBy, value }: ErrorTrackingButtonP
                             type: FilterLogicalOperator.And,
                             values: [
                                 {
-                                    key: '$current_url',
+                                    key: '$pathname',
                                     value: [value],
-                                    operator: PropertyOperator.Exact,
+                                    operator: exactMatchOperatorFor(
+                                        '$pathname',
+                                        PropertyFilterType.Event,
+                                        doPathCleaning
+                                    ),
                                     type: PropertyFilterType.Event,
                                 },
                             ],

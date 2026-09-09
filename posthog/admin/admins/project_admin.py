@@ -62,6 +62,7 @@ class ProjectAdmin(admin.ModelAdmin):
     def trigger_deletion_display(self, project: Project):
         if not project.pk:
             return "-"
+        request = getattr(self, "_current_request", None)
         # No csrf_token needed in the partial: the button posts the surrounding admin change
         # form (which carries the token) to the action URL via formaction.
         # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
@@ -82,8 +83,14 @@ class ProjectAdmin(admin.ModelAdmin):
                         "is safe: PostHog won't start a duplicate workflow if one is still running."
                     ),
                 },
+                request=request,
             )
         )
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        # Store request for access in display methods (needed for the CSP nonce in templates).
+        self._current_request = request
+        return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
     def get_urls(self):
         urls = super().get_urls()

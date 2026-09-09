@@ -193,16 +193,16 @@ def reconcile_clickhouse_schemas(
         update_fields = ["sync_type_config", "updated_at"]
 
         available_names = extract_available_column_names(schema_metadata)
-        pruned_enabled_columns, removed_columns = prune_enabled_columns(matched.enabled_columns, available_names)
-        if removed_columns:
+        pruned = prune_enabled_columns(matched.enabled_columns, available_names)
+        if pruned.removed:
             log.info(
                 "clickhouse.reconcile_schemas.pruned_enabled_columns",
                 source_id=str(source.id),
                 schema_id=str(matched.id),
                 schema_name=matched.name,
-                removed_columns=removed_columns,
+                removed_columns=pruned.removed,
             )
-            matched.enabled_columns = pruned_enabled_columns
+            matched.enabled_columns = pruned.kept
             update_fields.append("enabled_columns")
         matched.save(update_fields=update_fields)
 

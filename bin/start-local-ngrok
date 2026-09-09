@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+check_only=false
+if [[ "${1:-}" == "--check" ]]; then
+    check_only=true
+elif [[ $# -gt 0 ]]; then
+    echo "Usage: $0 [--check]" >&2
+    exit 1
+fi
+
+site_url="${SITE_URL:-}"
+# ngrok issues .ngrok.app domains by default now, and .ngrok.dev to older accounts.
+# Accept both: a domain this pattern misses disables the tunnel with an exit 0, so the
+# only symptom is Slack webhooks that never arrive.
+if [[ ! "$site_url" =~ ^https://[A-Za-z0-9-]+\.ngrok(-free)?\.(app|dev)/?$ ]]; then
+    echo "ngrok tunnel disabled: SITE_URL is not an ngrok URL (expected https://<domain>.ngrok.app or .ngrok.dev)"
+    exit 0
+fi
+
+ngrok_config="$(ngrok config check --log=stdout 2>&1 | sed -n 's/.*Valid configuration file at //p' | tail -n 1)"
+if [[ -z "$ngrok_config" ]]; then
+    echo "Configure ngrok first with: ngrok config add-authtoken <token>" >&2
+    exit 1
+fi
+
+domain="${site_url#https://}"
+domain="${domain%/}"
+tunnel_config="$(mktemp "${TMPDIR:-/tmp}/posthog-ngrok.XXXXXX")"
+trap 'rm -f "$tunnel_config"' EXIT
+
+cat >"$tunnel_config" <<EOF
+version: '3'
+tunnels:
+  posthog:
+    proto: http
+    addr: 8010
+    domain: $domain
+    host_header: localhost
+EOF
+
+if [[ "$check_only" == true ]]; then
+    ngrok config check --config "$ngrok_config" --config "$tunnel_config"
+    exit 0
+fi
+
+ngrok start posthog --config "$ngrok_config" --config "$tunnel_config"

@@ -3,15 +3,21 @@ from unittest import mock
 
 from django.apps import apps
 
+from parameterized import parameterized
 from psycopg import sql as psql
 
 from posthog.schema import HogQLQuery, HogQLVariable
 
 from products.managed_warehouse.backend.client import (
     _SEARCH_PATH_SCHEMAS,
+    _configure_s3_secrets,
+    _s3_secrets_for_database,
     compile_hogql_to_ducklake_sql,
+    execute_ducklake_create_table,
     execute_ducklake_query,
+    make_duckgres_conninfo,
 )
+from products.managed_warehouse.backend.facade.contracts import DuckLakeCompiledQuery
 
 
 @pytest.fixture(autouse=True)
@@ -53,10 +59,10 @@ class TestCompileHogQLToDuckLakeSQL:
             },
         )
 
-        postgres_sql, values, _hogql_pretty = compile_hogql_to_ducklake_sql(team.pk, query)
+        compiled = compile_hogql_to_ducklake_sql(team.pk, query)
 
-        assert "purchase" in values.values()
-        assert "variables" not in postgres_sql
+        assert "purchase" in compiled.values.values()
+        assert "variables" not in compiled.sql
 
 
 class TestDuckLakeModelRedirect:
@@ -88,12 +94,12 @@ class TestDuckLakeModelRedirect:
         )
 
         query = HogQLQuery(query="SELECT org_id FROM vitally_org")
-        postgres_sql, _values, _hogql = compile_hogql_to_ducklake_sql(team.pk, query)
+        compiled = compile_hogql_to_ducklake_sql(team.pk, query)
 
         # The duckgres path must read the DuckLake-materialized model, not the
         # ClickHouse s3() table function, which DuckDB cannot execute.
-        assert "s3(" not in postgres_sql.lower()
-        assert f"shadow_{team.pk}_models" in postgres_sql
+        assert "s3(" not in compiled.sql.lower()
+        assert f"shadow_{team.pk}_models" in compiled.sql
 
     def test_source_table_resolves_to_ducklake_table_not_s3(self):
         from posthog.models import Organization, Team
@@ -140,23 +146,155 @@ class TestDuckLakeModelRedirect:
         )
 
         query = HogQLQuery(query="SELECT id FROM myprefix_stripe_customers")
-        postgres_sql, _values, _hogql = compile_hogql_to_ducklake_sql(team.pk, query)
+        compiled = compile_hogql_to_ducklake_sql(team.pk, query)
 
         # The duckgres path must read the DuckLake-copied source table, not the
         # ClickHouse s3() table function, which DuckDB cannot execute.
-        assert "s3(" not in postgres_sql.lower()
-        assert duckgres_data_imports_schema(team.pk) in postgres_sql
-        assert duckgres_data_imports_table_name(schema) in postgres_sql
+        assert "s3(" not in compiled.sql.lower()
+        assert duckgres_data_imports_schema(team.pk) in compiled.sql
+        assert duckgres_data_imports_table_name(schema) in compiled.sql
+
+    def test_self_managed_parquet_resolves_to_native_reader(self) -> None:
+        from posthog.models import Organization, Team
+
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+        org = Organization.objects.create(name="ducklake-self-managed")
+        team = Team.objects.create(organization=org)
+        credential = DataWarehouseCredential.objects.create(
+            team=team,
+            access_key="access-key",
+            access_secret="access-secret",
+        )
+        DataWarehouseTable.objects.create(
+            name="self_managed_orders",
+            format="Parquet",
+            team=team,
+            credential=credential,
+            url_pattern="https://my-bucket.s3.amazonaws.com/data/*.parquet",
+            columns={
+                "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+            },
+        )
+
+        compiled = compile_hogql_to_ducklake_sql(
+            team.pk,
+            HogQLQuery(query="SELECT id FROM self_managed_orders"),
+        )
+
+        assert "s3(" not in compiled.sql.lower()
+        assert "read_parquet(" in compiled.sql.lower()
+        assert "s3://my-bucket/data/*.parquet" in compiled.values.values()
+        assert "access-key" not in compiled.sql
+        assert "access-secret" not in compiled.sql
+        assert "access-key" not in compiled.values.values()
+        assert "access-secret" not in compiled.values.values()
+
+
+class TestSelfManagedS3Secrets:
+    def test_credentials_are_bound_to_a_path_scoped_secret(self) -> None:
+        from posthog.models import Organization, Team
+
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+        org = Organization.objects.create(name="ducklake-self-managed-secret")
+        team = Team.objects.create(organization=org)
+        credential = DataWarehouseCredential.objects.create(
+            team=team,
+            access_key="access-key",
+            access_secret="access-secret",
+        )
+        table = DataWarehouseTable.objects.create(
+            name="self_managed_orders",
+            format="Parquet",
+            team=team,
+            credential=credential,
+            url_pattern="http://objectstorage:19000/my-bucket/data/*.parquet",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True}},
+        )
+        cursor = mock.MagicMock()
+        connection = mock.MagicMock()
+        connection.cursor.return_value.__enter__ = mock.Mock(return_value=cursor)
+        connection.cursor.return_value.__exit__ = mock.Mock(return_value=False)
+
+        compiled = compile_hogql_to_ducklake_sql(team.pk, HogQLQuery(query="SELECT id FROM self_managed_orders"))
+        _configure_s3_secrets(connection, compiled.s3_secrets)
+
+        statement, values = cursor.execute.call_args.args
+        rendered_statement = statement.as_string()
+        assert rendered_statement.startswith(f'CREATE OR REPLACE TEMPORARY SECRET "self_managed_{table.id.hex}"')
+        assert "KEY_ID %s" in rendered_statement
+        assert "SECRET %s" in rendered_statement
+        assert "SCOPE %s" in rendered_statement
+        assert "access-key" not in rendered_statement
+        assert "access-secret" not in rendered_statement
+        assert values == [
+            "access-key",
+            "access-secret",
+            "us-east-1",
+            "objectstorage:19000",
+            False,
+            "path",
+            "s3://my-bucket/data/",
+        ]
+
+    def test_a_table_access_control_removed_gets_no_secret(self) -> None:
+        from posthog.hogql.database.database import Database
+
+        from posthog.models import Organization, Team
+
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+        org = Organization.objects.create(name="ducklake-self-managed-restricted")
+        team = Team.objects.create(organization=org)
+        columns = {"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True}}
+        allowed_credential = DataWarehouseCredential.objects.create(
+            team=team,
+            access_key="allowed-key",
+            access_secret="allowed-secret",
+        )
+        restricted_credential = DataWarehouseCredential.objects.create(
+            team=team,
+            access_key="restricted-key",
+            access_secret="restricted-secret",
+        )
+        allowed = DataWarehouseTable.objects.create(
+            name="allowed_orders",
+            format="Parquet",
+            team=team,
+            credential=allowed_credential,
+            url_pattern="https://my-bucket.s3.amazonaws.com/data/*.parquet",
+            columns=columns,
+        )
+        DataWarehouseTable.objects.create(
+            name="restricted_orders",
+            format="Parquet",
+            team=team,
+            credential=restricted_credential,
+            url_pattern="https://my-bucket.s3.amazonaws.com/data/*.parquet",
+            columns=columns,
+        )
+
+        database = Database.create_for(team.pk)
+        # Access control prunes the schema through this same entry point.
+        database.prune_to_table_names({"allowed_orders"})
+
+        secrets = _s3_secrets_for_database(database)
+
+        assert [secret.name for secret in secrets] == [f"self_managed_{allowed.id.hex}"]
+        assert [secret.key_id for secret in secrets] == ["allowed-key"]
 
 
 class TestDuckgresShadowCompilation:
     @mock.patch("products.managed_warehouse.backend.client.compile_hogql_to_ducklake_sql")
     def test_materialization_compile_bypasses_warehouse_access_control(self, mock_compile):
-        from posthog.temporal.data_modeling.activities.materialize_view_duckgres import _compile_hogql_to_postgres_sql
+        from posthog.temporal.data_modeling.activities.materialize_view_duckgres import _compile_hogql_for_ducklake
 
-        mock_compile.return_value = ("SELECT * FROM source", {}, "SELECT * FROM source")
+        mock_compile.return_value = DuckLakeCompiledQuery(
+            sql="SELECT * FROM source", values={}, hogql="SELECT * FROM source"
+        )
 
-        _compile_hogql_to_postgres_sql("SELECT * FROM source", 1)
+        _compile_hogql_for_ducklake("SELECT * FROM source", 1)
 
         query = mock_compile.call_args.args[1]
         assert query.query == "SELECT * FROM source"
@@ -165,6 +303,20 @@ class TestDuckgresShadowCompilation:
         # Userless shadow materialization: no actor is threaded through.
         assert kwargs.get("team") is None
         assert kwargs.get("user") is None
+
+
+class TestMakeDuckgresConninfoApplicationName:
+    @parameterized.expand(
+        [
+            ("default", {}, "posthog"),
+            ("explicit_override", {"application_name": "ducklake-register"}, "ducklake-register"),
+        ]
+    )
+    def test_application_name_on_org_root_path(self, _name, kwargs, expected):
+        with mock.patch("products.managed_warehouse.backend.client.is_dev_mode", return_value=True):
+            conninfo = make_duckgres_conninfo(1, **kwargs)
+
+        assert f"application_name={expected}" in conninfo
 
 
 class TestExecuteDuckLakeQuery:
@@ -204,7 +356,9 @@ class TestExecuteDuckLakeQuery:
     @mock.patch("products.managed_warehouse.backend.client.is_dev_mode", return_value=True)
     @mock.patch("products.managed_warehouse.backend.client.compile_hogql_to_ducklake_sql")
     def test_query_path_compiles_and_executes(self, mock_compile, _mock_dev_mode, mock_psycopg):
-        mock_compile.return_value = ("SELECT count(*) FROM events", {}, "SELECT count() FROM events")
+        mock_compile.return_value = DuckLakeCompiledQuery(
+            sql="SELECT count(*) FROM events", values={}, hogql="SELECT count() FROM events"
+        )
         mock_cursor = mock.MagicMock()
         mock_cursor.description = [mock.MagicMock(name="cnt", type_code=20)]
         mock_cursor.description[0].name = "cnt"
@@ -266,3 +420,25 @@ class TestExecuteDuckLakeQuery:
 
         mock_config_for_org.assert_called_once_with("org-456")
         assert result.results == [[1]]
+        # Lets duckgres analytics tell this shadow-query caller apart from the
+        # materialization path and from customer connections.
+        conninfo = mock_psycopg.connect.call_args.args[0]
+        assert "application_name=endpoints-shadow" in conninfo
+
+
+class TestExecuteDuckLakeCreateTable:
+    @mock.patch("products.managed_warehouse.backend.client.psycopg")
+    @mock.patch("products.managed_warehouse.backend.client.is_dev_mode", return_value=True)
+    def test_uses_materialization_application_name(self, _mock_dev_mode, mock_psycopg):
+        mock_cursor = mock.MagicMock()
+        mock_cursor.fetchone.return_value = (0,)
+        mock_conn = mock.MagicMock()
+        mock_conn.cursor.return_value.__enter__ = mock.Mock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = mock.Mock(return_value=False)
+        mock_psycopg.connect.return_value.__enter__ = mock.Mock(return_value=mock_conn)
+        mock_psycopg.connect.return_value.__exit__ = mock.Mock(return_value=False)
+
+        execute_ducklake_create_table(1, "SELECT 1", "shadow", "model")
+
+        conninfo = mock_psycopg.connect.call_args_list[0].args[0]
+        assert "application_name=materialization" in conninfo

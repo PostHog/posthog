@@ -69,9 +69,7 @@ export function daysOfWeekLabel(days: IsoDayOfWeek[]): string {
     return days.map((day) => DAY_LABELS[day]).join(', ')
 }
 
-/** 0 or 7 excluded days normalise to daysOfWeek: null ("all days included"). Deliberately does
- *  not touch the legacy display-only trendsFilter.hideWeekends — its semantics differ (buckets
- *  hidden from the response, events kept in windowed aggregations), so it stays independent. */
+/** 0 or 7 excluded days normalise to daysOfWeek: null ("all days included"). */
 export function computeDaysOfWeekUpdate(
     excludedDays: IsoDayOfWeek[],
     dateRange: DateRange | null | undefined

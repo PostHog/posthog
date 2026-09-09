@@ -1,6 +1,6 @@
 import type { UsageBucket, UsageOutput } from "../usage/schemas";
 
-export const CODE_INCLUDED_USAGE_USD = 20;
+const CODE_INCLUDED_USAGE_USD = 20;
 
 /** Confirmed free tier only — an absent `code_usage_subscribed` is unknown, never free. */
 export function isCodeUsageFreeTier(
@@ -78,6 +78,41 @@ export function formatUsdAmount(amount: number): string {
 
 export function formatUsageBreakdown(breakdown: CodeUsageBreakdown): string {
   return `${formatUsdAmount(breakdown.includedUsd)} included + ${formatUsdAmount(breakdown.spendLimitUsd)} org spend limit`;
+}
+
+export interface DesktopUsageComponents {
+  tokenUsd: number | null;
+  computeUsd: number | null;
+  cpuCoreSeconds: number | null;
+  memoryGibSeconds: number | null;
+}
+
+export function desktopUsageComponents(
+  usage: UsageOutput | null | undefined,
+): DesktopUsageComponents | null {
+  const breakdown = usage?.ai_credits?.breakdown;
+  if (breakdown == null) return null;
+
+  return {
+    tokenUsd:
+      breakdown.token_credits == null ? null : breakdown.token_credits / 100,
+    computeUsd:
+      breakdown.compute_credits == null
+        ? null
+        : breakdown.compute_credits / 100,
+    cpuCoreSeconds:
+      breakdown.cpu_millicore_seconds == null
+        ? null
+        : breakdown.cpu_millicore_seconds / 1_000,
+    memoryGibSeconds:
+      breakdown.memory_mib_seconds == null
+        ? null
+        : breakdown.memory_mib_seconds / 1_024,
+  };
+}
+
+export function formatUsageQuantity(value: number, unit: string): string {
+  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 }).format(value)} ${unit}`;
 }
 
 export function isUsageExceeded(usage: UsageOutput): boolean {

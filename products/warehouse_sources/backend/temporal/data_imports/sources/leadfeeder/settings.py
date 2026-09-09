@@ -3,12 +3,28 @@ from typing import Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
-# All Leadfeeder (Dealfront) endpoints implemented here target the legacy Leadfeeder API
-# (https://api.leadfeeder.com), authenticated with `Authorization: Token token=<token>`. This is the
-# generation Airbyte's connector targets and the one with a documented, stable JSON:API shape
-# (accounts / leads / visits, page-number pagination, start_date/end_date filtering). A newer
-# API-first generation (X-Api-Key on /v1/*) also exists but its stream shapes could not be verified
-# against the live API here — see the module docstring in leadfeeder.py.
+# Leadfeeder (Dealfront) exposes two vendor API generations, both served from
+# https://api.leadfeeder.com. The source dispatches between them on the resolved API-version pin
+# (see leadfeeder.py for the request layer):
+#
+#   LEADFEEDER_API_LEGACY ("v1") — the legacy API, `Authorization: Token token=<token>`, JSON:API
+#     page-number pagination (`page[number]`), account-scoped `/accounts/{id}/leads|visits` paths.
+#     The generation Airbyte targets and the label existing source rows are pinned to. Deprecated by
+#     the vendor (maintenance-only, no new tokens issued) but still served, with no announced sunset.
+#
+#   LEADFEEDER_API_2026_08_07 — the unified Dealfront API, `X-Api-Key` on `/v1/*`, page-number
+#     pagination via `page[num]` with a `meta.page_count` stop. This is the only generation new
+#     customers can obtain credentials for, so it is the default for newly created sources. Its
+#     stream shapes are implemented from the public OpenAPI spec (info.version 2026-08-07, marked
+#     "work in progress") and warrant live verification before the source leaves alpha.
+
+# Opaque vendor labels — never parsed or ordered. LEADFEEDER_API_LEGACY equals the framework's
+# UNVERSIONED_API_VERSION ("v1"), which is the value migration 0075 backfilled onto existing rows.
+LEADFEEDER_API_LEGACY = "v1"
+LEADFEEDER_API_2026_08_07 = "2026-08-07"
+# Declare oldest -> newest; the default is always the last entry (enforced by test_source_versions).
+LEADFEEDER_SUPPORTED_VERSIONS = (LEADFEEDER_API_LEGACY, LEADFEEDER_API_2026_08_07)
+LEADFEEDER_DEFAULT_VERSION = LEADFEEDER_API_2026_08_07
 
 
 def _date_field(name: str) -> IncrementalField:
@@ -32,9 +48,14 @@ def _datetime_field(name: str) -> IncrementalField:
 @dataclass
 class LeadfeederEndpointConfig:
     name: str
-    # Path relative to the API base. Fan-out endpoints carry an `{account_id}` placeholder resolved
-    # per account at request time.
+    # Legacy-API path relative to the base. Fan-out endpoints carry an `{account_id}` placeholder
+    # resolved per account at request time.
     path: str
+    # Unified-API path for the same table. The table-name set is identical across versions (only the
+    # request path/shape differs) so discovery never orphans a table when a source is repinned.
+    unified_path: str
+    # Unified-API HTTP method. Web visits are a POST search on the unified API; everything else is GET.
+    unified_method: str = "GET"
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Stable datetime/date field rows are partitioned by. Never an updated_at / last_seen style field
@@ -57,15 +78,17 @@ LEADFEEDER_ENDPOINTS: dict[str, LeadfeederEndpointConfig] = {
     "accounts": LeadfeederEndpointConfig(
         name="accounts",
         path="/accounts",
+        unified_path="/v1/accounts",
         primary_keys=["id"],
     ),
-    # Identified companies that visited the tracked site, one row per (account, company). The
-    # `/accounts/{account_id}/leads` endpoint requires a start_date/end_date range and filters on it
-    # server-side, so it's incremental. Partition by `first_visit_date` (stable) and track the
-    # advancing `last_visit_date` as the incremental cursor.
+    # Identified companies that visited the tracked site, one row per (account, company). The legacy
+    # `/accounts/{account_id}/leads` endpoint and the unified `/v1/web-visits/companies` endpoint both
+    # require a start_date/end_date range and filter on it server-side, so it's incremental. Partition
+    # by `first_visit_date` (stable) and track the advancing `last_visit_date` as the incremental cursor.
     "leads": LeadfeederEndpointConfig(
         name="leads",
         path="/accounts/{account_id}/leads",
+        unified_path="/v1/web-visits/companies",
         primary_keys=["account_id", "id"],
         partition_key="first_visit_date",
         fan_out_over_accounts=True,
@@ -75,12 +98,14 @@ LEADFEEDER_ENDPOINTS: dict[str, LeadfeederEndpointConfig] = {
             _date_field("first_visit_date"),
         ],
     ),
-    # Individual website visits across the account. `/accounts/{account_id}/visits` also takes a
-    # required start_date/end_date range filtered server-side. Visits are immutable events, so
-    # partition by and track `started_at`.
+    # Individual website visits across the account. The legacy `/accounts/{account_id}/visits` GET and
+    # the unified `POST /v1/web-visits` search both take a required start_date/end_date range filtered
+    # server-side. Visits are immutable events, so partition by and track `started_at`.
     "visits": LeadfeederEndpointConfig(
         name="visits",
         path="/accounts/{account_id}/visits",
+        unified_path="/v1/web-visits",
+        unified_method="POST",
         primary_keys=["account_id", "id"],
         partition_key="started_at",
         fan_out_over_accounts=True,

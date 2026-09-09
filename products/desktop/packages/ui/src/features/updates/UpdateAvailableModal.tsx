@@ -1,5 +1,6 @@
 import { X } from "@phosphor-icons/react";
 import { useHostTRPC } from "@posthog/host-router/react";
+import { useBlockingAnnouncementVisible } from "@posthog/ui/features/announcements/useAnnouncementVisible";
 import { ReleaseNotesSections } from "@posthog/ui/features/updates/ReleaseNotesSections";
 import { parseReleaseNotes } from "@posthog/ui/features/updates/releaseNotes";
 import { useUpdateModalStore } from "@posthog/ui/features/updates/updateModalStore";
@@ -19,6 +20,7 @@ import {
   Text,
 } from "@radix-ui/themes";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
 
 function formatSpeed(bytesPerSecond: number | null): string {
   if (!bytesPerSecond || bytesPerSecond <= 0) return "";
@@ -49,6 +51,11 @@ function ReleaseNotesSkeleton() {
 export function UpdateAvailableModal() {
   const isOpen = useUpdateModalStore((state) => state.isOpen);
   const close = useUpdateModalStore((state) => state.close);
+  const blockingAnnouncementVisible = useBlockingAnnouncementVisible();
+
+  useEffect(() => {
+    if (isOpen && blockingAnnouncementVisible) close();
+  }, [isOpen, blockingAnnouncementVisible, close]);
   const {
     status,
     version,

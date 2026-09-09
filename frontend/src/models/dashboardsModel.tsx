@@ -14,11 +14,17 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { parentPath, reparentPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { tagsModel } from '~/models/tagsModel'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardBasicType, DashboardTile, DashboardType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import type { Node } from '../queries/schema/schema-general'
+
+/** A dashboard's folder is its file system path without the dashboard's own name, so the two move together. */
+function filedAt<T extends DashboardBasicType | DashboardType<QueryBasedInsightModel>>(dashboard: T, path: string): T {
+    return { ...dashboard, file_system_path: path, folder: parentPath(path) }
+}
 
 export function mergeTileTextUpdatesIntoDashboard(
     dashboard: DashboardType<QueryBasedInsightModel>,
@@ -185,6 +191,9 @@ export interface dashboardsModelActions {
               }
         payload?: string
     }
+    patchDashboardFolders: (paths: Record<string, string>) => {
+        paths: Record<string, string>
+    }
     pinDashboard: (
         id: number,
         source: DashboardEventSource
@@ -211,6 +220,13 @@ export interface dashboardsModelActions {
             id: number
             source: DashboardEventSource
         }
+    }
+    reparentDashboardFolders: (
+        oldPath: string,
+        newPath: string
+    ) => {
+        newPath: string
+        oldPath: string
     }
     restoreDashboard: ({ id }: any) => any
     restoreDashboardFailure: (
@@ -344,6 +360,8 @@ export const dashboardsModel = kea<dashboardsModelType>([
         // we page through the dashboards and need to manually track when that is finished
         dashboardsFullyLoaded: true,
         delayedDeleteDashboard: (id: number) => ({ id }),
+        patchDashboardFolders: (paths: Record<string, string>) => ({ paths }),
+        reparentDashboardFolders: (oldPath: string, newPath: string) => ({ oldPath, newPath }),
         setDiveSourceId: (id: InsightShortId | null) => ({ id }),
         addDashboardSuccess: (dashboard: DashboardType<QueryBasedInsightModel>) => ({ dashboard }),
         /**
@@ -412,7 +430,9 @@ export const dashboardsModel = kea<dashboardsModelType>([
                             count: 1,
                             next: null,
                             previous: null,
-                            results: [getQueryBasedDashboard(exportedDashboard) as DashboardBasicType],
+                            results: [
+                                getQueryBasedDashboard(exportedDashboard, 'dashboards_model') as DashboardBasicType,
+                            ],
                         }
                     }
 
@@ -433,7 +453,9 @@ export const dashboardsModel = kea<dashboardsModelType>([
 
                     return {
                         ...dashboards,
-                        results: dashboards.results?.map((dashboard) => getQueryBasedDashboard(dashboard)!),
+                        results: dashboards.results?.map(
+                            (dashboard) => getQueryBasedDashboard(dashboard, 'dashboards_model')!
+                        ),
                     }
                 },
             },
@@ -476,7 +498,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                                     beforeChange
                                 )
-                                actions.updateDashboardSuccess(getQueryBasedDashboard(reverted))
+                                actions.updateDashboardSuccess(getQueryBasedDashboard(reverted, 'dashboards_model'))
                                 lemonToast.success('Dashboard change reverted')
                             },
                         },
@@ -487,7 +509,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                     return null
                 }
 
-                const mappedDashboard = getQueryBasedDashboard(response)
+                const mappedDashboard = getQueryBasedDashboard(response, 'dashboards_model')
                 if (!mappedDashboard) {
                     return mappedDashboard
                 }
@@ -499,7 +521,8 @@ export const dashboardsModel = kea<dashboardsModelType>([
                     await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                         deleted: true,
                         delete_insights: deleteInsights,
-                    })
+                    }),
+                    'dashboards_model'
                 ) as DashboardType<QueryBasedInsightModel>
                 deleteFromTree('dashboard', String(id))
                 return deleted
@@ -508,7 +531,8 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 const restored = getQueryBasedDashboard(
                     await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                         deleted: false,
-                    })
+                    }),
+                    'dashboards_model'
                 ) as DashboardType<QueryBasedInsightModel>
                 refreshTreeItem('dashboard', String(id))
                 return restored
@@ -521,7 +545,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                     }
                 )
                 eventUsageLogic.actions.reportDashboardPinToggled(id, true, source)
-                return getQueryBasedDashboard(response)!
+                return getQueryBasedDashboard(response, 'dashboards_model')!
             },
             unpinDashboard: async ({ id, source }) => {
                 const response = await api.update<DashboardType>(
@@ -531,7 +555,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                     }
                 )
                 eventUsageLogic.actions.reportDashboardPinToggled(id, false, source)
-                return getQueryBasedDashboard(response)!
+                return getQueryBasedDashboard(response, 'dashboards_model')!
             },
             duplicateDashboard: async ({ id, name, show, duplicateTiles }) => {
                 const result = await api.create<DashboardType>(
@@ -545,7 +569,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 if (show) {
                     router.actions.push(urls.dashboard(result.id))
                 }
-                return getQueryBasedDashboard(result)!
+                return getQueryBasedDashboard(result, 'dashboards_model')!
             },
         },
     })),
@@ -594,6 +618,26 @@ export const dashboardsModel = kea<dashboardsModelType>([
                     ...state,
                     [dashboard.id]: { ...dashboard, _highlight: true },
                 }),
+                patchDashboardFolders: (state, { paths }) => {
+                    const patched = Object.entries(paths).filter(([id]) => state[id])
+                    if (patched.length === 0) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        ...Object.fromEntries(patched.map(([id, path]) => [id, filedAt(state[id], path)])),
+                    }
+                },
+                reparentDashboardFolders: (state, { oldPath, newPath }) => {
+                    const moved: typeof state = {}
+                    for (const dashboard of Object.values(state)) {
+                        const path = reparentPath(dashboard.file_system_path, oldPath, newPath)
+                        if (path !== null) {
+                            moved[dashboard.id] = filedAt(dashboard, path)
+                        }
+                    }
+                    return Object.keys(moved).length === 0 ? state : { ...state, ...moved }
+                },
             },
         ],
     }),

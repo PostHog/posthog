@@ -1,8 +1,32 @@
 import os
+import time
 
 import pytest
 
-from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import (
+    Sandbox,
+    SandboxBase,
+    SandboxConfig,
+    SandboxStatus,
+    SandboxTemplate,
+)
+
+
+def _wait_for_status(
+    sandbox: SandboxBase,
+    expected: SandboxStatus,
+    timeout: float = 30.0,
+    interval: float = 0.5,
+) -> None:
+    # Modal's create/terminate drive the status transition asynchronously, so poll until
+    # the sandbox actually reaches the expected state instead of reading it instantly.
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if sandbox.get_status() == expected:
+            return
+        time.sleep(interval)
+    # A genuinely stuck sandbox still fails here with a clear assertion.
+    assert sandbox.get_status() == expected
 
 
 class TestSandboxIntegration:
@@ -20,7 +44,7 @@ class TestSandboxIntegration:
         sandbox = Sandbox.create(config)
 
         assert sandbox.id is not None
-        assert sandbox.get_status() == SandboxStatus.RUNNING
+        _wait_for_status(sandbox, SandboxStatus.RUNNING)
         assert sandbox.is_running()
 
         result = sandbox.execute("echo 'Hello World'")
@@ -29,7 +53,7 @@ class TestSandboxIntegration:
         assert result.stderr == ""
 
         sandbox.destroy()
-        assert sandbox.get_status() == SandboxStatus.SHUTDOWN
+        _wait_for_status(sandbox, SandboxStatus.SHUTDOWN)
 
     @pytest.mark.parametrize(
         "command,expected_exit_code,expected_in_stdout",
@@ -91,10 +115,11 @@ class TestSandboxIntegration:
         config = SandboxConfig(name="posthog-test-context")
 
         with Sandbox.create(config) as sandbox:
+            _wait_for_status(sandbox, SandboxStatus.RUNNING)
             assert sandbox.is_running()
 
             result = sandbox.execute("echo 'context test'")
             assert result.exit_code == 0
             assert "context test" in result.stdout
 
-        assert sandbox.get_status() == SandboxStatus.SHUTDOWN
+        _wait_for_status(sandbox, SandboxStatus.SHUTDOWN)

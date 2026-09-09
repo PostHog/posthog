@@ -4,6 +4,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use chrono::Utc;
 
 use common_types::error_tracking::RawFrameId;
 use moka::{
@@ -15,25 +16,30 @@ use sqlx::PgPool;
 
 use crate::{
     core::config::ResolverConfig,
+    core::write_attribution::{record_frame_write, FrameWriteOutcome},
     error::{JsResolveErr, ProguardError, ResolveError, UnhandledError},
-    frames::{Frame, RawFrame},
+    frames::{releases::ReleaseRecord, Frame, RawFrame},
     langs::native::DebugImage,
     metric_consts::{
         FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES,
-        SUSPICIOUS_FRAMES_DETECTED,
+        RELEASE_ID_CACHE_HITS, RELEASE_ID_CACHE_MISSES, SUSPICIOUS_FRAMES_DETECTED,
     },
     symbolication::resolve::Resolve,
-    symbolication::symbol::records::{ErrorTrackingStackFrame, FrameResultTtlPolicy},
+    symbolication::symbol::records::{
+        classify_frame_snapshot, unchanged_snapshot_needs_refresh, ErrorTrackingStackFrame,
+        FrameResultTtlPolicy,
+    },
     symbolication::symbol::SymbolResolver,
     symbolication::symbol_store::{
         chunk_id::OrChunkId,
         dart_minified_names::lookup_minified_type,
         proguard::{FetchedMapping, ProguardRef},
-        saving::SymbolSetRecord,
+        saving::{truncate_ref, SymbolSetRecord},
         Catalog,
     },
     types::operator::TeamId,
 };
+use uuid::Uuid;
 
 const FRAME_EXPIRY_FALLBACK_SECONDS: u64 = 300;
 
@@ -41,10 +47,17 @@ const FRAME_EXPIRY_FALLBACK_SECONDS: u64 = 300;
 pub struct LocalSymbolResolver {
     catalog: Arc<Catalog>,
     cache: Cache<RawFrameId, Vec<ErrorTrackingStackFrame>>,
+    // (team_id, sorted truncated refs) -> latest release id, including None results. Without
+    // this, every exception with symbol-set refs costs one Postgres query per resolve, even
+    // when frame resolution itself is fully served from the frame cache above. Refs are
+    // event-controlled, so the cache is byte-weighted rather than entry-counted, like the
+    // negative cache in the Saving layer.
+    release_id_cache: Cache<(TeamId, Vec<String>), Option<Uuid>>,
     pool: PgPool,
     ttl_policy: FrameResultTtlPolicy,
     // Lines of pre/post source context to attach per resolved frame.
     context_lines: usize,
+    skip_unchanged_rewrites: bool,
 }
 
 impl Expiry<RawFrameId, Vec<ErrorTrackingStackFrame>> for FrameResultTtlPolicy {
@@ -92,12 +105,26 @@ impl LocalSymbolResolver {
             .expire_after(ttl_policy)
             .build();
 
+        let release_id_cache = CacheBuilder::new(config.release_id_cache_max_bytes)
+            .weigher(|(_, refs): &(TeamId, Vec<String>), _: &Option<Uuid>| {
+                // Bound by the bytes actually held; saturate rather than wrap for huge keys.
+                refs.iter()
+                    .map(String::len)
+                    .sum::<usize>()
+                    .try_into()
+                    .unwrap_or(u32::MAX)
+            })
+            .time_to_live(Duration::from_secs(config.release_id_cache_ttl_seconds))
+            .build();
+
         Self {
             catalog,
             pool,
             cache,
+            release_id_cache,
             ttl_policy,
             context_lines: config.context_line_count,
+            skip_unchanged_rewrites: config.skip_unchanged_frame_rewrites,
         }
     }
 
@@ -136,11 +163,11 @@ impl LocalSymbolResolver {
         raw_id: RawFrameId,
         debug_images: &[DebugImage],
     ) -> Result<Vec<ErrorTrackingStackFrame>, UnhandledError> {
-        let loaded =
-            ErrorTrackingStackFrame::load_all(&self.pool, &raw_id, self.ttl_policy).await?;
-        if !loaded.is_empty() {
+        let stored =
+            ErrorTrackingStackFrame::load_snapshot(&self.pool, &raw_id, self.ttl_policy).await?;
+        if stored.fresh {
             metrics::counter!(FRAME_DB_HITS).increment(1);
-            return Ok(loaded);
+            return Ok(stored.records);
         }
 
         metrics::counter!(FRAME_DB_MISSES).increment(1);
@@ -166,9 +193,8 @@ impl LocalSymbolResolver {
             None
         };
 
-        let mut records = Vec::new();
+        let mut records = Vec::with_capacity(resolved.len());
         for r_frame in &resolved {
-            // Save back to the DB
             let record = ErrorTrackingStackFrame::new(
                 r_frame.frame_id.clone(),
                 set.as_ref().map(|s| s.id),
@@ -176,16 +202,85 @@ impl LocalSymbolResolver {
                 r_frame.resolved,
                 r_frame.context.clone(),
             );
-            record.save(&self.pool).await?;
-            if r_frame.suspicious {
+            records.push(record);
+        }
+
+        let write_outcome = classify_frame_snapshot(&stored.records, &records);
+        let persisted = self.skip_unchanged_rewrites
+            && write_outcome == FrameWriteOutcome::Unchanged
+            && self
+                .persist_unchanged_snapshot(&raw_id, &stored.records, records.len() as u64)
+                .await?;
+
+        if !persisted {
+            let refresh_if_older_than = self
+                .skip_unchanged_rewrites
+                .then(|| Utc::now() - self.ttl_policy.refresh_age(&raw_id, &stored.records));
+            for record in &records {
+                let rows_affected = match record
+                    .save_with_refresh_guard(&self.pool, refresh_if_older_than)
+                    .await
+                {
+                    Ok(rows_affected) => rows_affected,
+                    Err(error) => {
+                        record_frame_write(FrameWriteOutcome::Error, 0);
+                        return Err(error);
+                    }
+                };
+                record_frame_write(write_outcome, rows_affected);
+            }
+        }
+
+        for record in &records {
+            if record.contents.suspicious {
                 metrics::counter!(SUSPICIOUS_FRAMES_DETECTED, "frame_type" => "resolved")
                     .increment(1);
             }
-
-            // And gather up for the cache
-            records.push(record);
         }
         Ok(records)
+    }
+
+    // Persists an unchanged snapshot without rewriting the rows: skips outright while
+    // every stored row is still well inside its TTL, and otherwise refreshes
+    // created_at alone. Returns false when the refresh touched fewer rows than the
+    // snapshot holds (a concurrent delete, such as symbol-set cleanup), so the caller
+    // falls back to the full upsert and restores the rows. Any error also fails open
+    // through the caller's normal save path semantics.
+    async fn persist_unchanged_snapshot(
+        &self,
+        raw_id: &RawFrameId,
+        stored: &[ErrorTrackingStackFrame],
+        part_count: u64,
+    ) -> Result<bool, UnhandledError> {
+        // The per-part upsert loop is not transactional, so a racing writer can
+        // leave a multi-part snapshot half written. A timestamp-only refresh
+        // spanning every part would mark that mixed snapshot fresh for a full
+        // TTL. A single-part save is atomic, so only single-part snapshots take
+        // the timestamp-only path.
+        if part_count != 1 {
+            return Ok(false);
+        }
+
+        let now = Utc::now();
+        if !unchanged_snapshot_needs_refresh(&self.ttl_policy, raw_id, stored, now) {
+            record_frame_write(FrameWriteOutcome::Skipped, 0);
+            return Ok(true);
+        }
+
+        let rows_affected =
+            match ErrorTrackingStackFrame::refresh_created_at(&self.pool, raw_id, now).await {
+                Ok(rows_affected) => rows_affected,
+                Err(error) => {
+                    record_frame_write(FrameWriteOutcome::Error, 0);
+                    return Err(error);
+                }
+            };
+        if rows_affected < part_count {
+            return Ok(false);
+        }
+
+        record_frame_write(FrameWriteOutcome::Refreshed, rows_affected);
+        Ok(true)
     }
 }
 
@@ -233,6 +328,44 @@ impl SymbolResolver for LocalSymbolResolver {
         lookup_minified_type(minified_names, minified_name)
             .ok_or(ResolveError::from(JsResolveErr::InvalidSourceAndMap))
     }
+
+    async fn latest_release_id(
+        &self,
+        team_id: TeamId,
+        symbol_set_refs: &[String],
+    ) -> Result<Option<Uuid>, UnhandledError> {
+        if symbol_set_refs.is_empty() {
+            return Ok(None);
+        }
+
+        // Truncated to the ref size the DB matches on, which caps what an event-controlled
+        // ref can pin in the cache key. Sorted so frame-order variations of the same stack
+        // share a cache entry, and deduped because truncation can collapse distinct refs.
+        let mut refs: Vec<String> = symbol_set_refs
+            .iter()
+            .map(|r| truncate_ref(r).to_string())
+            .collect();
+        refs.sort_unstable();
+        refs.dedup();
+
+        let mut cache_miss = false;
+        let release_id = self
+            .release_id_cache
+            .try_get_with((team_id, refs.clone()), async {
+                cache_miss = true;
+                ReleaseRecord::latest_id_for_symbol_set_refs(&self.pool, &refs, team_id).await
+            })
+            .await
+            .map_err(|e| UnhandledError::Other(e.to_string()))?;
+
+        if cache_miss {
+            metrics::counter!(RELEASE_ID_CACHE_MISSES).increment(1);
+        } else {
+            metrics::counter!(RELEASE_ID_CACHE_HITS).increment(1);
+        }
+
+        Ok(release_id)
+    }
 }
 
 #[cfg(test)]
@@ -244,8 +377,10 @@ mod test {
     use common_types::ClickHouseEvent;
     use httpmock::MockServer;
     use mockall::predicate;
+    use posthog_symbol_data::{write_symbol_data, SourceAndMap};
     use sqlx::PgPool;
     use symbolic::sourcemapcache::SourceMapCacheWriter;
+    use uuid::Uuid;
 
     use crate::{
         core::config::ResolverConfig,
@@ -259,7 +394,7 @@ mod test {
             hermesmap::HermesMapProvider,
             native::NativeProvider,
             proguard::ProguardProvider,
-            saving::{Saving, SymbolSetRecord},
+            saving::{truncate_ref, Saving, SymbolSetRecord, MAX_REF_BYTES},
             sourcemap::SourcemapProvider,
             Catalog, MockS3Client,
         },
@@ -480,5 +615,167 @@ mod test {
 
         assert_eq!(resolved_1, resolved_2);
         assert_eq!(resolved_2, resolved_3);
+    }
+
+    // With the flag on, a re-resolution that produces an identical snapshot must keep
+    // the stored row fresh (or every pod re-resolves the frame on each cache miss)
+    // while keeping a single, content-identical row.
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    pub async fn unchanged_reresolution_keeps_row_fresh_without_reinserting(pool: PgPool) {
+        // The second resolve reloads the symbol set from storage, so the mock must
+        // return the persisted format (write_symbol_data), not the sourcemapcache
+        // bytes expect_puts_and_gets serves.
+        let stored_payload = Bytes::from(
+            write_symbol_data(SourceAndMap {
+                minified_source: String::from_utf8(MINIFIED.to_vec()).unwrap(),
+                sourcemap: String::from_utf8(MAP.to_vec()).unwrap(),
+            })
+            .unwrap(),
+        );
+        let (mut config, catalog, server) = setup_test_context(pool.clone(), move |c, mut cl| {
+            cl.expect_put()
+                .with(
+                    predicate::eq(c.object_storage_bucket.clone()),
+                    predicate::str::starts_with(c.ss_prefix.clone()),
+                    predicate::always(),
+                )
+                .returning(|_, _, _| Ok(()))
+                .times(1);
+            cl.expect_get()
+                .with(
+                    predicate::eq(c.object_storage_bucket.clone()),
+                    predicate::str::starts_with(c.ss_prefix.clone()),
+                )
+                .returning(move |_, _| Ok(Some(stored_payload.clone())))
+                .times(1);
+            cl
+        })
+        .await;
+        config.skip_unchanged_frame_rewrites = true;
+        // A zero TTL makes the stored row stale immediately, forcing the second
+        // resolve down the re-resolution path.
+        config.frame_resolved_ttl_seconds = 0;
+        let resolver = LocalSymbolResolver::new(&config, Arc::new(catalog), pool.clone());
+
+        let frame = get_test_frame(&server);
+        let resolved_1 = resolver.resolve_raw_frame(0, &frame, &[]).await.unwrap();
+
+        let (id_1, created_1): (Uuid, chrono::DateTime<chrono::Utc>) =
+            sqlx::query_as("SELECT id, created_at FROM posthog_errortrackingstackframe")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        resolver.cache.invalidate_all();
+        resolver.cache.run_pending_tasks().await;
+
+        let frame = get_test_frame(&server);
+        let resolved_2 = resolver.resolve_raw_frame(0, &frame, &[]).await.unwrap();
+        assert_eq!(resolved_1, resolved_2);
+
+        let rows: Vec<(Uuid, chrono::DateTime<chrono::Utc>)> =
+            sqlx::query_as("SELECT id, created_at FROM posthog_errortrackingstackframe")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, id_1);
+        assert!(rows[0].1 > created_1);
+    }
+
+    async fn insert_release(pool: &PgPool, team_id: i32, days_ago: i32) -> Uuid {
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO posthog_errortrackingrelease (id, team_id, hash_id, created_at, version, project)
+             VALUES ($1, $2, $3, NOW() - make_interval(days => $4), '1.0', 'test-project')",
+        )
+        .bind(id)
+        .bind(team_id)
+        .bind(id.to_string())
+        .bind(days_ago)
+        .execute(pool)
+        .await
+        .unwrap();
+        id
+    }
+
+    async fn bind_symbol_set(pool: &PgPool, team_id: i32, set_ref: &str, release_id: Uuid) {
+        sqlx::query(
+            "INSERT INTO posthog_errortrackingsymbolset (id, ref, team_id, release_id)
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(set_ref)
+        .bind(team_id)
+        .bind(release_id)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    pub async fn latest_release_id_is_cached_and_ref_order_insensitive(pool: PgPool) {
+        let (config, catalog, _server) = setup_test_context(pool.clone(), |_, client| client).await;
+        let resolver = LocalSymbolResolver::new(&config, Arc::new(catalog), pool.clone());
+
+        let team_id = 0;
+        let old_release = insert_release(&pool, team_id, 1).await;
+        bind_symbol_set(&pool, team_id, "ref_a", old_release).await;
+
+        let first = resolver
+            .latest_release_id(team_id, &["ref_b".to_string(), "ref_a".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(first, Some(old_release));
+
+        // A fresh query would now return the newer release, so getting the old id back for the
+        // reordered refs proves the lookup was served from the cache under a normalized key.
+        let new_release = insert_release(&pool, team_id, 0).await;
+        bind_symbol_set(&pool, team_id, "ref_b", new_release).await;
+
+        let second = resolver
+            .latest_release_id(team_id, &["ref_a".to_string(), "ref_b".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(second, Some(old_release));
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    pub async fn latest_release_id_cache_key_uses_truncated_refs(pool: PgPool) {
+        let (config, catalog, _server) = setup_test_context(pool.clone(), |_, client| client).await;
+        let resolver = LocalSymbolResolver::new(&config, Arc::new(catalog), pool.clone());
+
+        let team_id = 0;
+        // Two refs the DB treats as the same symbol set: identical up to the stored ref
+        // size, differing only past it.
+        let prefix = "a".repeat(MAX_REF_BYTES);
+        let ref_one = format!("{prefix}_tail_one");
+        let ref_two = format!("{prefix}_tail_two");
+
+        let old_release = insert_release(&pool, team_id, 1).await;
+        bind_symbol_set(&pool, team_id, truncate_ref(&ref_one), old_release).await;
+
+        let first = resolver
+            .latest_release_id(team_id, &[ref_one])
+            .await
+            .unwrap();
+        assert_eq!(first, Some(old_release));
+
+        // Rebind the set so a fresh query would return the newer release; getting the old id
+        // back for a ref with a different over-length tail proves both refs normalize to the
+        // same truncated cache key.
+        let new_release = insert_release(&pool, team_id, 0).await;
+        sqlx::query("UPDATE posthog_errortrackingsymbolset SET release_id = $1 WHERE team_id = $2")
+            .bind(new_release)
+            .bind(team_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let second = resolver
+            .latest_release_id(team_id, &[ref_two])
+            .await
+            .unwrap();
+        assert_eq!(second, Some(old_release));
     }
 }

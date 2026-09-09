@@ -377,7 +377,7 @@ Split into 5a (backend) / 5b (UI) if review size demands.
 
 - Unit (Vitest, colocated): frontmatter round-trip, path guards, `analyzeSkills`
   rules, lockfile/`installed.json` read-write, dedupe + mirror rules, api-client
-  schema parsing. Fake injected dependencies per `docs/testing.md`.
+  schema parsing. Fake injected dependencies per `docs/TESTING.md`.
 - E2E (Playwright, `tests/e2e/`): one flow per PR — render a multi-file skill;
   create/edit/delete; live-refresh on external edit; marketplace
   search→preview→install; team publish→install; codex import.

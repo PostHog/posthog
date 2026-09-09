@@ -1,21 +1,25 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
-import { IconGear, IconLaptop, IconPhone, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import { IconFilter, IconGear, IconLaptop, IconPhone, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
+import { LemonBadge, LemonBanner, LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { HEATMAP_LOADING_DEBOUNCE_MS, heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
 import { SectionSetting } from 'lib/components/heatmaps/HeatMapsSettings'
+import { HeatmapEventFilter } from 'lib/components/heatmaps/types'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 import { AnyPropertyFilter, CohortPropertyFilter, HeatmapType, PropertyFilterType, PropertyOperator } from '~/types'
@@ -34,21 +38,7 @@ const propertyFiltersToCohortIds = (filters: AnyPropertyFilter[]): number[] =>
         .map((f) => f.value)
         .filter((v): v is number => typeof v === 'number')
 
-const useDebounceLoading = (loading: boolean, delay = 200): boolean => {
-    const [debouncedLoading, setDebouncedLoading] = useState(false)
-
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            setDebouncedLoading(loading)
-        }, delay)
-
-        return () => clearTimeout(timer)
-    }, [loading, delay])
-
-    return debouncedLoading
-}
-
-export function ViewportChooser(): JSX.Element {
+export function ViewportChooser({ lockedWidth }: { lockedWidth?: number }): JSX.Element {
     const { widthOverride } = useValues(heatmapDataLogic({ context: 'in-app' }))
     const { setWindowWidthOverride } = useActions(heatmapDataLogic({ context: 'in-app' }))
 
@@ -83,9 +73,8 @@ export function ViewportChooser(): JSX.Element {
         },
     ]
 
-    // Let's add current width as an option if it's not in the list
-    const allOptions = [...options]
-    if (widthOverride && !options.some((option) => option.value === widthOverride)) {
+    const allOptions = lockedWidth ? [{ value: lockedWidth, icon: <IconLaptop /> }] : [...options]
+    if (!lockedWidth && widthOverride && !options.some((option) => option.value === widthOverride)) {
         allOptions.push({
             value: widthOverride,
             icon: <IconLaptop />,
@@ -98,7 +87,8 @@ export function ViewportChooser(): JSX.Element {
             <LemonSelect
                 size="small"
                 onChange={setWindowWidthOverride}
-                value={widthOverride}
+                value={lockedWidth ?? widthOverride}
+                disabledReason={lockedWidth ? 'Toolbar captures are saved at a single width' : undefined}
                 data-attr="viewport-chooser"
                 options={allOptions.map(({ value, icon }) => ({
                     value,
@@ -122,12 +112,15 @@ export function FilterPanel({
     captureMethod,
     onCaptureMethodChange,
     clickmapSettings,
+    lockedWidth,
 }: {
     captureMethod?: HeatmapType
     onCaptureMethodChange?: (type: HeatmapType) => void
     clickmapSettings?: JSX.Element
+    lockedWidth?: number
 }): JSX.Element {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+    const [isEventFilterOpen, setIsEventFilterOpen] = useState(false)
     const {
         heatmapFilters,
         heatmapColorPalette,
@@ -143,14 +136,16 @@ export function FilterPanel({
     )
 
     const cohortFilterEnabled = useFeatureFlag('HEATMAPS_COHORT_FILTER')
+    const eventFilterEnabled = useFeatureFlag('HEATMAPS_EVENT_FILTER')
+    const eventFilterCount = commonFilters?.events?.length ?? 0
 
-    const debouncedLoading = useDebounceLoading(rawHeatmapLoading ?? false)
+    const debouncedLoading = useDebouncedValue(rawHeatmapLoading, HEATMAP_LOADING_DEBOUNCE_MS)
 
     // KLUDGE: the loading bar flaps in visual regression tests,
     // for some reason our wait for loading to finish can't see it
     // this is ugly but better than stopping taking visual snapshots of it
     return (
-        <>
+        <div className="relative">
             {debouncedLoading && !inStorybook() && !inStorybookTestRunner() && (
                 <LoadingBar
                     wrapperClassName="absolute top-0 left-0 w-full overflow-hidden rounded-none my-0"
@@ -184,6 +179,63 @@ export function FilterPanel({
                                 buttonSize="small"
                                 {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
                             />
+                        </div>
+                    )}
+                    {eventFilterEnabled && (
+                        <div className="mt-2 md:mt-0">
+                            <Popover
+                                overlay={
+                                    // The filter bar is a single row of controls, so the event list, which grows a
+                                    // row per event, sits in a popover rather than stretching the row it lives in.
+                                    <div className="p-2 w-96">
+                                        <ActionFilter
+                                            bordered
+                                            filters={{ events: commonFilters?.events ?? [] }}
+                                            setFilters={(filters) => {
+                                                setCommonFilters?.({
+                                                    ...commonFilters,
+                                                    // ActionFilter types events as the loose Record shape; narrow
+                                                    // back to what heatmapDataLogic serializes.
+                                                    events: (filters.events ?? []) as HeatmapEventFilter[],
+                                                })
+                                            }}
+                                            typeKey="heatmap-events"
+                                            buttonCopy="Add event"
+                                            mathAvailability={MathAvailability.None}
+                                            actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                                            // "All events" matches every session, so as a filter it does nothing.
+                                            excludedProperties={{ [TaxonomicFilterGroupType.Events]: [null] }}
+                                            propertiesTaxonomicGroupTypes={[
+                                                TaxonomicFilterGroupType.EventProperties,
+                                                TaxonomicFilterGroupType.EventFeatureFlags,
+                                            ]}
+                                            propertyFiltersPopover
+                                            hideRename
+                                            hideDuplicate
+                                            showNestedArrow={false}
+                                        />
+                                    </div>
+                                }
+                                visible={isEventFilterOpen}
+                                onClickOutside={() => setIsEventFilterOpen(false)}
+                                placement="bottom"
+                            >
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconFilter />}
+                                    sideIcon={
+                                        eventFilterCount ? (
+                                            <LemonBadge.Number count={eventFilterCount} size="small" />
+                                        ) : undefined
+                                    }
+                                    onClick={() => setIsEventFilterOpen(!isEventFilterOpen)}
+                                    tooltip="Only show interactions from sessions where these events happened"
+                                    data-attr="heatmap-event-filter"
+                                >
+                                    Filter by event
+                                </LemonButton>
+                            </Popover>
                         </div>
                     )}
                     <div className="mt-2 md:mt-0">
@@ -255,7 +307,7 @@ export function FilterPanel({
                         />
                     </div>
                 </div>
-                <ViewportChooser />
+                <ViewportChooser lockedWidth={lockedWidth} />
             </div>
             {heatmapEmpty ? (
                 <LemonBanner type="info" className="mb-2">
@@ -263,6 +315,6 @@ export function FilterPanel({
                     settings. A high value can hide data on pages with less traffic.
                 </LemonBanner>
             ) : null}
-        </>
+        </div>
     )
 }

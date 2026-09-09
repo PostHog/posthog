@@ -21,8 +21,14 @@ import { ReactRouterLogo } from '../logos/ReactRouterLogo'
 import svelteImage from '../logos/svelte.svg'
 import vueImage from '../logos/vue.svg'
 
+/** One "Supports:" chip; icon-less items (e.g. "+ 30 more") render as text only. */
+export interface WizardBadgeItem {
+    name: string
+    icon?: string | ComponentType
+}
+
 // Frameworks the wizard can set up — the same whichever way it runs, so both modes show them.
-const WIZARD_FRAMEWORKS: { name: string; icon: string | ComponentType }[] = [
+const WIZARD_FRAMEWORKS: WizardBadgeItem[] = [
     { name: 'Next.js', icon: nextjsImage },
     { name: 'React', icon: reactImage },
     { name: 'Angular', icon: angularImage },
@@ -41,22 +47,22 @@ const WIZARD_FRAMEWORKS: { name: string; icon: string | ComponentType }[] = [
     { name: 'Python', icon: pythonImage },
 ]
 
-export function WizardFrameworkBadges(): JSX.Element {
+export function WizardFrameworkBadges({ items = WIZARD_FRAMEWORKS }: { items?: WizardBadgeItem[] } = {}): JSX.Element {
     return (
         <div className="flex flex-wrap gap-1.5 items-center justify-center">
             <span className="text-xs text-muted">Supports:</span>
-            {WIZARD_FRAMEWORKS.map((fw) => (
+            {items.map((fw) => (
                 <span
                     key={fw.name}
                     className="inline-flex items-center gap-1 text-xs text-muted bg-bg-light border border-border rounded px-1.5 py-0.5"
                 >
                     {typeof fw.icon === 'string' ? (
                         <img src={fw.icon} alt="" className="w-3 h-3 shrink-0" />
-                    ) : (
+                    ) : fw.icon ? (
                         <span className="inline-flex w-3 h-3 shrink-0 [&_svg]:!w-3 [&_svg]:!h-3">
                             <fw.icon />
                         </span>
-                    )}
+                    ) : null}
                     {fw.name}
                 </span>
             ))}

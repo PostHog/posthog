@@ -6,6 +6,7 @@ Provides hogli dev:* commands for managing the development environment.
 from __future__ import annotations
 
 import click
+from hogli import telemetry
 
 from .generator import (
     TRACKED_MPROCS_FILES,
@@ -95,15 +96,12 @@ def dev_generate(
 
     generator.generate_and_save(resolved, output_path, saved_config)
 
-    # Stash devenv-specific properties so _fire_telemetry includes them
-    # in the command_completed event for dev:generate.
-    ctx = click.get_current_context()
-    ctx.meta["hogli.devenv"] = {
-        "intents": sorted(resolved.intents),
-        "intent_count": len(resolved.intents),
-        "unit_count": len(resolved.units),
-        "docker_profiles": sorted(resolved.docker_profiles),
-    }
+    telemetry.add_command_properties(
+        intents=sorted(resolved.intents),
+        intent_count=len(resolved.intents),
+        unit_count=len(resolved.units),
+        docker_profiles=sorted(resolved.docker_profiles),
+    )
 
     click.echo("Generated mprocs config from saved config")
     click.echo(f"  Products: {', '.join(sorted(resolved.intents))}")

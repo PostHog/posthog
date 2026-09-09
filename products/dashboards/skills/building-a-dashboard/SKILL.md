@@ -63,3 +63,8 @@ Prefer reusing existing insights over recreating them.
 - Saving a single insight — just create the insight; it doesn't need a dashboard.
 - Adding non-insight widget tiles (text cards, widgets) — see the widget tools (`dashboard-widget-catalog-list`,
   `dashboard-widgets-batch-add`) instead.
+
+## Related skills
+
+- **`managing-subscriptions`** — deliver the finished dashboard to email or Slack on a schedule
+- **`creating-ai-subscription`** — a recurring AI-written report, when prose beats a wall of charts

@@ -503,10 +503,18 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                     limit 25`
 
                 const currentScene = sceneLogic.findMounted()?.values.activeSceneId ?? 'Settings'
-                const response = await api.queryHogQL(query, {
-                    scene: currentScene,
-                    productKey: 'platform_and_support',
-                })
+                let response: Awaited<ReturnType<typeof api.queryHogQL>>
+                try {
+                    response = await api.queryHogQL(query, {
+                        scene: currentScene,
+                        productKey: 'platform_and_support',
+                    })
+                } catch {
+                    // Suggestions are advisory. A failed query (server error or network error) leaves the
+                    // list empty and the manual "Fetch suggestions" retry available, so we swallow it here
+                    // instead of letting it surface as an unhandled loader error.
+                    return []
+                }
                 breakpoint()
                 const result = response.results as [string, number][]
 

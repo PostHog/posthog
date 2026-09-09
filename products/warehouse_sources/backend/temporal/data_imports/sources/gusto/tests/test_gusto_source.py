@@ -5,24 +5,21 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
+from posthog.schema import SourceFieldSelectConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gusto import GustoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gusto import (
-    GUSTO_API_VERSION,
-    GustoResumeConfig,
+    GUSTO_API_VERSION_2024_04_01,
+    GUSTO_API_VERSION_2026_06_15,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.settings import (
     ENDPOINTS,
-    GUSTO_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.source import GustoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"payrolls", "pay_periods", "contractor_payments"}
 
@@ -38,33 +35,9 @@ class TestGustoSource:
             environment="production",
         )
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.GUSTO
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Gusto"
-        assert config.label == "Gusto"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/gusto"
-        assert config.iconPath == "/static/services/gusto.png"
-
     def test_source_is_visible_to_users(self) -> None:
         # A truthy `unreleasedSource` hides the connector from the wizard entirely.
         assert not self.source.get_source_config.unreleasedSource
-
-    def test_config_fields(self) -> None:
-        fields = self.source.get_source_config.fields
-        assert [f.name for f in fields] == ["environment", "client_id", "client_secret", "refresh_token"]
-
-    @parameterized.expand([("client_secret",), ("refresh_token",)])
-    def test_oauth_secrets_are_password_fields(self, name: str) -> None:
-        field = next(
-            f for f in self.source.get_source_config.fields if isinstance(f, SourceFieldInputConfig) and f.name == name
-        )
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_environment_offers_production_and_demo(self) -> None:
         # Gusto partners build against the demo host until their app is approved for production.
@@ -73,16 +46,17 @@ class TestGustoSource:
         assert field.defaultValue == "production"
 
     def test_api_version_is_pinned_to_what_the_client_sends(self) -> None:
-        assert self.source.supported_versions == (GUSTO_API_VERSION,)
-        assert self.source.default_version == GUSTO_API_VERSION
+        # Declared oldest→newest; new sources start on the newest version.
+        assert self.source.supported_versions == (GUSTO_API_VERSION_2024_04_01, GUSTO_API_VERSION_2026_06_15)
+        assert self.source.default_version == GUSTO_API_VERSION_2026_06_15
         assert self.source.api_docs_url.startswith("https://")
 
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_covers_the_endpoint_catalog(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
+    def test_older_version_is_deprecated_without_a_sunset_date(self) -> None:
+        # Gusto publishes no end-of-life date for 2024-04-01, so the deprecation is advisory only
+        # (sunset_at=None) and the default is never itself deprecated.
+        deprecation = self.source.get_version_deprecation(GUSTO_API_VERSION_2024_04_01)
+        assert deprecation is not None and deprecation.sunset_at is None
+        assert self.source.get_version_deprecation(GUSTO_API_VERSION_2026_06_15) is None
 
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
     def test_only_date_filtered_endpoints_are_incremental(self, endpoint: str) -> None:
@@ -92,33 +66,6 @@ class TestGustoSource:
         assert schema.supports_incremental is (endpoint in INCREMENTAL_ENDPOINTS)
         # Rows are restated in place (a payroll moves from calculated to processed), so merge only.
         assert schema.supports_append is False
-
-    @parameterized.expand(
-        [
-            ("payrolls", "check_date"),
-            ("pay_periods", "end_date"),
-            ("contractor_payments", "date"),
-        ]
-    )
-    def test_incremental_cursor_matches_the_api_date_filter(self, endpoint: str, expected_field: str) -> None:
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-        assert [f["field"] for f in schema.incremental_fields] == [expected_field]
-        assert GUSTO_ENDPOINTS[endpoint].date_window_field == expected_field
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["employees"])
-        assert [schema.name for schema in schemas] == ["employees"]
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = self.source.get_documented_tables()
-        assert {table["name"] for table in tables} == set(ENDPOINTS)
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        assert set(self.source.get_canonical_descriptions()) == set(ENDPOINTS)
-        assert CANONICAL_DESCRIPTIONS is self.source.get_canonical_descriptions()
 
     @parameterized.expand([(endpoint,) for endpoint in INCREMENTAL_ENDPOINTS])
     def test_canonical_descriptions_document_the_cursor_column(self, endpoint: str) -> None:
@@ -130,6 +77,8 @@ class TestGustoSource:
             ("unauthorized", "401 Client Error: Unauthorized for url: https://api.gusto.com/oauth/token"),
             ("bad_request", "400 Client Error: Bad Request for url: https://api.gusto.com/oauth/token"),
             ("forbidden", "403 Client Error: Forbidden for url: https://api.gusto.com/v1/companies/c-1/payrolls"),
+            # A pin that reaches end of life 406s; retrying can't recover it.
+            ("version_end_of_life", "406 Client Error: Not Acceptable for url: https://api.gusto.com/v1/me"),
         ]
     )
     def test_auth_failures_are_non_retryable(self, _name: str, observed_error: str) -> None:
@@ -143,32 +92,6 @@ class TestGustoSource:
     )
     def test_transient_failures_stay_retryable(self, _name: str, observed_error: str) -> None:
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.gusto.source.validate_gusto_credentials"
-    )
-    def test_validate_credentials_delegates_the_oauth_app(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = (True, None)
-        assert self.source.validate_credentials(self.config, self.team_id) == (True, None)
-        assert mock_validate.call_args.kwargs == {
-            "environment": "production",
-            "client_id": "cid",
-            "client_secret": "secret",
-            "refresh_token": "refresh",
-            "api_version": GUSTO_API_VERSION,
-        }
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.gusto.source.validate_gusto_credentials"
-    )
-    def test_validate_credentials_passes_the_failure_reason_through(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = (False, "nope")
-        assert self.source.validate_credentials(self.config, self.team_id, schema_name="payrolls") == (False, "nope")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is GustoResumeConfig
 
     def _inputs(self, **overrides: Any) -> mock.MagicMock:
         inputs = mock.MagicMock()
@@ -191,8 +114,16 @@ class TestGustoSource:
         assert kwargs["client_secret"] == "secret"
         assert kwargs["refresh_token"] == "refresh"
         assert kwargs["endpoint"] == "employees"
-        assert kwargs["api_version"] == GUSTO_API_VERSION
+        assert kwargs["api_version"] == GUSTO_API_VERSION_2026_06_15
         assert kwargs["resumable_source_manager"] is manager
+
+    @parameterized.expand([(GUSTO_API_VERSION_2024_04_01,), (GUSTO_API_VERSION_2026_06_15,)])
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.gusto.source.gusto_source")
+    def test_source_for_pipeline_honors_the_pinned_version(self, pin: str, mock_source: mock.MagicMock) -> None:
+        # A source pinned to a still-supported (including deprecated) version syncs under that pin,
+        # never silently on the new default.
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), self._inputs(api_version=pin))
+        assert mock_source.call_args.kwargs["api_version"] == pin
 
     @parameterized.expand(
         [

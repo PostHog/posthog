@@ -17,7 +17,6 @@ const usage: ContextUsage = {
   used: 788_000,
   size: 1_000_000,
   percentage: 79,
-  cost: null,
   breakdown: null,
 };
 
@@ -49,6 +48,17 @@ function AtWidths({ args }: { args: Parameters<typeof SessionFooter>[0] }) {
 
 export const GeneratingAtNarrowWidths: Story = {
   args: generatingArgs,
+  render: (args) => <AtWidths args={args} />,
+};
+
+/** A turn that has rendered nothing for a while — one long tool call, or a
+ *  thinking block the model kept to itself. */
+export const GeneratingWhileQuietAtNarrowWidths: Story = {
+  args: {
+    ...generatingArgs,
+    promptStartedAt: Date.now() - 128_000,
+    lastActivityAt: Date.now() - 47_000,
+  },
   render: (args) => <AtWidths args={args} />,
 };
 

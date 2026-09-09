@@ -1,6 +1,6 @@
 from django.db import models, transaction
 
-from posthog.models.comment.comment import Comment
+from posthog.models.comment.comment import COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API, Comment
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import UUIDModel
@@ -37,6 +37,11 @@ class CommentSlackThread(TeamScopedRootMixin, UUIDModel):
         help_text="Slack integration whose bot token posts to and reads from the mirrored thread",
     )
     slack_channel_id = models.CharField(max_length=255)
+    # Display-only channel name ("team-support", no leading #) captured at send time so the UI
+    # can say where the discussion lives without a Slack lookup. The id stays authoritative —
+    # a rename in Slack leaves this stale until the discussion is re-sent.
+    # db_default so old code can INSERT without naming the column during rolling deploys.
+    slack_channel_name = models.CharField(max_length=255, blank=True, default="", db_default="")
     # Empty until the root message is posted — the row is reserved first to win the race for this
     # (team, source_comment, channel) before any Slack call, then the ts is filled in.
     slack_thread_ts = models.CharField(max_length=255, blank=True, default="")
@@ -63,13 +68,13 @@ def mirror_comment_reply_to_slack_on_create(sender, instance: Comment, created: 
     """Sync a newly-created discussion reply out to any mirrored Slack threads.
 
     Only replies (``source_comment`` set) sync — the thread root is posted by the send_to_slack
-    action. Conversations tickets are excluded (that product has its own Slack sync),
-    Slack-originated replies (``item_context.from_slack``) are skipped to avoid echo loops, and
+    action. Conversations tickets and protected scopes are excluded because their owning products
+    control integrations. Slack-originated replies (``item_context.from_slack``) are skipped to avoid echo loops, and
     emoji reactions (``item_context.is_emoji`` — stored as reply comments) don't post as messages.
     """
     if not created or not instance.source_comment_id:
         return
-    if instance.scope == "conversations_ticket":
+    if instance.scope == "conversations_ticket" or instance.scope in COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API:
         return
     item_context = instance.item_context
     if isinstance(item_context, dict) and (item_context.get("from_slack") or item_context.get("is_emoji")):

@@ -7,6 +7,7 @@ import {
     IconExternal,
     IconPlus,
     IconRefresh,
+    IconRevert,
     IconUpload,
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
@@ -18,9 +19,10 @@ import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 
+import type { MessagePreferencesApi } from 'products/messaging/frontend/generated/api.schemas'
+
 import type { MessageCategory } from './optOutCategoriesLogic'
 import { optOutListLogic } from './optOutListLogic'
-import type { OptOutEntry } from './types'
 
 export function OptOutList({ category }: { category?: MessageCategory }): JSX.Element {
     const logic = optOutListLogic({ category })
@@ -33,11 +35,13 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
         setShowAddOptOutModal,
         setNewOptOutIdentifier,
         addOptOut,
+        removeOptOut,
         setShowImportCsvModal,
         setCsvFile,
         importCsv,
         exportCsv,
         clearCsvImportResult,
+        setSearchTerm,
     } = useActions(logic)
     const {
         selectedIdentifier,
@@ -47,6 +51,8 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
         currentPage,
         showAddOptOutModal,
         addOptOutLoading,
+        removeOptOutLoading,
+        pendingRemoveIdentifier,
         newOptOutIdentifier,
         showImportCsvModal,
         csvFile,
@@ -54,6 +60,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
         csvImportResult,
         csvImportResultLoading,
         csvExportLoading,
+        searchTerm,
     } = useValues(logic)
 
     const handleShowPersons = (identifier: string): void => {
@@ -77,7 +84,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
           }
         : null
 
-    const columns: LemonTableColumns<OptOutEntry> = [
+    const columns: LemonTableColumns<MessagePreferencesApi> = [
         {
             title: 'Recipient',
             dataIndex: 'identifier',
@@ -91,7 +98,8 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
         },
         {
             width: 0,
-            render: function Render(_, optOutEntry: OptOutEntry): JSX.Element {
+            render: function Render(_, optOutEntry: MessagePreferencesApi): JSX.Element {
+                const removingThisRow = removeOptOutLoading && pendingRemoveIdentifier === optOutEntry.identifier
                 return (
                     <More
                         overlay={
@@ -107,6 +115,15 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                                 >
                                     Manage
                                 </LemonButton>
+                                <LemonButton
+                                    onClick={() => removeOptOut(optOutEntry.identifier)}
+                                    loading={removingThisRow}
+                                    disabledReason={removingThisRow ? 'Removing…' : undefined}
+                                    fullWidth
+                                    icon={<IconRevert />}
+                                >
+                                    Remove opt-out
+                                </LemonButton>
                             </>
                         }
                     />
@@ -121,7 +138,15 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
 
     return (
         <>
-            <div className="flex justify-end gap-2 mb-2 mt-[-3rem]">
+            <div className="flex flex-wrap justify-end gap-2 mb-2">
+                <LemonInput
+                    type="search"
+                    size="small"
+                    placeholder="Search recipients"
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                    className="w-60"
+                />
                 <LemonButton
                     icon={<IconPlus />}
                     size="small"
@@ -156,7 +181,7 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                     icon={<IconRefresh />}
                     size="small"
                     type="secondary"
-                    onClick={loadOptOutPersons}
+                    onClick={() => loadOptOutPersons()}
                     loading={optOutPersonsLoading}
                 >
                     Reload
@@ -169,7 +194,11 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                     loading={optOutPersonsLoading}
                     loadingSkeletonRows={3}
                     rowKey="identifier"
-                    emptyState={`No opt-outs found${category?.name ? ` for ${category.name}` : ''}`}
+                    emptyState={
+                        searchTerm.trim()
+                            ? 'No opt-outs match your search'
+                            : `No opt-outs found${category?.name ? ` for ${category.name}` : ''}`
+                    }
                     size="small"
                 />
             </div>
@@ -254,7 +283,9 @@ export function OptOutList({ category }: { category?: MessageCategory }): JSX.El
                         onChange={setNewOptOutIdentifier}
                         autoFocus
                         onPressEnter={() => {
-                            if (newOptOutIdentifier.trim()) {
+                            // Guard against a second Enter mid-flight firing a duplicate POST — the
+                            // footer button already disables while loading; mirror that here.
+                            if (newOptOutIdentifier.trim() && !addOptOutLoading) {
                                 addOptOut(newOptOutIdentifier.trim())
                             }
                         }}

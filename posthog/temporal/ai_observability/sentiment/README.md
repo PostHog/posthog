@@ -10,6 +10,19 @@ Sentiment AI evaluations run through the evaluation workflow, classify the targe
 
 The AI observability UI reads stored sentiment evaluation events. It does not trigger on-read sentiment classification.
 
+## Language support
+
+The model (`cardiffnlp/twitter-roberta-base-sentiment-latest`) is trained on English, so labels are
+unreliable for other languages. There is currently no way to pick a different model, so a
+multilingual agent should use an `llm_judge` evaluation for sentiment instead. This limitation is
+disclosed in the eval creation UI, the evaluation API help text, and this README.
+
+A language-aware model option (CardiffNLP publishes a multilingual XLM-RoBERTa sibling that drops
+into the same ONNX pipeline) is a possible follow-up. Adding it means a config field on
+`SentimentEvalConfig`, a second model baked by `bin/download-sentiment-model` and
+`Dockerfile.llm-analytics`, and a dispatch branch in `model.py`. Image size and per-language
+accuracy are worth weighing before picking the exact model.
+
 ## Package structure
 
 | File            | Purpose                                                 |

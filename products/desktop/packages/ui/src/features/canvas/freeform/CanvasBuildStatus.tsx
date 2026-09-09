@@ -2,11 +2,11 @@ import {
   ArrowClockwiseIcon,
   CheckCircleIcon,
   PushPinIcon,
-  SpinnerGapIcon,
   WarningCircleIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import {
+  type CanvasBuildLifecycle,
   currentHeadBuildFailure,
   latestFinishedCanvasBuild,
 } from "@posthog/core/canvas/canvasBuildSchemas";
@@ -20,7 +20,7 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import type { CanvasDiagnostic } from "@posthog/shared";
-import { useCanvasBuilds } from "@posthog/ui/features/canvas/hooks/useCanvasBuilds";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -57,9 +57,11 @@ function topErrors(diagnostics: CanvasDiagnostic[]): string[] {
 // diagnostics, mirroring the runtime-error self-repair affordance.
 export function CanvasBuildStatus({
   dashboardId,
+  lifecycle,
   onAskAgentToFix,
 }: {
   dashboardId: string;
+  lifecycle: CanvasBuildLifecycle | undefined;
   onAskAgentToFix?: (prompt: string) => void;
 }) {
   const trpc = useHostTRPC();
@@ -76,8 +78,6 @@ export function CanvasBuildStatus({
         }),
     }),
   );
-  const { lifecycle } = useCanvasBuilds(dashboardId);
-
   const active = lifecycle?.builds.find(
     (build) =>
       build.buildStatus === "queued" || build.buildStatus === "building",
@@ -106,7 +106,7 @@ export function CanvasBuildStatus({
         className="flex items-center gap-1"
         data-testid="canvas-build-active"
       >
-        <SpinnerGapIcon size={14} className="animate-spin text-gray-9" />
+        <Spinner size="md" className="text-gray-9" />
         <Text size="xs" variant="muted">
           {active.buildStatus === "queued" ? "Queued" : "Building"} · {elapsed}
         </Text>

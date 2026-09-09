@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ExplainRequestApi,
     LogsAlertConfigurationApi,
+    LogsAlertConfigurationDetailApi,
     LogsAlertCreateDestinationApi,
     LogsAlertDeleteDestinationApi,
     LogsAlertDestinationResponseApi,
@@ -18,6 +19,8 @@ import type {
     LogsAlertSimulateResponseApi,
     LogsAlertsEventsListParams,
     LogsAlertsListParams,
+    LogsAnomalyScanRequestApi,
+    LogsAnomalyScanResponseApi,
     LogsAttributesRetrieveParams,
     LogsExportCreate201,
     LogsHasLogsRetrieve200,
@@ -34,6 +37,8 @@ import type {
     LogsSamplingRuleSimulateResponseApi,
     LogsSamplingRulesListParams,
     LogsSamplingRulesReorderCreateParams,
+    LogsSeriesBandsRequestApi,
+    LogsSeriesBandsResponseApi,
     LogsValuesRetrieveParams,
     LogsViewApi,
     LogsViewsListParams,
@@ -57,6 +62,8 @@ import type {
     _LogsFacetValuesResponseApi,
     _LogsGroupByRequestApi,
     _LogsGroupByResponseApi,
+    _LogsImpactRequestApi,
+    _LogsImpactResponseApi,
     _LogsPatternsDiffRequestApi,
     _LogsPatternsDiffResponseApi,
     _LogsPatternsRequestApi,
@@ -139,8 +146,8 @@ export const logsAlertsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<LogsAlertConfigurationApi> => {
-    return apiMutator<LogsAlertConfigurationApi>(getLogsAlertsRetrieveUrl(projectId, id), {
+): Promise<LogsAlertConfigurationDetailApi> => {
+    return apiMutator<LogsAlertConfigurationDetailApi>(getLogsAlertsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -304,6 +311,48 @@ export const logsAlertsSimulateCreate = async (
     })
 }
 
+export const getLogsAnomaliesScanCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/anomalies/scan/`
+}
+
+/**
+ * Runs anomaly detection on demand over one service's log volume for the given window. Learns per severity baselines from up to 6 weeks of history and returns per bucket expected bands plus any spike, drop, or silence issues. Synchronous and read only.
+ * @summary Scan a service's logs for volume anomalies
+ */
+export const logsAnomaliesScanCreate = async (
+    projectId: string,
+    logsAnomalyScanRequestApi: LogsAnomalyScanRequestApi,
+    options?: RequestInit
+): Promise<LogsAnomalyScanResponseApi> => {
+    return apiMutator<LogsAnomalyScanResponseApi>(getLogsAnomaliesScanCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAnomalyScanRequestApi),
+    })
+}
+
+export const getLogsAnomaliesSeriesBandsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/anomalies/series_bands/`
+}
+
+/**
+ * Returns log volume over the requested window for every (namespace, environment, severity) series of one service, with a time-of-week expected band derived from the prior weeks of the volume rollup. The window defaults to the last 7 days and may span at most 7 days. Synchronous and read only.
+ * @summary Per-series log volume with expected bands
+ */
+export const logsAnomaliesSeriesBandsCreate = async (
+    projectId: string,
+    logsSeriesBandsRequestApi: LogsSeriesBandsRequestApi,
+    options?: RequestInit
+): Promise<LogsSeriesBandsResponseApi> => {
+    return apiMutator<LogsSeriesBandsResponseApi>(getLogsAnomaliesSeriesBandsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsSeriesBandsRequestApi),
+    })
+}
+
 export const getLogsAttributesRetrieveUrl = (projectId: string, params?: LogsAttributesRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -443,6 +492,23 @@ export const logsHasLogsRetrieve = async (
     return apiMutator<LogsHasLogsRetrieve200>(getLogsHasLogsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLogsImpactCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/impact/`
+}
+
+export const logsImpactCreate = async (
+    projectId: string,
+    _logsImpactRequestApi: _LogsImpactRequestApi,
+    options?: RequestInit
+): Promise<_LogsImpactResponseApi> => {
+    return apiMutator<_LogsImpactResponseApi>(getLogsImpactCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsImpactRequestApi),
     })
 }
 
@@ -1101,7 +1167,7 @@ export const getTasksRunsLogsRetrieveUrl = (projectId: string, taskId: string, i
 }
 
 /**
- * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history and can find the most recent git_checkpoint event regardless of which run emitted it.
+ * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history.
  * @summary Get task run logs
  */
 export const tasksRunsLogsRetrieve = async (

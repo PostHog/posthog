@@ -113,7 +113,16 @@ flags_hypercache = HyperCache(
 )
 ```
 
-The `_get_feature_flags_for_service` function fetches all flags for a team (including inactive, but excluding deleted and encrypted remote config flags) and returns the cache payload. The Rust service filters out inactive flags at request time via `filtered_out_flag_ids`.
+The `_get_feature_flags_for_service` function fetches all flags for a team (including inactive, but excluding deleted and encrypted remote config flags), then returns a cache payload trimmed to the flags worth caching. The Rust service filters out inactive flags at request time via `filtered_out_flag_ids`.
+
+Because that filtering happens before the matcher reads `filters`, an inactive flag can never affect a response, so the payload keeps only evaluable flags plus the inactive flags that another flag's dependency conditions reference.
+A referenced entry is load-bearing: the matcher pre-seeds its id as false, so a dependent with `flag_evaluates_to: false` on a disabled flag still matches instead of missing a dependency.
+`_drop_unreferenced_unevaluable_flags` removes the rest, `evaluation_metadata` is computed on the surviving set, and `_blank_inactive_filters` replaces the kept unevaluable flags' `filters` with an empty `{"groups": []}` before the payload is written.
+`build_flags_cache` in `rust/feature-flags/src/flags/cache_builder.rs` writes the same entry and applies the same drop and blanking.
+Parity is per team, not per byte: each team has one primary writer (teams whose invalidation routes to Kafka via `KAFKA_ROUTING_FLAG` get the Rust builder, every other team Python), the Python verifier remains a repair writer for every team, and the two serializers order keys differently — so what must match is the flag set, fields, and metadata, not the bytes or etag.
+Verifier fixes on the flags cache carry a `writer` label (`posthog_hypercache_verify_fixes_total{cache_type="flags", writer="rust"|"python"|"unknown"}`), attributed by evaluating the same routing flag (`get_team_primary_flags_writer` in `flags_cache.py`): a fix on a rust-routed team is the parity signal that the Rust builder diverged, which the unattributed counter blends into Python's baseline repair noise. `unknown` means the routing flag couldn't be evaluated at fix time, so an attribution outage can't masquerade as a clean Rust ramp.
+Old-shape entries that still carry unreferenced inactive rows stay valid: the matcher never reads those rows, and `verify_team_flags` suppresses them instead of reporting `STALE_IN_CACHE`, so they converge through flag edits and TTL rather than a fleet-wide repair.
+Deploy Django ahead of the Rust images: an older Python verifier reports a Rust-written entry's dropped rows as missing, repairs them back, and the next Rust build removes them again. The reverse skew is safe — the newer verifier tolerates the extra rows old writers leave.
 
 ### Cache payload structure
 
@@ -159,6 +168,9 @@ flag_definitions_hypercache = HyperCache(
     value="flags_with_cohorts.json",
     load_fn=lambda key: _get_flags_response_for_local_evaluation(HyperCache.team_from_key(key)),
     enable_etag=True,
+    # Set only when FLAGS_REDIS_URL is configured. See "Dedicated flags Redis" below.
+    cache_alias=FLAGS_DEDICATED_CACHE_ALIAS,
+    secondary_cache_alias="default",
 )
 ```
 
@@ -244,6 +256,28 @@ if team is None:
 
 The cached team is serialized using `CachingTeamSerializer` and reconstructed as a `Team` instance on retrieval.
 
+## Read repair
+
+Both readers write an S3 hit back into Redis so the next read of the same key is served by Redis instead of paying another S3 read.
+
+The Django reader (`HyperCache.get_from_cache_with_source`) repairs on every S3 hit, synchronously, through the normal write path with the full cache TTL.
+
+The Rust reader (`rust/common/hypercache`) has an opt-in variant, deliberately more conservative than Django's:
+
+- Repairs only on a confirmed Redis miss. A read that fell through to S3 because Redis errored or timed out does not repair, since that tier is degraded and repair writes would add load to it.
+- Writes with `SET NX`, so a repair never overwrites an existing entry and concurrent repairs of one cold key collapse into one write.
+- Uses a short TTL (`HYPERCACHE_READ_REPAIR_TTL_SECONDS`, default 600) and does not register the entry in the expiry sorted set, so the Django refresh job stays the only owner of an entry's real lifetime. The short TTL also bounds how long a resurrected entry lingers in the `HyperCacheWriter::delete` race, where a reader that read S3 just before the delete writes the key back afterwards.
+- Is detached and best-effort: a Redis failure cannot fail a request that already has its value.
+- Refuses etag-enabled namespaces at reader construction (with a startup warning), because the payload and its companion `:etag` key are written atomically by the writer and a payload-only repair would leave the pair inconsistent.
+
+Enabled by default for the readers with no in-process cache in front of them: `array/config.json` in the feature-flags service, and `surveys` and `array/config.json` in hypercache-server. The `feature_flags` readers are excluded: they are etag-paired, and `FlagDefinitionsCache` already absorbs repeat reads of a cold key in process. `team_metadata` is excluded too: a hit there is trusted as proof of a valid token with no Postgres re-check, and team deletion clears Redis before S3, so a repair landing in that gap would resurrect a deleted team in Redis for up to the repair TTL.
+
+Operational controls:
+
+- `HYPERCACHE_READ_REPAIR_TTL_SECONDS=0` disables repair for a service without a code change. The deployment charts pass arbitrary env vars through `.Values.env`, so no chart change is needed.
+- In the feature-flags service, `SKIP_WRITES=true` also disables repair, keeping read-only instances read-only.
+- The `posthog_hypercache_read_repair` counter tracks repair outcomes. A sustained high repair rate means keys are repeatedly going cold (eviction, expiry outpacing the refresh job), which the S3 read rate alone no longer shows because repair suppresses it.
+
 ## Cache TTL settings
 
 | Cache                 | Hit TTL | Miss TTL              |
@@ -251,6 +285,7 @@ The cached team is serialized using `CachingTeamSerializer` and reconstructed as
 | HyperCache (default)  | 30 days | 1 day                 |
 | Remote config serving | 1 day   | 1 day                 |
 | Team authentication   | 5 days  | N/A (deleted on miss) |
+| Rust read repair      | 600s    | N/A (no miss writes)  |
 
 ## Performance characteristics
 
@@ -269,8 +304,13 @@ The cached team is serialized using `CachingTeamSerializer` and reconstructed as
 | `posthog_hypercache_sync`                  | `result`, `namespace`, `value` | Cache sync task outcomes        |
 | `posthog_hypercache_sync_duration_seconds` | `result`, `namespace`, `value` | Cache sync timing               |
 | `posthog_remote_config_via_cache`          | `result`                       | Remote config cache performance |
+| `posthog_hypercache_read_repair`           | `result`, `namespace`, `value` | Rust reader repair outcomes     |
 
 Result labels: `hit_redis`, `hit_s3`, `hit_db`, `missing`, `batch_miss`
+
+Read repair result labels: `success`, `skipped` (key already existed, repair deferred to it), `error`
+
+`skipped` also covers replica lag: reads go to the replica and repairs to the primary, so a key written to the primary but not yet replicated reads as cold and its repair is correctly refused.
 
 ## Debugging
 
@@ -286,6 +326,8 @@ redis-cli get "remote_config/{api_token}/config"
 # Team authentication
 redis-cli get "team_token:{api_token}"
 ```
+
+When `FLAGS_REDIS_URL` is set, the local-evaluation flags key is written to the dedicated instance and mirrored to the shared cache, so `redis-cli` returns whichever copy the cluster you point it at holds. The two can disagree. Read the flag-definitions notes under "Dedicated flags Redis" before you act on either copy.
 
 ### Check cache source in responses
 
@@ -320,28 +362,12 @@ The feature-flags Rust service can use a separate Redis instance for caching, is
 FLAGS_REDIS_URL=redis://flags-redis:6379  # Separate instance for flags
 ```
 
-When `FLAGS_REDIS_URL` is set, the system uses a dual-write pattern:
+When `FLAGS_REDIS_URL` is set, Django registers it as the `flags_dedicated` cache alias (`FLAGS_DEDICATED_CACHE_ALIAS` in `posthog/caching/flags_redis_cache.py`, wired up in `posthog/settings/data_stores.py`).
+Four HyperCache instances bind that alias. For flags (`products/feature_flags/backend/flags_cache.py`), remote config, and team metadata, Django writes to the dedicated instance and the Rust service reads them from it.
 
-```python
-# posthog/caching/flags_redis_cache.py
-def write_flags_to_cache(key: str, value: Any, timeout: Optional[int] = None) -> None:
-    # Always write to shared cache (Django reads from here)
-    cache.set(key, value, timeout)
+The SDK-facing flag-definitions cache (`local_evaluation.py`) is part-way through the same move, so its write side and read side currently point at different clusters. Django writes it to the dedicated instance and mirrors each write to the shared default cache, covering the payload, the ETag, and the cache-miss sentinel. Deletes mirror as well. The Rust `/flags/definitions` reader still reads the shared cache, so the shared copy is the one serving SDK traffic. A later change moves that reader to the dedicated instance, and the mirror is removed after it.
 
-    # Also write to dedicated cache if configured (Rust service reads from here)
-    if has_dedicated_cache:
-        dedicated_cache = caches[FLAGS_DEDICATED_CACHE_ALIAS]
-        dedicated_cache.set(key, value, timeout)
-```
-
-### Why dual-write?
-
-| Consumer     | Reads from      | Purpose                         |
-| ------------ | --------------- | ------------------------------- |
-| Django       | Shared cache    | Local evaluation, SDK endpoints |
-| Rust service | Dedicated cache | High-throughput flag evaluation |
-
-The dual-write pattern is temporary while the Rust port is being completed. Once the Rust service handles all flag evaluation, Django will stop writing to the shared cache for local evaluation, and only the dedicated cache will be used.
+The flag-definitions self-heal queue follows the write side, not the read side. The Rust endpoint enqueues a rebuild request on the dedicated instance (`State::flags_namespace_redis_client`), and the Celery drain reads the queue from `flag_definitions_hypercache.redis_url` (`products/feature_flags/backend/rebuild_queue.py`). Both resolve from `FLAGS_REDIS_URL`, so the producer and the consumer move together on configuration. They can still split on connection state: a Rust process that cannot reach the dedicated cluster at startup falls back to the shared one and enqueues there for its whole life, while Celery keeps draining the dedicated one. Those teams wait for the hourly verifier. `server.rs` logs that startup failure at error level, and the same failure already sends the flags.json, team-metadata, and remote-config readers to the shared cluster, where Django writes nothing. Django and the Rust fleet deploy independently, so a deploy of one before the other leaves requests on the cluster the other side is not reading. Clean up on the **shared** cluster only, and never on the dedicated one, which holds the live queue once both sides are up. A Rust-first rollout puts the window's requests on the dedicated cluster, where the drain collects them as soon as Django deploys, so they need no cleanup. A Django-first rollout puts them on the shared cluster, where nothing reads them again. Either order also leaves the pre-move queue members and the open circuits on the shared cluster. Run `DEL flag_definitions:rebuild_requests flag_definitions:rebuild_circuit` there after both sides are deployed. The circuit-breaker set is included because only the drain prunes it and the key carries no TTL. The cooldown and failure-streak keys expire on their own.
 
 The Rust service only operates when `FLAGS_REDIS_URL` is configured. All cache update functions check this setting and skip operations if not set.
 
@@ -381,7 +407,10 @@ The flag definitions verification task (runs hourly at :50) compares cached flag
 4. Auto-fixes mismatches by refreshing the cache
 5. Reports metrics on match/mismatch/miss rates
 
-The task has a 25-minute soft / 30-minute hard time limit.
+The task has a 35-minute soft / 40-minute hard time limit.
+It winds down at a batch boundary two minutes before the soft limit,
+recording the partial run under `reason="deadline"` in `posthog_hypercache_verification_incomplete_runs_total`;
+the next run restarts from the first team.
 
 Configuration:
 
@@ -439,7 +468,7 @@ The local evaluation cache (for SDKs) also invalidates when cohorts change. See 
 # Required
 REDIS_URL=redis://localhost:6379
 
-# Dedicated flags Redis (optional, enables dual-write)
+# Dedicated flags Redis (optional)
 FLAGS_REDIS_URL=redis://flags-redis:6379
 
 # Cache TTL settings
@@ -464,13 +493,13 @@ REMOTE_CONFIG_CDN_PURGE_DOMAINS=["cdn.example.com"]
 ## Related files
 
 - `posthog/storage/hypercache.py` - Core HyperCache implementation
-- `posthog/models/feature_flag/local_evaluation.py` - Local evaluation caching
-- `posthog/models/feature_flag/flags_cache.py` - Flags cache, signal handlers, verification, dependency computation
+- `products/feature_flags/backend/local_evaluation.py` - Local evaluation caching
+- `products/feature_flags/backend/flags_cache.py` - Flags cache, signal handlers, verification, dependency computation
 - `posthog/storage/hypercache_manager.py` - Batch management operations (warm, invalidate, stats)
-- `posthog/caching/flags_redis_cache.py` - Dual-write pattern for dedicated Redis
+- `posthog/caching/flags_redis_cache.py` - `FLAGS_DEDICATED_CACHE_ALIAS` constant for the dedicated flags Redis
 - `posthog/models/remote_config.py` - Remote config caching
 - `posthog/models/team/team_caching.py` - Team authentication caching
-- `posthog/tasks/feature_flags.py` - Cache update and refresh Celery tasks
+- `products/feature_flags/backend/tasks.py` - Cache update and refresh Celery tasks
 - `posthog/tasks/hypercache_verification.py` - Cache verification task
 - `posthog/tasks/remote_config.py` - Remote config sync tasks
 - `posthog/tasks/scheduled.py` - Task schedule definitions

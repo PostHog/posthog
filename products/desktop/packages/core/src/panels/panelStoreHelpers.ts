@@ -1,6 +1,5 @@
 import { DEFAULT_TAB_IDS } from "./panelConstants";
 import type {
-  GroupPanel,
   LeafPanel,
   PanelNode,
   SplitDirection,
@@ -8,11 +7,11 @@ import type {
   TaskLayout,
 } from "./panelTypes";
 
-export const DEFAULT_FALLBACK_TAB = DEFAULT_TAB_IDS.LOGS;
+const DEFAULT_FALLBACK_TAB = DEFAULT_TAB_IDS.LOGS;
 
-export type TabType = "file" | "system";
+type TabType = "file" | "system";
 
-export interface ParsedTabId {
+interface ParsedTabId {
   type: TabType;
   value: string;
 }
@@ -21,14 +20,14 @@ export function createFileTabId(filePath: string): string {
   return `file-${filePath}`;
 }
 
-export function parseTabId(tabId: string): ParsedTabId & { status?: string } {
+function parseTabId(tabId: string): ParsedTabId & { status?: string } {
   if (tabId.startsWith("file-")) {
     return { type: "file", value: tabId.slice(5) };
   }
   return { type: "system", value: tabId };
 }
 
-export function createTabLabel(tabId: string): string {
+function createTabLabel(tabId: string): string {
   const parsed = parseTabId(tabId);
   if (parsed.type === "file") {
     return parsed.value.split("/").pop() || parsed.value;
@@ -62,12 +61,33 @@ export function getLeafPanel(
   return panel?.type === "leaf" ? panel : null;
 }
 
-export function getGroupPanel(
-  tree: PanelNode,
-  panelId: string,
-): GroupPanel | null {
-  const panel = findPanelById(tree, panelId);
-  return panel?.type === "group" ? panel : null;
+/**
+ * The artifact the user is looking at, if any: the focused panel's active tab
+ * when that is an artifact, else any other panel's. Lets a pane elsewhere (the
+ * task's comment list) narrow itself to whatever is on screen.
+ */
+export function activeArtifactId(layout: TaskLayout): string | null {
+  const activeArtifact = (node: PanelNode): string | null => {
+    if (node.type !== "leaf") {
+      for (const child of node.children) {
+        const found = activeArtifact(child);
+        if (found) return found;
+      }
+      return null;
+    }
+    const active = node.content.tabs.find(
+      (tab) => tab.id === node.content.activeTabId,
+    );
+    return active?.data.type === "artifact" ? active.data.artifactId : null;
+  };
+
+  const focused = layout.focusedPanelId
+    ? getLeafPanel(layout.panelTree, layout.focusedPanelId)
+    : null;
+  return (
+    (focused ? activeArtifact(focused) : null) ??
+    activeArtifact(layout.panelTree)
+  );
 }
 
 let nextPanelId = 1;
@@ -80,11 +100,7 @@ export function resetPanelIdCounter(): void {
   nextPanelId = 1;
 }
 
-export function createNewTab(
-  tabId: string,
-  closeable = true,
-  isPreview = false,
-): Tab {
+function createNewTab(tabId: string, closeable = true, isPreview = false): Tab {
   const parsed = parseTabId(tabId);
   let data: Tab["data"];
 
@@ -207,7 +223,7 @@ export function applyCleanupWithFallback(
   return cleanedTree || originalTree;
 }
 
-export function isTabActiveInTree(tree: PanelNode, tabId: string): boolean {
+function isTabActiveInTree(tree: PanelNode, tabId: string): boolean {
   if (tree.type === "leaf") {
     return tree.content.activeTabId === tabId;
   }

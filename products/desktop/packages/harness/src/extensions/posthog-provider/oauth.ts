@@ -78,13 +78,16 @@ function toCredentials(
 async function postToken(
   region: CloudRegion,
   body: Record<string, string>,
+  signal?: AbortSignal,
 ): Promise<OAuthTokenResponse> {
   const cloudUrl = getCloudUrlFromRegion(region);
   const response = await fetch(`${cloudUrl}/oauth/token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(TOKEN_FETCH_TIMEOUT_MS),
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(TOKEN_FETCH_TIMEOUT_MS)])
+      : AbortSignal.timeout(TOKEN_FETCH_TIMEOUT_MS),
   });
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
@@ -184,8 +187,8 @@ const REGION_LOGIN_OPTIONS: { id: CloudRegion; label: string }[] = [
 
 /**
  * Prompts the user to pick their PostHog region via the login callbacks'
- * selector. `dev` is intentionally not offered here; it stays reachable only
- * through an explicit `POSTHOG_REGION=dev`.
+ * selector. Development regions are intentionally not offered here; they stay
+ * reachable only through an explicit `POSTHOG_REGION`.
  */
 async function selectRegion(
   callbacks: OAuthLoginCallbacks,
@@ -248,13 +251,18 @@ export async function loginPosthog(
 export async function refreshPosthog(
   region: CloudRegion,
   credentials: OAuthCredentials,
+  signal?: AbortSignal,
 ): Promise<OAuthCredentials> {
   const effectiveRegion =
     (credentials.region as CloudRegion | undefined) ?? region;
-  const tokens = await postToken(effectiveRegion, {
-    grant_type: "refresh_token",
-    refresh_token: credentials.refresh,
-    client_id: getOauthClientIdFromRegion(effectiveRegion),
-  });
+  const tokens = await postToken(
+    effectiveRegion,
+    {
+      grant_type: "refresh_token",
+      refresh_token: credentials.refresh,
+      client_id: getOauthClientIdFromRegion(effectiveRegion),
+    },
+    signal,
+  );
   return toCredentials(tokens, effectiveRegion);
 }

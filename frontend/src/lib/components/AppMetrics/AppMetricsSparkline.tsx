@@ -14,6 +14,10 @@ export interface AppMetricsSparklineProps extends AppMetricsLogicProps {
     successMetricNames?: string[]
     /** Optional display labels keyed by series name (e.g. `{ rows_synced: 'Rows synced' }`). */
     metricLabels?: Record<string, string>
+    /** Optional vars.scss color names keyed by series name; takes precedence over `successMetricNames`. */
+    metricColors?: Record<string, string>
+    /** Bars stack their series. Pass `'line'` when series overlap and a summed height would mislead. @default 'bar' */
+    type?: 'bar' | 'line'
 }
 
 const DEFAULT_SUCCESS_METRIC_NAMES = ['success']
@@ -21,6 +25,8 @@ const DEFAULT_SUCCESS_METRIC_NAMES = ['success']
 export function AppMetricsSparkline({
     successMetricNames,
     metricLabels,
+    metricColors,
+    type,
     ...props
 }: AppMetricsSparklineProps): JSX.Element {
     const logic = appMetricsLogic(props)
@@ -52,12 +58,12 @@ export function AppMetricsSparkline({
 
         return (
             sortedSeries?.map((s) => ({
-                color: successNames.includes(s.name) ? 'success' : 'danger',
+                color: metricColors?.[s.name] ?? (successNames.includes(s.name) ? 'success' : 'danger'),
                 name: metricLabels?.[s.name] ?? s.name,
                 values: s.values,
             })) || []
         )
-    }, [appMetricsTrends, params, successMetricNames, metricLabels])
+    }, [appMetricsTrends, params, successMetricNames, metricLabels, metricColors])
 
     const labels = appMetricsTrends?.labels || []
 
@@ -68,7 +74,7 @@ export function AppMetricsSparkline({
             ) : !appMetricsTrends || appMetricsTrendsLoading ? (
                 <LemonSkeleton className="h-8 max-w-24" />
             ) : (
-                <Sparkline labels={labels} data={displayData} className="h-8 max-w-24" maximumIndicator={false} />
+                <Sparkline labels={labels} data={displayData} type={type} className="h-8 max-w-24" />
             )}
         </div>
     )

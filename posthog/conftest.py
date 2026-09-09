@@ -1,5 +1,6 @@
 import os
 import time
+import warnings
 import subprocess
 from collections.abc import Callable
 from functools import partial
@@ -89,6 +90,7 @@ def create_clickhouse_tables():
 def reset_clickhouse_tables():
     # Truncate clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
+    from posthog.clickhouse.cleanup_snapshots import TRUNCATE_CLEANUP_SNAPSHOT_TABLES_SQL
     from posthog.clickhouse.dead_letter_queue import TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL
     from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
     from posthog.heatmaps.sql import TRUNCATE_HEATMAPS_TABLE_SQL
@@ -149,6 +151,7 @@ def reset_clickhouse_tables():
         TRUNCATE_HEATMAPS_TABLE_SQL(),
         TRUNCATE_PG_EMBEDDINGS_TABLE_SQL(),
         TRUNCATE_AI_EVENTS_TABLE_SQL(),
+        *TRUNCATE_CLEANUP_SNAPSHOT_TABLES_SQL(),
     ]
 
     # Drop created Kafka tables because some tests don't expect it.
@@ -190,6 +193,15 @@ def reset_clickhouse_tables():
     run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES()))
 
 
+def _sqlx_error_output(error: subprocess.CalledProcessError) -> str:
+    output = "\n".join(
+        stream.decode(errors="replace") if isinstance(stream, bytes) else stream
+        for stream in (error.stdout, error.stderr)
+        if stream
+    )
+    return output or str(error)
+
+
 def run_persons_sqlx_migrations(keepdb: bool = False):
     """Run sqlx migrations for persons tables in separate test_posthog_persons database.
 
@@ -204,6 +216,11 @@ def run_persons_sqlx_migrations(keepdb: bool = False):
     db_config = settings.DATABASES["default"]
     # Use separate persons database name to mirror production
     persons_db_name = db_config["NAME"] + "_persons"
+    if not persons_db_name.startswith("test_"):
+        raise RuntimeError(
+            f"Refusing to run persons migrations against '{persons_db_name}', which is not a test database. "
+            "Add a pytest.mark.django_db marker to the test module."
+        )
     db_user = db_config["USER"]
     db_password = db_config["PASSWORD"]
     db_host = db_config["HOST"]
@@ -246,7 +263,7 @@ def run_persons_sqlx_migrations(keepdb: bool = False):
         if not keepdb:
             raise RuntimeError(
                 f"Failed to create test database with sqlx. "
-                f"Ensure sqlx-cli is installed. Error: {e.stderr.decode() if e.stderr else str(e)}"
+                f"Ensure sqlx-cli is installed. Error: {_sqlx_error_output(e)}"
             ) from e
 
     # Run migrations (idempotent - sqlx tracks which migrations have run)
@@ -259,7 +276,7 @@ def run_persons_sqlx_migrations(keepdb: bool = False):
         )
     except subprocess.CalledProcessError as e:
         raise RuntimeError(
-            f"Failed to run sqlx migrations from {migrations_path}. Error: {e.stderr.decode() if e.stderr else str(e)}"
+            f"Failed to run sqlx migrations from {migrations_path}. Error: {_sqlx_error_output(e)}"
         ) from e
 
 
@@ -369,6 +386,23 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
 
     create_clickhouse_tables()
 
+    # Seed default data that historically lived in RunPython migrations. Squashed
+    # migrations drop those ops, so without this tests relying on the defaults
+    # (Billing Team auth group, Default DataColorTheme, starter DashboardTemplates)
+    # would fail on a fresh test DB. Tolerated: in some shards (e.g. temporal
+    # async tests that only need the persons DB) the default DB schema isn't
+    # fully migrated yet — skip seeding rather than break setup.
+    with django_db_blocker.unblock():
+        from django.core.management import call_command
+
+        try:
+            call_command("ensure_migration_defaults", verbosity=0)
+        except Exception as exc:
+            warnings.warn(
+                f"ensure_migration_defaults skipped during test DB setup: {exc}",
+                stacklevel=2,
+            )
+
     yield
 
     if django_db_keepdb:
@@ -422,7 +456,7 @@ def _patched_flush_handle(self, **options: Any) -> None:
 
 
 _original_flush_handle = FlushCommand.handle
-FlushCommand.handle = _patched_flush_handle  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+FlushCommand.handle = _patched_flush_handle  # type: ignore[method-assign]
 
 
 @pytest.fixture

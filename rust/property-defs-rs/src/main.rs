@@ -94,11 +94,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
 
-    // dedicated PG conn pool for serving propdefs API queries only (not currently live in prod)
-    // TODO: update this to conditionally point to new isolated propdefs & persons (grouptypemapping)
-    // DBs after those migrations are completed, prior to deployment
-    let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-    let api_pool = options.connect(&config.database_url).await?;
+    // Dedicated PG conn pool for serving propdefs API queries only. The API is mounted but
+    // receives no production traffic today, so connect lazily: `connect` would open a connection
+    // at startup and hold it idle for a surface nothing calls, and would also make boot depend on
+    // Postgres being reachable. The first request pays the connect cost instead.
+    let api_pool = PgPoolOptions::new()
+        .max_connections(config.max_pg_connections)
+        .connect_lazy(&config.database_url)?;
     let query_manager = QueryManager::new(api_pool).await?;
 
     let context = Arc::new(AppContext::new(&config, query_manager).await?);
@@ -107,6 +109,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Subscribed to topic: {}",
         config.consumer.kafka_consumer_topic
     );
+
+    // Build HTTP server with lifecycle readiness/liveness. This must happen before the
+    // cache is built and the worker loops are spawned: setup_metrics_routes_with_overrides
+    // installs the global metrics recorder, and those components resolve counter handles
+    // once at startup. A handle resolved before the recorder exists is a no-op forever.
+    let app = Router::new()
+        .route("/", get(index))
+        .route(
+            "/_readiness",
+            get({
+                let r = readiness.clone();
+                move || {
+                    let r = r.clone();
+                    async move { r.check().await }
+                }
+            }),
+        )
+        .route(
+            "/_liveness",
+            get({
+                let l = liveness.clone();
+                move || {
+                    let l = l.clone();
+                    async move { l.check().into_response() }
+                }
+            }),
+        );
+    let app = apply_routes(app, context.clone());
+    let app = setup_metrics_routes_with_overrides(app, &bucket_overrides());
 
     let (tx, rx) = measuring_channel(config.update_batch_size * config.channel_slots_per_worker);
 
@@ -156,32 +187,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         rx,
         consumer_handle,
     ));
-
-    // Build HTTP server with lifecycle readiness/liveness
-    let app = Router::new()
-        .route("/", get(index))
-        .route(
-            "/_readiness",
-            get({
-                let r = readiness.clone();
-                move || {
-                    let r = r.clone();
-                    async move { r.check().await }
-                }
-            }),
-        )
-        .route(
-            "/_liveness",
-            get({
-                let l = liveness.clone();
-                move || {
-                    let l = l.clone();
-                    async move { l.check().into_response() }
-                }
-            }),
-        );
-    let app = apply_routes(app, context);
-    let app = setup_metrics_routes_with_overrides(app, &bucket_overrides());
 
     let bind = format!("{}:{}", config.host, config.port);
     info!(address = %bind, "HTTP server starting");

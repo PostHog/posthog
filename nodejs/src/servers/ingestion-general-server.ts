@@ -3,6 +3,7 @@ import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
+    KAFKA_EVENTS_PLUGIN_INGESTION_AI,
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from '~/common/config/kafka-topics'
@@ -18,6 +19,7 @@ import { HogTransformerComponent } from '~/common/hog-transformations/hog-transf
 import { IngestionOutputsComponent } from '~/common/outputs/ingestion-outputs'
 import { PersonHogConfig, buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { UsageIngestionConfig } from '~/common/usage-ingestion'
 import { ServerCommands } from '~/common/utils/commands'
 import { PostgresRouter, PostgresRouterComponent } from '~/common/utils/db/postgres'
 import { RedisPoolComponent } from '~/common/utils/db/redis'
@@ -34,7 +36,7 @@ import {
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
 } from '~/ingestion/common/outputs/producers'
-import { createAiConsumer, createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
+import { createAiConsumer } from '~/ingestion/pipelines/ai'
 import { createOutputsRegistry as createAiOutputsRegistry } from '~/ingestion/pipelines/ai/outputs/registry'
 import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
 import { createClientWarningsConsumer } from '~/ingestion/pipelines/clientwarnings'
@@ -88,6 +90,7 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
     RedisConnectionsConfig &
     KafkaConsumerBaseConfig &
     PersonHogConfig &
+    UsageIngestionConfig &
     Pick<
         CommonConfig,
         | 'LOG_LEVEL'
@@ -219,6 +222,8 @@ export class IngestionGeneralServer implements NodeServer {
 
         const postgresPersonRepository = new PostgresPersonRepository(this.postgres, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+            personMergeTombstoneTeamAllowlist: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
+            personCreateClaimTeamAllowlist: this.config.PERSON_CREATE_CLAIM_TEAM_ALLOWLIST,
         })
         const personRepository = buildPersonRepository(
             personhogClient,
@@ -281,7 +286,6 @@ export class IngestionGeneralServer implements NodeServer {
             personRepository,
             cookielessManager,
             hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
-            aiSubpipelineFactory: createAiEventSubpipeline,
         }
 
         const startClientWarnings = (override?: { topic: string; groupId: string }) => {
@@ -375,15 +379,20 @@ export class IngestionGeneralServer implements NodeServer {
                 topic: 'heatmaps_ingestion',
                 groupId: 'heatmaps_ingestion',
             })
+
+            // Capture routes $ai_* events to the dedicated AI topic on every
+            // deployment shape, so combined mode needs the AI consumer too.
+            startAi({
+                topic: KAFKA_EVENTS_PLUGIN_INGESTION_AI,
+                groupId: 'clickhouse-ingestion-ai',
+            })
         } else if (this.config.INGESTION_PIPELINE === 'clientwarnings') {
             startClientWarnings()
         } else if (this.config.INGESTION_PIPELINE === 'heatmaps') {
             startHeatmaps()
         } else if (this.config.INGESTION_PIPELINE === 'ai') {
-            // Dedicated AI pipeline deployment. Not started in combined mode: the
-            // combined analytics consumers already process AI events on the shared
-            // topic, so running this in parallel there would double-process them.
-            // Switchover to this pipeline is driven by capture-side routing.
+            // Dedicated AI pipeline deployment, consuming the topic capture's
+            // AI routing produces to (config-provided in production).
             startAi()
         } else {
             // Production ingestion-v2: single consumer using config-provided topic

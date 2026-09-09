@@ -9,6 +9,7 @@ from django.db import OperationalError, close_old_connections
 
 import requests
 import structlog
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials as OAuthCredentials
 
@@ -22,7 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     GoogleAnalyticsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.settings import (
-    GOOGLE_ANALYTICS_REPORT_SCHEMAS,
+    build_report_schemas,
 )
 
 logger = structlog.get_logger(__name__)
@@ -165,6 +166,23 @@ def _runreport_backoff_seconds(response: requests.Response, attempt: int) -> flo
     return RUNREPORT_BACKOFF_BASE_SECONDS * (2**attempt)
 
 
+def _is_transient_refresh_error(error: RefreshError) -> bool:
+    """Whether an OAuth token-refresh failure is a transient server-side blip worth retrying.
+
+    `AuthorizedSession` refreshes the access token before the Data API request, so a failing
+    token endpoint raises `RefreshError` from `session.post` before any response object exists —
+    the 5xx handling below never sees it. google-auth flags 500/503/504/408/429 (and JSON
+    `server_error`/`temporarily_unavailable`) as retryable, but omits 502 from its retryable
+    status codes, so a Bad Gateway from the token endpoint surfaces as a `RefreshError(retryable=False)`
+    carrying an HTML error page. Treat those as transient too. Permanent failures (`invalid_grant`,
+    `invalid_scope`) stay non-transient so they bubble up to `get_non_retryable_errors`.
+    """
+    if getattr(error, "retryable", False):
+        return True
+    message = str(error)
+    return "502" in message and "Server Error" in message
+
+
 def _run_report(
     session: AuthorizedSession,
     property_id: str,
@@ -188,7 +206,26 @@ def _run_report(
     url = f"{GA4_API_BASE}/properties/{pid}:runReport"
 
     for attempt in range(RUNREPORT_MAX_RETRIES + 1):
-        response = session.post(url, json=body)
+        try:
+            response = session.post(url, json=body)
+        except RefreshError as e:
+            # A transient 5xx from Google's OAuth token endpoint (notably a 502, which
+            # google-auth doesn't count as retryable) is raised here while AuthorizedSession
+            # refreshes the access token, before any response exists. It clears on its own, so
+            # retry inline like a 5xx; permanent failures (invalid_grant / invalid_scope) bubble
+            # up so `get_non_retryable_errors` can stop the sync.
+            if not _is_transient_refresh_error(e) or attempt == RUNREPORT_MAX_RETRIES:
+                raise
+            wait = RUNREPORT_BACKOFF_BASE_SECONDS * (2**attempt)
+            logger.warning(
+                "GA4 runReport token refresh transient error, backing off",
+                property_id=pid,
+                attempt=attempt,
+                wait_seconds=wait,
+            )
+            time.sleep(wait)
+            continue
+
         if response.ok:
             return response.json()
 
@@ -299,10 +336,11 @@ def google_analytics_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
-    if resource_name not in GOOGLE_ANALYTICS_REPORT_SCHEMAS:
+    report_schemas = build_report_schemas(config.custom_reports)
+    if resource_name not in report_schemas:
         raise ValueError(f"Unknown Google Analytics schema: {resource_name}")
 
-    schema = GOOGLE_ANALYTICS_REPORT_SCHEMAS[resource_name]
+    schema = report_schemas[resource_name]
     dimensions = schema["dimensions"]
     metrics = schema["metrics"]
     primary_keys = list(schema["primary_key"])

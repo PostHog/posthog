@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconCheckCircle, IconCompass, IconFlag, IconRefresh, IconSearch, IconSort } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 
-import { STATUS_LABELS } from 'scenes/inbox/components/badges/SignalReportStatusBadge'
-import { FilterItem, FilterPopover } from 'scenes/inbox/components/shell/filterControls'
+import { STATUS_LABELS } from 'products/signals/frontend/inbox/components/badges/SignalReportStatusBadge'
+import { FilterItem, FilterPopover } from 'products/signals/frontend/inbox/components/shell/filterControls'
 import {
     INBOX_PRIORITY_OPTIONS,
     INBOX_SORT_OPTIONS,
@@ -12,9 +12,9 @@ import {
     PRIORITY_MEANING,
     inboxPriorityFilterLabel,
     inboxSortOptionKey,
-} from 'scenes/inbox/filterOptions'
-import { SignalReportStatus } from 'scenes/inbox/types'
-import { prettifyScoutSkillName } from 'scenes/inbox/utils/scoutRunsWindow'
+} from 'products/signals/frontend/inbox/filterOptions'
+import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
+import { prettifyScoutSkillName } from 'products/signals/frontend/inbox/utils/scoutRunsWindow'
 
 import { feedLogic } from './feedLogic'
 

@@ -392,6 +392,14 @@ def _format_bypass(entry: str) -> str:
         m = re.match(r"products\.[^.]+\.backend\.(.+)", side.strip())
         return m.group(1) if m else side.strip()
 
+    def product(side: str) -> str:
+        m = re.match(r"products\.([^.]+)\.", side.strip())
+        return m.group(1) if m else ""
+
+    # a cross-product edge (routes registering another product's view) keeps its full path,
+    # otherwise the product name would be the one detail the line loses
+    if product(sides[0]) != product(sides[1]):
+        return f"{strip(sides[0])} → {sides[1].strip()}"
     return f"{strip(sides[0])} → backend.{strip(sides[1])}"
 
 

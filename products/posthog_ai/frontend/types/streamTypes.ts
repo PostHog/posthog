@@ -120,6 +120,7 @@ export type ThreadItemType =
     | 'error'
     | 'status'
     | 'compact_boundary'
+    | 'conversation_cleared'
     | 'task_notification'
     | 'progress'
     | 'debug'
@@ -140,7 +141,7 @@ export interface ThreadItem {
     complete?: boolean
     /** For `tool_invocation` items — the keyed tool call id (look up in `toolInvocations`). */
     toolCallId?: string
-    /** For `error` items. */
+    /** For `error` items, and for `status` items whose status is a `*_failed` phase. */
     errorMessage?: string
     /**
      * For `error` items — distinguishes a friendlier agent-crash affordance (`crash`) from a
@@ -159,6 +160,8 @@ export interface ThreadItem {
     contextSize?: number
     /** For `task_notification` items — the milestone summary. */
     summary?: string
+    /** For `turn_separator` items — the turn's gateway trace id (`$ai_trace_id` on its generations). */
+    traceId?: string
     /** For `progress` items — backend-supplied group id, scoped to the task run. */
     progressGroup?: string
     /** For `progress` items — ordered setup/runtime progress rows. */
@@ -238,6 +241,7 @@ export interface RunArtifacts {
  */
 export interface PermissionRequestRecord {
     requestId: string
+    sourceRunId?: string
     toolCallId: string
     /** Canonical ACP tool name (`mcp__posthog__exec`, or a built-in like `Bash`) — drives the default permission policy. */
     toolName: string

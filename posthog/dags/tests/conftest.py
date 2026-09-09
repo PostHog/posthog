@@ -4,13 +4,17 @@ from posthog.conftest import django_db_setup
 __all__ = ["django_db_setup"]
 
 from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import datetime
+from uuid import UUID
 
 import pytest
-from posthog.test.base import reset_clickhouse_database
+from posthog.test.base import reset_clickhouse_database, reset_clickhouse_database_if_dirty
 from unittest.mock import patch
 
 from django.conf import settings
 
+from clickhouse_driver import Client
 from psycopg.types.json import Jsonb
 
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
@@ -23,6 +27,14 @@ from posthog.dags.tests.dagster_pg_fixtures import (  # noqa: F401
     _use_postgres_dagster_instance,
 )
 from posthog.persons_db import persons_db_connection
+
+
+def insert_flag_evaluations(rows: list[tuple[int, str, str | UUID, str | UUID, datetime]], client: Client) -> None:
+    """Insert rows of (team_id, distinct_id, person_id, uuid, timestamp) into flag_evaluations."""
+    client.execute(
+        "INSERT INTO writable_flag_evaluations (team_id, distinct_id, person_id, uuid, timestamp) VALUES",
+        rows,
+    )
 
 
 def refresh_person_from_persons_db(person) -> None:
@@ -77,12 +89,15 @@ def _patched_get_cluster_hosts(self, client, cluster, retry_policy=None):
     )
 
 
-@pytest.fixture
-def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
+@contextmanager
+def isolated_clickhouse_cluster() -> Iterator[ClickhouseCluster]:
     """
     Cluster fixture with macOS Docker-compatible hostname resolution.
     Patches ClickhouseCluster to use host_name instead of host_address.
     """
+    # Setup reset stays unconditional (Kafka-engine arrivals don't advance the
+    # dirty counter, so a late row would leak into the next test); teardown can
+    # skip when nothing checked out a ClickHouse client.
     reset_clickhouse_database()
     try:
         with patch.object(
@@ -92,4 +107,10 @@ def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
         ):
             yield get_cluster()
     finally:
-        reset_clickhouse_database()
+        reset_clickhouse_database_if_dirty()
+
+
+@pytest.fixture
+def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
+    with isolated_clickhouse_cluster() as clickhouse_cluster:
+        yield clickhouse_cluster

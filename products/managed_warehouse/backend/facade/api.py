@@ -8,7 +8,6 @@ commands. Django models remain implementation details of the product.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from datetime import date
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -53,13 +52,13 @@ __all__ = [
     "get_team_backfill_state",
     "get_warehouse_provision_status",
     "has_provisioned_warehouse",
+    "is_data_modeling_shadow_ready",
     "is_dev_mode",
     "organization_is_pending_deletion",
     "persist_duckgres_server_for_org",
     "reconcile_stored_bucket_config",
     "resolve_team_earliest_event_date",
     "setup_duckgres_session",
-    "sink_concurrency_by_trusted_organization_ids",
     "update_team_earliest_event_date",
     "validate_schema_name",
 ]
@@ -90,7 +89,6 @@ def _to_stored_server_config(server: DuckgresServer) -> DuckgresStoredServerConf
         ),
         catalog=catalog,
         bucket=bucket,
-        sink_max_concurrency=server.sink_max_concurrency,
     )
 
 
@@ -126,6 +124,25 @@ def has_provisioned_warehouse(organization_id: str | UUID) -> bool:
     from products.managed_warehouse.backend.models import DuckgresServer  # noqa: PLC0415
 
     return DuckgresServer.objects.filter(organization_id=organization_id).exists()
+
+
+def is_data_modeling_shadow_ready(
+    *,
+    organization_id: str | UUID,
+    team_id: int,
+    saved_query_id: str | UUID,
+    source_query: object,
+) -> bool:
+    from products.managed_warehouse.backend.view_translation_status import (  # noqa: PLC0415 -- keeps ORM models off the facade import path
+        is_data_modeling_shadow_ready as check_shadow_readiness,
+    )
+
+    return check_shadow_readiness(
+        organization_id=organization_id,
+        team_id=team_id,
+        saved_query_id=saved_query_id,
+        source_query=source_query,
+    )
 
 
 def get_duckgres_query_server_config(organization_id: str) -> DuckgresQueryServerConfig:
@@ -183,22 +200,6 @@ def reconcile_stored_bucket_config(organization_id: str | UUID, *, bucket: str, 
         .exclude(bucket=bucket, bucket_region=bucket_region)
         .update(bucket=bucket, bucket_region=bucket_region)
     )
-
-
-def sink_concurrency_by_trusted_organization_ids(
-    trusted_organization_ids: Iterable[str],
-) -> dict[str, int]:
-    from products.managed_warehouse.backend.models import DuckgresServer  # noqa: PLC0415
-
-    organization_ids = tuple(trusted_organization_ids)
-    if not organization_ids:
-        return {}
-    return {
-        str(organization_id): sink_max_concurrency
-        for organization_id, sink_max_concurrency in DuckgresServer.objects.filter(
-            organization_id__in=organization_ids
-        ).values_list("organization_id", "sink_max_concurrency")
-    }
 
 
 def get_control_plane_bucket(organization_id: str | UUID) -> str | None:

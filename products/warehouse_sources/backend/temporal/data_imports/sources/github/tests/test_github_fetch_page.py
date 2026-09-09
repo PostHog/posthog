@@ -9,7 +9,9 @@ from prometheus_client import REGISTRY
 from posthog.egress.github.limiter import GitHubRateResource
 from posthog.egress.limiter.policies import Priority
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.github import github
+from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import GithubSource
 
 
 def _ok_response() -> mock.Mock:
@@ -17,9 +19,12 @@ def _ok_response() -> mock.Mock:
     response.status_code = 200
     response.ok = True
     response.text = ""
-    # The egress recorder reads response.request.{method,url}; a spec'd mock doesn't expose the
-    # instance attribute, so set it explicitly (None falls back to defaults in the recorder).
+    # The egress recorder reads response.request.{method,url} and, for a known installation,
+    # response.headers; a spec'd mock doesn't expose either instance attribute, so set them
+    # explicitly (None falls back to defaults in the recorder, and no headers means no rate-limit
+    # sample rather than a parse over a Mock).
     response.request = None
+    response.headers = {}
     return response
 
 
@@ -129,6 +134,17 @@ def test_fetch_page_reraises_other_422_errors():
             github._fetch_page("https://api.github.com/repos/o/r/stats/code_frequency", {}, mock.Mock())
 
 
+def test_fetch_page_treats_topics_422_as_resource_unavailable():
+    # GitHub 422s the topics endpoint for some repositories; it's optional metadata, so the caller
+    # must sync zero rows rather than crash and fail the schema over a raw 422.
+    session = mock.Mock()
+    session.request.return_value = _unprocessable_response("Validation failed")
+
+    with mock.patch.object(github, "make_tracked_session", return_value=session):
+        with pytest.raises(github.GithubResourceUnavailableError):
+            github._fetch_page("https://api.github.com/repos/o/r/topics?per_page=100", {}, mock.Mock())
+
+
 def test_fetch_page_retries_chunked_encoding_error():
     session = mock.Mock()
     session.request.side_effect = [requests.exceptions.ChunkedEncodingError("Connection broken"), _ok_response()]
@@ -187,6 +203,73 @@ def test_fetch_page_gates_on_egress_budget_when_installation_known():
     }
 
 
+@pytest.mark.parametrize(
+    "installation_id,pace,expected_wait",
+    [
+        # Budget with room to spare, which is every sync short enough never to spend its share.
+        # Waiting here would add latency to all of them and prevent nothing.
+        ("123", 0.0, None),
+        ("123", 12.5, 12.5),
+        # Spreading a nearly spent budget can imply most of a window. A source that holds a worker
+        # slot that long is worse than being shed and resuming, so the wait stops at the ceiling.
+        ("123", 9_999.0, github.GITHUB_MAX_RETRY_AFTER_SECONDS),
+        # PAT path: no installation, so no budget to pace against. Asking anyway would key the
+        # lookup on a missing installation and wait on a budget that is not this caller's.
+        (None, 12.5, None),
+    ],
+)
+def test_fetch_page_waits_for_egress_budget_before_asking_for_it(installation_id, pace, expected_wait):
+    # Waiting first is what keeps a long walk inside the budget rather than recovering from it. Every
+    # way of breaking this is silent: no wait means the run drains its share and is shed for the rest
+    # of the window, and waiting when there is headroom slows every small sync instead.
+    session = mock.Mock()
+    session.request.return_value = _ok_response()
+    identity = github.GithubEgressIdentity(installation_id=installation_id)
+
+    with (
+        mock.patch.object(github, "github_installation_pace_seconds", return_value=pace) as pace_for,
+        mock.patch.object(github, "activity") as temporal_activity,
+        mock.patch.object(github, "make_tracked_session", return_value=session),
+    ):
+        temporal_activity.in_activity.return_value = True
+        github._fetch_page("https://api.github.com/repos/o/r/issues", {}, mock.Mock(), identity)
+
+    expected_waits = [] if expected_wait is None else [mock.call(timeout=expected_wait)]
+    assert temporal_activity.wait_for_worker_shutdown_sync.call_args_list == expected_waits
+    assert pace_for.called is (installation_id is not None)
+    assert session.request.call_count == 1
+
+
+@pytest.mark.parametrize(
+    "in_activity,expect_drain_wait,expect_sleep",
+    [
+        (True, True, False),
+        # Outside an activity there is no worker to drain, so a plain sleep is the whole behavior.
+        (False, False, True),
+    ],
+)
+def test_fetch_page_budget_wait_yields_to_a_draining_worker(in_activity, expect_drain_wait, expect_sleep):
+    # The pipeline tests for worker shutdown only between the chunks a source yields, so a wait that
+    # slept would hold a draining pod for its full duration and delay the hand-off by that much.
+    # Waiting on the shutdown event returns the moment the pod starts draining. Nothing about the
+    # sync looks wrong when this regresses; drains just get slower.
+    session = mock.Mock()
+    session.request.return_value = _ok_response()
+    identity = github.GithubEgressIdentity(installation_id="123")
+
+    with (
+        mock.patch.object(github, "github_installation_pace_seconds", return_value=30.0),
+        mock.patch.object(github, "activity") as temporal_activity,
+        mock.patch.object(github.time, "sleep") as sleep,
+        mock.patch.object(github, "make_tracked_session", return_value=session),
+    ):
+        temporal_activity.in_activity.return_value = in_activity
+        github._fetch_page("https://api.github.com/repos/o/r/issues", {}, mock.Mock(), identity)
+
+    assert temporal_activity.wait_for_worker_shutdown_sync.called is expect_drain_wait
+    assert sleep.called is expect_sleep
+
+
 def _error_response(status_code: int, message: str, headers: dict[str, str] | None = None) -> mock.Mock:
     response = mock.Mock(spec=requests.Response)
     response.status_code = status_code
@@ -215,6 +298,7 @@ def _error_response(status_code: int, message: str, headers: dict[str, str] | No
         # A real denial stays fatal, and carries GitHub's own reason so the curated copy can name it.
         ("Resource not accessible by integration", github.GithubAccessDeniedError),
         ("Must have admin rights to Repository.", github.GithubAccessDeniedError),
+        ("Resource protected by organization SAML enforcement", github.GithubAccessDeniedError),
     ],
 )
 def test_fetch_page_403_separates_switched_off_features_from_denials(message, expected_exc):
@@ -226,6 +310,63 @@ def test_fetch_page_403_separates_switched_off_features_from_denials(message, ex
             github._fetch_page("https://api.github.com/repos/o/r/dependabot/alerts", {}, mock.Mock(), repository="o/r")
 
     assert message in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    "message,required_permission,expected_advice,carries_url",
+    [
+        # This message reaches the user as the schema's error, so a denial that omits the grant
+        # leaves them with a disabled table and no stated way to re-enable it. The user reads it,
+        # so the API URL stays in the log line instead.
+        ("Resource not accessible by integration", "deployments", "Deployments: read", False),
+        # An endpoint with no mapped grant still has to end in an action.
+        ("Resource not accessible by integration", None, "Add the missing permission", False),
+        # An organization-level denial is not about this table's grant, and naming one would send
+        # the user to the wrong setting. Curated copy replaces this one, so it keeps the URL.
+        ("Resource protected by organization SAML enforcement", "deployments", "GitHub denied access", True),
+    ],
+)
+def test_fetch_page_denial_states_the_action_that_fits_the_denial(
+    message, required_permission, expected_advice, carries_url
+):
+    session = mock.Mock()
+    session.request.return_value = _error_response(403, message)
+
+    with mock.patch.object(github, "make_tracked_session", return_value=session):
+        with pytest.raises(github.GithubAccessDeniedError) as raised:
+            github._fetch_page(
+                "https://api.github.com/repos/o/r/deployments",
+                {},
+                mock.Mock(),
+                repository="o/r",
+                required_permission=required_permission,
+            )
+
+    assert expected_advice in str(raised.value)
+    assert ("api.github.com" in str(raised.value)) is carries_url
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Resource not accessible by integration",
+        # Per-endpoint wording no enumerated error key can match; only the message prefix does.
+        "Must have push access to view repository collaborators",
+    ],
+)
+def test_denials_raised_by_fetch_page_are_classified_non_retryable(message):
+    # The raised message and GithubSource.get_non_retryable_errors are two halves of one contract:
+    # a denial that matches no key there keeps retrying and never disables the schema. Drive the
+    # real raised message through the real key set, so rewording either side alone fails here.
+    session = mock.Mock()
+    session.request.return_value = _error_response(403, message)
+
+    with mock.patch.object(github, "make_tracked_session", return_value=session):
+        with pytest.raises(github.GithubAccessDeniedError) as raised:
+            github._fetch_page("https://api.github.com/repos/o/r/collaborators", {}, mock.Mock(), repository="o/r")
+
+    errors = GithubSource().get_non_retryable_errors()
+    assert any(error_message_matches(str(raised.value), [key]) for key in errors)
 
 
 def test_fetch_page_403_from_rate_limit_is_not_a_denial():

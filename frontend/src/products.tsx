@@ -33,13 +33,16 @@ import { ActivityScope } from '~/types'
 import { AlertType } from 'products/alerts/frontend/types'
 
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from '../../products/ai_observability/frontend/clusters/constants'
+import type { WarehousePropertiesSceneTab } from '../../products/customer_analytics/frontend/scenes/WarehousePropertiesScene/warehousePropertiesSceneLogic'
 import type {
     SchemaConfigurationSection,
     SchemaSceneTab,
 } from '../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'
 import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
+import { configurationRedirect, resolveSettingSlug } from '../../products/error_tracking/frontend/settingsRedirects'
+import type { InboxTabKey } from '../../products/signals/frontend/inbox/types'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
-import type { ModelsSceneTab } from './scenes/models/modelsSceneLogic'
+import type { NodeDetailSceneTab } from './scenes/models/nodeDetailSceneLogic'
 import {
     ActionType,
     DashboardType,
@@ -60,6 +63,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
     '/ai-gateway': ['AIGateway', 'aiGateway'],
     '/ai-observability/dashboard': ['AIObservability', 'aiObservabilityDashboard'],
+    '/ai-observability/self-driving': ['AIObservability', 'aiObservabilitySelfDriving'],
     '/ai-observability/generations': ['AIObservability', 'aiObservabilityGenerations'],
     '/ai-observability/reviews': ['AIObservability', 'aiObservabilityReviews'],
     '/ai-observability/traces': ['AIObservability', 'aiObservabilityTraces'],
@@ -99,22 +103,27 @@ export const productRoutes: Record<string, [string, string]> = {
     '/my-tickets': ['MyTickets', 'myTickets'],
     '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
     '/customer_analytics/accounts': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
-    '/customer_analytics/accounts/:accountId': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
-    '/customer_analytics/accounts/:accountId/:tab': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
+    '/customer_analytics/accounts/:accountId': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
+    '/customer_analytics/accounts/:accountId/:tab': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
     '/customer_analytics/notes': ['CustomerAnalytics', 'customerAnalyticsNotes'],
     '/customer_analytics/announcements': ['CustomerAnalytics', 'customerAnalyticsAnnouncements'],
     '/customer_analytics/feed': ['CustomerAnalytics', 'customerAnalyticsFeed'],
+    '/customer_analytics/tasks': ['CustomerAnalytics', 'customerAnalyticsTasks'],
+    '/customer_analytics/feature-requests': ['CustomerAnalytics', 'customerAnalyticsFeatureRequests'],
+    '/customer_analytics/feature-requests/:requestId': ['CustomerAnalytics', 'customerAnalyticsFeatureRequests'],
     '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
     '/customer_analytics/journeys/templates': ['CustomerJourneyTemplates', 'customerJourneyTemplates'],
     '/customer_analytics/journeys/:id/edit': ['CustomerJourneyBuilder', 'customerJourneyEdit'],
     '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
     '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
+    '/data-management/warehouse-properties': ['WarehouseProperties', 'warehouseProperties'],
+    '/data-management/warehouse-properties/:tab': ['WarehouseProperties', 'warehouseProperties'],
     '/data-catalog': ['DataCatalog', 'dataCatalog'],
     '/data-catalog/metrics/:name': ['DataCatalogMetric', 'dataCatalogMetric'],
     '/data-ops': ['DataOps', 'dataOps'],
     '/models': ['Models', 'models'],
-    '/models/dags': ['Models', 'models'],
     '/models/:id': ['NodeDetail', 'nodeDetail'],
+    '/models/:id/:tab': ['NodeDetail', 'nodeDetail'],
     '/data-management/sources': ['Sources', 'sources'],
     '/data-management/sources/:sourceId/schemas/:schemaId': ['DataWarehouseSourceSchema', 'dataWarehouseSourceSchema'],
     '/data-management/sources/:sourceId/schemas/:schemaId/:tab': [
@@ -137,6 +146,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
     '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
     '/engineering-analytics/teams': ['EngineeringAnalytics', 'engineeringAnalyticsTeams'],
+    '/engineering-analytics/health': ['EngineeringAnalytics', 'engineeringAnalyticsHealth'],
     '/engineering-analytics/teams/:ownerTeam': ['EngineeringAnalyticsTeam', 'engineeringAnalyticsTeam'],
     '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number': [
         'EngineeringAnalyticsPullRequest',
@@ -153,15 +163,18 @@ export const productRoutes: Record<string, [string, string]> = {
     '/engineering-analytics/authors/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/fingerprint/*': ['ErrorTrackingFingerprint', 'errorTrackingFingerprint'],
+    '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
+    '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
-    '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
-    '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
+    '/experiments': ['Experiments', 'experiments'],
     '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
     '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/games/flappyhog': ['FlappyHog', 'flappyHog'],
     '/identity-matching': ['IdentityMatching', 'identityMatching'],
+    '/ai-enrichment': ['AIEnrichment', 'aiEnrichment'],
+    '/ai-enrichment/:label': ['AIEnrichment', 'aiEnrichment'],
     '/legal': ['LegalDocuments', 'legalDocuments'],
     '/legal/new/:type': ['LegalDocumentNew', 'legalDocumentNew'],
     '/links': ['Links', 'links'],
@@ -182,6 +195,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
     '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
     '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
+    '/mcp-analytics/missing-capabilities': ['MCPAnalytics', 'mcpAnalyticsMissingCapabilities'],
     '/mcp-analytics/notifications': ['MCPAnalytics', 'mcpAnalyticsNotifications'],
     '/mcp-servers/server/:id': ['McpGatewayServer', 'mcpGatewayServer'],
     '/mcp-servers/agent/:id': ['McpGatewayAgent', 'mcpGatewayAgent'],
@@ -194,23 +208,32 @@ export const productRoutes: Record<string, [string, string]> = {
     '/pulse': ['Pulse', 'pulse'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
-    '/replay-vision/actions/:actionId/runs/:runId': ['ReplayVisionActionRun', 'replayVisionActionRun'],
-    '/replay-vision/actions/:actionId/edit': ['ReplayVisionActionEditor', 'replayVisionActionEdit'],
-    '/replay-vision/actions/:actionId': ['ReplayVisionAction', 'replayVisionAction'],
-    '/replay-vision/:scannerId/actions/new': ['ReplayVisionActionEditor', 'replayVisionActionNew'],
     '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
+    '/replay-vision/:id/overview': ['ReplayVisionScannerEditor', 'replayVisionScannerOverview'],
+    '/replay-vision/:id/details': ['ReplayVisionScannerEditor', 'replayVisionScannerDetails'],
     '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
     '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
+    '/replay-vision/:id/budget': ['ReplayVisionScannerEditor', 'replayVisionScannerBudget'],
     '/replay-vision/:id/self-driving': ['ReplayVisionScannerEditor', 'replayVisionScannerSelfDriving'],
     '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     '/code-review': ['CodeReview', 'codeReview'],
-    '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
-    '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
+    '/inbox': ['Inbox', 'inbox'],
+    '/inbox/:tab': ['Inbox', 'inbox'],
+    '/inbox/scouts/scratchpad': ['Inbox', 'inbox'],
+    '/inbox/scouts/findings': ['Inbox', 'inbox'],
+    '/inbox/scouts/runs': ['Inbox', 'inbox'],
+    '/inbox/reports/triage': ['Inbox', 'inbox'],
+    '/inbox/scouts/:skillName': ['Inbox', 'inbox'],
+    '/inbox/scouts/:skillName/:findingId': ['Inbox', 'inbox'],
+    '/inbox/:tab/:reportId': ['Inbox', 'inbox'],
     '/skills': ['Skills', 'skills'],
     '/skills/scouts': ['Skills', 'skillsScouts'],
     '/skills/review-hog': ['Skills', 'skillsReviewHog'],
+    '/skills/community': ['CommunitySkills', 'communitySkills'],
     '/skills/:name': ['Skill', 'skill'],
     '/stamphog': ['Stamphog', 'stamphog'],
+    '/stamphog/runs': ['StamphogRuns', 'stamphogRuns'],
+    '/stamphog/digests': ['StamphogDigests', 'stamphogDigests'],
     '/stamphog/install/callback': ['Stamphog', 'stamphogCallback'],
     '/streamlit-apps': ['StreamlitApps', 'streamlitApps'],
     '/streamlit-apps/new': ['StreamlitAppEdit', 'streamlitAppNew'],
@@ -231,10 +254,12 @@ export const productRoutes: Record<string, [string, string]> = {
     '/visual_review/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
     '/visual_review/repos/:repoId/runs': ['VisualReviewRuns', 'visualReviewRepoRuns'],
     '/visual_review/repos/:repoId/snapshots': ['VisualReviewSnapshotOverview', 'visualReviewSnapshotOverview'],
+    '/visual_review/repos/:repoId/flakiness': ['VisualReviewFlakiness', 'visualReviewFlakiness'],
     '/visual_review/repos/:repoId/:runType/snapshots/:identifier': [
         'VisualReviewSnapshotHistory',
         'visualReviewSnapshotHistory',
     ],
+    '/web/content-autopilot': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
     '/heatmaps': ['Heatmaps', 'heatmaps'],
     '/heatmaps/new': ['HeatmapNew', 'heatmapNew'],
     '/heatmaps/recording': ['HeatmapRecording', 'heatmapRecording'],
@@ -375,19 +400,24 @@ export const productRedirects: Record<
         return combineUrl(defaultTab, searchParams, hashParams).url
     },
     '/data-warehouse': () => urls.sources(),
+    '/data-warehouse/new': () => urls.dataWarehouseSourceNew(),
     '/data-warehouse/sources': () => urls.sources(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
     '/engineering-analytics': '/engineering-analytics/overview',
     '/engineering-analytics/authors': '/engineering-analytics/overview',
-    '/error_tracking/configuration': (_params, searchParams, hashParams) => {
-        const { tab, ...restSearchParams } = searchParams
-        return combineUrl(
-            '/error_tracking',
-            { ...restSearchParams, activeTab: 'configuration' },
-            { ...hashParams, ...(tab ? { selectedSetting: tab } : {}) }
-        ).url
-    },
+    '/error_tracking/configuration': (_params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
+    '/error_tracking/configuration/:tab': (params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(params.tab), searchParams, hashParams),
+    '/error_tracking/settings': (_params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
+    '/error_tracking/settings/:tab': (params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(params.tab), searchParams, hashParams),
+    '/error_tracking/symbol_sets': (_params, searchParams, hashParams) =>
+        configurationRedirect('error-tracking-symbol-sets', searchParams, hashParams),
+    '/error_tracking/symbol-sets': (_params, searchParams, hashParams) =>
+        configurationRedirect('error-tracking-symbol-sets', searchParams, hashParams),
     '/logs/sampling/new': (_params, searchParams, hashParams) =>
         combineUrl('/logs/drop-rules/new', searchParams, hashParams).url,
     '/logs/sampling/:id': (params, searchParams, hashParams) =>
@@ -395,6 +425,8 @@ export const productRedirects: Record<
     '/mcp-analytics': (_params, searchParams, hashParams) =>
         combineUrl(urls.mcpAnalyticsDashboard(), { ...searchParams, landing: 'auto' }, hashParams).url,
     '/replay-vision/templates': '/replay-vision/new/template',
+    '/community-skills': (_params, searchParams, hashParams) =>
+        combineUrl(urls.communitySkills(), searchParams, hashParams).url,
     '/prompt-management/skills': (_params, searchParams, hashParams) =>
         combineUrl(urls.skills(), searchParams, hashParams).url,
     '/prompt-management/skills/:name': (params, searchParams, hashParams) =>
@@ -431,6 +463,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         description: 'Analyze and understand your AI usage and performance.',
         iconType: 'llm_analytics',
+        docsHref: 'https://posthog.com/docs/ai-observability',
     },
     AIObservabilityTrace: { projectBased: true, name: 'AI observability trace', layout: 'app-container' },
     AIObservabilitySession: { projectBased: true, name: 'AI observability session', layout: 'app-container' },
@@ -441,6 +474,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Test and experiment with LLM prompts in a sandbox environment.',
         layout: 'app-full-scene-height',
         iconType: 'llm_playground',
+        docsHref: 'https://posthog.com/docs/ai-observability/playground',
     },
     AIObservabilityDatasets: {
         projectBased: true,
@@ -448,6 +482,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Manage datasets for testing and evaluation.',
         layout: 'app-container',
         iconType: 'llm_datasets',
+        docsHref: 'https://posthog.com/docs/ai-evals/datasets',
     },
     AIObservabilityDataset: { projectBased: true, name: 'Dataset', layout: 'app-container', iconType: 'llm_datasets' },
     AIObservabilityEvaluations: {
@@ -457,6 +492,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'AIObservability',
         layout: 'app-container',
         iconType: 'llm_evaluations',
+        docsHref: 'https://posthog.com/docs/ai-evals',
     },
     AIObservabilityEvaluation: {
         projectBased: true,
@@ -479,6 +515,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'AIObservability',
         layout: 'app-container',
         iconType: 'llm_tags',
+        docsHref: 'https://posthog.com/docs/ai-evals/taggers',
     },
     AIObservabilityTag: {
         projectBased: true,
@@ -493,6 +530,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Track and manage your LLM prompts.',
         layout: 'app-container',
         iconType: 'llm_prompts',
+        docsHref: 'https://posthog.com/docs/prompt-management',
     },
     AIObservabilityPrompt: { projectBased: true, name: 'Prompt', layout: 'app-container', iconType: 'llm_prompts' },
     AIObservabilityClusters: {
@@ -501,6 +539,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Discover patterns and clusters in your AI usage.',
         layout: 'app-container',
         iconType: 'llm_clusters',
+        docsHref: 'https://posthog.com/docs/ai-observability/clusters',
     },
     AIObservabilityCluster: {
         projectBased: true,
@@ -518,6 +557,7 @@ export const productConfiguration: Record<string, any> = {
         name: 'Business knowledge',
         projectBased: true,
         activityScope: 'KnowledgeSource',
+        iconType: 'conversations',
         description:
             'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
     },
@@ -536,7 +576,15 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'data_pipeline',
     },
     CohortsStaffTools: { instanceLevel: true, name: 'Cohorts staff tools' },
-    SupportTickets: { name: 'Ticket list', projectBased: true, layout: 'app-container' },
+    SupportTickets: {
+        name: 'Ticket list',
+        description:
+            'Collect support tickets from an in-app widget, email, or Slack into one inbox, with the product context behind every ticket',
+        iconType: 'conversations',
+        projectBased: true,
+        layout: 'app-container',
+        docsHref: 'https://posthog.com/docs/support',
+    },
     SupportTicketDetail: { name: 'Ticket detail', projectBased: true, layout: 'app-container' },
     SupportSettings: { name: 'Support settings', projectBased: true, layout: 'app-container' },
     MyTickets: { name: 'Your tickets', projectBased: true, layout: 'app-container' },
@@ -545,16 +593,30 @@ export const productConfiguration: Record<string, any> = {
         name: 'Customer analytics',
         description: 'Understand how your customers interact with your product ',
         iconType: 'cohort',
+        docsHref: 'https://posthog.com/docs/customer-analytics',
+    },
+    CustomerAnalyticsAccount: {
+        projectBased: true,
+        name: 'Account details',
+        iconType: 'cohort',
+        layout: 'app-full-scene-height',
     },
     CustomerAnalyticsConfiguration: { projectBased: true, name: 'Customer analytics configuration' },
     CustomerJourneyBuilder: { projectBased: true, name: 'New journey' },
     CustomerJourneyTemplates: { projectBased: true, name: 'New journey' },
+    WarehouseProperties: {
+        projectBased: true,
+        name: 'Warehouse properties',
+        description: 'Add properties to your people and groups from a data warehouse table.',
+        iconType: 'data_warehouse',
+    },
     DataCatalog: {
         projectBased: true,
         name: 'Data catalog',
         layout: 'app-container',
         iconType: 'data_warehouse',
         description: 'Review and manage governed metrics, certifications, and relationships for your data.',
+        docsHref: 'https://posthog.com/docs/semantic-layer',
     },
     DataCatalogMetric: { projectBased: true, name: 'Metric' },
     DataOps: {
@@ -563,6 +625,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'DataWarehouse',
         description: "Manage your organization's shared data warehouse.",
         iconType: 'data_warehouse',
+        docsHref: 'https://posthog.com/docs/data-warehouse',
     },
     Models: {
         name: 'Models',
@@ -577,6 +640,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-raw-no-header',
         hideProjectNotice: true,
         description: 'Write and execute SQL queries against your data warehouse',
+        docsHref: 'https://posthog.com/docs/sql',
     },
     Sources: {
         projectBased: true,
@@ -595,6 +659,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         description: 'Allow your users to individually enable or disable features that are in public beta.',
         iconType: 'early_access_feature',
+        docsHref: 'https://posthog.com/docs/feature-flags/early-access-feature-management',
     },
     EarlyAccessFeature: { name: 'Early access feature', projectBased: true },
     EndpointsScene: {
@@ -604,6 +669,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'endpoints',
         description: 'Define queries your application will use via the API and monitor their cost and usage.',
+        docsHref: 'https://posthog.com/docs/endpoints',
     },
     EndpointScene: { projectBased: true, name: 'Endpoint', activityScope: 'Endpoint' },
     EngineeringAnalytics: {
@@ -653,10 +719,20 @@ export const productConfiguration: Record<string, any> = {
         name: 'Error tracking',
         iconType: 'error_tracking',
         description: 'Track and analyze your error tracking data to understand and fix issues.',
+        docsHref: 'https://posthog.com/docs/error-tracking',
     },
     ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
     ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
     ErrorTrackingFingerprint: { projectBased: true, name: 'Error tracking fingerprint' },
+    Experiments: {
+        projectBased: true,
+        name: 'Experiments',
+        activityScope: ActivityScope.EXPERIMENT,
+        description:
+            'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or due to chance.',
+        iconType: 'experiment',
+        docsHref: 'https://posthog.com/docs/experiments',
+    },
     FeatureFlagTemplates: { projectBased: true, name: 'Feature flag templates' },
     FeatureFlagsStaffTools: { instanceLevel: true, name: 'Flags staff tools' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
@@ -669,6 +745,7 @@ export const productConfiguration: Record<string, any> = {
             'Review probable links between anonymous visitors and identified persons, recovered from first-party signals.',
         iconType: 'persons',
     },
+    AIEnrichment: { name: 'AI enrichment', instanceLevel: true },
     LegalDocuments: {
         name: 'Legal documents',
         organizationBased: true,
@@ -684,7 +761,11 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'link',
     },
     Link: { name: 'Link', projectBased: true, activityScope: 'Link' },
-    LiveDebugger: { name: 'Live Debugger', projectBased: true },
+    LiveDebugger: {
+        name: 'Live debugger',
+        projectBased: true,
+        description: 'Set breakpoints in your running code and inspect the state captured when they hit.',
+    },
     Logs: {
         projectBased: true,
         name: 'Logs',
@@ -692,6 +773,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         iconType: 'logs',
         description: 'Monitor and analyze your logs to understand and fix issues.',
+        docsHref: 'https://posthog.com/docs/logs',
     },
     LogsAlertDetail: { projectBased: true, name: 'Alert', activityScope: ActivityScope.LOG, layout: 'app-container' },
     LogsAlertNotificationDetail: {
@@ -736,6 +818,7 @@ export const productConfiguration: Record<string, any> = {
         layout: 'app-container',
         description: 'Capture user intent and behaviour patterns to understand what AI users need from your tools.',
         iconType: 'mcp_analytics',
+        docsHref: 'https://posthog.com/docs/mcp-analytics',
     },
     MCPAnalyticsToolDetail: {
         projectBased: true,
@@ -750,6 +833,7 @@ export const productConfiguration: Record<string, any> = {
             'Route every MCP server your team uses through one gateway: shared credentials, per-tool policies, agent identities, and an audit log.',
         layout: 'app-container',
         iconType: 'tools',
+        docsHref: 'https://posthog.com/docs/model-context-protocol',
     },
     McpGatewayServer: { projectBased: true, name: 'MCP server' },
     McpGatewayAgent: { projectBased: true, name: 'MCP agent' },
@@ -761,6 +845,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'Metrics',
         description: 'Monitor and analyze application metrics to understand system performance and health.',
         iconType: 'metrics',
+        docsHref: 'https://posthog.com/docs/metrics',
     },
     TaskTracker: {
         name: 'Tasks',
@@ -769,6 +854,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Tasks are work that agents can do for you, like creating a pull request or fixing an issue.',
         iconType: 'task',
         layout: 'app-full-scene-height',
+        docsHref: 'https://posthog.com/docs/posthog-desktop/tasks',
     },
     Pulse: {
         name: 'Pulse',
@@ -784,6 +870,7 @@ export const productConfiguration: Record<string, any> = {
             'Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event.',
         iconType: 'replay_vision',
         layout: 'app-container',
+        docsHref: 'https://posthog.com/docs/replay-vision',
     },
     ReplayVisionScanner: {
         name: 'Replay vision scanner',
@@ -803,42 +890,18 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'replay_vision',
         layout: 'app-container',
     },
-    ReplayVisionAction: {
-        name: 'Replay vision action',
-        projectBased: true,
-        iconType: 'replay_vision',
-        layout: 'app-container',
-    },
-    ReplayVisionActionEditor: {
-        name: 'Replay vision action editor',
-        projectBased: true,
-        iconType: 'replay_vision',
-        layout: 'app-container',
-    },
-    ReplayVisionActionRun: {
-        name: 'Replay vision action run',
-        projectBased: true,
-        iconType: 'replay_vision',
-        layout: 'app-container',
-    },
     CodeReview: {
         name: 'Code review',
         projectBased: true,
         description: 'Automated code reviews of your pull requests, and your review agent settings.',
         iconType: 'code_review',
+        docsHref: 'https://posthog.com/docs/posthog-desktop/code-review',
     },
-    SessionGroupSummariesTable: {
-        name: 'Session summaries',
+    Inbox: {
+        name: 'Self-driving inbox',
         projectBased: true,
-        description:
-            'View and deep-dive into AI-generated summaries of session recordings. Create summaries from the Session replay page by applying filters and asking PostHog AI to summarize sessions.',
-        iconType: 'notebook',
-    },
-    SessionGroupSummary: {
-        name: 'Session summary',
-        projectBased: true,
-        description: 'View detailed session group summary.',
-        iconType: 'notebook',
+        description: 'Actionable reports automatically generated from user session analysis and other signals.',
+        docsHref: 'https://posthog.com/docs/self-driving/inbox',
     },
     Skills: {
         projectBased: true,
@@ -846,10 +909,24 @@ export const productConfiguration: Record<string, any> = {
         description: 'Manage versioned agent skills that any MCP-connected agent can discover and use.',
         layout: 'app-container',
         iconType: 'llm_prompts',
+        docsHref: 'https://posthog.com/docs/skills',
     },
     Skill: { projectBased: true, name: 'Skill', layout: 'app-container', iconType: 'llm_prompts' },
-    Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog' },
-    StreamlitApps: { name: 'Streamlit apps', projectBased: true },
+    CommunitySkills: {
+        projectBased: true,
+        name: 'Community skills',
+        description: 'Discover and install agent skills shared by the PostHog community.',
+        layout: 'app-container',
+        iconType: 'llm_prompts',
+    },
+    Stamphog: { projectBased: true, name: 'Stamphog', iconType: 'stamphog', activityScope: 'StamphogRepoConfig' },
+    StamphogRuns: { projectBased: true, name: 'Stamphog runs', iconType: 'stamphog' },
+    StamphogDigests: { projectBased: true, name: 'Stamphog digests', iconType: 'stamphog' },
+    StreamlitApps: {
+        name: 'Streamlit apps',
+        description: 'Build and share custom Python apps that run on your PostHog data.',
+        projectBased: true,
+    },
     StreamlitApp: { name: 'Streamlit app', projectBased: true },
     StreamlitAppEdit: { name: 'Edit Streamlit app', projectBased: true },
     Subscriptions: {
@@ -870,6 +947,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         description: 'PostHog toolbar launches PostHog right in your app or website.',
         iconType: 'toolbar',
+        docsHref: 'https://posthog.com/docs/toolbar',
     },
     Tracing: {
         name: 'Tracing',
@@ -878,6 +956,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'Tracing',
         description: 'Monitor and analyze distributed traces to understand service performance and debug issues.',
         iconType: 'tracing',
+        docsHref: 'https://posthog.com/docs/distributed-tracing',
     },
     TracingOperation: {
         name: 'Operation',
@@ -896,7 +975,13 @@ export const productConfiguration: Record<string, any> = {
     },
     UserInterview: { name: 'Interview topic', projectBased: true, activityScope: 'UserInterview' },
     UserInterviewResponse: { name: 'Interview response', projectBased: true, activityScope: 'UserInterview' },
-    VisualReviewIndex: { name: 'Visual review', projectBased: true, iconType: 'visual_review' },
+    VisualReviewIndex: {
+        name: 'Visual review',
+        description:
+            'Catch unintended UI changes by reviewing screenshot diffs from CI, with the approved baselines committed back to your repo.',
+        projectBased: true,
+        iconType: 'visual_review',
+    },
     VisualReviewRuns: { name: 'Runs', projectBased: true, iconType: 'visual_review' },
     VisualReviewRun: { name: 'Visual review run', projectBased: true, iconType: 'visual_review' },
     VisualReviewSettings: { name: 'Visual review settings', projectBased: true, iconType: 'visual_review' },
@@ -906,11 +991,13 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'visual_review',
     },
     VisualReviewSnapshotOverview: { name: 'Snapshots', projectBased: true, iconType: 'visual_review' },
+    VisualReviewFlakiness: { name: 'Flakiness', projectBased: true, iconType: 'visual_review' },
     Heatmaps: {
         name: 'Heatmaps',
         projectBased: true,
         iconType: 'heatmap',
         description: 'Heatmaps are a way to visualize user behavior on your website.',
+        docsHref: 'https://posthog.com/docs/toolbar/heatmaps',
     },
     Heatmap: { name: 'Heatmap', projectBased: true, iconType: 'heatmap' },
     HeatmapNew: { name: 'New heatmap', projectBased: true, iconType: 'heatmap' },
@@ -920,6 +1007,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'workflows',
         projectBased: true,
         description: 'Automate user communication and internal processes',
+        docsHref: 'https://posthog.com/docs/workflows',
     },
     Workflow: { name: 'Workflows', iconType: 'workflows', projectBased: true },
     WorkflowsLibraryTemplate: { name: 'Workflows', iconType: 'workflows', projectBased: true },
@@ -936,6 +1024,7 @@ export const productUrls = {
     actions: (): string => '/data-management/actions',
     aiGateway: (): string => '/ai-gateway',
     aiObservabilityDashboard: (): string => '/ai-observability/dashboard',
+    aiObservabilitySelfDriving: (): string => '/ai-observability/self-driving',
     aiObservabilityGenerations: (): string => '/ai-observability/generations',
     aiObservabilityReviews: (): string => '/ai-observability/reviews',
     aiObservabilityTraces: (): string => '/ai-observability/traces',
@@ -948,6 +1037,7 @@ export const productUrls = {
             search?: string
             tab?: string
             msg?: string
+            [key: string]: string | undefined
         }
     ): string => {
         const encodePathSegment = (value: string): string => {
@@ -960,7 +1050,13 @@ export const productUrls = {
                 (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`
             )
         }
-        const queryParams = new URLSearchParams(params)
+        const definedParams: Record<string, string> = {}
+        for (const [key, value] of Object.entries(params ?? {})) {
+            if (value !== undefined) {
+                definedParams[key] = value
+            }
+        }
+        const queryParams = new URLSearchParams(definedParams)
         const stringifiedParams = queryParams.toString()
         return `/ai-observability/traces/${encodePathSegment(id)}${stringifiedParams ? `?${stringifiedParams}` : ''}`
     },
@@ -1015,7 +1111,8 @@ export const productUrls = {
     supportTickets: (): string => '/support/tickets',
     supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
     supportSettings: (): string => '/support/settings',
-    myTickets: (): string => '/my-tickets',
+    myTickets: (ticketId?: string): string =>
+        ticketId ? `/my-tickets?ticket=${encodeURIComponent(ticketId)}` : '/my-tickets',
     customerAnalytics: (): string => '/customer_analytics',
     customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
     customerAnalyticsAccounts: (): string => '/customer_analytics/accounts',
@@ -1024,19 +1121,21 @@ export const productUrls = {
     customerAnalyticsNotes: (): string => '/customer_analytics/notes',
     customerAnalyticsAnnouncements: (): string => '/customer_analytics/announcements',
     customerAnalyticsFeed: (): string => '/customer_analytics/feed',
+    customerAnalyticsTasks: (): string => '/customer_analytics/tasks',
+    customerAnalyticsFeatureRequests: (requestId?: string): string =>
+        `/customer_analytics/feature-requests${requestId ? `/${requestId}` : ''}`,
     customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
     customerAnalyticsConfiguration: (tab?: string): string =>
         `/customer_analytics/configuration${tab ? `?tab=${tab}` : ''}`,
     customerJourneyBuilder: (): string => '/customer_analytics/journeys/new',
     customerJourneyTemplates: (): string => '/customer_analytics/journeys/templates',
     customerJourneyEdit: (id: string): string => `/customer_analytics/journeys/${id}/edit`,
+    warehouseProperties: (tab?: WarehousePropertiesSceneTab): string =>
+        `/data-management/warehouse-properties${tab ? `/${tab}` : ''}`,
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
-    dashboardTextTile: (id: string | number, textTileId: string | number): string =>
-        `${urls.dashboard(id)}/text-tiles/${textTileId}`,
-    dashboardButtonTile: (id: string | number, buttonTileId: string | number): string =>
-        `${urls.dashboard(id)}/button-tiles/${buttonTileId}`,
+    dashboardTile: (id: string | number, tileId: string | number): string => `${urls.dashboard(id)}/tiles/${tileId}`,
     dashboardSharing: (id: string | number): string => `/dashboard/${id}/sharing`,
     dashboardSubscriptions: (id: string | number): string => `/dashboard/${id}/subscriptions`,
     dashboardSubscription: (id: string | number, subscriptionId: string): string =>
@@ -1044,19 +1143,16 @@ export const productUrls = {
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
     dataCatalogMetric: (name: string): string => `/data-catalog/metrics/${name}`,
-    dataOps: (tab?: string, dagId?: string): string => {
+    dataOps: (tab?: string): string => {
         const params = new URLSearchParams()
         if (tab) {
             params.set('tab', tab)
         }
-        if (dagId) {
-            params.set('dag', dagId)
-        }
         const query = params.toString()
         return query ? `/data-ops?${query}` : '/data-ops'
     },
-    models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
-    nodeDetail: (id: string): string => `/models/${id}`,
+    models: (): string => '/models',
+    nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
     sources: (): string => '/data-management/sources',
     dataWarehouseSource: (id: string, tab?: SourceSceneTab): string =>
         `/data-management/sources/${id}/${tab ?? 'schemas'}`,
@@ -1143,6 +1239,7 @@ export const productUrls = {
     engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
     engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
     engineeringAnalyticsTeams: (): string => '/engineering-analytics/teams',
+    engineeringAnalyticsHealth: (): string => '/engineering-analytics/health',
     engineeringAnalyticsTeam: (ownerTeam: string): string =>
         `/engineering-analytics/teams/${encodeURIComponent(ownerTeam)}`,
     engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
@@ -1184,10 +1281,12 @@ export const productUrls = {
         options?: {
             metric?: ExperimentMetric
             name?: string
+            tab?: string
         }
     ): string => {
         const baseUrl = formMode ? `/experiments/${id}/${formMode}` : `/experiments/${id}`
-        return `${baseUrl}${options ? `?${toParams(options)}` : ''}`
+        const params = options ? toParams(options) : ''
+        return params ? `${baseUrl}?${params}` : baseUrl
     },
     experiments: (): string => '/experiments',
     experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
@@ -1230,6 +1329,7 @@ export const productUrls = {
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
         `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}${tab ? `/${tab}` : ''}`,
     identityMatching: (): string => '/identity-matching',
+    aiEnrichment: (label?: string): string => `/ai-enrichment${label ? `/${encodeURIComponent(label)}` : ''}`,
     legalDocuments: (): string => '/legal',
     legalDocumentNew: (type: 'BAA' | 'DPA'): string => `/legal/new/${type.toLowerCase()}`,
     links: (): string => '/links',
@@ -1247,12 +1347,14 @@ export const productUrls = {
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
     marketingAnalyticsApp: (): string => '/marketing',
+    mcpAnalytics: (): string => '/mcp-analytics',
     mcpAnalyticsActivity: (): string => '/mcp-analytics/activity',
     mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
     mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
     mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
     mcpAnalyticsTool: (toolName: string): string => `/mcp-analytics/tool-quality/${encodeURIComponent(toolName)}`,
     mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
+    mcpAnalyticsMissingCapabilities: (): string => '/mcp-analytics/missing-capabilities',
     mcpAnalyticsNotifications: (): string => '/mcp-analytics/notifications',
     mcpGateway: (): string => '/mcp-servers',
     mcpGatewayTab: (tab: string): string => `/mcp-servers/${tab}`,
@@ -1365,19 +1467,24 @@ export const productUrls = {
     replayVision: (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
     replayVisionTemplates: (): string => '/replay-vision/new/template',
     replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
+    replayVisionScannerOverview: (id: string): string => `/replay-vision/${id}/overview`,
+    replayVisionScannerDetails: (id: string): string => `/replay-vision/${id}/details`,
     replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
     replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
+    replayVisionScannerBudget: (id: string): string => `/replay-vision/${id}/budget`,
     replayVisionScannerSelfDriving: (id: string): string => `/replay-vision/${id}/self-driving`,
     replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
-    replayVisionAction: (actionId: string): string => `/replay-vision/actions/${actionId}`,
-    replayVisionActionRun: (actionId: string, runId: string): string =>
-        `/replay-vision/actions/${actionId}/runs/${runId}`,
-    replayVisionActionNew: (scannerId: string, mode?: 'group_summary' | 'alert'): string =>
-        `/replay-vision/${scannerId}/actions/new${mode === 'alert' ? '?mode=alert' : ''}`,
-    replayVisionActionEdit: (actionId: string): string => `/replay-vision/actions/${actionId}/edit`,
     codeReview: (): string => '/code-review',
-    sessionSummaries: (): string => '/session-summaries',
-    sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
+    inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
+    inboxReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string => `/inbox/${tab}/${reportId}`,
+    inboxTriage: (): string => '/inbox/reports/triage',
+    inboxScout: (skillName: string | ':skillName', findingId?: string | ':findingId'): string => {
+        const segment = findingId ? `/${findingId === ':findingId' ? findingId : encodeURIComponent(findingId)}` : ''
+        return `/inbox/scouts/${skillName}${segment}`
+    },
+    inboxScratchpad: (): string => '/inbox/scouts/scratchpad',
+    inboxFindings: (): string => '/inbox/scouts/findings',
+    inboxRuns: (): string => '/inbox/scouts/runs',
     skills: (): string => '/skills',
     skillsCategoryTab: (categoryTab: string): string => `/skills/${categoryTab}`,
     skill: (
@@ -1387,7 +1494,10 @@ export const productUrls = {
             version?: number
         }
     ): string => combineUrl(`/skills/${name}`, params).url,
+    communitySkills: (): string => '/skills/community',
     stamphog: (): string => '/stamphog',
+    stamphogRuns: (): string => '/stamphog/runs',
+    stamphogDigests: (): string => '/stamphog/digests',
     stamphogCallback: (): string => '/stamphog/install/callback',
     streamlitApps: (): string => '/streamlit-apps',
     streamlitApp: (id: string): string => `/streamlit-apps/${id}`,
@@ -1427,6 +1537,7 @@ export const productUrls = {
     visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
     visualReviewRepoRuns: (repoId: string): string => `/visual_review/repos/${repoId}/runs`,
     visualReviewSnapshotOverview: (repoId: string): string => `/visual_review/repos/${repoId}/snapshots`,
+    visualReviewFlakiness: (repoId: string): string => `/visual_review/repos/${repoId}/flakiness`,
     visualReviewSnapshotHistory: (repoId: string, runType: string, identifier: string): string =>
         `/visual_review/repos/${repoId}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
     webAnalytics: (): string => `/web`,
@@ -1436,6 +1547,7 @@ export const productUrls = {
     webAnalyticsHealth: (): string => `/web/health`,
     webAnalyticsLive: (): string => `/web/live`,
     webAnalyticsBotAnalytics: (): string => `/web/bot-analytics`,
+    webAnalyticsContentAutopilot: (): string => `/web/content-autopilot`,
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     heatmapNew: (params?: string): string =>
@@ -1459,14 +1571,14 @@ export const fileSystemTypes = {
         href: (ref: string) => urls.action(ref),
         filterKey: 'action',
         iconType: 'action' as FileSystemIconType,
-        iconColor: ['var(--color-product-actions-light)'] as FileSystemIconColor,
+        iconColor: ['var(--color-product-actions-light)', 'var(--color-product-actions-dark)'] as FileSystemIconColor,
     },
     cohort: {
         name: 'Cohort',
         iconType: 'cohort' as FileSystemIconType,
+        iconColor: ['var(--color-product-cohorts-light)', 'var(--color-product-cohorts-dark)'] as FileSystemIconColor,
         href: (ref: string) => urls.cohort(ref),
         filterKey: 'cohort',
-        iconColor: ['var(--color-product-cohorts-light)'] as FileSystemIconColor,
     },
     dashboard: {
         name: 'Dashboard',
@@ -1489,7 +1601,7 @@ export const fileSystemTypes = {
         name: 'Endpoints',
         iconType: 'endpoints',
         href: () => urls.endpoints(),
-        iconColor: ['var(--color-product-endpoints-light)'],
+        iconColor: ['var(--color-product-endpoints-light)', 'var(--color-product-endpoints-dark)'],
         filterKey: 'endpoints',
     },
     experiment: {
@@ -1517,7 +1629,7 @@ export const fileSystemTypes = {
         name: 'Link',
         iconType: 'link' as FileSystemIconType,
         href: (ref: string) => urls.link(ref),
-        iconColor: ['var(--color-product-links-light)'],
+        iconColor: ['var(--color-product-links-light)', 'var(--color-product-links-dark)'],
         filterKey: 'link',
         flag: FEATURE_FLAGS.LINKS,
     },
@@ -1539,7 +1651,7 @@ export const fileSystemTypes = {
         name: 'Product tour',
         iconType: 'product_tour',
         href: (ref: string) => urls.productTour(ref),
-        iconColor: ['var(--color-product-surveys-light)'],
+        iconColor: ['var(--color-product-product-tours-light)', 'var(--color-product-product-tours-dark)'],
         filterKey: 'product_tour',
     },
     session_recording_playlist: {
@@ -1568,7 +1680,7 @@ export const fileSystemTypes = {
         name: 'User research',
         iconType: 'user_interview',
         href: (ref: string) => urls.userInterview(ref),
-        iconColor: ['var(--color-product-user-interviews-light)'],
+        iconColor: ['var(--color-product-user-interviews-light)', 'var(--color-product-user-interviews-dark)'],
         filterKey: 'user_interview',
         flag: FEATURE_FLAGS.USER_INTERVIEWS,
     },
@@ -1584,11 +1696,18 @@ export const fileSystemTypes = {
 /** This const is auto-generated, as is the whole file */
 export const productSetupProbes: ProductSetupProbe[] = [
     {
+        productKey: ProductKey.AI_OBSERVABILITY,
+        hasDataEvents: ['$ai_generation', '$ai_trace', '$ai_span', '$ai_embedding'],
+        staleAfterDays: 90,
+    },
+    { productKey: ProductKey.ERROR_TRACKING, hasDataEvents: ['$exception'] },
+    {
         productKey: ProductKey.MCP_ANALYTICS,
         hasDataEvents: ['$mcp_tool_call'],
         waitingEvents: ['$mcp_initialize'],
         featureFlag: FEATURE_FLAGS.MCP_ANALYTICS,
     },
+    { productKey: ProductKey.WEB_ANALYTICS, hasDataEvents: ['$web_vitals'] },
 ]
 
 /** This const is auto-generated, as is the whole file */
@@ -1598,14 +1717,14 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         path: 'Action',
         href: urls.createAction(),
         iconType: 'action' as FileSystemIconType,
-        iconColor: ['var(--color-product-actions-light)'] as FileSystemIconColor,
+        iconColor: ['var(--color-product-actions-light)', 'var(--color-product-actions-dark)'] as FileSystemIconColor,
     },
     {
         path: `Cohort`,
         type: 'cohort',
         href: urls.cohort('new'),
         iconType: 'cohort' as FileSystemIconType,
-        iconColor: ['var(--color-product-cohorts-light)'] as FileSystemIconColor,
+        iconColor: ['var(--color-product-cohorts-light)', 'var(--color-product-cohorts-dark)'] as FileSystemIconColor,
         sceneKeys: ['Cohorts', 'Cohort'],
     },
     {
@@ -1621,28 +1740,28 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         path: `Data/Destination`,
         type: 'hog_function/destination',
         href: urls.dataPipelinesNew('destination'),
-        iconColor: ['var(--color-product-data-pipeline-light)'],
+        iconColor: ['var(--color-product-data-pipeline-light)', 'var(--color-product-data-pipeline-dark)'],
         sceneKeys: ['HogFunction'],
     },
     {
         path: `Data/Source`,
         type: 'hog_function/source',
         href: urls.dataPipelinesNew('source'),
-        iconColor: ['var(--color-product-data-pipeline-light)'],
+        iconColor: ['var(--color-product-data-pipeline-light)', 'var(--color-product-data-pipeline-dark)'],
         sceneKeys: ['HogFunction'],
     },
     {
         path: `Data/Transformation`,
         type: 'hog_function/transformation',
         href: urls.dataPipelinesNew('transformation'),
-        iconColor: ['var(--color-product-data-pipeline-light)'],
+        iconColor: ['var(--color-product-data-pipeline-light)', 'var(--color-product-data-pipeline-dark)'],
         sceneKeys: ['HogFunction'],
     },
     {
         path: `Data/Web script`,
         type: 'hog_function/site_app',
         href: urls.webScriptsNew(),
-        iconColor: ['var(--color-product-data-pipeline-light)'],
+        iconColor: ['var(--color-product-data-pipeline-light)', 'var(--color-product-data-pipeline-dark)'],
         sceneKeys: ['HogFunction'],
     },
     {
@@ -1741,7 +1860,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         type: 'link',
         href: urls.link('new'),
         iconType: 'link' as FileSystemIconType,
-        iconColor: ['var(--color-product-links-light)'] as FileSystemIconColor,
+        iconColor: ['var(--color-product-links-light)', 'var(--color-product-links-dark)'] as FileSystemIconColor,
         flag: FEATURE_FLAGS.LINKS,
     },
     { path: `Notebook`, type: 'notebook', href: urls.notebook('new'), iconType: 'notebook' },
@@ -1750,7 +1869,11 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         type: 'product_tour',
         href: urls.productTour('new'),
         iconType: 'product_tour',
-        iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
+        iconColor: [
+            'var(--color-product-product-tours-light)',
+            'var(--color-product-product-tours-dark)',
+        ] as FileSystemIconColor,
+        flag: FEATURE_FLAGS.PRODUCT_TOURS,
     },
     {
         path: `Survey`,
@@ -1760,6 +1883,58 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
     },
 ]
+
+/** This const is auto-generated, as is the whole file */
+export type ProductTreePath =
+    | 'AI gateway'
+    | 'Apps'
+    | 'Business knowledge'
+    | 'Clusters'
+    | 'Code review'
+    | 'Customer analytics'
+    | 'Dashboards'
+    | 'Data catalog'
+    | 'Data warehouse'
+    | 'Datasets'
+    | 'Early access features'
+    | 'Endpoints'
+    | 'Engineering analytics'
+    | 'Error tracking'
+    | 'Evaluations'
+    | 'Experiments'
+    | 'Feature flags'
+    | 'Heatmaps'
+    | 'Identity matching'
+    | 'Inbox'
+    | 'Links'
+    | 'Live Debugger'
+    | 'LLM analytics'
+    | 'Logs'
+    | 'Marketing analytics'
+    | 'MCP analytics'
+    | 'MCP servers'
+    | 'Metrics'
+    | 'Notebooks'
+    | 'Playground'
+    | 'Product analytics'
+    | 'Product tours'
+    | 'Prompts'
+    | 'Pulse'
+    | 'Replay vision'
+    | 'Session replay'
+    | 'Skills'
+    | 'SQL editor'
+    | 'Support'
+    | 'Surveys'
+    | 'Taggers'
+    | 'Tasks'
+    | 'Toolbar'
+    | 'Tracing'
+    | 'User research'
+    | 'Visual review'
+    | 'Web analytics'
+    | 'Web scripts'
+    | 'Workflows'
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
@@ -1847,11 +2022,20 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.CUSTOMER_ANALYTICS],
         category: ProductItemCategory.ANALYTICS,
         iconType: 'cohort',
+        iconColor: [
+            'var(--color-product-customer-analytics-light)',
+            'var(--color-product-customer-analytics-dark)',
+        ] as FileSystemIconColor,
         href: urls.customerAnalytics(),
         tags: ['beta'],
         flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
         sceneKey: 'CustomerAnalytics',
-        sceneKeys: ['CustomerAnalytics', 'CustomerJourneyTemplates', 'CustomerJourneyBuilder'],
+        sceneKeys: [
+            'CustomerAnalytics',
+            'CustomerAnalyticsAccount',
+            'CustomerJourneyTemplates',
+            'CustomerJourneyBuilder',
+        ],
     },
     {
         path: 'Dashboards',
@@ -1870,8 +2054,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.ANALYTICS,
         iconType: 'data_warehouse',
         href: urls.dataCatalog(),
-        flag: FEATURE_FLAGS.PRODUCT_DATA_CATALOG,
-        tags: ['alpha'],
+        tags: ['beta'],
         sceneKey: 'DataCatalog',
         sceneKeys: ['DataCatalog', 'DataCatalogMetric'],
     },
@@ -1948,7 +2131,10 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.endpoints(),
         type: 'endpoints',
         iconType: 'endpoints',
-        iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
+        iconColor: [
+            'var(--color-product-endpoints-light)',
+            'var(--color-product-endpoints-dark)',
+        ] as FileSystemIconColor,
         sceneKey: 'EndpointsScene',
         sceneKeys: ['EndpointsScene', 'EndpointScene'],
     },
@@ -2059,7 +2245,18 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         tags: ['alpha'],
         iconType: 'persons',
         sceneKey: 'IdentityMatching',
-        sceneKeys: ['IdentityMatching'],
+        sceneKeys: ['IdentityMatching', 'AIEnrichment'],
+    },
+    {
+        path: 'Inbox',
+        displayLabel: 'Self-driving inbox',
+        intents: [],
+        category: ProductItemCategory.TOOLS,
+        iconType: 'inbox' as FileSystemIconType,
+        href: urls.inbox(),
+        flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
+        sceneKey: 'Inbox',
+        sceneKeys: ['Inbox'],
     },
     {
         path: 'LLM analytics',
@@ -2110,7 +2307,9 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Live Debugger',
+        displayLabel: 'Live debugger',
         intents: [ProductKey.LIVE_DEBUGGER],
+        sceneKey: 'LiveDebugger',
         category: ProductItemCategory.UNRELEASED,
         type: 'live_debugger',
         href: urls.liveDebugger(),
@@ -2125,7 +2324,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.LOGS],
         category: ProductItemCategory.APP_MONITORING,
         iconType: 'logs' as FileSystemIconType,
-        iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
+        iconColor: ['var(--color-product-logs-light)', 'var(--color-product-logs-dark)'] as FileSystemIconColor,
         href: urls.logs(),
         sceneKey: 'Logs',
         sceneKeys: [
@@ -2149,7 +2348,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'var(--color-product-mcp-analytics-light)',
             'var(--color-product-mcp-analytics-dark)',
         ] as FileSystemIconColor,
-        href: urls.mcpAnalyticsDashboard(),
+        href: urls.mcpAnalytics(),
         flag: FEATURE_FLAGS.MCP_ANALYTICS,
         tags: ['beta'],
         sceneKey: 'MCPAnalytics',
@@ -2185,7 +2384,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'metrics',
         iconColor: ['var(--color-product-metrics-light)', 'var(--color-product-metrics-dark)'] as FileSystemIconColor,
         href: urls.metrics(),
-        flag: FEATURE_FLAGS.METRICS,
         tags: ['alpha'],
         sceneKey: 'Metrics',
         sceneKeys: ['Metrics'],
@@ -2246,7 +2444,10 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         type: 'product_tour',
         href: urls.productTours(),
         iconType: 'product_tour',
-        iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
+        iconColor: [
+            'var(--color-product-product-tours-light)',
+            'var(--color-product-product-tours-dark)',
+        ] as FileSystemIconColor,
         sceneKey: 'ProductTours',
         sceneKeys: ['ProductTour', 'ProductTours'],
         flag: FEATURE_FLAGS.PRODUCT_TOURS,
@@ -2302,7 +2503,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'var(--color-product-session-replay-dark)',
         ] as FileSystemIconColor,
         href: urls.replayVision(),
-        flag: FEATURE_FLAGS.REPLAY_VISION,
         sceneKey: 'ReplayVision',
         sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],
     },
@@ -2337,7 +2537,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
         href: urls.skills(),
         sceneKey: 'Skills',
-        sceneKeys: ['Skills', 'Skill'],
+        sceneKeys: ['Skills', 'Skill', 'CommunitySkills'],
     },
     {
         path: 'Support',
@@ -2346,7 +2546,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.supportTickets(),
         type: 'conversations',
         iconType: 'conversations',
-        iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
+        iconColor: ['var(--color-product-support-light)', 'var(--color-product-support-dark)'] as FileSystemIconColor,
         sceneKey: 'SupportTickets',
         sceneKeys: ['SupportTickets', 'SupportTicketDetail', 'SupportSettings', 'MyTickets'],
     },
@@ -2418,7 +2618,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.TRACING],
         category: ProductItemCategory.APP_MONITORING,
         iconType: 'tracing',
-        iconColor: ['var(--color-product-tracing-light)'] as FileSystemIconColor,
+        iconColor: ['var(--color-product-tracing-light)', 'var(--color-product-tracing-dark)'] as FileSystemIconColor,
         href: urls.tracing(),
         flag: FEATURE_FLAGS.TRACING,
         tags: ['beta'],
@@ -2434,7 +2634,10 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.USER_INTERVIEWS,
         tags: ['alpha'],
         iconType: 'user_interview',
-        iconColor: ['var(--color-product-user-interviews-light)'] as FileSystemIconColor,
+        iconColor: [
+            'var(--color-product-user-interviews-light)',
+            'var(--color-product-user-interviews-dark)',
+        ] as FileSystemIconColor,
         sceneKey: 'UserInterviews',
         sceneKeys: ['UserInterviews', 'UserInterview', 'UserInterviewResponse'],
     },
@@ -2444,6 +2647,10 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.UNRELEASED,
         href: urls.visualReviewRuns(),
         iconType: 'visual_review' as FileSystemIconType,
+        iconColor: [
+            'var(--color-product-visual-review-light)',
+            'var(--color-product-visual-review-dark)',
+        ] as FileSystemIconColor,
         flag: FEATURE_FLAGS.VISUAL_REVIEW,
         tags: ['alpha'],
         sceneKey: 'VisualReviewIndex',
@@ -2454,6 +2661,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'VisualReviewSettings',
             'VisualReviewSnapshotHistory',
             'VisualReviewSnapshotOverview',
+            'VisualReviewFlakiness',
         ],
     },
     {
@@ -2472,7 +2680,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.TOOLS,
         type: 'hog_function',
         iconType: 'data_pipeline',
-        iconColor: ['var(--color-product-data-pipeline-light)'],
+        iconColor: ['var(--color-product-data-pipeline-light)', 'var(--color-product-data-pipeline-dark)'],
         href: urls.webScripts(),
         sceneKey: 'WebScripts',
         sceneKeys: ['WebScripts'],
@@ -2515,14 +2723,6 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         sceneKeys: ['Annotations'],
     },
     {
-        path: 'Comments',
-        category: 'Metadata',
-        iconType: 'comment',
-        href: urls.comments(),
-        sceneKey: 'Comments',
-        sceneKeys: ['Comments'],
-    },
-    {
         path: 'Core events',
         category: 'Schema',
         iconType: 'event_definition' as FileSystemIconType,
@@ -2543,7 +2743,10 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         path: 'Endpoints',
         category: 'Tools',
         iconType: 'endpoints' as FileSystemIconType,
-        iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
+        iconColor: [
+            'var(--color-product-endpoints-light)',
+            'var(--color-product-endpoints-dark)',
+        ] as FileSystemIconColor,
         href: urls.endpoints(),
         sceneKey: 'EndpointsScene',
         sceneKeys: ['EndpointsScene', 'EndpointScene'],
@@ -2651,5 +2854,14 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.transformations(),
         sceneKey: 'Transformations',
         sceneKeys: ['Transformations'],
+    },
+    {
+        path: 'Warehouse properties',
+        category: 'Schema',
+        iconType: 'data_warehouse',
+        href: urls.warehouseProperties(),
+        flag: FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES,
+        sceneKey: 'WarehouseProperties',
+        sceneKeys: ['WarehouseProperties'],
     },
 ]

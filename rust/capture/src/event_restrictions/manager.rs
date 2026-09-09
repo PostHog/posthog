@@ -347,6 +347,14 @@ impl EventRestrictionService {
         now
     }
 
+    /// Whether at least one refresh has succeeded since boot. Until then the
+    /// service is fail-open and every lookup returns empty, so callers that
+    /// need loaded state (tests synchronizing with the initial load) poll this
+    /// instead of guessing at refresh timing.
+    pub fn has_loaded(&self) -> bool {
+        self.last_successful_refresh.load(Ordering::SeqCst) != 0
+    }
+
     /// Check if the cache is stale (fail-open should be active).
     fn is_stale_at(&self, now_ts: i64) -> bool {
         let last_refresh = self.last_successful_refresh.load(Ordering::SeqCst);

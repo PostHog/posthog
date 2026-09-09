@@ -14,9 +14,8 @@
  * ("useful for Nix/Guix where store paths tokenize poorly" per its own
  * comment) — checked *before* its compiled-binary-specific
  * `dirname(process.execPath)` fallback, so setting it works for the
- * in-process CLI, the SDK, subprocess spawns, and (when resolution
- * succeeds — see the compiled-binary caveat below) the standalone binary
- * alike.
+ * in-process CLI, the SDK, and (when resolution succeeds — see the
+ * compiled-binary caveat below) the standalone binary alike.
  *
  * This module materializes a small directory containing a `package.json`
  * with `piConfig: { name: "hog" }`, symlinks *every other entry* of the
@@ -47,10 +46,6 @@
  * boundary that ordering relied on. A real `await import(...)`, by
  * contrast, is never hoisted ahead of preceding synchronous statements, so
  * it reliably runs after `installHogBrandEnv()` regardless of bundling.
- *
- * The subagent's `pi-subprocess.ts` uses `withHogBrandEnv()` when it spawns
- * Pi subprocesses — no ordering concerns there, since it only builds a
- * plain environment object for a child process.
  *
  * Deliberately keeps `configDir: ".pi"` (not `.hog`) so existing pi
  * credentials, sessions, and MCP auth on disk keep working unchanged for
@@ -146,18 +141,6 @@ export function hogBrandManifestDir(): string | null {
     cachedManifestDir = null;
   }
   return cachedManifestDir;
-}
-
-/**
- * Merges `PI_PACKAGE_DIR` into `env` for spawning a Pi subprocess, unless the
- * caller already set one or the manifest directory couldn't be prepared.
- */
-export function withHogBrandEnv(
-  env: NodeJS.ProcessEnv = process.env,
-): NodeJS.ProcessEnv {
-  if (env.PI_PACKAGE_DIR) return env;
-  const dir = hogBrandManifestDir();
-  return dir ? { ...env, PI_PACKAGE_DIR: dir } : env;
 }
 
 /**

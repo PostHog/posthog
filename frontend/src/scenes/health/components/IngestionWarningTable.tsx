@@ -4,7 +4,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { WARNING_TYPE_TO_DESCRIPTION } from 'scenes/data-management/ingestion-warnings/IngestionWarningsView'
 
 import type { HealthIssue } from '../types'
-import { dismissActionColumn, severityColumn } from './healthTableColumns'
+import { issueActionsColumn, severityColumn } from './healthTableColumns'
 
 function humanizeWarningType(warningType: string): string {
     return warningType
@@ -15,10 +15,12 @@ function humanizeWarningType(warningType: string): string {
 
 export function IngestionWarningTable({
     issues,
+    onSnooze,
     onDismiss,
     onUndismiss,
 }: {
     issues: HealthIssue[]
+    onSnooze: (id: string, duration: string) => void
     onDismiss: (id: string) => void
     onUndismiss: (id: string) => void
 }): JSX.Element {
@@ -68,7 +70,7 @@ export function IngestionWarningTable({
                 new Date(a.payload.last_seen_at ?? a.created_at).getTime() -
                 new Date(b.payload.last_seen_at ?? b.created_at).getTime(),
         },
-        dismissActionColumn(onDismiss, onUndismiss),
+        issueActionsColumn(onSnooze, onDismiss, onUndismiss),
     ]
 
     return (

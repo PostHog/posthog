@@ -9,9 +9,10 @@ import { OutputMappingSuggestion } from '../hogFlowEditorLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { getRegisteredActionNodeCategories } from '../registry/actions/actionNodeRegistry'
 import type { HogflowTestResult } from '../steps/types'
+import { createExampleEvent } from '../testEventFactory'
 import type { HogFlowAction } from '../types'
 import type { HogFlow, HogFlowActionNode } from '../types'
-import { createExampleEvent, hogFlowEditorTestLogic } from './testing/hogFlowEditorTestLogic'
+import { hogFlowEditorTestLogic } from './testing/hogFlowEditorTestLogic'
 
 export type OutputMapping = { key: string; result_path: string; spread?: boolean | null }
 

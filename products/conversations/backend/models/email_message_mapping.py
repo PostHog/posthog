@@ -10,6 +10,7 @@ class EmailMessageMapping(UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE)
     comment = models.ForeignKey("posthog.Comment", on_delete=models.CASCADE)
+    full_body_plain = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -7,6 +7,7 @@ type FreeTierLimit = {
     title: string
     icon: string
     color: string
+    productType: string
     unit: string
     value: number
 }
@@ -23,7 +24,12 @@ const FreeTierItem = ({ limit }: { limit: FreeTierLimit }): JSX.Element => {
     return (
         <div className="flex flex-col items-center w-36">
             <div className="flex gap-1 items-center">
-                {getProductIcon(limit.icon, { iconColor: limit.color, className: 'w-6 h-6' })}
+                {getProductIcon(limit.icon, {
+                    iconColor: limit.color,
+                    className: 'w-6 h-6',
+                    // The productType mapping wins over billing icon_keys that ICON_MAP lacks.
+                    productType: limit.productType,
+                })}
             </div>
             <strong className="text-[15px] text-center leading-none mt-2 mb-1">{limit.title}</strong>
             <div className="text-sm text-center text-success dark:text-green-400">
@@ -47,6 +53,7 @@ export const FreeTierLimits: React.FC = (): JSX.Element => {
                     p.icon_key ?? availableOnboardingProducts[p.type as keyof typeof availableOnboardingProducts]?.icon,
 
                 color: availableOnboardingProducts[p.type as keyof typeof availableOnboardingProducts]?.iconColor,
+                productType: p.type,
                 unit: freePlan?.unit ?? '',
                 value: freePlan?.free_allocation ?? 0,
             }

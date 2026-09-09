@@ -87,6 +87,61 @@ def test_select_ignores_invalid_artifacts(artifact: db_schema.SchemaArtifact) ->
     assert db_schema.select_newest_compatible_artifact([artifact]) is None
 
 
+class _FakeArtifactPage:
+    def __init__(self, artifacts: list[dict[str, Any]], *, has_next: bool) -> None:
+        self._artifacts = artifacts
+        self.links = {"next": {"url": "next"}} if has_next else {}
+
+    def raise_for_status(self) -> None:
+        pass
+
+    def json(self) -> dict[str, Any]:
+        return {"artifacts": self._artifacts}
+
+
+class _FakeArtifactPagesSession:
+    def __init__(self, pages: list[list[dict[str, Any]]]) -> None:
+        self._pages = pages
+        self.get_count = 0
+
+    def get(self, url: str, *, params: dict[str, Any], headers: dict[str, str], timeout: int) -> _FakeArtifactPage:
+        self.get_count += 1
+        page = params["page"]
+        return _FakeArtifactPage(
+            self._pages[page - 1] if page <= len(self._pages) else [],
+            has_next=page < len(self._pages),
+        )
+
+
+def _raw_artifact(artifact_id: int, head_branch: str) -> dict[str, Any]:
+    return {
+        "id": artifact_id,
+        "name": db_schema.SCHEMA_ARTIFACT_NAME,
+        "expired": False,
+        "size_in_bytes": db_schema.MIN_SCHEMA_ARTIFACT_BYTES + 1,
+        "archive_download_url": f"https://api.github.com/artifacts/{artifact_id}/zip",
+        "created_at": "2026-01-01T00:00:00Z",
+        "workflow_run": {"head_sha": "sha", "head_branch": head_branch},
+    }
+
+
+def test_find_stops_at_first_page_with_compatible_candidate() -> None:
+    session = _FakeArtifactPagesSession([[_raw_artifact(1, "master")], [_raw_artifact(2, "master")]])
+
+    artifact = db_schema.find_newest_compatible_artifact(token="t", session=session, base_branch="master")  # type: ignore[arg-type]
+
+    assert session.get_count == 1
+    assert artifact is not None and artifact.id == 1
+
+
+def test_find_caps_pages_when_no_candidate_matches() -> None:
+    pages = [[_raw_artifact(page, "some-pr-branch")] for page in range(1, 31)]
+    session = _FakeArtifactPagesSession(pages)
+
+    assert db_schema.find_newest_compatible_artifact(token="t", session=session, base_branch="master") is None  # type: ignore[arg-type]
+    assert session.get_count == db_schema.MAX_ARTIFACT_PAGES
+
+
 def test_select_honors_custom_base_branch() -> None:
     master_artifact = _artifact(1, "sha-a", "2026-01-01T00:00:00Z", head_branch="master")
     release_artifact = _artifact(2, "sha-b", "2026-01-02T00:00:00Z", head_branch="release-26.1")
@@ -99,20 +154,23 @@ def test_select_honors_custom_base_branch() -> None:
     assert selected == release_artifact
 
 
-def test_download_diagnostics_on_no_compatible_artifact(monkeypatch: pytest.MonkeyPatch) -> None:
-    artifacts = [
-        _artifact(10, "pr-sha", "2026-01-01T00:00:00Z", head_branch="some-pr"),
-        _artifact(11, "master-sha", "2026-01-02T00:00:00Z", head_branch="some-other-pr"),
-    ]
-    monkeypatch.setattr(db_schema, "github_token", lambda: "token")
-    monkeypatch.setattr(db_schema, "fetch_schema_artifacts", lambda **kwargs: artifacts)
+def test_find_emits_diagnostics_on_no_compatible_artifact(capsys: pytest.CaptureFixture[str]) -> None:
+    session = _FakeArtifactPagesSession([[_raw_artifact(10, "some-pr"), _raw_artifact(11, "some-other-pr")]])
 
-    split_runner = CliRunner(mix_stderr=False)
-    result = split_runner.invoke(db_schema.db_download_schema, [])
+    assert db_schema.find_newest_compatible_artifact(token="t", session=session, base_branch="master") is None  # type: ignore[arg-type]
+
+    stderr = capsys.readouterr().err
+    assert "Fetched 2 migrated-schema artifact(s)" in stderr
+    assert "After name/expiry/size/branch filters: 0 candidate(s)" in stderr
+
+
+def test_download_fails_when_no_compatible_artifact(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(db_schema, "github_token", lambda: "token")
+    monkeypatch.setattr(db_schema, "find_newest_compatible_artifact", lambda **kwargs: None)
+
+    result = runner.invoke(db_schema.db_download_schema, [])
 
     assert result.exit_code != 0
-    assert "Fetched 2 migrated-schema artifact(s)" in result.stderr
-    assert "After name/expiry/size/branch filters: 0 candidate(s)" in result.stderr
 
 
 def test_effective_base_branch_prefers_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -237,6 +295,7 @@ def test_restore_schema_dump_recreate_drops_and_creates(tmp_path: Path, monkeypa
         lambda gzip_path, target_db: restored.append((gzip_path, target_db)),
     )
     monkeypatch.setattr(db_schema, "_ensure_migration_defaults", lambda target_db: defaults.append(target_db))
+    monkeypatch.setattr(db_schema, "_psql_rows", lambda target_db, sql: [])
 
     db_schema.restore_schema_dump(target_db="test_posthog", recreate=True, schema_path=schema_path)
 
@@ -244,6 +303,56 @@ def test_restore_schema_dump_recreate_drops_and_creates(tmp_path: Path, monkeypa
     assert any("CREATE DATABASE test_posthog;" in command for call in commands for command in call)
     assert restored == [(schema_path, "test_posthog")]
     assert defaults == ["test_posthog"]
+
+
+def _record(app: str, name: str) -> db_schema.MigrationRecord:
+    return db_schema.MigrationRecord(app=app, name=name)
+
+
+_RECORDED = [
+    _record("stamphog", "0001_squash_2026_09_07_initial"),
+    _record("stamphog", "0002_later"),
+    _record("posthog", "0001_squash_2026_09_07_initial"),
+    _record("posthog", "1345_squash_2026_09_07_schema_addons"),
+    _record("posthog", "1346_untrack_organization_is_hipaa"),
+    _record("posthog", "1347_add_a_column"),
+    _record("cdp", "0005_no_addons_migration_here"),
+]
+
+
+def test_migrations_to_forget() -> None:
+    # A product-routed app goes in full. Elsewhere the addons migration and everything recorded
+    # after it go, because each of those depends on a row that is about to disappear.
+    assert db_schema.migrations_to_forget(_RECORDED, ["stamphog"]) == (
+        _record("posthog", "1345_squash_2026_09_07_schema_addons"),
+        _record("posthog", "1346_untrack_organization_is_hipaa"),
+        _record("posthog", "1347_add_a_column"),
+        _record("stamphog", "0001_squash_2026_09_07_initial"),
+        _record("stamphog", "0002_later"),
+    )
+
+
+def test_restore_schema_dump_forgets_product_app_migrations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Two regressions live here. Leaving a forgotten migration's descendant behind makes Django
+    # refuse to migrate at all. Re-recording any of them here marks a product app migrated on a
+    # database that never got its tables, which breaks its next migration instead.
+    schema_path = tmp_path / "schema.sql.gz"
+    _write_schema(schema_path)
+    commands: list[list[str]] = []
+
+    monkeypatch.setattr(db_schema, "_run", lambda command, env=None: commands.append(command))
+    monkeypatch.setattr(db_schema, "_run_psql_with_gzip_input", lambda gzip_path, target_db: None)
+    monkeypatch.setattr(db_schema, "_ensure_migration_defaults", lambda target_db: None)
+    monkeypatch.setattr(db_schema, "_product_routed_app_labels", lambda: ["stamphog"])
+    monkeypatch.setattr(db_schema, "_psql_rows", lambda target_db, sql: [[r.app, r.name] for r in _RECORDED])
+
+    db_schema.restore_schema_dump(target_db="test_posthog", recreate=False, schema_path=schema_path)
+
+    deletes = [command[-1] for command in commands if "DELETE FROM django_migrations" in command[-1]]
+    assert len(deletes) == 1
+    for record in db_schema.migrations_to_forget(_RECORDED, ["stamphog"]):
+        assert f"('{record.app}', '{record.name}')" in deletes[0]
+    assert not [command for command in commands if command[:3] == ["python", "manage.py", "migrate"]]
 
 
 def test_restore_schema_dump_recreate_cleans_up_after_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -289,6 +398,7 @@ def test_restore_schema_dump_without_recreate_does_not_drop(tmp_path: Path, monk
     monkeypatch.setattr(db_schema, "_run", lambda command, env=None: commands.append(command))
     monkeypatch.setattr(db_schema, "_run_psql_with_gzip_input", lambda gzip_path, target_db: None)
     monkeypatch.setattr(db_schema, "_ensure_migration_defaults", lambda target_db: None)
+    monkeypatch.setattr(db_schema, "_psql_rows", lambda target_db, sql: [])
 
     db_schema.restore_schema_dump(target_db="posthog", recreate=False, schema_path=schema_path)
 

@@ -9,7 +9,6 @@ import {
 } from "@posthog/core/inbox/reportMembership";
 import { Tabs, TabsList, TabsTrigger } from "@posthog/quill";
 import { InboxScopeSelect } from "@posthog/ui/features/inbox/components/InboxScopeSelect";
-import { Flex } from "@radix-ui/themes";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 
 interface InboxTabBarProps {
@@ -22,10 +21,10 @@ export function InboxTabBar({ counts }: InboxTabBarProps) {
   const activeKey = inboxTabFromPath(pathname);
 
   return (
-    <Flex align="center" justify="between" className="min-w-0">
+    <div className="flex min-w-0 items-center justify-between gap-2">
       <InboxTabs counts={counts} />
       {inboxScopeApplies(activeKey) && <InboxScopeSelect />}
-    </Flex>
+    </div>
   );
 }
 
@@ -35,9 +34,13 @@ export function InboxTabs({ counts }: InboxTabBarProps) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const activeKey = inboxTabFromPath(pathname);
 
+  // quill's TabsList is `inline-flex w-fit` with no wrap or scroll of its own,
+  // so at narrow widths the strip needs a scroll container or it overflows the
+  // header row.
   return (
     <Tabs
       value={activeKey}
+      className="min-w-0 overflow-x-auto"
       onValueChange={(value: string) => {
         const key = value as InboxTabKey;
         navigate({ to: INBOX_TAB_LIST_ROUTE[key] });

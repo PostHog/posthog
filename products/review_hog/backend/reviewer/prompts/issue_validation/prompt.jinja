@@ -15,6 +15,8 @@ If your investigation shows the reviewer assigned the wrong severity, correct it
 
 Write `argumentation` as your verification delta, structured as labeled markdown bullets — `- **Checked:**` (what you investigated: files, call sites, types, guards), `- **Found:**` (the decisive evidence, with file:line anchors), `- **Impact:**` (the confirmed consequence; for a dismissal, why it does not meet the bar), and `- **Priority:**` (only when you set `adjusted_priority`). Repeat a label when you have several distinct points. Do NOT restate the issue description: the full description always travels with your verdict (in the published comment it sits collapsed just below), so restating it only buries your evidence. Your bullets may be the first thing a reader expands, right under the finding title — write them to stand on their own as evidence for that titled claim. This constrains shape, not content — keep every fact needed to justify the verdict.
 
+Write the prose inside those bullets in Simplified Technical English, following the `writing-simplified-technical-english` skill: one meaning per word, active voice, simple tenses, one idea per sentence. Keep file:line anchors and code identifiers exactly as they appear in the code.
+
 Return your assessment as a JSON object that conforms to the provided schema.
 </pr_issue_validation_instructions>
 

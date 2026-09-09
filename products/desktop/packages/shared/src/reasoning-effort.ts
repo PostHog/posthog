@@ -36,7 +36,10 @@ const CLAUDE_MODEL_EFFORTS: Readonly<
   "claude-sonnet-4-6": STANDARD_EFFORTS,
   "claude-sonnet-5": EXTENDED_EFFORTS,
   "claude-fable-5": EXTENDED_EFFORTS,
+  "claude-fable-5-1": EXTENDED_EFFORTS,
   "@cf/zai-org/glm-5.2": ["high", "max"],
+  "zai-org/glm-5.3": ["high", "max"],
+  "zai-org/glm-5.3-flash": ["high", "max"],
   "claude-opus-5": EXTENDED_EFFORTS,
 };
 
@@ -56,12 +59,17 @@ export function getReasoningEffortOptions(
   const normalizedModelId = modelId.toLowerCase();
   const supportsXhigh =
     normalizedModelId.includes("gpt-5.5") ||
-    normalizedModelId.includes("gpt-5.6");
+    normalizedModelId.includes("gpt-5.6") ||
+    normalizedModelId.includes("gpt-6-astra");
 
   if (supportsXhigh) {
     options.push({ value: "xhigh", name: "Extra High" });
   }
-  if (adapter === "codex" && normalizedModelId.includes("gpt-5.6")) {
+  if (
+    adapter === "codex" &&
+    (normalizedModelId.includes("gpt-5.6") ||
+      normalizedModelId.includes("gpt-6-astra"))
+  ) {
     options.push({ value: "max", name: "Max" });
   }
 
@@ -102,6 +110,7 @@ const CODEX_CAPABILITY_LADDER: readonly CapabilityNotch[] = [
   { model: "gpt-5.6-sol", effort: "medium" },
   { model: "gpt-5.6-sol", effort: "high" },
   { model: "gpt-5.6-sol", effort: "xhigh" },
+  { model: "gpt-6-astra", effort: "max" },
 ];
 
 export function getCapabilityLadder(
@@ -119,6 +128,7 @@ const MODELS_WITH_1M_CONTEXT = new Set([
   "claude-sonnet-4-6",
   "claude-sonnet-5",
   "claude-fable-5",
+  "claude-fable-5-1",
 ]);
 
 export function supports1MContext(modelId: string): boolean {

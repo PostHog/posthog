@@ -28,4 +28,14 @@ describe('usePagination', () => {
         act(() => result.current.setCurrentPage(2))
         expect(router.values.searchParams.page).toBeUndefined()
     })
+
+    it('paginates local data without changing the URL when useUrl is false', () => {
+        const { result } = renderHook(() => usePagination(DATA, { pageSize: 1, useUrl: false }))
+
+        expect(result.current.dataSourcePage).toEqual(['a'])
+        act(() => result.current.setCurrentPage(2))
+
+        expect(result.current.dataSourcePage).toEqual(['b'])
+        expect(router.values.searchParams.page).toBeUndefined()
+    })
 })

@@ -1,17 +1,20 @@
 from datetime import datetime
 from typing import Optional, cast
 
-import openai
 import structlog
+import posthoganalytics
+from posthoganalytics.ai.openai import OpenAI
 from prometheus_client import Histogram
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.api.utils import ServerTimingsGathered
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.models import Team, User
 from posthog.utils import get_instance_region
+
+from products.surveys.backend.responses.fetch_rows import RESPONSE_EVENT_FILTER, SUBMISSION_GROUPING_KEY
 
 logger = structlog.get_logger(__name__)
 
@@ -60,16 +63,22 @@ def summarize_survey_responses(
         paginator = HogQLHasMorePaginator(limit=100, offset=0)
         q = parse_select(
             """
-            SELECT getSurveyResponse({question_index}, {question_id})
-            FROM events
-            WHERE event == 'survey sent'
-                AND properties.$survey_id = {survey_id}
-                AND trim(getSurveyResponse({question_index}, {question_id})) != ''
-                AND timestamp >= {start_date}
-                AND timestamp <= {end_date}
+            SELECT argMaxIf(answer, timestamp, isNotNull(answer)) AS response
+            FROM (
+                SELECT getSurveyResponse({question_index}, {question_id}) AS answer,
+                    timestamp, {submission_key} AS submission_key
+                FROM events
+                WHERE {response_events}
+                    AND properties.$survey_id = {survey_id}
+                    AND timestamp >= {start_date}
+                    AND timestamp <= {end_date}
+            ) GROUP BY submission_key
+            HAVING length(trim(coalesce(response, ''))) > 0
             """,
             {
                 "survey_id": ast.Constant(value=survey_id),
+                "response_events": parse_expr(RESPONSE_EVENT_FILTER),
+                "submission_key": parse_expr(SUBMISSION_GROUPING_KEY),
                 "survey_response_property": ast.Constant(
                     value=f"$survey_response_{question_index}" if question_index else "$survey_response"
                 ),
@@ -92,7 +101,7 @@ def summarize_survey_responses(
         prepared_data = [x[0] for x in query_response.results if x[0]]
 
     with timer("openai_completion"):
-        result = openai.chat.completions.create(
+        result = OpenAI(posthog_client=posthoganalytics.default_client).chat.completions.create(
             model="gpt-4.1-mini",  # allows 128k tokens
             temperature=0.7,
             messages=[
@@ -126,6 +135,13 @@ taking into consideration the survey question being asked.
                 },
             ],
             user=f"{instance_region}/{user.pk}",
+            posthog_privacy_mode=True,
+            posthog_distinct_id=user.distinct_id,
+            posthog_properties={
+                "ai_product": "surveys",
+                "ai_feature": "response-summary",
+                "team_id": team.id,
+            },
         )
 
         usage = result.usage.prompt_tokens if result.usage else None
