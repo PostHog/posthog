@@ -1213,10 +1213,16 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aer
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
+@pytest.mark.parametrize(
+    "canonical, expected_stage",
+    [(False, "scout:custom"), (True, "scout:errors")],
+)
+async def test_run_tags_session_with_scout_ai_stage_and_skill_name(ateam, aerrors_skill, canonical, expected_stage):
     # Scouts pass a `scout:<skill>` ai_stage to the sandbox session so every $ai_generation
     # carries it, letting scout spend be split out of the ai_product='signals' bucket (scouts
-    # have no report id) and attributed to one scout.
+    # have no report id) and attributed to one scout. `scout_skill_name` rides alongside with
+    # the full name, which is the only per-scout handle a team-authored scout gets: its
+    # ai_stage collapses to `scout:custom`.
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     captured: dict = {}
 
@@ -1229,6 +1235,10 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
     with (
         patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
         patch(
+            "products.signals.backend.scout_harness.runner.canonical_skill_names",
+            return_value={"signals-scout-errors"} if canonical else set(),
+        ),
+        patch(
             "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
             return_value="env-id",
         ),
@@ -1239,8 +1249,8 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
     ):
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
-    # `signals-scout-errors` is not a canonical scout, so its team-authored name is withheld.
-    assert captured["ai_stage"] == "scout:custom"
+    assert captured["ai_stage"] == expected_stage
+    assert captured["scout_skill_name"] == "signals-scout-errors"
 
 
 @pytest.mark.asyncio

@@ -445,6 +445,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "run_source",
         "runtime_adapter",
         "sandbox_environment_id",
+        "scout_skill_name",
         "slack_artifact_delivery",
         "slack_chart_delivery",
         "slack_thread_url",
@@ -2250,6 +2251,10 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # is_interactive_signals_run reads it the same way, so forging it would move the run off
         # the interactive budget and out of its per-run spend ceiling.
         "ai_stage",
+        # Stamped once at run creation with the scout that owns the run, and forwarded onto the
+        # run's $ai_generation events. Per-scout spend is read back off that property, so a
+        # PATCHable value would let a run bill its cost to another scout.
+        "scout_skill_name",
         # The server-generated head branch the run->PR link is keyed on (find_signal_implementation_run).
         # A PATCHable value would let a caller re-aim the approve-first carve-out at any App-authored
         # PR, which is the exact forgery the stamp exists to prevent.

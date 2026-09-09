@@ -9,6 +9,7 @@ interface TestableServer {
     originProduct?: Task["origin_product"] | null;
     signalReportId?: string | null;
     aiStage?: string | null;
+    scoutSkillName?: string | null;
     taskId?: string | null;
     taskRunId?: string | null;
     taskUserId?: number | null;
@@ -294,6 +295,31 @@ describe("AgentServer.configureEnvironment", () => {
     });
 
     expect(env.anthropicCustomHeaders).not.toContain("ai_stage");
+  });
+
+  // A team-authored scout's ai_stage is `scout:custom`, so the skill name header is the only
+  // thing that names it on the event.
+  it("forwards the scout skill name alongside a collapsed ai_stage", () => {
+    const env = buildServer("background").configureEnvironment({
+      isInternal: true,
+      originProduct: "signals_scout",
+      aiStage: "scout:custom",
+      scoutSkillName: "signals-scout-our-own-thing",
+      taskId: "task-abc",
+    });
+
+    expect(env.anthropicCustomHeaders).toContain(
+      "x-posthog-property-scout_skill_name: signals-scout-our-own-thing",
+    );
+  });
+
+  it("omits the scout skill name for a run that has none", () => {
+    const env = buildServer("background").configureEnvironment({
+      isInternal: false,
+      taskId: "task-abc",
+    });
+
+    expect(env.anthropicCustomHeaders).not.toContain("scout_skill_name");
   });
 
   // A signals_scout title is multi-line; it must not inject extra header lines.

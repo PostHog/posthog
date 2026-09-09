@@ -925,6 +925,7 @@ class Task(DeletedMetaFields, models.Model):
         hog_flow_id: uuid.UUID | None = None,
         origin_key: str | None = None,
         ai_stage: str | None = None,
+        scout_skill_name: str | None = None,
         sandbox_environment_id: str | None = None,
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
@@ -1121,6 +1122,13 @@ class Task(DeletedMetaFields, models.Model):
         if ai_stage:
             extra_state["ai_stage"] = ai_stage
 
+        # Lifted onto the run's $ai_generation events the same way. `ai_stage` collapses every
+        # team-authored scout to one `scout:custom` value to bound a fleet-wide tag's
+        # cardinality, so it cannot name such a scout. This property is team-scoped and carries
+        # the full name, which is what per-scout cost attribution needs.
+        if scout_skill_name:
+            extra_state["scout_skill_name"] = scout_skill_name
+
         if initial_permission_mode:
             extra_state["initial_permission_mode"] = initial_permission_mode
 
@@ -1271,6 +1279,7 @@ class Task(DeletedMetaFields, models.Model):
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
         ai_stage: str | None = None,
+        scout_skill_name: str | None = None,
         wizard_config: dict | None = None,
         wizard_head_branch: str | None = None,
         self_driving_head_branch: str | None = None,
@@ -1318,6 +1327,7 @@ class Task(DeletedMetaFields, models.Model):
             sandbox_timeout_seconds=sandbox_timeout_seconds,
             inactivity_timeout_seconds=inactivity_timeout_seconds,
             ai_stage=ai_stage,
+            scout_skill_name=scout_skill_name,
             wizard_config=wizard_config,
             wizard_head_branch=wizard_head_branch,
             self_driving_head_branch=self_driving_head_branch,

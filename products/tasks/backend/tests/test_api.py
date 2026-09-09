@@ -5639,6 +5639,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "pending_external_followups_generation": 7,
                 "sandbox_gone": False,
                 "ai_stage": "research",
+                "scout_skill_name": "signals-scout-errors",
                 "self_driving_head_branch": "posthog-self-driving/real-3f9a2c",
                 "runtime_adapter": "claude",
                 "provider": "anthropic",
@@ -5706,6 +5707,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "sandbox_gone": True,
                     # implementation provenance is what the self-driving review carve-outs trust
                     "ai_stage": "implementation",
+                    # per-scout spend is read off this property, so a writable value bills a
+                    # run's cost to another scout
+                    "scout_skill_name": "signals-scout-someone-elses",
                     # the stamped branch is the unforgeable run->PR link; a writable value re-aims it
                     "self_driving_head_branch": "posthog-self-driving/attacker-000000",
                     "runtime_adapter": "codex",
@@ -5761,6 +5765,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert "timed_out_wall_clock" not in run.state
         assert run.state["sandbox_gone"] is False
         assert run.state["ai_stage"] == "research"  # cannot forge implementation provenance
+        assert run.state["scout_skill_name"] == "signals-scout-errors"  # cannot rebill to another scout
         assert run.state["self_driving_head_branch"] == "posthog-self-driving/real-3f9a2c"
         assert run.state["runtime_adapter"] == "claude"
         assert run.state["provider"] == "anthropic"

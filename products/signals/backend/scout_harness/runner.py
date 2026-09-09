@@ -795,10 +795,14 @@ async def _spawn_and_run(
         mcp_gateway_server_ids=[str(server_id) for server_id in (config.mcp_gateway_server_ids or [])],
         # Tag every scout $ai_generation with its stage AND its scout, so scout spend is both
         # splittable out of the ai_product='signals' bucket (scouts carry no signal_report_id)
-        # and attributable to one scout. `ai_stage` is the only run-shaped value the harness
-        # controls that reaches $ai_generation — the rest of the properties there are stamped
-        # by the agent server off the task row. Team attribution rides along as `team_id`.
+        # and attributable to one scout. The remaining properties there are stamped by the agent
+        # server off the task row. Team attribution rides along as `team_id`.
         ai_stage=_ai_stage(skill),
+        # The full skill name, for canonical and team-authored scouts alike. `ai_stage` collapses
+        # team-authored scouts to `scout:custom` to bound the cardinality of a fleet-wide tag, so
+        # it cannot name one. Grouping spend per scout needs the name on the event itself, not a
+        # join back to the run rows.
+        scout_skill_name=skill.name,
         on_task_run_created=_create_bridge_row,
         # Keep the per-turn poll budget at the run's runtime cap so the dropped-finalization
         # salvage fires before the activity's `start_to_close_timeout` (DEFAULT_MAX_RUNTIME_S +
