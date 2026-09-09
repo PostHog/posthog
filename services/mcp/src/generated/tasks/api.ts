@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 19 enabled ops
+ * PostHog API - MCP 24 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -854,7 +854,7 @@ export const TaskChannelsInstructionsUpdateBody = () => zod
     .describe('Request body for publishing a new instructions version.')
 
 /**
- * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task.
+ * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task. Pass basic=true for a summary payload that drops the description body from each row; use the search parameter to match description text server-side.
  * @summary List tasks
  */
 export const TasksListParams = () => zod.object({
@@ -866,6 +866,7 @@ export const TasksListParams = () => zod.object({
 })
 
 export const tasksListQueryAllTeamTasksDefault = false
+export const tasksListQueryBasicDefault = false
 export const tasksListQueryLimitDefault = 50
 export const tasksListQueryLimitMax = 100
 
@@ -884,6 +885,12 @@ export const TasksListQueryParams = () => zod.object({
         .optional()
         .describe(
             "Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only archived tasks, 'false' for the default, or 'all' to include both.\n\n\* `true` - true\n\* `false` - false\n\* `all` - all"
+        ),
+    basic: zod
+        .boolean()
+        .default(tasksListQueryBasicDefault)
+        .describe(
+            'Return a basic payload with heavy fields dropped, for surfaces that render only a summary of each task. Defaults to false. Currently this omits the description body, which dominates the list payload; the search parameter still matches description text server-side.'
         ),
     channel: zod.string().optional().describe("Filter tasks to a channel's feed."),
     ci_status: zod
@@ -1272,4 +1279,130 @@ export const TasksRunsSessionLogsRetrieveQueryParams = () => zod.object({
         .min(tasksRunsSessionLogsRetrieveQueryOffsetMin)
         .default(tasksRunsSessionLogsRetrieveQueryOffsetDefault)
         .describe('Zero-based offset into the filtered log entries'),
+})
+
+/**
+ * Retrieve your per-project default AI run preferences, plus the resolved defaults a new run will use when no explicit runtime selection is sent (your preference over the project default).
+ */
+export const TasksMeConfigListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const TasksMeConfigListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * Set your per-project default AI run preferences; they override the project default wholesale. Send all fields as null to clear and inherit the project default.
+ */
+export const TasksMeConfigCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const TasksMeConfigCreateBody = () => zod
+    .object({
+        runtime_adapter: zod
+            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+            .optional()
+            .describe(
+                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.\n\n\* `claude` - claude\n\* `codex` - codex"
+            ),
+        model: zod
+            .string()
+            .nullish()
+            .describe('Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.'),
+        reasoning_effort: zod
+            .union([
+                zod
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+                    .describe(
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Default reasoning effort for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
+    })
+    .describe(
+        'The default AI run triple stored at team or user level.\n\nWrite payload for the tasks config endpoints and the `ai_run_preferences` block of\ntheir responses. `runtime_adapter` and `model` must be set together; send all three\nas null to clear a stored preference.'
+    )
+
+/**
+ * Retrieve the project-wide default AI run preferences for task runs.
+ */
+export const TasksConfigListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const TasksConfigListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * Set the project-wide default AI run preferences applied to task runs created without an explicit runtime selection. Send all fields as null to clear.
+ */
+export const TasksConfigCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const TasksConfigCreateBody = () => zod
+    .object({
+        runtime_adapter: zod
+            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+            .optional()
+            .describe(
+                "Default agent runtime adapter for new task runs. Use 'claude' for the Claude runtime or 'codex' for the Codex runtime. Must be set together with `model`.\n\n\* `claude` - claude\n\* `codex` - codex"
+            ),
+        model: zod
+            .string()
+            .nullish()
+            .describe('Default LLM model identifier for new task runs. Must be set together with `runtime_adapter`.'),
+        reasoning_effort: zod
+            .union([
+                zod
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+                    .describe(
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Default reasoning effort for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
+    })
+    .describe(
+        'The default AI run triple stored at team or user level.\n\nWrite payload for the tasks config endpoints and the `ai_run_preferences` block of\ntheir responses. `runtime_adapter` and `model` must be set together; send all three\nas null to clear a stored preference.'
+    )
+
+/**
+ * Return the models a task run may use, with the reasoning efforts each one supports. Derived from the live LLM gateway catalogue, so a newly released model appears without a client change. An empty list means the gateway is unreachable — clients should fall back to their own default rather than treating it as 'no models exist'.
+ * @summary List available models
+ */
+export const TasksModelsRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
 })
