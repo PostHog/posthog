@@ -9318,7 +9318,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
