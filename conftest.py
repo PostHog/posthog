@@ -229,6 +229,32 @@ def _cheapen_freezegun_module_hash() -> None:
     api._get_module_attributes_hash = _fast_module_attributes_hash  # ty: ignore[invalid-assignment]
 
 
+def _warm_urlconf_before_first_freeze() -> None:
+    # The first request a test makes is what builds the API router, because the URLconf
+    # imports posthog.api lazily. Under freeze_time, freezegun has already replaced
+    # datetime.datetime with FakeDatetime, so pydantic no longer recognizes the real
+    # datetime class that a module imported before the freeze holds in its annotations,
+    # and the model class fails with PydanticSchemaGenerationError. Build the URLconf
+    # before the first freeze so every model reachable from it sees one datetime class.
+    # A suite that never freezes time does not pay for this.
+    from freezegun import api  # noqa: PLC0415 — deferred until pytest_configure
+
+    orig_start = api._freeze_time.start
+    warmed = False
+
+    def start(self):
+        nonlocal warmed
+        if not warmed:
+            warmed = True
+            from django.urls import get_resolver  # noqa: PLC0415 — deferred until the first freeze
+
+            _ = get_resolver().url_patterns  # the attribute access imports the URLconf
+        return orig_start(self)
+
+    start.__wrapped__ = orig_start  # exposes the original for the canary tests
+    api._freeze_time.start = start  # type: ignore[method-assign]
+
+
 def pytest_configure(config) -> None:
     _cache_reverse_rel_identity()
     _cache_select_masks()
@@ -236,6 +262,7 @@ def pytest_configure(config) -> None:
     _cache_url_resolution()
     _cache_fixture_parent_nodeids()
     _cheapen_freezegun_module_hash()
+    _warm_urlconf_before_first_freeze()
 
 
 def pytest_collection_finish() -> None:
