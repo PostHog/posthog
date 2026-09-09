@@ -1456,17 +1456,14 @@ export function createExecTool(
                         return outputText
                     }
 
-                    // If the inner tool has a UI app attached AND the caller self-identifies as
-                    // PostHog Desktop (the UI-apps host), emit a full `CallToolResult` payload
-                    // carrying `structuredContent` + `_meta.ui.resourceUri`. Clients only see
-                    // the `exec` tool registered in single-exec mode, so the UI metadata has to
-                    // ride on the per-call response. Gated on the consumer because other
-                    // single-exec callers (direct Claude Code, cline, Slack- and posthog_ai-launched
-                    // runs, etc.) don't render UI apps — they should see plain text.
+                    // Native widgets cannot recover entity data from the optimized text. Preserve
+                    // the handler object before exec serializes it, including tools without UI apps.
+                    const includeAppData = mcpConsumer === 'posthog_ai'
                     const isInlineUiAppHost = isPostHogCodeConsumer(mcpConsumer) || options.isInlineExecUiHost === true
-                    if (tool._meta?.ui?.resourceUri && isInlineUiAppHost) {
+                    if (includeAppData || (tool._meta?.ui?.resourceUri && isInlineUiAppHost)) {
                         const isStringResult = typeof result === 'string'
-                        const distinctId = isStringResult ? undefined : await context.getDistinctId()
+                        const distinctId =
+                            !isStringResult && tool._meta?.ui?.resourceUri ? await context.getDistinctId() : undefined
                         const payload = markExecPayload(
                             buildToolResultPayload({
                                 handlerResult: result,
@@ -1483,8 +1480,9 @@ export function createExecTool(
                                 // both the model and the app read — and the text channel carries a
                                 // pointer rather than a second copy of the same rows.
                                 forceUiDataToMeta: true,
+                                includeAppData,
                                 distinctId,
-                                includeUiResponseMeta: true,
+                                includeUiResponseMeta: isInlineUiAppHost,
                             })
                         )
                         trackInnerCall?.(tool.name, {

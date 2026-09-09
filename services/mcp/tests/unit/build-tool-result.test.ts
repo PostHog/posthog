@@ -57,6 +57,25 @@ const queryTrendsToolMeta = {
 } as const
 
 describe('buildToolResultPayload — query-trends for Claude Code', () => {
+    it.each(['optimized', 'json'] as const)(
+        'keeps native widget data without a UI resource or formatted table in %s mode',
+        (outputFormat) => {
+            const data = { short_id: 'example', query: { kind: 'HogQLQuery', query: "SELECT 'a\\nb'" } }
+            const payload = buildToolResultPayload({
+                handlerResult: data,
+                toolName: 'mock-tool',
+                params: { output_format: outputFormat },
+                includeAppData: true,
+            })
+            expect(payload._meta?.[APP_DATA_META_KEY]).toEqual(data)
+            expect(payload.structuredContent).toBeUndefined()
+            expect(payload.content[0]!.text).not.toBe(STRUCTURED_CONTENT_ONLY_TEXT)
+            if (outputFormat === 'json') {
+                expect(JSON.parse(payload.content[0]!.text)).toEqual(data)
+            }
+        }
+    )
+
     it('returns formatted table as text AND suppresses structuredContent for claude-code', () => {
         const payload = buildToolResultPayload({
             handlerResult: queryTrendsHandlerResult(),

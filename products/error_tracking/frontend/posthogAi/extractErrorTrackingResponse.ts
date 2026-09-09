@@ -1,6 +1,6 @@
 import type { MaxErrorTrackingSearchResponse } from '~/queries/schema/schema-assistant-error-tracking'
 
-import { parseToolOutputRecord } from 'products/posthog_ai/frontend/api/tools'
+import { getToolOutputRecord } from 'products/posthog_ai/frontend/api/tools'
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/api/types'
 
 // Fields only a search response carries. `status` is excluded on purpose: an issue detail echoes it
@@ -19,7 +19,7 @@ const ERROR_TRACKING_RESPONSE_KEYS: readonly (keyof MaxErrorTrackingSearchRespon
  * empty filter chips.
  */
 export function extractErrorTrackingResponse(message: ToolCallMessage): MaxErrorTrackingSearchResponse | null {
-    const output = parseToolOutputRecord(message)
+    const output = getToolOutputRecord(message)
     if (!output || !ERROR_TRACKING_RESPONSE_KEYS.some((key) => key in output)) {
         return null
     }

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
-import { STRUCTURED_CONTENT_ONLY_TEXT } from '@/lib/build-tool-result'
+import { STRUCTURED_CONTENT_ONLY_TEXT, type ToolResultPayload } from '@/lib/build-tool-result'
 import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
@@ -366,19 +366,29 @@ describe('exec tool', () => {
             expect(result).toContain('results')
         })
 
-        it('returns raw JSON (with override key) when --json flag is passed even if override is present', async () => {
-            const tool = makeMockTool({
-                handler: async () => ({
-                    results: [{ data: [1, 2, 3] }],
-                    [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'Date|count\n2026-05-07|6',
-                }),
-            })
-            const exec = createExec([tool])
-            const result = await exec.handler(mockContext, { command: 'call --json mock-tool' })
-            const parsed = JSON.parse(result as string)
-            expect(parsed.results).toEqual([{ data: [1, 2, 3] }])
-            expect(parsed[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('Date|count\n2026-05-07|6')
-        })
+        it.each([undefined, 'posthog_ai'])(
+            'returns JSON for consumer %s when --json is passed even if a formatted override is present',
+            async (consumer) => {
+                const tool = makeMockTool({
+                    handler: async () => ({
+                        results: [{ data: [1, 2, 3] }],
+                        [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'Date|count\n2026-05-07|6',
+                    }),
+                })
+                const exec = createExec([tool], consumer)
+                const result = await exec.handler(mockContext, { command: 'call --json mock-tool' })
+                const parsed = JSON.parse(
+                    typeof result === 'string' ? result : (result as ToolResultPayload).content[0]!.text
+                )
+                expect(parsed.results).toEqual([{ data: [1, 2, 3] }])
+                if (consumer === 'posthog_ai') {
+                    expect((result as ToolResultPayload)._meta?.[APP_DATA_META_KEY]).toEqual(parsed)
+                    expect(parsed).not.toHaveProperty(POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY)
+                } else {
+                    expect(parsed[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('Date|count\n2026-05-07|6')
+                }
+            }
+        )
 
         it('keeps agent CLI informational data inside the trust boundary in --json mode', async () => {
             const tool = makeMockTool({
@@ -559,8 +569,7 @@ describe('exec tool', () => {
             expect(result._meta[APP_DATA_META_KEY]).toBeUndefined()
         })
 
-        // posthog_ai is sent as its own consumer for attribution but is NOT a UI-apps host.
-        it.each([[undefined], ['cline'], ['claude-code'], ['slack'], ['posthog_code'], ['posthog_ai']])(
+        it.each([[undefined], ['cline'], ['claude-code'], ['slack'], ['posthog_code']])(
             'returns plain text (no UI payload) when consumer is %s even if the inner tool has a UI app',
             async (consumer) => {
                 const tool = makeMockTool({
@@ -569,6 +578,34 @@ describe('exec tool', () => {
                 const exec = createExec([tool], consumer)
                 const result = await exec.handler(mockContext, { command: 'call mock-tool' })
                 expect(typeof result).toBe('string')
+            }
+        )
+
+        it.each([undefined, { ui: { resourceUri: 'ui://posthog/mock-app.html' } }])(
+            'preserves optimized results in metadata for native widgets with tool metadata %j',
+            async (toolMeta) => {
+                const data = {
+                    query: { kind: 'TrendsQuery', series: [] },
+                    results: [{ count: 6 }],
+                    _posthogUrl: 'https://example.com/insights/test',
+                }
+                const tool = makeMockTool({
+                    _meta: toolMeta,
+                    handler: async () => ({
+                        ...data,
+                        [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'Date|count\n2026-01-01|6',
+                    }),
+                })
+                const result = (await createExec([tool], 'posthog_ai').handler(mockContext, {
+                    command: 'call mock-tool',
+                })) as ToolResultPayload
+
+                expect(result.content).toEqual([{ type: 'text', text: 'Date|count\n2026-01-01|6' }])
+                expect(result.structuredContent).toBeUndefined()
+                expect(result._meta?.[APP_DATA_META_KEY]).toMatchObject(data)
+                expect(result._meta?.[APP_DATA_META_KEY]).not.toHaveProperty(POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY)
+                expect(result._meta?.ui).toBeUndefined()
+                expect(result.__execBuiltPayload).toBe(true)
             }
         )
 
