@@ -194,8 +194,7 @@ class TestAppStoreConnectSource:
         ):
             valid, error = AppStoreConnectSource().validate_credentials(_config(app_ids="999"), team_id=1)
 
-        # Saved as-is the source would sync nothing, so the probe's message reaches the user here
-        # rather than surfacing as an empty table after the first sync.
+        # Saved as-is the source would sync nothing, so the message reaches the user at save time.
         assert (valid, error) == (False, probe_message)
 
     def test_the_app_id_probe_is_skipped_for_a_per_schema_check(self) -> None:

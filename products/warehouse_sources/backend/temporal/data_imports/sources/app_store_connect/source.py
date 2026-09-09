@@ -171,8 +171,7 @@ Leave **app IDs** blank to sync every app the key can read. To sync only some of
             # A report sync selected without a vendor number can never read `/v1/salesReports`, so fail
             # fast instead of retrying the activity's whole budget until the user adds the number.
             APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR: APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR,
-            # An app id filter that selects nothing resolves the same way on every attempt, so
-            # retrying only delays the message that tells the user to fix the field.
+            # Retrying only delays the message that tells the user to fix the field.
             APP_STORE_CONNECT_NO_MATCHING_APPS_ERROR: APP_STORE_CONNECT_NO_MATCHING_APPS_ERROR,
         }
 
@@ -249,8 +248,8 @@ Leave **app IDs** blank to sync every app the key can read. To sync only some of
         if status != 200:
             return False, f"App Store Connect returned status {status}"
 
-        # Only at source create and edit, which is where the user types the field. The per-schema
-        # call runs once per table in the picker, and listing every app again each time buys nothing.
+        # Create and edit only: the per-schema call runs once per table in the picker, and each
+        # would list every app again.
         if schema_name is None:
             unreadable_app_ids = check_app_ids(config.issuer_id, config.key_id, config.private_key, config.app_ids)
             if unreadable_app_ids:

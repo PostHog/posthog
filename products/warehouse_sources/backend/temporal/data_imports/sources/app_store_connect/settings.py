@@ -67,10 +67,8 @@ class AppStoreConnectEndpointConfig:
     # Column that carries the id of the `data` resource referencing each included row, so
     # the table joins back to its parent without a per-row request.
     included_parent_column: str = "parent_id"
-    # Column holding the app's id, for a "collection" endpoint that can still honor the source's
-    # app id filter. Left unset on the account-wide collections whose rows carry no app dimension,
-    # which therefore stay unfiltered. Fan-out and analytics endpoints need no equivalent, because
-    # they only visit the apps the filter already selected.
+    # Column holding the app's id, so a "collection" endpoint can honor the source's app id
+    # filter. Unset on the account-wide collections whose rows carry no app dimension.
     app_id_column: Optional[str] = None
     # Analytics Reports API selectors, only meaningful for the "analytics_report" kind.
     # Acceptable report names in preference order: Apple exposes most reports as separate

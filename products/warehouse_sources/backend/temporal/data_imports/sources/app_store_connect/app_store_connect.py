@@ -67,8 +67,8 @@ ANALYTICS_SEGMENT_SPOOL_BYTES = 32 * 1024 * 1024
 
 ANALYTICS_ROWS_PER_BATCH = 2000
 
-# Apps named in the save-time message for an unreadable app id. An account can hold hundreds, and
-# the message goes in a form field error, so the rest are counted rather than listed.
+# The message goes in a form field error and an account can hold hundreds of apps, so the rest
+# are counted rather than listed.
 MAX_APPS_LISTED_IN_ERROR = 10
 
 _PEM_HEADER = "-----BEGIN PRIVATE KEY-----"
@@ -110,9 +110,8 @@ APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR = (
     "new request, which only an Admin key can create. Give the key the Admin role, then reconnect."
 )
 
-# The source's app id filter selected none of the apps the key can see. Every retry lists the same
-# apps and filters to the same empty set, so the sync can only ever write an empty table until the
-# user corrects the field. `AppStoreConnectSource.get_non_retryable_errors` matches on this text.
+# The source's app id filter selected none of the apps the key can read. Every retry resolves the
+# same empty set, so `AppStoreConnectSource.get_non_retryable_errors` matches on this text.
 APP_STORE_CONNECT_NO_MATCHING_APPS_ERROR = (
     "None of the app IDs in your App Store Connect source settings match an app this API key can "
     "read. Check the IDs, or clear the field to sync every app."
@@ -673,8 +672,7 @@ def _list_app_ids(
 
     unknown = sorted(app_ids.difference(discovered))
     if unknown:
-        # Not fatal on its own: the remaining ids still sync. A key that lost access to one app of
-        # several must not stop the other apps from syncing.
+        # Not fatal: a key that lost access to one app of several must not stop the others.
         logger.warning(
             f"App Store Connect: app id filter names apps this key cannot read, skipping them. "
             f"app_ids={','.join(unknown)}"
@@ -700,19 +698,28 @@ def _get_collection(
     url = resumed_url or f"{BASE_URL}{config.path}"
     params: dict[str, Any] | None = None if resumed_url else dict(config.params)
 
+    app_id_column = config.app_id_column if app_ids else None
+    matched_an_app = False
+
     for page in _iter_pages(session, token_provider, logger, url, params):
         rows = _page_rows(config, page, failures)
-        if app_ids and config.app_id_column:
-            # Filtered here rather than through a query param, because Apple's per-resource filter
-            # support varies by endpoint and an unsupported filter is a hard 400. The app list is
-            # small, so dropping rows after the walk costs nothing.
-            rows = [row for row in rows if str(row.get(config.app_id_column)) in app_ids]
+        if app_id_column is not None:
+            # Filtered on fetched rows rather than through a query param, because Apple's
+            # per-resource filter support varies by endpoint and an unsupported filter is a hard 400.
+            rows = [row for row in rows if str(row.get(app_id_column)) in app_ids]
+            matched_an_app = matched_an_app or bool(rows)
         if rows:
             yield rows
         # Save AFTER yielding so a crash re-fetches the page we just emitted rather than skipping it;
         # merge dedupes the re-pulled rows on the primary key.
         if page.next_url:
             manager.save_state(AppStoreConnectResumeConfig(next_url=page.next_url))
+
+    if app_id_column is not None and not matched_an_app:
+        # This table is a full refresh, so finishing with no rows would replace the existing table
+        # with an empty one. The fan-out and analytics walks already fail on an empty selection, and
+        # a silent wipe here would be worse than either.
+        raise ValueError(APP_STORE_CONNECT_NO_MATCHING_APPS_ERROR)
 
 
 def _get_app_fanout(
@@ -1206,8 +1213,8 @@ def _get_analytics_report(
     db_incremental_field_last_value: Any,
     selected_app_ids: frozenset[str],
 ) -> Iterator[list[dict[str, Any]]]:
-    # Filtering before the loop below also keeps `_ensure_report_request` away from the excluded
-    # apps, so an unselected app never gets an ONGOING analytics report request created on it.
+    # Filtering before the loop keeps `_ensure_report_request` away from the excluded apps, so an
+    # unselected app never gets an ONGOING analytics report request created on it.
     app_ids = _list_app_ids(session, token_provider, logger, selected_app_ids)
     resume = _load_resume(manager)
     resumed_date = _to_date(resume.processing_date) if resume is not None else None
@@ -1419,8 +1426,7 @@ def get_rows(
                 selected_app_ids,
             )
         else:  # "sales_report"
-            # `/v1/salesReports` is keyed on the vendor number and returns one file covering every
-            # app under it, so the app id filter cannot narrow it.
+            # `/v1/salesReports` returns one file per vendor number, so no app id filter applies.
             yield from _get_sales_report(
                 session,
                 config,

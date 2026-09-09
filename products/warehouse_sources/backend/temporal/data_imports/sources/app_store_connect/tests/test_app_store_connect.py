@@ -494,8 +494,6 @@ class TestCheckAppIds:
 
         message, _ = self._message("MISSING", apps)
 
-        # The field takes the numeric Apple ID, so a rejected bundle ID or SKU has to be answered
-        # with the values that would work, not only with the value that did not.
         assert message is not None
         assert "cannot read these app IDs: MISSING" in message
         assert expected in message
@@ -551,6 +549,12 @@ class TestAppIdFilter:
         rows = _collect("apps", self._api(), _FakeManager(), app_ids="A2")
 
         assert [row["id"] for row in rows] == ["A2"]
+
+    def test_apps_table_fails_rather_than_replacing_itself_with_nothing(self) -> None:
+        # A full refresh that finishes with no rows leaves an empty table behind, so an app the key
+        # lost access to after setup would silently erase the synced inventory.
+        with pytest.raises(ValueError, match="match an app this API key can read"):
+            _collect("apps", self._api(), _FakeManager(), app_ids="A9")
 
     def test_filter_matching_no_app_fails_with_the_curated_message(self) -> None:
         with pytest.raises(ValueError, match="match an app this API key can read"):
@@ -786,8 +790,7 @@ class TestAnalyticsReportStreams:
 
         _collect_analytics(api, _FakeManager(), app_ids="A1")
 
-        # Creating the ONGOING request is this source's only write to the customer's account, so an
-        # app the source's app id filter excludes must never be listed, let alone mutated.
+        # The ONGOING request is this source's only write to the customer's account.
         assert [post[1]["data"]["relationships"]["app"]["data"]["id"] for post in api.posts] == ["A1"]
         assert f"{BASE_URL}/v1/apps/A2/analyticsReportRequests" not in [url for url, _ in api.calls]
 
