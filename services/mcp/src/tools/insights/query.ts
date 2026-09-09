@@ -2,7 +2,6 @@ import type { z } from 'zod'
 
 import type { AccessControlFilterWarning, DataWarehouseSyncWarning } from '@/api/client'
 import { withUiApp } from '@/resources/ui-apps'
-import type { Insight } from '@/schema/insights'
 import { InsightQueryInputSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type ToolBase } from '@/tools/types'
@@ -15,7 +14,12 @@ type Params = z.infer<typeof schema>
 
 type Result = WithPostHogUrl<{
     query: unknown
-    insight: Insight & { url: string }
+    // Identity and link only. The rest of the serialized insight repeats what this
+    // response already carries: its own `query` mirrors the top-level `query`, and
+    // `result` / `columns` / `types` / `hogql` are a cached copy of the result set,
+    // next to the `results` the UI app renders and the formatted table the model
+    // reads. `dashboard-get` prunes the same fields.
+    insight: { id: number; short_id: string; name: string | null | undefined; url: string }
     results: unknown
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
     [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]?: string
@@ -109,8 +113,10 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
         {
             query: queryInfo.innerQuery || insightResult.data.query,
             insight: {
+                id: insightResult.data.id,
+                short_id: insightResult.data.short_id,
+                name: insightResult.data.name,
                 url: fullUrl,
-                ...insightResult.data,
             },
             results,
             ...(queryResult.data.warnings ? { warnings: queryResult.data.warnings } : {}),
