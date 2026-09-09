@@ -610,12 +610,16 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
         }
 
         let mut properties = event.properties;
+        let lib = properties
+            .get("$lib")
+            .and_then(Value::as_str)
+            .map(str::to_string);
         if let Some(value) = properties
             .as_object_mut()
             .and_then(|object| object.get_mut("$exception_list"))
         {
             recursively_sanitize_properties(event.uuid, value, 0)?;
-            normalize_legacy_tags(value);
+            normalize_legacy_tags(value, lib.as_deref());
         }
 
         let mut raw: RawExceptionProperties = serde_json::from_value(properties)
@@ -651,10 +655,9 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
             raw.other.remove(key);
         }
 
-        let lib = raw.other.get("$lib").and_then(Value::as_str);
         let lib_version = raw.other.get("$lib_version").and_then(Value::as_str);
         let legacy_order_exception_list =
-            normalize_wire_order(&mut raw.exception_list, lib, lib_version);
+            normalize_wire_order(&mut raw.exception_list, lib.as_deref(), lib_version);
         let proposed_issue_severity: Option<IssueSeverity> = raw
             .other
             .get("$issue_severity")
@@ -707,6 +710,8 @@ impl TryFrom<Result<ClickHouseEvent, EventError>> for ExceptionEvent<Parsed> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::frames::RawFrame;
+    use crate::types::Stacktrace;
 
     fn resolved_event() -> ExceptionEvent<Resolved> {
         ExceptionEvent {
@@ -873,5 +878,41 @@ mod tests {
         resolved.state.metadata.release = None;
         let grouping = resolved.grouping_rule_properties();
         assert!(grouping.get("$exception_release").is_none());
+    }
+
+    #[test]
+    fn legacy_frame_tagging_reads_the_sending_sdk() {
+        // Untagged frames carry keys that python, ruby and java frames share, so the
+        // classifier needs `$lib` to tell them apart.
+        let event_from = |lib: &str| AnyEvent {
+            uuid: Uuid::now_v7(),
+            event: "$exception".to_string(),
+            team_id: 42,
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            properties: serde_json::json!({
+                "$lib": lib,
+                "$exception_list": [{
+                    "type": "ConnectionError",
+                    "value": "connection refused",
+                    "stacktrace": {"frames": [{
+                        "abs_path": "/app/example/service.py",
+                        "context_line": "    connect()",
+                        "filename": "example/service.py",
+                        "function": "start",
+                        "lineno": 12
+                    }]}
+                }]
+            }),
+            others: HashMap::new(),
+        };
+
+        let parsed = ExceptionEvent::<Parsed>::try_from(event_from("posthog-python"))
+            .expect("a legacy python payload parses");
+        let Some(Stacktrace::Raw { frames }) = &parsed.exception_list[0].stack else {
+            panic!("expected a raw stacktrace");
+        };
+        assert!(matches!(frames.as_slice(), [RawFrame::Python(_)]));
+
+        assert!(ExceptionEvent::<Parsed>::try_from(event_from("posthog-ruby")).is_err());
     }
 }
