@@ -36,6 +36,7 @@ from posthog.tasks.alerts.utils import (
     send_notifications_for_errors,
 )
 from posthog.temporal.alerts.activities import (
+    MAX_DUE_ALERTS_PER_SCHEDULE_RUN,
     cleanup_alert_checks,
     evaluate_alert,
     notify_alert,
@@ -133,10 +134,10 @@ async def _create_alert(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_retrieve_due_alerts_limits_each_schedule_run_to_three_hundred_without_starving_other_teams(
+async def test_retrieve_due_alerts_limits_each_schedule_run_without_starving_other_teams(
     ateam: Team,
 ) -> None:
-    for _ in range(300):
+    for _ in range(MAX_DUE_ALERTS_PER_SCHEDULE_RUN):
         await _create_alert(ateam, calculation_interval=AlertCalculationInterval.REAL_TIME.value)
 
     other_team = await sync_to_async(Team.objects.create)(
@@ -148,7 +149,7 @@ async def test_retrieve_due_alerts_limits_each_schedule_run_to_three_hundred_wit
 
     alerts = await ActivityEnvironment().run(retrieve_due_alerts)
 
-    assert len(alerts) == 300
+    assert len(alerts) == MAX_DUE_ALERTS_PER_SCHEDULE_RUN
     assert str(other_alert.id) in {alert.alert_id for alert in alerts}
 
 
