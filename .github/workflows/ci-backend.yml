@@ -101,7 +101,9 @@ jobs:
     # Job to decide if we should run backend ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
-        runs-on: depot-ubuntu-24.04
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         timeout-minutes: 5
         # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
         # every other job needs this one, and the gates treat skipped as success.
@@ -397,7 +399,9 @@ jobs:
 
     detect-snapshot-mode:
         name: Detect snapshot mode
-        runs-on: depot-ubuntu-24.04
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         timeout-minutes: 5
         needs: [changes]
         # Master pushes skip the matrices (see the trigger comment); skipping this
@@ -442,7 +446,9 @@ jobs:
         # Skipped on master push: the merge queue already ran the full matrices for
         # every landed commit, and the hourly scheduled run keeps master coverage.
         if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
-        runs-on: depot-ubuntu-24.04
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         timeout-minutes: 20
         name: Discover product tests
         env:
@@ -722,7 +728,9 @@ jobs:
             needs.turbo-discover.result == 'success' &&
             needs.turbo-discover.outputs.matrix != '[]' &&
             needs.turbo-discover.outputs.matrix != ''
-        runs-on: depot-ubuntu-24.04
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         timeout-minutes: 5
         outputs:
             include: ${{ steps.build.outputs.include }}
@@ -769,7 +777,9 @@ jobs:
             needs.build-product-test-matrix.result == 'success' &&
             needs.build-product-test-matrix.outputs.include != '[]' &&
             needs.build-product-test-matrix.outputs.include != ''
-        runs-on: depot-ubuntu-24.04
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         timeout-minutes: 40
         name: Product tests (${{ matrix.group }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }})
         strategy:
@@ -1227,7 +1237,9 @@ jobs:
             contents: read
             pull-requests: read # list PR files for the deleted-migration check
         name: Repo checks (depot-ubuntu-24.04)
-        runs-on: depot-ubuntu-24.04
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -1473,7 +1485,9 @@ jobs:
             pull-requests: write
 
         name: Validate migrations
-        runs-on: depot-ubuntu-24.04
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -2204,7 +2218,9 @@ jobs:
             contents: read
 
         name: Validate OpenAPI types
-        runs-on: depot-ubuntu-24.04
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -2447,7 +2463,9 @@ jobs:
             !cancelled() &&
             needs.changes.outputs.backend == 'true' &&
             needs.get_clickhouse_versions.result == 'success'
-        runs-on: depot-ubuntu-24.04
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         timeout-minutes: 5
         outputs:
             include: ${{ steps.build.outputs.include }}
@@ -2794,7 +2812,9 @@ jobs:
 
         name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ (matrix.segment == 'Core' && !matrix.person-on-events && !matrix.compat) && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         # Runner type is performance-critical — consult #team-devex before changing
-        runs-on: depot-ubuntu-24.04
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
 
         strategy:
             fail-fast: false
@@ -3662,7 +3682,9 @@ jobs:
         needs: [changes]
         # Only feeds the test matrices, which master pushes skip.
         if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
-        runs-on: depot-ubuntu-24.04
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         timeout-minutes: 5
         outputs:
             # Oldest supported version as plain string (for comparisons)

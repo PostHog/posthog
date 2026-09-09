@@ -286,6 +286,17 @@ Make those runs pass, and never let untrusted code reach a secret.
 
 - Guard secret-needing steps with `if: github.event.pull_request.head.repo.full_name == github.repository`, and degrade rather than fail (`|| github.token`, or the raw test outcome).
 - Secret-injecting builds (BuildKit `--secret`, registry login) must skip forks — gate **both** the `changes` job and any `always()` build job ([block fork PRs from rust image build](https://github.com/PostHog/posthog/pull/68628)).
+- **A job that runs fork-controlled code must not run on a Depot runner.**
+  Depot places shared cache credentials (the sccache WebDAV endpoint and token, the Turborepo API) in every runner's environment, outside GitHub's secret masking, so `pnpm install` lifecycle scripts, `cargo build`, or a test suite from a fork can read them and write to the cache that master reads.
+  Select the runner per event instead, as every PR-triggered workflow does — `env` is not available in `runs-on`, so inline the expression:
+
+  ```yaml
+  runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-4' || 'ubuntu-latest' }}
+  ```
+
+  `ubuntu-latest` matches a `-4` Depot runner on CPU and memory; a `-8` job falls back to `ubuntu-24.04-8core`, a `22.04-4` job to `ubuntu-22.04`, and `depot-macos-15` to `macos-15`.
+  Keep the job `name:` unchanged even when it embeds the Depot label, because required-check contexts match on the name.
+
 - Comment or label only on same-repo PRs — the fork token can't write.
 - To act on a fork PR with secrets/write (reviewer or label bots), use `pull_request_target`: base-repo permissions, but it must **never check out and run fork code**. That's why those workflows can't fold into a `pull_request` parent.
 - First-time contributors need maintainer approval before workflows run (`action_required`) — expected.
@@ -414,7 +425,7 @@ Roll out a new blocking lint the same way: ship `continue-on-error`, clear the i
 - [ ] Third-party actions SHA-pinned; Node from `.nvmrc`; `setup-uv` version pinned.
 - [ ] External fetches retry (`--retry-all-errors`), except where a repeat has a side effect.
 - [ ] High-volume API calls on a dedicated App token with `|| github.token` fork fallback.
-- [ ] Fork PRs handled: secret-needing steps guarded with the same-repo `if:`; no secret-injecting build runs on forks.
+- [ ] Fork PRs handled: secret-needing steps guarded with the same-repo `if:`; no secret-injecting build runs on forks; no fork-controlled code runs on a Depot runner.
 - [ ] Caching through the shared composites; writes gated to master.
 - [ ] Any job running `manage.py migrate` restores the master schema dump first, with the migrate as top-up (see Caching).
 - [ ] Prod image push / deploy dispatch gated per `/gating-production-deploys`.

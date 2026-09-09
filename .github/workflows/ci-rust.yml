@@ -253,7 +253,9 @@ jobs:
             matrix: ${{ fromJSON(needs.affected.outputs.matrix) }}
         needs: [changes, affected]
         if: needs.changes.outputs.rust == 'true'
-        runs-on: depot-ubuntu-22.04-4
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-22.04-4' || 'ubuntu-22.04' }}
         timeout-minutes: 20
         permissions:
             contents: read
@@ -322,7 +324,9 @@ jobs:
             matrix: ${{ fromJSON(needs.affected.outputs.matrix) }}
         needs: [changes, affected]
         if: needs.changes.outputs.rust == 'true'
-        runs-on: depot-ubuntu-24.04-4
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-4' || 'ubuntu-latest' }}
         timeout-minutes: 20
         permissions:
             contents: read
@@ -586,7 +590,9 @@ jobs:
         # marks the harness affected whenever a personhog service it spawns
         # changes, so unrelated rust PRs skip the job entirely.
         if: needs.changes.outputs.rust == 'true' && contains(needs.affected.outputs.affected_crates, 'personhog-test-harness')
-        runs-on: depot-ubuntu-24.04-4
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-4' || 'ubuntu-latest' }}
         timeout-minutes: 25
         permissions:
             contents: read
@@ -818,7 +824,9 @@ jobs:
         name: Lint Rust services (depot-ubuntu-22.04-4)
         needs: changes
         if: needs.changes.outputs.rust == 'true'
-        runs-on: depot-ubuntu-22.04-4
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-22.04-4' || 'ubuntu-22.04' }}
         timeout-minutes: 15
         permissions:
             contents: read

@@ -8,7 +8,9 @@
 # changes without a matching depot bump.
 #
 # Intentional deltas vs canonical (everything else is kept apples-to-apples):
-# - runs-on: depot-* labels instead of ubuntu-latest
+# - runs-on: depot-* labels instead of ubuntu-latest. Canonical selects the runner per
+#   event and sends fork PRs to GitHub-hosted labels; the shadow runs on Depot CI's own
+#   runners whatever the event, so that per-event expression is depot-exempt.
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
 #   setup-sqlx-cli, setup-python-cached, and paths-filter mirror the canonical
 #   composites; any deltas are documented in each mirror's header). setup-turbo has no

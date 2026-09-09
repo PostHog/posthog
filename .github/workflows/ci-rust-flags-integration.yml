@@ -52,7 +52,9 @@ env:
 jobs:
     rust-flags-integration:
         name: Rust /flags Integration Tests (depot-ubuntu-24.04)
-        runs-on: depot-ubuntu-24.04
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         timeout-minutes: 30
 
         services:

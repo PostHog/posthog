@@ -211,7 +211,9 @@ jobs:
 
     build-storybook:
         name: Build Storybook (depot-ubuntu-24.04)
-        runs-on: depot-ubuntu-24.04
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         # The Vite build normally takes ~3.5 minutes, but a degraded runner can stretch
         # the memory-heavy bundling phase past 15 minutes — leave headroom so a slow
         # runner yields a slow-but-green build instead of a cancelled one that hard-fails

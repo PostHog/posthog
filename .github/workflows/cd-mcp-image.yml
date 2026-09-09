@@ -36,7 +36,8 @@ jobs:
             github.repository_owner == 'PostHog' && (
                 github.event_name == 'push' ||
                 github.event_name == 'workflow_dispatch' ||
-                contains(github.event.pull_request.labels.*.name, 'build-mcp-image')
+                (github.event.pull_request.head.repo.full_name == github.repository &&
+                 contains(github.event.pull_request.labels.*.name, 'build-mcp-image'))
             )
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 30

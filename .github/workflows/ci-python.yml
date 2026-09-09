@@ -161,7 +161,9 @@ jobs:
         timeout-minutes: 30
 
         name: Python code quality (depot-ubuntu-24.04)
-        runs-on: depot-ubuntu-24.04
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         # Read by shell guards on the pytest steps below. Those steps sit in a
         # `parallel:` block, where step-level `if:` is untested in this repo.
         env:

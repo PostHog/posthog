@@ -509,7 +509,9 @@ jobs:
         # 8-core depot: 18% avg / 30% peak memory observed on 16-core runs (#46853 noted
         # the workload "is not resource constrained" even after sharding was removed).
         # Talk to #team-devex before changing.
-        runs-on: depot-ubuntu-24.04-8
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-8' || 'ubuntu-24.04-8core' }}
         timeout-minutes: 45
         permissions:
             contents: read
@@ -1250,9 +1252,9 @@ jobs:
 
     vr-complete:
         name: Complete Visual Review run
-        # Same runner provider as the playwright job, whose VR CLI cache entry this job
+        # Same runner selection as the playwright job, whose VR CLI cache entry this job
         # reads: GitHub-hosted and Depot runners keep separate cache stores.
-        runs-on: depot-ubuntu-24.04
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         timeout-minutes: 15
         needs: [playwright]
         # !cancelled() is load-bearing. select-specs is skipped on every full-run event (push to

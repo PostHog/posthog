@@ -251,7 +251,9 @@ jobs:
         if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
         name: Node.js Code quality (depot-ubuntu-24.04)
         needs: changes
-        runs-on: depot-ubuntu-24.04
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -317,7 +319,9 @@ jobs:
         if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
         name: Node.js Build (depot-ubuntu-24.04)
         needs: changes
-        runs-on: depot-ubuntu-24.04
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04' || 'ubuntu-latest' }}
         timeout-minutes: 10
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -380,7 +384,9 @@ jobs:
         if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
         name: Node.js ${{ matrix.lane }} Tests ${{ matrix.shard }}/${{ matrix.shard_count }} (depot-ubuntu-24.04-4)
         needs: changes
-        runs-on: depot-ubuntu-24.04-4
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-4' || 'ubuntu-latest' }}
         # Tests fit comfortably in 30, but a rust change misses the turbo cache and cold-builds the
         # replay-anonymizer addon's whole dependency tree first (no rust caching in this job yet).
         timeout-minutes: 45
@@ -721,7 +727,9 @@ jobs:
         if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
         name: Rust ingestion consumer Node API e2e (depot-ubuntu-24.04-4)
         needs: changes
-        runs-on: depot-ubuntu-24.04-4
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-4' || 'ubuntu-latest' }}
         timeout-minutes: 30
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}

@@ -36,7 +36,9 @@ jobs:
         if: ${{ !(github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'trunk-merge/')) }}
         # sandbox-exec (Seatbelt) is macOS-only. Depot macOS is a fixed FIFO pool
         # (Startup+ plan); if it's unavailable, swap runs-on for `macos-14`.
-        runs-on: depot-macos-15
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-macos-15' || 'macos-15' }}
         timeout-minutes: 15
         permissions:
             contents: read

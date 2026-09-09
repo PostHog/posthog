@@ -25,7 +25,11 @@ jobs:
 
         # Skipped on trunk-merge/** branches: merge-queue PRs are ephemeral, nothing
         # pulls images pushed for them, and each constituent PR already built its own.
-        if: github.repository_owner == 'PostHog' && !startsWith(github.head_ref, 'trunk-merge/')
+        # Fork PRs have no registry credentials, so the push cannot succeed there.
+        if: |
+            github.repository_owner == 'PostHog' &&
+            !startsWith(github.head_ref, 'trunk-merge/') &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
 
         permissions:
             contents: read

@@ -13,11 +13,9 @@ jobs:
     turbo-affected-4:
         timeout-minutes: 30
         name: Turbo Affected
-        runs-on: ${{ matrix.os }}
-        strategy:
-            matrix:
-                # os: [depot-ubuntu-22.04, depot-ubuntu-22.04-4]
-                os: [depot-ubuntu-22.04-4]
+        # Forks stay on GitHub-hosted: Depot runners carry shared cache credentials in their
+        # environment (see "Forks and untrusted PRs" in .agents/skills/authoring-ci-workflows).
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-22.04-4' || 'ubuntu-22.04' }}
         permissions:
             contents: read
 
