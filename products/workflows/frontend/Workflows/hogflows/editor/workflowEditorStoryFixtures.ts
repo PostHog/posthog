@@ -279,13 +279,16 @@ const PICKABLE_WORKFLOWS: Record<string, HogFlow> = {
 
 export const workflowEditorStoryDecorator = mswDecorator({
     get: {
+        // nosemgrep: no-environments-api-urls-frontend -- api.hogFlows has not migrated to generated project routes.
         '/api/environments/:team_id/hog_flows/:id/': ({ params }) => [
             200,
             PICKABLE_WORKFLOWS[String(params.id)] ?? CUSTOMER_ONBOARDING_AND_RETENTION_WORKFLOW,
         ],
+        // nosemgrep: no-environments-api-urls-frontend -- api.messaging has not migrated to generated project routes.
         '/api/environments/:team_id/messaging_categories': { count: 0, results: [] },
     },
     patch: {
+        // nosemgrep: no-environments-api-urls-frontend -- api.hogFlows has not migrated to generated project routes.
         '/api/environments/:team_id/hog_flows/:id/': async ({ request, params }) => [
             200,
             {
@@ -296,6 +299,7 @@ export const workflowEditorStoryDecorator = mswDecorator({
         ],
     },
     post: {
+        // nosemgrep: no-environments-api-urls-frontend -- api.hogFlows has not migrated to generated project routes.
         '/api/environments/:team_id/hog_flows/': async ({ request }) => [
             201,
             {
@@ -307,6 +311,7 @@ export const workflowEditorStoryDecorator = mswDecorator({
                 updated_at: '2026-09-04T12:01:00.000Z',
             },
         ],
+        // nosemgrep: no-environments-api-urls-frontend -- api.hogFlows has not migrated to generated project routes.
         '/api/environments/:team_id/hog_flows/user_blast_radius/': {
             affected: 240,
             total: 1200,
