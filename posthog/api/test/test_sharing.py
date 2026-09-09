@@ -2361,7 +2361,10 @@ class TestSaveTimeAccessBlock(APIBaseTest):
         assert not DashboardTile.objects.filter(dashboard=dashboard, insight=self.insight).exists()
         if coverage == "query_in_same_patch":
             self.insight.refresh_from_db()
-            assert self.insight.query["source"]["query"] == "SELECT 1 AS one"
+            assert self.insight.query == {
+                "kind": "DataTableNode",
+                "source": {"kind": "HogQLQuery", "query": "SELECT 1 AS one"},
+            }
 
     def test_adding_insight_to_unshared_dashboard_allowed(self):
         self._deny_editor()
