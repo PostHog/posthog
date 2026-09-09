@@ -3125,10 +3125,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     urlParams.set('date_from', dateFrom ?? '')
                     urlParams.set('date_to', dateTo ?? '')
                     urlParams.set('interval', interval ?? '')
-                } else {
-                    urlParams.delete('date_from')
-                    urlParams.delete('date_to')
-                    urlParams.delete('interval')
                 }
                 return `/web/bots${urlParams.toString() ? '?' + urlParams.toString() : ''}`
             } else if (productTab === ProductTab.PAGE_PERFORMANCE) {
