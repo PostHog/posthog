@@ -61,7 +61,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
 )
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
-from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
+from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX, IMPROVE_KEY_PREFIX
 from products.signals.backend.scout_harness.runner import _create_run_row
 from products.signals.backend.scout_harness.serializers import (
     SignalScoutConfigUpdateSerializer,
@@ -2465,6 +2465,11 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             content="pending: Check the funnel.",
             created_by_run=run,
         )
+        suggestion = SignalScratchpad.objects.create(
+            team=self.team,
+            key=f"{IMPROVE_KEY_PREFIX}{old_name}:thresholds",
+            content="2026-09-01 observed: the default window is too short.",
+        )
         other_memory = SignalScratchpad.objects.create(
             team=self.team, key=f"{FOLLOWUP_KEY_PREFIX}{old_name}-other:checkout", content="Keep this key."
         )
@@ -2499,6 +2504,9 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert memory.created_by_run_id == run.id
         assert memory.updated_at == memory_updated_at
         assert other_memory.key == f"{FOLLOWUP_KEY_PREFIX}{old_name}-other:checkout"
+        suggestion.refresh_from_db()
+        assert suggestion.key == f"{IMPROVE_KEY_PREFIX}{new_name}:thresholds"
+        assert suggestion.content == "2026-09-01 observed: the default window is too short."
 
     @parameterized.expand([(kind, count) for kind in ["runs", "notes", "memories"] for count in [2, 3]])
     def test_rename_history_limit(self, kind: str, count: int) -> None:

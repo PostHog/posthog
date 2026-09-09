@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import Any, TypeVar, cast
 
 from django.db import IntegrityError, transaction
-from django.db.models import QuerySet, Value
+from django.db.models import Q, QuerySet, Value
 from django.db.models.functions import Concat, Length, Substr
 
 import structlog
@@ -77,7 +77,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     scout_skill_row_origin,
 )
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM, MAX_SCOUT_RENAME_HISTORY_ROWS
-from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
+from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX, IMPROVE_KEY_PREFIX
 from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
     ScoutRunRejection,
@@ -2543,11 +2543,17 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 notes = _bounded_scout_rename_rows(
                     SignalScoutNote.objects.for_team(team.id).filter(skill_name=old_name)
                 )
-                old_prefix = f"{FOLLOWUP_KEY_PREFIX}{old_name}:"
-                new_prefix = f"{FOLLOWUP_KEY_PREFIX}{new_name}:"
-                scratchpads = _bounded_scout_rename_rows(
-                    SignalScratchpad.all_teams.filter(team_id=team.id, key__startswith=old_prefix)
-                )
+                # Both memory namespaces the prompt keys on the scout's own name move together.
+                # A stranded `improve:` suggestion is unreclaimable: only a run holding that name
+                # can rewrite or forget it, and after the rename no scout holds the old one.
+                key_prefixes = [
+                    (f"{prefix}{old_name}:", f"{prefix}{new_name}:")
+                    for prefix in (FOLLOWUP_KEY_PREFIX, IMPROVE_KEY_PREFIX)
+                ]
+                key_filter = Q()
+                for old_prefix, _ in key_prefixes:
+                    key_filter |= Q(key__startswith=old_prefix)
+                scratchpads = _bounded_scout_rename_rows(SignalScratchpad.all_teams.filter(key_filter, team_id=team.id))
 
                 allowed_prefix = SIGNALS_SCOUT_SKILL_PREFIX if old_name.startswith(SIGNALS_SCOUT_SKILL_PREFIX) else None
                 try:
@@ -2566,15 +2572,20 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 except LLMSkillNotFoundError:
                     raise exceptions.NotFound("The scout skill no longer exists.")
 
+                # Every namespace keeps its literal prefix, so the rewrite grows each key by the
+                # same amount and one check covers them all.
                 if (
                     scratchpads.annotate(key_length=Length("key"))
-                    .filter(key_length__gt=300 - len(new_prefix) + len(old_prefix))
+                    .filter(key_length__gt=300 + len(old_name) - len(new_name))
                     .exists()
                 ):
                     raise exceptions.ValidationError(
                         {"new_name": "This name makes a saved memory key too long. Use a shorter name."}
                     )
-                scratchpads.update(key=Concat(Value(new_prefix), Substr("key", len(old_prefix) + 1)))
+                for old_prefix, new_prefix in key_prefixes:
+                    scratchpads.filter(key__startswith=old_prefix).update(
+                        key=Concat(Value(new_prefix), Substr("key", len(old_prefix) + 1))
+                    )
                 runs.update(skill_name=new_name)
                 notes.update(skill_name=new_name)
                 config.skill_name = new_name
