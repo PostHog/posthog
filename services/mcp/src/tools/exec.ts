@@ -13,6 +13,7 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 import { formatResponse } from '@/lib/response'
+import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
@@ -1699,6 +1700,10 @@ export function createExecTool(
                         typeof result === 'object' &&
                         (result as Record<string, unknown>)[POSTHOG_INFORMATIONAL_RESPONSE_KEY] === true
 
+                    // Native widgets cannot recover entity data from the optimized text. Preserve
+                    // the handler object before exec serializes it, including tools without UI apps.
+                    const includeAppData = mcpConsumer === 'posthog_ai'
+
                     if (useJson && isInformationalResponse && typeof formattedOverride === 'string') {
                         const outputText = JSON.stringify({ content: formattedOverride })
                         trackInnerCall?.(tool.name, {
@@ -1710,12 +1715,19 @@ export function createExecTool(
                             input,
                             output: outputText,
                         })
-                        return outputText
+                        if (!includeAppData) {
+                            return outputText
+                        }
+                        // The model still reads only the wrapped text this branch protects, so a
+                        // JSON request must not cost widgets the handler object the optimized path
+                        // carries. Copying drops the non-enumerable wrapper keys, as the payload
+                        // builder does.
+                        const appData = Array.isArray(result) ? [...result] : { ...(result as Record<string, unknown>) }
+                        return markExecPayload({
+                            content: [{ type: 'text', text: outputText }],
+                            _meta: { [APP_DATA_META_KEY]: appData as Record<string, unknown> },
+                        })
                     }
-
-                    // Native widgets cannot recover entity data from the optimized text. Preserve
-                    // the handler object before exec serializes it, including tools without UI apps.
-                    const includeAppData = mcpConsumer === 'posthog_ai'
                     const isInlineUiAppHost = isPostHogCodeConsumer(mcpConsumer) || options.isInlineExecUiHost === true
                     if (includeAppData || (tool._meta?.ui?.resourceUri && isInlineUiAppHost)) {
                         const isStringResult = typeof result === 'string'
