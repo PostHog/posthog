@@ -28,6 +28,7 @@ entries (or after a rename or move):
 
 import re
 import ast
+import warnings
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parents[3]
@@ -132,8 +133,12 @@ def collect_candidates() -> list[str]:
                     inherited.add(base.strip().split("[")[0].split(".")[-1])
             if not any(base in source for base in DATABASE_BASES):
                 continue
+            # A bad escape sequence in some other file is that file's problem, not a
+            # warning this test should print.
             try:
-                tree = ast.parse(source)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", SyntaxWarning)
+                    tree = ast.parse(source)
             except SyntaxError:
                 continue
             django_names = _django_test_names(tree)
