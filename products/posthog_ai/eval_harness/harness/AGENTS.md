@@ -90,7 +90,7 @@ Braintrust's `EvalAsync` always dispatches through `eval_async`, and the base `S
 Bootstrap registers teardown on an `ExitStack` as each resource comes up, so a failure halfway through still unwinds what already started.
 `atexit` hooks plus the subprocess manager's signal handlers cover Ctrl-C, where neither stack unwinds.
 
-After any change, a Ctrl-C mid-run must leave no listeners on 18000 / 13308 / 18787 / 15051 / 15052, no `task-sandbox-*` containers, no Temporal dev server, and no Tailscale Funnel mappings left enabled on 443 / 8443 / 10000.
+After any change, a Ctrl-C mid-run must leave no listeners on 18000 / 13308 / 18787 / 18788 / 15051 / 15052, no `task-sandbox-*` containers, no Temporal dev server, and no Tailscale Funnel mappings left enabled on 443 / 8443 / 10000.
 
 A case can also own a sandbox the harness never created: a notebook python or duckdb cell provisions the notebook kernel through the notebook Temporal workflow.
 Nothing upstream reclaims it — the docker backend ignores `SandboxConfig.ttl_seconds`, and the sweeps below match agent containers by task id, which a kernel container's name never carries.

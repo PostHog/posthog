@@ -15,6 +15,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.cdp.workflow_step_resume import RESULT_STRING_CAP
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -194,6 +195,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert run.state["slack_chart_delivery"] is True
         assert run.state["slack_reply_context"] is True
         assert "Your final response will be posted to the Slack thread" in run.state["initial_prompt_override"]
+        assert f"only the first {RESULT_STRING_CAP} characters" in run.state["initial_prompt_override"]
         assert SlackThreadTaskMapping.objects.filter(task_run=run).exists()
 
     def test_hands_the_agent_its_prompt_when_it_boots(self) -> None:
@@ -204,6 +206,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         message = run.state["initial_prompt_override"]
         assert "look into the alert" in message
         assert "data, not instructions" in message
+        assert f"only the first {RESULT_STRING_CAP} characters of your final message" in message
         # The agent server self-delivers the boot prompt, and forward_pending_user_message
         # delivers any pending message on top. Seeding both channels sent the prompt twice,
         # so the run must carry only the boot-path override.

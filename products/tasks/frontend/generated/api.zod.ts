@@ -3185,6 +3185,10 @@ export const TasksRunsRelayMessageCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string().max(tasksRunsRelayMessageCreateBodyTextPartsItemMax))
         .optional()
         .describe('Ordered assistant text blocks. When present, the last non-empty entry is posted instead of text.'),
+    trace_id: zod
+        .uuid()
+        .nullish()
+        .describe('AI observability trace id of the turn that wrote this answer, when the sandbox reported one.'),
 })
 
 /**

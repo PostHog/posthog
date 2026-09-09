@@ -16,7 +16,7 @@ from dataclasses import (
 )
 from datetime import date, datetime
 from enum import Enum
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -50,6 +50,17 @@ class AccountRelationshipDefinition:
     name: str = ""
     description: str | None = None
     is_single_holder: bool = True
+
+
+@dataclass(frozen=True)
+class PinnedAccountProperty:
+    kind: Literal["custom_property", "relationship"]
+    id: UUID
+
+
+@dataclass(frozen=True)
+class UserCustomerAnalyticsConfig:
+    pinned_properties: list[PinnedAccountProperty] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

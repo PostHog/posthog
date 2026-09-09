@@ -72,6 +72,7 @@ import {
   useModelConfigOptionForTask,
   usePendingPermissionsForTask,
   useSessionSelector,
+  useSessionStore,
   useThoughtLevelConfigOptionForTask,
 } from "@posthog/ui/features/sessions/sessionStore";
 import {
@@ -199,6 +200,9 @@ export function SessionView({
   const showInlineBanner = hasError && errorRetryable && events.length > 0;
   const olderHistoryCursor = useSessionSelector(taskId, (session) =>
     isCloud ? (session?.transcriptWindowStart ?? 0) : 0,
+  );
+  const startupPhase = useSessionStore((state) =>
+    taskId ? state.startingTaskIds[taskId]?.phase : undefined,
   );
   const isLoadingOlderHistory = useSessionSelector(
     taskId,
@@ -680,6 +684,8 @@ export function SessionView({
             ) : isInitializing ? (
               pendingTaskPrompt?.promptText ? (
                 <PendingChatView
+                  executionTarget={isCloud ? "cloud" : "local"}
+                  phase={startupPhase}
                   content={
                     pendingTaskPrompt.contentXml ?? pendingTaskPrompt.promptText
                   }
@@ -687,6 +693,7 @@ export function SessionView({
                 />
               ) : (
                 <SessionInitializingView
+                  phase={startupPhase}
                   executionTarget={isCloud ? "cloud" : "local"}
                 />
               )

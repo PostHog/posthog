@@ -9,13 +9,17 @@ from pathlib import Path
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from products.tasks.backend.facade.agents import create_skill_isolation_environment
+from products.tasks.backend.facade.api import list_sandbox_environments
 from products.tasks.backend.logic.services.local_skills import (
     BUILD_HASH_FILENAME,
     BUILT_SKILLS_RELATIVE_PATH,
     LocalSkillsCache,
+    bundled_skills_disabled,
     populate_skills_directory,
     snapshot_local_task_skills,
 )
+from products.tasks.backend.models import SandboxEnvironment
 
 PATCH_TARGET = "products.posthog_ai.scripts.build_skills.SkillBuilder"
 
@@ -49,6 +53,16 @@ class TestLocalSkills(BaseTest):
         self.base_dir = Path(self._tmp.name)
         self._make_fake_repo()
         self.cache = LocalSkillsCache(self.base_dir)
+
+    def test_skill_isolation_environment_disables_bundled_skills_and_stays_internal(self) -> None:
+        environment_id = create_skill_isolation_environment(
+            team_id=self.team.id, user_id=self.user.id, name="Eval skill isolation"
+        )
+
+        environment = SandboxEnvironment.objects.get(team_id=self.team.id, id=environment_id)
+        assert bundled_skills_disabled(environment.environment_variables)
+        assert environment.created_by_id == self.user.id
+        assert list_sandbox_environments(self.team.id, self.user.id) == []
 
     def _make_fake_repo(self) -> None:
         skill_dir = self.base_dir / "products" / "alpha" / "skills" / "my-skill"

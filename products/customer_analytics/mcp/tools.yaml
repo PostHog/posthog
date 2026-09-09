@@ -535,6 +535,9 @@ tools:
             when it failed, and `slack_message_ts` plus `sent_at` when it succeeded. Use this to check delivery progress
             after `announcements-create-execute`.
         feature_flag: customer-analytics-csp
+    calendar-sync-backfill-create:
+        operation: calendar_sync_backfill_create
+        enabled: false
     calendar-sync-list:
         operation: calendar_sync_list
         enabled: false
@@ -1338,4 +1341,10 @@ tools:
                     the metric — usage metrics apply to both groups and persons regardless of this value.
     usage-metrics-update:
         operation: groups_types_metrics_update
+        enabled: false
+    user-customer-analytics-config-partial-update:
+        operation: user_customer_analytics_config_partial_update
+        enabled: false
+    user-customer-analytics-config-retrieve:
+        operation: user_customer_analytics_config_retrieve
         enabled: false

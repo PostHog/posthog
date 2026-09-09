@@ -34,6 +34,7 @@ import type {
     AnnouncementApi,
     AnnouncementChannelApi,
     AnnouncementsListParams,
+    CalendarSyncBackfillApi,
     CalendarSyncStatusApi,
     CalendarSyncTriggerApi,
     CalendarSyncTriggerResponseApi,
@@ -108,8 +109,10 @@ import type {
     PatchedFeatureRequestProductAreaApi,
     PatchedFeatureRequestUpdateApi,
     PatchedGroupUsageMetricApi,
+    PatchedUserCustomerAnalyticsConfigUpdateApi,
     QueryStatusResponseApi,
     SupportTicketApi,
+    UserCustomerAnalyticsConfigApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -467,8 +470,8 @@ export const accountsCustomPropertyValuesCreate = async (
     accountId: string,
     customPropertyValueWriteApi: CustomPropertyValueWriteApi,
     options?: RequestInit
-): Promise<CustomPropertyValueApi> => {
-    return apiMutator<CustomPropertyValueApi>(getAccountsCustomPropertyValuesCreateUrl(projectId, accountId), {
+): Promise<CustomPropertyValueApi | void> => {
+    return apiMutator<CustomPropertyValueApi | void>(getAccountsCustomPropertyValuesCreateUrl(projectId, accountId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -986,6 +989,27 @@ export const calendarSyncList = async (projectId: string, options?: RequestInit)
     return apiMutator<CalendarSyncStatusApi[]>(getCalendarSyncListUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCalendarSyncBackfillCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/calendar_sync/backfill/`
+}
+
+/**
+ * Start an admin-only Gmail and Google Calendar backfill for an inclusive UTC date range.
+ * @summary Backfill a connected Google account
+ */
+export const calendarSyncBackfillCreate = async (
+    projectId: string,
+    calendarSyncBackfillApi: CalendarSyncBackfillApi,
+    options?: RequestInit
+): Promise<CalendarSyncTriggerResponseApi> => {
+    return apiMutator<CalendarSyncTriggerResponseApi>(getCalendarSyncBackfillCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(calendarSyncBackfillApi),
     })
 }
 
@@ -2339,5 +2363,46 @@ export const groupsTypesMetricsDestroy = async (
     return apiMutator<void>(getGroupsTypesMetricsDestroyUrl(projectId, groupTypeIndex, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getUserCustomerAnalyticsConfigRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/user_customer_analytics_config/${id}/`
+}
+
+/**
+ * Get the requesting user's account sidebar configuration for this project. The first read creates an empty configuration row.
+ * @summary Get account sidebar configuration
+ */
+export const userCustomerAnalyticsConfigRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<UserCustomerAnalyticsConfigApi> => {
+    return apiMutator<UserCustomerAnalyticsConfigApi>(getUserCustomerAnalyticsConfigRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUserCustomerAnalyticsConfigPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/user_customer_analytics_config/${id}/`
+}
+
+/**
+ * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided. Omitting pinned_properties leaves the configuration unchanged. At most 50 account custom properties and relationships can be pinned.
+ * @summary Update account sidebar configuration
+ */
+export const userCustomerAnalyticsConfigPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedUserCustomerAnalyticsConfigUpdateApi?: PatchedUserCustomerAnalyticsConfigUpdateApi,
+    options?: RequestInit
+): Promise<UserCustomerAnalyticsConfigApi> => {
+    return apiMutator<UserCustomerAnalyticsConfigApi>(getUserCustomerAnalyticsConfigPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedUserCustomerAnalyticsConfigUpdateApi),
     })
 }

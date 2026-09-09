@@ -1,55 +1,87 @@
-import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-const location = vi.hoisted(() => ({
-  state: { tabId: "first" },
-  href: "/settings/agents",
-}));
-vi.mock("@tanstack/react-router", () => ({
-  useRouterState: ({
-    select,
-  }: {
-    select: (state: { location: typeof location }) => unknown;
-  }) => select({ location }),
-}));
+const navigate = vi.hoisted(() => vi.fn());
 vi.mock("@posthog/ui/router/routerRef", () => ({
-  getRouterOrNull: () => ({ history: { location } }),
+  getRouterOrNull: () => ({ navigate }),
 }));
 
 import {
+  type AgentsPageSearch,
   agentsPageActions,
-  useAgentsPageActions,
-  useAgentsTab,
-  useOpenAgent,
+  agentsTabFrom,
+  openAgentFrom,
 } from "./agentsPageStore";
 
-describe("agent browser tab selection", () => {
-  it("restores a separate selection when tabs have the same href", () => {
-    const { result, rerender } = renderHook(() => ({
-      tab: useAgentsTab(),
-      agent: useOpenAgent(),
-      actions: useAgentsPageActions(),
-    }));
-    act(() =>
-      result.current.actions.openAgent("first-agent", {
-        findingId: "finding-1",
-      }),
-    );
-    location.state.tabId = "second";
-    rerender();
-    expect(result.current.agent).toBeNull();
-    act(() => result.current.actions.showTab("memory"));
-    location.state.tabId = "first";
-    rerender();
-    expect(result.current.agent).toMatchObject({
-      slug: "first-agent",
-      tab: "output",
-      findingId: "finding-1",
+const lastCall = () =>
+  navigate.mock.lastCall?.[0] as {
+    to: string;
+    params: { category: string };
+    replace: boolean;
+    search: (previous: AgentsPageSearch) => AgentsPageSearch;
+  };
+
+const lastSearch = (previous: AgentsPageSearch): AgentsPageSearch =>
+  lastCall().search(previous);
+
+describe("agents page selection", () => {
+  it.each([
+    [{}, "agents"],
+    [{ tab: "memory" }, "memory"],
+    [{ tab: "nonsense" }, "agents"],
+  ])("reads the page tab from %o", (search, tab) =>
+    expect(agentsTabFrom(search)).toBe(tab),
+  );
+
+  it.each([
+    [{}, null],
+    [
+      { agent: "signals-scout-aio" },
+      { slug: "signals-scout-aio", tab: "activity" },
+    ],
+    [
+      { agent: "a", finding: "f-1" },
+      { slug: "a", tab: "output", findingId: "f-1" },
+    ],
+    [
+      { agent: "a", agentTab: "settings" },
+      { slug: "a", tab: "settings" },
+    ],
+    [
+      { agent: "a", agentTab: "nonsense" },
+      { slug: "a", tab: "activity" },
+    ],
+  ])("reads the open agent from %o", (search, agent) =>
+    agent
+      ? expect(openAgentFrom(search)).toMatchObject(agent)
+      : expect(openAgentFrom(search)).toBeNull(),
+  );
+
+  it("puts the open agent in the URL and keeps the report source", () => {
+    agentsPageActions().openAgent("signals-scout-aio", { tab: "output" });
+    const { to, params, replace } = lastCall();
+    expect(to).toBe("/settings/$category");
+    expect(params).toEqual({ category: "agents" });
+    expect(replace).toBe(false);
+    expect(lastSearch({ from: "/inbox/reports" })).toEqual({
+      from: "/inbox/reports",
+      agent: "signals-scout-aio",
+      agentTab: "output",
     });
-    act(() => agentsPageActions().showTab("agents"));
-    expect(result.current.agent).toBeNull();
-    location.state.tabId = "second";
-    rerender();
-    expect(result.current.tab).toBe("memory");
+  });
+
+  it("drops the agent when returning to a page tab", () =>
+    expect(
+      (agentsPageActions().showTab("memory"),
+      lastSearch({ from: "/activity", agent: "a", agentTab: "output" })),
+    ).toEqual({ from: "/activity", tab: "memory" }));
+
+  it("replaces the entry when switching the agent's own tab", () => {
+    agentsPageActions().showAgentTab("settings");
+    expect(lastCall().replace).toBe(true);
+    expect(lastSearch({ agent: "a", finding: "f-1" })).toEqual({
+      agent: "a",
+      agentTab: "settings",
+      finding: undefined,
+    });
   });
 });
