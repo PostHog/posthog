@@ -1537,6 +1537,48 @@ export interface AccessControlFilterWarningApi {
     type?: 'access_control'
 }
 
+export type QueryScanFindingKindApi = (typeof QueryScanFindingKindApi)[keyof typeof QueryScanFindingKindApi]
+
+export const QueryScanFindingKindApi = {
+    NoEventFilter: 'no_event_filter',
+    EventFilterNotUsed: 'event_filter_not_used',
+    NoStartDate: 'no_start_date',
+    PersonsJoin: 'persons_join',
+    AllEvents: 'all_events',
+    AllTime: 'all_time',
+} as const
+
+export type QueryScanFindingReasonApi = (typeof QueryScanFindingReasonApi)[keyof typeof QueryScanFindingReasonApi]
+
+export const QueryScanFindingReasonApi = {
+    InOr: 'in_or',
+    Wrapped: 'wrapped',
+    Negated: 'negated',
+    Dynamic: 'dynamic',
+    NotPruned: 'not_pruned',
+    Column: 'column',
+    Filters: 'filters',
+} as const
+
+export interface QueryScanWarningApi {
+    /** The offending condition printed back as HogQL, when there is one */
+    clause?: string | null
+    duration_ms: number
+    events_in_range?: number | null
+    /** What ClickHouse reported did not use the filter, when EXPLAIN was available */
+    evidence?: string | null
+    /** The instruction handed to "Fix with AI" and to agents */
+    fix: string
+    kind: QueryScanFindingKindApi
+    /** Shown to the person. Sentence case, says what happened and what to do. */
+    message: string
+    /** Why the filter could not be used; only for event_filter_not_used and no_start_date */
+    reason?: QueryScanFindingReasonApi | null
+    rows_read: number
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type?: 'query_scan'
+}
+
 export interface AccountsTableQueryResponseApi {
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -1563,7 +1605,7 @@ export interface AccountsTableQueryResponseApi {
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi | QueryScanWarningApi)[] | null
 }
 
 export type AccountsTableSortDirectionApi =
