@@ -105,16 +105,21 @@ return granted
 //   ARGV[2..4]   = capacity, refill/sec, TTL seconds for KEYS[1]
 //   ARGV[5..7]   = capacity, refill/sec, TTL seconds for KEYS[2]
 // Returns {1, 0, 0} on success. On denial returns {0, i, retryAfterMs} where i is the first
-// bucket (1-based) that cannot cover the request and retryAfterMs is how long until that
-// bucket's refill has accrued the missing tokens, so the caller can park until the claim can
-// mathematically succeed instead of polling at a fixed cadence. Competing callers may still
-// take those tokens first, so retryAfterMs is a lower bound, not a reservation.
+// bucket (1-based) that cannot cover the request and retryAfterMs is how long until every short
+// bucket has accrued its missing tokens, so the caller can park until the claim can
+// mathematically succeed instead of polling at a fixed cadence. Both buckets are measured,
+// because the slower one decides when the pair can be granted. Competing callers may still take
+// those tokens first, so retryAfterMs is a lower bound, not a reservation. A short bucket that
+// never refills has no horizon, and then the denial reports none.
 const CLAIM_ALL_OR_NOTHING_PAIR_LUA = `
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
 local requested = tonumber(ARGV[1])
 
 local available = {}
+local deniedIndex = 0
+local retryAfterMs = 0
+local horizonKnown = true
 for i = 1, 2 do
     local capacity = tonumber(ARGV[(i - 1) * 3 + 2])
     local refillPerSecond = tonumber(ARGV[(i - 1) * 3 + 3])
@@ -134,13 +139,26 @@ for i = 1, 2 do
         avail = math.min(capacity, currentTokens + (elapsedMs / 1000.0) * refillPerSecond)
     end
     if avail < requested then
-        local retryAfterMs = 0
-        if refillPerSecond > 0 then
-            retryAfterMs = math.ceil(((requested - avail) / refillPerSecond) * 1000)
+        if deniedIndex == 0 then
+            deniedIndex = i
         end
-        return {0, i, retryAfterMs}
+        if refillPerSecond > 0 then
+            local bucketRetryMs = math.ceil(((requested - avail) / refillPerSecond) * 1000)
+            if bucketRetryMs > retryAfterMs then
+                retryAfterMs = bucketRetryMs
+            end
+        else
+            horizonKnown = false
+        end
     end
     available[i] = avail
+end
+
+if deniedIndex > 0 then
+    if not horizonKnown then
+        return {0, deniedIndex, 0}
+    end
+    return {0, deniedIndex, retryAfterMs}
 end
 
 for i = 1, 2 do
@@ -247,9 +265,11 @@ export class RateLimiterService {
      * Atomically claim `requested` tokens from BOTH buckets, or neither. A denial consumes
      * nothing, so a caller that retries a multi-token claim cannot drain the buckets while never
      * succeeding. Returns which bucket denied (index into `buckets`), or null when granted.
-     * A denial also carries `retryAfterMs`, the time until the denying bucket's refill has
-     * accrued the missing tokens. It is a lower bound (competing callers may take the tokens
-     * first), so callers use it to schedule the retry, never to skip the re-claim.
+     * A denial also carries `retryAfterMs`, the time until every short bucket's refill has
+     * accrued its missing tokens. Both buckets are measured, so a pair that is short on the
+     * hourly and the daily bucket reports the slower one. It is a lower bound (competing callers
+     * may take the tokens first), so callers use it to schedule the retry, never to skip the
+     * re-claim.
      * Runtime errors deny with `deniedIndex: null` and `retryAfterMs: null` — fail-closed, like
      * claimUpTo.
      *

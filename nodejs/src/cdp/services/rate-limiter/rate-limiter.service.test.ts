@@ -245,6 +245,20 @@ describe('RateLimiterService', () => {
             expect(claim).toEqual({ granted: false, deniedIndex: 1, retryAfterMs: 10_000 })
         })
 
+        it('reports the slower bucket when both are short', async () => {
+            // Both buckets are 20 tokens short of the request. The first one covers that in 10
+            // seconds, the second needs 40. Reporting the first would wake the caller while the
+            // second still cannot grant, costing a whole extra dequeue and reschedule.
+            const claim = await limiter.claimAllOrNothingPair(
+                [
+                    { key: KEY_A, capacity: 10, refillPerSecond: 2 },
+                    { key: KEY_B, capacity: 10, refillPerSecond: 0.5 },
+                ],
+                30
+            )
+            expect(claim).toEqual({ granted: false, deniedIndex: 0, retryAfterMs: 40_000 })
+        })
+
         it('fails closed when the Lua call throws', async () => {
             const brokenValkey = {
                 useClient: jest.fn().mockRejectedValue(new Error('connection lost')),
