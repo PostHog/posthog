@@ -1329,13 +1329,13 @@ snapshots:
     components-markdown-editor-rich--with-markdown--light:
         hash: v1.k794b7964.98bef7667e05e7a86864149a5db5c24b3d4733bcef7d413ab6faf3053c79fba8.evR63xGwLPTzXw6Hi35ROggl2AHmH_y5lT5p05kFGTg
     components-markdown-notebook--component-catalog--dark:
-        hash: v1.k794b7964.8d4bc1ec68c46621e7f0fa8d9ab9c83fc4a5c214fbba1dec162e9bb086643758.kBJyYgTMXU0MN-WCD6K4BcTw4Dne_Y5LCut3zY83OuU
+        hash: v1.k794b7964.a7705b33b2bb9d98a08dad08712a89455876a99422d2d2c60e7d2186d2412796.wxqLNiekJQaoxnPyCAogVqcN8btyRGECwxbDHFxoS2o
     components-markdown-notebook--component-catalog--light:
-        hash: v1.k794b7964.a271d8587dd1ca78ee5dc1807e4ee870107b870e8dab1d0f2879793aaa8c4c47.p6UB4SqhpZmoUAnPrm9xSbDCXvoiYo5sdU8LYFXO63E
+        hash: v1.k794b7964.eb844685cb6a3ab768d8c1c74fe84f4d51adc510a50a44126744dcd3b919bb1e.1s8P4Q2-sbukjdWiExZTHltVpSUJutIlxwS5brNLcHY
     components-markdown-notebook--edit-mode--dark:
-        hash: v1.k794b7964.8d4bc1ec68c46621e7f0fa8d9ab9c83fc4a5c214fbba1dec162e9bb086643758.ig05ITme_EPFYL3KY08K057vpdYx-nJ8n-JQ_ZlE490
+        hash: v1.k794b7964.357bbb3296468c08d63ca60dea277f8afce5c0f727506930936fa7271c8f8cab.VhQZKHHbWlE1aPqf_mSJWjjqEyvh7t8uvnPFBaKmrXU
     components-markdown-notebook--edit-mode--light:
-        hash: v1.k794b7964.a271d8587dd1ca78ee5dc1807e4ee870107b870e8dab1d0f2879793aaa8c4c47.QgiUe5oowox4oU3NA1R11g63jlkj7DvNqruOFWMmcng
+        hash: v1.k794b7964.2b50a7214a259cacb867278bf6dd070949e45dad815c6f4185914b945f8459a0.dPMS6jBv514DDGE-__ybAFYZGxjTLWqkPQFzn4L_Eas
     components-markdown-notebook--embeds--dark:
         hash: v1.k794b7964.039153a86528fc9caf6ae134f3c6a224f07d1c2d137a56b273e73f7b4771ae88.0xkasBfNfhuidhktYwUseCqBisLD2ta03gq1V1vfbLI
     components-markdown-notebook--embeds--light:
@@ -1401,9 +1401,9 @@ snapshots:
     components-markdown-notebook--text-only-notebook--light:
         hash: v1.k794b7964.49b1faad617f02f9410865aca560b5f791996f66b94386bb9d251e2d1277cb85.im1gVBON-vQHqByuqa5D0lz6iC28fyKFi6YNsTf3kdo
     components-markdown-notebook--view-mode--dark:
-        hash: v1.k794b7964.51ab7b78d93381f2feb60a6b11a3627b3fbd3712af9d3a69e250ed2b3e3abd60.Kj_GIFMMlxIlMtl1b633-Z_Sbl0fjjYuKAOTMGOW8t0
+        hash: v1.k794b7964.65f815528713ad514b84ac27d00677dfb875533c3de1d91c1bdc8f4a8ff9c5d5.1VVFVMZ-xn5_8rZ5IEM3nqQJut84nLoDB_CQ33ijIpA
     components-markdown-notebook--view-mode--light:
-        hash: v1.k794b7964.3453caeef81feb028f0eeef4c6d59a387648ff4a2ac3fa3c40485c516b0f11db.ZDJLV3a68LGPOnRLVtnJx4j-6i-M4FwBitp_iYbLw2Q
+        hash: v1.k794b7964.6e095c601e0f2eeb7a171bdcaf26cae50d4f59de68401eb89190912f26c17b77.IIbj_YIF2cO5RWtf6FhWbHrJIgQaGTTN6IWiRY36TlM
     components-mcp-hint-toast--annotations-create--dark:
         hash: v1.k794b7964.eec2ed99e26c3e17bb863aee733524cf25a5ae76808f594bdc41c0eddf501b8f.x88L0pkIlEBj6PedsMSeWEWk04MeGS8PbIdYCJmYYjs
     components-mcp-hint-toast--annotations-create--light:
