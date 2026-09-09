@@ -89,10 +89,12 @@ REVIEW_REPLY_MODULE = f"{ACTIVITIES}.review_reply"
 PERSIST_REPLY_MODULE = f"{ACTIVITIES}.persist_reply"
 PERSIST_KNOWLEDGE_GAP_MODULE = f"{ACTIVITIES}.persist_knowledge_gap"
 RECORD_TRIAGE_MODULE = f"{ACTIVITIES}.record_triage"
+PIPELINE_MODULE = "products.conversations.backend.temporal.pipeline"
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+@patch(f"{PERSIST_KNOWLEDGE_GAP_MODULE}._persist_sync")
 @patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
 @patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
 @patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
@@ -114,6 +116,7 @@ async def test_workflow_persists_on_high_score(
     mock_review,
     mock_persist,
     mock_record_triage,
+    mock_persist_gaps,
     workflow_input,
     sample_chunk_ids,
 ):
@@ -130,7 +133,12 @@ async def test_workflow_persists_on_high_score(
         citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
         confidence=0.9,
     )
-    mock_validate.return_value = ValidateOutput(grounded=True, coverage=0.9, confidence=0.85, missing=[])
+    mock_validate.return_value = ValidateOutput(
+        grounded=True,
+        coverage=0.9,
+        confidence=0.85,
+        missing=["setup prerequisites"],
+    )
     mock_review.return_value = ReviewReplyOutput(safe=True)
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -148,6 +156,7 @@ async def test_workflow_persists_on_high_score(
                 support_validate_activity,
                 support_review_reply_activity,
                 support_persist_reply_activity,
+                support_persist_knowledge_gap_activity,
                 support_record_triage_activity,
             ],
         ):
@@ -162,6 +171,7 @@ async def test_workflow_persists_on_high_score(
     assert "confidence=0.85" in result
     assert "attempts=1" in result
     mock_persist.assert_called_once()
+    mock_persist_gaps.assert_not_called()
 
 
 @pytest.mark.django_db
@@ -263,7 +273,7 @@ async def test_workflow_widens_on_low_score(
 @patch(f"{CLASSIFY_MODULE}._classify", new_callable=AsyncMock)
 @patch(f"{SAFETY_FILTER_MODULE}._safety_filter", new_callable=AsyncMock)
 @patch(f"{BUILD_CONTEXT_MODULE}._build_context_sync")
-async def test_workflow_escalates_after_max_attempts(
+async def test_workflow_replays_pre_patch_gap_persistence(
     mock_build,
     mock_safety,
     mock_classify,
@@ -279,7 +289,7 @@ async def test_workflow_escalates_after_max_attempts(
     sample_chunk_ids,
 ):
     from temporalio.testing import WorkflowEnvironment
-    from temporalio.worker import Worker
+    from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
     mock_build.return_value = BuildContextOutput(ticket_context="Complex question", ticket_title="Complex")
     mock_safety.return_value = SafetyFilterOutput(safe=True)
@@ -312,20 +322,29 @@ async def test_workflow_escalates_after_max_attempts(
                 support_persist_knowledge_gap_activity,
                 support_record_triage_activity,
             ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            result = await env.client.execute_workflow(
-                SupportReplyWorkflow.run,
-                workflow_input,
-                id="test-escalate-max-attempts",
-                task_queue="test-queue",
-            )
+            with patch(f"{PIPELINE_MODULE}.workflow.patched", return_value=False):
+                handle = await env.client.start_workflow(
+                    SupportReplyWorkflow.run,
+                    workflow_input,
+                    id="test-replay-pre-patch-gap-persistence",
+                    task_queue="test-queue",
+                )
+                result = await handle.result()
+                pre_patch_history = await handle.fetch_history()
 
     assert "escalated_with_best" in result
     assert mock_validate.call_count == MAX_ATTEMPTS
     mock_persist.assert_called_once()
-    mock_persist_gaps.assert_not_called()
+    mock_persist_gaps.assert_called_once()
     last_triage = mock_record_triage.call_args_list[-1][0][0].patch
     assert last_triage["missing"] == ["everything"]
+
+    await Replayer(
+        workflows=[SupportReplyWorkflow],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ).replay_workflow(pre_patch_history)
 
 
 @pytest.mark.django_db
