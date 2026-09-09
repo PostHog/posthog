@@ -661,6 +661,8 @@ export interface surveyLogicValues {
     teamSdkVersions: TeamSdkVersions // surveysLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
+    activeAnswerFiltersCount: number
+    activeResultsFilterCount: number
     activeTab: SurveyTab
     aiGeneratedTranslationFields: string[]
     answerFilterHogQLExpression: string
@@ -716,6 +718,7 @@ export interface surveyLogicValues {
     processedSurveyStats: SurveyStats | null
     projectTreeRef: ProjectTreeRef
     propertyFilters: AnyPropertyFilter[]
+    resultsFiltersExpanded: boolean
     resultsRequeryInProgress: boolean
     reusableSurveyNotifications: HogFunctionType[]
     reusableSurveyNotificationsLoading: boolean
@@ -1265,6 +1268,9 @@ export interface surveyLogicActions {
         expanded: boolean
         uuid: string
     }
+    setResultsFiltersExpanded: (expanded: boolean) => {
+        expanded: boolean
+    }
     setSelectedPageIndex: (idx: number | null) => {
         idx: number | null
     }
@@ -1396,7 +1402,13 @@ export interface surveyLogicMeta {
             consolidatedSurveyResultsLoading: boolean
         ) => boolean
         defaultAnswerFilters: (survey: NewSurvey | Survey) => EventPropertyFilter[]
-        hasActiveAnswerFilters: (answerFilters: EventPropertyFilter[]) => boolean
+        activeAnswerFiltersCount: (answerFilters: EventPropertyFilter[]) => number
+        hasActiveAnswerFilters: (activeAnswerFiltersCount: number) => boolean
+        activeResultsFilterCount: (
+            activeAnswerFiltersCount: number,
+            propertyFilters: AnyPropertyFilter[],
+            showArchivedResponses: boolean
+        ) => number
         hasActiveDateRange: (dateRange: SurveyDateRange | null, survey: NewSurvey | Survey) => boolean
         hasActiveFilters: (
             hasActiveAnswerFilters: boolean,
@@ -1573,6 +1585,7 @@ export const surveyLogic = kea<surveyLogicType>([
         }),
         setDateRange: (dateRange: SurveyDateRange, reloadResults: boolean = true) => ({ dateRange, reloadResults }),
         clearFilters: true,
+        setResultsFiltersExpanded: (expanded: boolean) => ({ expanded }),
         setInterval: (interval: IntervalType) => ({ interval }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setFilterSurveyStatsByDistinctId: (filterByDistinctId: boolean) => ({ filterByDistinctId }),
@@ -2448,11 +2461,13 @@ export const surveyLogic = kea<surveyLogicType>([
                 setGeneratingTranslationDrafts: (_, { generating }) => generating,
             },
         ],
+        resultsFiltersExpanded: [false, { setResultsFiltersExpanded: (_, { expanded }) => expanded }],
         showArchivedResponses: [
             false,
             { persist: true },
             {
                 setShowArchivedResponses: (_, { show }) => show,
+                clearFilters: () => false,
             },
         ],
         filterSurveyStatsByDistinctId: [
@@ -2895,16 +2910,27 @@ export const surveyLogic = kea<surveyLogicType>([
                 })
             },
         ],
-        hasActiveAnswerFilters: [
+        activeAnswerFiltersCount: [
             (s) => [s.answerFilters],
-            (answerFilters: EventPropertyFilter[]): boolean => {
-                return answerFilters.some((filter) => {
-                    if (!filter?.value) {
+            (answerFilters: EventPropertyFilter[]): number =>
+                answerFilters.filter((filter) => {
+                    if (filter.value === undefined || filter.value === null || filter.value === '') {
                         return false
                     }
-                    return Array.isArray(filter.value) ? filter.value.length > 0 : filter.value !== ''
-                })
-            },
+                    return Array.isArray(filter.value) ? filter.value.length > 0 : true
+                }).length,
+        ],
+        hasActiveAnswerFilters: [
+            (s) => [s.activeAnswerFiltersCount],
+            (activeAnswerFiltersCount: number): boolean => activeAnswerFiltersCount > 0,
+        ],
+        activeResultsFilterCount: [
+            (s) => [s.activeAnswerFiltersCount, s.propertyFilters, s.showArchivedResponses],
+            (
+                activeAnswerFiltersCount: number,
+                propertyFilters: AnyPropertyFilter[],
+                showArchivedResponses: boolean
+            ): number => activeAnswerFiltersCount + propertyFilters.length + Number(showArchivedResponses),
         ],
         hasActiveDateRange: [
             (s) => [s.dateRange, s.survey],

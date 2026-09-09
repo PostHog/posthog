@@ -1,10 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { memo } from 'react'
 
-import { LemonSkeleton, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -214,37 +212,14 @@ function SurveyStatsContainer({ children }: { children: React.ReactNode }): JSX.
 
     return (
         <section aria-label="Survey performance" className="@container/survey-performance flex flex-col gap-4">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 justify-between">
-                <div className="flex flex-col gap-2">
-                    {survey.start_date && (
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-secondary">
-                            <LemonTag type={survey.end_date ? 'default' : 'success'} size="small">
-                                {survey.end_date ? 'Ended' : 'Active'}
-                            </LemonTag>
-                            <span className="text-border-dark">•</span>
-                            <Tooltip title={<TZLabel time={survey.start_date} />}>
-                                <span>{`Started ${dayjs(survey.start_date).fromNow()}`}</span>
-                            </Tooltip>
-                            {survey.end_date && (
-                                <>
-                                    <span className="text-border-dark">•</span>
-                                    <Tooltip title={<TZLabel time={survey.end_date} />}>
-                                        <span>{`Ended ${dayjs(survey.end_date).fromNow()}`}</span>
-                                    </Tooltip>
-                                </>
-                            )}
-                        </div>
-                    )}
+            {isPubliclyShareable && (
+                <div className="flex justify-end">
+                    <CopySurveyLink
+                        surveyId={survey.id}
+                        enableIframeEmbedding={survey.enable_iframe_embedding ?? false}
+                    />
                 </div>
-                <div className="flex flex-wrap items-center gap-3">
-                    {isPubliclyShareable && (
-                        <CopySurveyLink
-                            surveyId={survey.id}
-                            enableIframeEmbedding={survey.enable_iframe_embedding ?? false}
-                        />
-                    )}
-                </div>
-            </div>
+            )}
             <div className="flex flex-col gap-4">{children}</div>
         </section>
     )

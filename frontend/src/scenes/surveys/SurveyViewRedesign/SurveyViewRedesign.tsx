@@ -3,13 +3,14 @@ import { router } from 'kea-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconArchive, IconCode, IconCopy, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDivider, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
+import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -23,7 +24,6 @@ import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { SurveyNotifications } from 'scenes/surveys/components/SurveyNotifications'
-import { SurveyNotificationsCallout } from 'scenes/surveys/components/SurveyNotificationsCallout'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
 import { useSurveyResponseColumns } from 'scenes/surveys/hooks/useSurveyResponseColumns'
 import {
@@ -389,6 +389,28 @@ export function SurveyViewRedesign(): JSX.Element {
 
             <SceneTitleSection
                 name={survey.name}
+                nameSuffix={
+                    survey.start_date ? (
+                        <Tooltip
+                            title={
+                                <div className="space-y-1">
+                                    <div>
+                                        Started <TZLabel time={survey.start_date} />
+                                    </div>
+                                    {survey.end_date && (
+                                        <div>
+                                            Ended <TZLabel time={survey.end_date} />
+                                        </div>
+                                    )}
+                                </div>
+                            }
+                        >
+                            <LemonTag type={survey.end_date ? 'default' : 'success'} size="small">
+                                {survey.end_date ? 'Ended' : 'Active'}
+                            </LemonTag>
+                        </Tooltip>
+                    ) : undefined
+                }
                 description={survey.description}
                 resourceType={{ type: 'survey' }}
                 canEdit={userHasAccess(
@@ -595,9 +617,8 @@ function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void
     if (!isRefreshingResults && !atLeastOneResponse) {
         return (
             <div className="px-4 pb-4">
-                <div className="mx-auto w-full max-w-[1200px] space-y-4">
+                <div className="mx-auto w-full max-w-[1200px] space-y-6">
                     <SurveyResultsFiltersBar />
-                    <SurveyNotificationsCallout surveyId={survey.id} />
                     <SurveyStatsSummary />
                     <SurveyNoResponsesBanner
                         type="survey"
@@ -616,16 +637,15 @@ function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void
 
     return (
         <div className="px-4 pb-4">
-            <div className="mx-auto w-full max-w-[1200px] space-y-4">
+            <div className="mx-auto w-full max-w-[1200px] space-y-6">
                 <SurveyResultsFiltersBar />
-                <SurveyNotificationsCallout surveyId={survey.id} />
                 <SurveyResultsRefreshStatus visible={isRefreshingResults} />
                 <div
                     aria-busy={isRefreshingResults}
                     className={
                         isRefreshingResults
-                            ? 'space-y-4 opacity-75 transition-opacity duration-200 ease-out'
-                            : 'space-y-4 opacity-100 transition-opacity duration-200 ease-out'
+                            ? 'space-y-8 opacity-75 transition-opacity duration-200 ease-out'
+                            : 'space-y-8 opacity-100 transition-opacity duration-200 ease-out'
                     }
                 >
                     <SurveyStatsSummary />
@@ -686,9 +706,8 @@ function SurveyResponsesContent(): JSX.Element {
     const surveyColumnRenderers = useSurveyResponseColumns()
 
     return (
-        <div className="px-4 pb-4 space-y-4">
+        <div className="px-4 pb-4 space-y-6">
             <SurveyResultsFiltersBar />
-            <SurveyNotificationsCallout surveyId={survey.id} />
             <SurveyResultsRefreshStatus visible={isRefreshingResults} />
             {isInitialSurveyLoad ? (
                 <LemonSkeleton />
@@ -697,8 +716,8 @@ function SurveyResponsesContent(): JSX.Element {
                     aria-busy={isRefreshingResults}
                     className={
                         isRefreshingResults
-                            ? 'survey-table-results space-y-4 opacity-75 transition-opacity duration-200 ease-out'
-                            : 'survey-table-results space-y-4 opacity-100 transition-opacity duration-200 ease-out'
+                            ? 'survey-table-results space-y-8 opacity-75 transition-opacity duration-200 ease-out'
+                            : 'survey-table-results space-y-8 opacity-100 transition-opacity duration-200 ease-out'
                     }
                 >
                     <SurveyStatsSummary />
