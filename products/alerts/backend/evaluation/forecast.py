@@ -191,6 +191,14 @@ def _clean_points(result: ExtractionResult) -> tuple[list[str], list[float]]:
     return dates, [points[date] for date in dates]
 
 
+def _training_window(
+    dates: list[str], values: list[float], horizon: int, interval: IntervalType | None
+) -> tuple[list[str], list[float]]:
+    """Use one deterministic trailing fit window for previews and scheduled checks."""
+    training_points = _forecast_min_samples(horizon, interval)
+    return dates[-training_points:], values[-training_points:]
+
+
 def _inconclusive(result: ExtractionResult, reason: str) -> AlertEvaluationResult:
     return AlertEvaluationResult(
         value=None,
@@ -364,11 +372,12 @@ def evaluate_with_forecast(
         if actual_breach := _actual_breach(result, dates, values, bounds):
             return actual_breach
 
+    training_dates, training_values = _training_window(dates, values, horizon, result.interval_type)
     engine = get_forecast_engine(forecast_config)
     try:
         forecast = engine.forecast(
-            dates,
-            values,
+            training_dates,
+            training_values,
             horizon,
             DEFAULT_INTERVAL_WIDTH,
             result.interval_type,
@@ -556,9 +565,13 @@ def simulate_forecast_on_insight(
             f"Not enough history to forecast: need at least {required_points} completed intervals, got {len(values)}."
         )
 
+    # A preview can fetch extra history for chart context, but the forecast itself must fit the
+    # same deterministic trailing window as a scheduled check. Otherwise the preview can promise a
+    # different breach or target result from the check that immediately follows it.
+    training_dates, training_values = _training_window(dates, values, horizon, result.interval_type)
     forecast = get_forecast_engine(forecast_config).forecast(
-        dates,
-        values,
+        training_dates,
+        training_values,
         horizon,
         DEFAULT_INTERVAL_WIDTH,
         result.interval_type,

@@ -725,6 +725,35 @@ def test_forecast_validation_rejects_ambiguous_query_semantics(
 
 
 class TestForecastSimulationLookback:
+    def test_preview_fits_the_same_trailing_history_as_a_scheduled_check(self) -> None:
+        extraction = _series(n=90)
+        engine = StubEngine(_forecast(["2026-04-01"], [90.0]))
+        insight = cast(
+            Insight,
+            SimpleNamespace(
+                query={
+                    "kind": "TrendsQuery",
+                    "interval": "day",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                }
+            ),
+        )
+        team = cast(Team, SimpleNamespace(timezone="UTC", week_start_day=1, base_currency="USD"))
+
+        with (
+            patch("products.alerts.backend.evaluation.forecast.extract_trends_series", return_value=extraction),
+            patch("products.alerts.backend.evaluation.forecast.get_forecast_engine", return_value=engine),
+        ):
+            result = simulate_forecast_on_insight(
+                insight,
+                team,
+                {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach", "horizon": 7},
+                date_from="-90d",
+            )
+
+        assert len(result["data"]) == 90
+        assert engine.calls[0]["dates"] == [point.date for point in extraction.series[0].points[-28:]]
+
     @parameterized.expand(
         [
             ("absolute_too_old", "day", "1900-01-01", "2024-09-07"),

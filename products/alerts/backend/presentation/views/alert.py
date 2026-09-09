@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
 
@@ -244,10 +245,17 @@ class TeamScopedInsightReferenceField(TeamScopedPrimaryKeyRelatedField):
 class ForecastConfigField(serializers.JSONField):
     def to_internal_value(self, data):
         value = super().to_internal_value(data)
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Invalid forecast config: expected an object")
         try:
-            ForecastConfig.model_validate(value)
+            config = ForecastConfig.model_validate(value).root
         except Exception as e:
             raise serializers.ValidationError(f"Invalid forecast config: {e}")
+        target_date = getattr(config, "target_date", None)
+        if target_date is not None:
+            # Python accepts every ISO 8601 date form, including week dates. Persist the canonical
+            # calendar form so API clients do not need to implement Python's wider parser.
+            value["target_date"] = date.fromisoformat(target_date).isoformat()
         return value
 
 
@@ -686,6 +694,14 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 AlertSubscription.objects.get_or_create(
                     user=user, alert_configuration=instance, defaults={"created_by": self.context["request"].user}
                 )
+
+        # forecast_config carries the alert's firing condition, so it gets the same reset a
+        # threshold change gets. The sweep picks up an alert only once next_check_at is due, which
+        # for a weekly or monthly cadence is days to a month out. A target date moved inside that
+        # window would otherwise pass first, and the target-date expiry then disables the alert
+        # silently without ever evaluating the new configuration.
+        if "forecast_config" in validated_data and validated_data["forecast_config"] != instance.forecast_config:
+            conditions_or_threshold_changed = True
 
         calculation_interval_changed = (
             "calculation_interval" in validated_data

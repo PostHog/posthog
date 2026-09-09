@@ -37,7 +37,7 @@ from posthog.temporal.alerts.workflows import CheckAlertWorkflow, ScheduleDueAle
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.tests.test_alerts_activities import _email_delivery
 
-from products.alerts.backend.forecasting.capacity import ForecastEvaluationCapacityExceeded
+from products.alerts.backend.forecasting.capacity import ForecastCapacityUnavailable, ForecastEvaluationCapacityExceeded
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.facade.models import Insight
 
@@ -385,34 +385,45 @@ async def test_check_alert_workflow_records_errored_check_when_evaluation_keeps_
 @patch("posthog.slo.events.posthoganalytics")
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_check_alert_workflow_defers_saturated_forecast_without_advancing_schedule(
+async def test_check_alert_workflow_defers_forecast_capacity_failure_without_advancing_schedule(
     mock_slo_analytics: MagicMock,
     alert_with_subscriber: AlertConfiguration,
 ) -> None:
+    # A store outage stops every due forecast alert at once, so it defers like a full pool instead
+    # of erroring healthy alerts and telling their subscribers the check failed.
     next_check_at = datetime.now(UTC)
     alert_with_subscriber.next_check_at = next_check_at
     await sync_to_async(alert_with_subscriber.save)(update_fields=["next_check_at"])
 
-    with patch(
-        "posthog.temporal.alerts.activities.check_alert_for_insight",
-        side_effect=ForecastEvaluationCapacityExceeded,
-    ) as mock_evaluate:
-        await _run_check_alert_workflow(
-            alert_id=str(alert_with_subscriber.id),
-            slo=_slo_config(alert_with_subscriber),
-            team_id=alert_with_subscriber.team_id,
-            insight_id=alert_with_subscriber.insight_id,
+    for capacity_error in (ForecastEvaluationCapacityExceeded, ForecastCapacityUnavailable):
+        mock_slo_analytics.reset_mock()
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                side_effect=capacity_error,
+            ) as mock_evaluate,
+            patch("posthog.tasks.alerts.utils.send_notifications_for_errors") as mock_send_errors,
+        ):
+            await _run_check_alert_workflow(
+                alert_id=str(alert_with_subscriber.id),
+                slo=_slo_config(alert_with_subscriber),
+                team_id=alert_with_subscriber.team_id,
+                insight_id=alert_with_subscriber.insight_id,
+            )
+
+        assert mock_evaluate.call_count == ALERT_EVALUATE_RETRY_POLICY.maximum_attempts
+        assert (
+            await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert_with_subscriber).exists)() is False
         )
+        mock_send_errors.assert_not_called()
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_subscriber.pk)
+        assert refreshed.state == AlertState.NOT_FIRING
+        assert refreshed.next_check_at == next_check_at
 
-    assert mock_evaluate.call_count == ALERT_EVALUATE_RETRY_POLICY.maximum_attempts
-    assert await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert_with_subscriber).exists)() is False
-    refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_subscriber.pk)
-    assert refreshed.next_check_at == next_check_at
-
-    completed_props = _completed_slo_props(mock_slo_analytics)
-    assert completed_props["outcome"] == SloOutcome.SUCCESS
-    assert completed_props["skip_reason"] == "capacity"
-    assert "alert_state" not in completed_props
+        completed_props = _completed_slo_props(mock_slo_analytics)
+        assert completed_props["outcome"] == SloOutcome.SUCCESS
+        assert completed_props["skip_reason"] == "capacity"
+        assert "alert_state" not in completed_props
 
 
 @patch("posthog.slo.events.posthoganalytics")

@@ -32,12 +32,31 @@ from products.alerts.backend.insight_alert_destinations import (
     SLACK_TEMPLATE_ID,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
+from products.alerts.backend.presentation.views.alert import ForecastConfigField
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.product_analytics.backend.facade.models import Insight
 
 TEST_DESTINATION_DELIVERY = AlertDelivery(
     channel="hog_function", target="Eng alerts", template="slack", at="2026-08-11T00:00:00+00:00"
 )
+
+
+def test_forecast_config_field_canonicalizes_supported_iso_week_dates() -> None:
+    target_date = (datetime.now(UTC) + timedelta(days=30)).date()
+    iso_year, iso_week, iso_weekday = target_date.isocalendar()
+
+    value = ForecastConfigField().to_internal_value(
+        {
+            "type": "ForecastConfig",
+            "engine": "prophet",
+            "condition": "target_by_date",
+            "target": 100,
+            "target_direction": "at_least",
+            "target_date": f"{iso_year}-W{iso_week:02d}-{iso_weekday}",
+        }
+    )
+
+    assert value["target_date"] == target_date.isoformat()
 
 
 def _trends_insight_data(
@@ -1317,6 +1336,84 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
         persisted_alert = AlertConfiguration.objects.get(id=alert["id"])
         assert persisted_alert.next_check_at == (None if clears_next_check else scheduled_check)
+
+    @parameterized.expand(
+        [
+            (
+                "moved_target_date",
+                lambda future: {
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "target_by_date",
+                        "target": 100,
+                        "target_direction": "at_least",
+                        "target_date": future,
+                    }
+                },
+                True,
+            ),
+            (
+                "resent_unchanged_config",
+                lambda future: {
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "target_by_date",
+                        "target": 100,
+                        "target_direction": "at_least",
+                        "target_date": (datetime.now(UTC).date() + timedelta(days=30)).isoformat(),
+                    }
+                },
+                False,
+            ),
+            ("renamed_only", lambda future: {"name": "renamed alert"}, False),
+        ]
+    )
+    def test_patch_forecast_config_reschedules_the_alert(
+        self, _name: str, patch_payload: Any, clears_next_check: bool
+    ) -> None:
+        insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights", data=_trends_insight_data(query_extra={"interval": "week"})
+        ).json()
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.posthoganalytics.feature_enabled", return_value=True
+        ):
+            alert = self.client.post(
+                f"/api/projects/{self.team.id}/alerts",
+                data={
+                    "insight": insight["id"],
+                    "name": "target alert",
+                    "subscribed_users": [self.user.id],
+                    "calculation_interval": "weekly",
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "condition": {"type": "absolute_value"},
+                    "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                    "forecast_config": {
+                        "type": "ForecastConfig",
+                        "engine": "prophet",
+                        "condition": "target_by_date",
+                        "target": 100,
+                        "target_direction": "at_least",
+                        "target_date": (datetime.now(UTC).date() + timedelta(days=30)).isoformat(),
+                    },
+                },
+            ).json()
+            scheduled_check = datetime.now(UTC) + timedelta(days=6)
+            AlertConfiguration.objects.filter(id=alert["id"]).update(
+                next_check_at=scheduled_check, state=AlertState.FIRING
+            )
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/alerts/{alert['id']}",
+                patch_payload((datetime.now(UTC).date() + timedelta(days=3)).isoformat()),
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        persisted_alert = AlertConfiguration.objects.get(id=alert["id"])
+        assert persisted_alert.next_check_at == (None if clears_next_check else scheduled_check)
+        assert persisted_alert.state == (AlertState.NOT_FIRING if clears_next_check else AlertState.FIRING)
 
     def test_create_alert_with_schedule_restriction(self) -> None:
         creation_request = {
