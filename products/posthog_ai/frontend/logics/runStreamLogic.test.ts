@@ -977,6 +977,36 @@ describe('runStreamLogic', () => {
     })
 
     describe('_posthog/user_message rendering', () => {
+        it.each(['live', 'replay'] as const)('omits hidden user content from %s frames', async (source) => {
+            const hidden = { type: 'text', text: 'Internal recovery instruction', _meta: { ui: { hidden: true } } }
+            const visible = { type: 'text', text: 'Use the updated requirements' }
+            const frames = [
+                notification('_posthog/user_message', { content: [hidden] }),
+                sessionUpdate({ sessionUpdate: 'user_message_chunk', content: hidden }),
+                sessionUpdate({ sessionUpdate: 'user_message', content: hidden }),
+            ]
+            await expectLogic(logic, () => {
+                for (const frame of frames) {
+                    logic.actions.ingestAcpFrame(frame, source)
+                }
+            }).toFinishAllListeners()
+            expect(logic.values.threadItems).toEqual([])
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/user_message', { content: [hidden, visible] }),
+                    source
+                )
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'user_message_chunk', content: visible }),
+                    source
+                )
+            }).toFinishAllListeners()
+            expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toEqual([
+                expect.objectContaining({ text: visible.text }),
+            ])
+        })
+
         it('renders a seeded user turn into the thread on bootstrap replay', async () => {
             const frames: StoredLogEntry[] = [
                 notification('_posthog/user_message', { content: 'Why did checkout drop?' }),

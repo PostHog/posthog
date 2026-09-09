@@ -30,13 +30,40 @@ function toolMessage(
 
 describe('mcp tool adapter extractors', () => {
     describe('extractVisualizationArtifact', () => {
-        it('classifies a REST insight payload with short_id as a saved insight', () => {
-            const artifact = extractVisualizationArtifact(
-                toolMessage({ short_id: 'abc12345', name: 'Signups', query: { kind: 'TrendsQuery' } })
-            )
+        const savedInsight = { short_id: 'abc12345', name: 'Signups', query: { kind: 'TrendsQuery' } }
+
+        it.each([
+            ['direct payload', savedInsight],
+            [
+                'MCP structured content',
+                {
+                    structuredContent: savedInsight,
+                    content: [{ type: 'text', text: '{"query":{"kind":"FunnelsQuery"}}' }],
+                    isError: false,
+                },
+            ],
+            ['MCP JSON text', { content: [{ type: 'text', text: JSON.stringify(savedInsight) }], isError: false }],
+            [
+                'MCP JSON text without optional fields',
+                { content: [{ type: 'text', text: JSON.stringify(savedInsight) }] },
+            ],
+            [
+                'MCP TOON text with no structured content',
+                {
+                    structuredContent: null,
+                    content: [
+                        { type: 'image', data: 'unused', mimeType: 'image/png' },
+                        { type: 'text', text: 'short_id: abc12345\nname: Signups\nquery:\n  kind: TrendsQuery' },
+                    ],
+                    isError: false,
+                },
+            ],
+        ])('classifies a saved insight from %s', (_format, rawOutput) => {
+            const artifact = extractVisualizationArtifact(toolMessage(rawOutput))
             expect(artifact?.envelope.source).toBe(ArtifactSource.Insight)
             expect(artifact?.envelope.artifact_id).toBe('abc12345')
             expect(artifact?.content.name).toBe('Signups')
+            expect(artifact?.content.query).toEqual(savedInsight.query)
         })
 
         it('classifies a query-only output as ephemeral', () => {
@@ -45,9 +72,15 @@ describe('mcp tool adapter extractors', () => {
             expect(artifact?.envelope.artifact_id).toBe('call-1')
         })
 
-        it('returns null when the output has no query', () => {
-            expect(extractVisualizationArtifact(toolMessage({ id: 1, name: 'No query here' }))).toBeNull()
-            expect(extractVisualizationArtifact(toolMessage(undefined))).toBeNull()
+        it.each([
+            undefined,
+            { id: 1, name: 'No query here' },
+            { content: [] },
+            { content: [null, { type: 'image', data: 'unused', mimeType: 'image/png' }] },
+            { content: [{ type: 'text', text: 'No insight found' }] },
+            { structuredContent: savedInsight, isError: true },
+        ])('returns null for missing, malformed, or failed insight output: %j', (rawOutput) => {
+            expect(extractVisualizationArtifact(toolMessage(rawOutput))).toBeNull()
         })
     })
 
