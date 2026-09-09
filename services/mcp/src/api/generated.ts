@@ -94215,6 +94215,10 @@ export namespace Schemas {
      */
     completed?: CommentsListCompleted;
     /**
+     * Filter by the numeric ID of the user who wrote the comment.
+     */
+    created_by?: number;
+    /**
      * The pagination cursor value.
      */
     cursor?: string;

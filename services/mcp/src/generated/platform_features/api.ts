@@ -396,6 +396,7 @@ export const CommentsListQueryParams = () => zod.object({
         .describe(
             "When kind=task, restrict to open (incomplete) or completed tasks. Ignored when kind is not 'task'. Defaults to 'any' (no filter).\n\n\* `any` - any\n\* `open` - open\n\* `completed` - completed"
         ),
+    created_by: zod.number().optional().describe('Filter by the numeric ID of the user who wrote the comment.'),
     cursor: zod.string().optional().describe('The pagination cursor value.'),
     item_id: zod.string().min(1).optional().describe('Filter by the ID of the resource being commented on.'),
     kind: zod
