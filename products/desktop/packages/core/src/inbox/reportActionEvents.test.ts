@@ -24,13 +24,14 @@ function fakeReport(overrides: Partial<SignalReport> = {}): SignalReport {
 }
 
 describe("snapshotReportList", () => {
-  it("captures rank, title, and list size per report", () => {
+  it("captures rank and list size per report without report content", () => {
     const snapshot = snapshotReportList([
       fakeReport({ id: "a", title: "A" }),
       fakeReport({ id: "b", title: "B" }),
     ]);
     expect(snapshot.listSize).toBe(2);
-    expect(snapshot.byId.get("b")).toMatchObject({ rank: 1, title: "B" });
+    expect(snapshot.byId.get("b")).toMatchObject({ rank: 1 });
+    expect(snapshot.byId.get("b")).not.toHaveProperty("title");
   });
 });
 
@@ -61,7 +62,6 @@ describe("buildBulkActionEvents", () => {
       is_bulk: false,
       bulk_size: 1,
       rank: -1,
-      report_title: null,
       priority: null,
     });
   });
@@ -76,12 +76,12 @@ describe("buildDetailActionEvent", () => {
     );
     expect(event).toMatchObject({
       report_id: "x",
-      report_title: "X",
       action_type: "expand_why",
       surface: "detail_pane",
       is_bulk: false,
       bulk_size: 1,
       why_field: "priority",
     });
+    expect(event).not.toHaveProperty("report_title");
   });
 });

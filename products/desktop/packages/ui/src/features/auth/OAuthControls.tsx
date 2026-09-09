@@ -1,11 +1,12 @@
 import type { CloudRegion } from "@posthog/shared";
-import { Callout, Spinner } from "@radix-ui/themes";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
+import { Callout } from "@radix-ui/themes";
 import { RegionSelect } from "./RegionSelect";
 import { useOAuthFlow } from "./useOAuthFlow";
 
 interface OAuthControlsProps {
   onAuthInitiated?: (region: CloudRegion) => void;
-  /** Defaults to the dev build, which is the only place a local instance is worth offering. */
+  /** Defaults to the dev build, where development targets are available. */
   includeDevRegion?: boolean;
 }
 
@@ -60,7 +61,7 @@ export function OAuthControls({
           transition: "opacity 150ms ease, box-shadow 100ms ease",
         }}
       >
-        {isPending && <Spinner size="1" />}
+        {isPending && <Spinner size="sm" />}
         {isPending ? "Cancel" : "Sign in with PostHog"}
       </button>
 

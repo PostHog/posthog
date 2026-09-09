@@ -19,8 +19,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
+# Cohere versions its API in the URL path. Every list endpoint this source reads is served at
+# /v1/; Cohere's v2 generation covers the inference surface only (/v2/chat, /v2/embed, /v2/rerank),
+# which this source does not touch. The source-level version label is bound to this constant so a
+# declared version can never drift from the path the requests actually use.
+COHERE_API_VERSION_V1 = "v1"
+
 # Cohere serves a single global API host; there are no regional variants.
-COHERE_BASE_URL = "https://api.cohere.com/v1"
+COHERE_BASE_URL = f"https://api.cohere.com/{COHERE_API_VERSION_V1}"
 
 
 def _headers() -> dict[str, str]:

@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   channels: [] as {
     id: string;
     name: string;
-    channelType: "public" | "personal";
+    channelType: "public" | "personal" | "private";
     starred: boolean;
     repositories: string[];
     createdBy: null;
@@ -93,6 +93,7 @@ vi.mock(
 vi.mock("@posthog/ui/features/canvas/hooks/useRecentSpaceTasks", () => ({
   NO_TASKS: { items: [], total: 0 },
   usePrefetchSpaceTasks: () => () => undefined,
+  useSpacePresence: () => new Map(),
   useRecentSpaceTasks: (spaceIds: string[]) =>
     new Map(
       spaceIds.map((spaceId) => {

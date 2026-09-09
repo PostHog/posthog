@@ -146,7 +146,7 @@ def get_live_query_progress(recalc: ExperimentMetricsRecalculation) -> dict | No
                 SETTINGS skip_unavailable_shards=1, max_execution_time=2
                 """,
                 {"cluster": CLICKHOUSE_CLUSTER, "prefix": prefix, "since": int(since.timestamp())},
-                workload=Workload.OFFLINE,
+                workload=Workload.ONLINE,
                 team_id=recalc.team_id,
             )
     except Exception:

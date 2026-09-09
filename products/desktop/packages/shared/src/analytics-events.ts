@@ -57,6 +57,7 @@ export type CommandMenuAction =
   | "open-task"
   | "open-task-from-pull-request"
   | "open-artifact"
+  | "open-canvas"
   | "open-channel"
   | "open-command-center"
   | "save-feed"
@@ -343,6 +344,11 @@ export interface SettingChangedProperties {
   old_value?: string | boolean | number;
 }
 
+export interface CloudCredentialRelayProperties {
+  credential: "claude_subscription_token";
+  outcome: "sent" | "no_token" | "expired" | "rejected";
+}
+
 export interface CustomSoundAddedProperties {
   // How the clip was captured.
   source: "recording" | "import";
@@ -415,8 +421,20 @@ export interface ModelSwitchWarningShownProperties {
 
 export interface ModelSwitchWarningActionProperties
   extends ModelSwitchWarningShownProperties {
-  action: "cancel" | "copy_handoff_summary" | "switch_now";
+  action: "cancel" | "switch_now";
   result?: "failed" | "succeeded";
+}
+
+export interface SessionSummaryRequestedProperties {
+  task_id: string;
+  source: "retry" | "task_menu";
+}
+
+export interface SessionSummaryActionProperties {
+  task_id: string;
+  action: "copied" | "dismissed" | "stopped_waiting";
+  /** How long the summary had been running when the action happened. */
+  wait_ms: number;
 }
 
 // Tour events
@@ -499,7 +517,7 @@ export type AiQualityRating = "good" | "bad";
 
 export interface AiFeedbackContextProperties {
   $ai_session_id: string | null;
-  $ai_trace_id: null;
+  $ai_trace_id: string | null;
   ai_product: AiFeedbackProduct;
   task_id: string | null;
   task_run_id?: string;
@@ -687,9 +705,12 @@ export type InboxReportCloseMethod =
 
 export type InboxReportActionType =
   | "dismiss"
+  | "resolve"
+  | "restore"
   | "snooze"
   | "delete"
   | "reingest"
+  | "implement"
   | "create_pr"
   | "open_pr"
   | "open_task"
@@ -713,11 +734,28 @@ export type InboxReportActionSurface =
   | "toolbar"
   | "keyboard"
   | "list_row"
+  | "context_menu"
   | "triage";
+
+export type InboxReportActionOutcome = "succeeded" | "failed";
+
+export type InboxReportActionFailureCode =
+  | "offline"
+  | "missing_repository"
+  | "missing_integration"
+  | "signed_out"
+  | "missing_model"
+  | "usage_limit"
+  | "existing_task"
+  | "request_failed"
+  | "task_creation_failed"
+  | "unexpected_error";
 
 export type InboxReviewerScope = "for-you" | "entire-project" | "teammate";
 
 export interface InboxTriageStartedProperties {
+  /** Correlates one Desktop triage run across its start, actions, and end. */
+  triage_id?: string;
   queue_size: number;
   scope: InboxReviewerScope;
   has_active_filters: boolean;
@@ -767,7 +805,6 @@ export interface InboxViewedProperties {
 
 export interface InboxReportOpenedProperties {
   report_id: string;
-  report_title: string | null;
   report_age_hours: number;
   status: string | null;
   priority: string | null;
@@ -781,7 +818,6 @@ export interface InboxReportOpenedProperties {
 
 export interface InboxReportClosedProperties {
   report_id: string;
-  report_title: string | null;
   report_age_hours: number;
   priority: string | null;
   actionability: string | null;
@@ -792,7 +828,6 @@ export interface InboxReportClosedProperties {
 
 export interface InboxReportScrolledProperties {
   report_id: string;
-  report_title: string | null;
   report_age_hours: number;
   priority: string | null;
   actionability: string | null;
@@ -802,7 +837,6 @@ export interface InboxReportScrolledProperties {
 }
 
 export interface UsageViewedProperties {
-  is_pro: boolean;
   /** Monthly bucket percent (0-100), null when usage is unavailable. */
   sustained_used_percent: number | null;
   /** Daily bucket percent (0-100), null when usage is unavailable. */
@@ -826,7 +860,6 @@ export interface SpendAnalysisTaskOpenedProperties {
 
 export interface InboxReportActionProperties {
   report_id: string;
-  report_title: string | null;
   report_age_hours: number;
   priority: string | null;
   actionability: string | null;
@@ -836,8 +869,8 @@ export interface InboxReportActionProperties {
   bulk_size: number;
   rank: number;
   list_size: number;
+  triage_id?: string;
   dismissal_reason?: string;
-  dismissal_note?: string;
   signal_id?: string;
   signal_source_product?: string;
   signal_source_type?: string;
@@ -848,14 +881,20 @@ export interface InboxReportActionProperties {
   suggested_reviewer_uuid?: string;
   // True when the user submitted Discuss with a first question via the popover.
   has_question?: boolean;
-  // The first question text the user typed before hitting Discuss. Truncated to
-  // 500 chars to keep event payloads bounded.
-  question_text?: string;
   // True when the user submitted Create PR with extra feedback via the popover.
   has_feedback?: boolean;
-  // The feedback text the user typed before hitting Create PR. Truncated to
-  // 500 chars to keep event payloads bounded.
-  feedback_text?: string;
+}
+
+export interface InboxReportActionResultProperties {
+  report_id: string;
+  action_type: InboxReportActionType;
+  surface: InboxReportActionSurface;
+  outcome: InboxReportActionOutcome;
+  duration_ms: number;
+  is_bulk: boolean;
+  bulk_size: number;
+  triage_id?: string;
+  failure_code?: InboxReportActionFailureCode;
 }
 
 /**
@@ -865,8 +904,7 @@ export interface InboxReportActionProperties {
  * against, so it carries the same report classification as the impression and
  * open events. Mirrors cloud's `Inbox report feedback`
  * (`frontend/src/scenes/inbox/inboxAnalytics.ts`) so the clients are
- * comparable in one PostHog project. `note` is optional — the thumbs submit on
- * one click, with no note.
+ * comparable in one PostHog project.
  */
 export interface InboxReportFeedbackProperties {
   report_id: string;
@@ -877,13 +915,10 @@ export interface InboxReportFeedbackProperties {
   /** Whether the report already has an implementation PR. */
   has_pr: boolean;
   surface: InboxReportActionSurface;
-  // Optional free-text note, truncated to keep event payloads bounded. Present
-  // only on the rare path where the rating and note submit together.
-  note?: string;
 }
 
 /**
- * Optional free-text note, offered only once a rating is already recorded. It
+ * Optional note metadata, offered only once a rating is already recorded. It
  * rides on its own event rather than re-firing {@link InboxReportFeedbackProperties}
  * so sentiment stays exactly one event per rating; join back to the rating on
  * `report_id`. Carries `sentiment` too so a note can be read without that join.
@@ -896,8 +931,7 @@ export interface InboxReportFeedbackNoteProperties {
   sentiment: InboxReportFeedbackSentiment;
   has_pr: boolean;
   surface: InboxReportActionSurface;
-  /** Truncated to keep event payloads bounded. */
-  note: string;
+  note_length: number;
 }
 
 // Scout events
@@ -932,7 +966,15 @@ type ScoutActionType =
   | "close_settings"
   | "open_findings"
   | "filter_findings"
-  | "sort_findings";
+  | "sort_findings"
+  | "run_now"
+  | "open_new_agent"
+  | "accept_suggestion"
+  | "draft_suggestion"
+  | "dismiss_suggestion"
+  | "filter_origin"
+  | "search_agents"
+  | "switch_detail_tab";
 
 /**
  * How the fleet materialization that preceded this view ended. Without it an
@@ -978,10 +1020,15 @@ export interface ScoutDetailViewedProperties {
 export interface ScoutConfigChangedProperties {
   skill_name: string;
   scout_origin: "canonical" | "custom";
-  setting: "enabled" | "emit" | "run_interval_minutes" | "auto_pause_exempt";
-  new_value: boolean | number;
+  setting:
+    | "enabled"
+    | "emit"
+    | "run_interval_minutes"
+    | "run_cron_schedule"
+    | "auto_pause_exempt";
+  new_value: boolean | number | string | null;
   /** Null when the backend predates the setting and never sent a value. */
-  old_value: boolean | number | null;
+  old_value: boolean | number | string | null;
   /** False when the server rejected the update and the change rolled back. */
   success: boolean;
 }
@@ -1246,7 +1293,7 @@ export type UpgradePromptClickedSurface =
   | "billing_announcement"
   | "model_picker";
 
-type UpgradePromptCause = "model_gate" | "org_limit";
+type UpgradePromptCause = "model_gate" | "model_unavailable" | "org_limit";
 
 export interface UpgradePromptShownProperties {
   surface: UpgradePromptShownSurface;
@@ -1260,7 +1307,6 @@ export interface UpgradePromptClickedProperties {
 
 export interface CloudTaskUsageBlockedProperties {
   bucket: "burst" | "sustained" | null;
-  is_pro: boolean;
 }
 
 // Claude Code session import events
@@ -1541,6 +1587,8 @@ export const ANALYTICS_EVENTS = {
   SESSION_CONFIG_CHANGED: "Session config changed",
   MODEL_SWITCH_WARNING_SHOWN: "Model switch warning shown",
   MODEL_SWITCH_WARNING_ACTION: "Model switch warning action",
+  SESSION_SUMMARY_REQUESTED: "Session summary requested",
+  SESSION_SUMMARY_ACTION: "Session summary action",
 
   // Settings events
   SETTING_CHANGED: "Setting changed",
@@ -1550,6 +1598,9 @@ export const ANALYTICS_EVENTS = {
   CODEX_SUBSCRIPTION_SIGNED_OUT: "Codex subscription signed out",
   CLAUDE_SUBSCRIPTION_CONNECTED: "Claude subscription connected",
   CLAUDE_SUBSCRIPTION_SIGNED_OUT: "Claude subscription signed out",
+  CLAUDE_CLOUD_TOKEN_SAVED: "Claude cloud token saved",
+  CLAUDE_CLOUD_TOKEN_REMOVED: "Claude cloud token removed",
+  CLOUD_CREDENTIAL_RELAY: "Cloud credential relay",
 
   // Feedback events
   AI_METRIC: "$ai_metric",
@@ -1613,6 +1664,7 @@ export const ANALYTICS_EVENTS = {
   INBOX_REPORT_OPENED: "Inbox report opened",
   INBOX_REPORT_CLOSED: "Inbox report closed",
   INBOX_REPORT_ACTION: "Inbox report action",
+  INBOX_REPORT_ACTION_RESULT: "Inbox report action result",
   INBOX_REPORT_SCROLLED: "Inbox report scrolled",
   INBOX_REPORT_FEEDBACK: "Inbox report feedback",
   INBOX_REPORT_FEEDBACK_NOTE: "Inbox report feedback note",
@@ -1748,9 +1800,14 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.SESSION_CONFIG_CHANGED]: SessionConfigChangedProperties;
   [ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_SHOWN]: ModelSwitchWarningShownProperties;
   [ANALYTICS_EVENTS.MODEL_SWITCH_WARNING_ACTION]: ModelSwitchWarningActionProperties;
+  [ANALYTICS_EVENTS.SESSION_SUMMARY_REQUESTED]: SessionSummaryRequestedProperties;
+  [ANALYTICS_EVENTS.SESSION_SUMMARY_ACTION]: SessionSummaryActionProperties;
 
   // Settings events
   [ANALYTICS_EVENTS.SETTING_CHANGED]: SettingChangedProperties;
+  [ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_SAVED]: never;
+  [ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_REMOVED]: never;
+  [ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY]: CloudCredentialRelayProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_ADDED]: CustomSoundAddedProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_RECORDING_SILENT]: never;
   [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_CONNECTED]: never;
@@ -1819,6 +1876,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.INBOX_REPORT_OPENED]: InboxReportOpenedProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_CLOSED]: InboxReportClosedProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_ACTION]: InboxReportActionProperties;
+  [ANALYTICS_EVENTS.INBOX_REPORT_ACTION_RESULT]: InboxReportActionResultProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_SCROLLED]: InboxReportScrolledProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK]: InboxReportFeedbackProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE]: InboxReportFeedbackNoteProperties;
@@ -1907,9 +1965,12 @@ const INBOX_ANALYTICS_EVENT_NAMES: ReadonlySet<string> = new Set([
   ANALYTICS_EVENTS.INBOX_REPORT_OPENED,
   ANALYTICS_EVENTS.INBOX_REPORT_CLOSED,
   ANALYTICS_EVENTS.INBOX_REPORT_ACTION,
+  ANALYTICS_EVENTS.INBOX_REPORT_ACTION_RESULT,
   ANALYTICS_EVENTS.INBOX_REPORT_SCROLLED,
   ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK,
   ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE,
+  ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED,
+  ANALYTICS_EVENTS.INBOX_TRIAGE_ENDED,
   ANALYTICS_EVENTS.SIGNAL_SOURCE_CONNECTED,
 ]);
 

@@ -205,7 +205,7 @@ WHERE {periods_expression}
                 results=[],
                 modifiers=self.modifiers,
                 preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
-                preComputeIneligibleReason=lazy_precompute_ineligible_reason(),
+                preComputeIneligibleReason=lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE),
             )
 
         response = execute_hogql_query(
@@ -270,7 +270,7 @@ WHERE {periods_expression}
             results=results,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
-            preComputeIneligibleReason=lazy_precompute_ineligible_reason(),
+            preComputeIneligibleReason=lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE),
         )
 
     def _maybe_calculate_via_lazy_precompute(self) -> Optional[WebGoalsQueryResponse]:

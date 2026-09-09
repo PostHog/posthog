@@ -16,17 +16,14 @@ from posthog.models.comment import Comment
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.signals import secret_api_token_rotated
 
-from .cache import invalidate_messages_cache, invalidate_tickets_cache
+from .cache import invalidate_identity_tickets_cache, invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_private_message_sent, capture_ticket_created
 from .models import EmailOutboxMessage, SigningSecret, Ticket
 from .models.constants import Channel
-from .tasks import (
-    post_reply_to_github,
-    post_reply_to_slack,
-    post_reply_to_teams,
-    post_reply_to_teams_via_graph,
-    send_email_reply,
-)
+from .tasks.email import send_email_reply
+from .tasks.github import post_reply_to_github
+from .tasks.slack import post_reply_to_slack
+from .tasks.teams import post_reply_to_teams, post_reply_to_teams_via_graph
 from .teams import parse_teams_root_message_id, resolve_shared_channel_team_id
 
 logger = structlog.get_logger(__name__)
@@ -167,6 +164,7 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
         try:
             ticket = Ticket.objects.select_related("team").get(id=item_id, team_id=team_id)
             # Invalidate widget caches so list and messages reflect the new message
+            invalidate_identity_tickets_cache(team_id)
             if ticket.widget_session_id:
                 invalidate_tickets_cache(team_id, ticket.widget_session_id)
             invalidate_messages_cache(team_id, item_id)

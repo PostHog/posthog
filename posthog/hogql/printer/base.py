@@ -1549,9 +1549,13 @@ class BasePrinter(Visitor[str]):
     def _get_timezone(self) -> str:
         if self.context.modifiers.convertToProjectTimezone is False:
             return "UTC"
+        if self.context.timezone is not None:
+            return self.context.timezone
         return self.context.database.get_timezone() if self.context.database else "UTC"
 
     def _get_week_start_day(self) -> WeekStartDay:
+        if self.context.week_start_day is not None:
+            return self.context.week_start_day
         return self.context.database.get_week_start_day() if self.context.database else WeekStartDay.SUNDAY
 
     def _is_type_nullable(self, node_type: ast.Type) -> bool | None:
@@ -1616,27 +1620,33 @@ class BasePrinter(Visitor[str]):
             merged[key] = value
         return merged
 
-    def _print_settings(self, settings: HogQLQuerySettings | dict[str, Any]) -> str | None:
-        pairs = []
+    def _normalize_settings(self, settings: HogQLQuerySettings | dict[str, Any]) -> dict[str, bool | int | float | str]:
+        normalized: dict[str, bool | int | float | str] = {}
         items = settings.items() if isinstance(settings, dict) else settings
         for key, value in items:
             if value is None:
                 continue
             if not re.match(r"^[a-zA-Z0-9_]+$", key):
                 raise QueryError(f"Setting {key} is not supported")
-            if isinstance(value, bool):
-                pairs.append(f"{key}={1 if value else 0}")
-            elif isinstance(value, int) or isinstance(value, float):
-                pairs.append(f"{key}={value}")
-            elif isinstance(value, list):
+            if isinstance(value, list):
                 if not all(isinstance(item, str) and item for item in value):
                     raise QueryError(f"List setting {key} can only contain non-empty strings")
-                formatted_items = ", ".join(self._print_hogql_identifier_or_index(item) for item in value)
-                pairs.append(f"{key}={self._print_escaped_string(formatted_items)}")
-            elif isinstance(value, str):
-                pairs.append(f"{key}={self._print_escaped_string(value)}")
+                normalized[key] = ", ".join(self._print_hogql_identifier_or_index(item) for item in value)
+            elif isinstance(value, bool | int | float | str):
+                normalized[key] = value
             else:
                 raise QueryError(f"Setting {key} has unsupported type {type(value).__name__}")
+        return normalized
+
+    def _print_settings(self, settings: HogQLQuerySettings | dict[str, Any]) -> str | None:
+        pairs = []
+        for key, value in self._normalize_settings(settings).items():
+            if isinstance(value, bool):
+                pairs.append(f"{key}={1 if value else 0}")
+            elif isinstance(value, int | float):
+                pairs.append(f"{key}={value}")
+            else:
+                pairs.append(f"{key}={self._print_escaped_string(value)}")
         if len(pairs) > 0:
             return f"SETTINGS {', '.join(pairs)}"
         return None
