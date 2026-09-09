@@ -14,7 +14,6 @@ import {
     type ValueLabelsConfig,
     type XAxisConfig,
     type YAxisConfig,
-    createXAxisTickCallback,
 } from '@posthog/quill-charts'
 
 import { dayjs } from 'lib/dayjs'
@@ -333,7 +332,7 @@ function buildXAxisConfig(
 
     return {
         label: chartSettings.xAxisLabel,
-        tickFormatter: isDateAxis ? createXAxisTickCallback({ allDays: xData.data, timezone }) : undefined,
+        timezone: isDateAxis ? timezone : undefined,
         tickLabelRotation: isDateAxis ? undefined : tickLabelRotation,
         hide: chartSettings.showXAxisTicks === false,
     }
