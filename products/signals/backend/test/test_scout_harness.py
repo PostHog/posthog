@@ -1219,10 +1219,11 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aer
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
+async def test_run_tags_session_with_scout_attribution(ateam, aerrors_skill):
     # Scouts pass a `scout:<skill>` ai_stage to the sandbox session so every $ai_generation
     # carries it, letting scout spend be split out of the ai_product='signals' bucket (scouts
-    # have no report id) and attributed to one scout.
+    # have no report id) and attributed to one scout. The full skill name rides alongside it,
+    # because ai_stage collapses every team-authored scout to one value.
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     captured: dict = {}
 
@@ -1245,8 +1246,9 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
     ):
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
-    # `signals-scout-errors` is not a canonical scout, so its team-authored name is withheld.
+    # `signals-scout-errors` is not canonical, so only `ai_agent_name` can name it.
     assert captured["ai_stage"] == "scout:custom"
+    assert captured["ai_agent_name"] == "signals-scout-errors"
 
 
 @pytest.mark.asyncio
