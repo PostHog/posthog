@@ -33,6 +33,13 @@ export function dateRangeSupportsForecast(
     return getExcludedDaysOfWeek(dateRange).length === 0
 }
 
+/** Smoothing needs extra pre-range buckets to avoid a partial warm-up. Until the forecast query
+ * fetches and trims that warm-up explicitly, fitting the clipped values would disagree with the
+ * saved insight. */
+export function smoothingSupportsForecast(smoothingIntervals: number | null | undefined): boolean {
+    return smoothingIntervals == null || smoothingIntervals <= 1
+}
+
 /** Both displays keep the insight's interval, so they read as a time series, but neither returns
  * one to fit: the box plot returns a distribution per bucket, and the slope keeps only the first
  * and last bucket. */

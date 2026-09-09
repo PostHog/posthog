@@ -21,7 +21,7 @@ import {
     ForecastConditionType,
     InsightThresholdType,
 } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
+import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/AlertAdvancedOptionsSection'
@@ -46,7 +46,12 @@ import { alertFormLogic, canCheckOngoingInterval, insightAlertKindForQuery } fro
 import { alertLogic } from '../logic/alertLogic'
 import { alertNotificationLogic } from '../logic/alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../logic/alertSchedulingStale'
-import { dateRangeSupportsForecast, displaySupportsForecast, intervalSupportsForecast } from '../logic/forecastReach'
+import {
+    dateRangeSupportsForecast,
+    displaySupportsForecast,
+    intervalSupportsForecast,
+    smoothingSupportsForecast,
+} from '../logic/forecastReach'
 import { insightAlertsLogic } from '../logic/insightAlertsLogic'
 import { alertModeOf, supportsAnomalyDetection, supportsForecast, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
@@ -145,6 +150,12 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     const { query, dateRange: trendDateRange } = useValues(insightVizDataLogic(insightLogicProps))
 
     const funnelSource = !!query && isInsightVizNode(query) && isFunnelsQuery(query.source) ? query.source : null
+    const trendsSource =
+        !!query && isInsightVizNode(query) && isTrendsQuery(query.source)
+            ? query.source
+            : isTrendsQuery(query)
+              ? query
+              : null
     const isTrendsFunnel = funnelSource?.funnelsFilter?.funnelVizType === FunnelVizType.Trends
     const funnelStepLabels = (funnelSource?.series ?? []).map(
         (node, index) => getDisplayNameFromEntityNode(node) ?? `Step ${index + 1}`
@@ -342,7 +353,9 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     const forecastDisabledReason =
         alertMode === 'forecast' && !forecastAlertsEnabled
             ? 'Forecast alerts are no longer enabled for this project. This alert will keep running. Disable it to stop it, or switch to another alert mode before editing.'
-            : undefined
+            : alertMode === 'forecast' && !smoothingSupportsForecast(trendsSource?.trendsFilter?.smoothingIntervals)
+              ? 'Forecast alerts do not support smoothed trends yet. Turn smoothing off on the insight, or switch this alert to threshold mode.'
+              : undefined
 
     const definitionNode = (
         <AlertDefinitionSection
@@ -370,6 +383,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                 !isBreakdownValid &&
                 intervalSupportsForecast(trendInterval) &&
                 dateRangeSupportsForecast(trendDateRange, trendInterval) &&
+                smoothingSupportsForecast(trendsSource?.trendsFilter?.smoothingIntervals) &&
                 supportsForecast(alertForm.config)
             }
             forecastDisabledReason={forecastDisabledReason}

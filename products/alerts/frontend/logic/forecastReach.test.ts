@@ -17,6 +17,7 @@ import {
     pointsInSimulationRange,
     resolveForecastSimulationRange,
     resolveHorizon,
+    smoothingSupportsForecast,
     usableSimulationRanges,
 } from './forecastReach'
 
@@ -150,6 +151,18 @@ describe('dateRangeSupportsForecast', () => {
         ['weekdays only on a monthly insight', { daysOfWeek: [1, 2, 3, 4, 5] }, 'month', true],
     ])('%s', (_name, dateRange, interval, expected) => {
         expect(dateRangeSupportsForecast(dateRange, interval)).toBe(expected)
+    })
+})
+
+describe('smoothingSupportsForecast', () => {
+    it.each([
+        [undefined, true],
+        [null, true],
+        [1, true],
+        [2, false],
+        [14, false],
+    ])('supports %s smoothing intervals: %s', (smoothingIntervals, expected) => {
+        expect(smoothingSupportsForecast(smoothingIntervals)).toBe(expected)
     })
 })
 
