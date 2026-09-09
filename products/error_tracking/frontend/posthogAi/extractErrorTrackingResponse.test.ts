@@ -26,6 +26,11 @@ describe('extractErrorTrackingResponse', () => {
         expect(extractErrorTrackingResponse(toolMessage(response))).toBe(response)
     })
 
+    it("rejects one issue's details, which share only the status field", () => {
+        const detail = { id: 'issue-1', name: 'TypeError', status: 'active', severity: 'high', impact: {} }
+        expect(extractErrorTrackingResponse(toolMessage(detail))).toBeNull()
+    })
+
     it('rejects outputs without any known field', () => {
         expect(extractErrorTrackingResponse(toolMessage({ results: [{ id: 'issue-1' }] }))).toBeNull()
         expect(extractErrorTrackingResponse(toolMessage(undefined))).toBeNull()
