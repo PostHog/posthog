@@ -95,9 +95,13 @@ export {
   pickAllowedModel,
 } from "./cloud-task-models";
 export {
+  CUSTOM_CLOUD_ENV,
   type CustomCloud,
+  configureCustomCloud,
+  customCloudSchema,
   getCustomCloud,
   hasCustomCloud,
+  normalizeCustomCloud,
 } from "./custom-cloud";
 export {
   buildLoopDeeplink,

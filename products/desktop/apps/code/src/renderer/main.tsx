@@ -21,6 +21,7 @@ import { preloadHighlighter } from "@pierre/diffs";
 import { boot } from "@posthog/di/contribution";
 import { assertHostCapabilities } from "@posthog/di/hostCapabilities";
 import { ServiceProvider } from "@posthog/di/react";
+import { configureCustomCloud } from "@posthog/shared";
 import { MissionControlOverlay } from "@posthog/ui/features/mission-control/MissionControlOverlay";
 import App from "@posthog/ui/shell/App";
 import { logger } from "@posthog/ui/shell/logger";
@@ -28,6 +29,7 @@ import { initializePostHog } from "@posthog/ui/shell/posthogAnalyticsImpl";
 import { REQUIRED_HOST_CAPABILITIES } from "@posthog/ui/shell/requiredHostCapabilities";
 import { registerDesktopContributions } from "@renderer/desktop-contributions";
 import { container } from "@renderer/di/container";
+import { hostTrpcClient } from "@renderer/trpc/client";
 import "@renderer/desktop-services";
 import React from "react";
 import ReactDOM from "react-dom/client";
@@ -93,6 +95,11 @@ const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("Root element not found");
 
 const root = ReactDOM.createRoot(rootElement);
+
+void hostTrpcClient.customCloud.get
+  .query()
+  .then(configureCustomCloud)
+  .catch(() => undefined);
 
 try {
   registerDesktopContributions();

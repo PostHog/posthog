@@ -1,8 +1,16 @@
-import { type CloudRegion, hasCustomCloud } from "@posthog/shared";
+import type { CloudRegion } from "@posthog/shared";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Callout } from "@radix-ui/themes";
+import { CustomCloudFields } from "./CustomCloudFields";
 import { RegionSelect } from "./RegionSelect";
+import { useCustomCloud } from "./useCustomCloud";
 import { useOAuthFlow } from "./useOAuthFlow";
+
+const TEST_BUILD_CHANNEL = "test";
+
+function isTestBuild(): boolean {
+  return import.meta.env.VITE_POSTHOG_BUILD_CHANNEL === TEST_BUILD_CHANNEL;
+}
 
 interface OAuthControlsProps {
   onAuthInitiated?: (region: CloudRegion) => void;
@@ -12,7 +20,7 @@ interface OAuthControlsProps {
 
 export function OAuthControls({
   onAuthInitiated,
-  includeDevRegion = import.meta.env.DEV || hasCustomCloud(),
+  includeDevRegion = import.meta.env.DEV || isTestBuild(),
 }: OAuthControlsProps = {}) {
   const {
     region,
@@ -22,12 +30,15 @@ export function OAuthControls({
     isPending,
     errorMessage,
   } = useOAuthFlow();
+  const customCloud = useCustomCloud();
+  const showCustomCloud = includeDevRegion && region === "dev";
 
-  const handleClick = () => {
+  const handleClick = async () => {
     if (isPending) {
       void handleCancel();
       return;
     }
+    if (showCustomCloud && !(await customCloud.commit())) return;
     onAuthInitiated?.(region);
     handleAuth();
   };
@@ -48,8 +59,8 @@ export function OAuthControls({
 
       <button
         type="button"
-        onClick={handleClick}
-        disabled={false}
+        onClick={() => void handleClick()}
+        disabled={customCloud.isSaving}
         className="flex h-[44px] w-full cursor-pointer items-center justify-center gap-[8px] rounded-[6px] font-medium text-[15px]"
         style={{
           border: isPending
@@ -71,6 +82,16 @@ export function OAuthControls({
         disabled={isPending}
         includeDevRegion={includeDevRegion}
       />
+
+      {showCustomCloud && (
+        <CustomCloudFields
+          draft={customCloud.draft}
+          onChange={customCloud.updateDraft}
+          onBlur={() => void customCloud.commit()}
+          error={customCloud.error}
+          disabled={isPending || customCloud.isSaving}
+        />
+      )}
     </div>
   );
 }

@@ -126,30 +126,18 @@ Keeping both values preserves stored Local development sessions. Dev Cloud agent
 ## Custom cloud
 
 The `dev` region can point at any PostHog instance, for example a self-hosted deployment.
-Three environment variables hold the target:
+The sign-in screen offers it in a development build, and in a test build from the **Desktop Build Test** workflow (the `desktop-build-installer` label on a PR).
+A release build does not show it.
 
-| Variable | Purpose |
-| --- | --- |
-| `POSTHOG_CUSTOM_CLOUD_URL` | Base URL of the instance, for example `https://posthog.example.com` |
-| `POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID` | Client ID of the OAuth application on that instance |
-| `POSTHOG_CUSTOM_CLOUD_GATEWAY_URL` | Base URL of the LLM gateway for agent requests. Optional |
+1. On the instance, make an OAuth application with these redirect URIs:
+   - `http://localhost:8237/callback` for a development build.
+   - `posthog-code://callback` for a packaged build.
+2. On the sign-in screen, select **Custom cloud** in the region list.
+3. Enter the URL of the instance and the client ID of the OAuth application. The LLM gateway URL is optional.
+4. Sign in. The app keeps the values, and every child process (including the agent) receives them.
 
-First, on the instance, make an OAuth application with these redirect URIs:
-
-- `http://localhost:8237/callback` for a development build.
-- `posthog-code-dev://callback` for a packaged development build, or `posthog-code://callback` for a packaged production build.
-
-Then give the app the target in one of three ways:
-
-- A local run: put the three values in `.env` with a `VITE_` prefix, or set them in the shell before `pnpm dev`.
-- A local build: set the three values in the shell before `pnpm --filter code make`.
-- A custom build from CI: run the **Desktop Build Test** workflow by hand and fill the custom cloud inputs. The workflow passes them to the build of every platform.
-
-Start the app and select **Custom cloud** in the region list. The region shows the host of the instance.
-
-The `us`, `eu`, and `dev-cloud` regions never read these values, so a normal build stays on PostHog Cloud.
-A packaged build offers the region only when it has a target, or when it is a development build.
-A value in the environment at start wins over a value from the build.
+The `us`, `eu`, and `dev-cloud` regions never read these values.
+For a headless run, the environment variables `POSTHOG_CUSTOM_CLOUD_URL`, `POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID`, and `POSTHOG_CUSTOM_CLOUD_GATEWAY_URL` give the same result when nothing is stored.
 
 ## Dev console commands
 
