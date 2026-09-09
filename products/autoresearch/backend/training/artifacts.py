@@ -79,15 +79,14 @@ def normalize_artifact_path(path: str) -> str:
     return "/".join(segments)
 
 
-def _artifact_key(prefix: str, path: str) -> tuple[str, str]:
-    """The (relative path, object key) for ``path`` under ``prefix``, both validated."""
-    rel = normalize_artifact_path(path)
+def _artifact_key(prefix: str, rel: str) -> str:
+    """The object key for the normalized relative path ``rel`` under ``prefix``, length-checked."""
     key = f"{prefix}/{rel}"
     if len(key.encode("utf-8")) > MAX_OBJECT_KEY_BYTES:
         raise InvalidArtifactPath(
             f"Artifact path {rel!r} is too long: the storage key is limited to {MAX_OBJECT_KEY_BYTES} bytes."
         )
-    return rel, key
+    return key
 
 
 def _require_storage() -> None:
@@ -212,7 +211,8 @@ class StoredArtifact:
 
 def write_artifact(prefix: str, path: str, content: bytes) -> StoredArtifact:
     """Write one file under ``prefix`` at the validated relative ``path``."""
-    rel, key = _artifact_key(prefix, path)
+    rel = normalize_artifact_path(path)
+    key = _artifact_key(prefix, rel)
     if len(content) > MAX_ARTIFACT_BYTES:
         raise InvalidArtifactContent(
             f"Artifact {rel!r} is {len(content)} bytes; the limit is {MAX_ARTIFACT_BYTES} bytes."
@@ -227,7 +227,8 @@ def write_artifact(prefix: str, path: str, content: bytes) -> StoredArtifact:
 
 def read_artifact(prefix: str, path: str) -> bytes:
     """Read one file under ``prefix``. Raises ``BundleNotFound`` if absent."""
-    rel, key = _artifact_key(prefix, path)
+    rel = normalize_artifact_path(path)
+    key = _artifact_key(prefix, rel)
     content = object_storage.read_bytes(key, missing_ok=True)
     if content is None:
         raise BundleNotFound(f"Artifact {rel!r} not found under {prefix}.")
@@ -236,7 +237,8 @@ def read_artifact(prefix: str, path: str) -> bytes:
 
 def delete_artifact(prefix: str, path: str) -> bool:
     """Delete one file under ``prefix``. Returns False if it was not present."""
-    rel, key = _artifact_key(prefix, path)
+    rel = normalize_artifact_path(path)
+    key = _artifact_key(prefix, rel)
     if object_storage.read_bytes(key, missing_ok=True) is None:
         return False
     object_storage.delete(key)
