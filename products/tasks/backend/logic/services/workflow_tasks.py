@@ -139,6 +139,7 @@ def create_workflow_task(
     event: dict[str, Any] | None = None,
     slack_context: contracts.WorkflowTaskSlackContext | None = None,
     rate_limits: contracts.WorkflowTaskRateLimits | None = None,
+    output_schema: dict[str, Any] | None = None,
 ) -> contracts.WorkflowTaskDTO:
     """Create a workflow-origin task and start its agent run.
 
@@ -166,6 +167,9 @@ def create_workflow_task(
     is dropped, rather than failing the create, when it resolves to no Slack integration of
     this team, when the channel is externally shared without an approval, or when another
     live run already owns the thread.
+
+    `output_schema` is the JSON Schema the agent's final structured output must match. It becomes
+    `Task.json_schema`, which the agent runtime enforces at the end of the run.
     """
     replay = _find_replayed_task(team.id, hog_flow_id, origin_key)
     if replay is not None:
@@ -339,6 +343,7 @@ def create_workflow_task(
                 posthog_mcp_scopes=posthog_mcp_scopes,
                 hog_flow_id=hog_flow_id,
                 origin_key=origin_key,
+                output_schema=output_schema,
                 extra_run_state=extra_run_state,
                 runtime_adapter=runtime_adapter_for(model),
                 model=model,

@@ -2224,6 +2224,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "capture-apm-metrics"
+version = "0.1.0"
+dependencies = [
+ "axum 0.7.9",
+ "bytes",
+ "capture",
+ "capture-logs",
+ "chrono",
+ "common-alloc",
+ "common-compression",
+ "common-metrics",
+ "common-redis",
+ "dashmap 6.1.0",
+ "envconfig",
+ "health",
+ "limiters",
+ "metrics",
+ "opentelemetry-proto 0.29.0",
+ "prost 0.13.5",
+ "serde",
+ "serde_json",
+ "siphasher 1.0.2",
+ "thiserror 2.0.18",
+ "tokio",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "capture-load-gen"
 version = "0.1.0"
 dependencies = [
@@ -9301,7 +9331,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",

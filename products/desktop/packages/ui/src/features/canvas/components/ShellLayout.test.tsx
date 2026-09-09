@@ -6,11 +6,6 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => false,
 }));
-vi.mock("@posthog/host-router/react", () => ({
-  useHostTRPC: () => ({
-    dashboards: { saveContext: { mutationKey: () => ["save-context"] } },
-  }),
-}));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@posthog/ui/features/canvas/hooks/useSelectedCanvasId", () => ({
   useSelectedCanvasId: () => useSelectedCanvasId(),
