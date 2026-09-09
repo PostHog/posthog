@@ -1216,6 +1216,28 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertIn("Task 1", task_titles)
         self.assertIn("Task 2", task_titles)
 
+    @parameterized.expand(
+        [
+            ("default_full", None, True),
+            ("basic_false_full", "false", True),
+            ("basic_true_summary", "true", False),
+        ]
+    )
+    def test_list_basic_omits_description(self, _name, basic_param, expect_description):
+        self.create_task("Task 1")
+
+        url = "/api/projects/@current/tasks/"
+        if basic_param is not None:
+            url += f"?basic={basic_param}"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        row = response.json()["results"][0]
+        if expect_description:
+            self.assertEqual(row["description"], "Test Description")
+        else:
+            self.assertNotIn("description", row)
+
     def test_list_tasks_includes_latest_run(self):
         task1 = self.create_task("Task 1")
         task2 = self.create_task("Task 2")
@@ -6402,8 +6424,20 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertNotIn("pending_user_message", run.state)
         self.assertNotIn("pending_user_artifact_ids", run.state)
 
+    @parameterized.expand(
+        [
+            ("without_a_trace_id", {}, None),
+            (
+                "with_a_trace_id",
+                {"trace_id": "f960aead-b2af-4ee0-b0eb-630109a1b2a0"},
+                "f960aead-b2af-4ee0-b0eb-630109a1b2a0",
+            ),
+        ]
+    )
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
-    def test_relay_message_enqueues_slack_relay_workflow(self, mock_execute_relay):
+    def test_relay_message_enqueues_slack_relay_workflow(
+        self, _name, extra_body, expected_trace_id, mock_execute_relay
+    ):
         from posthog.models.integration import Integration
 
         from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -6427,7 +6461,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
-            {"text": "Which license should I use?"},
+            {"text": "Which license should I use?", **extra_body},
             format="json",
         )
 
@@ -6438,6 +6472,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             text="Which license should I use?",
             delete_progress=True,
             message_id=None,
+            trace_id=expected_trace_id,
         )
 
     @parameterized.expand(
@@ -6491,6 +6526,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             text=expected_posted_text,
             delete_progress=True,
             message_id=None,
+            trace_id=None,
         )
 
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
@@ -13068,6 +13104,35 @@ class TestCloudUsageGate(BaseTaskAPITest):
         task.save()
         return task
 
+    def _create_pr_task(
+        self,
+        *,
+        relationship: str = "implementation",
+        link_other_report: bool = False,
+        report_in_other_team: bool = False,
+    ) -> Task:
+        # `record_report_task` writes this row on the manual and the auto-start path.
+        from products.signals.backend.models import SignalReport, SignalReportTask
+
+        report_team = (
+            Team.objects.create(organization=self.organization, name="Report Team")
+            if report_in_other_team
+            else self.team
+        )
+        report = SignalReport.objects.create(team=report_team)
+        task = self.create_task()
+        task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+        task.signal_report = report
+        task.repository = "posthog/posthog"
+        task.save()
+        SignalReportTask.objects.create(
+            team=self.team,
+            report=SignalReport.objects.create(team=self.team) if link_other_report else report,
+            task=task,
+            relationship=relationship,
+        )
+        return task
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_run_without_code_access_returns_403_before_usage_check(self, mock_gate, mock_workflow):
@@ -13296,6 +13361,25 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertFalse(tasks_facade.task_exempt_from_code_access(task.id, self.team.id))
 
+    @parameterized.expand(
+        [
+            ("implementation_link", "implementation", False, False, True),
+            ("discussion_label", "discussion", False, False, False),
+            ("link_to_another_report", "implementation", True, False, False),
+            ("report_in_another_team", "implementation", False, True, False),
+        ]
+    )
+    def test_exemption_for_create_pr_task_needs_a_team_scoped_implementation_link(
+        self, _name, relationship, link_other_report, report_in_other_team, expected
+    ):
+        task = self._create_pr_task(
+            relationship=relationship,
+            link_other_report=link_other_report,
+            report_in_other_team=report_in_other_team,
+        )
+
+        self.assertEqual(tasks_facade.task_exempt_from_code_access(task.id, self.team.id), expected)
+
     def test_create_signal_report_task_ignores_channel_repository(self):
         from products.signals.backend.models import SignalReport
         from products.tasks.backend.models import Channel
@@ -13507,6 +13591,24 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(response.status_code, expected_status)
         mock_gate.assert_called_once()
         self.assertEqual(TaskRun.objects.filter(task=task).exists(), expected_status == status.HTTP_200_OK)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
+    def test_run_report_create_pr_task_bypasses_code_access(self, _mock_gate, mock_workflow):
+        # "Create PR" holds a repository by design, so the repo-less Inbox exemption cannot cover
+        # it. The implementation link entitles the run while the Desktop policy denies the caller.
+        self.set_tasks_feature_flag(False)
+        task = self._create_pr_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(TaskRun.objects.filter(task=task).exists())
+        mock_workflow.assert_called_once()
 
 
 class TestGetPosthogCodeUsage(TestCase):

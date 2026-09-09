@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { personCreateConflictResolvedCounter } from '~/common/persons/metrics'
+import { PersonMessage } from '~/common/persons/person-message'
 import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
@@ -17,7 +18,11 @@ export class PersonCreateService {
     ) {}
 
     /**
-     * @returns [Person, boolean that indicates if person was created or not, true if person was created by this call, false if found existing person from concurrent creation]
+     * Creation messages are returned, never produced here: the caller owns the
+     * produce, so a transactional caller can defer it past commit instead of
+     * holding the transaction open across the Kafka roundtrip.
+     *
+     * @returns [Person, true if person was created by this call (false if found existing person from concurrent creation), ClickHouse messages to produce]
      */
     async createPerson(
         createdAt: DateTime,
@@ -30,7 +35,7 @@ export class PersonCreateService {
         primaryDistinctId: { distinctId: string; version?: number },
         extraDistinctIds?: { distinctId: string; version?: number }[],
         tx?: PersonsStoreTransactionForBatch
-    ): Promise<[InternalPerson, boolean]> {
+    ): Promise<[InternalPerson, boolean, PersonMessage[]]> {
         const uuid = uuidFromDistinctId(teamId, primaryDistinctId.distinctId)
 
         const props = { ...propertiesOnce, ...properties, ...{ $creator_event_uuid: creatorEventUuid } }
@@ -60,12 +65,7 @@ export class PersonCreateService {
             )
 
             if (result.success) {
-                await Promise.all(
-                    result.messages.map((msg) =>
-                        this.outputs.produce(msg.output, { value: msg.value, key: null, teamId })
-                    )
-                )
-                return [result.person, result.created]
+                return [result.person, result.created, result.messages]
             }
 
             // Handle creation conflict - another process created the person concurrently
@@ -75,7 +75,7 @@ export class PersonCreateService {
                 for (const distinctIdInfo of allDistinctIds) {
                     const existingPerson = await this.store.fetchForUpdate(teamId, distinctIdInfo.distinctId)
                     if (existingPerson) {
-                        return [existingPerson, false]
+                        return [existingPerson, false, []]
                     }
                 }
 
@@ -86,7 +86,7 @@ export class PersonCreateService {
                 // mapping, so no two identities are silently merged.
                 if (result.conflictingPerson) {
                     personCreateConflictResolvedCounter.labels({ resolved_by: 'uuid' }).inc()
-                    return [result.conflictingPerson, false]
+                    return [result.conflictingPerson, false, []]
                 }
 
                 // The holder vanished between the failed write and the lookup, so there is
