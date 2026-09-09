@@ -248,6 +248,35 @@ impl Client for MockRedisClient {
         }
     }
 
+    /// Pages over the same `zrangebyscore_ret` list, so a test can check how a
+    /// caller walks a set.
+    async fn zrangebyscore_limit(
+        &self,
+        key: String,
+        min: String,
+        max: String,
+        offset: isize,
+        count: isize,
+    ) -> Result<Vec<String>, CustomRedisError> {
+        let mut calls = self.lock_calls();
+        calls.push(MockRedisCall {
+            op: "zrangebyscore_limit".to_string(),
+            key: key.clone(),
+            value: MockRedisValue::MinMax(min, max),
+        });
+
+        let Some(all) = self.zrangebyscore_ret.get(&key) else {
+            return Err(CustomRedisError::NotFound);
+        };
+        let start = usize::try_from(offset).unwrap_or(0).min(all.len());
+        let end = if count < 0 {
+            all.len()
+        } else {
+            start.saturating_add(count as usize).min(all.len())
+        };
+        Ok(all[start..end].to_vec())
+    }
+
     async fn zadd(&self, key: String, member: String, score: i64) -> Result<(), CustomRedisError> {
         let mut calls = self.lock_calls();
         calls.push(MockRedisCall {
@@ -713,6 +742,16 @@ impl MockRedisClient {
             PipelineCommand::SAdd { key, member } => {
                 self.record_call("pipeline_sadd", &key, MockRedisValue::String(member));
                 Self::lookup_or_ok(&self.sadd_ret, &key).map(|_| PipelineResult::Count(1))
+            }
+            PipelineCommand::ZAdd { key, members } => {
+                for (score, member) in members {
+                    self.record_call(
+                        "pipeline_zadd",
+                        format!("{key}:{member}"),
+                        MockRedisValue::I64(score),
+                    );
+                }
+                Ok(PipelineResult::Ok)
             }
             PipelineCommand::Expire { key, seconds } => {
                 let ttl_i64 = i64::try_from(seconds).unwrap_or(i64::MAX);

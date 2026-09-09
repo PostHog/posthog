@@ -22,7 +22,7 @@ Principle: logic is portable; hosts are thin.
 | Package | Owns | Must not contain |
 | --- | --- | --- |
 | `@posthog/platform` | Host-capability interfaces and DI tokens. Host-neutral, zero runtime dependencies. | Implementations, Node, DOM, tRPC, Electron |
-| `@posthog/shared` | Zero-dependency primitives, types, Saga pattern, cloud-prompt encoding. | Internal package imports, I/O |
+| `@posthog/shared` | Host-neutral primitives, types, Saga pattern, cloud-prompt encoding. Depends on published packages only. | Internal package imports, I/O |
 | `@posthog/api-client` | PostHog/Django HTTPS client. Constructed by factory, not DI. | UI, Node-only host syscalls |
 | `@posthog/workspace-client` | Thin tRPC client for local or sandbox workspace-server. Runs in any JS environment. | Business logic, UI |
 | `@posthog/workspace-server` | Node backend services and colocated tRPC routers for git, fs, watchers, processes. | UI, core, Electron |
@@ -301,7 +301,8 @@ Everything else has a quill equivalent — import it from `@posthog/quill`:
 | `TextField`, `TextArea` | `Input`, `Textarea`, `InputGroup*` |
 | `Select`, `Checkbox`, `Switch`, `Slider`, `Progress` | same names |
 | `SegmentedControl`, `RadioGroup` | `ToggleGroup` + `ToggleGroupItem`, or `Tabs` |
-| `Badge`, `Avatar`, `Separator`, `Skeleton`, `Spinner`, `Kbd`, `Card`, `Table*`, `Tabs*` | same names |
+| `Badge`, `Avatar`, `Separator`, `Skeleton`, `Kbd`, `Card`, `Table*`, `Tabs*` | same names |
+| `Spinner` | `Spinner` or `LoadingState` from `packages/ui/src/primitives`, never quill's `Spinner` (see [Code Style](#code-style)) |
 | `Tooltip`, `Popover`, `Dialog`, `AlertDialog`, `DropdownMenu`, `ContextMenu` | same names, as `*Trigger` / `*Content` compounds |
 | `Callout` | compose a `div` with Tailwind, or quill `Item*` |
 
@@ -330,6 +331,7 @@ Pulling in a Radix package is not the fallback.
 - No barrel files (`index.ts`).
 - Use Tailwind first. Keep classes sorted. Use inline `style` only for runtime values, library configuration, or CSS variables.
 - Empty/placeholder/loading screens (canvas and elsewhere) are a `@posthog/quill` `<Empty>` (`EmptyHeader` → `EmptyMedia variant="icon"` → `EmptyTitle` → `EmptyDescription`, then `EmptyContent` for CTAs). Don't hand-roll the centered Flex + dashed icon box. CTAs are quill `Button`s: primary action `variant="primary"`, secondary `variant="outline"`, `size="default"`. For a link CTA use `render={<Link … />}` (Base UI), not `asChild`.
+- Loading indicators are `Spinner` and `LoadingState` from `packages/ui/src/primitives`. `LoadingState` fills a pane or section while its data loads (24px spinner, optional label). `Spinner` sits inline in a button, row or badge; omit `size` inside quill buttons and media slots so it matches the icons beside it, and pick `xs`/`sm`/`md`/`lg` elsewhere. Do not import `Spinner` from `@posthog/quill` or `@radix-ui/themes`, and do not spin phosphor's `CircleNotch` or `SpinnerGap`: Biome rejects those imports. Pass `aria-hidden="true"` when the spinner sits next to visible loading text or inside an element that already announces the loading state, so the label is not read twice. The braille `DotsCircleSpinner` and `DotRingSpinner` mark agent activity (a running tool call, a working task), not data loading.
 - Abort controllers before awaiting cleanup that depends on them.
 
 See [docs/CONVENTIONS.md](./docs/CONVENTIONS.md).

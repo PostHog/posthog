@@ -22,6 +22,23 @@ const onOpenTarget = vi.hoisted(() =>
 const routerOpenTask = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const navigateToChannelDashboard = vi.hoisted(() => vi.fn());
 const markAsViewed = vi.hoisted(() => vi.fn());
+const readMirror = vi.hoisted(() => vi.fn());
+const reseedMirror = vi.hoisted(() => vi.fn());
+const historyPush = vi.hoisted(() => vi.fn());
+const getRouterOrNull = vi.hoisted(() => vi.fn());
+
+vi.mock("@posthog/ui/features/browser-tabs/tabsSync", () => ({
+  readMirror,
+  reseedMirror,
+}));
+vi.mock("@posthog/ui/router/routerRef", () => ({ getRouterOrNull }));
+
+const seeded = (): { windows: unknown[]; tabs: unknown[] } => ({
+  windows: [
+    { id: "window-1", isPrimary: true, bounds: null, activeTabId: "tab-1" },
+  ],
+  tabs: [],
+});
 
 vi.mock("@posthog/host-router/react", () => ({
   useHostTRPCClient: () => ({
@@ -70,6 +87,11 @@ describe("useOpenTargetDeepLink", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getPendingOpenTarget.mockResolvedValue(null);
+    readMirror.mockReturnValue(seeded());
+    reseedMirror.mockResolvedValue(null);
+    getRouterOrNull.mockReturnValue({
+      history: { location: { state: {} }, push: historyPush },
+    });
   });
 
   it("routes a warm-start task target through the open-task saga", async () => {
@@ -79,10 +101,15 @@ describe("useOpenTargetDeepLink", () => {
     expect(routerOpenTask).toHaveBeenCalledWith({ id: "t1" }, undefined);
   });
 
-  it("routes a warm-start canvas target to its dashboard", () => {
+  it("routes a warm-start canvas target to its dashboard", async () => {
     renderHook(() => useOpenTargetDeepLink(), { wrapper });
     onOpenTarget.mock.calls[0]?.[1]?.onData?.(canvasTarget);
-    expect(navigateToChannelDashboard).toHaveBeenCalledWith("chan-1", "dash-1");
+    await waitFor(() =>
+      expect(navigateToChannelDashboard).toHaveBeenCalledWith(
+        "chan-1",
+        "dash-1",
+      ),
+    );
   });
 
   it("drains a pending target queued before the listener was live", async () => {
@@ -99,5 +126,58 @@ describe("useOpenTargetDeepLink", () => {
   it("subscribes once to warm-start open-target events", () => {
     renderHook(() => useOpenTargetDeepLink(), { wrapper });
     expect(onOpenTarget).toHaveBeenCalledTimes(1);
+  });
+
+  const targetTab = {
+    id: "tab-9",
+    windowId: "window-1",
+    href: "/tasks/t1",
+    viewState: { title: "Task t1" },
+    dashboardId: null,
+    taskId: "t1",
+    channelId: null,
+    channelSection: null,
+    appView: null,
+    position: 1000,
+    scrollState: null,
+    createdAt: 1,
+    lastActiveAt: 1,
+  };
+
+  it("focuses the tab that already shows the target instead of opening a copy", () => {
+    readMirror.mockReturnValue({
+      windows: seeded().windows,
+      tabs: [targetTab],
+    });
+
+    renderHook(() => useOpenTargetDeepLink(), { wrapper });
+    onOpenTarget.mock.calls[0]?.[1]?.onData?.(taskTarget);
+
+    expect(historyPush).toHaveBeenCalledWith("/tasks/t1", { tabId: "tab-9" });
+    expect(openTask).not.toHaveBeenCalled();
+    expect(routerOpenTask).not.toHaveBeenCalled();
+  });
+
+  it("focuses the target's tab after a cold-start mirror reseed", async () => {
+    let reseeded = false;
+    readMirror.mockImplementation(() =>
+      reseeded
+        ? { windows: seeded().windows, tabs: [targetTab] }
+        : { windows: [], tabs: [] },
+    );
+    reseedMirror.mockImplementation(async () => {
+      reseeded = true;
+      return { windows: seeded().windows, tabs: [targetTab] };
+    });
+    getPendingOpenTarget.mockResolvedValue(taskTarget);
+
+    renderHook(() => useOpenTargetDeepLink(), { wrapper });
+
+    await waitFor(() =>
+      expect(historyPush).toHaveBeenCalledWith("/tasks/t1", {
+        tabId: "tab-9",
+      }),
+    );
+    expect(openTask).not.toHaveBeenCalled();
   });
 });

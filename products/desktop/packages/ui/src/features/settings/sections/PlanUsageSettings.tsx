@@ -2,7 +2,6 @@ import {
   ArrowSquareOut,
   CaretDown,
   CaretUp,
-  CreditCard,
   WarningCircle,
 } from "@phosphor-icons/react";
 import {
@@ -14,13 +13,6 @@ import {
   isCodeUsageFreeTier,
 } from "@posthog/core/billing/usageDisplay";
 import type { UsageOutput } from "@posthog/core/usage/schemas";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@posthog/quill";
 import { BILLING_FLAG, CLOUD_COMPUTE_BILLING_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
@@ -29,17 +21,16 @@ import { useUsage } from "@posthog/ui/features/billing/useUsage";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { SettingsSubsection } from "@posthog/ui/features/settings/components/SettingsSubsection";
 import { SpendAnalysisSection } from "@posthog/ui/features/usage/components/SpendAnalysisSection";
-import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
 import { useTrackUsageViewed } from "@posthog/ui/features/usage/useTrackUsageViewed";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { track } from "@posthog/ui/shell/analytics";
 import { getBillingUrl } from "@posthog/ui/utils/urls";
-import { Button, Callout, Flex, Spinner, Text } from "@radix-ui/themes";
+import { Button, Callout, Flex, Text } from "@radix-ui/themes";
 import { type ReactNode, useEffect, useState } from "react";
 
 export function PlanUsageSettings() {
   const billingEnabled = useFeatureFlag(BILLING_FLAG);
   const cloudComputeEnabled = useFeatureFlag(CLOUD_COMPUTE_BILLING_FLAG);
-  const spendAnalysisEnabled = useSpendAnalysisEnabled();
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const billingUrl = getBillingUrl(cloudRegion);
 
@@ -57,7 +48,6 @@ export function PlanUsageSettings() {
 
   useTrackUsageViewed({
     isLoading: billingEnabled && usageLoading,
-    isPro: usage?.is_pro ?? false,
     sustainedUsedPercent: usage?.sustained.used_percent ?? null,
     burstUsedPercent: usage?.burst.used_percent ?? null,
   });
@@ -66,7 +56,6 @@ export function PlanUsageSettings() {
     <PlanUsageContent
       billingEnabled={billingEnabled}
       cloudComputeEnabled={cloudComputeEnabled}
-      spendAnalysisEnabled={spendAnalysisEnabled}
       billingUrl={billingUrl}
       usage={usage}
       usageLoading={usageLoading}
@@ -78,7 +67,6 @@ export function PlanUsageSettings() {
 interface PlanUsageContentProps {
   billingEnabled: boolean;
   cloudComputeEnabled: boolean;
-  spendAnalysisEnabled: boolean;
   billingUrl: string | null | undefined;
   usage: UsageOutput | null | undefined;
   usageLoading: boolean;
@@ -88,7 +76,6 @@ interface PlanUsageContentProps {
 export function PlanUsageContent({
   billingEnabled,
   cloudComputeEnabled,
-  spendAnalysisEnabled,
   billingUrl,
   usage,
   usageLoading,
@@ -104,22 +91,6 @@ export function PlanUsageContent({
   const openBilling = () => {
     if (billingUrl) window.open(billingUrl, "_blank", "noopener,noreferrer");
   };
-
-  if (!billingEnabled && !spendAnalysisEnabled) {
-    return (
-      <Empty className="mx-auto max-w-md py-16">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <CreditCard size={24} />
-          </EmptyMedia>
-          <EmptyTitle>Plan & usage isn't available</EmptyTitle>
-          <EmptyDescription>
-            Billing and usage reporting aren't enabled for your account yet.
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    );
-  }
 
   return (
     <Flex direction="column" gap="8">
@@ -174,14 +145,7 @@ export function PlanUsageContent({
           )}
 
           {usageLoading ? (
-            <Flex
-              align="center"
-              justify="center"
-              p="4"
-              className="rounded-(--radius-3) border border-border bg-card"
-            >
-              <Spinner size="2" />
-            </Flex>
+            <LoadingState className="rounded-(--radius-3) border border-border bg-card p-4" />
           ) : meter.kind === "dollars" ? (
             <UsageMeter
               label={freeTier ? "Monthly free usage" : "Usage this period"}
@@ -242,11 +206,7 @@ export function PlanUsageContent({
         </SettingsSubsection>
       )}
 
-      {spendAnalysisEnabled && (
-        <PersonalSpendDisclosure>
-          {personalSpendAnalysis}
-        </PersonalSpendDisclosure>
-      )}
+      <PersonalSpendDisclosure>{personalSpendAnalysis}</PersonalSpendDisclosure>
     </Flex>
   );
 }

@@ -86,6 +86,8 @@ import {
   type ExecutionMode,
   isAuthError,
   type ModelAccess,
+  readAgentToolName,
+  readMcpToolName,
   resolveCloudInitialPermissionMode,
   serializeError,
   TypedEventEmitter,
@@ -150,11 +152,6 @@ function isDevBuild(): boolean {
 
 /** Mark all content blocks as hidden so the renderer doesn't show a duplicate user message on retry */
 type MessageCallback = (message: unknown) => void;
-
-/** Shape of the `_meta.claudeCode` extension field on tool call updates. */
-interface ClaudeCodeToolMeta {
-  claudeCode?: { toolName?: string };
-}
 
 class NdJsonTap {
   private decoder = new TextDecoder();
@@ -1279,6 +1276,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
             ...(logUrl && {
               persistence: { taskId, runId: taskRunId, logUrl },
             }),
+            ...(!isPreview && { taskId }),
             taskRunId,
             environment: "local",
             sessionId: existingSessionId,
@@ -1314,6 +1312,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
           cwd: repoPath,
           mcpServers,
           _meta: {
+            ...(!isPreview && { taskId }),
             taskRunId,
             environment: "local",
             systemPrompt,
@@ -2202,9 +2201,8 @@ For git operations while detached:
           return;
         }
 
-        const toolName = (update._meta as ClaudeCodeToolMeta | undefined)
-          ?.claudeCode?.toolName;
-        if (!toolName?.startsWith("mcp__")) return;
+        const toolName = readMcpToolName(update._meta);
+        if (!toolName) return;
 
         const session = service.sessions.get(taskRunId);
         if (update.sessionUpdate === "tool_call") {
@@ -2376,13 +2374,7 @@ For git operations while detached:
         params?: {
           update?: {
             sessionUpdate?: string;
-            _meta?: {
-              claudeCode?: {
-                toolName?: string;
-                toolResponse?: unknown;
-                bashCommand?: string;
-              };
-            };
+            _meta?: unknown;
             content?: Array<{ type?: string; text?: string }>;
           };
         };
@@ -2399,8 +2391,7 @@ For git operations while detached:
       // toolName (e.g. in terminal output).
       this.maybeAttachCreatedPr(taskRunId, session, update);
 
-      const toolMeta = update._meta?.claudeCode;
-      const toolName = toolMeta?.toolName;
+      const toolName = readAgentToolName(update._meta);
       if (!toolName) return;
 
       this.trackAgentFileActivity(taskRunId, session, toolName);

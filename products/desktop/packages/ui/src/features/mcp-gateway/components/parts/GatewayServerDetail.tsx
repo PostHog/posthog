@@ -54,6 +54,8 @@ import { useGatewayServers } from "@posthog/ui/features/mcp-gateway/hooks/useGat
 import { useGatewayToolPolicies } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayToolPolicies";
 import { useServiceAccounts } from "@posthog/ui/features/mcp-gateway/hooks/useServiceAccounts";
 import { ServerIcon } from "@posthog/ui/features/mcp-servers/components/parts/icons";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { toast } from "@posthog/ui/primitives/toast";
 import {
   Badge,
@@ -61,7 +63,6 @@ import {
   Flex,
   IconButton,
   Separator,
-  Spinner,
   Switch,
   Text,
   TextField,
@@ -166,15 +167,15 @@ export function GatewayServerDetail({
     return (
       <Flex direction="column" gap="4">
         <BackButton onNavigate={onNavigate} />
-        <Flex align="center" justify="center" py="6">
-          {gateway.serversLoading ? (
-            <Spinner size="2" />
-          ) : (
+        {gateway.serversLoading ? (
+          <LoadingState className="py-6" />
+        ) : (
+          <div className="flex items-center justify-center py-6">
             <Text color="gray" className="text-sm">
               Server not found.
             </Text>
-          )}
-        </Flex>
+          </div>
+        )}
       </Flex>
     );
   }
@@ -231,7 +232,7 @@ export function GatewayServerDetail({
 
   const connectButton = connecting ? (
     <Button variant="solid" size="2" disabled>
-      <Spinner size="1" /> Authorizing…
+      <Spinner size="sm" /> Authorizing…
     </Button>
   ) : needsReconnect ? (
     <Button
@@ -571,9 +572,7 @@ export function GatewayServerDetail({
       )}
 
       {tools.policiesLoading && tools.policies.length === 0 ? (
-        <Flex align="center" justify="center" py="6">
-          <Spinner size="2" />
-        </Flex>
+        <LoadingState className="py-6" />
       ) : tools.policies.length === 0 ? (
         <Flex
           direction="column"
@@ -733,7 +732,7 @@ function RefreshToolsButton({
         onClick={onRefresh}
       >
         {pending ? (
-          <Spinner size="1" />
+          <Spinner size="sm" />
         ) : (
           <ArrowClockwise size={11} weight="bold" />
         )}

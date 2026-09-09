@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonTag, Link, SpinnerOverlay } from '@posthog/lemon-ui'
@@ -6,6 +7,7 @@ import { LemonButton, LemonSegmentedButton, LemonTag, Link, SpinnerOverlay } fro
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -19,6 +21,7 @@ import { formatBucketLabel } from './durationBuckets'
 import { OperationHistogram } from './OperationHistogram'
 import { errorRate, formatErrorRate } from './OperationsTable'
 import { formatDuration, TraceWaterfallView } from './TraceWaterfallView'
+import { TRACING_AGENT_HEADLINES, buildTracingOperationAgentContext } from './tracingAgentContext'
 import { TracingLatencyHeatmap } from './TracingLatencyHeatmap'
 import {
     type OperationChartType,
@@ -89,6 +92,17 @@ export function TracingOperationScene(): JSX.Element {
     } = useValues(tracingOperationSceneLogic)
     const { setDateRange, setDurationSelection, setSampleIndex, selectSpan, setChartType, applyHeatmapBrush } =
         useActions(tracingOperationSceneLogic)
+
+    const agentContextItems = useMemo(
+        () => buildTracingOperationAgentContext(serviceName, spanName, dateRange),
+        [serviceName, spanName, dateRange]
+    )
+    useSceneAgentPanel({
+        sceneKey: 'tracing-operation',
+        contextItems: agentContextItems,
+        headlines: TRACING_AGENT_HEADLINES,
+        active: !!spanName && !!serviceName,
+    })
 
     if (!spanName || !serviceName) {
         return (

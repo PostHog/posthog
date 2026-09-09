@@ -1,9 +1,9 @@
 import { Trash } from "@phosphor-icons/react";
 import type { Task } from "@posthog/shared/domain-types";
 import { closeSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { Button, Flex, Text } from "@radix-ui/themes";
-import { DotsCircleSpinner } from "../../../../primitives/DotsCircleSpinner";
 import { WorktreeSize } from "./WorktreeSize";
 
 export interface WorktreeEntry {
@@ -96,7 +96,7 @@ export function WorktreeRow({
           )
         }
       >
-        {isDeleting ? <DotsCircleSpinner size={12} /> : <Trash size={12} />}
+        {isDeleting ? <Spinner size="sm" /> : <Trash size={12} />}
         Delete
       </Button>
     </Flex>

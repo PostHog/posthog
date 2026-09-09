@@ -181,22 +181,15 @@ describe('posthog create task template', () => {
         expect(response.execResult).toEqual({ id: 'task-1', run_id: 'run-1' })
     })
 
-    it('skips instead of failing when the parallel task limit is hit', async () => {
+    it('fails with the limit reason when the parallel task limit is hit', async () => {
         let response = await tester.invoke(fullInputs, undefined, workflowOptions)
         response = await tester.invokeFetchResponse(response.invocation, {
             status: 409,
             body: { detail: 'This workflow already has 3 tasks running' },
         })
 
-        expect(response.error).toBeUndefined()
+        expect(response.error).toEqual('Failed to create task (409): This workflow already has 3 tasks running')
         expect(response.finished).toBe(true)
-        expect(response.execResult).toEqual({
-            skipped: true,
-            reason: 'This workflow already has 3 tasks running',
-        })
-        expect(response.logs.map((log) => log.message)).toContain(
-            'Task not created: This workflow already has 3 tasks running'
-        )
     })
 
     it.each([
