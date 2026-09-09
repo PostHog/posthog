@@ -226,7 +226,7 @@ class TestRetrieveDueAlerts:
         due_alert = await _create_alert(ateam, next_check_at=datetime(2026, 9, 9, 11, 0, tzinfo=UTC))
         await _create_alert(ateam, next_check_at=datetime(2026, 9, 9, 13, 0, tzinfo=UTC))
 
-        with patch("posthog.temporal.alerts.activities.record_due_alert_metrics") as record_metrics:
+        with patch("posthog.temporal.alerts.activities.record_due_insight_alert_metrics") as record_metrics:
             result = await ActivityEnvironment().run(retrieve_due_alerts)
 
         assert [item.alert_id for item in result] == [str(due_alert.id)]

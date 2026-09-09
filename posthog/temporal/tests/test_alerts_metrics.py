@@ -1,9 +1,11 @@
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from unittest.mock import MagicMock, patch
+
+from prometheus_client import CollectorRegistry
 
 from posthog.temporal.alerts.metrics import record_due_insight_alert_metrics
 
@@ -15,34 +17,37 @@ def test_record_due_insight_alert_metrics_records_due_count_oldest_age_and_poll_
         SimpleNamespace(next_check_at=None, created_at=polled_at - timedelta(hours=2)),
     ]
 
-    with _patch_metrics() as (pushed_registry, due_count, oldest_age, last_poll):
+    with _metrics_registry() as (pushed_registry, registry):
         record_due_insight_alert_metrics(alerts, polled_at)
 
     pushed_registry.assert_called_once_with("temporal_insight_alerts")
-    due_count.set.assert_called_once_with(2)
-    oldest_age.set.assert_called_once_with(7200)
-    last_poll.set.assert_called_once_with(polled_at.timestamp())
+    assert registry.get_sample_value("posthog_insight_alerts_due_count") == 2
+    assert registry.get_sample_value("posthog_insight_alerts_oldest_due_age_seconds") == 7200
+    assert (
+        registry.get_sample_value("posthog_insight_alerts_scheduler_last_poll_timestamp_seconds")
+        == polled_at.timestamp()
+    )
 
 
 def test_record_due_insight_alert_metrics_resets_backlog_values_when_no_alerts_are_due() -> None:
     polled_at = datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
 
-    with _patch_metrics() as (_, due_count, oldest_age, last_poll):
+    with _metrics_registry() as (_, registry):
         record_due_insight_alert_metrics([], polled_at)
 
-    due_count.set.assert_called_once_with(0)
-    oldest_age.set.assert_called_once_with(0)
-    last_poll.set.assert_called_once_with(polled_at.timestamp())
+    assert registry.get_sample_value("posthog_insight_alerts_due_count") == 0
+    assert registry.get_sample_value("posthog_insight_alerts_oldest_due_age_seconds") == 0
+    assert (
+        registry.get_sample_value("posthog_insight_alerts_scheduler_last_poll_timestamp_seconds")
+        == polled_at.timestamp()
+    )
 
 
 @contextmanager
-def _patch_metrics() -> Generator[tuple[MagicMock, MagicMock, MagicMock, MagicMock]]:
-    gauges = [MagicMock(), MagicMock(), MagicMock()]
-    registry = MagicMock()
+def _metrics_registry() -> Generator[tuple[MagicMock, CollectorRegistry]]:
+    registry = CollectorRegistry()
 
-    with (
-        patch("posthog.temporal.alerts.metrics.pushed_metrics_registry") as pushed_registry,
-        patch("posthog.temporal.alerts.metrics.Gauge", side_effect=gauges),
-    ):
-        pushed_registry.return_value.__enter__.return_value = registry
-        yield (pushed_registry, *gauges)
+    with patch(
+        "posthog.temporal.alerts.metrics.pushed_metrics_registry", return_value=nullcontext(registry)
+    ) as pushed_registry:
+        yield pushed_registry, registry
