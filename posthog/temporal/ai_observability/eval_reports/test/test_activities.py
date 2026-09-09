@@ -838,6 +838,19 @@ class TestCountEvalResultsForReportsSplitRetry(BaseTest):
         self.assertEqual(execution_limits[0], COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS)
         self.assertEqual(execution_limits[1], int(remaining_after_first_attempt / COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR))
 
+    def test_asks_clickhouse_to_raise_on_timeout_rather_than_return_a_partial_count(self):
+        # Catches a query that inherits the cluster's overflow mode. Under "break" the timeout
+        # never raises, so the split never runs and a partial count decides the threshold.
+        until = timezone.now()
+
+        with patch("posthog.hogql.query.execute_hogql_query") as execute_hogql_query:
+            execute_hogql_query.return_value = Mock(results=[[7]])
+            _count_eval_results_for_reports_with_split_retry(
+                self.team, self._entries(1, until - dt.timedelta(days=1)), until=until
+            )
+
+        self.assertEqual(execute_hogql_query.call_args.kwargs["settings"].timeout_overflow_mode, "throw")
+
 
 class TestPeriodForScheduledReport(BaseTest):
     """Unit-ish tests for the rrule period helper — uses in-memory instances to

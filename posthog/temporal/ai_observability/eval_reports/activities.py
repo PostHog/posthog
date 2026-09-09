@@ -427,7 +427,9 @@ def _count_eval_results_for_reports(
             query=query,
             team=team,
             workload=Workload.OFFLINE,
-            settings=HogQLGlobalSettings(max_execution_time=max_execution_time),
+            # "throw", not the profile default: the split retry needs the timeout to raise. A
+            # partial count reads as below threshold and silently keeps the report from firing.
+            settings=HogQLGlobalSettings(max_execution_time=max_execution_time, timeout_overflow_mode="throw"),
         )
 
     rows = result.results or []
