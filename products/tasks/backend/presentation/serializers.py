@@ -608,6 +608,20 @@ class TaskSerializer(DataclassSerializer):
         ]
 
 
+class TaskBasicSerializer(TaskSerializer):
+    """Basic list response for a task, returned when the list is asked for ``basic=true``.
+
+    A surface that renders only a summary of each task asks for the basic payload and gets this
+    smaller shape. It currently drops ``description``, which dominates the list payload; more
+    heavy fields may follow. The default list response keeps every field, and ``retrieve``
+    always returns the description. A client uses the ``search`` query parameter to match
+    description text server-side.
+    """
+
+    class Meta(TaskSerializer.Meta):
+        fields = [field for field in TaskSerializer.Meta.fields if field != "description"]
+
+
 class TaskWriteSerializer(serializers.Serializer):
     title = serializers.CharField(
         max_length=255,
@@ -2006,6 +2020,15 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False, help_text="Filter by repository name (can include org/repo format)"
     )
     created_by = serializers.IntegerField(required=False, help_text="Filter by creator user ID")
+    basic = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Return a basic payload with heavy fields dropped, for surfaces that render only a summary "
+            "of each task. Defaults to false. Currently this omits the description body, which dominates "
+            "the list payload; the search parameter still matches description text server-side."
+        ),
+    )
     search = serializers.CharField(
         required=False,
         allow_blank=True,
