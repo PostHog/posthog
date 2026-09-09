@@ -391,6 +391,7 @@ def _recalc_fingerprints_for_run(experiment: Experiment, recalc: ExperimentMetri
             experiment.exposure_criteria,
             only_count_matured_users=experiment.only_count_matured_users,
             excluded_variants=experiment.excluded_variants,
+            stats_config=experiment.stats_config,
         )
         fingerprints[metric_uuid] = compute_recalc_fingerprint(config_fp)
     return fingerprints
@@ -455,6 +456,7 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
                 experiment.exposure_criteria,
                 only_count_matured_users=experiment.only_count_matured_users,
                 excluded_variants=experiment.excluded_variants,
+                stats_config=experiment.stats_config,
             )
             row = (
                 ExperimentMetricResult.objects.filter(
