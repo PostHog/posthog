@@ -1105,6 +1105,25 @@ describe('dashboardBreakdownColors', () => {
             expect(findBreakdownColorConfig(configs, null, 'event')).toBeUndefined()
         })
 
+        // Separate configs, because giving the shared list an untyped entry would satisfy the
+        // 'breakdown type must match' case above and remove what it checks.
+        it.each([
+            ['an entry with no type matches an event series', undefined, 'event', 'preset-9'],
+            ['an entry with no type matches a series with no type', undefined, undefined, 'preset-9'],
+            ['a null type reads the same as an omitted one', null, 'event', 'preset-9'],
+            // The default is `event`, not a wildcard, so an untyped entry must not colour a person
+            // series that happens to share the value.
+            ['an entry with no type does not match a person series', undefined, 'person', undefined],
+        ] as const)('%s', (_name, configType, seriesType, expectedToken) => {
+            const untypedConfigs = [
+                { breakdownValue: 'Chrome', breakdownType: configType, colorToken: 'preset-9' },
+            ] as BreakdownColorConfig[]
+
+            expect(findBreakdownColorConfig(untypedConfigs, 'Chrome', seriesType as any)?.colorToken).toEqual(
+                expectedToken
+            )
+        })
+
         it('prefers a property-scoped entry and falls back to a property-less one', () => {
             const scopedConfigs: BreakdownColorConfig[] = [
                 { breakdownValue: 'Chrome', breakdownType: 'event', colorToken: 'preset-1' },
