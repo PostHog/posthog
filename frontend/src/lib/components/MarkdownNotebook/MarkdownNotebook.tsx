@@ -59,6 +59,7 @@ import {
     getSlashCommandQuery,
     getTaskItemShortcut,
     getTextBlockShortcutReplacement,
+    getTextBlockSplit,
     hasNotebookContent,
     getDiscussionCommentRefId,
     isBlankInsertMenuButtonRow,
@@ -1692,41 +1693,13 @@ function MarkdownNotebookEditor({
         const selectionEnd = expandedSelection
             ? Math.max(selectionStart, Math.min(Math.max(expandedSelection.start, expandedSelection.end), textLength))
             : selectionStart
-        const [before, selectionAndAfter] = splitInlineNodesAt(node.children, selectionStart)
-        const [, after] = splitInlineNodesAt(selectionAndAfter, selectionEnd - selectionStart)
-        let replacementNodes: NotebookBlockNode[]
-
-        if (nodeIndex === 0) {
-            const nextParagraph = makeEmptyParagraph(`after-title-${node.id}`)
-            nextParagraph.children = after
-            replacementNodes = [{ ...node, type: 'heading', level: 1, children: before }, nextParagraph]
-            restoreSelectionRef.current = { nodeId: nextParagraph.id, start: 0, end: 0 }
-        } else if (node.type === 'heading') {
-            if (selectionStart === 0) {
-                const previousParagraph = makeEmptyParagraph(`before-${node.id}`)
-                replacementNodes = [previousParagraph, { ...node, children: after }]
-                restoreSelectionRef.current = { nodeId: previousParagraph.id, start: 0, end: 0 }
-            } else {
-                const nextHeading = { ...node, id: makeEmptyParagraph(`after-${node.id}`).id, children: after }
-                replacementNodes = [{ ...node, children: before }, nextHeading]
-                restoreSelectionRef.current = { nodeId: nextHeading.id, start: 0, end: 0 }
-            }
-        } else if (node.type === 'blockquote') {
-            if (selectionStart === 0) {
-                const previousParagraph = makeEmptyParagraph(`before-${node.id}`)
-                replacementNodes = [previousParagraph, { ...node, children: after }]
-                restoreSelectionRef.current = { nodeId: previousParagraph.id, start: 0, end: 0 }
-            } else {
-                const nextBlockquote = { ...node, id: makeEmptyParagraph(`after-${node.id}`).id, children: after }
-                replacementNodes = [{ ...node, children: before }, nextBlockquote]
-                restoreSelectionRef.current = { nodeId: nextBlockquote.id, start: 0, end: 0 }
-            }
-        } else {
-            const nextParagraph = makeEmptyParagraph(`after-${node.id}`)
-            nextParagraph.children = after
-            replacementNodes = [{ ...node, children: before }, nextParagraph]
-            restoreSelectionRef.current = { nodeId: nextParagraph.id, start: 0, end: 0 }
-        }
+        const { replacementNodes, restoreSelection } = getTextBlockSplit({
+            node,
+            selectionStart,
+            selectionEnd,
+            isTitleBlock: nodeIndex === 0,
+        })
+        restoreSelectionRef.current = restoreSelection
 
         commitDocument({
             ...currentDocument,

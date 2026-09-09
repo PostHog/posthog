@@ -391,6 +391,14 @@ function fireBeforeInput(element: HTMLElement, inputType: string): void {
     fireEvent(element, event)
 }
 
+// Enter reaches a text block three ways: a keydown on the block, a keydown on the canvas (what real
+// browsers dispatch), and a native `beforeinput` with `insertParagraph`. All three must split alike.
+const NOTEBOOK_ENTER_ROUTES: [string, (canvas: HTMLElement, block: HTMLElement) => void][] = [
+    ['block keydown', (_canvas, block) => fireEvent.keyDown(block, { key: 'Enter' })],
+    ['canvas keydown', (canvas) => fireEvent.keyDown(canvas, { key: 'Enter' })],
+    ['native insertParagraph', (canvas) => fireBeforeInput(canvas, 'insertParagraph')],
+]
+
 function fireInsertTextBeforeInput(element: HTMLElement, text: string): InputEvent {
     const event = new Event('beforeinput', { bubbles: true, cancelable: true }) as InputEvent
     Object.defineProperty(event, 'inputType', { value: 'insertText' })
@@ -7610,40 +7618,51 @@ Tail with **bold** text`)
         expect(textBlocks[2].textContent).toEqual('Hello')
     })
 
-    it('continues a heading with standard text when Enter is pressed at its end', () => {
-        const onChange = jest.fn()
-        const { container } = render(
-            createElement(MarkdownNotebook, { value: withNotebookTitle('### Section'), onChange })
-        )
-        const heading = getBodyTextBlock(container)
+    it.each(NOTEBOOK_ENTER_ROUTES)(
+        'continues a heading with standard text when Enter is pressed at its end (%s)',
+        (_route, pressEnter) => {
+            const onChange = jest.fn()
+            const { container } = render(
+                createElement(MarkdownNotebook, { value: withNotebookTitle('### Section'), onChange })
+            )
+            const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+            const heading = getBodyTextBlock(container)
 
-        selectTextInElement(heading, 'Section'.length, 'Section'.length)
-        fireEvent.keyDown(heading, { key: 'Enter' })
+            selectTextInElement(heading, 'Section'.length, 'Section'.length)
+            pressEnter(canvas, heading)
 
-        const textBlocks = getEditableTextBlocks(container)
+            const textBlocks = getEditableTextBlocks(container)
 
-        expect(textBlocks[1].tagName).toEqual('H3')
-        expect(textBlocks[1].textContent).toEqual('Section')
-        expect(textBlocks[2].tagName).toEqual('P')
-        expect(textBlocks[2].textContent).toEqual('')
-        expect(document.activeElement).toEqual(textBlocks[2])
-    })
+            expect(textBlocks[1].tagName).toEqual('H3')
+            expect(textBlocks[1].textContent).toEqual('Section')
+            expect(textBlocks[2].tagName).toEqual('P')
+            expect(textBlocks[2].textContent).toEqual('')
+            expect(document.activeElement).toEqual(textBlocks[2])
+        }
+    )
 
-    it('turns an empty heading into standard text when Enter is pressed', () => {
-        const onChange = jest.fn()
-        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
-        const textBlock = getBodyTextBlock(container)
+    it.each(NOTEBOOK_ENTER_ROUTES)(
+        'turns an empty heading into standard text when Enter is pressed (%s)',
+        (_route, pressEnter) => {
+            const onChange = jest.fn()
+            const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+            const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+            const textBlock = getBodyTextBlock(container)
 
-        textBlock.textContent = '###'
-        fireEvent.input(textBlock)
-        fireEvent.keyDown(getBodyTextBlock(container), { key: 'Enter' })
+            textBlock.textContent = '###'
+            fireEvent.input(textBlock)
 
-        const textBlocks = getEditableTextBlocks(container)
+            const heading = getBodyTextBlock(container)
+            placeCaretInElement(heading)
+            pressEnter(canvas, heading)
 
-        expect(textBlocks).toHaveLength(2)
-        expect(textBlocks[1].tagName).toEqual('P')
-        expect(textBlocks[1].textContent).toEqual('')
-    })
+            const textBlocks = getEditableTextBlocks(container)
+
+            expect(textBlocks).toHaveLength(2)
+            expect(textBlocks[1].tagName).toEqual('P')
+            expect(textBlocks[1].textContent).toEqual('')
+        }
+    )
 
     it('converts a blockquote shortcut at the start of a text row into a quote block', () => {
         const onChange = jest.fn()
