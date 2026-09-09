@@ -58939,40 +58939,88 @@ export namespace Schemas {
     }
 
     /**
-     * * `inserted` - inserted
-     * * `deleted` - deleted
+     * * `user` - User
+     * * `agent` - Agent
      */
-    export type ShiftBandKindEnum = typeof ShiftBandKindEnum[keyof typeof ShiftBandKindEnum];
+    export type SketchpadActorKindEnum = typeof SketchpadActorKindEnum[keyof typeof SketchpadActorKindEnum];
 
 
-    export const ShiftBandKindEnum = {
-      Inserted: 'inserted',
-      Deleted: 'deleted',
+    export const SketchpadActorKindEnum = {
+      User: 'user',
+      Agent: 'agent',
     } as const;
 
-    export interface ShiftBand {
-      /** First row of the band, in current-image coordinates. */
-      y: number;
-      /** How many rows the band covers. */
-      rows: number;
-      /** 'inserted' when the current image gained these rows, 'deleted' when it lost them. A deleted band has no rows of its own in the current image, so its y is the seam the removed rows left behind.
+    export interface SketchpadCreator {
+      /** Always user for a creator.
        *
-       * * `inserted` - inserted
-       * * `deleted` - deleted */
-      kind: ShiftBandKindEnum;
+       * * `user` - User
+       * * `agent` - Agent */
+      kind: SketchpadActorKindEnum;
+      /**
+         * Id of the user, or null when the account is gone.
+         * @nullable
+         */
+      user_id: number | null;
+      /**
+         * First name of the user, else their email.
+         * @nullable
+         */
+      user_name: string | null;
+      /**
+         * Uuid of the user, for a stable avatar color.
+         * @nullable
+         */
+      user_uuid: string | null;
+      /**
+         * Email of the user, for a Gravatar.
+         * @nullable
+         */
+      user_email: string | null;
     }
 
-    export interface RowShift {
-      /** Where the shift happened, in current-image coordinates. */
-      bands: ShiftBand[];
-      /** Rows the current image gained. */
-      inserted_rows: number;
-      /** Rows the current image lost. */
-      deleted_rows: number;
-      /** Percentage of pixels that differ inside the rows present in both images, 0 to 100. Excludes the shift itself. The stored diff_percentage adds the area of the rows the shift added or removed, and that combined number is what the pixel threshold judges. */
-      residual_percentage: number;
-      /** Percentage of pixels that differ without alignment, which is what the shift would have cost. */
-      raw_diff_percentage: number;
+    export interface SketchpadPreviewBox {
+      /** Left edge of the fragment, in world units. */
+      readonly x: number;
+      /** Top edge of the fragment, in world units. */
+      readonly y: number;
+      /** Width of the fragment, in world units. */
+      readonly w: number;
+      /** Height of the fragment, in world units. */
+      readonly h: number;
+    }
+
+    export interface SketchpadSummary {
+      /** Id of the sketchpad. */
+      readonly id: string;
+      /** Display name of the sketchpad. */
+      readonly name: string;
+      /** Id of the space the sketchpad is filed in. */
+      readonly channel: string;
+      /** When the sketchpad was created. */
+      readonly created_at: string;
+      /** When the sketchpad or its log last changed. */
+      readonly updated_at: string;
+      /** Seq of the newest op in the sketchpad's log. */
+      readonly head_seq: number;
+      /** True while the sketchpad is pinned to the top of its space. */
+      readonly pinned: boolean;
+      /** Who created the sketchpad, or null. */
+      readonly created_by: SketchpadCreator | null;
+      /** Who recorded the newest op, or the creator when the sketchpad has no ops. */
+      readonly last_actor: SketchpadCreator | null;
+      /** Number of fragments in the stored snapshot. */
+      readonly fragment_count: number;
+      /** Boxes of the first fragments, so a list can draw the shape of the sketchpad. At most 24. */
+      readonly preview: readonly SketchpadPreviewBox[];
+    }
+
+    export interface PaginatedSketchpadSummaryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SketchpadSummary[];
     }
 
     /**
@@ -68527,6 +68575,18 @@ export namespace Schemas {
          * @nullable
          */
       readonly status?: string | null;
+    }
+
+    export interface PatchedSketchpadWrite {
+      /**
+         * Display name of the sketchpad.
+         * @maxLength 120
+         */
+      name?: string;
+      /** Id of the space the sketchpad belongs to. */
+      channel_id?: string;
+      /** Pin the sketchpad to the top of its space. */
+      pinned?: boolean;
     }
 
     /**
@@ -80008,6 +80068,631 @@ export namespace Schemas {
       github_assign_on_pull_request?: boolean;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    /**
+     * Source text by SHA-256 hash.
+     */
+    export type SketchpadSourceVersions = {[key: string]: string};
+
+    export type SketchpadSnapshotFragmentsItemSurface = typeof SketchpadSnapshotFragmentsItemSurface[keyof typeof SketchpadSnapshotFragmentsItemSurface];
+
+
+    export const SketchpadSnapshotFragmentsItemSurface = {
+      Card: 'card',
+      Plain: 'plain',
+    } as const;
+
+    export type SketchpadSnapshotFragmentsItem = {
+      /**
+         * @minLength 1
+         * @maxLength 64
+         * @pattern ^[a-z0-9][a-z0-9-_]*$
+         */
+      id: string;
+      /** @maxLength 120 */
+      title?: string;
+      x: number;
+      y: number;
+      /**
+         * @minimum 80
+         * @maximum 4000
+         */
+      w: number;
+      /**
+         * @minimum 60
+         * @maximum 4000
+         */
+      h: number;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      z?: number;
+      /**
+         * @minLength 1
+         * @maxLength 200000
+         */
+      code: string;
+      codeVersion?: number;
+      surface?: SketchpadSnapshotFragmentsItemSurface;
+      hidden?: boolean;
+    };
+
+    export type SketchpadSnapshotState = {[key: string]: unknown};
+
+    export interface SketchpadSnapshot {
+      schemaVersion: CanvasLayoutSchemaVersionEnum;
+      /** @maxItems 2000 */
+      fragments?: SketchpadSnapshotFragmentsItem[];
+      state?: SketchpadSnapshotState;
+    }
+
+    export type SketchpadReadSnapshotFragmentsItemSurface = typeof SketchpadReadSnapshotFragmentsItemSurface[keyof typeof SketchpadReadSnapshotFragmentsItemSurface];
+
+
+    export const SketchpadReadSnapshotFragmentsItemSurface = {
+      Card: 'card',
+      Plain: 'plain',
+    } as const;
+
+    export type SketchpadReadSnapshotFragmentsItem = {
+      /**
+         * @minLength 1
+         * @maxLength 64
+         * @pattern ^[a-z0-9][a-z0-9-_]*$
+         */
+      id: string;
+      /** @maxLength 120 */
+      title?: string;
+      x: number;
+      y: number;
+      /**
+         * @minimum 80
+         * @maximum 4000
+         */
+      w: number;
+      /**
+         * @minimum 60
+         * @maximum 4000
+         */
+      h: number;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      z?: number;
+      codeVersion?: number;
+      surface?: SketchpadReadSnapshotFragmentsItemSurface;
+      hidden?: boolean;
+      /**
+         * @minLength 64
+         * @maxLength 64
+         */
+      codeRef: string;
+    };
+
+    export type SketchpadReadSnapshotState = {[key: string]: unknown};
+
+    export interface SketchpadReadSnapshot {
+      schemaVersion: CanvasLayoutSchemaVersionEnum;
+      /** @maxItems 2000 */
+      fragments?: SketchpadReadSnapshotFragmentsItem[];
+      state?: SketchpadReadSnapshotState;
+    }
+
+    export interface Sketchpad {
+      /** Id of the sketchpad. */
+      readonly id: string;
+      /** Display name of the sketchpad. */
+      readonly name: string;
+      /** Id of the space the sketchpad is filed in. */
+      readonly channel: string;
+      /** When the sketchpad was created. */
+      readonly created_at: string;
+      /** When the sketchpad or its log last changed. */
+      readonly updated_at: string;
+      /** Seq of the newest op in the sketchpad's log. */
+      readonly head_seq: number;
+      /** True while the sketchpad is pinned to the top of its space. */
+      readonly pinned: boolean;
+      /** Who created the sketchpad, or null. */
+      readonly created_by: SketchpadCreator | null;
+      /** Seq represented by history_snapshot. */
+      readonly history_start_seq: number;
+      /** Board state before the retained operation log. */
+      readonly history_snapshot: SketchpadSnapshot;
+      /** Current sketchpad. Resolve fragment codeRef values through source_versions. */
+      readonly snapshot: SketchpadReadSnapshot;
+      /** Source text by SHA-256 hash. */
+      readonly source_versions: SketchpadSourceVersions;
+    }
+
+    export interface SketchpadActor {
+      /** Always user for a creator.
+       *
+       * * `user` - User
+       * * `agent` - Agent */
+      kind: SketchpadActorKindEnum;
+      /**
+         * Id of the user, or null when the account is gone.
+         * @nullable
+         */
+      user_id: number | null;
+      /**
+         * First name of the user, else their email.
+         * @nullable
+         */
+      user_name: string | null;
+      /**
+         * Uuid of the user, for a stable avatar color.
+         * @nullable
+         */
+      user_uuid: string | null;
+      /**
+         * Email of the user, for a Gravatar.
+         * @nullable
+         */
+      user_email: string | null;
+      /**
+         * Id of the agent task that made the change, or null.
+         * @nullable
+         */
+      task_id: string | null;
+    }
+
+    export interface SketchpadActorInput {
+      /** user for a direct edit, agent for a change made by an agent.
+       *
+       * * `user` - User
+       * * `agent` - Agent */
+      kind: SketchpadActorKindEnum;
+      /**
+         * Acting task, if any. Must match the sandbox binding or a task the signed-in user can control.
+         * @nullable
+         */
+      task_id?: string | null;
+    }
+
+    export type SketchpadFieldKindEnum = typeof SketchpadFieldKindEnum[keyof typeof SketchpadFieldKindEnum];
+
+
+    export const SketchpadFieldKindEnum = {
+      Text: 'text',
+      List: 'list',
+    } as const;
+
+    export type SketchpadOperation = {
+      type: 'add_fragment';
+      fragment: {
+      /**
+         * @minLength 1
+         * @maxLength 64
+         * @pattern ^[a-z0-9][a-z0-9-_]*$
+         */
+      id: string;
+      /** @maxLength 120 */
+      title?: string;
+      x: number;
+      y: number;
+      /**
+         * @minimum 80
+         * @maximum 4000
+         */
+      w: number;
+      /**
+         * @minimum 60
+         * @maximum 4000
+         */
+      h: number;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      z?: number;
+      /**
+         * @minLength 1
+         * @maxLength 200000
+         */
+      code: string;
+      codeVersion?: number;
+      surface?: 'card' | 'plain';
+      hidden?: boolean;
+    };
+    } | {
+      type: 'update_fragment';
+      id: string;
+      patch: {
+      /** @maxLength 120 */
+      title?: string;
+      x?: number;
+      y?: number;
+      /**
+         * @minimum 80
+         * @maximum 4000
+         */
+      w?: number;
+      /**
+         * @minimum 60
+         * @maximum 4000
+         */
+      h?: number;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      z?: number;
+      /**
+         * @minLength 1
+         * @maxLength 200000
+         */
+      code?: string;
+      codeVersion?: number;
+      surface?: 'card' | 'plain';
+      hidden?: boolean;
+    };
+    } | {
+      type: 'remove_fragment';
+      id: string;
+    } | {
+      type: 'bring_to_front';
+      id: string;
+    } | {
+      type: 'set_state';
+      /**
+         * @minLength 1
+         * @maxLength 128
+         */
+      key: string;
+      value: unknown;
+    } | {
+      type: 'restore';
+      snapshot: {
+      schemaVersion: 1;
+      /** @maxItems 2000 */
+      fragments?: ({
+      /**
+         * @minLength 1
+         * @maxLength 64
+         * @pattern ^[a-z0-9][a-z0-9-_]*$
+         */
+      id: string;
+      /** @maxLength 120 */
+      title?: string;
+      x: number;
+      y: number;
+      /**
+         * @minimum 80
+         * @maximum 4000
+         */
+      w: number;
+      /**
+         * @minimum 60
+         * @maximum 4000
+         */
+      h: number;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      z?: number;
+      /**
+         * @minLength 1
+         * @maxLength 200000
+         */
+      code: string;
+      codeVersion?: number;
+      surface?: 'card' | 'plain';
+      hidden?: boolean;
+    })[];
+      state?: {[key: string]: unknown};
+    };
+      toSeq: number;
+      /** @minimum 0 */
+      expectedSeq?: number;
+    } | {
+      type: 'edit_field';
+      /**
+         * @minLength 1
+         * @maxLength 128
+         */
+      key: string;
+      kind: SketchpadFieldKindEnum;
+      initialValue?: unknown;
+      /** @maxItems 2000 */
+      insert?: {
+      /** @maxLength 64 */
+      id: string;
+      /**
+         * @minLength 1
+         * @maxLength 64
+         */
+      k: string;
+      v: unknown;
+    }[];
+      /**
+         * @maxItems 2000
+         * @items.maxLength 64
+         */
+      remove?: string[];
+    };
+
+    export interface SketchpadOpDraft {
+      /**
+         * Client-chosen id, unique per sketchpad. Resending the same id records nothing new.
+         * @maxLength 64
+         */
+      op_id: string;
+      /** The op. Restore uses the request size limit; other ops are capped at 256 KB. */
+      op: SketchpadOperation;
+    }
+
+    export interface SketchpadAppendOps {
+      /**
+         * Newest server sequence known when the first op was created.
+         * @minimum 0
+         */
+      base_seq: number;
+      /** Up to 1000 ops to record, in order. An empty list makes no change. */
+      ops: SketchpadOpDraft[];
+      /** Who is making the change. */
+      actor: SketchpadActorInput;
+    }
+
+    export interface SketchpadAppendedOp {
+      /** The op_id the client sent. */
+      op_id: string;
+      /** Seq assigned to the op, or its existing seq when already recorded. */
+      seq: number;
+    }
+
+    export interface SketchpadHydratedLogEntry {
+      /** Position in the sketchpad's log, starting at 1. */
+      readonly seq: number;
+      /** Id the client chose for the op. */
+      readonly op_id: string;
+      /** Who recorded the op. */
+      readonly actor: SketchpadActor;
+      /** When the server recorded the op. */
+      readonly created_at: string;
+      /** The op with fragment source text. */
+      readonly op: SketchpadOperation;
+    }
+
+    export interface SketchpadAppendResult {
+      /** One entry per submitted op, in order. */
+      results: SketchpadAppendedOp[];
+      /** Accepted log entries for repeated operation IDs. */
+      replayed: SketchpadHydratedLogEntry[];
+      /** Seq of the newest op after this append. */
+      head_seq: number;
+    }
+
+    export interface SketchpadCompile {
+      /**
+         * Source hashes from this sketchpad. Missing results are still being compiled.
+         * @maxItems 256
+         * @items.pattern ^[0-9a-f]{64}$
+         */
+      refs: string[];
+    }
+
+    export interface SketchpadCompiledFragment {
+      /** Compiled JavaScript without shared libraries. */
+      code: string;
+      /** Required shared library names. */
+      imports: string[];
+      /**
+         * Compilation error, or null on success.
+         * @nullable
+         */
+      error: string | null;
+    }
+
+    /**
+     * Available compiled results, keyed by source hash.
+     */
+    export type SketchpadCompiledResponseResults = {[key: string]: SketchpadCompiledFragment};
+
+    export interface SketchpadCompiledResponse {
+      /** Available compiled results, keyed by source hash. */
+      results: SketchpadCompiledResponseResults;
+    }
+
+    export interface SketchpadCreate {
+      /**
+         * Display name of the sketchpad.
+         * @maxLength 120
+         */
+      name: string;
+      /** Id of the space the sketchpad belongs to. */
+      channel_id: string;
+    }
+
+    export type SketchpadReadOperation = {
+      type: 'add_fragment';
+      fragment: {
+      /**
+         * @minLength 1
+         * @maxLength 64
+         * @pattern ^[a-z0-9][a-z0-9-_]*$
+         */
+      id: string;
+      /** @maxLength 120 */
+      title?: string;
+      x: number;
+      y: number;
+      /**
+         * @minimum 80
+         * @maximum 4000
+         */
+      w: number;
+      /**
+         * @minimum 60
+         * @maximum 4000
+         */
+      h: number;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      z?: number;
+      codeVersion?: number;
+      surface?: 'card' | 'plain';
+      hidden?: boolean;
+      /**
+         * @minLength 64
+         * @maxLength 64
+         */
+      codeRef: string;
+    };
+    } | {
+      type: 'update_fragment';
+      id: string;
+      patch: {
+      /** @maxLength 120 */
+      title?: string;
+      x?: number;
+      y?: number;
+      /**
+         * @minimum 80
+         * @maximum 4000
+         */
+      w?: number;
+      /**
+         * @minimum 60
+         * @maximum 4000
+         */
+      h?: number;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      z?: number;
+      codeVersion?: number;
+      surface?: 'card' | 'plain';
+      hidden?: boolean;
+      /**
+         * @minLength 64
+         * @maxLength 64
+         */
+      codeRef?: string;
+    };
+    } | {
+      type: 'remove_fragment';
+      id: string;
+    } | {
+      type: 'bring_to_front';
+      id: string;
+    } | {
+      type: 'set_state';
+      /**
+         * @minLength 1
+         * @maxLength 128
+         */
+      key: string;
+      value: unknown;
+    } | {
+      type: 'restore';
+      snapshot: {
+      schemaVersion: 1;
+      /** @maxItems 2000 */
+      fragments?: ({
+      /**
+         * @minLength 1
+         * @maxLength 64
+         * @pattern ^[a-z0-9][a-z0-9-_]*$
+         */
+      id: string;
+      /** @maxLength 120 */
+      title?: string;
+      x: number;
+      y: number;
+      /**
+         * @minimum 80
+         * @maximum 4000
+         */
+      w: number;
+      /**
+         * @minimum 60
+         * @maximum 4000
+         */
+      h: number;
+      /**
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      z?: number;
+      codeVersion?: number;
+      surface?: 'card' | 'plain';
+      hidden?: boolean;
+      /**
+         * @minLength 64
+         * @maxLength 64
+         */
+      codeRef: string;
+    })[];
+      state?: {[key: string]: unknown};
+    };
+      toSeq: number;
+      /** @minimum 0 */
+      expectedSeq?: number;
+    } | {
+      type: 'edit_field';
+      /**
+         * @minLength 1
+         * @maxLength 128
+         */
+      key: string;
+      kind: SketchpadFieldKindEnum;
+      initialValue?: unknown;
+      /** @maxItems 2000 */
+      insert?: {
+      /** @maxLength 64 */
+      id: string;
+      /**
+         * @minLength 1
+         * @maxLength 64
+         */
+      k: string;
+      v: unknown;
+    }[];
+      /**
+         * @maxItems 2000
+         * @items.maxLength 64
+         */
+      remove?: string[];
+    };
+
+    export interface SketchpadLogEntry {
+      /** Position in the sketchpad's log, starting at 1. */
+      readonly seq: number;
+      /** Id the client chose for the op. */
+      readonly op_id: string;
+      /** Who recorded the op. */
+      readonly actor: SketchpadActor;
+      /** When the server recorded the op. */
+      readonly created_at: string;
+      /** The op with fragment source references. */
+      readonly op: SketchpadReadOperation;
+    }
+
+    /**
+     * Fragment source text keyed by SHA-256, once per page.
+     */
+    export type SketchpadOpsPageSourceVersions = {[key: string]: string};
+
+    export interface SketchpadOpsPage {
+      /** Ops in ascending seq order. */
+      results: SketchpadLogEntry[];
+      /** Seq of the newest op in the sketchpad's log. */
+      head_seq: number;
+      /** Seq represented by history_snapshot. */
+      history_start_seq: number;
+      /** Board state before the retained operation log. */
+      history_snapshot: SketchpadSnapshot;
+      /** Fragment source text keyed by SHA-256, once per page. */
+      readonly source_versions: SketchpadOpsPageSourceVersions;
     }
 
     export interface SlackChannel {
@@ -101724,6 +102409,31 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type SketchpadsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type SketchpadsOpsRetrieveParams = {
+    /**
+     * Page size, at most 1000. Defaults to 500.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * Return ops with seq greater than this. Defaults to 0.
+     * @minimum 0
+     */
+    since?: number;
     };
 
     export type StamphogDigestRunsListParams = {
