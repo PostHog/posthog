@@ -429,11 +429,15 @@ def _recursively_resolve_column(
         fields[name] = _constant_type_to_database_field(name, column.return_type)
     elif isinstance(column, ast.ConstantType):
         fields[name] = _constant_type_to_database_field(name, column)
-    elif isinstance(column, ast.SelectQueryType):
-        first_col = next(iter(column.columns.values()))
-        return _recursively_resolve_column(name, first_col, fields, context)
+    elif isinstance(column, ast.SelectQueryType | ast.SelectSetQueryType):
+        inner = next(iter(_exported_columns(column).values()), None)
+        if inner is None:
+            # An unaliased scalar subquery exports no named column, so nothing describes its type.
+            fields[name] = UnknownDatabaseField(name=name)
+            return
+        return _recursively_resolve_column(name, inner, fields, context)
     else:
-        raise QueryError(f"{column.__class__.__name__} is not supported in CTETableType")
+        raise QueryError(f'Column "{name}" of type {column.__class__.__name__} is not supported in a CTE')
 
 
 def resolve_cte_database_table(
@@ -451,29 +455,24 @@ def resolve_cte_database_table(
     return table
 
 
+def _exported_columns(
+    select_query_type: ast.SelectQueryType | ast.SelectSetQueryType,
+) -> dict[str, ast.Type]:
+    """Columns a select exports. A set query takes its first branch, whose shape every branch shares."""
+    if isinstance(select_query_type, ast.SelectQueryType):
+        return select_query_type.columns
+    for inner in select_query_type.types:
+        return _exported_columns(inner)
+    raise QueryError("No select query type available")
+
+
 def _build_cte_database_table(
     select_query_type: ast.SelectQueryType | ast.SelectSetQueryType,
     context: HogQLContext,
 ) -> Table:
-    if isinstance(select_query_type, ast.SelectQueryType):
-        columns = select_query_type.columns
-    else:
-
-        def recursively_get_columns(
-            query_types: list[ast.SelectQueryType | ast.SelectSetQueryType],
-        ) -> dict[str, ast.Type]:
-            for t in query_types:
-                if isinstance(t, ast.SelectQueryType):
-                    return t.columns
-                else:
-                    return recursively_get_columns(t.types)
-            raise QueryError("No select query type available")
-
-        columns = recursively_get_columns(select_query_type.types)
-
     fields: dict[str, FieldOrTable] = {}
 
-    for name, column in columns.items():
+    for name, column in _exported_columns(select_query_type).items():
         _recursively_resolve_column(name, column, fields, context)
 
     return Table(fields=fields)
