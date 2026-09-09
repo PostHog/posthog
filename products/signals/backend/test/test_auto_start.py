@@ -133,6 +133,22 @@ def test_resolve_autostart_assignee(
 
 
 @pytest.mark.django_db
+def test_resolve_autostart_assignee_binds_a_login_to_the_stored_uuid(organization, team):
+    original = _create_org_member_with_github("original@example.com", organization, "CurrentLogin")
+    _create_org_member_with_github("replacement@example.com", organization, "StaleLogin")
+
+    assignee = _resolve_autostart_assignee(
+        team_id=team.id,
+        report_priority=Priority.P0,
+        reviewers_content=[_reviewer("stalelogin", user_uuid=str(original.uuid))],
+        team_default_priority=Priority.P4,
+    )
+
+    assert assignee is not None
+    assert assignee.id == original.id
+
+
+@pytest.mark.django_db
 def test_resolve_autostart_assignee_never_runs_as_a_skill_owner(organization, team):
     # The owner guardrail places editor-controlled `LLMSkillOwner`s first in suggested_reviewers, but
     # the autostart path mints a full-scope OAuth token as the chosen reviewer. Selecting an owner as

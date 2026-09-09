@@ -145,7 +145,7 @@ def enrich_reviewer_dicts_with_org_members(
         login = r.get("github_login") or ""
         user_uuid = _normalized_reviewer_user_uuid(r.get("user_uuid"))
         user = resolved_by_uuid.get(user_uuid) if user_uuid else None
-        if user is None and login:
+        if user_uuid is None and login:
             # strip + lower matches the resolver's key normalization, so a legacy padded login
             # (stored before the schema stripped on write) still resolves.
             user = resolved_map.get(login.strip().lower())
@@ -229,10 +229,9 @@ class ReviewerIdentitySet:
         return cls(user_uuids=frozenset(), github_logins=frozenset())
 
     def covers(self, *, user_uuid: str | None = None, github_login: str | None = None) -> bool:
-        return bool(
-            (user_uuid and user_uuid in self.user_uuids)
-            or (github_login and github_login.strip().lower() in self.github_logins)
-        )
+        if user_uuid:
+            return user_uuid in self.user_uuids
+        return bool(github_login and github_login.strip().lower() in self.github_logins)
 
     def __bool__(self) -> bool:
         return bool(self.user_uuids or self.github_logins)

@@ -43,6 +43,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerIdentitySet,
     get_org_member_github_logins_by_user_uuid,
     resolve_org_github_login_to_users,
+    resolve_org_users_by_uuid,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_steering import NO_STEERING, ReportSteering, load_report_steering
@@ -543,20 +544,26 @@ def _resolve_autostart_assignee(
         and not owners.covers(user_uuid=r.get("user_uuid"), github_login=r.get("github_login"))
     ]
     login_to_user = resolve_org_github_login_to_users(
-        team_id, (str(r["github_login"]) for r in identity_candidates if r.get("github_login"))
+        team_id,
+        (str(r["github_login"]) for r in identity_candidates if not r.get("user_uuid") and r.get("github_login")),
+    )
+    uuid_to_user = resolve_org_users_by_uuid(
+        team_id, (str(r["user_uuid"]) for r in identity_candidates if r.get("user_uuid"))
     )
     report_rank = _priority_rank(report_priority)
 
     # Map reviewer github logins to org members, preserving reviewer order (most relevant first).
     candidate_users: list[User] = []
     for reviewer in identity_candidates:
+        user_uuid = reviewer.get("user_uuid")
         login = reviewer.get("github_login")
-        if not login:
+        if user_uuid:
+            candidate = uuid_to_user.get(str(user_uuid))
+        elif login:
+            candidate = login_to_user.get(str(login).strip().lower())
+        else:
             continue
-        # strip + lower matches the resolver's key normalization, so a legacy padded login
-        # (stored before the schema stripped on write) still resolves.
-        candidate = login_to_user.get(str(login).strip().lower())
-        if isinstance(candidate, User):
+        if isinstance(candidate, User) and candidate.get_github_login():
             candidate_users.append(candidate)
 
     if not candidate_users:

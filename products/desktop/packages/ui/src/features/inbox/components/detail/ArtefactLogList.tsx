@@ -195,7 +195,9 @@ function ReviewersBody({ reviewers }: { reviewers: SuggestedReviewer[] }) {
     <Flex direction="column" gap="1">
       {reviewers.map((reviewer) => (
         <Flex
-          key={reviewer.user?.uuid ?? reviewer.user_uuid ?? reviewer.github_login}
+          key={
+            reviewer.user?.uuid ?? reviewer.user_uuid ?? reviewer.github_login
+          }
           align="center"
           gap="2"
           wrap="wrap"

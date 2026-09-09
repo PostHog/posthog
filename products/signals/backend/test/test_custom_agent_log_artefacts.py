@@ -8,7 +8,13 @@ from asgiref.sync import async_to_sync
 from pydantic import BaseModel
 
 import products.signals.backend.temporal.custom_agent  # noqa: F401  (warms the base<->temporal import cycle so standalone collection works)
-from products.signals.backend.artefact_schemas import ArtefactContentValidationError, CodeReference, NoteArtefact
+from products.signals.backend.artefact_schemas import (
+    ArtefactContentValidationError,
+    CodeReference,
+    NoteArtefact,
+    SuggestedReviewerEntry,
+    SuggestedReviewers,
+)
 from products.signals.backend.custom_agent.base import NO_REPO, CustomSignalAgent
 from products.signals.backend.custom_agent.persistence import (
     PersistedCustomAgentReport,
@@ -180,3 +186,17 @@ class TestCustomAgentLogArtefacts(BaseTest):
         )
         assert len(rows) == 2
         assert json.loads(rows[-1].content)["priority"] == "P0"
+
+    def test_registered_uuid_only_reviewer_is_included_in_telemetry(self):
+        reviewer_uuid = uuid.uuid4()
+        with patch("products.signals.backend.custom_agent.persistence.capture_suggested_reviewers_resolved") as capture:
+            create_custom_agent_ready_report(
+                team_id=self.team.id,
+                final_report=self._final_report(),
+                repo_selection=RepoSelectionResult(repository="acme/repo", reason="r"),
+                agent_identifier=("billing", "anomaly_scan"),
+                registered_artefacts=[SuggestedReviewers(root=[SuggestedReviewerEntry(user_uuid=str(reviewer_uuid))])],
+            )
+
+        assert capture.call_args.kwargs["github_logins"] == []
+        assert capture.call_args.kwargs["user_uuid_only_count"] == 1

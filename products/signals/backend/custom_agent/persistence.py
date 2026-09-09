@@ -110,16 +110,21 @@ def create_custom_agent_ready_report(
     # are written after the assignees append, so a registered SuggestedReviewers overrides it —
     # including an empty one, which is a persisted "no reviewers" state and must still emit.
     reviewer_logins = [assignee.github_login for assignee in final_report.assignees]
+    reviewer_uuid_only_count = 0
     reviewers_written = bool(final_report.assignees)
     for artefact_content in registered_artefacts:
         if isinstance(artefact_content, SuggestedReviewers):
             reviewers_written = True
-            reviewer_logins = [entry.github_login for entry in artefact_content.root]
+            reviewer_logins = [entry.github_login for entry in artefact_content.root if entry.github_login]
+            reviewer_uuid_only_count = sum(
+                1 for entry in artefact_content.root if entry.user_uuid and not entry.github_login
+            )
     if reviewers_written:
         capture_suggested_reviewers_resolved(
             team_id=team_id,
             report_id=str(report.id),
             github_logins=reviewer_logins,
+            user_uuid_only_count=reviewer_uuid_only_count,
             source="custom_agent",
         )
 

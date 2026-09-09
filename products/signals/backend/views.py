@@ -1296,19 +1296,25 @@ class SignalReportViewSet(
         reviewer_github_logins = list(
             get_org_member_github_logins_by_user_uuid(self.team.id, reviewer_user_uuids).values()
         )
-        reviewer_json_filters = [
-            *(json.dumps([{"user_uuid": user_uuid}]) for user_uuid in reviewer_user_uuids),
-            *(json.dumps([{"github_login": github_login}]) for github_login in reviewer_github_logins),
-        ]
-        if not reviewer_json_filters:
+        uuid_filters = [json.dumps([{"user_uuid": user_uuid}]) for user_uuid in reviewer_user_uuids]
+        if not uuid_filters and not reviewer_github_logins:
             return queryset.none()
-        reviewer_where = " OR ".join(["content::jsonb @> %s::jsonb"] * len(reviewer_json_filters))
+        reviewer_clauses = ["content::jsonb @> %s::jsonb"] * len(uuid_filters)
+        reviewer_params: list[str] = list(uuid_filters)
+        for github_login in reviewer_github_logins:
+            reviewer_clauses.append(
+                "EXISTS (SELECT 1 FROM jsonb_array_elements(content::jsonb) reviewer "
+                "WHERE lower(reviewer->>'github_login') = %s "
+                "AND NULLIF(reviewer->>'user_uuid', '') IS NULL)"
+            )
+            reviewer_params.append(github_login)
+        reviewer_where = " OR ".join(reviewer_clauses)
         return queryset.filter(
             Exists(
                 # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
                 self._latest_suggested_reviewers_qs().extra(
                     where=[reviewer_where],
-                    params=reviewer_json_filters,
+                    params=reviewer_params,
                 )
             )
         )
@@ -3732,8 +3738,8 @@ def _schedule_reviewer_added_slack_notifications(
         lambda: send_reviewer_added_slack_notifications.delay(
             report_id=report_id,
             team_id=team_id,
-            added_github_logins=list(added_logins),
-            added_user_uuids=list(added_user_uuids),
+            # Keep the old task argument shape so workers from the prior release accept this job.
+            added_github_logins=[*added_logins, *(f"user:{value}" for value in added_user_uuids)],
             exclude_user_id=actor_user_id,
         ),
         robust=True,
@@ -3848,9 +3854,11 @@ def append_suggested_reviewers(
         if not isinstance(prior_content, list):
             prior_content = []
         prior_index = ReviewerPayloadIndex.build(prior_content)
-        prior_payloads = [
-            prior for prior in prior_content if isinstance(prior, dict) and _reviewer_identity_label(prior)
-        ]
+        prior_payloads_by_identity: dict[str, dict] = {}
+        for prior in prior_content:
+            if isinstance(prior, dict) and (identity := _reviewer_identity_label(prior)):
+                prior_payloads_by_identity.setdefault(identity, prior)
+        prior_payloads = list(prior_payloads_by_identity.values())
 
         # Newly-added reviewers carry no routing evidence, so record who added them and when
         # (this path is always attributed to request.user). Dates use the report's project timezone.
@@ -3955,7 +3963,9 @@ def append_suggested_reviewers(
                     team_id=team.id,
                     report_id=str(report_id),
                     added_logins=[e["github_login"] for e in added_entries if e["github_login"]],
-                    added_user_uuids=[e["user_uuid"] for e in added_entries if e["user_uuid"]],
+                    added_user_uuids=[
+                        e["user_uuid"] for e in added_entries if e["user_uuid"] and not e["github_login"]
+                    ],
                     actor_user_id=attribution.user_id,
                 )
 

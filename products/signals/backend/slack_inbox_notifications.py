@@ -181,7 +181,7 @@ def _resolve_suggested_reviewer_user_ids(report: SignalReport) -> set[int]:
     artefacts = list(
         report.artefacts.filter(
             type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-        ).order_by("-created_at")
+        ).order_by("-created_at")[:1]
     )
     if not artefacts:
         return set()
