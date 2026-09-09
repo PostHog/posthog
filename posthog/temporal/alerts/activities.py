@@ -79,7 +79,7 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
 
     @database_sync_to_async(thread_sensitive=False)
     def get_alerts() -> list[AlertInfo]:
-        now = datetime.now(UTC)
+        polled_at = datetime.now(UTC)
 
         calculation_interval_order = Case(
             *(
@@ -90,12 +90,22 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             output_field=IntegerField(),
         )
 
-        alerts_query = (
+        due_alerts_query = (
             AlertConfiguration.objects.filter(
-                Q(enabled=True, next_check_at__lte=now) | Q(enabled=True, next_check_at__isnull=True)
+                Q(enabled=True, next_check_at__lte=polled_at) | Q(enabled=True, next_check_at__isnull=True)
             )
-            .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
+            .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=polled_at))
             .filter(insight__deleted=False)
+        )
+        # Measure the complete due set, not the bounded fan-out batch below.
+        # Otherwise a busy scheduler would report 50 forever even when many
+        # more alerts are waiting.
+        record_due_insight_alert_metrics(
+            due_alerts_query.only("created_at", "next_check_at"), polled_at
+        )
+
+        alerts_query = (
+            due_alerts_query
             .annotate(_interval_order=calculation_interval_order)
             .annotate(
                 _team_rank=Window(
@@ -119,7 +129,6 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
                 : inputs.max_alerts_per_run
             ]
         )
-        record_due_insight_alert_metrics(alerts_query, datetime.now(UTC))
 
         return [
             AlertInfo(

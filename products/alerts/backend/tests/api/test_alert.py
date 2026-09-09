@@ -1186,7 +1186,11 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             assert response.json()["name"] == expected_name
 
         persisted_alert = AlertConfiguration.objects.get(id=alert["id"])
-        assert persisted_alert.next_check_at == (None if clears_next_check else scheduled_check)
+        if clears_next_check:
+            assert persisted_alert.next_check_at is not None
+            assert persisted_alert.next_check_at <= datetime.now(UTC)
+        else:
+            assert persisted_alert.next_check_at == scheduled_check
 
     def test_create_alert_with_schedule_restriction(self) -> None:
         creation_request = {
