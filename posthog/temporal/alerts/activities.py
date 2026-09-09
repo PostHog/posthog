@@ -118,8 +118,7 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             .only("id", "team_id", "calculation_interval", "insight_id", "next_check_at", "created_at")
             [: inputs.max_alerts_per_run]
         )
-        alerts = list(alerts_query)
-        record_due_alert_metrics(alerts, datetime.now(UTC))
+        record_due_alert_metrics(alerts_query, datetime.now(UTC))
 
         return [
             AlertInfo(
@@ -129,7 +128,7 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
                 calculation_interval=a.calculation_interval,
                 insight_id=a.insight_id,
             )
-            for a in alerts
+            for a in alerts_query
         ]
 
     async with Heartbeater():
