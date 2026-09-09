@@ -222,6 +222,11 @@ def _now_monotonic() -> float:
     return time.monotonic()
 
 
+def _pause(seconds: float) -> None:
+    if seconds > 0:
+        time.sleep(seconds)
+
+
 def _emit(metrics: MetricsClient, name: str, labels: Mapping[str, str], value: float = 1.0) -> None:
     """Record a counter, never letting telemetry fail the drain."""
     if value <= 0:
@@ -359,7 +364,7 @@ class _Drain:
                         f"persons Postgres statement failed: {exc}", metadata=self.totals.as_metadata()
                     ) from exc
                 self.context.log.warning("Postgres statement conflicted (%s), retrying", getattr(exc, "pgcode", "?"))
-                time.sleep(1.0)
+                _pause(1.0)
             finally:
                 self.totals.pg_seconds_total += time.perf_counter() - started
 
@@ -429,7 +434,7 @@ class _Drain:
                     self.config.max_consecutive_failures,
                     backoff,
                 )
-                time.sleep(backoff)
+                _pause(backoff)
                 continue
             self.totals.rpc_calls += 1
             self.totals.rpc_seconds.append(time.perf_counter() - started)
@@ -459,9 +464,9 @@ class _Drain:
                 f"more than max_blocked={self.config.max_blocked}; this needs investigation, not more retries",
                 metadata={**self.totals.as_metadata(), **_chunk_metadata(chunk)},
             )
-        time.sleep(pause_seconds(self.config.pause_ms, self.config.latency_multiplier, self.totals.rpc_seconds[-1]))
+        _pause(pause_seconds(self.config.pause_ms, self.config.latency_multiplier, self.totals.rpc_seconds[-1]))
 
-    def emit_page_counters(self, before: DrainTotals) -> None:
+    def emit_counters_since(self, before: DrainTotals) -> None:
         after = self.totals
         for outcome, delta in (
             ("deleted", after.persons_deleted - before.persons_deleted),
@@ -495,20 +500,24 @@ class _Drain:
 
     def run(self) -> DrainTotals:
         self.totals.queue_rows_estimate_at_start = self.timed_pg(_queue_rows_estimate)
+        # Counters flush every LOG_EVERY_PAGES pages and once at the end: one ClickHouse insert per
+        # counter per page would be tens of thousands of tiny inserts on a large queue.
+        emitted = self.snapshot()
         for page in self.pages():
             if self.config.dry_run:
                 continue
-            before = self.snapshot()
             for chunk in chunks_for_page(page, self.config.rpc_batch_size):
                 if self.out_of_time():
                     break
                 self.drain_chunk(chunk)
-            self.emit_page_counters(before)
             if self.totals.pages % LOG_EVERY_PAGES == 0:
+                self.emit_counters_since(emitted)
+                emitted = self.snapshot()
                 self.log_progress()
             if self.totals.stopped_reason == "max_runtime":
                 # Chunks left in this page were never sent, so their rows stay queued.
                 break
+        self.emit_counters_since(emitted)
         return self.totals
 
     def log_progress(self) -> None:
