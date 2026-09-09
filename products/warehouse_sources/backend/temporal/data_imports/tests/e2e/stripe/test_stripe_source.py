@@ -17,6 +17,7 @@ from stripe._http_client import HTTPClient
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.integration import Integration
+from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -188,6 +189,42 @@ async def test_stripe_source_resuming_full_refresh(
 
     # Make sure the last balance transaction ID was saved as the resume point
     assert mock_save_state.call_args[0][0].starting_after == BALANCE_TRANSACTIONS[-1]["id"]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_source_full_refresh_resumes_after_worker_shutdown_without_duplicates(
+    team, mock_stripe_api, external_data_source, external_data_schema_full_refresh
+):
+    checks = {"n": 0}
+
+    def raise_on_second_check(self):
+        checks["n"] += 1
+        if checks["n"] == 2:
+            raise WorkerShuttingDownError(
+                "test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type"
+            )
+
+    with (
+        override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.STRIPE_CHUNK_SIZE", 1
+        ),
+        mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", raise_on_second_check),
+    ):
+        await run_external_data_job_workflow(
+            team=team,
+            external_data_source=external_data_source,
+            external_data_schema=external_data_schema_full_refresh,
+            table_name="stripe_balancetransaction",
+            expected_rows_synced=None,
+            expected_total_rows=len(BALANCE_TRANSACTIONS),
+        )
+
+    resumed_urls = [call.url for call in mock_stripe_api.get_all_api_calls() if "starting_after" in call.url]
+    assert resumed_urls == [
+        f"https://api.stripe.com/v1/balance_transactions?limit=100&starting_after={BALANCE_TRANSACTIONS[1]['id']}"
+    ]
 
 
 # mock the chunk size to 1 so we can test how iterating over chunks of data works, particularly with updating the

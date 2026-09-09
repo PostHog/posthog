@@ -229,9 +229,9 @@ class PipelineV3(Generic[ResumableData]):
         # source->Arrow conversion doesn't materialise an oversized table; None falls back to defaults.
         # Arrow coalescing keeps a driver's fetch size (e.g. a SQL cursor's 10k-row Arrow tables)
         # from becoming the queue's batch granularity, but it delays when a yielded table is
-        # persisted, so it must stay off for sources that treat yield as durable: resumable
-        # sources checkpoint resume state right after yielding, and the webhook path deletes its
-        # staged S3 files right after yielding.
+        # persisted, so it must stay off for sources that treat yield as durable: the webhook path
+        # deletes its staged S3 files right after yielding, and a resumable source that commits its
+        # own cursor assumes no yielded table is still waiting here.
         self._batcher = Batcher(
             self._logger,
             chunk_size=source_response.chunk_size,
@@ -257,6 +257,10 @@ class PipelineV3(Generic[ResumableData]):
             models.schema.incremental_field_earliest_value, models.schema.incremental_field_type
         )
         self._batch_results = []
+
+    def _commit_resume_state(self) -> None:
+        if self._resumable_source_manager is not None:
+            self._resumable_source_manager.commit()
 
     async def run(self) -> PipelineResult:
         pa_memory_pool = pa.default_memory_pool()
@@ -362,6 +366,7 @@ class PipelineV3(Generic[ResumableData]):
 
                 # A single batched table may be split into several when a string/binary/list
                 # column would otherwise overflow a 32-bit offset, so drain every ready chunk.
+                wrote_chunk = False
                 while self._batcher.should_yield():
                     py_table = self._batcher.get_table()
                     row_count += py_table.num_rows
@@ -371,6 +376,7 @@ class PipelineV3(Generic[ResumableData]):
                         batch_index=chunk_index,
                         row_count=row_count,
                     )
+                    wrote_chunk = True
 
                     if activity.in_activity():
                         get_rows_extracted_metric(team_id_str, schema_id_str, source_type).add(py_table.num_rows)
@@ -380,6 +386,11 @@ class PipelineV3(Generic[ResumableData]):
 
                     cleanup_memory(pa_memory_pool, py_table)
                     py_table = None
+
+                # A staged batch is what makes the cursor safe to persist: after a buffered-only item
+                # it would skip rows that never landed, and after the shutdown check it would never land.
+                if wrote_chunk:
+                    self._commit_resume_state()
 
                 if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
                     self._shutdown_monitor.raise_if_is_worker_shutdown()
@@ -398,6 +409,8 @@ class PipelineV3(Generic[ResumableData]):
                     get_batches_produced_metric(team_id_str, schema_id_str).add(1)
 
                 chunk_index += 1
+            # Every yielded row is staged now, so whatever the source staged last is safe.
+            self._commit_resume_state()
 
             await self._finalize(row_count=row_count)
 

@@ -1,9 +1,20 @@
+import json
+from contextlib import nullcontext
+from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pyarrow as pa
+
+from posthog.temporal.common.shutdown import WorkerShuttingDownError
+
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportJobModels,
 )
@@ -338,3 +349,79 @@ class TestZeroBatchRunStampsTheFullRunMarker:
             new=MagicMock(side_effect=RuntimeError("pooler is down")),
         ):
             await pipeline._finalize(row_count=0)
+
+
+@dataclass(frozen=True)
+class _Cursor:
+    id: str
+
+
+class TestResumeCursorCommit:
+    @pytest.mark.asyncio
+    async def test_cursor_persisted_covers_exactly_the_staged_batches(self) -> None:
+        redis = MagicMock()
+        inputs = cast(SourceInputs, SimpleNamespace(team_id=1, job_id="job-1", logger=MagicMock()))
+        manager = ResumableSourceManager[_Cursor](inputs, _Cursor)
+
+        def items():
+            for row_id in ["a", "b", "c"]:
+                manager.save_state(_Cursor(row_id))
+                yield pa.table({"id": [row_id]})
+
+        pipeline = _make_pipeline()
+        pipeline._resumable_source_manager = manager
+        pipeline._resource = SourceResponse(name="test_table", items=items, primary_keys=["id"])
+        pipeline._batcher = Batcher(MagicMock(), primary_keys=["id"])
+        pipeline._schema = MagicMock(
+            id="schema-1",
+            source_id="source-1",
+            is_incremental=False,
+            is_webhook=False,
+            is_append=False,
+            should_use_incremental_field=False,
+            table=None,
+        )
+        pipeline._process_batch = AsyncMock()  # type: ignore[method-assign]
+        calls = {"n": 0}
+
+        def raise_on_second_check():
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise WorkerShuttingDownError("id", "type", "queue", 1, "workflow", "workflow_type")
+
+        cast(MagicMock, pipeline._shutdown_monitor).raise_if_is_worker_shutdown.side_effect = raise_on_second_check
+
+        with (
+            patch.object(ResumableSourceManager, "_get_redis", lambda self: nullcontext(redis)),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.reset_rows_synced_if_needed",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.validate_incremental_sync",
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.setup_row_tracking_with_billing_check",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.handle_reset_or_full_refresh",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.handle_corrupted_delta_log",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.record_source_item_stats",
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.activity",
+            ) as mock_activity,
+        ):
+            mock_activity.in_activity.return_value = False
+            with pytest.raises(WorkerShuttingDownError):
+                await pipeline.run()
+
+        assert pipeline._process_batch.await_count == 2
+        assert [json.loads(call.args[1])["id"] for call in redis.set.call_args_list] == ["a", "b"]

@@ -404,6 +404,7 @@ class TestBingAdsSource:
         ):
             original = BingAdsResumeConfig(next_start_date="2025-02-01", end_date="2025-06-30")
             manager.save_state(original)
+            manager.commit()
             loaded = manager.load_state()
 
         assert isinstance(loaded, BingAdsResumeConfig)
