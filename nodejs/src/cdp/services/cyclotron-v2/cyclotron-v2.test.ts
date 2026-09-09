@@ -682,6 +682,24 @@ describe('Cyclotron V2', () => {
                 expect(row.transition_count).toBeGreaterThan(0)
             })
 
+            it('createJob with overwriteExisting=true reruns a row whose transition_count is at the smallint ceiling', async () => {
+                const id = uuidv7()
+                await manager.createJob({ id, teamId: 1, queueName: QUEUE })
+                const worker = createWorker()
+                const jobs = await dequeueOneBatch(worker)
+                await jobs[0].ack()
+                await assertPool.query('UPDATE cyclotron_jobs SET transition_count = $1 WHERE id = $2', [
+                    CYCLOTRON_COUNTER_MAX,
+                    id,
+                ])
+
+                await manager.createJob({ id, teamId: 1, queueName: QUEUE, overwriteExisting: true })
+
+                const row = await queryJob(id)
+                expect(row.status).toBe('available')
+                expect(row.transition_count).toBe(CYCLOTRON_COUNTER_MAX)
+            })
+
             it('createJob with overwriteExisting=true on a never-seen id behaves like a normal insert', async () => {
                 const id = uuidv7()
                 await manager.createJob({
