@@ -69,7 +69,7 @@ const clickCreateSurvey = async (page: Page, name: string): Promise<void> => {
 }
 
 const openSurveyDetails = async (page: Page): Promise<void> => {
-    await page.getByTestId('open-context-panel-button').click()
+    await page.locator('#main-content').getByTestId('open-context-panel-button').click()
     await expect(page.getByRole('tab', { name: 'Details', exact: true })).toBeVisible()
 }
 
