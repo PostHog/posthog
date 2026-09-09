@@ -23,6 +23,7 @@ from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.experiments.backend.models.experiment import Experiment
+from products.replay_vision.backend.api.observation_stats import _scorer_stats
 from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
@@ -2114,10 +2115,66 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(summary["median"], 3.0)
         self.assertAlmostEqual(summary["mean"], 3.0)
         histogram = body["scorer"]["histogram"]
-        self.assertEqual(sum(histogram["counts"]), 5)
-        self.assertEqual(len(histogram["labels"]), len(histogram["counts"]))
+        # The grid spans the configured 0-10 scale, one bucket per point, with the five scores in place.
+        self.assertEqual(histogram["labels"], [str(i) for i in range(11)])
+        self.assertEqual(histogram["counts"], [0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0])
         self.assertIsNone(body["monitor"])
         self.assertIsNone(body["classifier"])
+
+    def _scored_observations(self, scorer: ReplayScanner, scores: list[float]) -> None:
+        for idx, score in enumerate(scores):
+            ReplayObservation.objects.create(
+                scanner=scorer,
+                session_id=f"sess-{idx}",
+                scanner_snapshot=_snapshot_for(scorer),
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {"scanner_type": "scorer", "score": score, "reasoning": "r", "confidence": 0.5},
+                    "signals_count": 0,
+                },
+            )
+
+    def test_stats_scorer_histogram_falls_back_to_observed_range(self) -> None:
+        # No scale in the config, so the grid comes from the observed min and max instead.
+        scorer = self._create_scanner(name="unscaled", scanner_type=ScannerType.SCORER, scanner_config={"prompt": "p"})
+        self._scored_observations(scorer, [100.0, 110.0, 120.0])
+        histogram = self.client.get(f"{self.observations_url(str(scorer.id))}stats/").json()["scorer"]["histogram"]
+        self.assertEqual(histogram["labels"], [str(i) for i in range(100, 121)])
+        self.assertEqual(sum(histogram["counts"]), 3)
+        self.assertEqual(histogram["counts"][0], 1)
+        self.assertEqual(histogram["counts"][10], 1)
+        self.assertEqual(histogram["counts"][20], 1)
+
+    def test_stats_scorer_histogram_widens_buckets_on_a_long_scale(self) -> None:
+        # A 0-100 scale needs more buckets than the target, so each one covers a five-point range.
+        scorer = self._create_scanner(
+            name="long-scale",
+            scanner_type=ScannerType.SCORER,
+            scanner_config={"prompt": "p", "scale": {"min": 0, "max": 100}},
+        )
+        self._scored_observations(scorer, [0.0, 7.0, 99.0, 100.0])
+        histogram = self.client.get(f"{self.observations_url(str(scorer.id))}stats/").json()["scorer"]["histogram"]
+        self.assertEqual(histogram["labels"][:2], ["0–4", "5–9"])
+        self.assertEqual(histogram["labels"][-1], "100–100")
+        self.assertEqual(len(histogram["counts"]), 21)
+        self.assertEqual(histogram["counts"][0], 1)
+        self.assertEqual(histogram["counts"][1], 1)
+        self.assertEqual(histogram["counts"][19], 1)
+        self.assertEqual(histogram["counts"][20], 1)
+
+    def test_stats_scorer_reads_the_observations_once(self) -> None:
+        # The summary and the histogram share one CTE. A second statement here would scan the rows twice.
+        scorer = self._create_scanner(
+            name="one-scan",
+            scanner_type=ScannerType.SCORER,
+            scanner_config={"prompt": "p", "scale": {"min": 0, "max": 10}},
+        )
+        self._scored_observations(scorer, [1.0, 2.0, 3.0])
+        with CaptureQueriesContext(connection) as captured:
+            _scorer_stats(scorer, ReplayObservation.objects.filter(scanner=scorer))
+        self.assertEqual(len(captured.captured_queries), 1, captured.captured_queries)
 
     def test_stats_respects_status_filter(self) -> None:
         self._create_observation(session_id="ok", status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())

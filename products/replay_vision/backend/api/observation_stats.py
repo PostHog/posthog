@@ -5,7 +5,6 @@ summary+histogram via raw SQL (`jsonb_array_elements_text`, `PERCENTILE_CONT`).
 """
 
 import json
-import math
 from datetime import timedelta
 from typing import Any, Literal, get_args
 
@@ -282,13 +281,23 @@ def _rank_counts(counts: dict[str, int]) -> list[dict[str, Any]]:
 
 def _scorer_stats(scanner: ReplayScanner, queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
     # `.order_by()` skips a wasted sort inside the subquery; the outer aggregate doesn't need ordering.
-    # Project only the score, so neither statement below reads a whole `scanner_result` per row.
+    # Project only the score, so the statement doesn't read a whole `scanner_result` per row.
     succeeded = (
         queryset.filter(status=ObservationStatus.SUCCEEDED)
         .order_by()
         .annotate(_score=KeyTransform("score", KeyTransform("model_output", "scanner_result")))
     )
     inner_sql, inner_params = succeeded.values("_score").query.sql_with_params()
+
+    # Span the configured scale so clustered scores still show the full axis. A missing or non-numeric bound
+    # falls back to the observed min and max, which is the only part of the bucket grid that needs the
+    # summary. So the grid is derived in SQL from the same `scored` CTE: one statement, one scan of the rows.
+    config = scanner.scanner_config if isinstance(scanner.scanner_config, dict) else {}
+    scale = config.get("scale") if isinstance(config.get("scale"), dict) else {}
+    scale_min, scale_max = (
+        value if isinstance(value, (int, float)) else None for value in (scale.get("min"), scale.get("max"))
+    )
+
     with connection.cursor() as cursor:
         cursor.execute(
             f"""
@@ -296,57 +305,63 @@ def _scorer_stats(scanner: ReplayScanner, queryset: QuerySet[ReplayObservation])
                 SELECT ((s._score #>> '{{}}')::float) AS score
                 FROM ({inner_sql}) s
                 WHERE jsonb_typeof(s._score) = 'number'
+            ),
+            summary AS (
+                SELECT
+                    COUNT(*) AS n,
+                    MIN(score) AS lo, MAX(score) AS hi, AVG(score) AS mean,
+                    PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY score) AS p25,
+                    PERCENTILE_CONT(0.5)  WITHIN GROUP (ORDER BY score) AS median,
+                    PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY score) AS p75
+                FROM scored
+            ),
+            bounds AS (
+                SELECT
+                    FLOOR(COALESCE(%s::float, lo))::int AS bucket_lo,
+                    CEIL(COALESCE(%s::float, hi))::int AS bucket_hi
+                FROM summary
+            ),
+            width AS (
+                SELECT
+                    bucket_lo,
+                    bucket_hi,
+                    GREATEST(1, CEIL((GREATEST(bucket_hi - bucket_lo, 0) + 1) / %s::float))::int AS bucket_width
+                FROM bounds
+            ),
+            grid AS (
+                SELECT
+                    bucket_lo,
+                    bucket_hi,
+                    bucket_width,
+                    FLOOR(GREATEST(bucket_hi - bucket_lo, 0)::float / bucket_width)::int + 1 AS bucket_count
+                FROM width
+            ),
+            histogram AS (
+                SELECT
+                    LEAST(GREATEST(FLOOR((ROUND(score) - g.bucket_lo) / g.bucket_width)::int, 0), g.bucket_count - 1)
+                        AS bucket,
+                    COUNT(*) AS c
+                FROM scored, grid g
+                GROUP BY 1
+            ),
+            dense AS (
+                SELECT array_agg(COALESCE(histogram.c, 0) ORDER BY bar.i) AS counts
+                FROM grid
+                CROSS JOIN generate_series(0, grid.bucket_count - 1) AS bar(i)
+                LEFT JOIN histogram ON histogram.bucket = bar.i
             )
             SELECT
-                COUNT(*),
-                MIN(score), MAX(score), AVG(score),
-                PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY score),
-                PERCENTILE_CONT(0.5)  WITHIN GROUP (ORDER BY score),
-                PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY score)
-            FROM scored
+                summary.n, summary.lo, summary.hi, summary.mean, summary.p25, summary.median, summary.p75,
+                grid.bucket_lo, grid.bucket_hi, grid.bucket_width, grid.bucket_count, dense.counts
+            FROM summary, grid, dense
             """,
-            inner_params,
+            (*inner_params, scale_min, scale_max, _HISTOGRAM_BUCKET_TARGET),
         )
-        count, lo, hi, mean, p25, median, p75 = cursor.fetchone()
+        row = cursor.fetchone()
+    count, lo, hi, mean, p25, median, p75, bucket_lo, bucket_hi, bucket_width, bucket_count, counts = row
     if not count:
         return {"summary": None, "histogram": None}
 
-    # Span the configured scale (falling back to observed range) so clustered scores still show the full axis.
-    config = scanner.scanner_config if isinstance(scanner.scanner_config, dict) else {}
-    scale_obj = config.get("scale") if isinstance(config.get("scale"), dict) else None
-    scale_min = scale_obj.get("min") if scale_obj else None
-    scale_max = scale_obj.get("max") if scale_obj else None
-    bucket_lo = math.floor(scale_min) if isinstance(scale_min, (int, float)) else math.floor(lo)
-    bucket_hi = math.ceil(scale_max) if isinstance(scale_max, (int, float)) else math.ceil(hi)
-    span = max(0, bucket_hi - bucket_lo)
-    bucket_width = max(1, math.ceil((span + 1) / _HISTOGRAM_BUCKET_TARGET))
-    bucket_count = math.floor(span / bucket_width) + 1
-
-    with connection.cursor() as cursor:
-        cursor.execute(
-            f"""
-            WITH scored AS (
-                SELECT ((s._score #>> '{{}}')::float) AS score
-                FROM ({inner_sql}) s
-                WHERE jsonb_typeof(s._score) = 'number'
-            )
-            SELECT
-                LEAST(
-                    GREATEST(FLOOR((ROUND(score) - %s) / %s)::int, 0),
-                    %s
-                ) AS bucket,
-                COUNT(*)
-            FROM scored
-            GROUP BY bucket
-            ORDER BY bucket
-            """,
-            (*inner_params, bucket_lo, bucket_width, bucket_count - 1),
-        )
-        bucket_rows = cursor.fetchall()
-
-    counts = [0] * bucket_count
-    for bucket, c in bucket_rows:
-        counts[bucket] = c
     labels: list[str] = []
     for i in range(bucket_count):
         start = bucket_lo + i * bucket_width
