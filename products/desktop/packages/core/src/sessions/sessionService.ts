@@ -6189,34 +6189,49 @@ export class SessionService {
         codexModelAccess,
         claudeModelAccess,
       } = session;
-      await this.teardownSession(session.taskRunId);
-      const authStatus = await this.getAuthCredentialsStatus();
-      if (authStatus.kind === "restoring") {
-        throw new Error("Authentication is still restoring. Please wait.");
-      }
-      if (authStatus.kind !== "ready") {
-        throw new Error(
-          "Unable to reach server. Please check your connection.",
+      try {
+        const authStatus = await this.getAuthCredentialsStatus();
+        if (authStatus.kind === "restoring") {
+          throw new Error("Authentication is still restoring. Please wait.");
+        }
+        if (authStatus.kind !== "ready") {
+          throw new Error(
+            "Unable to reach server. Please check your connection.",
+          );
+        }
+        await this.teardownSession(session.taskRunId);
+        await this.createNewLocalSession(
+          taskId,
+          taskTitle,
+          repoPath,
+          authStatus.auth,
+          initialPrompt,
+          executionMode,
+          adapter,
+          model,
+          reasoningLevel,
+          undefined,
+          contextWindow,
+          fastMode,
+          { codex: codexModelAccess, claude: claudeModelAccess },
         );
+      } catch (error) {
+        const recoverySession =
+          this.d.store.getSessionByTaskId(taskId) ?? session;
+        this.d.store.setSession({
+          ...recoverySession,
+          status: "error",
+          errorTitle: "Failed to connect",
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+        this.localRepoPaths.set(taskId, repoPath);
+        throw error;
       }
-      await this.createNewLocalSession(
-        taskId,
-        taskTitle,
-        repoPath,
-        authStatus.auth,
-        initialPrompt,
-        executionMode,
-        adapter,
-        model,
-        reasoningLevel,
-        undefined,
-        contextWindow,
-        fastMode,
-        { codex: codexModelAccess, claude: claudeModelAccess },
-      );
       return;
     }
-    await this.reconnectInPlace(taskId, repoPath);
+    if (!(await this.reconnectInPlace(taskId, repoPath))) {
+      throw new Error("Failed to reconnect to session. Please try again.");
+    }
   }
 
   /**

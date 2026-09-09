@@ -46,6 +46,11 @@ The chat displays the submitted prompt with the current startup status until
 initialization ends and the transcript or error state takes over. The waiting
 message and composer use the same outer gutters and column width as the live chat.
 
+Local startup retries retain the original prompt and run configuration after a
+failure. A failed replacement keeps its session when available, or restores the
+previous session with an error. A later retry can send the original prompt.
+A retry without a session reports failure instead of successful recovery.
+
 New cloud runs seed the full user message before subscribing to setup progress.
 The chat renders that message immediately, including its space context chip.
 Reopened transcripts reconcile the plain initial prompt with its context-bearing

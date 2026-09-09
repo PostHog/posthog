@@ -66,28 +66,38 @@ function createHarness(session: AgentSession) {
     store: {
       getSessionByTaskId: (taskId: string) =>
         Object.values(sessions).find((s) => s.taskId === taskId),
+      getSessions: () => sessions,
+      setSession: (nextSession: AgentSession) => {
+        sessions[nextSession.taskRunId] = nextSession;
+      },
+      removeSession: (taskRunId: string) => {
+        delete sessions[taskRunId];
+      },
     },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
     trpc: {
       agent: {
+        cancel: { mutate: vi.fn().mockResolvedValue(undefined) },
         onSessionIdleKilled: {
           subscribe: () => ({ unsubscribe: vi.fn() }),
         },
       },
     },
+    adapterStore: { removeAdapter: vi.fn(), setAdapter: vi.fn() },
+    removePersistedConfigOptions: vi.fn(),
+    settings: {},
+    track: vi.fn(),
   } as unknown as SessionServiceDeps;
 
   const service = new SessionService(deps);
-  vi.spyOn(
-    service as unknown as { teardownSession: () => Promise<void> },
-    "teardownSession",
-  ).mockResolvedValue(undefined);
-  vi.spyOn(
-    service as unknown as {
-      getAuthCredentialsStatus: () => Promise<unknown>;
-    },
-    "getAuthCredentialsStatus",
-  ).mockResolvedValue({ kind: "ready", auth: { client: {} } });
+  const getAuthCredentialsStatus = vi
+    .spyOn(
+      service as unknown as {
+        getAuthCredentialsStatus: () => Promise<unknown>;
+      },
+      "getAuthCredentialsStatus",
+    )
+    .mockResolvedValue({ kind: "ready", auth: { client: {} } });
   const createNewLocalSession = vi
     .spyOn(
       service as unknown as {
@@ -117,7 +127,14 @@ function createHarness(session: AgentSession) {
       parseFailureCount: 0,
     });
 
-  return { service, createNewLocalSession, reconnectInPlace, fetchSessionLogs };
+  return {
+    service,
+    deps,
+    createNewLocalSession,
+    reconnectInPlace,
+    fetchSessionLogs,
+    getAuthCredentialsStatus,
+  };
 }
 
 describe("SessionService.clearSessionError retry config", () => {
@@ -202,6 +219,77 @@ describe("SessionService.clearSessionError retry config", () => {
     expect(createNewLocalSession).toHaveBeenCalled();
     expect(reconnectInPlace).not.toHaveBeenCalled();
   });
+
+  it.each(["create run", "start agent", "send prompt"])(
+    "preserves recovery state after repeated failures to %s",
+    async (failureStage) => {
+      const session = makeSession({
+        model: "claude-fable-5",
+        adapter: "claude",
+        executionMode: "auto",
+      });
+      const { service, deps, createNewLocalSession, getAuthCredentialsStatus } =
+        createHarness(session);
+      createNewLocalSession.mockRestore();
+      let nextRun = 0;
+      const createTaskRun = vi.fn(async () => ({ id: `retry-${++nextRun}` }));
+      const startAgent = vi.fn().mockResolvedValue({ channel: "retry" });
+      deps.trpc.agent.start = {
+        mutate: startAgent,
+      } as unknown as SessionServiceDeps["trpc"]["agent"]["start"];
+      getAuthCredentialsStatus.mockResolvedValue({
+        kind: "ready",
+        auth: { client: { createTaskRun } },
+      });
+      vi.spyOn(
+        service as unknown as { subscribeToChannel: () => void },
+        "subscribeToChannel",
+      ).mockImplementation(() => {});
+      const sendPrompt = vi
+        .spyOn(service, "sendPrompt")
+        .mockResolvedValue({ stopReason: "end_turn" });
+      const failure = new Error(`Cannot ${failureStage}`);
+      const failingOperation =
+        failureStage === "create run"
+          ? createTaskRun
+          : failureStage === "start agent"
+            ? startAgent
+            : sendPrompt;
+      failingOperation
+        .mockRejectedValueOnce(failure)
+        .mockRejectedValueOnce(failure);
+
+      for (let attempt = 0; attempt < 2; attempt++) {
+        await expect(
+          service.clearSessionError("task-1", "/repo"),
+        ).rejects.toThrow(failure.message);
+        expect(deps.store.getSessionByTaskId("task-1")).toMatchObject({
+          status: "error",
+          errorMessage: failure.message,
+          initialPrompt: session.initialPrompt,
+          model: session.model,
+          adapter: session.adapter,
+          executionMode: session.executionMode,
+          ...(failureStage === "send prompt"
+            ? { taskRunId: `retry-${attempt + 1}` }
+            : {}),
+        });
+      }
+
+      await service.clearSessionError("task-1", "/repo");
+
+      expect(deps.store.getSessionByTaskId("task-1")).toMatchObject({
+        status: "connected",
+        initialPrompt: session.initialPrompt,
+        model: session.model,
+      });
+      expect(sendPrompt).toHaveBeenLastCalledWith(
+        "task-1",
+        session.initialPrompt,
+      );
+      expect(createTaskRun).toHaveBeenCalledTimes(3);
+    },
+  );
 });
 
 const CONNECT_PARAMS: ConnectParams = {
