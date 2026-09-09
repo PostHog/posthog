@@ -509,6 +509,20 @@ describe('hogFlowOutputMappingLogic', () => {
                 ])
             })
 
+            it('drops a pick of a variable another mapping already stores into', async () => {
+                logic.actions.initMappings([
+                    { key: 'verdict', result_path: 'output.verdict' },
+                    { key: '', result_path: 'output.score' },
+                ])
+
+                logic.actions.setMappingVariable(1, 'verdict')
+
+                expect(logic.values.mappings).toEqual([
+                    { key: 'verdict', result_path: 'output.verdict' },
+                    { key: '', result_path: 'output.score' },
+                ])
+            })
+
             it('changes the type of the mapped variable in place', async () => {
                 wfLogic.actions.setWorkflowInfo({
                     variables: [{ key: 'score', label: 'Score', type: 'string', default: '' }],

@@ -64,6 +64,12 @@ const readWarnings = (resumeResult: unknown): string[] => {
     return Array.isArray(warnings) ? warnings.filter((warning): warning is string => typeof warning === 'string') : []
 }
 
+// Unlabelled: how often a step degrades fleet-wide. Which flow and field goes to the warn log.
+const counterAwaitedStepResumedWithWarnings = new Counter({
+    name: 'cdp_hogflow_awaited_step_resumed_with_warnings',
+    help: 'A parked step resumed and continued, but the product that ran the job reported a warning.',
+})
+
 const counterAwaitedStepStaleResume = new Counter({
     name: 'cdp_hogflow_awaited_step_stale_resume',
     help: 'A parked step received a wake keyed to an earlier visit of the same step and kept waiting.',
@@ -252,7 +258,11 @@ export class HogFunctionHandler implements ActionHandler {
             })
             // The product that ran the job reports what went wrong short of failing it, such as
             // an agent whose output misses a field. The step continues; the author reads the log.
-            for (const warning of readWarnings(resume.result)) {
+            const warnings = readWarnings(resume.result)
+            if (warnings.length > 0) {
+                counterAwaitedStepResumedWithWarnings.inc()
+            }
+            for (const warning of warnings) {
                 result.logs.push({
                     level: 'warn',
                     timestamp: DateTime.now(),

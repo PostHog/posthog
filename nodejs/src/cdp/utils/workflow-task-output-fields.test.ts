@@ -1,6 +1,6 @@
-import { buildWorkflowTaskOutputSchema } from './workflow-task-output-schema'
+import { buildWorkflowTaskOutputFields } from './workflow-task-output-fields'
 
-describe('buildWorkflowTaskOutputSchema', () => {
+describe('buildWorkflowTaskOutputFields', () => {
     const variables = [
         { key: 'verdict', type: 'string' as const, label: 'Verdict', description: 'ship or hold' },
         { key: 'score', type: 'number' as const, label: 'Confidence score' },
@@ -8,8 +8,8 @@ describe('buildWorkflowTaskOutputSchema', () => {
         { key: 'details', type: 'json' as const, label: 'details' },
     ]
 
-    it('turns each output.<name> mapping into a required, typed property', () => {
-        const schema = buildWorkflowTaskOutputSchema(
+    it('turns each output.<name> mapping into a typed field', () => {
+        const fields = buildWorkflowTaskOutputFields(
             [
                 { key: 'verdict', result_path: 'output.verdict' },
                 { key: 'score', result_path: 'output.score' },
@@ -19,16 +19,7 @@ describe('buildWorkflowTaskOutputSchema', () => {
             variables
         )
 
-        expect(schema).toEqual({
-            type: 'object',
-            properties: {
-                verdict: { type: 'string', description: 'ship or hold' },
-                score: { type: 'number', description: 'Confidence score' },
-                is_urgent: { type: 'boolean' },
-                details: {},
-            },
-            required: ['verdict', 'score', 'is_urgent', 'details'],
-        })
+        expect(fields).toEqual({ verdict: 'string', score: 'number', is_urgent: 'boolean', details: 'string' })
     })
 
     it.each([
@@ -38,14 +29,12 @@ describe('buildWorkflowTaskOutputSchema', () => {
         ['a nested output path', { key: 'verdict', result_path: 'output.a.b' }],
         ['a mapping with no variable selected', { key: '', result_path: 'output.verdict' }],
     ])('asks for nothing when the only mapping is %s', (_name, mapping) => {
-        expect(buildWorkflowTaskOutputSchema(mapping, variables)).toBeNull()
+        expect(buildWorkflowTaskOutputFields(mapping, variables)).toBeNull()
     })
 
-    it('types a field it cannot match to a variable as anything', () => {
-        expect(buildWorkflowTaskOutputSchema({ key: 'missing', result_path: 'output.verdict' }, [])).toEqual({
-            type: 'object',
-            properties: { verdict: {} },
-            required: ['verdict'],
+    it('asks for text when it cannot match the mapping to a variable', () => {
+        expect(buildWorkflowTaskOutputFields({ key: 'missing', result_path: 'output.verdict' }, [])).toEqual({
+            verdict: 'string',
         })
     })
 })

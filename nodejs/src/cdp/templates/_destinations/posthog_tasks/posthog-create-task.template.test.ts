@@ -126,10 +126,8 @@ describe('posthog create task template', () => {
         const response = await tester.invoke({ prompt: 'Judge the PR' }, undefined, { ...workflowOptions, hogFlow })
 
         expect(response.error).toBeUndefined()
-        expect(parseJSON((response.invocation.queueParameters as any).body).output_schema).toEqual({
-            type: 'object',
-            properties: { verdict: { type: 'string', description: 'ship or hold' } },
-            required: ['verdict'],
+        expect(parseJSON((response.invocation.queueParameters as any).body).output_fields).toEqual({
+            verdict: 'string',
         })
     })
 

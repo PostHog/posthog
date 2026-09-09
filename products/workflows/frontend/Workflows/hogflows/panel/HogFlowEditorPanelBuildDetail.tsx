@@ -30,7 +30,11 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { isEmailAction, isOptOutEligibleAction } from '../steps/types'
 import type { HogFlowAction } from '../types'
-import { WORKFLOW_VARIABLE_TYPE_OPTIONS, hogFlowOutputMappingLogic } from './hogFlowOutputMappingLogic'
+import {
+    WORKFLOW_VARIABLE_TYPE_OPTIONS,
+    hogFlowOutputMappingLogic,
+    sanitizeVariableKey,
+} from './hogFlowOutputMappingLogic'
 import { OutputTestResultTree } from './OutputTestResultTree'
 
 export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
@@ -186,7 +190,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                                 formatCreateLabel={(input) =>
                                                                     `Create variable "${input}"`
                                                                 }
-                                                                inputTransform={(input) => input.replace(/\s+/g, '_')}
+                                                                inputTransform={sanitizeVariableKey}
                                                                 options={(workflow.variables || [])
                                                                     .filter(
                                                                         ({ key }) =>

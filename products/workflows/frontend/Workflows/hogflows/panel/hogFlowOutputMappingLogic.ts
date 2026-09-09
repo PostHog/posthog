@@ -24,6 +24,11 @@ export const WORKFLOW_VARIABLE_TYPE_OPTIONS: { value: WorkflowVariableType; labe
     { value: 'boolean', label: 'True or false' },
 ]
 
+// A key must be addressable as `variables.<key>` in a template, so only identifier characters survive.
+export function sanitizeVariableKey(key: string): string {
+    return key.replace(/[^A-Za-z0-9_]+/g, '_')
+}
+
 export function normalizeOutputVariable(raw: HogFlowAction['output_variable']): OutputMapping[] {
     if (!raw) {
         return []
@@ -260,6 +265,10 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                     return updated
                 },
                 setMappingVariable: (state, { index, key }) => {
+                    // Two rows storing into one variable would race; the second pick is dropped.
+                    if (key && state.some((mapping, i) => i !== index && mapping.key === key)) {
+                        return state
+                    }
                     const updated = [...state]
                     updated[index] = { ...updated[index], key }
                     return updated
