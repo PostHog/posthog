@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
 import { initKeaTests } from '~/test/init'
@@ -78,6 +78,15 @@ describe('ThreadView connection state', () => {
 
     it('hides context usage and cost during an optimistic resume and restores them on failure', async () => {
         act(() => {
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/progress', {
+                    group: 'setup:previous-run',
+                    step: 'agent',
+                    status: 'completed',
+                    label: 'Started agent',
+                }),
+                'replay'
+            )
             logic.actions.setContextUsage({ used: 12000, size: 1000000, cost: 0.04 })
             logic.actions.handleTerminalStatus({ status: 'completed', replayedFromHistory: true })
         })
@@ -92,9 +101,11 @@ describe('ThreadView connection state', () => {
         expect(screen.getByText('$0.04')).toBeVisible()
     })
 
-    it('uses one main indicator for streamed sandbox startup without leaving completed setup rows', async () => {
+    it('uses the startup activity as the state indicator and keeps completed steps expandable', async () => {
+        act(() => logic.actions.sseOpened())
+        await waitFor(() => expect(screen.getByText('Setting up sandbox')).toBeVisible())
+
         act(() => {
-            logic.actions.sseOpened()
             logic.actions.ingestAcpFrame(
                 notification('_posthog/progress', {
                     group: 'setup:run-1',
@@ -104,8 +115,8 @@ describe('ThreadView connection state', () => {
                 })
             )
         })
-        await waitFor(() => expect(screen.getAllByText('Setting up sandbox')).toHaveLength(1))
-        expect(screen.queryByText('Restoring sandbox')).toBeNull()
+        await waitFor(() => expect(screen.getByText('Restoring sandbox')).toBeVisible())
+        expect(screen.queryByText('Setting up sandbox')).toBeNull()
 
         act(() => {
             logic.actions.ingestAcpFrame(
@@ -120,18 +131,33 @@ describe('ThreadView connection state', () => {
                 notification('_posthog/progress', {
                     group: 'setup:run-1',
                     step: 'agent',
+                    status: 'in_progress',
+                    label: 'Starting agent',
+                })
+            )
+        })
+        await waitFor(() => expect(screen.getByText('Starting agent', { exact: true })).toBeVisible())
+        expect(screen.getByLabelText('Collapse history')).toHaveAttribute('aria-expanded', 'true')
+        expect(screen.queryByText('Setting up sandbox')).toBeNull()
+
+        act(() => {
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/progress', {
+                    group: 'setup:run-1',
+                    step: 'agent',
                     status: 'completed',
                     label: 'Started agent',
                 })
             )
         })
-        expect(screen.getAllByText('Setting up sandbox')).toHaveLength(1)
-        expect(screen.queryByText('Restored sandbox')).toBeNull()
-        expect(screen.queryByText('Started agent')).toBeNull()
+        await waitFor(() => expect(screen.getByLabelText('Expand history')).toHaveAttribute('aria-expanded', 'false'))
+        expect(screen.getByText('Started agent')).toBeVisible()
+        expect(screen.queryByText('Setting up sandbox')).toBeNull()
 
         act(() => logic.actions.ingestAcpFrame(notification('_posthog/run_started', {})))
         await waitFor(() => expect(screen.queryByText('Setting up sandbox')).toBeNull())
-        expect(screen.queryByText('Restored sandbox')).toBeNull()
-        expect(screen.queryByText('Started agent')).toBeNull()
+        fireEvent.click(screen.getByLabelText('Expand history'))
+        expect(screen.getByText('Restored sandbox')).toBeVisible()
+        expect(screen.getAllByText('Started agent')).toHaveLength(2)
     })
 })

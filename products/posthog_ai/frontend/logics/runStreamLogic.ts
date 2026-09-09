@@ -2362,25 +2362,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // empty, gap-padded slot in the virtualized thread. Drop them before they become rows.
                 // Debug rows are gated by `debugLogsLogic.showDebugLogs` (staff/dev toggle, force-on when
                 // impersonating).
-                foldedThread.threadItems
-                    .map((item) => {
-                        if (item.type !== 'progress' || item.progressGroup?.split(':')[0] !== 'setup') {
-                            return item
-                        }
-                        // The main indicator covers sandbox startup. Keep failures and later work in
-                        // the same group (wizard, preview, PR, CI) visible, and retain every step in the log.
-                        return {
-                            ...item,
-                            progressSteps: item.progressSteps?.filter(
-                                (step) =>
-                                    step.status === 'failed' ||
-                                    !['sandbox', 'clone', 'checkout', 'agent'].includes(step.key)
-                            ),
-                        }
-                    })
-                    .filter(
-                        (item: ThreadItem) => (item.type !== 'debug' || showDebugLogs) && rendersThreadItemContent(item)
-                    ),
+                foldedThread.threadItems.filter(
+                    (item: ThreadItem) => (item.type !== 'debug' || showDebugLogs) && rendersThreadItemContent(item)
+                ),
         ],
         hasThreadItems: [(s) => [s.threadItems], (threadItems: ThreadItem[]): boolean => threadItems.length > 0],
         toolInvocations: [
@@ -2422,8 +2406,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
          * Stream lifecycle phase gating the bottom-of-thread thinking indicator. `provisioning` = the
          * cold-boot window — the conversations/open POST is in flight (`runOpening`), or the stream is
          * opening/open but the agent hasn't started yet (the workflow is still setting up the sandbox).
-         * `ThreadView` shows one fixed startup indicator until `run_started` flips the phase to `thinking`. The
-         * playful gerund loader is held off until `thinking` so it never shows before a turn begins.
+         * `ThreadView` uses setup progress as the startup indicator, with a fixed fallback before steps arrive.
+         * The playful gerund loader waits for `run_started` to flip the phase to `thinking`.
          * `thinking` = the agent is working a turn (mirrors `isThinking`), and is
          * what `ThreadView` gates the gerund loader on; `idle` otherwise (terminal, errored, or
          * not yet connecting). A read-only viewer is always `idle` — it never streams.

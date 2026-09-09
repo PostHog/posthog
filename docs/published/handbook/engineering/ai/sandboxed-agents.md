@@ -29,6 +29,9 @@ If it just needs to _answer a question_ given some context you already have, use
 A sandboxed agent runs inside an isolated cloud container (Modal in production, Docker locally).
 The system provisions the sandbox, clones a GitHub repo, starts an agent server, and waits for the agent to finish.
 
+The run thread shows startup state in a progress accordion, with completed steps available in its history.
+Before progress arrives, it shows "Setting up sandbox", including when resuming a finished run.
+
 ```text
 Your product code
     │

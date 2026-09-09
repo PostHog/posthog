@@ -1299,7 +1299,7 @@ describe('runStreamLogic', () => {
             )
         })
 
-        it('retains replayed setup progress without displaying it below the human turn', async () => {
+        it('renders replayed setup progress below the human turn', async () => {
             const frames: StoredLogEntry[] = [
                 notification('_posthog/progress', {
                     sessionId: 's',
@@ -1320,12 +1320,12 @@ describe('runStreamLogic', () => {
                 logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             }).toFinishAllListeners()
 
-            expect(logic.values.threadItems.map((item) => item.type)).toEqual(['human_message'])
+            expect(logic.values.threadItems.map((item) => item.type)).toEqual(['human_message', 'progress'])
             expect(logic.values.threadItems[0]).toMatchObject({
                 type: 'human_message',
                 text: 'build me a dashboard',
             })
-            expect(logic.values.foldedThread.threadItems[1]).toMatchObject({
+            expect(logic.values.threadItems[1]).toMatchObject({
                 type: 'progress',
                 progressSteps: [{ key: 'agent', status: 'completed', label: 'Started agent' }],
             })
@@ -1723,27 +1723,12 @@ describe('runStreamLogic', () => {
 
         it('clears the bootstrap spinner for a terminal run whose history renders no rows', async () => {
             jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'failed', state: {} } as any)
-            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
-                notification('_posthog/progress', {
-                    step: 'sandbox',
-                    status: 'completed',
-                    label: 'Set up sandbox',
-                    group: 'setup',
-                }),
-                notification('_posthog/progress', {
-                    step: 'clone',
-                    status: 'completed',
-                    label: 'Cloned repository',
-                    group: 'setup',
-                }),
-            ])
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
 
             await expectLogic(logic, () => {
                 logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             }).toFinishAllListeners()
 
-            // Routine setup steps are filtered out, so the thread has nothing to render — the surface
-            // falls back to the skeleton unless the bootstrap spinner is cleared.
             expect(logic.values.hasThreadItems).toBe(false)
             expect(logic.values.bootstrapLoading).toBe(false)
         })
@@ -2702,7 +2687,7 @@ describe('runStreamLogic', () => {
             ])
         })
 
-        it('coalesces setup progress while only displaying failures and later work', async () => {
+        it('coalesces setup progress into one visible activity', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
                     notification('_posthog/progress', {
@@ -2733,8 +2718,7 @@ describe('runStreamLogic', () => {
                 )
             }).toFinishAllListeners()
 
-            expect(logic.values.threadItems).toEqual([])
-            expect(logic.values.foldedThread.threadItems).toEqual([
+            expect(logic.values.threadItems).toEqual([
                 {
                     id: 'progress-setup:run-1',
                     type: 'progress',
@@ -2773,6 +2757,7 @@ describe('runStreamLogic', () => {
             expect(logic.values.threadItems).toEqual([
                 expect.objectContaining({
                     progressSteps: [
+                        { key: 'sandbox', status: 'completed', label: 'Set up sandbox' },
                         { key: 'clone', status: 'failed', label: 'Repository clone failed' },
                         { key: 'preview', status: 'in_progress', label: 'Starting preview' },
                     ],
