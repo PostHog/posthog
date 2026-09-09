@@ -28,7 +28,7 @@ from posthog.exceptions import (
     ClickHouseClusterMemoryLimitExceeded,
     ClickHouseQueryMemoryLimitExceeded,
 )
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.slo.types import SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import (
     AlertEvaluationResult,
@@ -41,6 +41,7 @@ from posthog.temporal.alerts.activities import (
     notify_alert,
     prepare_alert,
     record_failed_evaluation,
+    retrieve_due_alerts,
 )
 from posthog.temporal.alerts.retry_policy import alert_timeouts
 from posthog.temporal.alerts.types import (
@@ -49,6 +50,7 @@ from posthog.temporal.alerts.types import (
     PrepareAction,
     PrepareAlertActivityInputs,
     RecordFailedEvaluationActivityInputs,
+    ScheduleDueAlertChecksWorkflowInputs,
     SkipReason,
 )
 
@@ -82,7 +84,7 @@ def _memory_limit_error() -> ClickHouseQueryMemoryLimitExceeded:
 
 
 async def _create_alert(
-    ateam,
+    ateam: Team,
     *,
     query: dict | None = None,
     enabled: bool = True,
@@ -128,6 +130,31 @@ async def _create_alert(
         return alert
 
     return await _create()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_retrieve_due_alerts_limits_each_schedule_run_without_starving_other_teams(
+    ateam: Team,
+) -> None:
+    max_alerts_per_run = 2
+    for _ in range(max_alerts_per_run):
+        await _create_alert(ateam, calculation_interval=AlertCalculationInterval.REAL_TIME.value)
+
+    other_team = await sync_to_async(Team.objects.create)(
+        organization_id=ateam.organization_id,
+        project_id=ateam.project_id,
+        name="Other team",
+    )
+    other_alert = await _create_alert(other_team)
+
+    alerts = await ActivityEnvironment().run(
+        retrieve_due_alerts,
+        ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=max_alerts_per_run),
+    )
+
+    assert len(alerts) == max_alerts_per_run
+    assert str(other_alert.id) in {alert.alert_id for alert in alerts}
 
 
 @pytest_asyncio.fixture

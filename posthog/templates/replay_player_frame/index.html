@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>Session replay player</title>
+        <style>
+        /*
+          Copied from PlayerFrame.scss and PlayerFrameLLMHighlight.scss. These rules style the
+          rrweb wrapper, which under REPLAY_PLAYER_OWN_DOCUMENT lives in this document rather than
+          the app's, so the app's stylesheet can no longer reach them. Both copies stay until the
+          flag is removed, at which point the app's copy goes and this one remains.
+        */
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: transparent;
+        }
+
+        .PlayerFrame__content {
+            position: absolute;
+
+            /* Center the frame so a letterboxed or not-yet-scaled recording sits in the
+               middle of the player rather than pinned to the top-left corner. */
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .PlayerFrame__content--masking-window .replayer-wrapper::before {
+            position: absolute;
+            inset: 0; /* Cover the entire wrapper */
+            z-index: 10; /* Ensure it's above the iframe */
+            pointer-events: auto; /* Block interactions */
+            content: '';
+            background-image: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjE2IiBoZWlnaHQ9IjE2IiBmaWxsPSJibGFjayIvPgo8cGF0aCBkPSJNOCAwSDE2TDAgMTZWOEw4IDBaIiBmaWxsPSIjMkQyRDJEIi8+CjxwYXRoIGQ9Ik0xNiA4VjE2SDhMMTYgOFoiIGZpbGw9IiMyRDJEMkQiLz4KPC9zdmc+Cg==');
+            background-repeat: repeat;
+            background-size: 16px 16px;
+        }
+
+        .PlayerFrame__content iframe {
+            background-color: white;
+            border: 0;
+        }
+
+        /* Copied over from rrweb replay css */
+        .PlayerFrame__content .replayer-wrapper {
+            position: relative;
+        }
+
+        .PlayerFrame__content .replayer-mouse {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background-image: url('data:image/svg+xml;base64,PHN2ZyBoZWlnaHQ9JzMwMHB4JyB3aWR0aD0nMzAwcHgnICBmaWxsPSIjMDAwMDAwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGRhdGEtbmFtZT0iTGF5ZXIgMSIgdmlld0JveD0iMCAwIDUwIDUwIiB4PSIwcHgiIHk9IjBweCI+PHRpdGxlPkRlc2lnbl90bnA8L3RpdGxlPjxwYXRoIGQ9Ik00OC43MSw0Mi45MUwzNC4wOCwyOC4yOSw0NC4zMywxOEExLDEsMCwwLDAsNDQsMTYuMzlMMi4zNSwxLjA2QTEsMSwwLDAsMCwxLjA2LDIuMzVMMTYuMzksNDRhMSwxLDAsMCwwLDEuNjUuMzZMMjguMjksMzQuMDgsNDIuOTEsNDguNzFhMSwxLDAsMCwwLDEuNDEsMGw0LjM4LTQuMzhBMSwxLDAsMCwwLDQ4LjcxLDQyLjkxWm0tNS4wOSwzLjY3TDI5LDMyYTEsMSwwLDAsMC0xLjQxLDBsLTkuODUsOS44NUwzLjY5LDMuNjlsMzguMTIsMTRMMzIsMjcuNThBMSwxLDAsMCwwLDMyLDI5TDQ2LjU5LDQzLjYyWiI+PC9wYXRoPjwvc3ZnPg==');
+            background-repeat: no-repeat;
+            background-position: center center;
+            background-size: contain;
+            border-color: transparent; /* otherwise we transition from black when .touch-device class is added */
+            transition:
+                left 0.05s linear,
+                top 0.05s linear;
+        }
+
+        .PlayerFrame__content .replayer-mouse::after {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            content: '';
+            background: rgb(73 80 246);
+            border-radius: 100%;
+            opacity: 0.3;
+            transform: translate(-50%, -50%);
+        }
+
+        .PlayerFrame__content .replayer-mouse.touch-device {
+            width: 70px;
+            height: 70px;
+            margin-top: -37px;
+            margin-left: -37px;
+            background-image: none; /* there's no passive cursor on touch-only screens */
+            border-color: rgb(73 80 246 / 0%);
+            border-style: solid;
+            border-width: 4px;
+            border-radius: 100%;
+            transition:
+                left 0s linear,
+                top 0s linear,
+                border-color 0.2s ease-in-out;
+        }
+
+        .PlayerFrame__content .replayer-mouse.touch-device.touch-active {
+            border-color: rgb(73 80 246 / 100%);
+            transition:
+                left 0.25s linear,
+                top 0.25s linear,
+                border-color 0.2s ease-in-out;
+        }
+
+        .PlayerFrame__content .replayer-mouse.touch-device::after {
+            opacity: 0; /* there's no passive cursor on touch-only screens */
+        }
+
+        .PlayerFrame__content .replayer-mouse-tail {
+            position: absolute;
+            pointer-events: none;
+        }
+
+        /*
+          The click highlight was conditional on a `.PlayerFrame--llm-highlight` class on the app-side
+          container. The app sets that class unconditionally, so the rules apply unconditionally here.
+        */
+        .PlayerFrame__content .replayer-mouse.active::after {
+            /* Duration scales with playback speed; the app sets the property on this document. */
+            animation: PlayerFrame__click--llm-highlight var(--player-frame-click-duration, 0.333s) ease-in-out 1;
+        }
+
+        .PlayerFrame__content .replayer-mouse.touch-device.active::after {
+            animation: PlayerFrame__touch-click--llm-highlight var(--player-frame-click-duration, 0.333s) ease-in-out 1;
+        }
+
+        /* Desktop. Magenta stays visible against most UI. */
+        @keyframes PlayerFrame__click--llm-highlight {
+            0% {
+                width: 60px;
+                height: 60px;
+                background: rgb(236 72 153);
+                opacity: 0.8;
+            }
+
+            /* Shrink unevenly to keep the highlight visible as long as possible */
+            80% {
+                width: 40px;
+                height: 40px;
+                background: rgb(236 72 153);
+                opacity: 0.8;
+            }
+
+            100% {
+                width: 20px;
+                height: 20px;
+                background: rgb(236 72 153);
+                opacity: 0.3;
+            }
+        }
+
+        /* Mobile. Touch devices have no passive cursor, so fade to invisible. */
+        @keyframes PlayerFrame__touch-click--llm-highlight {
+            0% {
+                width: 60px;
+                height: 60px;
+                background: rgb(236 72 153);
+                opacity: 0.8;
+            }
+
+            80% {
+                width: 40px;
+                height: 40px;
+                background: rgb(236 72 153);
+                opacity: 0.8;
+            }
+
+            100% {
+                width: 40px;
+                height: 40px;
+                background: rgb(236 72 153);
+                opacity: 0;
+            }
+        }
+        </style>
+    </head>
+    <body>
+        <div class="PlayerFrame__content" id="player-frame-content"></div>
+    </body>
+</html>

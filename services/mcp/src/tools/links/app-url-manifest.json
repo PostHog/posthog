@@ -1699,6 +1699,11 @@
         "params": [],
         "scope": "project"
     },
+    "webAnalyticsContentAutopilot": {
+        "template": "/web/content-autopilot",
+        "params": [],
+        "scope": "project"
+    },
     "webAnalyticsHealth": {
         "template": "/web/health",
         "params": [],
@@ -1746,6 +1751,11 @@
     },
     "wizard": {
         "template": "/wizard",
+        "params": [],
+        "scope": "project"
+    },
+    "wizardRuns": {
+        "template": "/wizard/runs",
         "params": [],
         "scope": "project"
     },

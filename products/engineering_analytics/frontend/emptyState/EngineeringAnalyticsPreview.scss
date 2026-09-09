@@ -1,0 +1,346 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.EngAnalyticsPreview {
+    --eng-preview-accent: var(--empty-state-accent, var(--color-product-data-warehouse-light));
+
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden selection. Direct children of .EngAnalyticsPreview so `:checked ~` reaches both cards.
+    &__radio {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__panel,
+    &__runs,
+    &__stat {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    // The two run lists are stacked on one grid cell and crossfaded, so selecting a pull
+    // request never changes the card's size (no layout shift).
+    &__swap {
+        display: grid;
+    }
+
+    &__swap > * {
+        grid-area: 1 / 1;
+        min-width: 0;
+    }
+
+    &__when-green {
+        @include preview-swap-visible;
+    }
+
+    &__when-red {
+        @include preview-swap-hidden;
+    }
+
+    &__head {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__repo {
+        flex: 1;
+        font-family: var(--font-mono);
+        font-size: 0.5625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    // Pull request rows
+
+    &__rows {
+        display: flex;
+        flex-direction: column;
+        padding: 0.25rem 0.5rem;
+    }
+
+    &__row {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.3125rem 0.5rem;
+        border-radius: var(--radius);
+        transition: background $preview-swap-duration ease;
+    }
+
+    &__row--focus {
+        cursor: pointer;
+    }
+
+    &__ci {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+
+        &--pass {
+            background: var(--color-success);
+        }
+
+        &--fail {
+            background: var(--color-danger);
+        }
+
+        &--running {
+            background: var(--color-warning);
+            animation: EngAnalyticsPreview__blink 1.6s ease-in-out infinite;
+        }
+    }
+
+    &__pr {
+        display: flex;
+        flex-direction: column;
+        gap: 0.0625rem;
+        min-width: 0;
+    }
+
+    &__pr-title {
+        overflow: hidden;
+        font-size: 0.6875rem;
+        font-weight: 500;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__pr-meta {
+        overflow: hidden;
+        font-size: 0.5625rem;
+        color: var(--color-text-tertiary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__pill {
+        padding: 0.0625rem 0.375rem;
+        font-size: 0.5625rem;
+        font-weight: 600;
+        color: var(--color-text-tertiary);
+        white-space: nowrap;
+        background: var(--color-bg-fill-tertiary);
+        border-radius: 999px;
+
+        &--pass {
+            color: var(--color-success);
+            background: color-mix(in oklab, var(--color-success) 12%, transparent);
+        }
+
+        &--fail {
+            color: var(--color-danger);
+            background: color-mix(in oklab, var(--color-danger) 12%, transparent);
+        }
+    }
+
+    // Bottom row: workflow runs and the stat card side by side.
+
+    &__bottom {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+        gap: 0.75rem;
+    }
+
+    &__runs-head {
+        padding: 0.375rem 0.625rem;
+        font-size: 0.625rem;
+        font-weight: 600;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__jobs {
+        display: flex;
+        flex-direction: column;
+        gap: 0.375rem;
+        padding: 0.5rem 0.625rem 0.625rem;
+    }
+
+    &__job {
+        display: grid;
+        grid-template-columns: 3.75rem minmax(0, 1fr) auto;
+        gap: 0.375rem;
+        align-items: center;
+        font-size: 0.5625rem;
+    }
+
+    &__job-name {
+        overflow: hidden;
+        color: var(--color-text-secondary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__job-time {
+        color: var(--color-text-tertiary);
+        white-space: nowrap;
+    }
+
+    &__bar {
+        height: 6px;
+        overflow: hidden;
+        background: var(--color-bg-fill-tertiary);
+        border-radius: 999px;
+    }
+
+    &__bar-fill {
+        display: block;
+        height: 100%;
+        border-radius: 999px;
+
+        &--pass {
+            background: var(--color-success);
+        }
+
+        &--fail {
+            background: var(--color-danger);
+        }
+
+        &--skip {
+            background: var(--color-border-primary);
+        }
+
+        &--w10 {
+            width: 10%;
+        }
+
+        &--w20 {
+            width: 20%;
+        }
+
+        &--w45 {
+            width: 45%;
+        }
+
+        &--w65 {
+            width: 65%;
+        }
+
+        &--w90 {
+            width: 90%;
+        }
+    }
+
+    // Stat card
+
+    &__stat {
+        padding: 0.625rem 0.75rem 0.75rem;
+    }
+
+    &__spark-caption {
+        font-size: 0.5625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__footer {
+        display: block;
+        margin-top: 0.375rem;
+        font-size: 0.5625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__spark-area {
+        fill: color-mix(in oklab, var(--eng-preview-accent) 13%, transparent);
+        stroke: none;
+    }
+
+    &__spark-line {
+        fill: none;
+        stroke: color-mix(in oklab, var(--eng-preview-accent) 32%, transparent);
+        stroke-width: 2;
+    }
+
+    // The moving bit: a short bright segment cycling along the line.
+    &__spark-trace {
+        fill: none;
+        stroke: var(--eng-preview-accent);
+        stroke-dasharray: 16 84;
+        stroke-linecap: round;
+        stroke-width: 2;
+        animation: EngAnalyticsPreview__trace 3.2s linear infinite;
+    }
+
+    @include preview-sparkline;
+}
+
+// Selected row: painted from the radios, so the list and the runs card always agree.
+
+.EngAnalyticsPreview__radio--green:checked ~ .EngAnalyticsPreview__panel .EngAnalyticsPreview__row--green,
+.EngAnalyticsPreview__radio--red:checked ~ .EngAnalyticsPreview__panel .EngAnalyticsPreview__row--red {
+    background: color-mix(in oklab, var(--eng-preview-accent) 8%, transparent);
+}
+
+// Failing pull request selected
+
+.EngAnalyticsPreview__radio--red:checked ~ .EngAnalyticsPreview__bottom .EngAnalyticsPreview__when-red {
+    @include preview-swap-visible;
+}
+
+.EngAnalyticsPreview__radio--red:checked ~ .EngAnalyticsPreview__bottom .EngAnalyticsPreview__when-green {
+    @include preview-swap-hidden;
+}
+
+// The radios stay keyboard-focusable while visually hidden, so the row each one labels
+// needs a visible focus indicator (WCAG 2.4.7).
+.EngAnalyticsPreview__radio--green:focus-visible ~ .EngAnalyticsPreview__panel .EngAnalyticsPreview__row--green,
+.EngAnalyticsPreview__radio--red:focus-visible ~ .EngAnalyticsPreview__panel .EngAnalyticsPreview__row--red {
+    outline: 2px solid var(--eng-preview-accent);
+    outline-offset: -2px;
+}
+
+// Nudge attention at the failing pull request until it's selected.
+.EngAnalyticsPreview:not(.EngAnalyticsPreview--static)
+    .EngAnalyticsPreview__radio--green:checked
+    ~ .EngAnalyticsPreview__panel
+    .EngAnalyticsPreview__row--red
+    .EngAnalyticsPreview__ci {
+    animation: EngAnalyticsPreview__pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes EngAnalyticsPreview__pulse {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-danger) 40%, transparent);
+    }
+
+    50% {
+        box-shadow: 0 0 0 4px color-mix(in oklab, var(--color-danger) 16%, transparent);
+    }
+}
+
+@keyframes EngAnalyticsPreview__blink {
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.35;
+    }
+}
+
+// pathLength is normalized to 100, so the dash offset loops cleanly regardless of length.
+@keyframes EngAnalyticsPreview__trace {
+    to {
+        stroke-dashoffset: -100;
+    }
+}
+
+// Storybook snapshots and reduced motion drop all ambient motion; selecting a pull request
+// still swaps its runs (transitions only).
+@include preview-motion-guards('EngAnalyticsPreview');

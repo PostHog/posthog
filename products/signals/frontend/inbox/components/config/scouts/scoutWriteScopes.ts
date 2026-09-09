@@ -38,7 +38,8 @@ export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
         scope: 'alert:write',
         group: 'Monitoring',
         label: 'Alerts',
-        description: 'Create, update, and delete insight alerts',
+        description:
+            'Create, update, and delete insight alerts, and post them to a Slack channel your project has connected',
     },
     {
         scope: 'llm_skill:write',

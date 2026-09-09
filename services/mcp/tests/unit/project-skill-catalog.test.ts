@@ -227,6 +227,26 @@ describe('ProjectSkillCatalog', () => {
         expect(request).toHaveBeenCalledTimes(1)
     })
 
+    it('renders only path-bearing matches as snippets', async () => {
+        const request = vi.fn(async () => ({
+            results: [
+                {
+                    name: 'retention-analysis',
+                    description: 'Find where users stop returning.',
+                    matches: [
+                        { matched_field: 'name', excerpt: 'retention-analysis' },
+                        { matched_field: 'body', path: 'SKILL.md', line: 3, excerpt: 'Weekly retention cohorts.' },
+                    ],
+                },
+            ],
+        }))
+        const catalog = new ProjectSkillCatalog(makeContext(request))
+
+        const [result] = await catalog.searchResults('retention')
+
+        expect(result!.snippets).toEqual([{ path: 'SKILL.md', line: 3, text: 'Weekly retention cohorts.' }])
+    })
+
     it('surfaces a body-only match via per-token search when the whole query misses', async () => {
         const request = vi.fn(async ({ path, query }: { path: string; query?: any }) => {
             if (path.endsWith('/search/')) {

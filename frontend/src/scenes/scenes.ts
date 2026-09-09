@@ -317,7 +317,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         onlyUnauthenticated: true,
         layout: 'plain',
     },
-    [Scene.PasswordResetComplete]: { onlyUnauthenticated: true, layout: 'plain' },
+    [Scene.PasswordResetComplete]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.PasswordReset]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.TwoFactorReset]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.VercelConnect]: { allowUnauthenticated: true, layout: 'plain', name: 'Connect to Vercel' },

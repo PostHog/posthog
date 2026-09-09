@@ -766,6 +766,35 @@ describe("ReasoningLevelSelector", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it("opens the default settings from the Change default row", async () => {
+    const onChange = vi.fn();
+    const onModelChange = vi.fn();
+    const onOpenDefaultSettings = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption({ currentValue: "max" })}
+          modelOption={claudeModelOption("claude-fable-5")}
+          adapter="claude"
+          onChange={onChange}
+          onModelChange={onModelChange}
+          onOpenDefaultSettings={onOpenDefaultSettings}
+        />
+      </Theme>,
+    );
+
+    // No Advanced click: the row sits under the slider face too.
+    await user.click(
+      screen.getByRole("button", { name: /Model and reasoning/ }),
+    );
+    await user.click(await screen.findByText("Change default"));
+
+    await pollUntil(() => onOpenDefaultSettings.mock.calls.length > 0);
+    expect(onModelChange).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it.each([
     [
       "shows a disabled reset on the slider face while on the default",
