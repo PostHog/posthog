@@ -64,6 +64,7 @@ describe('goal-lines', () => {
             ['propagates color via style.color', { color: 'var(--danger)' }, { style: { color: 'var(--danger)' } }],
             ['omits label when displayLabel is false', { displayLabel: false }, { label: undefined }],
             ['respects explicit labelPosition', { labelPosition: 'start' as const }, { labelPosition: 'start' }],
+            ['forwards showValueOnHover', { showValueOnHover: false }, { showValueOnHover: false }],
         ] as const)('%s', (_, lineOverrides, expectedProps) => {
             const lines: GoalLineConfig[] = [{ label: 'X', value: 50, ...lineOverrides }]
             expect(buildGoalLineReferenceLines(lines, series)[0]).toMatchObject(expectedProps)

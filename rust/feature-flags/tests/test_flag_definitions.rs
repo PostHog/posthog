@@ -1601,7 +1601,29 @@ async fn test_flag_definitions_rate_limit_metrics_incremented() {
     let redis_client =
         feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
     context
-        .populate_flag_definitions_cache(redis_client, team.id)
+        .populate_flag_definitions_cache(redis_client.clone(), team.id)
+        .await
+        .unwrap();
+
+    // A second team whose `:etag` value cannot be decoded. Deleting `etag_read_failure_label`
+    // left `redis_error` with no coverage, and this is the only test that can scrape /metrics.
+    let (corrupt_team, corrupt_secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    context
+        .populate_flag_definitions_cache(redis_client.clone(), corrupt_team.id)
+        .await
+        .unwrap();
+    redis_client
+        .set_bytes(
+            format!(
+                "posthog:1:cache/teams/{}/feature_flags/flags_with_cohorts.json:etag",
+                corrupt_team.id
+            ),
+            b"not-a-pickle".to_vec(),
+            None,
+        )
         .await
         .unwrap();
 
@@ -1634,6 +1656,19 @@ async fn test_flag_definitions_rate_limit_metrics_incremented() {
 
     assert_eq!(response.status(), 429);
 
+    // The corrupt team is not rate limited, so this request reaches the ETag read.
+    let corrupt_response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, corrupt_team.api_token
+        ))
+        .header("Authorization", format!("Bearer {corrupt_secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(corrupt_response.status(), 200);
+
     // Fetch metrics from /metrics endpoint
     let metrics_response = client
         .get(format!("http://{}/metrics", server.addr))
@@ -1651,6 +1686,42 @@ async fn test_flag_definitions_rate_limit_metrics_incremented() {
     assert!(
         metrics_text.contains("flags_flag_definitions_rate_limited_total"),
         "Metrics should include rate limited counter"
+    );
+
+    // Runbook step 2 picks which cluster to query from this gauge, so assert the series and
+    // its value and not just the metric name. This config leaves the toggle off.
+    let gauge_value = metrics_text
+        .lines()
+        .find(|line| {
+            line.starts_with("flags_flag_definitions_reads_dedicated_redis{")
+                && line.contains(r#"reason="disabled""#)
+        })
+        .and_then(|line| line.rsplit(' ').next())
+        .and_then(|value| value.parse::<f64>().ok());
+    assert_eq!(
+        gauge_value,
+        Some(0.0),
+        "A reader left on shared Redis should report the gauge at 0 with reason=\"disabled\". Metrics: {metrics_text}"
+    );
+
+    // An absent ETag writes no log record, so this counter is the only trace that it
+    // happened. populate_flag_definitions_cache writes no `:etag` key, so the first
+    // request above took that path.
+    assert!(
+        metrics_text.lines().any(|line| line
+            .starts_with("flags_flag_definitions_etag_total{")
+            && line.contains(r#"result="redis_missing""#)),
+        "An absent ETag should count as redis_missing rather than redis_error. Metrics: {metrics_text}"
+    );
+
+    // Routing a decode failure back to Ok(None) would revert this to redis_missing, which sends
+    // the on-call to rebuild a cache tier when the fault is corrupt data.
+    assert!(
+        metrics_text.lines().any(
+            |line| line.starts_with("flags_flag_definitions_etag_total{")
+                && line.contains(r#"result="redis_error""#)
+        ),
+        "An undecodable ETag should count as redis_error. Metrics: {metrics_text}"
     );
 
     // Verify key label is present in metrics (key is the generic label for team_id)
@@ -1884,6 +1955,144 @@ async fn test_etag_graceful_degradation_without_stored_etag() {
     assert!(
         response.headers().get("etag").is_none(),
         "Should not include ETag header when no ETag is stored"
+    );
+}
+
+/// Stands in for the dedicated cluster. The shared cache is database 0, so keys cannot collide.
+const DEDICATED_REDIS_URL: &str = "redis://localhost:6379/1";
+
+/// Setup both dedicated-cluster tests need: the reader pointed at the dedicated database with
+/// the toggle on, plus a team to request.
+async fn dedicated_context_and_team() -> (
+    feature_flags::config::Config,
+    feature_flags::utils::test_utils::TestContext,
+    feature_flags::team::team_models::Team,
+    String,
+) {
+    use feature_flags::config::{Config, FlexBool};
+    use feature_flags::utils::test_utils::TestContext;
+
+    let config = Config {
+        flags_redis_url: DEDICATED_REDIS_URL.to_string(),
+        flag_definitions_dedicated_redis_enabled: FlexBool(true),
+        ..Config::default_test_config()
+    };
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    (config, context, team, secret_token)
+}
+
+/// Seeds only the dedicated database: a reader left on shared 503s, and a payload that moved
+/// without its ETag loses the header.
+#[tokio::test]
+async fn test_dedicated_redis_serves_payload_and_etag() {
+    use feature_flags::utils::test_utils::setup_redis_client;
+
+    let (config, context, team, secret_token) = dedicated_context_and_team().await;
+
+    let etag_value = "dedicated_etag_01";
+    let dedicated = setup_redis_client(Some(DEDICATED_REDIS_URL.to_string())).await;
+    context
+        .populate_cache_for_team_with_etag_on(dedicated, team.id, etag_value)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    let status = response.status();
+    let etag_header = response
+        .headers()
+        .get("etag")
+        .map(|v| v.to_str().unwrap().to_string());
+    let body_text = response.text().await.unwrap();
+
+    assert_eq!(
+        status, 200,
+        "Should read the payload from the dedicated Redis. Body: {body_text}"
+    );
+    let body: serde_json::Value = serde_json::from_str(&body_text).unwrap();
+    assert!(
+        body.get("flags").is_some(),
+        "Body should carry the dedicated payload. Body: {body_text}"
+    );
+    assert_eq!(
+        etag_header.as_deref(),
+        Some(format!("W/\"{etag_value}\"").as_str()),
+        "Should serve the dedicated ETag"
+    );
+}
+
+/// The split-brain 304, which is silent in production: a shared ETag matching while the
+/// dedicated cluster holds a newer payload pins the SDK to stale definitions.
+#[tokio::test]
+async fn test_dedicated_redis_ignores_shared_etag() {
+    use feature_flags::utils::test_utils::setup_redis_client;
+
+    let (config, context, team, secret_token) = dedicated_context_and_team().await;
+
+    let shared_etag = "shared_etag_0001";
+    let dedicated_etag = "dedicated_etag_1";
+    let shared = setup_redis_client(Some(config.redis_url.clone())).await;
+    let dedicated = setup_redis_client(Some(DEDICATED_REDIS_URL.to_string())).await;
+    context
+        .populate_cache_for_team_with_etag_on(shared, team.id, shared_etag)
+        .await
+        .unwrap();
+    context
+        .populate_cache_for_team_with_etag_on(dedicated, team.id, dedicated_etag)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.headers().get("etag").unwrap().to_str().unwrap(),
+        format!("W/\"{dedicated_etag}\""),
+        "Should serve the dedicated ETag, not the shared one"
+    );
+
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .header("If-None-Match", format!("W/\"{shared_etag}\""))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        200,
+        "The shared cluster's ETag must not produce a 304 once reads are dedicated"
     );
 }
 
@@ -2763,11 +2972,11 @@ async fn test_cache_miss_enqueues_rebuild_on_dedicated_redis() {
     };
     use reqwest;
 
-    // The Celery drain reads the queue from the dedicated cluster, so the enqueue has to
-    // follow the writer even while the flags-with-cohorts reader is hardcoded to the
-    // shared one (`server.rs`).
+    // The Celery drain reads the queue from the dedicated cluster, so the enqueue has to follow
+    // the writer regardless of which cluster the reader is on. This case leaves
+    // FLAG_DEFINITIONS_DEDICATED_REDIS_ENABLED off, so the reader is still on shared.
     let mut config = Config::default_test_config();
-    config.flags_redis_url = "redis://localhost:6379/1".to_string();
+    config.flags_redis_url = DEDICATED_REDIS_URL.to_string();
     config.flag_definitions_self_heal_enabled = FlexBool(true);
     let context = TestContext::new(Some(&config)).await;
 
