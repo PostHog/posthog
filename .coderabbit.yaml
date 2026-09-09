@@ -1,0 +1,143 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+tone_instructions: >-
+    Always be direct and concise. State the issue, impact, and required fix with no
+    preamble, praise, repetition, or unnecessary explanation. Omit nonessential
+    commentary and keep each response as short as clarity allows.
+
+reviews:
+    # Surface only the highest-signal feedback.
+    profile: 'quiet'
+
+    # Keep the trial silent until PostHog is ready to begin the rollout.
+    review_status: false
+    review_progress: false
+    commit_status: false
+    poem: false
+
+    auto_review:
+        enabled: false
+        auto_incremental_review: false
+
+        # Draft PRs will be eligible when automatic reviews are enabled later.
+        drafts: true
+
+    pre_merge_checks:
+        # PostHog documents selectively and does not enforce docstring coverage.
+        docstrings:
+            mode: 'off'
+
+        # PostHog already validates Conventional Commit titles in GitHub Actions.
+        title:
+            mode: 'off'
+
+        # Retain the description check as useful, non-blocking PR context.
+        description:
+            mode: 'warning'
+
+        # PostHog does not consistently link issues to PRs.
+        issue_assessment:
+            mode: 'off'
+
+knowledge_base:
+    code_guidelines:
+        enabled: true
+        filePatterns:
+            # AGENTS.md is omitted because CodeRabbit detects it automatically.
+
+            # Repository-wide security rules.
+            - files: '.agents/security.md'
+              applyTo: '**/*'
+
+            # General frontend and backend conventions.
+            - files: '.claude/commands/conventions.md'
+              applyTo: 'posthog/**,frontend/src/**,products/**'
+
+            # Person-data access rules.
+            - files: 'docs/internal/person-data-access.md'
+              applyTo: 'posthog/**/*.py,products/**/backend/**/*.py'
+
+            # Activity logging conventions and implementation requirements.
+            - files: 'docs/internal/activity-logging.md,.agents/skills/adding-activity-logging/SKILL.md'
+              applyTo: 'posthog/models/activity_logging/**,products/**/backend/activity_logging.py,products/**/frontend/activityDescriber.tsx,frontend/src/lib/components/ActivityLog/**'
+
+            # Generated API and frontend types.
+            - files: 'docs/published/handbook/engineering/type-system.md,.agents/skills/adopting-generated-api-types/SKILL.md'
+              applyTo: 'posthog/api/**,frontend/src/**,products/**/backend/**,products/**/frontend/**'
+
+            # MCP implementation.
+            - files: 'docs/published/handbook/engineering/ai/implementing-mcp-tools.md,.agents/skills/implementing-mcp-tools/SKILL.md'
+              applyTo: 'services/mcp/**,products/**/mcp/**'
+
+            # Django migrations.
+            - files: 'docs/published/handbook/engineering/safe-django-migrations.md,docs/published/handbook/engineering/databases/async-migrations.md,docs/published/handbook/engineering/databases/schema-changes.md,.agents/skills/django-migrations/SKILL.md'
+              applyTo: '**/migrations/**/*.py'
+
+            # ClickHouse migrations.
+            - files: 'posthog/clickhouse/migrations/README.md,docs/published/handbook/engineering/databases/clickhouse-event-table-migrations.md,.agents/skills/clickhouse-migrations/SKILL.md'
+              applyTo: 'posthog/clickhouse/migrations/**'
+
+            # Frontend implementation conventions.
+            - files: '.agents/skills/writing-kea-logics/SKILL.md,.agents/skills/writing-ui-components/SKILL.md'
+              applyTo: 'frontend/src/**,products/**/frontend/**'
+
+            # Django REST Framework endpoints.
+            - files: '.agents/skills/improving-drf-endpoints/SKILL.md'
+              applyTo: 'posthog/api/**,products/**/backend/**/api.py,products/**/backend/api/**'
+
+            # Charts.
+            - files: '.agents/skills/working-with-charts/SKILL.md,packages/quill/packages/charts/src/docs/**/*.md'
+              applyTo: 'packages/quill/packages/charts/**'
+
+            # Desktop.
+            - files: '.agents/skills/posthog-desktop/SKILL.md,products/desktop/docs/ARCHITECTURE.md,products/desktop/docs/CONVENTIONS.md,products/desktop/docs/TESTING.md'
+              applyTo: 'products/desktop/**'
+
+            # Product-specific implementation guidance.
+            - files: 'products/conversations/skills/organizing-conversations-code/SKILL.md'
+              applyTo: 'products/conversations/**/*'
+
+            - files: 'products/endpoints/skills/auditing-endpoints/SKILL.md,products/endpoints/skills/consuming-endpoints-from-client-code/SKILL.md,products/endpoints/skills/copying-endpoints-across-projects/SKILL.md,products/endpoints/skills/creating-an-endpoint/SKILL.md,products/endpoints/skills/managing-endpoint-versions/SKILL.md'
+              applyTo: 'products/endpoints/**/*'
+
+            # Architecture and design documents, wherever they live. Each one applies
+            # to its own directory and below, so the scope follows the document.
+            - '**/ARCHITECTURE.md'
+            - '**/DESIGN.md'
+
+            # Contribution guides that carry review criteria rather than onboarding
+            # or release steps. The repository root guide is left out on purpose:
+            # it would apply to every file.
+            - 'common/hogql_parser/CONTRIBUTING.md'
+            - 'frontend/src/scenes/surveys/CONTRIBUTING.md'
+            - 'products/dashboards/CONTRIBUTING.md'
+            - 'products/workflows/CONTRIBUTING.md'
+            - 'services/mcp/CONTRIBUTING.md'
+
+            # Product and service architecture already selected for the trial.
+            - 'products/README.md'
+            - 'products/architecture.md'
+            - 'services/llm-gateway/PARITY.md'
+
+            # Backend, data, API, and protocol contracts.
+            - 'posthog/clickhouse/hcl/README.md'
+            - 'posthog/hogql/ACCESS_CONTROL.md'
+            - 'posthog/models/scoping/README.md'
+            - 'posthog/models/team/README.md'
+            - 'posthog/schema_migrations/README.md'
+            - 'posthog/personhog_client/README.md'
+            - 'posthog/egress/README.md'
+            - 'proto/README.md'
+            - 'products/data_warehouse/backend/presentation/README.md'
+            - 'products/warehouse_sources/backend/temporal/data_imports/sources/README.md'
+            - 'products/revenue_analytics/backend/views/README.md'
+
+            # Service implementation guides stored below docs directories.
+            - files: 'services/agent-proxy/docs/SECURITY.md'
+              applyTo: 'services/agent-proxy/**/*'
+
+            # Service-level contracts that apply naturally to their containing subtree.
+            - 'services/llm-gateway/README.md'
+            - 'services/mcp/src/tools/README.md'
+            - 'products/mcp_store/README.md'
+            - 'services/oauth-proxy/README.md'
