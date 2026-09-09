@@ -125,8 +125,8 @@ Keeping both values preserves stored Local development sessions. Dev Cloud agent
 
 ## Custom cloud
 
-The `dev` region can point at any PostHog instance, for example a self-hosted deployment.
-The sign-in screen offers it in a development build, and in a test build from the **Desktop Build Test** workflow (the `desktop-build-installer` label on a PR).
+The **Custom** region points at any PostHog instance, for example a self-hosted deployment. The fields appear when you select it, and each one has an information icon.
+The region list holds **Custom** as its last entry in a development build, and in a test build from the **Desktop Build Test** workflow (the `desktop-build-installer` label on a PR).
 A release build does not show it.
 
 1. On the instance, make an OAuth application. Open `https://<your-instance>/admin/posthog/oauthapplication/` as a staff user, click **Add OAuth application**, and set:
@@ -137,7 +137,7 @@ A release build does not show it.
    - Leave the scope ceiling empty, which accepts the scopes that the app asks for. `python manage.py seed_oauth_app_scopes --client-id <id> --scopes <list>` sets a ceiling instead.
    - Token signing needs `OIDC_RSA_PRIVATE_KEY` on the instance. A deployment usually has it.
 2. Copy the client ID from the list page.
-3. On the sign-in screen, select **Custom cloud** in the region list.
+3. On the sign-in screen, select **Custom** in the region list. It is the last entry, after **Local development**.
 4. Enter the URL of the instance and the client ID of the OAuth application.
 5. Sign in. The app keeps the values, and applies them to sign-in, API requests, and agent runs.
 
@@ -146,7 +146,7 @@ Agent runs need an LLM gateway that accepts your token. Two optional fields cove
 - **LLM gateway URL**: the gateway that serves your instance. With no value, the app derives one from the host. For a host it does not know, that is the US gateway.
 - **Personal API key for the gateway**: the key of a PostHog Cloud user. Set it when your instance has no gateway of its own and you use the US or EU gateway. The app sends this key to the gateway instead of the session token of your instance, and to the gateway only. The key is encrypted at rest.
 
-The `us`, `eu`, and `dev-cloud` regions never read these values.
+The `us`, `eu`, `dev`, and `dev-cloud` regions never read these values.
 For a headless run, the environment variables `POSTHOG_CUSTOM_CLOUD_URL`, `POSTHOG_CUSTOM_CLOUD_OAUTH_CLIENT_ID`, and `POSTHOG_CUSTOM_CLOUD_GATEWAY_URL` give the same result when nothing is stored.
 
 ## Dev console commands

@@ -26,7 +26,7 @@ export function OAuthControls({
     errorMessage,
   } = useOAuthFlow();
   const customCloud = useCustomCloud();
-  const showCustomCloud = includeDevRegion && region === "dev";
+  const showCustomCloud = includeDevRegion && region === "custom";
 
   const handleClick = async () => {
     if (isPending) {

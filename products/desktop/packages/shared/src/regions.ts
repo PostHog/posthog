@@ -1,6 +1,12 @@
 import { getCustomCloud } from "./custom-cloud";
 
-export const CLOUD_REGIONS = ["us", "eu", "dev", "dev-cloud"] as const;
+export const CLOUD_REGIONS = [
+  "us",
+  "eu",
+  "dev",
+  "dev-cloud",
+  "custom",
+] as const;
 export type CloudRegion = (typeof CLOUD_REGIONS)[number];
 
 export interface RegionLabel {
@@ -30,17 +36,18 @@ export const REGION_LABELS: Record<CloudRegion, RegionLabel> = {
     label: "Dev Cloud",
     hint: "app.dev.posthog.dev",
   },
+  custom: {
+    flag: "🏠",
+    label: "Custom",
+    hint: "your own instance",
+  },
 };
 
 export function describeRegion(region: CloudRegion): RegionLabel {
-  if (region !== "dev") return REGION_LABELS[region];
+  if (region !== "custom") return REGION_LABELS[region];
   const custom = getCustomCloud();
-  if (!custom) return REGION_LABELS.dev;
-  return {
-    flag: REGION_LABELS.dev.flag,
-    label: "Custom cloud",
-    hint: new URL(custom.url).host,
-  };
+  if (!custom) return REGION_LABELS.custom;
+  return { ...REGION_LABELS.custom, hint: new URL(custom.url).host };
 }
 
 export function formatRegionBadge(region: CloudRegion): string {

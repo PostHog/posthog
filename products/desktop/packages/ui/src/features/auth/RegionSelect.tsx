@@ -18,7 +18,7 @@ interface RegionSelectProps {
 }
 
 const PRODUCTION_REGIONS: CloudRegion[] = ["us", "eu"];
-const DEVELOPMENT_REGIONS: CloudRegion[] = ["dev-cloud", "dev"];
+const DEVELOPMENT_REGIONS: CloudRegion[] = ["dev-cloud", "dev", "custom"];
 
 export function getSelectableRegions(includeDevRegion: boolean): CloudRegion[] {
   return includeDevRegion
@@ -29,10 +29,10 @@ export function getSelectableRegions(includeDevRegion: boolean): CloudRegion[] {
 function RegionOptionLabel({ region }: { region: CloudRegion }) {
   const { flag, hint, label } = describeRegion(region);
   return (
-    <span className="flex items-center gap-2">
+    <span className="flex min-w-0 items-center gap-2">
       <span className="shrink-0 leading-none">{flag}</span>
-      <span className="font-medium">{label}</span>
-      <span className="text-(--gray-10) text-xs">{hint}</span>
+      <span className="shrink-0 font-medium">{label}</span>
+      <span className="truncate text-(--gray-10) text-xs">{hint}</span>
     </span>
   );
 }

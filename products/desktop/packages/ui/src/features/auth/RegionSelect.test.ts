@@ -6,7 +6,7 @@ describe("getSelectableRegions", () => {
     { includeDevRegion: false, expected: ["us", "eu"] },
     {
       includeDevRegion: true,
-      expected: ["us", "eu", "dev-cloud", "dev"],
+      expected: ["us", "eu", "dev-cloud", "dev", "custom"],
     },
   ])(
     "returns the regions available when development regions are $includeDevRegion",

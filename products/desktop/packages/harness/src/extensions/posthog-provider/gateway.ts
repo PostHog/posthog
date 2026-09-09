@@ -1,4 +1,4 @@
-import type { CloudRegion } from "@posthog/shared";
+import { type CloudRegion, getCustomCloud } from "@posthog/shared";
 
 export const GATEWAY_PRODUCT = "posthog_code";
 
@@ -7,9 +7,13 @@ const GATEWAY_HOSTS: Record<CloudRegion, string> = {
   eu: "https://gateway.eu.posthog.com",
   dev: "http://localhost:3308",
   "dev-cloud": "https://gateway.dev.posthog.dev",
+  custom: "https://gateway.us.posthog.com",
 };
 
 export function getGatewayBaseUrl(region: CloudRegion): string {
+  if (region === "custom") {
+    return getCustomCloud()?.gatewayUrl ?? GATEWAY_HOSTS.custom;
+  }
   return GATEWAY_HOSTS[region];
 }
 
@@ -30,7 +34,8 @@ export function resolveExplicitRegion(
     candidate === "us" ||
     candidate === "eu" ||
     candidate === "dev" ||
-    candidate === "dev-cloud"
+    candidate === "dev-cloud" ||
+    candidate === "custom"
   ) {
     return candidate;
   }

@@ -254,8 +254,10 @@ export function getOauthClientIdFromRegion(region: CloudRegion): string {
     case "eu":
       return POSTHOG_EU_CLIENT_ID;
     case "dev":
-      return getCustomCloud()?.oauthClientId ?? POSTHOG_DEV_CLIENT_ID;
+      return POSTHOG_DEV_CLIENT_ID;
     case "dev-cloud":
       return POSTHOG_DEV_CLOUD_CLIENT_ID;
+    case "custom":
+      return getCustomCloud()?.oauthClientId ?? "";
   }
 }
