@@ -100,9 +100,9 @@ tools:
                 description: >
                     Target an in-app survey to a subset of users by person, group, or cohort properties. Pass one or
                     more rules in groups[].properties[], each with key, value, operator, and an optional type. Use this
-                    instead of conditions for property targeting. Do not use this for external_survey forms.
-                    Cohorts with behavioral filters cannot be used directly. Use a supported static cohort snapshot
-                    only with user approval; never remove targeting rules to work around validation.
+                    instead of conditions for property targeting. Do not use this for external_survey forms. Cohorts
+                    with behavioral filters cannot be used directly. Use a supported static cohort snapshot only with
+                    user approval; never remove targeting rules to work around validation.
             enable_iframe_embedding:
                 description: >
                     Allows an external_survey form to be embedded in an iframe. Use only when the user explicitly asks
@@ -160,8 +160,8 @@ tools:
         description: >
             Launch a survey by setting `start_date` to the current time. Prefer this over `survey-update` with a manual
             `start_date` — it's an explicit lifecycle action and self-documenting in activity logs. No-op if the survey
-            is already launched. Archived surveys must be unarchived first. Surveys with an end_date in the past
-            must have that date cleared or extended before launch; do this only when the user asks to reopen the survey.
+            is already launched. Archived surveys must be unarchived first. Surveys with an end_date in the past must
+            have that date cleared or extended before launch; do this only when the user asks to reopen the survey.
         ui_app: survey
     survey-stats:
         operation: surveys_stats_retrieve
@@ -240,10 +240,10 @@ tools:
         param_overrides:
             appearance:
                 description: >
-                    Optional appearance customization. Omit this to preserve current styling.
-                    When changing it, fetch the survey first and preserve existing appearance fields. whiteLabel=true requires
-                    the organization to have the white-labelling entitlement (Enterprise); leave it unset unless
-                    requested and available. surveyPopupDelaySeconds must be non-negative.
+                    Optional appearance customization. Omit this to preserve current styling. When changing it, fetch
+                    the survey first and preserve existing appearance fields. whiteLabel=true requires the organization
+                    to have the white-labelling entitlement (Enterprise); leave it unset unless requested and available.
+                    surveyPopupDelaySeconds must be non-negative.
             questions:
                 description: >
                     Complete replacement question list. Existing question IDs are tied to response data and must be
@@ -262,9 +262,9 @@ tools:
                     groups[].properties[], each with key, value, operator, and an optional type. Use this instead of
                     conditions for property targeting. Complete replacement: fetch the survey first, start from
                     targeting_flag.filters, and send the full groups list — omitted groups are removed. Do not use this
-                    for external_survey forms.
-                    Cohorts with behavioral filters cannot be used directly. Use a supported static cohort snapshot
-                    only with user approval; never remove targeting rules to work around validation.
+                    for external_survey forms. Cohorts with behavioral filters cannot be used directly. Use a supported
+                    static cohort snapshot only with user approval; never remove targeting rules to work around
+                    validation.
             translations:
                 description: >
                     Complete replacement survey-level translations object. Do not provide this field unless changing
