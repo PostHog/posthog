@@ -3816,6 +3816,49 @@ describe.each([
         }
     )
 
+    // The other already-identified guards all start from two persons. This one starts from a
+    // new login distinct id, so the merge takes the branch where only the anonymous person
+    // exists. That branch used to attach the login to it.
+    testWithTeamIngester(
+        '$identify does not merge a new login into an anonymous person another login owns',
+        {},
+        async ({ ingester, infra, team, kafkaProducer, token }) => {
+            const sharedAnonId = 'shared_anon_id'
+            const firstLogin = 'first_login_id'
+            const secondLogin = 'second_login_id'
+
+            for (const distinctId of [firstLogin, secondLogin]) {
+                await ingester.handleKafkaBatch(
+                    createKafkaMessages(
+                        [
+                            new EventBuilder(team, distinctId)
+                                .withEvent('$identify')
+                                .withProperties({ $anon_distinct_id: sharedAnonId })
+                                .build(),
+                        ],
+                        token
+                    )
+                )
+                await waitForKafkaMessages(kafkaProducer)
+            }
+
+            await waitForExpect(async () => {
+                const persons = await fetchPostgresPersons(infra.postgres, team.id)
+                expect(persons.length).toBe(2)
+                expect(persons.every((person) => person.is_identified)).toBe(true)
+
+                const distinctIdsByPerson = await Promise.all(
+                    persons.map(async (person) =>
+                        (await fetchDistinctIds(infra.postgres, person)).map((row) => row.distinct_id).sort()
+                    )
+                )
+                expect(distinctIdsByPerson).toEqual(
+                    expect.arrayContaining([[firstLogin, sharedAnonId].sort(), [secondLogin]])
+                )
+            })
+        }
+    )
+
     testWithTeamIngester(
         'person and group properties are set on events',
         {},

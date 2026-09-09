@@ -1,5 +1,6 @@
 import { buildIntegerMatcher } from '~/common/config/config'
 import { PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
+import { defaultRetryConfig } from '~/common/utils/retries'
 import { UUIDT } from '~/common/utils/utils'
 import { InternalPerson } from '~/types'
 
@@ -10,7 +11,7 @@ import {
     PostgresPersonMerge,
     personMergeEventProducedCounter,
 } from './person-merge-postgres'
-import { createDefaultSyncMergeMode } from './person-merge-types'
+import { MergeCreationConflictError, createDefaultSyncMergeMode } from './person-merge-types'
 import { MergePersonsRequest } from './persons-store'
 
 describe('PostgresPersonMerge merge events', () => {
@@ -223,6 +224,69 @@ describe('PostgresPersonMerge merge events', () => {
         await expect(result.kafkaAck).resolves.toBeUndefined()
     })
 
+    // $identify must never fold an already identified person into someone else. When only
+    // the source exists, attaching the target id to it puts a second login on that identity.
+    // The both-exist branch already refuses this.
+    it('a one-exists merge refuses an already identified source', async () => {
+        mockOutputs = { produce: jest.fn().mockResolvedValue(undefined) }
+        const identifiedSource = {
+            id: 'p1',
+            uuid: sourcePerson.uuid,
+            team_id: 2,
+            is_identified: true,
+        } as unknown as InternalPerson
+        const store = {
+            fetchForUpdate: jest
+                .fn()
+                .mockImplementation((_teamId: number, distinctId: string) =>
+                    Promise.resolve(distinctId === 'anon' ? identifiedSource : null)
+                ),
+            inTransaction: jest.fn(),
+        }
+        const merge = buildSingleSourceMerge(store, new UUIDT().toString())
+
+        const result = await merge.execute()
+
+        expect(store.inTransaction).not.toHaveBeenCalled()
+        expect(result.survivor).toBeNull()
+        expect(result.results).toEqual([
+            { sourceDistinctId: 'anon', outcome: 'skipped_already_identified', sourcePersonUuid: sourcePerson.uuid },
+        ])
+    })
+
+    // The conflict resolves to whichever person holds one of the two ids. That can be the
+    // source's holder alone, so accepting it as the survivor leaves the target id mapped to
+    // no person. The merge must throw and retry against committed state.
+    it('a neither-exists merge that loses the creation race throws and purges both ids', async () => {
+        mockOutputs = { produce: jest.fn().mockResolvedValue(undefined) }
+        const holder = { id: 'p1', uuid: sourcePerson.uuid, team_id: 2 } as unknown as InternalPerson
+        const tx = {
+            createPerson: jest.fn().mockResolvedValue({
+                success: false,
+                error: 'CreationConflict',
+                distinctIds: ['d', 'anon'],
+            }),
+        }
+        let branchFetches = 0
+        const store = {
+            fetchForUpdate: jest.fn().mockImplementation(() => {
+                branchFetches += 1
+                // The first two calls decide the branch; later ones are the conflict lookup.
+                return Promise.resolve(branchFetches <= 2 ? null : holder)
+            }),
+            removeDistinctIdFromCache: jest.fn(),
+            inTransaction: jest
+                .fn()
+                .mockImplementation((_description: string, body: (tx: unknown) => Promise<unknown>) => body(tx)),
+        }
+        const merge = buildSingleSourceMerge(store, new UUIDT().toString())
+
+        await expect(merge.execute()).rejects.toThrow(MergeCreationConflictError)
+
+        expect(store.removeDistinctIdFromCache).toHaveBeenCalledWith(2, 'd')
+        expect(store.removeDistinctIdFromCache).toHaveBeenCalledWith(2, 'anon')
+    })
+
     // Both directions matter: never emitting loses the healing, and emitting on every
     // duplicate $identify floods the topic and keeps the overrides table from converging.
     it('an already-satisfied merge re-emits the committed mappings once per debounce window', async () => {
@@ -350,6 +414,69 @@ describe('PostgresPersonMerge merge events', () => {
             { sourceDistinctId: nulId, outcome: 'skipped_illegal' },
             { sourceDistinctId: oversizedId, outcome: 'skipped_illegal' },
         ])
+    })
+
+    // A bootstrap that never wins the person-creation race is contention the sequential
+    // path retries around, not an unexpected fault. The fallback counter's reason label
+    // is the only thing that tells the two apart.
+    it('a fold bootstrap that keeps losing the creation race aborts under the conflict label', async () => {
+        mockOutputs = { produce: jest.fn().mockResolvedValue(undefined) }
+        const previousInterval = defaultRetryConfig.RETRY_INTERVAL_DEFAULT
+        defaultRetryConfig.RETRY_INTERVAL_DEFAULT = 0
+        const uuidHolder = { id: 'p1', uuid: sourcePerson.uuid, team_id: 2 } as unknown as InternalPerson
+        const tx = {
+            createPerson: jest.fn().mockResolvedValue({
+                success: false,
+                error: 'CreationConflict',
+                distinctIds: ['d', 'anon-1'],
+                conflictingPerson: uuidHolder,
+            }),
+        }
+        const store = {
+            fetchForUpdate: jest.fn().mockResolvedValue(null),
+            removeDistinctIdFromCache: jest.fn(),
+            inTransaction: jest
+                .fn()
+                .mockImplementation((_description: string, body: (tx: unknown) => Promise<unknown>) => body(tx)),
+        }
+        const eventUuid = new UUIDT().toString()
+        const request: MergePersonsRequest = {
+            teamId: 2,
+            targetDistinctId: 'd',
+            sources: [
+                { distinctId: 'anon-1', eventUuid },
+                { distinctId: 'anon-2', eventUuid },
+            ],
+            eventOps: {
+                set: {},
+                setOnce: {},
+                unset: [],
+                denied: false,
+                shouldForceUpdate: true,
+                eventName: '$identify',
+            },
+            eventUuid,
+            allowIdentifiedSources: false,
+            mergeMode: createDefaultSyncMergeMode(),
+            createdAtMs: 3_600_000,
+        }
+        const merge = new PostgresPersonMerge(
+            store as never,
+            mockOutputs as never,
+            {
+                updateAllProperties: false,
+                isTombstoneTeam: () => false,
+                mergeEvents: { enabled: false, partitionCount: 64, isTeamEnabled: () => false },
+            },
+            request,
+            0
+        )
+
+        const result = await merge.execute()
+        defaultRetryConfig.RETRY_INTERVAL_DEFAULT = previousInterval
+
+        expect(result.foldAborted).toBe('conflict')
+        expect(result.survivor).toBeNull()
     })
 
     // The produce is detached from ingestion, so a broker failure must never surface to the caller

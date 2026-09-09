@@ -10,6 +10,7 @@ import { PersonContext } from './person-context'
 import { MergeFoldPlan } from './person-merge-fold'
 import { PersonMergeService, mergeFoldFallbackCounter, mergeSettledFailureCounter } from './person-merge-service'
 import {
+    MergeCreationConflictError,
     PersonMergeCallFailedError,
     PersonMergeLimitExceededError,
     PersonMergeResponseMismatchError,
@@ -420,11 +421,16 @@ describe('PersonMergeService store-owned merges', () => {
             expect(mergeResult.success && mergeResult.person).toBe(survivor)
         })
 
-        it('a thrown claim conflict abandons the fold under the conflict label', async () => {
-            defaultRetryConfig.RETRY_INTERVAL_DEFAULT = 0
+        // Contention the sequential path can retry around, counted apart from an
+        // unexpected failure: an alert on the fallback's error bucket fires on the
+        // second, so a contention error that lands there reads as a real fault.
+        it.each([
+            ['claim', () => new PersonClaimedByLifecycleOpError('held', 1)],
+            ['creation', () => new MergeCreationConflictError('lost the person-creation race')],
+        ])('a thrown %s conflict abandons the fold under the conflict label', async (_label, buildError) => {
             const before =
                 (await mergeFoldFallbackCounter.get()).values.find((v) => v.labels.reason === 'conflict')?.value ?? 0
-            store.mergePersons.mockRejectedValue(new PersonClaimedByLifecycleOpError('held', 1))
+            store.mergePersons.mockRejectedValue(buildError())
             const plan = makePlan()
             const service = makeService('$identify', plan)
 
@@ -435,7 +441,7 @@ describe('PersonMergeService store-owned merges', () => {
                 (await mergeFoldFallbackCounter.get()).values.find((v) => v.labels.reason === 'conflict')?.value ?? 0
             expect(after).toBe(before + 1)
             // The sequential fallback then exhausts its retries on the same
-            // claim and drops the merge, which reports success with no person.
+            // conflict and drops the merge, which reports success with no person.
             expect(mergeResult.success && mergeResult.person).toBeUndefined()
         })
     })
