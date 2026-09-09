@@ -342,8 +342,7 @@ export async function performQuery<N extends DataNode>(
         // A superseded query or navigating away mid-request aborts, not fails — skip so the
         // 'query failed' metric isn't drowned in cancellation noise.
         if (!isAbortError(e)) {
-            // Raw error detail/message can echo query fragments, so telemetry only gets status,
-            // code, and a coarse class
+            // Raw error detail/message can echo query fragments, so telemetry only gets fixed values
             const error = e as (Error & { status?: number; code?: string | null }) | null
             posthog.capture('query failed', {
                 query: queryNode,
@@ -361,9 +360,8 @@ export async function performQuery<N extends DataNode>(
 }
 
 /**
- * Why a query failed, in terms a triager can act on. Status and code are both null for a request
- * that never got a response, which leaves most failures unattributable without this. The value
- * stays coarse and fixed so no query text reaches telemetry.
+ * Status and code are both null for a request that never got a response, which leaves most
+ * failures unattributable without this coarser answer.
  */
 function queryFailureClass(error: unknown): ApiFailureClass | 'timeout' {
     return error instanceof QueryTimeoutError ? 'timeout' : classifyApiFailure(error)

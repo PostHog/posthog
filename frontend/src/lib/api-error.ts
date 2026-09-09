@@ -167,14 +167,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
 
 /**
  * A coarse, non-sensitive reason a request failed, for telemetry. Error messages and response
- * bodies can echo the query a user wrote, so a failure event carries this class instead.
- *
- * - `network`: the request never reached the server.
- * - `malformed_response`: the server answered, but the body could not be read as JSON.
- * - `client`: a 4xx, so the request itself was refused (bad input, permissions, rate limit).
- * - `server`: a 5xx, so the backend or a gateway in front of it failed.
- * - `unknown`: an error with no status that no rule above recognizes, such as an application
- *   `TypeError` raised on the way to or from the request.
+ * bodies can echo the query a user wrote, so a failure event carries this class instead of them.
+ * `unknown` is the residue: a status-less error no rule recognizes, such as an application
+ * `TypeError` raised on the way to or from the request.
  */
 export type ApiFailureClass = 'network' | 'malformed_response' | 'client' | 'server' | 'unknown'
 
@@ -311,9 +306,8 @@ export class NetworkError extends ApiError {
 
 /**
  * A response that arrived but could not be read as the JSON its caller expects: the body stream
- * failed mid-read, or the text is not valid JSON. `status` stays undefined because the HTTP status
- * was a success, and recovery paths keyed on `status === undefined` should treat a garbled body
- * like the connectivity failure it effectively is.
+ * failed mid-read, or the text is not valid JSON. See `getJSONFromSuccessResponse` for why it
+ * carries no `status`.
  */
 export class MalformedResponseError extends ApiError {
     constructor(message: string) {
