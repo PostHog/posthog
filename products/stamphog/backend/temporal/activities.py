@@ -6,11 +6,12 @@ policy files, raw reviewer output) is persisted on ``ReviewRun.output`` between 
 rather than threaded through the workflow, keeping every Temporal payload well under the
 ~2 MiB limit.
 
-The whole review engine — hard gates, tier classification, git-blame familiarity, and
-the LLM reviewer — runs inside the sandbox via the Action's own modules
-(``tools/pr-approval-agent/review_local.py``). The server never processes repo content:
-it fetches PR data and the trusted default-branch policy over the API, ships the engine
-and injects the policy into the sandbox, and only ever reads back a single verdict JSON.
+The whole review engine (hard gates, tier classification, git-blame familiarity, and
+the LLM reviewer) runs inside the sandbox via the engine's own modules
+(``products/stamphog/packages/pr-approval-agent/review_local.py``). The server never
+processes repo content. It fetches PR data and the trusted default-branch policy over
+the API, ships the engine and injects the policy into the sandbox, and reads back only a
+single verdict JSON.
 """
 
 from __future__ import annotations
@@ -18,8 +19,10 @@ from __future__ import annotations
 import os
 import re
 import json
+import time
 import shlex
 import base64
+import random
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,17 +34,27 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 import yaml
+import requests
+from prometheus_client import Counter
 from temporalio import activity
 
-from posthog.models import User
+from posthog.llm.gateway_client import AIGatewayConfig, resolve_ai_gateway_config
+from posthog.models import OAuthAccessToken, User
 from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import create_oauth_access_token_for_user
 
-from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewMode, ReviewRunStatus, ReviewVerdict
+from products.stamphog.backend.facade.enums import (
+    TERMINAL_STATUSES,
+    ReviewMode,
+    ReviewRunStatus,
+    ReviewTrigger,
+    ReviewVerdict,
+)
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient, expected_app_bot_login
+from products.stamphog.backend.logic.review_trigger import trigger_for_run
 from products.stamphog.backend.logic.reviewer import (
     ReviewerInvocation,
     ReviewerVerdict,
@@ -61,6 +74,7 @@ from products.stamphog.backend.temporal.constants import (
     STAMPHOG_SANDBOX_OWNERS_DIR,
     STAMPHOG_SANDBOX_REPO_DIR,
     STAMPHOG_TRUSTED_REACTOR_BOTS,
+    SandboxPhaseError,
 )
 from products.tasks.backend.facade.sandbox import (
     SandboxBase,
@@ -69,11 +83,11 @@ from products.tasks.backend.facade.sandbox import (
     get_sandbox_class_for_backend,
 )
 
-# The Action's review engine on the server's own checkout. Read as data files at
-# runtime (never imported — the directory is hyphenated and lives outside the
-# import graph) and shipped into the sandbox checkout. activities.py is at
-# products/stamphog/backend/temporal/activities.py, so the repo root is five parents up.
-_SERVER_ENGINE_DIR = Path(__file__).resolve().parents[4] / "tools" / "pr-approval-agent"
+# The review engine on the server's own checkout. The server reads these as data files at runtime
+# and ships them into the sandbox checkout. It never imports them, because the directory is
+# hyphenated and sits outside the import graph. activities.py is at
+# products/stamphog/backend/temporal/activities.py, so the product root is three parents up.
+_SERVER_ENGINE_DIR = Path(__file__).resolve().parents[2] / "packages" / "pr-approval-agent"
 
 # Server-shipped default policy files, the base layer every repo's config sits on. Named by the
 # basename of each STAMPHOG_POLICY_PATHS entry (policy.yml / review-guidance.md): a repo with no
@@ -107,20 +121,33 @@ def _load_run(input: StamphogReviewInput) -> ReviewRun:
     )
 
 
-def _mint_reviewer_gateway_token(run: ReviewRun) -> str:
-    """Short-lived OAuth token the sandboxed reviewer presents to the LLM gateway.
+# aio_ continues the series the Action-era runs emitted; the engine blob carries the same word.
+STAMPHOG_AI_PRODUCT = "aio_stamphog"
+# The cap bounds what a leaked token can spend; the TTL must outlive the 30-minute review activity.
+_REVIEWER_TOKEN_CAP_USD = "5"
+_REVIEWER_TOKEN_TTL_SECONDS = 3600
+_MINT_ATTEMPTS = 2
+_MINT_TIMEOUT_SECONDS = 3
 
-    Minted under the user who connected the repo's installation (the same creator-credential model
-    tasks uses with ``task.created_by``), under the shared sandbox OAuth app, carrying only
-    ``llm_gateway:read`` plus the ``internal_run:read`` provenance marker — the gateway's stamphog
-    route sets ``requires_server_credential`` and refuses OAuth tokens without the marker, so a
-    user's own Desktop OAuth token can't reach the route. The marker is passed explicitly instead of
-    ``include_internal_scopes=True`` to keep the rest of the internal bundle (``task:write``) out of
-    a sandbox that runs an LLM over untrusted PR content. If that PR coaxes the reviewer into
-    leaking the token, it buys a few hours of stamphog-route LLM calls and nothing else — the
-    worker's own long-lived credential never enters the sandbox. Fails closed when the repo was
-    never synced or the connecting user is gone; re-syncing stamps a fresh identity.
-    """
+AI_GATEWAY_TOKEN_MINTS = Counter(
+    "stamphog_ai_gateway_token_mints_total",
+    "Scoped-token mint attempts for hosted stamphog reviews",
+    labelnames=["result"],
+)
+
+
+def _gateway_root(gateway: AIGatewayConfig) -> str:
+    # The config URL carries the OpenAI /v1 base; the token routes hang off the gateway root.
+    return gateway.url.rstrip("/").removesuffix("/v1")
+
+
+def _is_legacy_stamphog_route(url: str) -> bool:
+    # The legacy Python gateway resolves the product from the path, so its route ends in the slug.
+    return urlparse(url).path.rstrip("/").endswith("/stamphog/v1")
+
+
+def _connected_user(run: ReviewRun) -> User:
+    """The connecting user every sandbox credential is minted under; missing or inactive fails the run."""
     user_id = run.pull_request.repo_config.connected_by_user_id
     if user_id is None:
         raise RuntimeError(
@@ -132,35 +159,164 @@ def _mint_reviewer_gateway_token(run: ReviewRun) -> str:
             "The user who connected this installation is missing or deactivated; "
             "re-sync the installation to mint sandbox LLM credentials"
         )
+    return user
+
+
+def _mint_reviewer_oauth_token(run: ReviewRun, user: User) -> str:
+    """Short-lived OAuth token for the legacy gateway's stamphog route.
+
+    Carries only ``llm_gateway:read`` plus the ``internal_run:read`` marker that route requires.
+    Never ``include_internal_scopes=True``: it drags ``task:write`` into a sandbox running an LLM
+    over untrusted PR content.
+    """
     return create_oauth_access_token_for_user(
         user, run.team_id, scopes=["llm_gateway:read", "internal_run:read"], include_internal_scopes=False
     )
 
 
-def _reviewer_environment(run: ReviewRun) -> dict[str, str]:
+def _mint_reviewer_scoped_token(gateway: AIGatewayConfig, run: ReviewRun, user: User) -> str:
+    """Per-run ``phe_`` minted with the worker's ``phs_``, which never enters the sandbox.
+
+    Pinned to product and team and capped in spend and lifetime, so a leak buys little. Retries once
+    on 429, 5xx and network errors; any other refusal is final, and hosted runs have no shared-key
+    fallback. A token minted without a requested model pin is revoked and fails the run. Kept
+    separate from the tasks and wizard minters: each product owns its failure posture, and this cap
+    and TTL are documented invariants rather than ops knobs.
+    """
+    body: dict[str, object] = {
+        "cap_usd": _REVIEWER_TOKEN_CAP_USD,
+        "ttl_seconds": _REVIEWER_TOKEN_TTL_SECONDS,
+        "product": STAMPHOG_AI_PRODUCT,
+        "obo": str(run.team_id),
+    }
+    if user.distinct_id:
+        body["user"] = user.distinct_id
+    # An empty entry (a trailing comma) is a mint 400, which fails every review.
+    allowed_models = [model.strip() for model in settings.STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS if model.strip()]
+    if allowed_models:
+        body["allowed_models"] = allowed_models
+    mint_url = f"{_gateway_root(gateway)}/v1/tokens"
+    last_error = ""
+    for attempt in range(_MINT_ATTEMPTS):
+        try:
+            response = requests.post(
+                mint_url,
+                json=body,
+                headers={"Authorization": f"Bearer {gateway.api_key}"},
+                timeout=_MINT_TIMEOUT_SECONDS,
+            )
+        except requests.RequestException as e:
+            last_error = type(e).__name__
+        else:
+            if 200 <= response.status_code < 300:
+                try:
+                    payload = response.json()
+                    token = payload["token"]
+                except (ValueError, TypeError, KeyError):
+                    payload, token = {}, None
+                if token:
+                    if allowed_models and not payload.get("allowed_models"):
+                        # A gateway that predates the pin field ignores it and mints an unpinned token.
+                        _release_reviewer_token(gateway, token)
+                        AI_GATEWAY_TOKEN_MINTS.labels(result="unpinned").inc()
+                        raise RuntimeError(
+                            "The gateway minted the reviewer token without the required model pin; "
+                            "the gateway must support allowed_models before the reviewer model list is set"
+                        )
+                    AI_GATEWAY_TOKEN_MINTS.labels(result="ok").inc()
+                    return token
+                last_error = "mint response carried no token"
+                break
+            if response.status_code == 429 or response.status_code >= 500:
+                last_error = f"HTTP {response.status_code}"
+            else:
+                last_error = f"HTTP {response.status_code}: {response.text[:200]}"
+                break
+        if attempt < _MINT_ATTEMPTS - 1:
+            time.sleep(0.5 + random.uniform(0, 0.25))
+    AI_GATEWAY_TOKEN_MINTS.labels(result="error").inc()
+    raise RuntimeError(
+        f"Could not mint the sandbox gateway token ({last_error}); hosted reviews require the LLM gateway"
+    )
+
+
+def _release_reviewer_token(gateway: AIGatewayConfig | None, token: str) -> None:
+    """Best-effort revoke of a token the run no longer needs; the TTL outlives the review by design.
+
+    A failure only logs (the token then expires) and never changes the run's outcome. A legacy
+    OAuth token is a row this worker created, so it is deleted here.
+    """
+    try:
+        if gateway is None:
+            deleted, _ = OAuthAccessToken.objects.filter(token=token).delete()
+            outcome = "ok" if deleted else "no such token"
+        else:
+            response = requests.post(
+                f"{_gateway_root(gateway)}/v1/tokens/revoke",
+                json={"token": token},
+                headers={"Authorization": f"Bearer {gateway.api_key}"},
+                timeout=_MINT_TIMEOUT_SECONDS,
+            )
+            if not 200 <= response.status_code < 300:
+                outcome = f"HTTP {response.status_code}"
+            else:
+                # The gateway answers 200 with revoked=false when no token matched.
+                outcome = "ok" if response.json().get("revoked", True) else "no such token"
+    except Exception as e:  # noqa: BLE001 — a revoke failure must never mask the review outcome
+        outcome = type(e).__name__
+    if outcome != "ok":
+        activity.logger.warning(f"Could not revoke the reviewer token ({outcome}); it expires with its TTL")
+
+
+def _reviewer_environment(run: ReviewRun) -> tuple[dict[str, str], AIGatewayConfig | None]:
     """Environment for the in-sandbox reviewer.
 
     The sandbox holds no GitHub token by design, and no long-lived LLM credential either: the only
-    secret it receives is a per-run minted gateway token (see ``_mint_reviewer_gateway_token``). The
-    gateway is mandatory for hosted runs — the engine's raw-Anthropic fallback exists for the GitHub
-    Action runtime, where the env is the repo's own secrets, and an org-wide Anthropic key must never
-    ride into a sandbox that runs an LLM over untrusted PR content. AI_GATEWAY_URL must point at the
-    gateway's stamphog product route (``https://<gateway>/stamphog/v1``): that route allowlists the
-    sandbox OAuth app the token is minted under, so a token presented anywhere else is refused.
+    secret it receives is a per-run minted gateway token. A gateway is mandatory for hosted runs —
+    the engine's raw-Anthropic fallback exists for a local run, where the env is the developer's
+    own, and an org-wide Anthropic key must never ride into a sandbox that runs an LLM over untrusted
+    PR content.
+
+    With ``AI_GATEWAY_URL`` and ``AI_GATEWAY_API_KEY`` both set, the token is a per-run ``phe_`` from
+    the Go ai-gateway; with the URL alone it must be the legacy ``/stamphog/v1`` route and the token
+    is the OAuth token that route allowlists. Any other pairing fails the run: the OAuth token is a
+    standard credential on the Go gateway and must never be sent there. Returns the env and the Go
+    config (None on the legacy path) so the caller can revoke the token.
 
     POSTHOG_API_KEY/POSTHOG_HOST let the engine emit its stamphog_review_completed event and LLM
     traces from inside the sandbox. The capture key is a public project write token — the same class of
     token every frontend snippet ships — so its blast radius is event spam, not data access; it's still
     added to _llm_env_secrets so persisted output stays tidy. STAMPHOG_EXTRA_PROPERTIES stamps the
-    hosted runtime/team/run context onto those events (the Action never sets it).
+    hosted runtime/team/run context onto those events.
     """
-    gateway_url = os.environ.get("AI_GATEWAY_URL")
-    if not gateway_url:
-        raise RuntimeError("AI_GATEWAY_URL is not configured; hosted reviews require the LLM gateway")
+    # Skip the resolver without a key: it warns per call, and legacy regions run keyless for good.
+    gateway = resolve_ai_gateway_config() if settings.AI_GATEWAY_API_KEY else None
+    if gateway is not None:
+        if _is_legacy_stamphog_route(gateway.url):
+            raise RuntimeError(
+                "AI_GATEWAY_API_KEY is set but AI_GATEWAY_URL is the legacy stamphog route; "
+                "the ai-gateway key belongs with the ai-gateway URL"
+            )
+        gateway_url = gateway.url
+    else:
+        gateway_url = settings.AI_GATEWAY_URL or ""
+        if not gateway_url:
+            raise RuntimeError("AI_GATEWAY_URL is not configured; hosted reviews require the LLM gateway")
+        if not _is_legacy_stamphog_route(gateway_url):
+            raise RuntimeError(
+                "AI_GATEWAY_URL is not the legacy stamphog route and AI_GATEWAY_API_KEY is unset; "
+                "hosted reviews need both values for the ai-gateway"
+            )
+    user = _connected_user(run)
+    token = (
+        _mint_reviewer_scoped_token(gateway, run, user)
+        if gateway is not None
+        else _mint_reviewer_oauth_token(run, user)
+    )
     env = {
         "STAMPHOG_REPO_DIR": STAMPHOG_SANDBOX_REPO_DIR,
         "AI_GATEWAY_URL": gateway_url,
-        "AI_GATEWAY_API_KEY": _mint_reviewer_gateway_token(run),
+        "AI_GATEWAY_API_KEY": token,
     }
     for key in ("POSTHOG_API_KEY", "POSTHOG_HOST"):
         value = os.environ.get(key)
@@ -176,10 +332,10 @@ def _reviewer_environment(run: ReviewRun) -> dict[str, str]:
     if (run.output or {}).get("inbox_review"):
         extra_properties["stamphog_self_driving_review"] = True
     env["STAMPHOG_EXTRA_PROPERTIES"] = json.dumps(extra_properties, separators=(",", ":"))
-    return env
+    return env, gateway
 
 
-def _sandbox_egress_allowlist() -> list[str]:
+def _sandbox_egress_allowlist(gateway_url: str) -> list[str]:
     """Outbound domains the review sandbox may reach; Modal fences off everything else.
 
     The sandbox env carries a live (if short-lived, narrowly scoped) credential next to an LLM
@@ -187,15 +343,16 @@ def _sandbox_egress_allowlist() -> list[str]:
     stops a prompt-injected reviewer from POSTing what it holds to an arbitrary host — closing egress
     to the hosts a review actually needs removes that channel: github.com for the clone, PyPI for the
     engine's pinned deps, the gateway for LLM calls, and the PostHog capture host for telemetry.
+    ``gateway_url`` is the URL handed to the sandbox, so egress cannot drift from the route it calls.
     STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS is the ops escape hatch for a missing legitimate host.
     The docker backend (local dev) ignores the allowlist.
     """
     domains = ["github.com", "pypi.org", "files.pythonhosted.org"]
-    for url_env in ("AI_GATEWAY_URL", "POSTHOG_HOST"):
-        host = urlparse(os.environ.get(url_env, "")).hostname
+    for url in (gateway_url, os.environ.get("POSTHOG_HOST", "")):
+        host = urlparse(url).hostname
         if host:
             domains.append(host)
-    domains.extend(settings.STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS)
+    domains.extend(domain.strip() for domain in settings.STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS if domain.strip())
     return list(dict.fromkeys(domains))
 
 
@@ -236,6 +393,13 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     # familiarity section from the reviewer prompt; the review itself proceeds normally.
     is_inbox_review = bool((run.output or {}).get("inbox_review"))
     author_pr_numbers = client.get_author_merged_pr_numbers(repo, author) if author and not is_inbox_review else []
+    # The engine cannot resolve which of the owning teams the author belongs to. The sandbox holds
+    # no token, and the engine learns the owning teams only after it reads the checkout's ownership
+    # sources. One bulk lookup here gives the engine every team that the author belongs to, and the
+    # engine intersects that list with the teams that own the changed paths. Inbox reviews skip this
+    # lookup for the same reason that they skip author_pr_numbers: the author is the App machine
+    # user, so its team membership says nothing about who wrote the diff.
+    author_team_slugs = client.get_user_team_slugs(repo.split("/")[0], author) if author and not is_inbox_review else []
 
     policy_files: dict[str, str] = {}
     for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS):
@@ -254,6 +418,7 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
         "pr_reactions": client.get_pr_reactions(repo, pull_request.pr_number),
         "policy_files": policy_files,
         "author_pr_numbers": author_pr_numbers,
+        "author_team_slugs": author_team_slugs,
     }
     run.save(update_fields=["output", "updated_at"])
 
@@ -400,6 +565,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     pr_reactions = output.get("pr_reactions", [])
     policy_files = output.get("policy_files", {})
     author_pr_numbers = output.get("author_pr_numbers", [])
+    author_team_slugs = output.get("author_team_slugs", [])
 
     # The trusted source for each policy file is the repo's default branch layered over the
     # server-shipped defaults (see _effective_policy_files): policy.yml is a section overlay, the
@@ -440,6 +606,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         check_runs=check_runs,
         pr_reactions=pr_reactions,
         author_pr_numbers=author_pr_numbers,
+        author_team_slugs=author_team_slugs,
         base_sha=base_sha,
         head_sha=run.head_sha,
         repo=repo,
@@ -448,51 +615,91 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         # The engine's carve-out for bot-authored drafts keys off this flag alone. It comes only
         # from the run's inbox provenance, stamped after the PR is linked to a signals run.
         self_driving_review=bool(output.get("inbox_review")),
+        # Read as a description rather than a permission: the reviewer is told why it was asked,
+        # and decides for itself what that means for this diff.
+        review_trigger=trigger_for_run(output=output, review_mode=run.pull_request.repo_config.review_mode),
     )
 
     sandbox_class = get_sandbox_class_for_backend(_resolve_sandbox_backend())
-    environment = _reviewer_environment(run)
+    environment, gateway = _reviewer_environment(run)
     # Per-run credential, not in the worker env — scrub it explicitly wherever sandbox output
     # is persisted or raised (_llm_env_secrets only covers worker-env values).
     gateway_token = environment["AI_GATEWAY_API_KEY"]
-    config = SandboxConfig(
-        name=f"stamphog-review-{run.id}",
-        template=SandboxTemplate.SLIM_BASE,
-        metadata={"review_run_id": str(run.id)},
-        environment_variables=environment,
-        outbound_domain_allowlist=_sandbox_egress_allowlist(),
-    )
-    sandbox = sandbox_class.create(config)
+    # Every path from here releases the token, including a failed claim read or save.
     try:
-        _clone_pr(sandbox, repo, base_sha, run.head_sha, run.pull_request.pr_number, token)
-        _inject_policy_files(sandbox, policy_files)
-        _ship_engine(sandbox)
-        _write_context(sandbox, invocation)
-
-        command = f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && {_harden_reviewer_command(invocation.command)}"
-        result = sandbox.execute(command, timeout_seconds=25 * 60)
-    finally:
-        # A destroy failure must not mask a completed review — the verdict below still has to be
-        # persisted and posted. An orphaned sandbox self-terminates when SandboxConfig.ttl_seconds expires.
-        try:
-            sandbox.destroy()
-        except Exception:
-            activity.logger.exception(f"Failed to destroy sandbox for run {run.id}")
-
-    # Scrub stdout before persisting: it can echo the LLM keys the sandbox holds, and it is
-    # both stored on run.output and re-read verbatim to render the verdict posted to GitHub.
-    run.output = {
-        **(run.output or {}),
-        "reviewer_raw": _scrub_credentials(result.stdout, token, gateway_token),
-        "reviewer_exit_code": result.exit_code,
-    }
-    run.save(update_fields=["output", "updated_at"])
-
-    if result.exit_code != 0:
-        raise RuntimeError(
-            f"Reviewer exited with code {result.exit_code}: "
-            f"{_scrub_credentials(result.stderr, token, gateway_token)[:500]}"
+        config = SandboxConfig(
+            name=f"stamphog-review-{run.id}",
+            template=SandboxTemplate.SLIM_BASE,
+            metadata={"review_run_id": str(run.id)},
+            environment_variables=environment,
+            outbound_domain_allowlist=_sandbox_egress_allowlist(environment["AI_GATEWAY_URL"]),
         )
+        # The steps above cost nothing and keep their own exception type. From here the run makes a
+        # sandbox and can run the reviewer, so failures raise SandboxPhaseError, which the retry policy
+        # excludes. Both statements stay outside the try below, so the refusal keeps its own type and a
+        # failed write stays retryable.
+        #
+        # Temporal applies the start-to-close timeout and retries a lost worker. Neither path raises a
+        # type this code can mark, so the claim is what stops a second sandbox. Read it from the writer,
+        # because a stalled attempt holds a copy from before its replacement wrote. Read and then write
+        # is not atomic: two attempts in the same instant both pass. A column and a conditional update
+        # would close that.
+        latest_output = (
+            ReviewRun.objects.for_team(input.team_id)
+            .using(router.db_for_write(ReviewRun))
+            .filter(id=run.id)
+            .values_list("output", flat=True)
+            .first()
+        ) or {}
+        if latest_output.get("sandbox_started_at"):
+            raise SandboxPhaseError("an earlier attempt already provisioned a sandbox for this run")
+        run.output = {**latest_output, "sandbox_started_at": timezone.now().isoformat()}
+        run.save(update_fields=["output", "updated_at"])
+
+        try:
+            sandbox = sandbox_class.create(config)
+            try:
+                _clone_pr(sandbox, repo, base_sha, run.head_sha, run.pull_request.pr_number, token)
+                _inject_policy_files(sandbox, policy_files)
+                _ship_engine(sandbox)
+                _write_context(sandbox, invocation)
+
+                command = (
+                    f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && {_harden_reviewer_command(invocation.command)}"
+                )
+                result = sandbox.execute(command, timeout_seconds=25 * 60)
+            finally:
+                # A destroy failure must not mask a completed review — the verdict below still has to be
+                # persisted and posted. An orphaned sandbox self-terminates when SandboxConfig.ttl_seconds expires.
+                try:
+                    sandbox.destroy()
+                except Exception:
+                    activity.logger.exception(f"Failed to destroy sandbox for run {run.id}")
+
+            # Scrub stdout before persisting: it can echo the LLM keys the sandbox holds, and it is
+            # both stored on run.output and re-read verbatim to render the verdict posted to GitHub.
+            run.output = {
+                **(run.output or {}),
+                "reviewer_raw": _scrub_credentials(result.stdout, token, gateway_token),
+                "reviewer_exit_code": result.exit_code,
+            }
+            run.save(update_fields=["output", "updated_at"])
+
+            if result.exit_code != 0:
+                # The reviewer reads an untrusted PR head, so its stderr can contain repository content.
+                # This message reaches run.error, so keep the stderr in the worker log only.
+                activity.logger.error(
+                    f"Reviewer exited with code {result.exit_code} for run {run.id}: "
+                    f"{_scrub_credentials(result.stderr, token, gateway_token)[:500]}"
+                )
+                raise RuntimeError(f"reviewer exited with code {result.exit_code}")
+        except Exception as exc:
+            # Give the type only. Every step in this phase touches the sandbox, and anyone with
+            # stamphog:read can read run.error without access to the repository. The setup phase above
+            # keeps its text, because it fails on our own infrastructure and must stay diagnosable.
+            raise SandboxPhaseError(f"the sandbox phase failed with {type(exc).__name__}") from exc
+    finally:
+        _release_reviewer_token(gateway, gateway_token)
 
     activity.logger.info(f"Reviewer completed for run {run.id}")
     return {"exit_code": result.exit_code}
@@ -671,7 +878,29 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         return {"verdict": "skipped_superseded"}
     current_pr = client.get_pr(repo, pull_request.pr_number)
     current_head = ((current_pr.get("head") or {}).get("sha") or "").strip()
+    # A base retarget (a stacked PR's parent merged, or a manual base switch) rewrites the reviewed
+    # diff with the head SHA unchanged, so the head guard alone can't see it. The retarget delivery
+    # retracts approvals and queues a fresh run, but that delivery can trail this activity. The SHA
+    # is compared too: GitHub pins base.sha at the last PR event rather than tracking the trunk tip,
+    # so it only moves when the PR itself was touched — the diff the sandbox reviewed is stale then.
+    reviewed_base = (output.get("pr") or {}).get("base") or {}
+    current_base = current_pr.get("base") or {}
+    reviewed_base_ref = reviewed_base.get("ref") or ""
+    reviewed_base_sha = reviewed_base.get("sha") or ""
+    current_base_ref = (current_base.get("ref") or "").strip()
+    current_base_sha = (current_base.get("sha") or "").strip()
+    base_ref_moved = bool(reviewed_base_ref and current_base_ref and reviewed_base_ref != current_base_ref)
+    base_sha_moved = bool(reviewed_base_sha and current_base_sha and reviewed_base_sha != current_base_sha)
+    drift: tuple[str, str] | None = None
     if current_head and current_head != run.head_sha:
+        drift = ("head_moved", f"head moved {run.head_sha} -> {current_head}")
+    elif base_ref_moved or base_sha_moved:
+        drift = (
+            "base_retargeted",
+            f"base moved {reviewed_base_ref}@{reviewed_base_sha} -> {current_base_ref}@{current_base_sha}",
+        )
+    if drift is not None:
+        kind, detail = drift
         # Conditional: a retry after the terminal save already committed (e.g. the trailing digest
         # stamp crashed) must not rewrite a delivered COMPLETED outcome to SUPERSEDED — terminal
         # states are history. The stale-approval sweep retires that approval on the next delivery.
@@ -680,8 +909,8 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         )
         if run.verdict != ReviewVerdict.APPROVED:
             _dismiss_orphaned_approval(client, run, input.team_id)
-        activity.logger.info(f"Skipping verdict for run {run.id}: head moved {run.head_sha} -> {current_head}")
-        return {"verdict": "skipped_head_moved"}
+        activity.logger.info(f"Skipping verdict for run {run.id}: {detail}")
+        return {"verdict": f"skipped_{kind}"}
 
     parsed = parse_reviewer_output(raw)
 
@@ -722,12 +951,16 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         activity.logger.info(f"Skipping verdict for run {run.id}: superseded during posting")
         return {"verdict": "skipped_superseded"}
 
+    # Computed before the branch chain because two things must agree on it: the trigger label is only
+    # stripped for a refusal, and only then may the review tell the author to re-add it.
+    is_refusal = parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE)
+    strips_label = repo_config.review_mode == ReviewMode.LABEL and is_refusal
+
+    relabel_label = repo_config.trigger_label if strips_label else None
+
     if parsed.gate_blocked:
         # The deterministic gates denied auto-review — a terminal, non-approval
         # outcome. The engine still rendered a plain-language explanation; post it.
-        _post_sticky(
-            client, repo, pull_request, _neutralize_active_markdown(parsed.review_body or _verdict_comment(parsed))
-        )
         run.status = ReviewRunStatus.GATED
         run.verdict = ReviewVerdict.WAIT
     elif parsed.verdict == ReviewVerdict.APPROVED:
@@ -751,7 +984,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
             if adopted_review_id is not None:
                 run.posted_review_id = adopted_review_id
             else:
-                body = _neutralize_active_markdown(_scrub_credentials(parsed.review_body or _approve_comment(parsed)))
+                body = _scrub_credentials(_verdict_body(parsed, ReviewVerdict.APPROVED, relabel_label))
                 review = client.post_approve_review(repo, pull_request.pr_number, body, run.head_sha)
                 run.posted_review_id = _comment_id(review)
             # Persist the id immediately, outside the conditional terminal save below: if that save
@@ -765,21 +998,27 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         run.verdict = ReviewVerdict.APPROVED
         update_fields.append("posted_review_id")
     else:
-        _post_sticky(
-            client, repo, pull_request, _neutralize_active_markdown(parsed.review_body or _verdict_comment(parsed))
-        )
         run.status = ReviewRunStatus.COMPLETED
         run.verdict = parsed.verdict
+
+    # One post for every non-approval, keyed off the verdict the run just stored, so the review text
+    # and the recorded verdict cannot disagree. The approve branch above posted its own APPROVE.
+    if run.verdict != ReviewVerdict.APPROVED:
+        _post_non_approval_review(
+            client, repo, run, pull_request, input.team_id, _verdict_body(parsed, run.verdict, relabel_label)
+        )
 
     # Keyed off parsed.verdict, not run.verdict: the gate-blocked branch overrides run.verdict to WAIT,
     # but both the label-strip and the ReviewHog handoff below treat a gate-blocked refusal the same
     # as an engine-refused one.
-    is_refusal = parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE)
+    # Same reading the reviewer got, from the same stamp, so the handoff can't disagree with what
+    # the run was told it was.
+    trigger = trigger_for_run(output=output, review_mode=repo_config.review_mode)
 
     # Action parity: in label-triggered mode a refused/escalated verdict strips the trigger label, so
     # the author re-requests the next review by re-adding it.
     # A failure here raises on purpose: the activity retries and the sticky upsert above is idempotent.
-    if repo_config.review_mode == ReviewMode.LABEL and is_refusal:
+    if strips_label:
         client.remove_pr_label(repo, pull_request.pr_number, repo_config.trigger_label)
 
     run.completed_at = timezone.now()
@@ -805,17 +1044,22 @@ def post_verdict(input: StamphogReviewInput) -> dict:
 
     # Hand a refused/escalated PR to ReviewHog only AFTER the refusal verdict wins the terminal save
     # above — running it before would trigger ReviewHog for a stale refusal that a superseding delivery
-    # then overrode (a newer run might approve the same head). Same is_refusal condition as the
-    # trigger-label strip above, in both review modes: stamphog couldn't sign off, so a deeper
-    # second-opinion review is wanted. Adding the ReviewHog trigger label fires its workflow
-    # (review-hog.yml exempts stamphog[bot] from the bot-labeler-skip that would otherwise strip it).
+    # then overrode (a newer run might approve the same head). Adding the ReviewHog trigger label fires
+    # its workflow (review-hog.yml exempts stamphog[bot] from the bot-labeler-skip that would otherwise
+    # strip it).
+    #
+    # Only self-driving runs hand off. A human PR has an author who reads the refusal and decides what
+    # to do about it, and in ALL mode the handoff would fire on PRs nobody asked stamphog to look at.
+    # A self-driving PR has no such author — the refusal sits unread until Inbox triage — so ReviewHog's
+    # deeper review is the next step rather than a second unrequested opinion.
+    #
     # This is a secondary, cross-product notification that must never jeopardize the verdict — the
     # refusal is already durably saved, so it is single-shot best-effort: catching every exception (not
     # just StamphogGitHubError) contains the client's own errors plus the GitHubRateLimitError /
     # requests.RequestException the egress layer raises on rate limits and network blips, neither a
     # subclass of StamphogGitHubError. The sticky upsert above is idempotent, so a missed handoff is a
     # missed handoff, not corruption.
-    if is_refusal:
+    if is_refusal and trigger == ReviewTrigger.SELF_DRIVING.value:
         try:
             client.add_pr_label(repo, pull_request.pr_number, STAMPHOG_REVIEWHOG_LABEL)
         except Exception:
@@ -859,6 +1103,11 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     first_error_line = (input.error.splitlines() or [""])[0][:300]
     if run.status in TERMINAL_STATUSES:
         activity.logger.warning(f"Run {run.id} already {run.status}; keeping it, error was: {first_error_line}")
+        # A retry that died between the FAILED save and the notice finds its own run terminal. Keep
+        # the status, but post the notice the author is still owed. Only FAILED resumes: every other
+        # terminal state belongs to a run that gave a verdict.
+        if run.status == ReviewRunStatus.FAILED:
+            _post_failure_notice(StamphogGitHubClient(run.pull_request.repo_config.installation_id), run, input.team_id)
         return
     # A prior post_verdict attempt may have approved on GitHub and then exhausted retries before the
     # terminal save — the id is persisted, the verdict is not, and without a future delivery nothing
@@ -875,8 +1124,11 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     # Conditional like every terminal save (the load-time guard above can race an in-flight
     # supersession): a run that just went SUPERSEDED keeps that status, FAILED must not clobber it.
     now = timezone.now()
-    ReviewRun.objects.for_team(input.team_id).filter(id=run.id).exclude(status__in=TERMINAL_STATUSES).update(
-        status=ReviewRunStatus.FAILED, error=first_error_line, completed_at=now, updated_at=now
+    marked_failed = (
+        ReviewRun.objects.for_team(input.team_id)
+        .filter(id=run.id)
+        .exclude(status__in=TERMINAL_STATUSES)
+        .update(status=ReviewRunStatus.FAILED, error=first_error_line, completed_at=now, updated_at=now)
     )
     # This run is done reviewing (unrecoverably) — clean up its own "review in flight" 👀 too. After
     # the terminal save on purpose: the removal's live-peer check must see this run as terminal, or
@@ -894,6 +1146,7 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     # the global client's background flush may never run before the worker thread moves on.
     pull_request = run.pull_request
     repo = pull_request.repo_config.repository
+
     with ph_scoped_capture() as capture:
         capture(
             distinct_id=pull_request.author_login or repo,
@@ -906,6 +1159,11 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
                 "stamphog_error": first_error_line,
             },
         )
+
+    # Last, because this step raises. A retry returns through the terminal guard, which posts the
+    # notice and nothing else, so the event above must reach PostHog on this attempt.
+    if marked_failed:
+        _post_failure_notice(client, run, input.team_id)
 
 
 def _harden_reviewer_command(command: Sequence[str] | str) -> str:
@@ -1051,7 +1309,10 @@ def _overlay_policy_yaml(repo: str, default_text: str, repo_text: str | None) ->
     try:
         overlay = yaml.safe_load(repo_text)
     except yaml.YAMLError as exc:
-        raise RuntimeError(f"repo {repo} has malformed YAML in .stamphog/policy.yml: {exc}") from exc
+        # PyYAML puts the bad tag on the first line, and run.error keeps that line. Anyone with
+        # stamphog:read can read it without access to the repository, so log the parser text instead.
+        activity.logger.error(f"Malformed YAML in .stamphog/policy.yml for {repo}: {exc}")
+        raise RuntimeError(f"repo {repo} has malformed YAML in .stamphog/policy.yml") from exc
     if not isinstance(overlay, dict):
         raise RuntimeError(f"repo {repo} .stamphog/policy.yml must be a YAML mapping to overlay the defaults")
     merged = {**yaml.safe_load(default_text), **overlay}
@@ -1128,11 +1389,14 @@ def _ship_owners_package(sandbox: SandboxBase) -> None:
     """Ship the posthog-owners resolver package the engine's ownership format imports.
 
     The default policy declares a ``hogli-resolver`` ownership source, and gates.py imports
-    ``posthog_owners`` from ``tools/owners`` next to the engine dir. Same trust posture as the
-    engine: always our copy, wiping whatever the PR head carried at that path. Repos without
+    ``posthog_owners`` from ``tools/owners`` next to the engine dir in the sandbox. Same trust
+    posture as the engine: always our copy, which overwrites whatever the PR head carried at that
+    path. Repos without
     owners.yaml/product.yaml files simply resolve to "no ownership-source match".
     """
-    package_dir = _SERVER_ENGINE_DIR.parent / "owners" / "posthog_owners"
+    # Repo root rather than a sibling of the engine. posthog_owners is a shared tool, so it stays
+    # under tools/ while the engine lives in the product.
+    package_dir = Path(__file__).resolve().parents[4] / "tools" / "owners" / "posthog_owners"
     if not package_dir.is_dir():
         raise RuntimeError(f"owners package source dir not found: {package_dir}")
     target = f"{STAMPHOG_SANDBOX_OWNERS_DIR}/posthog_owners"
@@ -1204,21 +1468,74 @@ def _stamp_digest_audience_if_merged(
                 owned_files=audience.owned_files,
                 owned_file_count=audience.owned_file_count,
             )
-            for audience in resolve_audiences(repo_config, pr_payload, run.gate_result)
+            for audience in resolve_audiences(repo_config, run.gate_result)
         ],
         ignore_conflicts=True,
     )
 
 
-def _post_sticky(client: StamphogGitHubClient, repo: str, pull_request: PullRequest, body: str) -> None:
-    """Upsert the sticky comment and persist its id on the PR. Body is scrubbed before posting.
+# The review this run posted when it did not approve. Kept out of ``posted_review_id``, which means
+# "the APPROVE review this run posted" and drives the retraction sweep — a COMMENT review is not
+# dismissable, so listing one there would break it. Nothing queries this, so it stays in ``output``.
+NON_APPROVAL_REVIEW_ID_KEY = "non_approval_review_id"
 
-    Idempotent on retry: ``upsert_sticky_comment`` edits the existing comment (tracked via
-    ``posted_comment_id``) rather than adding a new one, so a re-run does not double-post.
+
+def _post_non_approval_review(
+    client: StamphogGitHubClient, repo: str, run: ReviewRun, pull_request: PullRequest, team_id: int, body: str
+) -> None:
+    """Record a non-approval as its own COMMENT review, and remember it so a retry does not repeat it.
+
+    Same surface as the approval, so the two cannot end up in separate lists disagreeing about the
+    same head. Idempotency mirrors the approve path: the id is persisted the moment GitHub accepts
+    the review, outside the caller's conditional terminal save, so a crash after this point cannot
+    post twice.
     """
-    comment = client.upsert_sticky_comment(repo, pull_request.pr_number, _scrub_credentials(body))
-    pull_request.posted_comment_id = _comment_id(comment)
-    pull_request.save(update_fields=["posted_comment_id", "updated_at"])
+    if (run.output or {}).get(NON_APPROVAL_REVIEW_ID_KEY) is not None:
+        return
+    review = client.post_comment_review(repo, pull_request.pr_number, _scrub_credentials(body), run.head_sha)
+    run.output = {**(run.output or {}), NON_APPROVAL_REVIEW_ID_KEY: _comment_id(review)}
+    ReviewRun.objects.for_team(team_id).filter(id=run.id).update(output=run.output, updated_at=timezone.now())
+
+
+FAILURE_NOTICE_BODY = (
+    "**The review did not complete.**\n\n"
+    "Stamphog hit an error and produced no verdict for this commit.\n\n"
+    "Push a new commit to try again."
+)
+
+
+def _post_failure_notice(client: StamphogGitHubClient, run: ReviewRun, team_id: int) -> None:
+    """Tell the PR that this run gave no verdict, once.
+
+    The notice names a push, because that route works in every mode. A failure keeps the trigger
+    label, so a push carries it and starts a run, while a re-added label waits out the per-PR
+    cooldown. A self-driving run ignores labels and re-reviews only on synchronize, reopen and base
+    retarget.
+
+    The notice gives no error text, because this is a public pull request.
+
+    A newer run at the same head stops the notice. Supersession skips terminal states, so a
+    `reopened` delivery can queue a replacement at the unchanged head, and that replacement can
+    approve the commit this notice would call unreviewed. A newer run at a different head is not a
+    replacement. The read uses the writer, because it gates a GitHub write.
+
+    A GitHub error propagates. If this function hides it, the activity completes, Temporal does not
+    retry, and the PR keeps no notice. Raising is safe: the FAILED update is committed, and the retry
+    finishes the post through the terminal guard.
+    """
+    replaced_at_same_head = (
+        ReviewRun.objects.for_team(team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request_id=run.pull_request_id, head_sha=run.head_sha, created_at__gt=run.created_at)
+        .exists()
+    )
+    if replaced_at_same_head:
+        activity.logger.info(f"Skipping the failure notice for run {run.id}; a newer run holds the same head")
+        return
+
+    _post_non_approval_review(
+        client, run.pull_request.repo_config.repository, run, run.pull_request, team_id, FAILURE_NOTICE_BODY
+    )
 
 
 def _comment_id(obj: dict) -> int | None:
@@ -1227,12 +1544,36 @@ def _comment_id(obj: dict) -> int | None:
     return value if isinstance(value, int) else None
 
 
-def _approve_comment(parsed: ReviewerVerdict) -> str:
-    return parsed.reasoning or "Looks good."
+# What each verdict means for the author, in the words they need to act on. The engine renders its
+# reasoning and a gate table, but never states the outcome, and every gate row reads "✓" even on a
+# refusal — so without this line a reader cannot tell an approval from a denial.
+_VERDICT_HEADLINES: dict[str, str] = {
+    ReviewVerdict.APPROVED: "**Approved.**",
+    ReviewVerdict.REFUSED: "**Not approved — this change needs a human reviewer.**",
+    ReviewVerdict.ESCALATE: "**Not approved — escalated to a human reviewer.**",
+    ReviewVerdict.WAIT: "**Not approved yet — waiting on the conditions below.**",
+}
 
 
-def _verdict_comment(parsed: ReviewerVerdict) -> str:
-    body = f"**Stamphog review: {parsed.verdict}**\n\n{parsed.reasoning}".rstrip()
+def _verdict_body(parsed: ReviewerVerdict, verdict: str, relabel_label: str | None) -> str:
+    """The review body: the outcome in words, what to do next, then whatever the engine rendered.
+
+    ``relabel_label`` is the caller's own label-removal decision rather than a re-derivation of it, so
+    the review cannot tell an author to re-add a label the run left in place.
+
+    The engine's ``review_body`` is the rich version (reasoning plus the gate table) and the
+    ``reasoning``/``showstoppers`` pair is the fallback when it rendered nothing. The headline is
+    prepended to both, so the outcome is stated whichever one is available.
+    """
+    headline = _VERDICT_HEADLINES.get(verdict, f"**Stamphog review: {verdict}**")
+    if relabel_label:
+        headline += f"\n\nRe-add the `{relabel_label}` label to request another review once you have addressed this."
+    detail = parsed.review_body or _reasoning_detail(parsed)
+    return f"{headline}\n\n{_neutralize_active_markdown(detail)}".rstrip()
+
+
+def _reasoning_detail(parsed: ReviewerVerdict) -> str:
+    body = parsed.reasoning
     if parsed.showstoppers:
         body += "\n\n**Showstoppers:**\n" + "\n".join(f"- {item}" for item in parsed.showstoppers)
-    return body
+    return body.strip()

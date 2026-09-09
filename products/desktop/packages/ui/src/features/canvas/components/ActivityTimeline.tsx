@@ -1,14 +1,16 @@
-import { FileTextIcon, ScrollIcon } from "@phosphor-icons/react";
+import { Robot } from "@phosphor-icons/react";
 import type {
   ArtifactPayload,
   CommentEventPayload,
 } from "@posthog/core/canvas/activityEvents";
 import {
-  type ActivityRow,
+  type GroupedActivityRow,
+  groupActivityRows,
+} from "@posthog/core/canvas/activityGrouping";
+import {
   buildActivityTimeline,
   type UserMessageLike,
 } from "@posthog/core/canvas/activityTimeline";
-import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import { DEFAULT_TAB_IDS } from "@posthog/core/panels/panelConstants";
 import { findTabInTree } from "@posthog/core/panels/panelTree";
@@ -31,6 +33,7 @@ import {
   CommentRow,
   CommentStateRow,
   CREATED_BADGE,
+  GroupedEventRow,
   MESSAGE_BADGE,
   MessageBubble,
   PersonBead,
@@ -44,10 +47,9 @@ import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import type { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
-import { extractCanvasInstructions } from "@posthog/ui/features/sessions/components/session-update/canvasInstructions";
-import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
-import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
-import { collapsePiSkillInvocation } from "@posthog/ui/features/sessions/components/session-update/piSkillInvocation";
+import { INJECTED_BLOCK_PRESENTATION } from "@posthog/ui/features/sessions/components/session-update/injectedBlocks";
+import { MentionChip } from "@posthog/ui/features/sessions/components/session-update/parseFileMentions";
+import { splitUserMessage } from "@posthog/ui/features/sessions/components/session-update/userMessageDisplay";
 import {
   useHasTranscriptListener,
   useThreadNavigationStore,
@@ -74,28 +76,21 @@ function UserMessageRow({
   onShowInChat?: () => void;
 }) {
   const name = author ? userDisplayName(author) : "You";
-  const channelContext = useMemo(
-    () => extractChannelContext(content),
+  const { peerAgentMessage, blocks, displayContent } = useMemo(
+    () => splitUserMessage(content),
     [content],
   );
-  const afterChannelContext = channelContext?.stripped ?? content;
-  // Every block the chat strips has to be stripped here too, or the raw XML shows up on
-  // the timeline for a viewer whose chat hid it.
-  const canvasInstructions = useMemo(
-    () => extractCanvasInstructions(afterChannelContext),
-    [afterChannelContext],
+  const disclosedBlocks = blocks.filter(
+    (block) => INJECTED_BLOCK_PRESENTATION[block.kind].chip,
   );
-  const afterCanvasInstructions =
-    canvasInstructions?.stripped ?? afterChannelContext;
-  const customInstructions = useMemo(
-    () => extractCustomInstructions(afterCanvasInstructions),
-    [afterCanvasInstructions],
-  );
-  const displayContent = collapsePiSkillInvocation(
-    customInstructions?.stripped ?? afterCanvasInstructions,
-  );
-  const trimmed = displayContent.trim();
-  const firstLine = trimmed.split("\n", 1)[0] ?? "";
+  const firstLine = displayContent.trim().split("\n", 1)[0] ?? "";
+  const preview =
+    firstLine ||
+    (disclosedBlocks[0]
+      ? INJECTED_BLOCK_PRESENTATION[disclosedBlocks[0].kind].label(
+          disclosedBlocks[0],
+        )
+      : "");
   return (
     <TimelineRow
       connectedAbove={connectedAbove}
@@ -105,34 +100,31 @@ function UserMessageRow({
       onShowInChat={onShowInChat}
       detail={
         <div className="space-y-1.5">
+          {peerAgentMessage && (
+            <MentionChip
+              icon={<Robot size={12} />}
+              label={`From agent: ${peerAgentMessage.senderTaskTitle}`}
+            />
+          )}
           <MessageBubble content={displayContent} />
-          {canvasInstructions && (
-            <Collapsible className="min-w-0 bg-transparent hover:bg-transparent data-open:bg-transparent">
-              <CollapsibleTrigger className="min-h-0 w-full bg-transparent px-0 py-1 text-left hover:bg-transparent aria-expanded:bg-transparent">
-                <ScrollIcon size={12} />
-                <span className="truncate text-xs">Canvas instructions</span>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted p-2 text-muted-foreground text-xs">
-                {canvasInstructions.body}
-              </CollapsibleContent>
-            </Collapsible>
-          )}
-          {channelContext && (
-            <Collapsible className="min-w-0 bg-transparent hover:bg-transparent data-open:bg-transparent">
-              <CollapsibleTrigger className="min-h-0 w-full bg-transparent px-0 py-1 text-left hover:bg-transparent aria-expanded:bg-transparent">
-                <FileTextIcon size={12} />
-                <span className="truncate text-xs">
-                  {channelContext.mention.name
-                    ? `${channelDisplayLabel(channelContext.mention.name)} `
-                    : ""}
-                  CONTEXT.md
-                </span>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted p-2 text-muted-foreground text-xs">
-                {channelContext.mention.body}
-              </CollapsibleContent>
-            </Collapsible>
-          )}
+          {disclosedBlocks.map((block) => {
+            const { icon: BlockIcon, label } =
+              INJECTED_BLOCK_PRESENTATION[block.kind];
+            return (
+              <Collapsible
+                key={block.kind}
+                className="min-w-0 bg-transparent hover:bg-transparent data-open:bg-transparent"
+              >
+                <CollapsibleTrigger className="min-h-0 w-full bg-transparent px-0 py-1 text-left hover:bg-transparent aria-expanded:bg-transparent">
+                  <BlockIcon size={12} />
+                  <span className="truncate text-xs">{label(block)}</span>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted p-2 text-muted-foreground text-xs">
+                  {block.body}
+                </CollapsibleContent>
+              </Collapsible>
+            );
+          })}
         </div>
       }
     >
@@ -140,7 +132,7 @@ function UserMessageRow({
       {/* Through MentionText like the body: a preview that prints raw mention or chip
           markup is the same bug as a body that does. */}
       <span className="text-muted-foreground">
-        <MentionText content={firstLine} />
+        <MentionText content={preview} />
       </span>
     </TimelineRow>
   );
@@ -181,7 +173,7 @@ export function ActivityTimeline({
     return byId;
   }, [timeline]);
 
-  const rows = useMemo(() => {
+  const timelineRows = useMemo(() => {
     const taskCreatedTimestamp = Date.parse(task.created_at);
     return buildActivityTimeline({
       task: {
@@ -227,18 +219,22 @@ export function ActivityTimeline({
     });
   }, [task, messages, commentThreads, conversationItems]);
 
+  // A stretch of rows each saying "1 commit pushed" reads as noise and buries everything
+  // else, so neighbours that said the same thing collapse into one row.
+  const rows = useMemo(() => groupActivityRows(timelineRows), [timelineRows]);
+
   // Numbering a run and deciding whether to number it at all have to come from the same
   // population, or a task with three runs and one row labels that row "run 1".
   const runStartedCount = useMemo(
     () =>
-      rows.reduce(
+      timelineRows.reduce(
         (count, row) =>
           row.kind === "event" && row.event.kind === "run_started"
             ? count + 1
             : count,
         0,
       ),
-    [rows],
+    [timelineRows],
   );
 
   const threadsById = useMemo(() => {
@@ -277,6 +273,7 @@ export function ActivityTimeline({
         runId,
         artifactId: payload.artifactId,
         name: payload.name,
+        objectKind: payload.objectKind ?? undefined,
       });
   };
 
@@ -323,11 +320,20 @@ export function ActivityTimeline({
   };
 
   const renderRow = (
-    row: ActivityRow<TaskThreadMessage>,
+    row: GroupedActivityRow<TaskThreadMessage>,
     connectedAbove: boolean,
     connectedBelow: boolean,
   ) => {
     switch (row.kind) {
+      case "event_group":
+        return (
+          <GroupedEventRow
+            connectedAbove={connectedAbove}
+            connectedBelow={connectedBelow}
+            events={row.events}
+            timestamp={new Date(row.ts).toISOString()}
+          />
+        );
       case "task_created":
         return (
           <TimelineRow
@@ -336,9 +342,7 @@ export function ActivityTimeline({
             gutter={<PersonBead user={task.created_by} badge={CREATED_BADGE} />}
             timestamp={task.created_at}
           >
-            {!task.created_by && task.origin_product === "signal_report"
-              ? "PostHog started this task from a Signals report"
-              : `${task.created_by ? userDisplayName(task.created_by) : "Someone"} created this task`}
+            {`${task.created_by ? userDisplayName(task.created_by) : "Someone"} created this task`}
           </TimelineRow>
         );
       case "user_message":

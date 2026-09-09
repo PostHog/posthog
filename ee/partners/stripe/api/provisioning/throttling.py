@@ -1,99 +1,86 @@
 """Rate limiting for the Stripe provisioning namespace.
 
-Fixed-window counters with fixed per-endpoint limits from ``RATE_LIMIT_DEFAULTS``
-- this namespace serves a single caller (Stripe), so the window is keyed on a
-constant identity rather than any OAuthApplication field. A limit <= 0 disables
-it. The caller can burst up to 2x the limit across a window boundary; switch to
-a sliding window if that ever matters.
+Token buckets (:mod:`posthog.token_bucket`) with budgets hardcoded inline: this
+namespace serves a single caller (Stripe), so there are no tiers, no
+per-partner overrides, and the bucket is keyed on a constant identity rather
+than any OAuthApplication field. Burst equals the hourly rate, so the full
+budget is available at once (matching the fixed window this replaced) while
+the continuous refill removes the 2x window-boundary burst and gives a real
+per-caller Retry-After.
 """
 
 from __future__ import annotations
 
-import time
 from typing import ClassVar
 
-from django.core.cache import cache
-
 import structlog
-from django_redis.exceptions import ConnectionInterrupted
-from redis.exceptions import RedisError
 from rest_framework.request import Request
 from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
+from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
+
 from ee.partners.stripe.api.provisioning.analytics import capture_provisioning_event
-from ee.partners.stripe.api.provisioning.constants import (
-    RATE_LIMIT_CACHE_PREFIX,
-    RATE_LIMIT_DEFAULTS,
-    RATE_LIMIT_EVENT_NAMES,
-    RATE_LIMIT_WINDOW_SECONDS,
-)
+from ee.partners.stripe.api.provisioning.constants import RATE_LIMIT_EVENT_NAMES
 from ee.partners.stripe.api.provisioning.exceptions import SpecError
 
 logger = structlog.get_logger(__name__)
 
-# Single-caller namespace: the rate-limit window is keyed on this constant, not
-# on any per-app identity or config.
+# Single-caller namespace: buckets are keyed on this constant, not on any
+# per-app identity or config.
 _STRIPE_RATE_LIMIT_KEY = "stripe"
+BUCKET_KEY_PREFIX = "stripe_provisioning_bucket:"
+
+# None disables the endpoint's limit.
+BUDGETS: dict[str, Budget | None] = {
+    "account_requests": Budget(burst=10, per_hour=10),
+    "token_exchanges": Budget(burst=20, per_hour=20),
+    "resource_creates": Budget(burst=20, per_hour=20),
+}
 
 
-class StripeFixedWindowThrottle(BaseThrottle):
-    """Fixed-window counter keyed on the endpoint + window-of-epoch."""
+class StripeBucketThrottle(BaseThrottle):
+    """Token bucket keyed on the endpoint + the constant Stripe identity."""
 
     endpoint: ClassVar[str]
 
     def __init__(self) -> None:
-        self.limit = RATE_LIMIT_DEFAULTS[self.endpoint]
-        self.count = 0
+        self.limit = 0
+        self.decision: BucketDecision | None = None
 
     def allow_request(self, request: Request, view: APIView) -> bool:
-        if self.limit <= 0:
+        budget = BUDGETS[self.endpoint]
+        if budget is None:
+            return True
+        self.limit = budget.per_hour
+
+        decision = consume(f"{BUCKET_KEY_PREFIX}{self.endpoint}:{_STRIPE_RATE_LIMIT_KEY}", budget)
+        if isinstance(decision, BucketUnavailable):
+            # Fail open: an unreachable Redis must not take the namespace down.
+            logger.warning("stripe_provisioning_rate_limit_unavailable", endpoint=self.endpoint)
             return True
 
-        window_index = int(time.time()) // RATE_LIMIT_WINDOW_SECONDS
-        cache_key = f"{RATE_LIMIT_CACHE_PREFIX}{self.endpoint}:{_STRIPE_RATE_LIMIT_KEY}:{window_index}"
-
-        try:
-            cache.add(cache_key, 0, timeout=RATE_LIMIT_WINDOW_SECONDS)
-            self.count = cache.incr(cache_key)
-        except ValueError as e:
-            # incr raises ValueError when the key expired between add and incr.
-            logger.warning("stripe_provisioning_rate_limit_cache_error", endpoint=self.endpoint, error=str(e))
-            try:
-                # cache.add preserves any counter a concurrent request already initialized,
-                # so a transient cache error doesn't reset the window when at the limit.
-                cache.add(cache_key, 1, timeout=RATE_LIMIT_WINDOW_SECONDS)
-            except (RedisError, ConnectionInterrupted):
-                pass
-            self.count = 1
-        except (RedisError, ConnectionInterrupted) as e:
-            # Redis is unreachable (its errors subclass RedisError/Exception, not the
-            # builtin ConnectionError/TimeoutError). Fail open without touching the
-            # cache again: a second cache call would raise the same way and turn every
-            # provisioning request into a 500 for as long as Redis is down.
-            logger.warning("stripe_provisioning_rate_limit_cache_error", endpoint=self.endpoint, error=str(e))
-            self.count = 1
-
-        return self.count <= self.limit
+        self.decision = decision
+        return decision.allowed
 
     def wait(self) -> float:
-        return float(RATE_LIMIT_WINDOW_SECONDS - (int(time.time()) % RATE_LIMIT_WINDOW_SECONDS))
+        return float(self.decision.retry_after) if self.decision is not None else 0.0
 
 
-class AccountRequestsThrottle(StripeFixedWindowThrottle):
+class AccountRequestsThrottle(StripeBucketThrottle):
     endpoint = "account_requests"
 
 
-class TokenExchangesThrottle(StripeFixedWindowThrottle):
+class TokenExchangesThrottle(StripeBucketThrottle):
     endpoint = "token_exchanges"
 
 
-class ResourceCreatesThrottle(StripeFixedWindowThrottle):
+class ResourceCreatesThrottle(StripeBucketThrottle):
     endpoint = "resource_creates"
 
 
 def enforce_stripe_rate_limit(
-    throttle_cls: type[StripeFixedWindowThrottle],
+    throttle_cls: type[StripeBucketThrottle],
     request: Request,
     view: APIView,
     *,
@@ -115,7 +102,7 @@ def enforce_stripe_rate_limit(
         RATE_LIMIT_EVENT_NAMES[endpoint],
         "rate_limited",
         limit=throttle.limit,
-        count=throttle.count,
+        retry_after=int(throttle.wait()),
     )
     raise SpecError(
         "rate_limited",

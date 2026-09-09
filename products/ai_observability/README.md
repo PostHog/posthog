@@ -42,8 +42,9 @@ products/ai_observability/
 ```
 
 Query runners for the product live **outside** this folder in
-`posthog/hogql_queries/ai/`. Two runners matter: `trace_query_runner.py`
-(single trace) and `traces_query_runner.py` (list). See
+`posthog/hogql_queries/ai/`. Three runners matter: `trace_query_runner.py`
+(single trace), `traces_query_runner.py` (list), and
+`session_query_runner.py` (traces in a session). See
 [AGENTS.md](./AGENTS.md) for why that detail matters.
 
 ## Running tests locally

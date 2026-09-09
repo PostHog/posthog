@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { Readable, Writable } from "node:stream";
 import type {
   CanUseTool,
   McpServerConfig,
@@ -13,10 +14,19 @@ import type {
   SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
+  BEDROCK_LLM_GATEWAY_FLAG,
+  type BedrockGatewayVariant,
+} from "@posthog/shared";
+import {
   buildPosthogProjectHeaderLines,
   buildPosthogPropertyHeaderLines,
 } from "@posthog/shared/posthog-property-headers";
+import {
+  applyContextWikiEnv,
+  resolveContextWikiPath,
+} from "../../../context-wiki";
 import type { FileEnrichmentDeps } from "../../../enrichment/file-enricher";
+import type { ContextWikiEnv } from "../../../types";
 import { IS_ROOT } from "../../../utils/common";
 import type { Logger } from "../../../utils/logger";
 import type { TaskState } from "../conversion/task-state";
@@ -31,13 +41,20 @@ import {
   type EnrichedReadCache,
   type OnModeChange,
 } from "../hooks";
+import {
+  applyMachineClaudeAuth,
+  CLOUD_AUTH_STRIPPED_KEYS,
+  MACHINE_AUTH_STRIPPED_KEYS,
+  type MachineClaudeAuth,
+} from "../machine-auth";
 import { type CodeExecutionMode, toSdkPermissionMode } from "../tools";
 import type { EffortLevel } from "../types";
 import { buildAppendedInstructions } from "./instructions";
 import { loadUserClaudeJsonMcpServers } from "./mcp-config";
-import { DEFAULT_MODEL, FALLBACK_MODEL } from "./models";
+import { DEFAULT_MODEL, resolveFallbackModel } from "./models";
 import { createRtkRewriteHook, resolveRtkPrefix } from "./rtk";
 import type { SettingsManager } from "./settings";
+import { buildTraceparentHookSettingsJson } from "./traceparent-hook";
 
 export interface ProcessSpawnedInfo {
   pid: number;
@@ -60,11 +77,11 @@ export type GatewayEnv = {
   /**
    * Same task-metadata attribution headers as {@link anthropicCustomHeaders},
    * in record form for the codex/OpenAI path (which sets provider
-   * `http_headers` rather than `ANTHROPIC_CUSTOM_HEADERS`). Includes `team_id`,
-   * which the Claude path instead appends in {@link buildEnvironment}.
+   * `http_headers` rather than `ANTHROPIC_CUSTOM_HEADERS`). Project authorization
+   * uses the separate `X-PostHog-Project-Id` header.
    */
   openaiCustomHeaders?: Record<string, string>;
-  /** PostHog project ID for per-team attribution headers. */
+  /** PostHog project ID used to build the gateway project-scope header. */
   posthogProjectId?: string;
 };
 
@@ -78,6 +95,7 @@ export interface BuildOptionsParams {
   systemPrompt?: Options["systemPrompt"];
   userProvidedOptions?: Options;
   sessionId: string;
+  taskId?: string;
   isResume: boolean;
   forkSession?: boolean;
   additionalDirectories?: string[];
@@ -87,6 +105,7 @@ export interface BuildOptionsParams {
   onModeChange?: OnModeChange;
   onProcessSpawned?: (info: ProcessSpawnedInfo) => void;
   onProcessExited?: (pid: number) => void;
+  onStartupOutput?: (stdout: Readable) => void;
   effort?: EffortLevel;
   enrichmentDeps?: FileEnrichmentDeps;
   enrichedReadCache?: EnrichedReadCache;
@@ -106,14 +125,23 @@ export interface BuildOptionsParams {
   getCurrentModelId?: () => string | undefined;
   /** Explicit gateway config — prevents global process.env mutation. */
   gatewayEnv?: GatewayEnv;
+  /** Session's discriminator for the traceparent hook's stderr; the hook is
+   * skipped when absent (see session/traceparent-hook.ts). */
+  traceparentHookNonce?: string;
+  machineAuth?: MachineClaudeAuth;
+  /** Matched `bedrock-llm-gateway` variant; `test` serves this session from Bedrock. */
+  bedrockGatewayVariant?: BedrockGatewayVariant;
+  /** Per-session context wiki mount — prevents global process.env mutation. */
+  contextWiki?: ContextWikiEnv;
 }
 
 export function buildSystemPrompt(
   customPrompt?: unknown,
-  opts?: { spokenNarration?: boolean },
+  opts?: { spokenNarration?: boolean; contextWikiPath?: string },
 ): Options["systemPrompt"] {
   const appendedInstructions = buildAppendedInstructions({
     spokenNarration: opts?.spokenNarration === true,
+    contextWikiPath: resolveContextWikiPath(opts?.contextWikiPath),
   });
   const defaultPrompt: Options["systemPrompt"] = {
     type: "preset",
@@ -158,8 +186,83 @@ function buildMcpServers(
 
 function buildEnvironment(
   gateway?: GatewayEnv,
-  sessionId?: string,
+  aiSessionId?: string,
+  bedrockGatewayVariant?: BedrockGatewayVariant,
+  contextWiki?: ContextWikiEnv,
+  machineAuth?: MachineClaudeAuth,
 ): Record<string, string> {
+  // SDK 0.3.142 made MCP servers connect in the background by default. That
+  // default is what we want: a slow or unreachable user MCP server (PostHog
+  // MCP, custom stdio servers) would otherwise stall turn 1 by up to ~5s per
+  // server. We honor an explicit override from the caller's environment for
+  // sessions that genuinely need MCP tools available on turn 1.
+  const mcpNonblocking = process.env.MCP_CONNECTION_NONBLOCKING;
+
+  const env: Record<string, string> = {
+    ...process.env,
+    ...((process.versions.electron || process.env.ELECTRON_RUN_AS_NODE) && {
+      ELECTRON_RUN_AS_NODE: "1",
+    }),
+    CLAUDE_CODE_ENABLE_ASK_USER_QUESTION_TOOL: "true",
+    CLAUDE_CODE_ENABLE_TODO_TOOLS: "1",
+    // Offload all MCP tools by default
+    ENABLE_TOOL_SEARCH: "auto:0",
+    // Enable idle state as end-of-turn signal (required for SDK 0.2.114+)
+    CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1",
+    ...(mcpNonblocking !== undefined && {
+      MCP_CONNECTION_NONBLOCKING: mcpNonblocking,
+    }),
+  };
+
+  if (machineAuth) {
+    applyMachineClaudeAuth(env, machineAuth);
+  } else {
+    applyGatewayAuth(env, gateway, aiSessionId, bedrockGatewayVariant);
+  }
+  applyContextWikiEnv(env, contextWiki);
+  return env;
+}
+
+/**
+ * `CLAUDE_CODE_USE_BEDROCK` puts the CLI on the direct-Bedrock path: it
+ * SigV4-signs its requests and calls bedrock-runtime directly, with no PostHog
+ * LLM gateway in the request path. Any set, non-falsy value enables it
+ * (hogland's guest profile sets it to "1").
+ */
+function usesDirectBedrock(value: string | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized !== "" && normalized !== "0" && normalized !== "false";
+}
+
+/**
+ * AWS strips any header whose NAME contains "_" before it validates a SigV4
+ * signature, but the Claude CLI signs custom headers verbatim — so a signed
+ * `x-posthog-property-task_id` makes AWS recompute a different signature and
+ * reject the request with 403 SignatureDoesNotMatch. On the direct-Bedrock
+ * path these `x-posthog-property-*` attribution headers reach no gateway (the
+ * only consumer that reads them), so dropping the underscore-named ones there
+ * unbreaks signing and loses no attribution that path could have captured.
+ * Hyphen-only headers (X-PostHog-Project-Id, x-posthog-use-bedrock-fallback,
+ * x-posthog-provider, x-posthog-flag-*) sign fine and are kept.
+ */
+function dropUnderscoreNamedHeaderLines(customHeaders: string): string {
+  return customHeaders
+    .split("\n")
+    .filter((line) => {
+      const separator = line.indexOf(":");
+      const name = separator === -1 ? line : line.slice(0, separator);
+      return !name.includes("_");
+    })
+    .join("\n");
+}
+
+function applyGatewayAuth(
+  env: Record<string, string>,
+  gateway: GatewayEnv | undefined,
+  aiSessionId: string | undefined,
+  bedrockGatewayVariant: BedrockGatewayVariant | undefined,
+): void {
   // Custom HTTP headers reach the model only through the Claude CLI subprocess,
   // which reads them from this env var (newline-delimited `name: value` lines)
   // — the SDK has no direct header option. We finalize them here, the single
@@ -178,21 +281,59 @@ function buildEnvironment(
   if (projectId) {
     headerLines.push(buildPosthogProjectHeaderLines(Number(projectId)));
   }
-  if (sessionId) {
+  if (aiSessionId) {
     headerLines.push(
-      buildPosthogPropertyHeaderLines({ $ai_session_id: sessionId }),
+      buildPosthogPropertyHeaderLines({ $ai_session_id: aiSessionId }),
     );
   }
-  // Route to AWS Bedrock as a fallback when Anthropic returns 5xx
-  headerLines.push("x-posthog-use-bedrock-fallback: true");
+  // The two Bedrock headers are mutually exclusive at the gateway: it dispatches
+  // on `x-posthog-provider: bedrock` and returns before it ever reads the
+  // fallback header, so sending both would imply a failover that cannot happen.
+  if (bedrockGatewayVariant === "test") {
+    // Serve the session from Bedrock outright. This path has no reverse
+    // fallback, so a Bedrock outage surfaces as an error instead of retrying
+    // against Anthropic.
+    headerLines.push("x-posthog-provider: bedrock");
+  } else {
+    // Fail over to Bedrock when Anthropic returns 5xx/429 or blocks on billing.
+    headerLines.push("x-posthog-use-bedrock-fallback: true");
+  }
+  if (bedrockGatewayVariant) {
+    // Stamps `$feature/bedrock-llm-gateway` onto the $ai_generation event the
+    // gateway captures, so test and control are comparable in analytics.
+    headerLines.push(
+      `x-posthog-flag-${BEDROCK_LLM_GATEWAY_FLAG}: ${bedrockGatewayVariant}`,
+    );
+  }
   const customHeaders = headerLines.join("\n");
+  // On the direct-Bedrock path the CLI SigV4-signs these headers, and AWS
+  // rejects any underscore-named one (see dropUnderscoreNamedHeaderLines). Strip
+  // them there so signing succeeds; every other path keeps them for gateway
+  // attribution.
+  env.ANTHROPIC_CUSTOM_HEADERS = usesDirectBedrock(env.CLAUDE_CODE_USE_BEDROCK)
+    ? dropUnderscoreNamedHeaderLines(customHeaders)
+    : customHeaders;
 
-  // SDK 0.3.142 made MCP servers connect in the background by default. That
-  // default is what we want: a slow or unreachable user MCP server (PostHog
-  // MCP, custom stdio servers) would otherwise stall turn 1 by up to ~5s per
-  // server. We honor an explicit override from the caller's environment for
-  // sessions that genuinely need MCP tools available on turn 1.
-  const mcpNonblocking = process.env.MCP_CONNECTION_NONBLOCKING;
+  // Explicit gateway values win over whatever happens to be in process.env.
+  // This prevents concurrent Agent instances from clobbering each other's
+  // gateway config when process.env was mutated globally.
+  if (gateway?.anthropicBaseUrl) {
+    env.ANTHROPIC_BASE_URL = gateway.anthropicBaseUrl;
+  }
+  if (gateway?.anthropicAuthToken) {
+    env.ANTHROPIC_AUTH_TOKEN = gateway.anthropicAuthToken;
+    env.ANTHROPIC_API_KEY = gateway.anthropicAuthToken;
+  }
+  if (gateway?.openaiBaseUrl) {
+    env.OPENAI_BASE_URL = gateway.openaiBaseUrl;
+  }
+  if (gateway?.openaiApiKey) {
+    env.OPENAI_API_KEY = gateway.openaiApiKey;
+  }
+
+  if (!gateway?.anthropicBaseUrl) {
+    return;
+  }
 
   // Every var is load-bearing (ablation-tested): the CLI stamps the per-turn
   // traceparent only once its OTel tracer initializes, and the dead endpoint
@@ -204,53 +345,18 @@ function buildEnvironment(
   // inside the CLI and can redirect the endpoint or turn on content capture
   // (OTEL_LOG_TOOL_CONTENT, …) — pre-existing settingSources exposure, not
   // closable from here; hardening tracked separately.
-  const gatewayTracing: Record<string, string> = gateway?.anthropicBaseUrl
-    ? {
-        CLAUDE_CODE_ENABLE_TELEMETRY: "1",
-        CLAUDE_CODE_ENHANCED_TELEMETRY_BETA: "1",
-        CLAUDE_CODE_PROPAGATE_TRACEPARENT: "1",
-        OTEL_TRACES_EXPORTER: "otlp",
-        OTEL_EXPORTER_OTLP_PROTOCOL: "http/json",
-        OTEL_EXPORTER_OTLP_ENDPOINT:
-          process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? "http://127.0.0.1:9",
-      }
-    : {};
+  env.CLAUDE_CODE_ENABLE_TELEMETRY = "1";
+  env.CLAUDE_CODE_ENHANCED_TELEMETRY_BETA = "1";
+  env.CLAUDE_CODE_PROPAGATE_TRACEPARENT = "1";
+  env.OTEL_TRACES_EXPORTER = "otlp";
+  env.OTEL_EXPORTER_OTLP_PROTOCOL = "http/json";
+  env.OTEL_EXPORTER_OTLP_ENDPOINT =
+    process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? "http://127.0.0.1:9";
 
-  const env: Record<string, string> = {
-    ...process.env,
-    ...gatewayTracing,
-    // Explicit gateway values win over whatever happens to be in process.env.
-    // This prevents concurrent Agent instances from clobbering each other's
-    // gateway config when process.env was mutated globally.
-    ...(gateway?.anthropicBaseUrl && {
-      ANTHROPIC_BASE_URL: gateway.anthropicBaseUrl,
-    }),
-    ...(gateway?.anthropicAuthToken && {
-      ANTHROPIC_AUTH_TOKEN: gateway.anthropicAuthToken,
-      ANTHROPIC_API_KEY: gateway.anthropicAuthToken,
-    }),
-    ...(gateway?.openaiBaseUrl && { OPENAI_BASE_URL: gateway.openaiBaseUrl }),
-    ...(gateway?.openaiApiKey && { OPENAI_API_KEY: gateway.openaiApiKey }),
-    ...((process.versions.electron || process.env.ELECTRON_RUN_AS_NODE) && {
-      ELECTRON_RUN_AS_NODE: "1",
-    }),
-    CLAUDE_CODE_ENABLE_ASK_USER_QUESTION_TOOL: "true",
-    // Offload all MCP tools by default
-    ENABLE_TOOL_SEARCH: "auto:0",
-    // Enable idle state as end-of-turn signal (required for SDK 0.2.114+)
-    CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1",
-    ...(mcpNonblocking !== undefined && {
-      MCP_CONNECTION_NONBLOCKING: mcpNonblocking,
-    }),
-    ANTHROPIC_CUSTOM_HEADERS: customHeaders,
-  };
-  if (gateway?.anthropicBaseUrl) {
-    // The CLI parents every turn under an inherited ambient TRACEPARENT,
-    // collapsing the per-turn trace ids this block exists to produce.
-    delete env.TRACEPARENT;
-    delete env.TRACESTATE;
-  }
-  return env;
+  // The CLI parents every turn under an inherited ambient TRACEPARENT,
+  // collapsing the per-turn trace ids this block exists to produce.
+  delete env.TRACEPARENT;
+  delete env.TRACESTATE;
 }
 
 function buildHooks(
@@ -377,19 +483,45 @@ function getAbortController(
 
 function buildSpawnWrapper(
   sessionId: string,
-  onProcessSpawned: (info: ProcessSpawnedInfo) => void,
+  onProcessSpawned?: (info: ProcessSpawnedInfo) => void,
   onProcessExited?: (pid: number) => void,
   logger?: Logger,
+  oauthToken?: string,
+  onStartupOutput?: (stdout: Readable) => void,
 ): (options: SpawnOptions) => SpawnedProcess {
   return (spawnOpts: SpawnOptions): SpawnedProcess => {
-    const child = spawn(spawnOpts.command, spawnOpts.args, {
+    const command = oauthToken ? "/bin/bash" : spawnOpts.command;
+    const args = oauthToken
+      ? [
+          "-p",
+          "-c",
+          'exec "$@" 3< <(/bin/cat <&3)',
+          "--",
+          spawnOpts.command,
+          ...spawnOpts.args,
+        ]
+      : spawnOpts.args;
+    const child = spawn(command, args, {
       cwd: spawnOpts.cwd,
-      env: spawnOpts.env as NodeJS.ProcessEnv,
-      stdio: ["pipe", "pipe", "pipe"],
+      env: {
+        ...spawnOpts.env,
+        ...(oauthToken ? { CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3" } : {}),
+      },
+      stdio: oauthToken
+        ? ["pipe", "pipe", "pipe", "pipe"]
+        : ["pipe", "pipe", "pipe"],
     });
 
+    if (child.stdout) onStartupOutput?.(child.stdout);
+
+    if (oauthToken) {
+      const tokenPipe = child.stdio[3] as Writable;
+      tokenPipe.on("error", () => child.kill("SIGTERM"));
+      tokenPipe.end(oauthToken);
+    }
+
     if (child.pid) {
-      onProcessSpawned({
+      onProcessSpawned?.({
         pid: child.pid,
         command: `${spawnOpts.command} ${spawnOpts.args.join(" ")}`,
         sessionId,
@@ -473,6 +605,22 @@ function isLegacyJavaScriptClaudeExecutable(executablePath: string): boolean {
 export function buildSessionOptions(params: BuildOptionsParams): Options {
   ensureLocalSettings(params.cwd);
 
+  // Gateway sessions get the traceparent hook (see session/traceparent-hook.ts)
+  // so each turn's gateway trace id reaches the session as a `hook_response`.
+  // `--settings` is the one hook channel that needs no settingSources; skipped
+  // when the caller supplies its own settings (either the SDK `settings`
+  // option or a raw `extraArgs` flag — both reach the same CLI flag, and the
+  // SDK silently drops the extraArgs one on collision) rather than clobbering
+  // it. The hook command is POSIX shell, so Windows Desktop hosts skip it.
+  const traceparentHookSettings =
+    params.gatewayEnv?.anthropicBaseUrl &&
+    params.traceparentHookNonce &&
+    process.platform !== "win32" &&
+    params.userProvidedOptions?.settings === undefined &&
+    params.userProvidedOptions?.extraArgs?.settings === undefined
+      ? buildTraceparentHookSettingsJson(params.traceparentHookNonce)
+      : undefined;
+
   // Resolve which built-in tools to expose.
   // Explicit tools array from userProvidedOptions takes precedence.
   // disableBuiltInTools is a legacy shorthand for tools: [] — kept for
@@ -485,7 +633,9 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
 
   const agents = buildAgents(params.userProvidedOptions?.agents);
   const registeredAgentNames = new Set(Object.keys(agents));
-  const claudeCodeExecutable = process.env.CLAUDE_CODE_EXECUTABLE;
+  const claudeCodeExecutable = params.machineAuth?.oauthToken
+    ? undefined
+    : process.env.CLAUDE_CODE_EXECUTABLE;
 
   const options: Options = {
     ...params.userProvidedOptions,
@@ -507,13 +657,28 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     extraArgs: {
       ...params.userProvidedOptions?.extraArgs,
       "replay-user-messages": "",
+      ...(traceparentHookSettings && { settings: traceparentHookSettings }),
     },
+    // Surfaces the traceparent hook's output as `hook_response` messages.
+    includeHookEvents:
+      !!params.onStartupOutput ||
+      (params.userProvidedOptions?.includeHookEvents ??
+        traceparentHookSettings !== undefined),
     mcpServers: buildMcpServers(
       params.userProvidedOptions?.mcpServers,
       params.mcpServers,
       loadUserClaudeJsonMcpServers(params.cwd, params.logger),
     ),
-    env: buildEnvironment(params.gatewayEnv, params.sessionId),
+    // Feedback events stamp the task id as $ai_session_id, so generations
+    // carry the same id for LLMA to group a task's runs and ratings together.
+    // A session without a task keeps the agent session id.
+    env: buildEnvironment(
+      params.gatewayEnv,
+      params.taskId ?? params.sessionId,
+      params.bedrockGatewayVariant,
+      params.contextWiki,
+      params.machineAuth,
+    ),
     hooks: buildHooks(
       params.userProvidedOptions?.hooks,
       params.onModeChange,
@@ -535,15 +700,52 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     abortController: getAbortController(
       params.userProvidedOptions?.abortController,
     ),
-    ...(params.onProcessSpawned && {
+    ...((params.onProcessSpawned ||
+      params.machineAuth?.oauthToken ||
+      params.onStartupOutput) && {
       spawnClaudeCodeProcess: buildSpawnWrapper(
         params.sessionId,
         params.onProcessSpawned,
         params.onProcessExited,
         params.logger,
+        params.machineAuth?.oauthToken,
+        params.onStartupOutput,
       ),
     }),
   };
+
+  if (params.machineAuth?.oauthToken) {
+    delete options.pathToClaudeCodeExecutable;
+    delete options.executable;
+    delete options.executableArgs;
+    if (typeof options.settings === "string")
+      throw new Error("Cloud subscription settings must be an object.");
+    const extraSettings = options.extraArgs?.settings;
+    const inlineSettings: Settings = extraSettings
+      ? JSON.parse(extraSettings)
+      : {};
+    if (options.extraArgs) delete options.extraArgs.settings;
+    options.settings = {
+      ...inlineSettings,
+      ...options.settings,
+      apiKeyHelper: "",
+      env: {
+        ...inlineSettings.env,
+        ...options.settings?.env,
+        ...Object.fromEntries(
+          [...MACHINE_AUTH_STRIPPED_KEYS, ...CLOUD_AUTH_STRIPPED_KEYS].map(
+            (key) => [key, ""],
+          ),
+        ),
+        NODE_TLS_REJECT_UNAUTHORIZED: "1",
+        ANTHROPIC_BASE_URL: "https://api.anthropic.com",
+        CLAUDE_CODE_OAUTH_TOKEN: "",
+        CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR: "3",
+        CLAUDE_CODE_REMOTE: "",
+        CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "0",
+      },
+    };
+  }
 
   if (claudeCodeExecutable) {
     options.pathToClaudeCodeExecutable = claudeCodeExecutable;
@@ -560,8 +762,10 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     options.model = DEFAULT_MODEL;
   }
 
-  if (!options.fallbackModel && options.model !== FALLBACK_MODEL) {
-    options.fallbackModel = FALLBACK_MODEL;
+  if (!options.fallbackModel && !params.machineAuth) {
+    options.fallbackModel = resolveFallbackModel(
+      options.model ?? DEFAULT_MODEL,
+    );
   }
 
   if (params.additionalDirectories) {

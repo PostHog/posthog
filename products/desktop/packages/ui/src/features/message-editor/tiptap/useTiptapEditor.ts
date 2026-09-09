@@ -68,6 +68,8 @@ export interface UseTiptapEditorOptions {
     bashMode?: boolean;
   };
   clearOnSubmit?: boolean;
+  /** What the composer starts from when this session has no draft yet. */
+  initialContent?: string;
   getPromptHistory?: () => string[];
   onPromptRecall?: PromptRecallHandler;
   onBeforeSubmit?: (text: string, clearEditor: () => void) => boolean;
@@ -246,6 +248,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
     context,
     capabilities = {},
     clearOnSubmit = true,
+    initialContent,
     getPromptHistory,
     onPromptRecall,
     onBeforeSubmit,
@@ -737,7 +740,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
     [sessionId, disabled, fileMentions, commands, placeholder],
   );
 
-  const draft = useDraftSync(editor, sessionId, context);
+  const draft = useDraftSync(editor, sessionId, context, initialContent);
   draftRef.current = draft;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `editor` is the trigger: a recreated editor brings a new schema, and restoring a snapshot taken against the old one would throw on replaceWith.
@@ -776,6 +779,14 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.restoredAttachments, updateAttachments]);
 
+  const clear = useCallback(() => {
+    editor?.commands.clearContent();
+    prevBashModeRef.current = false;
+    pasteCountRef.current = 0;
+    updateAttachments([]);
+    draft.clearDraft();
+  }, [editor, draft, updateAttachments]);
+
   const submit = useCallback(() => {
     if (!editor) return;
     if (disabled || submitDisabled) return;
@@ -789,11 +800,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
 
     const doClear = () => {
       if (!clearOnSubmit) return;
-      editor.commands.clearContent();
-      prevBashModeRef.current = false;
-      pasteCountRef.current = 0;
-      updateAttachments([]);
-      draft.clearDraft();
+      clear();
     };
 
     if (enableBashMode && isBashModeDoc(editor, text)) {
@@ -810,7 +817,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
       const serialized = contentToXml(content);
 
       if (callbackRefs.current.onBeforeSubmit) {
-        if (!callbackRefs.current.onBeforeSubmit(serialized, doClear)) {
+        if (!callbackRefs.current.onBeforeSubmit(serialized, clear)) {
           return;
         }
       }
@@ -829,7 +836,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
     clearOnSubmit,
     attachments,
     enableBashMode,
-    updateAttachments,
+    clear,
   ]);
 
   submitRef.current = submit;
@@ -842,12 +849,6 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
     }
   }, [editor]);
   const blur = useCallback(() => editor?.commands.blur(), [editor]);
-  const clear = useCallback(() => {
-    editor?.commands.clearContent();
-    prevBashModeRef.current = false;
-    updateAttachments([]);
-    draft.clearDraft();
-  }, [editor, draft, updateAttachments]);
   const getText = useCallback(() => editor?.getText() ?? "", [editor]);
   const setContent = useCallback(
     (content: string | EditorContent) => {
@@ -887,6 +888,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
         type: chip.type,
         id: chip.id,
         label: chip.label,
+        objectKind: chip.objectKind,
         pastedText: false,
         chipId: chip.chipId,
         skillPath: chip.skillPath,

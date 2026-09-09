@@ -3,7 +3,13 @@ import type { CaptureOptions } from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 
-import { SignalReport, SignalReportActionability, SignalReportPriority, SignalRunKind } from './types'
+import {
+    InboxReportSectionKey,
+    SignalReport,
+    SignalReportActionability,
+    SignalReportPriority,
+    SignalRunKind,
+} from './types'
 
 /**
  * Inbox telemetry. Mirrors the desktop "Code" app's inbox analytics (event names + property
@@ -13,10 +19,14 @@ import { SignalReport, SignalReportActionability, SignalReportPriority, SignalRu
  */
 export const INBOX_CLIENT = 'cloud' as const
 
+// pinned: analytics event names - dashboards, funnels, and alerts read these strings, and the
+// desktop app sends the same ones, so renaming one splits its series in two.
 export const INBOX_EVENTS = {
     VIEWED: 'Inbox viewed',
     WELCOME_VIEWED: 'Inbox welcome viewed',
     WELCOME_COMMAND_COPIED: 'Inbox welcome command copied',
+    WELCOME_MANUAL_SETUP_CLICKED: 'Inbox welcome manual setup clicked',
+    INTRO_MODAL_VIEWED: 'Inbox intro modal viewed',
     PANEL_VIEWED: 'Inbox panel viewed',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
@@ -39,17 +49,30 @@ export const INBOX_EVENTS = {
     SCOUT_CONFIG_CHANGED: 'Scout config changed',
     SCOUT_ACTION: 'Scout action',
     SCOUT_CHAT_STARTED: 'Scout chat started',
+    // The pre-computed "Suggested for this project" strip. Cloud-only for now — desktop has no
+    // suggestions surface — so these carry `inbox_client: 'cloud'` on every row.
+    SCOUT_SUGGESTIONS_SHOWN: 'Scout suggestions shown',
+    SCOUT_SUGGESTION_CLICKED: 'Scout suggestion clicked',
+    SCOUT_SUGGESTION_CREATED: 'Scout suggestion created',
+    SCOUT_SUGGESTION_DISMISSED: 'Scout suggestion dismissed',
+    SCOUT_SUGGESTIONS_REFRESHED: 'Scout suggestions refreshed',
     RUN_OPENED: 'Inbox run opened',
     ONBOARDING_DECIDED: 'Inbox onboarding decided',
 } as const
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
 
-/** Action surface an `Inbox report action` fired from. */
-export type InboxReportActionSurface = 'detail_pane' | 'detail_footer' | 'list_row' | 'bulk_bar'
+/** Action surface an `Inbox report action` fired from. `context_menu` is the right-click menu on a list row. */
+export type InboxReportActionSurface =
+    | 'detail_pane'
+    | 'detail_footer'
+    | 'list_row'
+    | 'bulk_bar'
+    | 'triage_mode'
+    | 'context_menu'
 
-/** How a report detail was opened. */
-export type InboxReportOpenMethod = 'click' | 'deeplink' | 'unknown'
+/** How a report detail was opened. `triage` is the open-report shortcut in triage mode. */
+export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'
 
 /**
  * How a report detail was closed. `page_unload` is a tab close or hard page navigation: the scene
@@ -62,22 +85,49 @@ export type InboxReportFeedbackSentiment = 'positive' | 'negative'
 
 /**
  * Report actions cloud actually emits. Names match the desktop enum one-for-one (so the
- * `action_type` breakdown reads the same across clients), plus cloud-only `restore` (Archive tab),
- * `view_diff`, and the section expand/collapse pair (desktop splits those per section instead).
+ * `action_type` breakdown reads the same across clients), plus cloud-only `restore` (Dismissed
+ * section), `resolve` (marking a report done without an inbox PR), `view_diff`, `show_more` (a list
+ * section widening its window), and the section expand/collapse pair (desktop splits those per
+ * section instead).
  * Desktop-only variants we don't fire yet are intentionally omitted.
  */
 export type InboxReportActionType =
     | 'dismiss'
+    | 'resolve'
     | 'discuss'
     | 'restore'
     | 'create_pr'
     | 'refund'
     | 'open_pr'
     | 'view_diff'
+    | 'show_more'
     | 'expand_section'
     | 'collapse_section'
     | 'add_suggested_reviewer'
     | 'remove_suggested_reviewer'
+
+/**
+ * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as
+ * written, `edited_suggestion` one the reader changed first, and `typed` one written from scratch.
+ */
+export type InboxQuestionSource = 'suggested' | 'edited_suggestion' | 'typed'
+
+/**
+ * Extra properties the `discuss` {@link captureInboxReportAction} carries. Without them the event
+ * records that a question was asked and nothing about where it came from, so there is no way to tell
+ * whether the suggestions are worth offering. `suggestion_count` is what makes `question_source`
+ * readable: a `typed` question on a report that offered none is not evidence against suggestions.
+ *
+ * The question text itself is deliberately absent, like the list's search term: it is incidental
+ * typing that can name a customer's own entities.
+ */
+// pinned: analytics property names — renaming breaks dashboards
+export function discussQuestionProperties(params: {
+    source: InboxQuestionSource
+    suggestionCount: number
+}): Record<string, unknown> {
+    return { question_source: params.source, suggestion_count: params.suggestionCount }
+}
 
 /**
  * Whether a task-kickoff action (`discuss` / `create_pr`) actually produced a task. The press itself
@@ -87,19 +137,31 @@ export type InboxReportActionType =
  */
 export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limited'
 
-/** Panels that replace the report list and so never fire `Inbox viewed`. */
-export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings'
+/**
+ * Panels that replace the report list and so never fire `Inbox viewed`. `config` is the Settings
+ * tab; the value predates the rename and stays so the panel breakdown reads continuously.
+ */
+export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings' | 'triage'
 
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
-export type InboxQueryChange = 'scope' | 'sort' | 'source_product' | 'scout' | 'priority' | 'search' | 'clear' | 'url'
+export type InboxQueryChange =
+    | 'scope'
+    | 'sort'
+    | 'source_product'
+    | 'scout'
+    | 'priority'
+    | 'state'
+    | 'search'
+    | 'clear'
+    | 'url'
 
 /** Surface a scout-management event fired from. Matches the desktop values. */
-export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state'
+export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner'
 
 /**
- * Scout-management actions. The first block matches desktop's enum; the trailing three are
- * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, and the
- * scratchpad callout).
+ * Scout-management actions. The first block matches desktop's enum; the trailing block is
+ * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, the
+ * scratchpad callout, and the roster's on/off filter, owner filter, and search).
  */
 export type ScoutActionType =
     | 'open_settings'
@@ -119,9 +181,13 @@ export type ScoutActionType =
     | 'copy_finding_link'
     | 'open_task_run'
     | 'open_linked_report'
+    | 'open_create_modal'
     | 'create_scout'
     | 'delete_scout'
     | 'open_memory'
+    | 'filter_enabled'
+    | 'filter_owner'
+    | 'search_scouts'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
@@ -144,6 +210,7 @@ interface BaseReportProperties {
     report_age_hours: number
     priority: SignalReportPriority | null
     actionability: SignalReportActionability | null
+    has_pr: boolean
 }
 
 /**
@@ -158,6 +225,7 @@ function baseReportProperties(report: SignalReport): BaseReportProperties {
         report_age_hours: reportAgeHours(report),
         priority: report.priority ?? null,
         actionability: report.actionability ?? null,
+        has_pr: !!report.implementation_pr_url,
     }
 }
 
@@ -193,56 +261,79 @@ function actionabilityBreakdown(reports: SignalReport[]): Record<string, number>
     }
 }
 
-/** Which welcome takeover a user saw: the original stacked card or the redesigned hero. */
-export type InboxWelcomeVariant = 'control' | 'redesign'
-
 /** Where a wizard-command copy happened: the full welcome takeover or the re-enable banner. */
 export type InboxWelcomeCopySurface = 'takeover' | 'banner'
 
 /**
  * The self-driving welcome takeover rendered. `Inbox viewed` never fires for un-set-up teams (the
- * takeover replaces the report list), so this is the top-of-funnel event for setup conversion, and
- * the exposure marker for welcome-page experiments (`variant` mirrors the experiment arm).
+ * takeover replaces the report list), so this is the top-of-funnel event for setup conversion.
  */
-export function captureInboxWelcomeViewed(params: { variant: InboxWelcomeVariant }): void {
-    captureInboxEvent(INBOX_EVENTS.WELCOME_VIEWED, {
-        variant: params.variant,
-    })
+export function captureInboxWelcomeViewed(): void {
+    captureInboxEvent(INBOX_EVENTS.WELCOME_VIEWED, {})
 }
 
 /**
  * The wizard setup command was copied. Previously only recoverable from autocapture (and
  * unreliably: `$el_text` is null on about half of clicks), so the setup funnel's first
- * conversion step gets its own event. `variant` is null on the banner, which shows one
- * fixed layout regardless of the welcome experiment.
+ * conversion step gets its own event.
  */
-export function captureInboxWelcomeCommandCopied(params: {
-    variant: InboxWelcomeVariant | null
-    surface: InboxWelcomeCopySurface
-}): void {
+export function captureInboxWelcomeCommandCopied(params: { surface: InboxWelcomeCopySurface }): void {
     captureInboxEvent(INBOX_EVENTS.WELCOME_COMMAND_COPIED, {
-        variant: params.variant,
         surface: params.surface,
     })
 }
 
+/**
+ * The takeover's "Set up manually" escape hatch was pressed. Sits next to
+ * {@link captureInboxWelcomeCommandCopied} as the other exit from the welcome page, so the two
+ * together say how a team chose to set self-driving up. Without it a manual setup is invisible:
+ * the wizard copy never fires, and the sources and scouts that follow look like they came from
+ * nowhere.
+ */
+export function captureInboxWelcomeManualSetupClicked(): void {
+    captureInboxEvent(INBOX_EVENTS.WELCOME_MANUAL_SETUP_CLICKED, {})
+}
+
+/**
+ * The self-driving intro modal rendered (opened from the Code badge next to PostHog AI). The
+ * click-through to the inbox is recoverable as this event followed by an inbox view in the same
+ * session, so the modal only needs its own top-of-funnel marker.
+ */
+export function captureSelfDrivingIntroModalViewed(): void {
+    captureInboxEvent(INBOX_EVENTS.INTRO_MODAL_VIEWED, {})
+}
+
+/**
+ * The report list settled for the first time in a tab mount. `report_count` / `total_count` describe
+ * the active tab's list only (and `report_count` is capped at the loaded page), so the headline
+ * "how many reports does this user have" numbers are `pulls_tab_count` / `reports_tab_count`: the tab badge
+ * counts, sent on every view regardless of which tab is open (same shape as the desktop event).
+ * A badge count is null only if its request failed.
+ */
 export function captureInboxViewed(params: {
     tab: string
     reports: SignalReport[]
     totalCount: number
+    pullsTabCount: number | null
+    reportsTabCount: number | null
     hasActiveFilters: boolean
     sourceProductFilter: string[]
     priorityFilter: string[]
+    /** Selected report states on the flat Reports list; [] (every state) on other surfaces. */
+    stateFilter?: string[]
     scope: string
 }): void {
     captureInboxEvent(INBOX_EVENTS.VIEWED, {
         tab: params.tab,
         report_count: params.reports.length,
         total_count: params.totalCount,
+        pulls_tab_count: params.pullsTabCount,
+        reports_tab_count: params.reportsTabCount,
         is_empty: params.totalCount === 0,
         has_active_filters: params.hasActiveFilters,
         source_product_filter: params.sourceProductFilter,
         priority_filter: params.priorityFilter,
+        state_filter: params.stateFilter ?? [],
         scope: params.scope,
         ...priorityBreakdown(params.reports),
         ...actionabilityBreakdown(params.reports),
@@ -286,12 +377,18 @@ export function captureInboxReportsImpressed(params: {
     })
 }
 
+/**
+ * `section` is the Reports list section the row was opened from, so "opened from Resolved" and
+ * "opened from Needs decision" are one breakdown. Null when the report isn't in a loaded list
+ * (a cold deep-link), in which case `rank` and `list_size` are null too.
+ */
 export function captureInboxReportOpened(params: {
     report: SignalReport
     openMethod: InboxReportOpenMethod
     previousReportId: string | null
     rank: number | null
     listSize: number | null
+    section: InboxReportSectionKey | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.REPORT_OPENED, {
         ...baseReportProperties(params.report),
@@ -301,6 +398,7 @@ export function captureInboxReportOpened(params: {
         previous_report_id: params.previousReportId,
         rank: params.rank,
         list_size: params.listSize,
+        section: params.section,
     })
 }
 
@@ -355,7 +453,7 @@ export function captureInboxReportAction(params: {
 }): void {
     const base = params.report
         ? baseReportProperties(params.report)
-        : { report_id: null, report_age_hours: 0, priority: null, actionability: null }
+        : { report_id: null, report_age_hours: 0, priority: null, actionability: null, has_pr: false }
     captureInboxEvent(INBOX_EVENTS.REPORT_ACTION, {
         ...base,
         action_type: params.actionType,
@@ -483,9 +581,9 @@ export function captureInboxReportActionCompleted(params: {
 }
 
 /**
- * A surface that replaces the report list (Runs, Configuration, and the two scout panels). None of
- * them render `InboxReportList`, so without this they're invisible — `Inbox viewed` only ever fires
- * for the flat report tabs.
+ * A surface that replaces the report list (Runs, Settings, triage mode, and the two scout panels).
+ * None of them render the Reports sections, so without this they're invisible — `Inbox viewed` only
+ * ever fires for the report views.
  */
 export function captureInboxPanelViewed(params: { panel: InboxPanelName; itemCount?: number | null }): void {
     captureInboxEvent(INBOX_EVENTS.PANEL_VIEWED, {
@@ -512,6 +610,7 @@ export function captureInboxQueryChanged(params: {
     sourceProductFilter: string[]
     scoutFilter: string[]
     priorityFilter: string[]
+    stateFilter: string[]
     searchQuery: string
     hasActiveFilters: boolean
 }): void {
@@ -525,6 +624,7 @@ export function captureInboxQueryChanged(params: {
         source_product_filter: params.sourceProductFilter,
         scout_filter: params.scoutFilter,
         priority_filter: params.priorityFilter,
+        state_filter: params.stateFilter,
         has_search: search.length > 0,
         search_length: search.length,
         has_active_filters: params.hasActiveFilters,
@@ -565,12 +665,30 @@ function settingValueProperties(key: string, value: unknown): Record<string, unk
     return { [key]: value ?? null, [`${key}_size`]: null }
 }
 
+/**
+ * How the fleet materialization that preceded this view ended. The roster keeps its existing list
+ * when the sync is refused, so without this an `is_empty: true` view from a viewer who cannot write
+ * looks exactly like one from a project whose fleet genuinely failed to arrive.
+ */
+export type ScoutFleetSyncOutcome =
+    /** The sync ran and answered with the fleet. */
+    | 'synced'
+    /** No sync was issued — the roster opened before a project was resolved. */
+    | 'not_attempted'
+    /** 403: a member without `signal_scout:write`. The roster shows whatever the list read returned. */
+    | 'skipped_permission'
+    /** 404: a stale project id, usually left in the URL by a project switch. */
+    | 'not_found'
+    /** Anything else, including a 5xx. */
+    | 'failed'
+
 /** Roster shape at the moment the scout troop list was opened. Mirrors desktop's `Scout fleet viewed`. */
 export function captureScoutFleetViewed(params: {
     scoutCount: number
     enabledCount: number
     customCount: number
     dryRunCount: number
+    syncOutcome: ScoutFleetSyncOutcome
 }): void {
     captureInboxEvent(INBOX_EVENTS.SCOUT_FLEET_VIEWED, {
         scout_count: params.scoutCount,
@@ -578,6 +696,7 @@ export function captureScoutFleetViewed(params: {
         custom_count: params.customCount,
         dry_run_count: params.dryRunCount,
         is_empty: params.scoutCount === 0,
+        sync_outcome: params.syncOutcome,
     })
 }
 
@@ -687,4 +806,93 @@ export function captureScoutChatStarted(params: {
         surface: params.surface,
         skill_name: params.skillName ?? null,
     })
+}
+
+/** Where a suggestion card was rendered: the strip above the roster, or the empty state's body. */
+export type ScoutSuggestionSurface = 'strip' | 'empty_state'
+
+/** Which offer a suggestion card makes. Mirrors the API's `kind`. */
+export type ScoutSuggestionKind = 'canonical' | 'custom'
+
+/** What the person did with a suggestion card, beyond creating or dismissing it. */
+export type ScoutSuggestionClickTarget = 'turn_on' | 'create' | 'refine_with_ai'
+
+/** What the person pressed to reach that target: the action row's button, or the card body. */
+export type ScoutSuggestionClickVia = 'button' | 'card'
+
+/** How a suggestion became a scout: the create API in place, or a chat the person drove. */
+export type ScoutSuggestionCreatedVia = 'api' | 'chat'
+
+/** How a refresh request ended, from the endpoint's answer. */
+export type ScoutSuggestionsRefreshOutcome = 'accepted' | 'running' | 'capped' | 'failed'
+
+/**
+ * The suggestion batch as it was first rendered this visit. Without it a batch nobody acts on is
+ * indistinguishable from one nobody was shown, which is exactly the gap that left the producer
+ * running unread.
+ */
+export function captureScoutSuggestionsShown(params: {
+    count: number
+    status: string
+    ageHours: number | null
+    collapsed: boolean
+    surface: ScoutSuggestionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTIONS_SHOWN, {
+        suggestion_count: params.count,
+        batch_status: params.status,
+        batch_age_hours: params.ageHours,
+        collapsed: params.collapsed,
+        surface: params.surface,
+    })
+}
+
+/** One of a suggestion card's actions was pressed. `via` separates the card body from the button. */
+export function captureScoutSuggestionClicked(params: {
+    kind: ScoutSuggestionKind
+    skillName: string
+    target: ScoutSuggestionClickTarget
+    via: ScoutSuggestionClickVia
+    surface: ScoutSuggestionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTION_CLICKED, {
+        suggestion_kind: params.kind,
+        skill_name: params.skillName,
+        click_target: params.target,
+        via: params.via,
+        surface: params.surface,
+    })
+}
+
+/** A suggestion turned into a running scout. `via` separates the one-click paths from the chat. */
+export function captureScoutSuggestionCreated(params: {
+    kind: ScoutSuggestionKind
+    skillName: string
+    via: ScoutSuggestionCreatedVia
+    surface: ScoutSuggestionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTION_CREATED, {
+        suggestion_kind: params.kind,
+        skill_name: params.skillName,
+        via: params.via,
+        surface: params.surface,
+    })
+}
+
+/** A suggestion was hidden. Dismissals are remembered by skill name, so this is the rejection signal. */
+export function captureScoutSuggestionDismissed(params: {
+    kind: ScoutSuggestionKind
+    skillName: string
+    surface: ScoutSuggestionSurface
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTION_DISMISSED, {
+        suggestion_kind: params.kind,
+        skill_name: params.skillName,
+        surface: params.surface,
+    })
+}
+
+/** A refresh was asked for, and what the endpoint said. Refreshes cost a scan, so the cap matters. */
+export function captureScoutSuggestionsRefreshed(params: { outcome: ScoutSuggestionsRefreshOutcome }): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_SUGGESTIONS_REFRESHED, { outcome: params.outcome })
 }

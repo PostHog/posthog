@@ -1,8 +1,6 @@
 import { initTRPC } from "@trpc/server";
 import superjson from "superjson";
 import { z } from "zod";
-import { connectivityStatusOutput } from "./services/connectivity/schemas";
-import type { ConnectivityService } from "./services/connectivity/service";
 import {
   createEnvironmentInput,
   deleteEnvironmentInput,
@@ -50,8 +48,6 @@ import {
   changedFilesOutput,
   checkoutBranchInput,
   checkoutBranchOutput,
-  cleanupAfterCloudHandoffInput,
-  cleanupAfterCloudHandoffOutput,
   cloneRepositoryInput,
   cloneRepositoryOutput,
   commitInput,
@@ -121,8 +117,6 @@ import {
   pullOutput,
   pushInput,
   pushOutput,
-  readHandoffLocalGitStateInput,
-  readHandoffLocalGitStateOutput,
   replyToPrCommentInput,
   replyToPrCommentOutput,
   resetSoftInput,
@@ -139,16 +133,12 @@ import {
 } from "./services/git/schemas";
 import type { GitService } from "./services/git/service";
 import {
-  countLocalLogEntriesInput,
-  countLocalLogEntriesOutput,
-  deleteLocalLogCacheInput,
   readLocalLogsCollapsedInput,
   readLocalLogsCollapsedOutput,
   readLocalLogsInput,
   readLocalLogsOutput,
   readLocalLogsTailInput,
   readLocalLogsTailOutput,
-  seedLocalLogsInput,
   writeLocalLogsInput,
 } from "./services/local-logs/schemas";
 import type { LocalLogsService } from "./services/local-logs/service";
@@ -162,24 +152,6 @@ import type { WatcherService } from "./services/watcher/service";
 
 const t = initTRPC.create({ transformer: superjson });
 
-export {
-  type FocusBranchRenamedEvent,
-  type FocusForeignBranchCheckoutEvent,
-  type FocusResult,
-  type FocusSession,
-  focusBranchRenamedEventSchema,
-  focusForeignBranchCheckoutEventSchema,
-  focusResultSchema,
-  focusSessionSchema,
-  type StashResult,
-  stashResultSchema,
-} from "./services/focus/schemas";
-export { type DiffStats, diffStatsSchema } from "./services/git/schemas";
-export {
-  type FileWatcherEvent,
-  FileWatcherEventKind,
-} from "./services/watcher/schemas";
-
 export interface WorkspaceServerServices {
   focusService: FocusService;
   focusSyncService: FocusSyncService;
@@ -187,7 +159,6 @@ export interface WorkspaceServerServices {
   fsService: FsService;
   watcherService: WatcherService;
   localLogsService: LocalLogsService;
-  connectivityService: ConnectivityService;
   environmentService: EnvironmentService;
 }
 
@@ -198,7 +169,6 @@ export function createAppRouter({
   fsService: fsServiceInst,
   watcherService: watcherServiceInst,
   localLogsService: localLogsServiceInst,
-  connectivityService: connectivityServiceInst,
   environmentService: environmentServiceInst,
 }: WorkspaceServerServices) {
   const focusService = () => focusServiceInst;
@@ -207,7 +177,6 @@ export function createAppRouter({
   const fsService = () => fsServiceInst;
   const watcherService = () => watcherServiceInst;
   const localLogsService = () => localLogsServiceInst;
-  const connectivityService = () => connectivityServiceInst;
   const environmentService = () => environmentServiceInst;
 
   return t.router({
@@ -714,23 +683,6 @@ export function createAppRouter({
           ),
         ),
 
-      readHandoffLocalGitState: t.procedure
-        .input(readHandoffLocalGitStateInput)
-        .output(readHandoffLocalGitStateOutput)
-        .query(({ input }) =>
-          gitService().readHandoffLocalGitState(input.directoryPath),
-        ),
-
-      cleanupAfterCloudHandoff: t.procedure
-        .input(cleanupAfterCloudHandoffInput)
-        .output(cleanupAfterCloudHandoffOutput)
-        .mutation(({ input }) =>
-          gitService().cleanupAfterCloudHandoff(
-            input.directoryPath,
-            input.branchName,
-          ),
-        ),
-
       getDiffStats: t.procedure
         .input(diffStatsInput)
         .output(diffStatsSchema)
@@ -924,42 +876,6 @@ export function createAppRouter({
         .mutation(({ input }) =>
           localLogsService().writeLocalLogs(input.taskRunId, input.content),
         ),
-
-      seed: t.procedure
-        .input(seedLocalLogsInput)
-        .mutation(({ input }) =>
-          localLogsService().seedLocalLogs(input.taskRunId, input.content),
-        ),
-
-      count: t.procedure
-        .input(countLocalLogEntriesInput)
-        .output(countLocalLogEntriesOutput)
-        .query(({ input }) =>
-          localLogsService().countLocalLogEntries(input.taskRunId),
-        ),
-
-      delete: t.procedure
-        .input(deleteLocalLogCacheInput)
-        .mutation(({ input }) =>
-          localLogsService().deleteLocalLogCache(input.taskRunId),
-        ),
-    }),
-    connectivity: t.router({
-      getStatus: t.procedure
-        .output(connectivityStatusOutput)
-        .query(() => connectivityService().getStatus()),
-
-      checkNow: t.procedure
-        .output(connectivityStatusOutput)
-        .mutation(() => connectivityService().checkNow()),
-
-      onStatusChange: t.procedure.subscription(async function* (opts) {
-        for await (const status of connectivityService().statusChangeEvents(
-          opts.signal,
-        )) {
-          yield status;
-        }
-      }),
     }),
     environment: t.router({
       list: t.procedure

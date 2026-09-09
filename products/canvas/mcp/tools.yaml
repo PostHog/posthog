@@ -28,6 +28,24 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose builds to read.
+    canvas-connectors-retrieve:
+        operation: canvases_connectors_retrieve
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List canvas connectors
+        description: >
+            List the connector catalog a canvas can read live third-party data through with `ph.connectors.call`: every
+            native provider (GitHub) and every MCP store server the authenticated user has connected, each with its
+            tools, their argument schemas, and authoring docs. Use this before writing a canvas that shows pull
+            requests, calendar events, issues, or any other data that must stay fresh per viewer, then declare each
+            provider and tool you call in the project's `capabilities.connectors`. Calls run with the VIEWER's own
+            connection at view time, never the author's, so results are never baked into the source. Only read-only
+            tools may be declared. Pass `mcp_hosts` to include a server the user has not connected yet.
     canvas-create:
         operation: canvases_create
         enabled: true
@@ -72,14 +90,16 @@ tools:
         description: >
             Build the COMPLETE source project of a canvas as a DRAFT, without changing the live canvas. The project is
             validated and built server-side exactly like a publish, but the canvas head and live build do NOT move, so
-            viewers keep seeing the current version. For a canvas that already has a live version this is the DEFAULT
-            way to save a change — the user previews and promotes it; use canvas-publish-create only for a first version
-            or when the user explicitly asked to make the change live. Returns the draft's `version_id`, its queued
-            build, and `capability_widening` — how the draft's declared capabilities grow the live version's (insights,
-            capture events, inline queries, network origins) — so added access is visible before shipping. Poll
-            canvas-builds-retrieve until the draft's build is terminal, preview the draft with canvas-source-retrieve
-            passing the returned `version_id`, then make it live with canvas-promote-create. Declare runtime
-            capabilities in `project.capabilities`.
+            viewers keep seeing the current version. Use it only when the user asked for a draft, a preview, or a review
+            step before going live; saving a change with canvas-publish-create or canvas-edit-create is the default.
+            Returns the draft's `version_id`, its queued build, and `capability_widening` — how the draft's declared
+            capabilities grow the live version's (insights, capture events, inline queries, network origins) — so added
+            access is visible before shipping. Poll canvas-builds-retrieve until the draft's build is terminal, preview
+            the draft with canvas-source-retrieve passing the returned `version_id`, then make it live with
+            canvas-promote-create. Declare runtime capabilities in `project.capabilities`. A project that shows PostHog
+            data must make every figure verifiable before staging: an insight-backed metric links its saved insight
+            (ph.openExternal with a URL from generate-app-url); an ad-hoc ph.query figure exposes the exact query that
+            ran in a modal or collapsed area.
         param_overrides:
             id:
                 description: ID of the canvas to stage a draft for.
@@ -117,8 +137,8 @@ tools:
             `expected_current_version_id` is REQUIRED (from canvas-source-retrieve; null only for a never-published
             canvas) — a stale base is rejected with 409 version_conflict; re-read the source, re-apply, and edit again.
             The edited project is validated first; error diagnostics reject the whole edit atomically. Edits go live
-            like a publish — for a canvas with a live version, default to staging the complete project as a draft with
-            canvas-draft-create instead, unless the user asked for an immediate live change.
+            like a publish, which is the default way to save a change; stage the complete project as a draft with
+            canvas-draft-create only when the user asked for a draft or a review step.
         param_overrides:
             id:
                 description: ID of the canvas whose source to edit.
@@ -218,6 +238,28 @@ tools:
                 description: Only return canvases of this kind. kind=component lists the component store.
             search:
                 description: Case-insensitive match on name and description — use to find store components by what they show.
+    canvas-move:
+        operation: canvases_partial_update
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Move canvas
+        description: >
+            Move a canvas to a visible destination space. The canvas and its full version history stay intact, but any
+            pin in the current space is cleared. Only the canvas creator can move it. A sandbox task can move a canvas
+            only within its own space; an attempted cross-space move returns 403.
+        include_params:
+            - channel_id
+        param_overrides:
+            id:
+                description: ID of the canvas to move.
+            channel_id:
+                description: ID of the visible destination space.
+                required: true
     canvas-promote-create:
         operation: canvases_promote_create
         enabled: true
@@ -250,14 +292,17 @@ tools:
         title: Publish canvas source project
         description: >
             Publish the COMPLETE source project of a canvas as its new head version and queue a server-side build.
-            Publishing goes live immediately: use it for a canvas's first version, or when the user explicitly asked to
-            make a change live — otherwise stage the change with canvas-draft-create for the user to promote. The
-            project is validated first — error diagnostics reject the publish (400) and leave the canvas untouched. Pass
+            Publishing goes live immediately and is the default way to save a change, first version or follow-up alike;
+            stage the change with canvas-draft-create only when the user asked for a draft or a review step. The project
+            is validated first — error diagnostics reject the publish (400) and leave the canvas untouched. Pass
             `expected_current_version_id` (from canvas-source-retrieve) so a concurrent edit is rejected with 409
             version_conflict instead of overwritten; on conflict, re-read the source, re-apply your edits, and publish
             against the new head. A 429 means the team's build capacity is exhausted — wait a moment and retry. Declare
-            the canvas's runtime capabilities (insights, capture events, inline queries) in `project.capabilities`. The
-            canvas lives in PostHog, not on disk — this tool is what saves it.
+            the canvas's runtime capabilities (insights, capture events, inline queries) in `project.capabilities`. A
+            project that shows PostHog data must make every figure verifiable before publishing: an insight-backed
+            metric links its saved insight (ph.openExternal with a URL from generate-app-url); an ad-hoc ph.query figure
+            exposes the exact query that ran in a modal or collapsed area. The canvas lives in PostHog, not on disk —
+            this tool is what saves it.
         param_overrides:
             id:
                 description: ID of the canvas whose source to publish.
@@ -303,6 +348,36 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose source to read.
+    canvas-state-retrieve:
+        operation: canvases_state_retrieve
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read canvas state
+        description: >
+            Read persisted `ph.state` entries for a visible canvas. Returns shared entries and the authenticated user's
+            own user-scoped entries, never another user's. Use this with canvas-source-retrieve when collaborative
+            progress, checklist selections, filters, or other runtime values live outside the source. Only scopes
+            declared by the live canvas version are readable. Optionally filter to `user` or `shared` with `scope`.
+    canvas-state-set:
+        operation: canvases_state_set
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set canvas state
+        description: >
+            Set one persisted `ph.state` key on a visible canvas, or delete it by passing a null value. `user` updates
+            only the authenticated user's private state; `shared` updates the state every viewer sees. The scope must be
+            declared by the live canvas version. Read the current entries with canvas-state-retrieve before changing
+            progress or other existing values.
     canvas-validate-create:
         operation: canvases_validate_create
         enabled: true
@@ -330,26 +405,20 @@ tools:
     canvases-build-action-create:
         operation: canvases_build_action_create
         enabled: false
+    canvases-connectors-call:
+        operation: canvases_connectors_call
+        enabled: false
     canvases-destroy:
         operation: canvases_destroy
         enabled: false
     canvases-home-create:
         operation: canvases_home_create
         enabled: false
-    canvases-partial-update:
-        operation: canvases_partial_update
-        enabled: false
     canvases-retrieve:
         operation: canvases_retrieve
         enabled: false
     canvases-revert-create:
         operation: canvases_revert_create
-        enabled: false
-    canvases-state-retrieve:
-        operation: canvases_state_retrieve
-        enabled: false
-    canvases-state-set:
-        operation: canvases_state_set
         enabled: false
     canvases-versions-retrieve:
         operation: canvases_versions_retrieve

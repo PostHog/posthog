@@ -340,17 +340,19 @@ export class CyclotronV2Worker {
     }
 
     /**
-     * Fair dequeue: orders by the precomputed `dequeue_seq` so jobs interleave
-     * across tenants instead of being strict FIFO. The sort key is assigned at
-     * insert time (see `CyclotronV2Manager.bulkCreateJobs` and the helper
+     * Fair dequeue: priority class leads the sort so transactional-class sends
+     * aren't stuck behind a broadcast backlog, then the precomputed
+     * `dequeue_seq` interleaves jobs across tenants within a class instead of
+     * being strict FIFO. The sort key is assigned at insert time (see
+     * `CyclotronV2Manager.bulkCreateJobs` and the helper
      * `cyclotron_email_team_seq`); this method just reads them back in order.
      *
-     * Hits the partial index `idx_cyclotron_jobs_email_fair_dequeue` (only
-     * indexes email-queue rows with status='available'). NULLS FIRST drains
-     * any pre-migration legacy rows ahead of new fair-ordered ones.
+     * Hits the partial index `idx_cyclotron_jobs_email_priority_fair_dequeue`
+     * (only indexes email-queue rows with status='available'). NULLS FIRST
+     * drains any pre-migration legacy rows ahead of new fair-ordered ones.
      *
-     * Email-specific by intent — but mechanically just "ORDER BY a different
-     * column", so the SQL shape mirrors `dequeueJobs` exactly. Kept as a
+     * Email-specific by intent — but mechanically just "ORDER BY different
+     * columns", so the SQL shape mirrors `dequeueJobs` exactly. Kept as a
      * separate method so non-fair callers can read `dequeueJobs` end-to-end
      * without following a conditional or an indirection.
      */
@@ -363,7 +365,7 @@ export class CyclotronV2Worker {
                 WHERE status = 'available'
                   AND queue_name = $1
                   AND scheduled <= NOW()
-                ORDER BY dequeue_seq ASC NULLS FIRST
+                ORDER BY priority ASC, dequeue_seq ASC NULLS FIRST
                 LIMIT $2
                 FOR UPDATE SKIP LOCKED
             )
@@ -394,9 +396,10 @@ export class CyclotronV2Worker {
             [this.config.queueName, limit, lockId]
         )
         // Within-batch order is undefined (UPDATE...RETURNING doesn't preserve
-        // the CTE's ORDER BY), but the fairness guarantee is *across* batches:
-        // the CTE picks the rows with the lowest dequeue_seq values, so a
-        // small-tenant job never gets stuck behind a large-tenant backlog.
+        // the CTE's ORDER BY), but the guarantee is *across* batches: the CTE
+        // picks the rows with the lowest priority, then the lowest dequeue_seq,
+        // so a transactional send never waits behind a marketing backlog and a
+        // small-tenant job never gets stuck behind a large-tenant one.
         return result.rows
     }
 
@@ -496,6 +499,10 @@ export class CyclotronV2Worker {
                 if (options?.queueName !== undefined) {
                     params.push(options.queueName)
                     setClauses.push(`queue_name = $${params.length}`)
+                }
+                if (options?.priority !== undefined) {
+                    params.push(options.priority)
+                    setClauses.push(`priority = $${params.length}`)
                 }
 
                 // Cross-queue routing into the email queue: assign a fresh

@@ -201,6 +201,7 @@ export function InfiniteSelectResults({
     const showDataWarehouseLoadingState =
         (openTab === TaxonomicFilterGroupType.DataWarehouse ||
             openTab === TaxonomicFilterGroupType.DataWarehouseSourceTables ||
+            openTab === TaxonomicFilterGroupType.DataWarehouseMaterializedViews ||
             openTab === TaxonomicFilterGroupType.DataWarehouseProperties) &&
         totalListCount === 0 &&
         isLocalDataLoading

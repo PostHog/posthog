@@ -1,13 +1,13 @@
 ---
 name: building-product-empty-states
-description: Guide for adding a product setup empty state — the skippable first-run screen a product scene shows until real data arrives, built on the shared ProductEmptyState component. Use when adding an empty state or first-run/setup screen to a product scene, declaring `emptyState` on a `SceneExport`, writing a product setup-status detection logic, building an animated example-data preview widget, or migrating away from the deprecated `ProductIntroduction` component. Covers the `productSetupStatusLogic` single-layer contract, real-data detection rules, local-only skip semantics, wizard commands, and design tokens.
+description: Guide for adding a product setup empty state — the skippable first-run screen a product scene shows until real data arrives, built on the shared ProductEmptyState component. Use when adding an empty state or first-run/setup screen to a product scene, declaring `emptyState` on a `SceneExport`, writing a product setup-status detection logic, building an animated example-data preview widget, or deciding between the scene-level `ProductEmptyState` gate and an inline `ProductIntroduction` panel. Covers the `productSetupStatusLogic` single-layer contract, real-data detection rules, local-only skip semantics, wizard commands, and design tokens.
 ---
 
 # Building product empty states
 
 Before a user has set a product up, its scene should show a setup empty state: the product pitch and install command on the left, an animated preview of the product filled with realistic example data on the right. The shared component lives in `frontend/src/lib/components/ProductEmptyState/`; MCP analytics (`products/mcp_analytics/frontend/emptyState/`) is the reference adoption.
 
-`ProductIntroduction` is **deprecated** — don't add new call sites. Both of its jobs fold into this system: "product not installed" (data-existence detection) and "no entities yet" (entity-count detection with a `primaryAction` create CTA).
+This system is for product landing scenes. `ProductIntroduction` stays the inline panel for surfaces the gate cannot cover; see "Scene gate or inline panel?" at the end before choosing.
 
 ## How it works
 
@@ -23,7 +23,22 @@ Before a user has set a product up, its scene should show a setup empty state: t
 
 The status must come from a **real signal**: a data-existence query (HogQL count / exists API), the product's opt-in flag, or an entity count for creation-first products. Never a dismissal flag — `has_completed_onboarding_for` is routing metadata, not evidence of data.
 
-Template: `products/mcp_analytics/frontend/mcpAnalyticsOnboardingLogic.ts` — a cheap event-count loader with `refresh: 'force_blocking'` (a cached pre-ingestion `[0,0]` would otherwise stick), a `cache.disposables` poll that stops once data arrives, and product-intent registration. Push the status from a listener:
+Default: one call to `createSetupDetectionLogic` (`lib/components/ProductEmptyState/setupDetectionLogic.ts`). Supply a `detect` function resolving the product's status; the factory owns the shared contract - detect on mount, optionally poll until data lands (stopping for good on `has-data`, pausing on hidden tabs), fail open on errors, and wait out bootstrap before the first check:
+
+```ts
+export const logsSetupLogic = createSetupDetectionLogic({
+  productKey: ProductKey.LOGS,
+  path: ['products', 'logs', 'frontend', 'emptyState', 'logsSetupLogic'],
+  detect: async () => ((await api.logs.hasLogs()) ? 'has-data' : 'needs-setup'),
+  // Only for products where data arrives from outside (SDK events); entity-count
+  // products omit it - the gate remounts the logic on every scene entry.
+  pollIntervalMs: 20000,
+})
+```
+
+`detect` composes freely: retry inside it with `retryWithBackoff`, return `unknown` for "cannot tell" (e.g. no access), return `waiting-for-data` from an opt-in flag + count check. When the query is a fresh event count, use `refresh: 'force_blocking'` - a cached pre-ingestion `[0,0]` would otherwise stick. `recheckActionTypes` re-detects immediately when app state changes elsewhere (a team-setting opt-in). `cacheHasData` remembers a has-data answer in localStorage so returning users skip the spinner and the query - use it for products with no boot-time probe.
+
+Products whose detection drives more than the gate (extra selectors, staged dashboards) keep a bespoke logic instead - template: `products/mcp_analytics/frontend/mcpAnalyticsOnboardingLogic.ts`. It must push the status from a listener and handle failure the same way the factory does:
 
 ```ts
 connect(() => ({
@@ -52,8 +67,11 @@ Statuses: `loading` (not yet known - the gate holds a spinner, never flashes the
 - **Wizard vs primary action**: SDK-installed products set `wizard: { slug }` (the slug must exist in `@posthog/wizard`); creation-first products (flags, surveys) set `primaryAction` instead. Self-hosted degrades automatically: no cloud → the terminal hides and the manual path is promoted. If the create action needs hooks (e.g. it opens PostHog AI via `useMaxTool`, like user research's "New topic"), provide a `PrimaryAction` component instead of `primaryAction` - it renders in the same slot and takes precedence.
 - **Permissions and selectors on the primary action**: set `primaryAction.accessControl` to the same resource type and level the gated scene's own create button uses. Without it a viewer gets an enabled button and only learns they can't create when the form fails to save. Set `primaryAction.dataAttr` to the attr that scene button carries, so an end-to-end spec keeps one selector whether it lands on the scene or the empty state. A `PrimaryAction` component wraps its own `AccessControlAction`.
 - **`featureFlag`**: set it when the scene is already flag-gated (so the scene's own gate keeps handling flag-off) or to roll the empty state out gradually.
+- **Scene modules that serve more than one surface**: `scenes` narrows where the gate applies, and omitting it gates everything the module serves. A plain scene id covers that whole scene (web analytics gates only `Scene.WebAnalyticsWebVitals`). When one scene id serves several tabs, pass `{ scene, tabs }` and list every value of the `tab` route param you gate, including `undefined` for the URL with no tab segment - `products/workflows/frontend/emptyState/workflowsEmptyState.tsx` gates its workflow list while channels, opt-outs, suppression, and reputation stay reachable with no workflows yet. Gating the scene instead would take those tabs down with it.
 - **Hedgehog**: a `pngHoggie(...)`-wrapped module — import only inside the product chunk (eager-graph guard: `frontend/bin/check-eager-graph.mjs`). Never hardcode image URLs (e.g. Cloudinary) — `@posthog/brand` assets only.
 - **`text` is keyed by mode**: provide the `needs-setup` base; add a `waiting-for-data` entry only if your product has that middle state (missing fields fall back to the base). Sentence case, benefit-first, no AI tells (see "User-facing copy" in `CLAUDE.md`).
+- **Key `wizard` by mode when the install command stops applying**: a product whose `waiting-for-data` means "events are flowing, a scheduled job hasn't run yet" has nothing left to install, so pass `wizard: { 'needs-setup': { slug } }` and the terminal, the manual link, and the hint leave the waiting screen (clusters). Leave it flat when re-running setup still makes sense there (MCP analytics: "Instrumenting another server?").
+- **Key `primaryAction` by mode when it only fits one**: a one-click opt-in ("Enable session recording") is done once the status is `waiting-for-data`, and clicking it again re-sends the same team update. Pass `primaryAction: { 'needs-setup': { ... } }` and the button, along with the `hint` that introduces it, leaves the waiting screen. A single flat action still covers both modes - keep that when it reads correctly either way (support's "Open support settings").
 - **Product header**: the gate keeps the product header (name, description, icon) above the empty state automatically, sourced from the scene's `SceneConfig` in your product manifest — make sure your manifest's scene entry has `name`, `description`, and `iconType` set.
 
 ### 3. Build the signature preview
@@ -87,7 +105,7 @@ Then **delete** the scene's bespoke empty/loading branches (including any custom
 
 ### 4b. Register a boot-time probe
 
-Declare a `setupProbe` in your product manifest (`products/<name>/manifest.tsx`) - the `productKey`, the event names that prove your product has data (and optionally the "instrumented but no traffic" events), and the `featureFlag` to gate on, mirroring your detection logic's semantics. `build-products.mjs` aggregates every manifest's `setupProbe` into `productSetupProbes` (regenerate with `pnpm build:products`), and `productSetupPreloadLogic` answers them at boot. This is what lets the app resolve your status before the user ever opens the scene. The probe query only looks back `PRELOAD_LOOKBACK_DAYS` (so it prunes to recent partitions); your in-scene detection stays the source of truth for anything older. The `ProductSetupProbe` shape and the count-to-status mapping live in `lib/components/ProductEmptyState/setupProbes.ts`. Products whose detection isn't event-based (exists APIs, entity counts) skip this for now; their status resolves on first scene visit.
+Declare a `setupProbe` in your product manifest (`products/<name>/manifest.tsx`) - the `productKey`, the event names that prove your product has data (and optionally the "instrumented but no traffic" events), and the `featureFlag` to gate on, mirroring your detection logic's semantics. `build-products.mjs` aggregates every manifest's `setupProbe` into `productSetupProbes` (regenerate with `pnpm build:products`), and `productSetupPreloadLogic` answers them all at boot with one batched event-definitions request (Postgres, cheap). This is what lets the app resolve your status before the user ever opens the scene; your in-scene detection stays the fresher source of truth. Set `staleAfterDays` when your detection logic uses a staleness window, so a project that stopped sending long ago reads as needing setup at boot too. Use string literals for event names - the probe is cloned into the eager generated `products.tsx`, so it must not import from your product chunk. The `ProductSetupProbe` shape and the definitions-to-status mapping live in `lib/components/ProductEmptyState/setupProbes.ts`. Products whose detection isn't event-based (exists APIs, entity counts) skip this; their status resolves on first scene visit.
 
 ### 5. Test the status mapping
 
@@ -97,14 +115,17 @@ Extend the detection logic's existing jest file with a parameterized push-throug
 
 Add one story per mode to `lib/components/ProductEmptyState/ProductEmptyState.stories.tsx` with `productEmptyStateStory(myProductEmptyState, mode)` (from `storybookHelpers.ts`) - it renders your real config and gives you visual-regression snapshots for free. Default mocks answer queries and product intents so a bare call renders cleanly; pass `mocks` to drive your status indicator into a specific state (see the MCP stories).
 
-## Migrating a ProductIntroduction call site
+## Scene gate or inline panel?
 
-- Full-scene "product not set up" uses → this system, via steps 1-4.
-- Entity-list empties ("create your first X") → detection = entity count, `primaryAction` = the create button.
-- The SetupPrompt family (error_tracking, logs, tracing, metrics, ai_observability) already has detection logics — step 1 is just the `connect` + push; then replace the wrapper with a scene-level `emptyState` declaration.
-- `has_seen_product_intro_for` dismissals are superseded by local skip; don't migrate the flag.
+- The whole scene is empty because the product is not set up, or has no entities yet → this system. "Product not installed" is data-existence detection; "no entities yet" is entity-count detection with a `primaryAction` create CTA.
+- One part of an otherwise working surface is empty → `ProductIntroduction`, rendered inline where the list would be. Typical cases: a tab or sub-list inside an adopted product (workflow channels, message templates), a dashboard widget tile or notebook node, a section of a settings page, an activity log, a flag-off gate, or a state that is not about setup (no ingestion warnings, an empty chat history).
+- Never both on one scene for the same emptiness. When a scene adopts this system, delete the `ProductIntroduction` it rendered for the whole-scene case; keep or add one only for a per-tab or mixed case the gate does not see (alerts keeps a compact table message per kind, pulse keeps a per-focus message).
+- The SetupPrompt family (error_tracking, logs, tracing, metrics, ai_observability) already has detection logics; when one of those scenes adopts, step 1 is just the `connect` + push. Their dashboard widget tiles keep `SetupPrompt`, because tiles are not scenes.
+- `has_seen_product_intro_for` dismissals belong to neither: this system uses a local skip, and `ProductIntroduction` no longer reads the flag.
 
 ## QA checklist
+
+Add `?empty_state=1` to the scene URL to pull up the setup screen on a project that already has data - it overrides detection and a local skip, and `?empty_state=waiting-for-data` gives you the other mode. Check the list below through that param rather than emptying a project.
 
 - Dark mode, reduced motion (`prefers-reduced-motion`), self-hosted (no wizard terminal).
 - Loading never flashes the real scene or the empty dashboard.

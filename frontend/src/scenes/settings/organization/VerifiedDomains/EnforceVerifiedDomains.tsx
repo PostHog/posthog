@@ -37,7 +37,7 @@ export function EnforceVerifiedDomains(): JSX.Element {
     }
 
     return (
-        <PayGateMini feature={AvailableFeature.AUTOMATIC_PROVISIONING}>
+        <PayGateMini feature={AvailableFeature.AUTOMATIC_PROVISIONING} featureDetail="enforce-verified-domains">
             <p>
                 Only allow people with an email address on a verified domain into this organization. Invites to other
                 domains are blocked, and existing members on other domains lose access.

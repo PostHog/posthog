@@ -3,9 +3,9 @@ Signal handlers that keep the gateway credential cache in sync with credential a
 
 The blob is keyed by the credential hash, so a revoke / scope removal / rotation that
 doesn't invalidate it leaves a stale entry for the full TTL. OAuth access also depends on
-user state the token row doesn't carry (deactivation, org membership, RBAC), so those
-re-project the user's OAuth credentials. Project secret keys have no user, so they
-re-project only on their own save/delete and on gateway/team changes.
+user state the token row doesn't carry (deactivation, email verification, org membership,
+RBAC), so those re-project the user's OAuth credentials. Project secret keys have no user,
+so they re-project only on their own save/delete and on gateway/team changes.
 
 A pre_save fallback handles credentials loaded with hash/scope deferred (.only()/.defer()),
 where post_init skips the snapshot — without it a deferred-load rotation wouldn't clear the
@@ -47,6 +47,7 @@ _CACHE_NAME = "gateway_credential"
 _LOADED_HASH_ATTR = "_fp_loaded_hash"
 _LOADED_ELIGIBLE_ATTR = "_fp_loaded_eligible"
 _LOADED_IS_ACTIVE_ATTR = "_fp_loaded_is_active"
+_LOADED_IS_EMAIL_VERIFIED_ATTR = "_fp_loaded_is_email_verified"
 _LOADED_MEMBERSHIP_LEVEL_ATTR = "_fp_loaded_membership_level"
 _LOADED_TEAM_API_TOKEN_ATTR = "_fp_loaded_team_api_token"
 _LOADED_TEAM_OVERSPEND_ATTR = "_fp_loaded_team_overspend_allowance"
@@ -100,21 +101,32 @@ def _snapshot_oauth(sender: type[OAuthAccessToken], instance: OAuthAccessToken, 
 def _snapshot_user(sender: type[User], instance: User, **kwargs: Any) -> None:
     if not settings.AI_GATEWAY_REDIS_URL:
         return
-    if "is_active" not in instance.get_deferred_fields():
+    deferred = instance.get_deferred_fields()
+    if "is_active" not in deferred:
         instance.__dict__[_LOADED_IS_ACTIVE_ATTR] = instance.is_active
+    if "is_email_verified" not in deferred:
+        instance.__dict__[_LOADED_IS_EMAIL_VERIFIED_ATTR] = instance.is_email_verified
 
 
-def _capture_old_user_is_active_if_deferred(sender: type[User], instance: User, **kwargs: Any) -> None:
-    # Fallback for a user loaded with is_active deferred (.only()/.defer()): re-read the
-    # old value so a deferred-load deactivation still clears the blob. No query on the
-    # common full-load path, where post_init already snapshotted.
-    if not settings.AI_GATEWAY_REDIS_URL or _LOADED_IS_ACTIVE_ATTR in instance.__dict__:
+def _capture_old_user_fields_if_deferred(sender: type[User], instance: User, **kwargs: Any) -> None:
+    # Fallback for a user loaded with is_active/is_email_verified deferred (.only()/.defer()):
+    # re-read the old values so a deferred-load change still clears or restores the blob. No
+    # query on the common full-load path, where post_init already snapshotted both.
+    if not settings.AI_GATEWAY_REDIS_URL:
+        return
+    needs_is_active = _LOADED_IS_ACTIVE_ATTR not in instance.__dict__
+    needs_is_email_verified = _LOADED_IS_EMAIL_VERIFIED_ATTR not in instance.__dict__
+    if not needs_is_active and not needs_is_email_verified:
         return
     if not instance.pk or instance._state.adding:
         return
-    row = User.objects.filter(pk=instance.pk).values("is_active").first()
-    if row is not None:
+    row = User.objects.filter(pk=instance.pk).values("is_active", "is_email_verified").first()
+    if row is None:
+        return
+    if needs_is_active:
         instance.__dict__[_LOADED_IS_ACTIVE_ATTR] = row["is_active"]
+    if needs_is_email_verified:
+        instance.__dict__[_LOADED_IS_EMAIL_VERIFIED_ATTR] = row["is_email_verified"]
 
 
 def _capture_old_secret_key_if_deferred(
@@ -246,13 +258,20 @@ def _reproject_user_sync_then_async(user_id: int) -> None:
 
 
 def _reproject_user_on_save(sender: type[User], instance: User, created: bool, **kwargs: Any) -> None:
-    # Only OAuth carries a user. Deactivation must clear it (the token row doesn't
-    # change on is_active flips); reactivation re-grants.
+    # Only OAuth carries a user. Deactivation and losing email verification must clear
+    # it (the token row doesn't change on either flip); reversing either re-grants.
     if not settings.AI_GATEWAY_REDIS_URL or created:
         return
     old_is_active = instance.__dict__.get(_LOADED_IS_ACTIVE_ATTR)
+    old_is_email_verified = instance.__dict__.get(_LOADED_IS_EMAIL_VERIFIED_ATTR, _UNSET)
     instance.__dict__[_LOADED_IS_ACTIVE_ATTR] = instance.is_active
-    if old_is_active is None or old_is_active == instance.is_active:
+    instance.__dict__[_LOADED_IS_EMAIL_VERIFIED_ATTR] = instance.is_email_verified
+
+    is_active_changed = old_is_active is not None and old_is_active != instance.is_active
+    is_email_verified_changed = (
+        old_is_email_verified is not _UNSET and old_is_email_verified != instance.is_email_verified
+    )
+    if not is_active_changed and not is_email_verified_changed:
         return
 
     _reproject_user_sync_then_async(instance.pk)
@@ -373,22 +392,17 @@ def connect_signal_handlers() -> None:
     post_save.connect(_reproject_team_on_change, sender=Team)
 
     post_init.connect(_snapshot_user, sender=User)
-    pre_save.connect(_capture_old_user_is_active_if_deferred, sender=User)
+    pre_save.connect(_capture_old_user_fields_if_deferred, sender=User)
     post_save.connect(_reproject_user_on_save, sender=User)
 
     pre_save.connect(_capture_old_membership_level_if_deferred, sender=OrganizationMembership)
     post_save.connect(_reproject_on_membership_save, sender=OrganizationMembership)
     post_delete.connect(_reproject_on_membership_delete, sender=OrganizationMembership)
 
-    # Project access controls live in ee, which isn't installed in FOSS. Connect
-    # only when available; the projection's RBAC check default-allows there anyway.
-    try:
-        from ee.models.rbac.access_control import AccessControl
-        from ee.models.rbac.role import RoleMembership
+    from products.access_control.backend.models.access_control import AccessControl
+    from products.access_control.backend.models.role import RoleMembership
 
-        post_save.connect(_reproject_on_access_control_change, sender=AccessControl)
-        post_delete.connect(_reproject_on_access_control_change, sender=AccessControl)
-        post_save.connect(_reproject_on_role_membership_change, sender=RoleMembership)
-        post_delete.connect(_reproject_on_role_membership_change, sender=RoleMembership)
-    except ImportError:
-        pass
+    post_save.connect(_reproject_on_access_control_change, sender=AccessControl)
+    post_delete.connect(_reproject_on_access_control_change, sender=AccessControl)
+    post_save.connect(_reproject_on_role_membership_change, sender=RoleMembership)
+    post_delete.connect(_reproject_on_role_membership_change, sender=RoleMembership)

@@ -50,11 +50,7 @@ function ObservationSeekbarMarksContent({
                                 <span className="font-medium">{timeLabel}</span>
                                 {mark.entries.map((entry, i) => (
                                     <div key={i} className="flex flex-col">
-                                        <span>
-                                            {[entry.scannerName ?? 'Scanner', entry.headline]
-                                                .filter(Boolean)
-                                                .join(' · ')}
-                                        </span>
+                                        <span>{[entry.scannerName, entry.headline].filter(Boolean).join(' · ')}</span>
                                         {entry.snippet && <span className="text-xs opacity-75">{entry.snippet}</span>}
                                     </div>
                                 ))}

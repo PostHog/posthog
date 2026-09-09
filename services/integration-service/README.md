@@ -119,7 +119,7 @@ keeps what is already held, with `integration_secret_serving_stale_seconds` as t
 ```text
 integration-service-secrets
   STRIPE_APP_SECRET_KEY                 = "<credential>"
-  STRIPE_APP_SECRET_KEY_FALLBACKS       = "<outgoing value, only while rotating>"
+  STRIPE_APP_SECRET_KEY_FALLBACKS       = "<staged replacement, only while rotating>"
   INTEGRATION_RECOVERY_KEYS             = "<comma-separated key names>"
   __CALLER_KEY_POSTHOG_DJANGO           = "<new>,<old>"
 ```
@@ -131,14 +131,20 @@ overlap silently. A sibling key is unaffected by edits to anything else, and it 
 PostHog already uses for rotatable keys (`SECRET_KEY_FALLBACKS`), so the rotation guard in
 `PostHog/secrets` grades these automatically.
 
-Starting a rotation means writing the new value and moving the outgoing one into the sibling.
-Completing it means deleting the sibling. Two rotations can be in flight at once without
-interfering.
+Starting a rotation means writing the new value into the sibling, leaving the live one in place:
+both are then served, so a caller can use the replacement before it goes live. Completing it means
+moving the staged value into the key and dropping the sibling, in one write — so a sibling exists
+if and only if a rotation is in flight, and the live value is never briefly absent. Two rotations
+can be in flight at once without interfering.
+
+The live value stops being served the moment a rotation completes. The overlap is the staging
+window, not a grace period afterwards, so leave the new value staged long enough for callers to
+pick it up before completing.
 
 | State      | Condition                                        | Response                              |
 | ---------- | ------------------------------------------------ | ------------------------------------- |
 | `steady`   | no `_FALLBACKS` sibling, or it repeats the value | `value` only                          |
-| `rotating` | the sibling holds a different value              | `value` + `previous`                  |
+| `rotating` | the sibling holds a different, staged value      | `value` + `previous` (the staged one) |
 | `recovery` | field named in `INTEGRATION_RECOVERY_KEYS`       | no value; caller raises a typed error |
 
 `recovery` covers a credential that is known-burned with no valid replacement yet. These

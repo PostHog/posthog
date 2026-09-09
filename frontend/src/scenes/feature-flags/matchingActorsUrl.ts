@@ -3,6 +3,7 @@ import { combineUrl } from 'kea-router'
 import { isFlagPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { urls } from 'scenes/urls'
 
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { AnyPersonScopeFilter, AnyPropertyFilter } from '~/types'
 
@@ -36,6 +37,9 @@ export function matchingActorsUrl(
         kind: NodeKind.DataTableNode,
         source: {
             kind: NodeKind.ActorsQuery,
+            // Without an explicit select the backend returns its own `person` column, and the global
+            // product column renderers claim that key and render "Unknown" for an actors query.
+            select: defaultDataTableColumns(NodeKind.ActorsQuery),
             // A person-targeted condition (resolvedGroupTypeIndex null) only carries person and
             // cohort filters, which are person-scoped; the group-targeted case takes the branch above.
             properties: actorFilters as AnyPersonScopeFilter[],

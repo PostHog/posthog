@@ -9,7 +9,7 @@ import { featureRequestsLogic } from './featureRequestsLogic'
 export function FeatureRequestHistorySection({ requestId }: { requestId: string }): JSX.Element {
     const { requestHistory, requestHistoryLoading, requestHistoryError, requestHistoryShowingAll } =
         useValues(featureRequestsLogic)
-    const { loadRequestHistory, setRequestHistoryShowingAll } = useActions(featureRequestsLogic)
+    const { loadRequestHistory, setRequestHistoryShowingAll, showHistoryTarget } = useActions(featureRequestsLogic)
 
     return (
         <FeatureRequestDetailSection
@@ -32,6 +32,7 @@ export function FeatureRequestHistorySection({ requestId }: { requestId: string 
                 showingAll={requestHistoryShowingAll}
                 onRetry={() => loadRequestHistory(requestId)}
                 onSetShowingAll={setRequestHistoryShowingAll}
+                onShowTarget={showHistoryTarget}
             />
         </FeatureRequestDetailSection>
     )

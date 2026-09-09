@@ -1,7 +1,7 @@
 from posthog.schema import AlertCondition, InsightThreshold, IntervalType, NodeKind
 
 from posthog.api.services.query import ExecutionMode
-from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr
 
@@ -13,7 +13,7 @@ from products.alerts.backend.evaluation.hogql import HogQLDetectorExtractor, Hog
 from products.alerts.backend.evaluation.metrics import MetricsExtractor
 from products.alerts.backend.evaluation.trends import TrendsExtractor
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 # Each insight kind that supports threshold alerts maps to one extractor. The comparator is shared.
 EXTRACTORS: dict[NodeKind, Extractor] = {
@@ -68,8 +68,10 @@ def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
     ``ExtractionResult`` and the comparator evaluates it against the threshold.
     """
     insight = alert.insight
+    if insight.query is None:
+        raise ValueError("Alert's insight has no valid query")
 
-    with upgrade_query(insight):
+    with upgrade_insight(insight):
         query = insight.query
         kind = get_from_dict_or_attr(query, "kind")
 

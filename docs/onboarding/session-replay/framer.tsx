@@ -1,10 +1,12 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getFramerSteps as getFramerStepsPA } from '../product-analytics/framer'
+import { getFramerInstallSteps } from '../product-analytics/framer'
 import { StepDefinition } from '../steps'
-import { createSessionReplayStepsFromPA } from './_snippets/create-session-replay-steps'
+import { sessionReplayFinalStep } from './_snippets/session-replay-final-step'
 
-export const getFramerSteps = (ctx: OnboardingComponentsContext): StepDefinition[] =>
-    createSessionReplayStepsFromPA(getFramerStepsPA, ctx)
+export const getFramerSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getFramerInstallSteps(ctx),
+    sessionReplayFinalStep(ctx),
+]
 
 export const FramerInstallation = createInstallation(getFramerSteps)

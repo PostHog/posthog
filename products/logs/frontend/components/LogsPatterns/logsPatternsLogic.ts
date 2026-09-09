@@ -5,7 +5,6 @@ import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { LogsQuery } from '~/queries/schema/schema-general'
 import {
     FilterLogicalOperator,
     LogPropertyFilter,
@@ -15,6 +14,11 @@ import {
 } from '~/types'
 
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
+import {
+    SERVICE_NAME_FILTER,
+    SEVERITY_LEVEL_FILTER,
+    setFacetIncluded,
+} from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsPatternsCreate, logsPatternsDiffCreate } from 'products/logs/frontend/generated/api'
 import type {
@@ -24,7 +28,7 @@ import type {
     _LogsPatternsResponseApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
-import type { DateRange, LogSeverityLevel } from '../../../../../frontend/src/queries/schema/schema-general'
+import type { DateRange } from '../../../../../frontend/src/queries/schema/schema-general'
 import type { LogsViewerViewMode, PatternsBaselineMode } from '../LogsViewer/config/logsViewerConfigLogic'
 import type { LogsViewerFilters } from '../LogsViewer/config/types'
 
@@ -74,7 +78,9 @@ export interface logsPatternsLogicValues {
     compareEnabled: boolean // logsViewerConfigLogic
     viewMode: LogsViewerViewMode // logsViewerConfigLogic
     filters: LogsViewerFilters // logsViewerFiltersLogic
+    personId: string | undefined // logsViewerFiltersLogic
     queryFilterGroup: UniversalFiltersGroup // logsViewerFiltersLogic
+    sessionId: string | undefined // logsViewerFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
         date_to: string | null | undefined
@@ -94,9 +100,9 @@ export interface logsPatternsLogicValues {
             explicitDate: boolean | null | undefined
         }
         filterGroup: _LogPropertyFilterApi[]
+        personId: string | undefined
         searchTerm: string | undefined
-        serviceNames: string[]
-        severityLevels: LogSeverityLevel[]
+        sessionId: string | undefined
     }
     patternsResponse: _LogsPatternsResponseApi
     patternsResponseLoading: boolean
@@ -114,6 +120,9 @@ export interface logsPatternsLogicActions {
     setViewMode: (viewMode: LogsViewerViewMode) => {
         viewMode: LogsViewerViewMode
     } // logsViewerConfigLogic
+    bumpFacetRefresh: () => {
+        value: true
+    } // logsViewerFiltersLogic
     setDateRange: (dateRange: DateRange) => {
         dateRange: DateRange
     } // logsViewerFiltersLogic
@@ -136,12 +145,6 @@ export interface logsPatternsLogicActions {
     } // logsViewerFiltersLogic
     setSearchTerm: (searchTerm: string | undefined) => {
         searchTerm: string | undefined
-    } // logsViewerFiltersLogic
-    setServiceNames: (serviceNames: string[]) => {
-        serviceNames: string[]
-    } // logsViewerFiltersLogic
-    setSeverityLevels: (severityLevels: LogSeverityLevel[]) => {
-        severityLevels: LogSeverityLevel[]
     } // logsViewerFiltersLogic
     zoomDateRange: (multiplier: number) => {
         multiplier: number
@@ -193,7 +196,9 @@ export interface logsPatternsLogicMeta {
                 date_to: string | null | undefined
                 explicitDate: boolean | null | undefined
             },
-            queryFilterGroup: UniversalFiltersGroup
+            queryFilterGroup: UniversalFiltersGroup,
+            personId: string | undefined,
+            sessionId: string | undefined
         ) => {
             dateRange: {
                 date_from: string | null | undefined
@@ -201,9 +206,9 @@ export interface logsPatternsLogicMeta {
                 explicitDate: boolean | null | undefined
             }
             filterGroup: _LogPropertyFilterApi[]
+            personId: string | undefined
             searchTerm: string | undefined
-            serviceNames: string[]
-            severityLevels: LogSeverityLevel[]
+            sessionId: string | undefined
         }
         patterns: (patternsResponse: _LogsPatternsResponseApi) => _LogPatternApi[]
         sparklineLabels: (patternsResponse: _LogsPatternsResponseApi) => string[]
@@ -230,7 +235,7 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             teamLogic,
             ['currentTeamId'],
             logsViewerFiltersLogic({ id: props.id }),
-            ['filters', 'utcDateRange', 'queryFilterGroup'],
+            ['filters', 'utcDateRange', 'queryFilterGroup', 'personId', 'sessionId'],
             logsViewerConfigLogic({ id: props.id }),
             ['viewMode', 'compareEnabled', 'baselineMode'],
         ],
@@ -239,12 +244,11 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             [
                 'setDateRange',
                 'zoomDateRange',
-                'setSeverityLevels',
-                'setServiceNames',
                 'setSearchTerm',
                 'setFilters',
                 'setFilterGroup',
                 'setPinnedFilters',
+                'bumpFacetRefresh',
             ],
             logsViewerConfigLogic({ id: props.id }),
             ['setViewMode', 'setCompareEnabled', 'setBaselineMode'],
@@ -324,7 +328,7 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
         // windows with exactly the filters a plain mine would use, or compare mode would
         // silently answer a different question than the table next to it.
         patternsQueryBody: [
-            (s) => [s.filters, s.utcDateRange, s.queryFilterGroup],
+            (s) => [s.filters, s.utcDateRange, s.queryFilterGroup, s.personId, s.sessionId],
             (
                 filters: import('../LogsViewer/config/types').LogsViewerFilters,
                 utcDateRange: {
@@ -332,16 +336,20 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
                     date_to: string | null | undefined
                     explicitDate: boolean | null | undefined
                 },
-                queryFilterGroup: UniversalFiltersGroup
+                queryFilterGroup: UniversalFiltersGroup,
+                personId: string | undefined,
+                sessionId: string | undefined
             ) => ({
                 dateRange: utcDateRange,
-                severityLevels: filters.severityLevels,
-                serviceNames: filters.serviceNames,
                 searchTerm: filters.searchTerm || undefined,
                 // Scope mining to the same filters the Logs/sparkline queries use —
                 // `queryFilterGroup` folds in any pinned filters from an embedded viewer
                 // (person/trace logs), so a scoped viewer can't mine project-wide patterns.
                 filterGroup: queryFilterGroup as unknown as _LogPropertyFilterApi[],
+                // Person and session scoping travel as their own fields, not in the filter
+                // group, so they have to be sent explicitly here too.
+                personId,
+                sessionId,
             }),
         ],
         patterns: [
@@ -383,12 +391,24 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
         return {
             setDateRange: reload,
             zoomDateRange: reload,
-            setSeverityLevels: reload,
-            setServiceNames: reload,
             setSearchTerm: reload,
             setFilters: reload,
             setFilterGroup: reload,
             setPinnedFilters: reload,
+
+            // The refresh button fires `bumpFacetRefresh` through the shared filters logic. Re-mine
+            // immediately (no debounce) — it is a deliberate click, not typing — but only while
+            // Patterns is the active lens, and diff or plain to match compare mode.
+            bumpFacetRefresh: () => {
+                if (values.viewMode !== 'patterns') {
+                    return
+                }
+                if (values.compareEnabled) {
+                    actions.loadDiff()
+                } else {
+                    actions.loadPatterns()
+                }
+            },
 
             // Entering compare mode always diffs fresh; leaving it re-mines because the
             // filters may have changed while the plain response sat unused.
@@ -445,23 +465,25 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
                                   { type: FilterLogicalOperator.And, values: [predicate] } as UniversalFiltersGroup,
                               ],
                           }
-                // Leave Patterns mode first so the filter writes below don't re-trigger a mine:
+                // Leave Patterns mode first so the filter write below doesn't re-trigger a mine:
                 // the `reload` guard sees Logs mode and bails on our own `setFilterGroup`.
                 actions.setViewMode('logs')
-                actions.setFilterGroup(newGroup, false)
                 // Scope by every service and severity the sample saw: service_name is in the
                 // table's sort key and severity is indexed, so these prune the scan the body regex
                 // alone can't. Both are IN filters, so N values narrow just as validly as one, and
                 // both land as visible chips the user can remove if the pattern exists beyond the
                 // sample. Skipped only when the filter could silently exclude matching lines: a
-                // cap-truncated services list, or a severity outside the canonical buckets.
+                // cap-truncated services list, or a severity outside the canonical buckets. Written
+                // into the same group as the pattern predicate so the drill-down is one filter change.
+                let scopedGroup = newGroup
                 if (pattern.services.length > 0 && pattern.services.length < SERVICES_LIST_CAP) {
-                    actions.setServiceNames(pattern.services)
+                    scopedGroup = setFacetIncluded(scopedGroup, SERVICE_NAME_FILTER, pattern.services)
                 }
                 const severities = Object.keys(pattern.severity_counts)
                 if (severities.length > 0 && severities.every((s) => CANONICAL_SEVERITIES.includes(s))) {
-                    actions.setSeverityLevels(severities as LogsQuery['severityLevels'])
+                    scopedGroup = setFacetIncluded(scopedGroup, SEVERITY_LEVEL_FILTER, severities)
                 }
+                actions.setFilterGroup(scopedGroup, false)
             },
         }
     }),

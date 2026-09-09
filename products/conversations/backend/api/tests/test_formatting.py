@@ -268,7 +268,7 @@ class TestSlackFormatting(SimpleTestCase):
         preformatted = slack_blocks[0]["elements"][0]
         assert preformatted["type"] == "rich_text_preformatted"
         assert preformatted["elements"] == [{"type": "text", "text": "print('hi')"}]
-        # Guard in tasks.py only posts when text or blocks are truthy - a code-only
+        # Guard in tasks/slack.py only posts when text or blocks are truthy - a code-only
         # message must produce non-empty fallback text so it isn't silently dropped.
         assert slack_text.strip() != ""
 
@@ -331,6 +331,69 @@ class TestSlackFormatting(SimpleTestCase):
                 assert el["elements"][0]["text"] == f"para{i // 2 + 1}"
             else:
                 assert el["elements"][0]["text"] == "\n"
+
+    @parameterized.expand(
+        [
+            (
+                "paragraphs_break_once",
+                [_paragraph("one"), _paragraph("two")],
+                "one\ntwo",
+            ),
+            (
+                "authored_blank_line_stays_a_single_blank_line",
+                [_paragraph("one"), {"type": "paragraph"}, _paragraph("two")],
+                "one\n\ntwo",
+            ),
+            (
+                "hard_break_drops_its_markdown_trailing_spaces",
+                [
+                    {
+                        "type": "paragraph",
+                        "content": [
+                            {"type": "text", "text": "one"},
+                            {"type": "hardBreak"},
+                            {"type": "text", "text": "two"},
+                        ],
+                    }
+                ],
+                "one\ntwo",
+            ),
+            (
+                "code_block_keeps_its_own_blank_lines",
+                [
+                    {"type": "codeBlock", "content": [{"type": "text", "text": "a = 1\n\nb = 2"}]},
+                    _paragraph("after"),
+                ],
+                "```\na = 1\n\nb = 2\n```\nafter",
+            ),
+        ]
+    )
+    def test_outbound_text_uses_mrkdwn_line_breaks_not_markdown_ones(
+        self, _name: str, content: list[dict], expected: str
+    ) -> None:
+        slack_text, _ = rich_content_to_slack_payload({"type": "doc", "content": content}, "")
+        assert slack_text == expected
+
+    @parameterized.expand(
+        [
+            # A section runs on from the one before it, so it needs a line ending plus the blank line.
+            ("before_a_paragraph", _paragraph("two"), "\n\n"),
+            ("before_an_image", {"type": "image", "attrs": {"src": "https://e.com/a.png", "alt": "a"}}, "\n\n"),
+            # A preformatted element is its own code box, so the blank line is all it needs.
+            ("before_a_code_block", {"type": "codeBlock", "content": [{"type": "text", "text": "x = 1"}]}, "\n"),
+        ]
+    )
+    def test_outbound_blocks_keep_an_authored_blank_line(
+        self, _name: str, follower: dict, expected_separator: str
+    ) -> None:
+        rich_content = {"type": "doc", "content": [_paragraph("one"), {"type": "paragraph"}, follower]}
+
+        _, slack_blocks = rich_content_to_slack_payload(rich_content, "")
+        assert slack_blocks is not None
+
+        elements = slack_blocks[0]["elements"]
+        assert len(elements) == 3
+        assert elements[1]["elements"][0]["text"] == expected_separator
 
     @parameterized.expand(
         [
@@ -655,7 +718,7 @@ class TestRichContentBlockNodes(SimpleTestCase):
         }
         text, blocks = rich_content_to_slack_payload(doc, "fallback")
         assert blocks is None
-        assert text == "Two options (pick one):\n\n- Use query-time properties, e.g. person.email"
+        assert text == "Two options (pick one):\n- Use query-time properties, e.g. person.email"
 
     @parameterized.expand(
         [

@@ -221,6 +221,30 @@ function createOffloadStep(): ProcessingStep<Input, Input> {
 }
 ```
 
+### 11. Overflow routing config states whether the pipeline writes persons
+
+`createApplyEventRestrictionsStep` takes a `RoutingConfig` whose `pipelineWritesPersons` is
+required. Answer it from the repository the pipeline holds, not from what looks safe:
+`PersonRepository` writes, `PersonReadRepository` only reads, and a pipeline that takes neither
+does not touch persons.
+
+True forces a force-overflow redirect to keep its partition key, so the overflow consumer cannot
+write one person row from two partitions at once. That protection costs load spreading, so a
+read-only pipeline that answers true silently pins a force-overflowed team to one partition.
+
+```typescript
+// GOOD - analytics writes persons through a PersonRepository
+createApplyEventRestrictionsStep(manager, { overflowMode, preservePartitionLocality, pipelineWritesPersons: true })
+
+// GOOD - error tracking and AI hold a PersonReadRepository
+createApplyEventRestrictionsStep(manager, { overflowMode, preservePartitionLocality, pipelineWritesPersons: false })
+```
+
+- Changing a pipeline's person repository means revisiting this field. Nothing checks that the
+  answer still matches.
+- `createApplyBasicEventRestrictionsStep` takes no `RoutingConfig`. Use it for a pipeline with no
+  overflow topic, and the question does not arise.
+
 ## Output format
 
 ### When reviewing code
@@ -256,6 +280,10 @@ Produce a checklist grouped by rule:
 ### Factory functions
 
 - [x] Pipeline created via factory function
+
+### Overflow routing
+
+- [x] pipelineWritesPersons matches the pipeline's person repository (Rule 11)
 ```
 
 ### When implementing code

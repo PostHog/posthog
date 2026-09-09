@@ -10,19 +10,26 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { initKeaTests } from '~/test/init'
 import type { UserType } from '~/types'
 
+import type { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
+
 import { ACCOUNTS_TABLE_DATA_NODE_KEY } from '../../constants'
 import { accountsLogic } from './accountsLogic'
 import { AccountsTabFilters } from './AccountsTabFilters'
 
 describe('AccountsTabFilters', () => {
     let logic: ReturnType<typeof accountsLogic.build>
+    let savedViews: ColumnConfigurationApi[]
 
     beforeEach(() => {
+        savedViews = []
         useMocks({
             get: {
                 '/api/organizations/:organization_id/members/': () => [200, { results: [] }],
                 '/api/projects/:team_id/tags': () => [200, []],
-                '/api/environments/:team_id/column_configurations': () => [200, { results: [] }],
+                '/api/projects/:team_id/column_configurations': () => [
+                    200,
+                    { count: savedViews.length, results: savedViews },
+                ],
             },
         })
         initKeaTests()
@@ -56,6 +63,42 @@ describe('AccountsTabFilters', () => {
         return screen.getByText('My accounts').closest('.LemonCheckbox')!.querySelector('input')!
     }
 
+    it('offers edit and delete for a shared saved view', async () => {
+        savedViews = [
+            {
+                id: 'shared-view',
+                context_key: 'customer_analytics_accounts_columns',
+                columns: ['name'],
+                name: 'Shared accounts',
+                filters: {},
+                order_by: [],
+                properties: {},
+                visibility: 'shared',
+                created_by: 999,
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z',
+            },
+        ]
+        renderFilters()
+
+        fireEvent.click(await screen.findByText('Select view'))
+
+        const sharedViewLabel = await screen.findByText('Shared accounts')
+        const viewMenuItem = sharedViewLabel.closest('li')
+        expect(viewMenuItem).not.toBeNull()
+
+        const viewButtons = viewMenuItem!.querySelectorAll('button')
+        expect(viewButtons).toHaveLength(2)
+        fireEvent.click(viewButtons[1])
+
+        expect(await screen.findByText('Edit')).toBeInTheDocument()
+        expect(screen.getByText('Delete')).toBeInTheDocument()
+
+        fireEvent.click(screen.getByText('Edit'))
+        expect(await screen.findByText('Edit view')).toBeInTheDocument()
+        expect(screen.getByDisplayValue('Shared accounts')).toBeInTheDocument()
+    })
+
     it('renders the "My accounts" checkbox', () => {
         renderFilters()
 
@@ -84,7 +127,31 @@ describe('AccountsTabFilters', () => {
     it('renders the "Assigned to" picker with its default label', () => {
         renderFilters()
 
-        expect(screen.getByText('Assigned to anyone')).toBeInTheDocument()
+        // Default shows every account regardless of assignment.
+        expect(screen.getByText('All accounts')).toBeInTheDocument()
+    })
+
+    it('the assignment dropdown offers the three mutually exclusive statuses', () => {
+        renderFilters()
+
+        fireEvent.click(screen.getByText('All accounts'))
+
+        const labels = ['Unassigned only', 'Assigned to anyone', 'All assignment statuses']
+        for (const label of labels) {
+            expect(screen.getByText(label)).toBeInTheDocument()
+        }
+    })
+
+    it.each([
+        ['Unassigned only', 'unassigned'],
+        ['Assigned to anyone', 'assigned'],
+    ])('selecting "%s" sets the canonical assignment status', (label, status) => {
+        renderFilters()
+
+        fireEvent.click(screen.getByText('All accounts'))
+        fireEvent.click(screen.getByText(label))
+
+        expect(logic.values.assignmentStatus).toBe(status)
     })
 
     // Regression: the picker must summarize a URL-restored filter from the id count
@@ -95,14 +162,14 @@ describe('AccountsTabFilters', () => {
         renderFilters()
 
         expect(screen.getByText('Assigned to 2 people')).toBeInTheDocument()
-        expect(screen.queryByText('Assigned to anyone')).not.toBeInTheDocument()
+        expect(screen.queryByText('All accounts')).not.toBeInTheDocument()
     })
 
-    it('labels the assigned-to picker "Unassigned" when unassigned-only is active', () => {
-        logic.actions.setAllRolesUnassigned(true)
+    it('labels the assigned-to picker "Unassigned only" when that status is active', () => {
+        logic.actions.setAssignmentStatus('unassigned')
         renderFilters()
 
-        expect(screen.getByText('Unassigned')).toBeInTheDocument()
-        expect(screen.queryByText('Assigned to anyone')).not.toBeInTheDocument()
+        expect(screen.getByText('Unassigned only')).toBeInTheDocument()
+        expect(screen.queryByText('All accounts')).not.toBeInTheDocument()
     })
 })

@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
@@ -55,7 +56,7 @@ from products.alerts.backend.destinations import AlertDelivery
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 def _email_delivery(target: str, at: str = "2026-08-11T00:00:00+00:00") -> AlertDelivery:
@@ -327,6 +328,24 @@ class TestPrepareAlert:
         assert check.error is not None
         assert result.reason in check.error["message"]
 
+    async def test_auto_disable_email_alert_when_email_is_unavailable(self, alert_with_user) -> None:
+        with patch("posthog.temporal.alerts.activities.is_email_available", return_value=False):
+            env = ActivityEnvironment()
+            result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(alert_with_user.id)))
+
+        assert result.action == PrepareAction.AUTO_DISABLE
+        assert (
+            result.reason
+            == "Email delivery is unavailable on this instance. Configure email before re-enabling this alert."
+        )
+
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
+        assert refreshed.enabled is False
+        assert refreshed.state == AlertState.ERRORED
+
+        check = await sync_to_async(AlertCheck.objects.get)(alert_configuration=refreshed)
+        assert check.error == {"message": result.reason, "code": "email_unavailable"}
+
     async def test_evaluate_for_valid_alert(self, alert) -> None:
         env = ActivityEnvironment()
         result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(alert.id)))
@@ -473,7 +492,7 @@ class TestEvaluateAlert:
     # an error instead sends the alert silent until its next cadence slot, an hour for hourly ones.
     @pytest.mark.parametrize(
         "error_class",
-        [ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded],
+        [ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded, SocketTimeoutError, NetworkError],
     )
     async def test_evaluate_reraises_ch_transient_error(self, alert, error_class) -> None:
         with patch(

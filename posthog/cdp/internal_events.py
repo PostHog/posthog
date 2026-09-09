@@ -16,7 +16,7 @@ logger = structlog.get_logger(__name__)
 # Single source of truth for the managed-alert event boundary. Also used as a Postgres regex
 # filter (products/cdp hog_function queryset) and mirrored in the Node CDP consumer, so keep it
 # POSIX-compatible (no (?:...) groups).
-MANAGED_ALERT_EVENT_PATTERN = r"^\$[a-z0-9_]+_alert_(firing|resolved|errored|auto_disabled)$"
+MANAGED_ALERT_EVENT_PATTERN = r"^\$[a-z0-9_]+_alert_(firing|resolved|errored|auto_disabled|match)$"
 LEGACY_INSIGHT_ALERT_EVENT = "$insight_alert_firing"
 _MANAGED_ALERT_EVENT = re.compile(MANAGED_ALERT_EVENT_PATTERN)
 
@@ -88,7 +88,15 @@ def produce_internal_event(
         producer = get_producer(topic=kafka_topic)
         return producer.produce(topic=kafka_topic, data=serialized_data, key=data.event.uuid)
     except Exception as e:
-        logger.exception("Failed to produce internal event", data=serialized_data, error=e)
+        # Identify the event by ids, not payload: properties can carry credentials
+        # (e.g. tokenized delivery URLs) and person data, which must not reach logs.
+        logger.exception(
+            "Failed to produce internal event",
+            team_id=team_id,
+            event_name=data.event.event,
+            event_uuid=data.event.uuid,
+            error=e,
+        )
         raise
 
 

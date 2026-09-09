@@ -1,10 +1,11 @@
 import { MagnifyingGlass } from "@phosphor-icons/react";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
+import type { MouseEventHandler } from "react";
 import { SidebarItem } from "../SidebarItem";
 import { SidebarKbdHint } from "./SidebarKbdHint";
 
 interface SearchItemProps {
-  onClick: () => void;
+  onClick: MouseEventHandler<Element>;
   depth?: number;
 }
 

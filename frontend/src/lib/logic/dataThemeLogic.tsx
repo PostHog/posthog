@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, path, props, reducers
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { DataColorTheme, DataColorToken } from 'lib/colors'
+import { DataColorTheme, DataColorToken, FALLBACK_DATA_COLOR_THEME } from 'lib/colors'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DataColorThemeModel } from '~/types'
@@ -108,6 +108,7 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
     reducers({
         themes: {
             setThemes: (_, { themes }) => themes,
+            loadThemesFailure: () => [],
         },
     }),
     selectors({
@@ -163,7 +164,7 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
                         }, {} as DataColorTheme)
                     }
 
-                    return null
+                    return themes != null ? FALLBACK_DATA_COLOR_THEME : null
                 },
         ],
         getColorFromToken: [

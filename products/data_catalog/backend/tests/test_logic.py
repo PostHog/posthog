@@ -8,6 +8,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.constants import AvailableFeature
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.enums import CreatedSource, MetricStatus
 from products.data_catalog.backend.logic import metrics
 from products.data_catalog.backend.logic.drift import compute_drift
@@ -22,9 +23,7 @@ from products.data_catalog.backend.logic.metrics import (
 )
 from products.data_catalog.backend.logic.validation import MAX_DESCRIPTION_LENGTH, validate_metric_definition
 from products.data_catalog.backend.models import Metric
-from products.product_analytics.backend.models.insight import Insight
-
-from ee.models.rbac.access_control import AccessControl
+from products.product_analytics.backend.facade.models import Insight
 
 _HOGQL_A = {"kind": "HogQLQuery", "query": "select count() from events"}
 _HOGQL_B = {"kind": "HogQLQuery", "query": "select count() from persons"}
@@ -252,7 +251,7 @@ class TestCreateFromInsight(BaseTest):
         # exfiltrate a restricted insight's query into the metric definition.
         insight = self._insight()
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
             side_effect=lambda obj=None, *a, **k: type(obj).__name__ != "Insight",
         ):
             with self.assertRaises(ValidationError):
@@ -326,6 +325,27 @@ class TestApproveMetric(BaseTest):
             approve_metric(stale, self.user)
 
 
+class TestBulkRenameRace(BaseTest):
+    @parameterized.expand(
+        [
+            ("approve", metrics.bulk_approve_metrics, MetricStatus.PROPOSED),
+            ("delete", metrics.bulk_soft_delete_metrics, MetricStatus.PROPOSED),
+        ]
+    )
+    def test_bulk_skips_a_metric_renamed_since_resolution(self, _name: str, bulk_action, expected_status: str) -> None:
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
+        # The caller resolved "mrr" to this row; another writer renames it before the batch locks it.
+        Metric.objects.for_team(self.team.id).filter(pk=metric.pk).update(name="arr")
+
+        acted, skipped = bulk_action([metric], self.user)
+
+        assert acted == []
+        assert [(skip.name, skip.reason) for skip in skipped] == [("mrr", metrics.BULK_SKIP_NOT_FOUND)]
+        current = Metric.objects.for_team(self.team.id).get(pk=metric.pk)
+        assert current.status == expected_status
+        assert current.deleted is False
+
+
 class TestRefreshFromInsight(BaseTest):
     def _insight(self, query: dict | None = None) -> Insight:
         return Insight.objects.create(team=self.team, created_by=self.user, query=query or _HOGQL_A)
@@ -360,7 +380,7 @@ class TestRefreshFromInsight(BaseTest):
             team=self.team, user=self.user, name="mrr", description="d", source_insight_short_id=insight.short_id
         )
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
             side_effect=lambda obj=None, *a, **k: type(obj).__name__ != "Insight",
         ):
             with self.assertRaises(ValidationError):

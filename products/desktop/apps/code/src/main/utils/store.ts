@@ -80,8 +80,6 @@ export const quickAskStore = new Store<QuickAskStoreSchema>({
   },
 });
 
-export type { FocusSession };
-
 export const windowStateStore = new Store<WindowStateSchema>({
   name: "window-state",
   cwd: userDataDir,
@@ -146,8 +144,4 @@ export function getFullScreenDisplayBounds(): DisplayBounds | undefined {
  */
 export function setRestoreFullScreenOnNextLaunch(restore: boolean): void {
   setWindowState("restoreFullScreenOnNextLaunch", restore);
-}
-
-export function getRestoreFullScreenOnNextLaunch(): boolean {
-  return windowStateStore.get("restoreFullScreenOnNextLaunch", false);
 }

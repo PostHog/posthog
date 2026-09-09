@@ -23,6 +23,7 @@ BRAINTREE_HOSTS = {
 BRAINTREE_VERSION_2019_01_01 = "2019-01-01"
 BRAINTREE_VERSION_2026_07_14 = "2026-07-14"
 BRAINTREE_VERSION_2026_08_04 = "2026-08-04"
+BRAINTREE_VERSION_2026_08_13 = "2026-08-13"
 # Braintree's GraphQL search fields reject `first` above 50, so this is a vendor
 # ceiling rather than a tuning knob.
 MAX_PAGE_SIZE = 50

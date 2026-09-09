@@ -140,7 +140,26 @@ export class RerunPaginatorService {
             const remainingBudget = this.remainingBudget(state)
             const toProcess = rows.slice(0, remainingBudget)
 
-            const { queued, skipped, queuedInvocations } = await this.rehydrateBatch(teamId, state, toProcess)
+            // A historical window can't see the newer lifecycle rows a prior replay wrote —
+            // they land in the partition of their own scheduled_at, outside the window — so
+            // the in-window collapse can report 'failed' for an invocation that has since
+            // succeeded. Re-check the page against each invocation's latest status across
+            // all partitions; without this, replaying the same window twice re-fires side
+            // effects (emails, webhooks) for already-recovered runs.
+            const staleStatusIds = await this.fetchStaleStatusInvocationIds(
+                teamId,
+                function_kind,
+                function_id,
+                toProcess.map((row) => row.invocation_id),
+                this.requestedStatus(state)
+            )
+
+            const { queued, skipped, queuedInvocations } = await this.rehydrateBatch(
+                teamId,
+                state,
+                toProcess,
+                staleStatusIds
+            )
 
             let conflictSkipped = 0
             if (queuedInvocations.length > 0) {
@@ -457,9 +476,54 @@ export class RerunPaginatorService {
         return new Set(rows.map((r) => r.invocation_id))
     }
 
+    private requestedStatus(state: RerunJobState): string[] {
+        const status = state.request.filter.status
+        return status?.length ? status : ['failed']
+    }
+
+    /**
+     * Of the given invocation ids, return those whose latest lifecycle row —
+     * across ALL partitions, not just the request window — no longer matches
+     * the requested statuses (or is deleted). Same primary-prefix keying as
+     * `fetchRunningInvocationIds`, so it stays cheap without a partition bound.
+     */
+    private async fetchStaleStatusInvocationIds(
+        teamId: number,
+        functionKind: RerunFunctionKind,
+        functionId: string,
+        invocationIds: string[],
+        requestedStatus: string[]
+    ): Promise<Set<string>> {
+        if (invocationIds.length === 0) {
+            return new Set()
+        }
+        const result = await this.clickhouse.query({
+            query: `/* team_id:${teamId} query_type:hog_invocation_rerun_stale_status */
+                SELECT invocation_id
+                FROM hog_invocation_results
+                WHERE team_id = {team_id:Int64}
+                  AND function_kind = {function_kind:String}
+                  AND function_id = {function_id:String}
+                  AND invocation_id IN {invocation_ids:Array(String)}
+                GROUP BY invocation_id
+                HAVING argMax(is_deleted, version) = 1
+                    OR argMax(status, version) NOT IN {requested_status:Array(String)}`,
+            query_params: {
+                team_id: teamId,
+                function_kind: functionKind,
+                function_id: functionId,
+                invocation_ids: invocationIds,
+                requested_status: requestedStatus,
+            },
+            format: 'JSONEachRow',
+        })
+        const rows = (await result.json()) as { invocation_id: string }[]
+        return new Set(rows.map((r) => r.invocation_id))
+    }
+
     private async fetchPage(teamId: number, state: RerunJobState): Promise<InvocationRow[]> {
         const filter = state.request.filter
-        const requestedStatus = filter.status?.length ? filter.status : ['failed']
+        const requestedStatus = this.requestedStatus(state)
         // The Django serializer accepts ISO 8601 ('2026-05-01T00:00:00Z'), but
         // ClickHouse `DateTime64` only parses 'YYYY-MM-DD HH:MM:SS[.fff]'. Convert
         // before passing as a query parameter. The bound params below are typed
@@ -482,6 +546,11 @@ export class RerunPaginatorService {
                 : ''
         const errorKindClause = filter.error_kind?.length
             ? 'AND argMax(error_kind, version) IN {error_kind:Array(String)}'
+            : ''
+        // position() instead of LIKE so the needle requires no %/_ escaping. Case-insensitive so a
+        // needle copied from logs matches regardless of capitalization.
+        const errorMessageClause = filter.error_message_contains
+            ? 'AND positionCaseInsensitive(argMax(error_message, version), {error_message_contains:String}) > 0'
             : ''
         const maxAttemptsClause =
             filter.max_attempts !== undefined ? 'AND argMax(attempts, version) < {max_attempts:UInt8}' : ''
@@ -518,6 +587,7 @@ export class RerunPaginatorService {
                 HAVING argMax(is_deleted, version) = 0
                    AND argMax(status, version) IN {status:Array(String)}
                    ${errorKindClause}
+                   ${errorMessageClause}
                    ${maxAttemptsClause}
                 ORDER BY last_scheduled_at DESC, invocation_id DESC
                 LIMIT {limit:UInt32}`,
@@ -529,6 +599,7 @@ export class RerunPaginatorService {
                 window_end: windowEnd,
                 status: requestedStatus,
                 error_kind: filter.error_kind ?? [],
+                error_message_contains: filter.error_message_contains ?? '',
                 max_attempts: filter.max_attempts ?? 255,
                 invocation_ids: filter.invocation_ids ?? [],
                 cursor_scheduled_at: cursorScheduledAt,
@@ -544,7 +615,8 @@ export class RerunPaginatorService {
     private async rehydrateBatch(
         teamId: number,
         state: RerunJobState,
-        rows: InvocationRow[]
+        rows: InvocationRow[],
+        staleStatusIds: Set<string>
     ): Promise<{ queued: number; skipped: number; queuedInvocations: CyclotronJobInvocation[] }> {
         const maxAttempts = state.request.filter.max_attempts
 
@@ -553,6 +625,12 @@ export class RerunPaginatorService {
         // across concurrent callers, so a sequential loop would defeat that.
         const rehydrated = await Promise.all(
             rows.map(async (row): Promise<CyclotronJobInvocation | null> => {
+                // Stale rows stay in the page (the cursor advances over them) and count
+                // as skipped, so pagination never re-fetches them.
+                if (staleStatusIds.has(row.invocation_id)) {
+                    counterRerunInvocationsSkipped.labels(state.function_kind, 'stale_status').inc()
+                    return null
+                }
                 if (maxAttempts !== undefined && row.latest_attempts >= maxAttempts) {
                     counterRerunInvocationsSkipped.labels(state.function_kind, 'over_max_attempts').inc()
                     return null
@@ -709,6 +787,16 @@ export class RerunPaginatorService {
                 hogFlow,
                 filterGlobals
             )
+            // The parked per-action hog function state is not replayable:
+            // `stripInputs` removed its `globals.inputs` (resolved secrets)
+            // before the row was written, and `buildHogFunctionInvocation`
+            // reuses a present `hogFunctionState` verbatim instead of
+            // re-rendering inputs — a message action resumed with it fails
+            // with "No recipient identifier found". Dropping it makes the
+            // action re-enter fresh, so inputs re-render against the current
+            // config, which is what a rerun intends anyway.
+            const { hogFunctionState: _stripped, ...restoredCurrentAction } = persistedState.currentAction ?? {}
+
             invocation.id = row.invocation_id
             invocation.parentRunId = row.parent_run_id || null
             invocation.state = {
@@ -724,7 +812,9 @@ export class RerunPaginatorService {
                 // wait_until_condition the janitor gave up on) resume safely.
                 // `personId` is carried for the same reason — the worker needs it
                 // to reload person data for batch/manual triggers on resume.
-                currentAction: persistedState.currentAction,
+                currentAction: persistedState.currentAction
+                    ? (restoredCurrentAction as CyclotronJobInvocationHogFlow['state']['currentAction'])
+                    : undefined,
                 personId: persistedState.personId,
                 // Sticky rerun counter — mirror the hog function path so the
                 // lifecycle row producer can derive `attempts` / `is_retry`

@@ -19,6 +19,12 @@ import type {
     BillingApi,
     BillingOverviewResponseApi,
     BillingPeriodResponseApi,
+    BillingSpendExportRetrieveParams,
+    BillingSpendRetrieveParams,
+    BillingTeamOptionsResponseApi,
+    BillingTimeSeriesResponseApi,
+    BillingUsageExportRetrieveParams,
+    BillingUsageRetrieveParams,
     PaginatedBillingAlertConfigurationListApi,
     PaginatedBillingAlertEventListApi,
     PatchedBillingAlertConfigurationApi,
@@ -50,22 +56,6 @@ export const billingList = async (options?: RequestInit): Promise<BillingOvervie
     return apiMutator<BillingOverviewResponseApi>(getBillingListUrl(), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getBillingPartialUpdateUrl = () => {
-    return `/api/billing///`
-}
-
-export const billingPartialUpdate = async (
-    patchedBillingApi?: PatchedBillingApi,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getBillingPartialUpdateUrl(), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedBillingApi),
     })
 }
 
@@ -224,15 +214,57 @@ export const billingPortalRetrieve = async (options?: RequestInit): Promise<void
     })
 }
 
-export const getBillingSpendRetrieveUrl = () => {
-    return `/api/billing/spend/`
+export const getBillingSpendRetrieveUrl = (params?: BillingSpendRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0 ? `/api/billing/spend/?${stringifiedParams}` : `/api/billing/spend/`
 }
 
 /**
  * Endpoint to fetch spend data (proxy to billing service).
  */
-export const billingSpendRetrieve = async (options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getBillingSpendRetrieveUrl(), {
+export const billingSpendRetrieve = async (
+    params?: BillingSpendRetrieveParams,
+    options?: RequestInit
+): Promise<BillingTimeSeriesResponseApi> => {
+    return apiMutator<BillingTimeSeriesResponseApi>(getBillingSpendRetrieveUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingSpendExportRetrieveUrl = (params?: BillingSpendExportRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/billing/spend/export/?${stringifiedParams}`
+        : `/api/billing/spend/export/`
+}
+
+/**
+ * Download the spend breakdown as CSV, honouring the requested project cap.
+ */
+export const billingSpendExportRetrieve = async (
+    params?: BillingSpendExportRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingSpendExportRetrieveUrl(params), {
         ...options,
         method: 'GET',
     })
@@ -293,12 +325,73 @@ export const billingTrialsCancelCreate = async (billingApi: BillingApi, options?
     })
 }
 
-export const getBillingUsageRetrieveUrl = () => {
-    return `/api/billing/usage/`
+export const getBillingUsageRetrieveUrl = (params?: BillingUsageRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0 ? `/api/billing/usage/?${stringifiedParams}` : `/api/billing/usage/`
 }
 
-export const billingUsageRetrieve = async (options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getBillingUsageRetrieveUrl(), {
+export const billingUsageRetrieve = async (
+    params?: BillingUsageRetrieveParams,
+    options?: RequestInit
+): Promise<BillingTimeSeriesResponseApi> => {
+    return apiMutator<BillingTimeSeriesResponseApi>(getBillingUsageRetrieveUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingUsageExportRetrieveUrl = (params?: BillingUsageExportRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/billing/usage/export/?${stringifiedParams}`
+        : `/api/billing/usage/export/`
+}
+
+/**
+ * Download the usage breakdown as CSV, honouring the requested project cap.
+ */
+export const billingUsageExportRetrieve = async (
+    params?: BillingUsageExportRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingUsageExportRetrieveUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingUsageTeamOptionsRetrieveUrl = () => {
+    return `/api/billing/usage/team_options/`
+}
+
+/**
+ * The project ids the project filter offers, loaded apart from the charts.
+ *
+ * Scoped the way the charts are: a member without billing access sees only the projects
+ * they can see.
+ */
+export const billingUsageTeamOptionsRetrieve = async (
+    options?: RequestInit
+): Promise<BillingTeamOptionsResponseApi> => {
+    return apiMutator<BillingTeamOptionsResponseApi>(getBillingUsageTeamOptionsRetrieveUrl(), {
         ...options,
         method: 'GET',
     })

@@ -24,6 +24,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { UserSwitch } from "phosphor-react-native";
 import { useFeatureFlag } from "posthog-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -36,9 +37,11 @@ import {
 import { useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { FloatingBackButton } from "@/components/FloatingBackButton";
+import { useUserQuery } from "@/features/auth";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
 import { CustomImageBadge } from "@/features/tasks/components/CustomImageBadge";
 import { FloatingTaskHeader } from "@/features/tasks/components/FloatingTaskHeader";
+import { HandoffTaskSheet } from "@/features/tasks/components/HandoffTaskSheet";
 import { PrDiffStatsBadge } from "@/features/tasks/components/PrDiffStatsBadge";
 import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
 import { StopRunButton } from "@/features/tasks/components/StopRunButton";
@@ -104,6 +107,8 @@ export default function TaskDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const [handoffOpen, setHandoffOpen] = useState(false);
+  const { data: currentUser } = useUserQuery();
 
   const {
     connectToTask,
@@ -732,6 +737,10 @@ export default function TaskDetailScreen() {
     [router],
   );
 
+  // Only the owner may hand a task off, matching the desktop menu gate.
+  const canHandoff =
+    !!task && currentUser != null && task.created_by?.id === currentUser.id;
+
   const prUrl = readPrUrls(task?.latest_run?.output)[0];
 
   const activityPhase = getSessionActivityPhase({ retrying, session });
@@ -789,6 +798,17 @@ export default function TaskDetailScreen() {
         rightSlot={
           <>
             {task ? <CustomImageBadge task={task} /> : null}
+            {canHandoff ? (
+              <Pressable
+                onPress={() => setHandoffOpen(true)}
+                hitSlop={8}
+                className="h-9 w-9 items-center justify-center rounded-full active:bg-gray-3"
+                accessibilityRole="button"
+                accessibilityLabel="Hand off task"
+              >
+                <UserSwitch size={20} color={themeColors.gray[12]} />
+              </Pressable>
+            ) : null}
             {canStopRun ? (
               <StopRunButton onPress={handleStopRun} />
             ) : prUrl ? (
@@ -811,6 +831,7 @@ export default function TaskDetailScreen() {
         <TaskSessionView
           events={session?.events ?? []}
           taskId={taskId}
+          runId={task?.latest_run?.id}
           pendingPermissions={session?.pendingPermissions}
           isConnecting={isConnecting}
           isThinking={isThinking}
@@ -909,6 +930,17 @@ export default function TaskDetailScreen() {
           />
         </Animated.View>
       </Animated.View>
+      {task ? (
+        <HandoffTaskSheet
+          visible={handoffOpen}
+          task={task}
+          onClose={() => setHandoffOpen(false)}
+          onHandedOff={() => {
+            setHandoffOpen(false);
+            if (router.canGoBack()) router.back();
+          }}
+        />
+      ) : null}
     </View>
   );
 }

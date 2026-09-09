@@ -1,4 +1,3 @@
-from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.clickhouse.query_log_archive import (
@@ -6,6 +5,7 @@ from posthog.clickhouse.query_log_archive import (
     WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
     WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
 )
+from posthog.run_mode import run_mode
 
 # Insert a Buffer table (query_log_archive_buffer) in front of sharded_query_log_archive on the
 # OPS cluster and route writable_query_log_archive through it, so the many small per-cluster MV
@@ -26,8 +26,6 @@ ALL_ROLES = [
     NodeRole.OPS,
 ]
 
-_IS_CLOUD = settings.CLOUD_DEPLOYMENT in ("US", "EU", "DEV")
-
 operations = [
     # Buffer table on OPS, flushing to sharded_query_log_archive. Owned by this migration
     # (not posthog-cloud-infra), so created everywhere — cloud and local.
@@ -36,7 +34,7 @@ operations = [
     # posthog-cloud-infra. Drop + recreate is safe (Distributed holds no data, not replicated).
     *(
         []
-        if _IS_CLOUD
+        if run_mode().is_deployed_cloud
         else [
             run_sql_with_exceptions(f"DROP TABLE IF EXISTS {WRITABLE_QUERY_LOG_ARCHIVE_TABLE}", node_roles=ALL_ROLES),
             run_sql_with_exceptions(WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(), node_roles=ALL_ROLES),

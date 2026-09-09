@@ -84,8 +84,8 @@ describe('BatchingPipeline', () => {
     it('assigns sequential batch IDs to beforeBatch', async () => {
         const collector = createCollector()
 
-        await collector.feed(makeBatch([1, 2]))
-        await collector.feed(makeBatch([3]))
+        await collector.feed(makeBatch([1, 2]), {})
+        await collector.feed(makeBatch([3]), {})
 
         expect(beforeBatchStep).toHaveBeenCalledTimes(2)
         expect(beforeBatchStep.mock.calls[0][0].batchContext.batchId).toBe(0)
@@ -97,7 +97,7 @@ describe('BatchingPipeline', () => {
     it('tags each element with a monotonic messageId in context', async () => {
         const collector = createCollector()
 
-        await collector.feed(makeBatch([10, 20, 30]))
+        await collector.feed(makeBatch([10, 20, 30]), {})
         const { allResults } = await drainAll(collector)
 
         expect(allResults).toHaveLength(3)
@@ -109,8 +109,8 @@ describe('BatchingPipeline', () => {
     it('continues messageId sequence across batches', async () => {
         const collector = createCollector()
 
-        await collector.feed(makeBatch([1, 2]))
-        await collector.feed(makeBatch([3]))
+        await collector.feed(makeBatch([1, 2]), {})
+        await collector.feed(makeBatch([3]), {})
         const { allResults } = await drainAll(collector)
 
         expect(allResults).toHaveLength(3)
@@ -122,7 +122,7 @@ describe('BatchingPipeline', () => {
     it('returns ordered batch results when a batch completes', async () => {
         const collector = createCollector()
 
-        await collector.feed(makeBatch([1, 2, 3]))
+        await collector.feed(makeBatch([1, 2, 3]), {})
         const { allResults } = await drainAll(collector)
 
         expect(afterBatchStep).toHaveBeenCalledTimes(1)
@@ -136,8 +136,8 @@ describe('BatchingPipeline', () => {
     it('tracks two batches independently', async () => {
         const collector = createCollector()
 
-        await collector.feed(makeBatch([1, 2]))
-        await collector.feed(makeBatch([3]))
+        await collector.feed(makeBatch([1, 2]), {})
+        await collector.feed(makeBatch([3]), {})
         const { allResults } = await drainAll(collector)
 
         expect(afterBatchStep).toHaveBeenCalledTimes(2)
@@ -147,7 +147,7 @@ describe('BatchingPipeline', () => {
     it('handles single-message batches', async () => {
         const collector = createCollector()
 
-        await collector.feed(makeBatch([42]))
+        await collector.feed(makeBatch([42]), {})
         const { allResults } = await drainAll(collector)
 
         expect(beforeBatchStep).toHaveBeenCalledTimes(1)
@@ -158,12 +158,12 @@ describe('BatchingPipeline', () => {
     it('supports feed-drain-feed-drain cycle', async () => {
         const collector = createCollector()
 
-        await collector.feed(makeBatch([1]))
+        await collector.feed(makeBatch([1]), {})
         const { allResults: results1 } = await drainAll(collector)
         expect(afterBatchStep).toHaveBeenCalledTimes(1)
         expect(results1).toHaveLength(1)
 
-        await collector.feed(makeBatch([2]))
+        await collector.feed(makeBatch([2]), {})
         const { allResults: results2 } = await drainAll(collector)
         expect(afterBatchStep).toHaveBeenCalledTimes(2)
         expect(afterBatchStep.mock.calls[1][0].batchId).toBe(1)
@@ -181,7 +181,7 @@ describe('BatchingPipeline', () => {
         })
 
         const collector = createCollector()
-        await collector.feed(makeBatch([1]))
+        await collector.feed(makeBatch([1]), {})
 
         order.push('next-called')
         await collector.next()
@@ -194,7 +194,7 @@ describe('BatchingPipeline', () => {
         it('blocks until a batch completes', async () => {
             const collector = createStreamingCollector()
 
-            await collector.feed(makeBatch([1, 2, 3]))
+            await collector.feed(makeBatch([1, 2, 3]), {})
 
             const result = await collector.next()
             expect(result).not.toBeNull()
@@ -205,8 +205,8 @@ describe('BatchingPipeline', () => {
         it('fires afterBatch for first batch even when second is still in flight', async () => {
             const collector = createStreamingCollector()
 
-            await collector.feed(makeBatch([1]))
-            await collector.feed(makeBatch([2, 3]))
+            await collector.feed(makeBatch([1]), {})
+            await collector.feed(makeBatch([2, 3]), {})
 
             const result0 = await collector.next()
             expect(afterBatchStep).toHaveBeenCalledTimes(1)
@@ -224,8 +224,8 @@ describe('BatchingPipeline', () => {
         it('returns results from multiple batches completing on the same next() call', async () => {
             const collector = createStreamingCollector()
 
-            await collector.feed(makeBatch([1]))
-            await collector.feed(makeBatch([2]))
+            await collector.feed(makeBatch([1]), {})
+            await collector.feed(makeBatch([2]), {})
 
             const result0 = await collector.next()
             expect(result0!.elements).toHaveLength(1)
@@ -260,7 +260,7 @@ describe('BatchingPipeline', () => {
             { concurrentBatches: Infinity }
         )
 
-        await collector.feed(makeBatch([1, 2]))
+        await collector.feed(makeBatch([1, 2]), {})
         const { allResults } = await drainAll(collector)
 
         expect(allResults).toHaveLength(2)
@@ -295,8 +295,8 @@ describe('BatchingPipeline', () => {
             { concurrentBatches: Infinity }
         )
 
-        await collector.feed(makeBatch([1]))
-        await collector.feed(makeBatch([2]))
+        await collector.feed(makeBatch([1]), {})
+        await collector.feed(makeBatch([2]), {})
         await drainAll(collector)
 
         expect(capturedBefore).toEqual([
@@ -317,7 +317,7 @@ describe('BatchingPipeline', () => {
             )
 
             const collector = createCollector()
-            await collector.feed(makeBatch([1]))
+            await collector.feed(makeBatch([1]), {})
 
             const result = await collector.next()
             expect(result).not.toBeNull()
@@ -331,7 +331,7 @@ describe('BatchingPipeline', () => {
             )
 
             const collector = createCollector()
-            await collector.feed(makeBatch([1]))
+            await collector.feed(makeBatch([1]), {})
 
             const result = await collector.next()
             expect(result).not.toBeNull()
@@ -350,7 +350,7 @@ describe('BatchingPipeline', () => {
             )
 
             const collector = createCollector()
-            await collector.feed(makeBatch([1]))
+            await collector.feed(makeBatch([1]), {})
 
             const result = await collector.next()
             expect(result).not.toBeNull()
@@ -366,12 +366,12 @@ describe('BatchingPipeline', () => {
         it('empty feed is a no-op that skips hooks and does not leak a capacity slot', async () => {
             const collector = createCollector({ concurrentBatches: 1 })
 
-            expect(await collector.feed([])).toEqual({ ok: true })
+            expect(await collector.feed([], {})).toEqual({ ok: true })
             expect(beforeBatchStep).not.toHaveBeenCalled()
             expect(await collector.next()).toBeNull()
 
             // The slot was not leaked: a subsequent normal batch is accepted and processed.
-            expect(await collector.feed(makeBatch([9]))).toEqual({ ok: true })
+            expect(await collector.feed(makeBatch([9]), {})).toEqual({ ok: true })
             const { allResults } = await drainAll(collector)
             expect(allResults).toHaveLength(1)
             expect(afterBatchStep).toHaveBeenCalledTimes(1)
@@ -386,13 +386,13 @@ describe('BatchingPipeline', () => {
             )
             const collector = createCollector({ concurrentBatches: 1 })
 
-            await expect(collector.feed(makeBatch([1, 2]))).rejects.toThrow('changed element count (2 -> 1)')
+            await expect(collector.feed(makeBatch([1, 2]), {})).rejects.toThrow('changed element count (2 -> 1)')
             expect(await collector.next()).toBeNull()
 
             // Nothing was registered before the throw: a subsequent normal batch
             // is accepted and processed (real drivers crash on the throw; this
             // documents that the throw itself does not corrupt state).
-            expect(await collector.feed(makeBatch([9]))).toEqual({ ok: true })
+            expect(await collector.feed(makeBatch([9]), {})).toEqual({ ok: true })
             const { allResults } = await drainAll(collector)
             expect(allResults).toHaveLength(1)
             expect(afterBatchStep).toHaveBeenCalledTimes(1)
@@ -403,31 +403,31 @@ describe('BatchingPipeline', () => {
         it('feed() rejects with reason when at limit (default concurrentBatches: 1)', async () => {
             const collector = createCollector({ concurrentBatches: 1 })
 
-            expect(await collector.feed(makeBatch([1]))).toEqual({ ok: true })
-            expect(await collector.feed(makeBatch([2]))).toMatchObject({ ok: false, reason: expect.any(String) })
+            expect(await collector.feed(makeBatch([1]), {})).toEqual({ ok: true })
+            expect(await collector.feed(makeBatch([2]), {})).toMatchObject({ ok: false, reason: expect.any(String) })
         })
 
         it('draining a batch frees a slot', async () => {
             const collector = createCollector({ concurrentBatches: 1 })
 
-            expect((await collector.feed(makeBatch([1]))).ok).toBe(true)
-            expect((await collector.feed(makeBatch([2]))).ok).toBe(false)
+            expect((await collector.feed(makeBatch([1]), {})).ok).toBe(true)
+            expect((await collector.feed(makeBatch([2]), {})).ok).toBe(false)
 
             await drainAll(collector)
 
-            expect((await collector.feed(makeBatch([3]))).ok).toBe(true)
+            expect((await collector.feed(makeBatch([3]), {})).ok).toBe(true)
         })
 
         it('feed() accepts when under limit and rejects when at limit', async () => {
             const collector = createCollector({ concurrentBatches: 2 })
 
-            expect((await collector.feed(makeBatch([1]))).ok).toBe(true)
-            expect((await collector.feed(makeBatch([2]))).ok).toBe(true)
-            expect((await collector.feed(makeBatch([3]))).ok).toBe(false)
+            expect((await collector.feed(makeBatch([1]), {})).ok).toBe(true)
+            expect((await collector.feed(makeBatch([2]), {})).ok).toBe(true)
+            expect((await collector.feed(makeBatch([3]), {})).ok).toBe(false)
 
             await drainAll(collector)
 
-            expect((await collector.feed(makeBatch([4]))).ok).toBe(true)
+            expect((await collector.feed(makeBatch([4]), {})).ok).toBe(true)
         })
     })
 })

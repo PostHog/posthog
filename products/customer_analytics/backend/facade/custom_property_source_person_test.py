@@ -324,6 +324,23 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         run = CustomPropertySyncRun.objects.unscoped().get(source_id=source.id)
         assert run.status == "failed" and run.error == "Failed to start sync"
 
+    @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
+    def test_backfill_fails_its_run_when_the_warehouse_object_is_gone(self, _flag):
+        # Deleting the source's warehouse object soft-deletes the schema but leaves the source's binding,
+        # so the backfill can't resolve a table. Without failing the placeholder it just created, the run
+        # would sit 'running' until the stale-run sweep, and the trigger would report a coalesced run for a
+        # table that no longer exists (returning False → 'already_running') instead of an invalid source.
+        source = self._create(user_access_control=self._uac(allowed=True))
+        ExternalDataSchema.objects.filter(id=self.schema.id).update(deleted=True)
+
+        result = api.trigger_person_property_backfill(
+            team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+        )
+
+        assert result is None
+        run = CustomPropertySyncRun.objects.unscoped().get(source_id=source.id)
+        assert run.status == "failed" and run.finished_at is not None
+
     @parameterized.expand(
         [
             ("stale", api.STALE_RUNNING_RUN_AFTER + timedelta(minutes=1), "failed"),

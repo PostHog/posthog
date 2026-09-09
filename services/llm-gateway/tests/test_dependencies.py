@@ -1,13 +1,21 @@
 import json
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import UUID
 
 import pytest
 from fastapi import HTTPException, Request
 from starlette.datastructures import Headers
 
+from llm_gateway.auth.authenticators import OAuthAccessTokenAuthenticator
+from llm_gateway.auth.cache import AuthCache, reset_auth_cache
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.auth.service import InvalidProjectScopeError, UnauthorizedProjectScopeError
-from llm_gateway.baseten import BASETEN_DEEPSEEK_PUBLIC_MODEL, BASETEN_GLM53_PUBLIC_MODEL
+from llm_gateway.auth.service import AuthService, InvalidProjectScopeError, UnauthorizedProjectScopeError
+from llm_gateway.baseten import (
+    BASETEN_DEEPSEEK_PUBLIC_MODEL,
+    BASETEN_GLM53_FLASH_PUBLIC_MODEL,
+    BASETEN_GLM53_PUBLIC_MODEL,
+)
 from llm_gateway.config import get_settings
 from llm_gateway.dependencies import (
     _extract_end_user_id_from_body,
@@ -17,11 +25,16 @@ from llm_gateway.dependencies import (
     get_model_from_request,
     get_provider_from_request,
     get_request_json,
-    resolve_plan_and_quota,
+    resolve_quota,
 )
-from llm_gateway.products.config import POSTHOG_CODE_US_APP_ID
+from llm_gateway.products.config import POSTHOG_CODE_US_APP_ID, SIGNALS_DEV_APP_ID
+from llm_gateway.rate_limiting.cost_throttles import SandboxTaskCostThrottle
 from llm_gateway.rate_limiting.throttles import ThrottleContext, ThrottleResult
-from llm_gateway.services.plan_resolver import PlanInfo
+from llm_gateway.services.desktop_access_resolver import (
+    DesktopAccessDecision,
+    DesktopAccessReason,
+    DesktopAccessStatus,
+)
 from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
 
@@ -273,28 +286,23 @@ class TestEnforceThrottles:
         assert context.end_user_id is None
 
 
-class TestResolvePlanAndQuota:
+class TestResolveQuota:
     """The quota resolver roundtrip runs for bucket-billed products (against the
     product's own bucket) and is skipped entirely for unbilled ones."""
 
     async def _run(self, product: str) -> tuple:
-        plan_info = PlanInfo(plan_key="pro", seat_created_at=None)
-        plan_mock = AsyncMock(return_value=plan_info)
         quota_mock = AsyncMock(return_value=QuotaResourceStatus(limited=True))
-        with (
-            patch("llm_gateway.dependencies.resolve_plan_info", plan_mock),
-            patch("llm_gateway.dependencies.resolve_quota_status", quota_mock),
-        ):
-            result = await resolve_plan_and_quota(_make_request(), user_id=1, team_id=42, product=product)
+        with patch("llm_gateway.dependencies.resolve_quota_status", quota_mock):
+            result = await resolve_quota(_make_request(), team_id=42, product=product)
         return result, quota_mock
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("product", "expected_resource"),
-        [("slack_app", "ai_credits"), ("posthog_code", "posthog_code_credits")],
+        [("slack_app", "ai_credits"), ("workflows", "ai_credits"), ("posthog_code", "posthog_code_credits")],
     )
     async def test_bucket_billed_product_resolves_its_own_bucket(self, product: str, expected_resource: str) -> None:
-        (_, quota_status), quota_mock = await self._run(product)
+        quota_status, quota_mock = await self._run(product)
 
         quota_mock.assert_awaited_once()
         assert quota_mock.call_args.args[2] == expected_resource
@@ -303,7 +311,7 @@ class TestResolvePlanAndQuota:
     @pytest.mark.asyncio
     async def test_unbilled_product_skips_quota_resolver(self) -> None:
         # wizard is unbilled — it shouldn't pay for the quota resolver roundtrip.
-        (_, quota_status), quota_mock = await self._run("wizard")
+        quota_status, quota_mock = await self._run("wizard")
 
         quota_mock.assert_not_awaited()
         assert quota_status.limited is False
@@ -402,8 +410,8 @@ class TestPreviewModelGateWiring:
     @pytest.fixture(autouse=True)
     def billed_org(self):
         with patch(
-            "llm_gateway.dependencies.resolve_plan_and_quota",
-            AsyncMock(return_value=(MagicMock(), QuotaResourceStatus(limited=False, code_usage_billing_active=True))),
+            "llm_gateway.dependencies.resolve_quota",
+            AsyncMock(return_value=QuotaResourceStatus(limited=False, code_usage_billing_active=True)),
         ):
             yield
 
@@ -429,6 +437,7 @@ class TestPreviewModelGateWiring:
         assert error["code"] == "model_gate"
         assert "moonshotai/kimi-k3" in error["message"]
         assert error["message"].endswith("(rate_limit)")
+        assert error["reason"] == "model_not_available"
 
     @pytest.mark.asyncio
     async def test_preview_model_allowed_when_flag_enabled(self) -> None:
@@ -453,8 +462,8 @@ class TestBasetenExclusiveModelGateWiring:
     @pytest.fixture(autouse=True)
     def billed_org(self):
         with patch(
-            "llm_gateway.dependencies.resolve_plan_and_quota",
-            AsyncMock(return_value=(MagicMock(), QuotaResourceStatus(limited=False, code_usage_billing_active=True))),
+            "llm_gateway.dependencies.resolve_quota",
+            AsyncMock(return_value=QuotaResourceStatus(limited=False, code_usage_billing_active=True)),
         ):
             yield
 
@@ -465,7 +474,8 @@ class TestBasetenExclusiveModelGateWiring:
         ("model", "access_flag", "path"),
         [
             (BASETEN_DEEPSEEK_PUBLIC_MODEL, "posthog-code-deepseek-model", "/posthog_code/v1/messages"),
-            (BASETEN_GLM53_PUBLIC_MODEL, "tasks-glm-baseten-inference", "/posthog_code/v1/messages"),
+            (BASETEN_GLM53_PUBLIC_MODEL, "posthog-code-glm-53-model", "/posthog_code/v1/messages"),
+            (BASETEN_GLM53_FLASH_PUBLIC_MODEL, "posthog-code-glm-53-flash-model", "/posthog_code/v1/messages"),
         ],
     )
     @pytest.mark.parametrize("flag_result", [False, None])
@@ -491,7 +501,9 @@ class TestBasetenExclusiveModelGateWiring:
         assert flag.await_args.args[0] == access_flag
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("model", [BASETEN_DEEPSEEK_PUBLIC_MODEL, BASETEN_GLM53_PUBLIC_MODEL])
+    @pytest.mark.parametrize(
+        "model", [BASETEN_DEEPSEEK_PUBLIC_MODEL, BASETEN_GLM53_PUBLIC_MODEL, BASETEN_GLM53_FLASH_PUBLIC_MODEL]
+    )
     async def test_baseten_exclusive_model_allowed_when_flag_enabled(self, model: str) -> None:
         request = _make_request({"model": model, "messages": []}, path="/posthog_code/v1/messages")
         user = _make_user(auth_method="oauth_access_token", user_id=7)
@@ -505,8 +517,32 @@ class TestBasetenExclusiveModelGateWiring:
         ):
             await enforce_throttles(request=request, user=user, runner=runner)
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("flag_result", [False, None])
+    async def test_unbilled_glm_gets_rollout_denial_before_billing_denial(self, flag_result: bool | None) -> None:
+        request = _make_request({"model": BASETEN_GLM53_PUBLIC_MODEL, "messages": []}, path="/posthog_code/v1/messages")
+        user = _make_user(auth_method="oauth_access_token", user_id=7)
+        runner = MagicMock()
+        runner.check = AsyncMock(return_value=ThrottleResult.allow())
+
+        with (
+            patch(
+                "llm_gateway.dependencies.resolve_quota",
+                AsyncMock(return_value=QuotaResourceStatus(limited=False, code_usage_billing_active=False)),
+            ),
+            patch("llm_gateway.dependencies.ensure_costs_fresh"),
+            patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=flag_result)),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await enforce_throttles(request=request, user=user, runner=runner)
+
+        error = exc_info.value.detail["error"]
+        assert error["reason"] == "model_not_available"
+        assert "payment method" not in error["message"].lower()
+
 
 class TestServerCredentialRequirementWiring:
+    # The signals path only accepts the Signals app now, so the marker wiring is pinned with it
     def _oauth_user(self, scopes: list[str]) -> AuthenticatedUser:
         return AuthenticatedUser(
             user_id=7,
@@ -514,7 +550,7 @@ class TestServerCredentialRequirementWiring:
             auth_method="oauth_access_token",
             distinct_id="test-distinct-id-7",
             scopes=scopes,
-            application_id=POSTHOG_CODE_US_APP_ID,
+            application_id=SIGNALS_DEV_APP_ID,
         )
 
     @pytest.mark.asyncio
@@ -554,21 +590,79 @@ class TestDesktopAccessGate:
             application_id=POSTHOG_CODE_US_APP_ID,
         )
 
-    def _request(self, resolver_answer: bool, path: str = "/posthog_code/v1/messages") -> Request:
+    def _request(
+        self,
+        resolver_answer: bool,
+        path: str = "/posthog_code/v1/messages",
+        reason: DesktopAccessReason | None = "startup_plan",
+        unavailable: bool = False,
+    ) -> Request:
         request = _make_request({"model": "claude-sonnet-5", "messages": []}, path=path)
+        status: DesktopAccessStatus
+        if unavailable:
+            status = "unavailable"
+        elif resolver_answer:
+            status = "allowed"
+        else:
+            status = "blocked"
+        decision_reason = reason if status == "blocked" else None
         resolver = MagicMock()
-        resolver.has_access = AsyncMock(return_value=resolver_answer)
+        resolver.resolve_access = AsyncMock(
+            return_value=DesktopAccessDecision(
+                status=status,
+                reason=decision_reason,
+            )
+        )
         request.app.state.desktop_access_resolver = resolver
         return request
 
     @pytest.mark.asyncio
-    async def test_unentitled_user_blocked(self) -> None:
+    @pytest.mark.parametrize("reason", ["startup_plan", "prepaid_credits"])
+    async def test_unentitled_user_blocked_with_backend_reason(self, reason: DesktopAccessReason) -> None:
         get_settings.cache_clear()
         try:
             with pytest.raises(HTTPException) as exc_info:
-                await enforce_product_access(request=self._request(False), user=self._oauth_user())
+                await enforce_product_access(request=self._request(False, reason=reason), user=self._oauth_user())
             assert exc_info.value.status_code == 403
             assert exc_info.value.detail["error"]["code"] == "code_access_required"
+            assert exc_info.value.detail["error"]["reason"] == reason
+        finally:
+            get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_legacy_denial_preserves_generic_error_shape(self) -> None:
+        get_settings.cache_clear()
+        try:
+            with pytest.raises(HTTPException) as exc_info:
+                await enforce_product_access(request=self._request(False, reason=None), user=self._oauth_user())
+            assert exc_info.value.status_code == 403
+            assert exc_info.value.detail["error"]["code"] == "code_access_required"
+            assert "reason" not in exc_info.value.detail["error"]
+        finally:
+            get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_resolution_failure_returns_retryable_service_error(self) -> None:
+        get_settings.cache_clear()
+        try:
+            request = self._request(False, unavailable=True)
+            with pytest.raises(HTTPException) as exc_info:
+                await enforce_product_access(request=request, user=self._oauth_user())
+            assert exc_info.value.status_code == 503
+            assert exc_info.value.detail["error"]["code"] == "desktop_access_unavailable"
+        finally:
+            get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_missing_validated_team_returns_retryable_service_error(self) -> None:
+        get_settings.cache_clear()
+        try:
+            user = self._oauth_user()
+            user.team_id = None
+            with pytest.raises(HTTPException) as exc_info:
+                await enforce_product_access(request=self._request(True), user=user)
+            assert exc_info.value.status_code == 503
+            assert exc_info.value.detail["error"]["code"] == "desktop_access_unavailable"
         finally:
             get_settings.cache_clear()
 
@@ -596,7 +690,7 @@ class TestDesktopAccessGate:
             request = self._request(False)
             user = self._oauth_user()
             assert await enforce_product_access(request=request, user=user) is user
-            request.app.state.desktop_access_resolver.has_access.assert_not_awaited()
+            request.app.state.desktop_access_resolver.resolve_access.assert_not_awaited()
         finally:
             get_settings.cache_clear()
 
@@ -607,7 +701,7 @@ class TestDesktopAccessGate:
             request = self._request(False)
             user = self._oauth_user(["llm_gateway:read", "internal_run:read"])
             assert await enforce_product_access(request=request, user=user) is user
-            request.app.state.desktop_access_resolver.has_access.assert_not_awaited()
+            request.app.state.desktop_access_resolver.resolve_access.assert_not_awaited()
         finally:
             get_settings.cache_clear()
 
@@ -635,6 +729,90 @@ class TestDesktopAccessGate:
                 scopes=["llm_gateway:read"],
             )
             assert await enforce_product_access(request=request, user=user) is user
-            request.app.state.desktop_access_resolver.has_access.assert_not_awaited()
+            request.app.state.desktop_access_resolver.resolve_access.assert_not_awaited()
         finally:
             get_settings.cache_clear()
+
+
+class TestSandboxTaskIdPlumbing:
+    """The whole path the per-run spend ceiling rides on: token row -> AuthenticatedUser ->
+    ThrottleContext -> cache key.
+
+    Every other test of that ceiling builds a ThrottleContext by hand, so either propagation hop
+    could be dropped and `SandboxTaskCostThrottle` would quietly stop keying on the run while the
+    suite stayed green.
+    """
+
+    async def _authenticate_oauth_row(
+        self, token: str, sandbox_task_id: object
+    ) -> tuple[AuthenticatedUser | None, AsyncMock]:
+        conn = AsyncMock()
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": 1,
+                "user_id": 123,
+                "scope": "llm_gateway:read internal_run:read",
+                "expires": datetime.now(UTC) + timedelta(hours=1),
+                "current_team_id": 456,
+                "application_id": 789,
+                "distinct_id": "test-distinct-id",
+                "is_staff": False,
+                "sandbox_task_id": sandbox_task_id,
+            }
+        )
+        pool = MagicMock()
+        pool.acquire = AsyncMock(return_value=conn)
+        pool.release = AsyncMock()
+        request = MagicMock(spec=Request)
+        request.headers = {"authorization": f"Bearer {token}"}
+        service = AuthService(authenticators=[OAuthAccessTokenAuthenticator()], cache=AuthCache(max_size=10, ttl=60))
+        return await service.authenticate_request(request, pool), conn
+
+    async def _throttle_context_for(self, user: AuthenticatedUser) -> ThrottleContext:
+        captured: ThrottleContext | None = None
+
+        async def capture_check(context: ThrottleContext) -> ThrottleResult:
+            nonlocal captured
+            captured = context
+            return ThrottleResult.allow()
+
+        runner = MagicMock()
+        runner.check = capture_check
+        with patch("llm_gateway.dependencies.ensure_costs_fresh"):
+            await enforce_throttles(
+                request=_make_request({"model": "gpt-4o", "messages": []}), user=user, runner=runner
+            )
+        assert captured is not None
+        return captured
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("token", "row_value", "expect_ceiling"),
+        [
+            # asyncpg returns a UUID object; the ceiling keys on its string form
+            pytest.param("pha_sandbox", UUID("3f1e2d4c-5b6a-7089-9a0b-1c2d3e4f5061"), True, id="sandbox_run_token"),
+            # an ordinary user token bounds no single run, so the ceiling stays inert
+            pytest.param("pha_interactive", None, False, id="non_sandbox_token"),
+        ],
+    )
+    async def test_token_row_sandbox_task_id_reaches_the_per_run_cost_key(
+        self, token: str, row_value: object, expect_ceiling: bool
+    ) -> None:
+        reset_auth_cache()
+        expected_id = str(row_value) if row_value is not None else None
+
+        user, conn = await self._authenticate_oauth_row(token, row_value)
+        assert user is not None
+        # The row is faked, so the column has to be asserted against the query itself; dropping it
+        # from the SELECT is the one way to break this path that a mocked row cannot show.
+        assert "sandbox_task_id" in conn.fetchrow.await_args.args[0]
+        assert user.sandbox_task_id == expected_id
+
+        context = await self._throttle_context_for(user)
+        assert context.sandbox_task_id == expected_id
+
+        # An empty cache key is how the ceiling turns itself off, so this is the hop that matters.
+        cache_key = SandboxTaskCostThrottle(redis=None)._get_cache_key(context)
+        assert bool(cache_key) is expect_ceiling
+        if expect_ceiling:
+            assert cache_key == f"cost:task:{expected_id}"

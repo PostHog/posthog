@@ -5,8 +5,8 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { METRIC_CONTEXTS } from '~/scenes/experiments/Metrics/experimentMetricModalLogic'
-import { metricSourceModalLogic } from '~/scenes/experiments/Metrics/metricSourceModalLogic'
+import { METRIC_CONTEXTS } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
+import { metricSourceModalLogic } from 'products/experiments/frontend/modals/MetricSourceModal/metricSourceModalLogic'
 
 export const EmptyMetricsPanel = ({
     helpText,

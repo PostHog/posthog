@@ -18,6 +18,9 @@ import type {
     CanvasBuildActionApi,
     CanvasBuildApi,
     CanvasBuildsResponseApi,
+    CanvasConnectorCallApi,
+    CanvasConnectorCallResultApi,
+    CanvasConnectorsResponseApi,
     CanvasCreateApi,
     CanvasErrorReportResultApi,
     CanvasFixRequestResultApi,
@@ -42,6 +45,7 @@ import type {
     CanvasValidateRequestApi,
     CanvasValidateResponseApi,
     CanvasesBuildsRetrieveParams,
+    CanvasesConnectorsRetrieveParams,
     CanvasesDraftsRetrieveParams,
     CanvasesLayoutRetrieveParams,
     CanvasesListParams,
@@ -129,7 +133,7 @@ export const getCanvasesPartialUpdateUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Update canvas metadata (name, author context, pin, generation-task pointer).
+ * Update canvas metadata, including the space it belongs to.
  */
 export const canvasesPartialUpdate = async (
     projectId: string,
@@ -240,6 +244,31 @@ export const canvasesBuildActionCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(canvasBuildActionApi),
+    })
+}
+
+export const getCanvasesConnectorsCallUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/connectors/call/`
+}
+
+/**
+ * Call one declared connector tool as the viewer.
+ *
+ * The canvas must declare the provider and tool in capabilities.connectors
+ * (the reviewed permission boundary); the call runs with the viewer's own
+ * connection, so two viewers of the same canvas see their own data.
+ */
+export const canvasesConnectorsCall = async (
+    projectId: string,
+    id: string,
+    canvasConnectorCallApi: CanvasConnectorCallApi,
+    options?: RequestInit
+): Promise<CanvasConnectorCallResultApi> => {
+    return apiMutator<CanvasConnectorCallResultApi>(getCanvasesConnectorsCallUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasConnectorCallApi),
     })
 }
 
@@ -640,8 +669,8 @@ export const getCanvasesStateRetrieveUrl = (projectId: string, id: string, param
 /**
  * Read the canvas's runtime key-value state (the ph.state store).
  *
- * Returns the canvas's shared entries plus the caller's own user-scoped
- * entries — never another viewer's.
+ * Returns shared entries plus the authenticated user's own user-scoped
+ * entries — never another user's.
  */
 export const canvasesStateRetrieve = async (
     projectId: string,
@@ -748,6 +777,39 @@ export const canvasesActionsRetrieve = async (
     options?: RequestInit
 ): Promise<CanvasActionsResponseApi> => {
     return apiMutator<CanvasActionsResponseApi>(getCanvasesActionsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCanvasesConnectorsRetrieveUrl = (projectId: string, params?: CanvasesConnectorsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvases/connectors/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvases/connectors/`
+}
+
+/**
+ * List the connector catalog: every provider and tool a canvas may declare, with the caller's connection state.
+ *
+ * Authoring agents read this to write ph.connectors.call sites and the
+ * matching capabilities.connectors declarations.
+ */
+export const canvasesConnectorsRetrieve = async (
+    projectId: string,
+    params?: CanvasesConnectorsRetrieveParams,
+    options?: RequestInit
+): Promise<CanvasConnectorsResponseApi> => {
+    return apiMutator<CanvasConnectorsResponseApi>(getCanvasesConnectorsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

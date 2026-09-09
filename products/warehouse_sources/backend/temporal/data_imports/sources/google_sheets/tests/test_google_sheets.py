@@ -66,7 +66,7 @@ def test_get_worksheet_backoff():
         assert mock_get_worksheet_by_id.call_count == 10
 
 
-@pytest.mark.parametrize("status_code", [429, 500, 502, 503, 504])
+@pytest.mark.parametrize("status_code", [409, 429, 500, 502, 503, 504])
 def test_get_worksheet_retries_transient_api_errors(status_code):
     """Transient API errors (quota 429s and 5xx server errors like
     "[500]: Internal error encountered.") should be retried with backoff, not
@@ -102,7 +102,7 @@ def test_get_worksheet_retries_transient_api_errors(status_code):
         assert mock_get_worksheet_by_id.call_count == 10
 
 
-@pytest.mark.parametrize("status_code", [429, 500, 502, 503, 504])
+@pytest.mark.parametrize("status_code", [409, 429, 500, 502, 503, 504])
 def test_get_schemas_retries_transient_api_errors(status_code):
     """Schema discovery (`open_by_url`/`worksheets`) hits the Sheets API just like
     `_get_worksheet`, so a transient quota 429 or 5xx server error (e.g.
@@ -231,10 +231,11 @@ def test_reraises_permission_error_with_message(call_site):
         assert "Spreadsheet access denied" in str(exc_info.value)
 
 
-@pytest.mark.parametrize("status_code", [429, 500, 502, 503, 504])
+@pytest.mark.parametrize("status_code", [409, 429, 500, 502, 503, 504])
 def test_retry_on_transient_api_error_retries_then_exhausts(status_code):
-    """The shared retry helper must retry transient API errors (quota 429s and 5xx
-    server errors like "[503]: The service is currently unavailable.") with backoff."""
+    """The shared retry helper must retry transient API errors (quota 429s, 5xx
+    server errors like "[503]: The service is currently unavailable.", and 409
+    concurrency conflicts) with backoff."""
     with mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.time"
     ):
@@ -530,7 +531,7 @@ def test_error_string_matches_a_non_retryable_key(error):
     assert any(key in str(error) for key in non_retryable_errors)
 
 
-@pytest.mark.parametrize("status_code", [429, 500, 502, 503, 504])
+@pytest.mark.parametrize("status_code", [409, 429, 500, 502, 503, 504])
 def test_error_string_matches_a_retryable_key(status_code):
     """`_retry_on_transient_api_error` already retries these status codes in-process before
     re-raising; the framework then logs at `warning` instead of `exception` only if the re-raised
@@ -673,6 +674,68 @@ def test_get_schema_incremental_fields_skips_unparseable_range():
         ),
     ):
         assert get_schema_incremental_fields(config, "csm_followups") == []
+
+
+def test_google_sheets_source_skips_unparseable_header_range():
+    """Google rejects the unbounded "1:1" header-row range with the same deterministic 400 'Unable
+    to parse range' handled in `get_schema_incremental_fields` above (e.g. an empty sheet, or a
+    sheet resized to have no columns). The sync must treat this as a worksheet with no header row
+    instead of failing outright."""
+    config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+
+    mock_worksheet = mock.MagicMock()
+    mock_worksheet.get_all_values.side_effect = _api_error(
+        400, "Unable to parse range: 'empty_sheet'!1:1", "INVALID_ARGUMENT"
+    )
+    mock_worksheet.get.return_value = [[]]
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.get_schemas",
+            return_value=[("empty_sheet", 123)],
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets._get_worksheet",
+            return_value=mock_worksheet,
+        ),
+    ):
+        response = google_sheets_source(
+            config, "empty_sheet", db_incremental_field_last_value=None, api_version=GOOGLE_SHEETS_API_VERSION_V4
+        )
+        tables = list(cast(Iterable[Any], response.items()))
+
+    assert response.primary_keys is None
+    assert tables[0].num_rows == 0
+
+
+def test_google_sheets_source_skips_unparseable_invalid_range_on_data_read():
+    """The full-grid read in `get_rows` has no explicit A1 range (it asks for the whole sheet by
+    name), so the same deterministic 400 handled above for the header/incremental-field reads
+    surfaces as 'Invalid range: <title>' instead of 'Unable to parse range'. This call had no
+    handling for it at all, so a zero-dimension worksheet crashed the sync outright instead of
+    syncing as an empty table."""
+    config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+
+    mock_worksheet = mock.MagicMock()
+    mock_worksheet.get_all_values.return_value = [[]]
+    mock_worksheet.get.side_effect = _api_error(400, "Invalid range: 'empty_sheet'", "INVALID_ARGUMENT")
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.get_schemas",
+            return_value=[("empty_sheet", 123)],
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets._get_worksheet",
+            return_value=mock_worksheet,
+        ),
+    ):
+        response = google_sheets_source(
+            config, "empty_sheet", db_incremental_field_last_value=None, api_version=GOOGLE_SHEETS_API_VERSION_V4
+        )
+        tables = list(cast(Iterable[Any], response.items()))
+
+    assert tables[0].num_rows == 0
 
 
 def test_get_schema_incremental_fields_reraises_other_api_errors():

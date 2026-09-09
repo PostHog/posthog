@@ -33,6 +33,8 @@ __all__ = [
     "DucklingTables",
     "ManagedWarehouseBackfillState",
     "ManagedWarehousePostgresConnection",
+    "ManagedWarehouseTrinoConnection",
+    "ManagedWarehouseTrinoConnectionUnavailable",
     "ManagedWarehouseProvisionStatus",
     "ManagedWarehouseSourceAuth",
     "ManagedWarehouseSourceJobRecord",
@@ -44,6 +46,8 @@ __all__ = [
     "ServiceCredential",
     "ServiceCredentialConnect",
     "ServiceCredentialUnavailable",
+    "TrinoCompiledQuery",
+    "TrinoExpansionMode",
 ]
 
 
@@ -113,6 +117,21 @@ class ManagedWarehousePostgresConnection:
 
 
 @frozen
+class ManagedWarehouseTrinoConnection:
+    """A ready managed Trino target with the existing organization root secret."""
+
+    host: str
+    port: int
+    catalog: str
+    username: str
+    password: str = field(repr=False)
+
+
+class ManagedWarehouseTrinoConnectionUnavailable(RuntimeError):
+    pass
+
+
+@frozen
 class ManagedWarehouseSourceAuth:
     """Non-secret source fields needed to choose managed warehouse authentication."""
 
@@ -138,7 +157,7 @@ class DuckgresQueryServerConfig:
     flight_port: int
     database: str
     username: str
-    password: str
+    password: str = field(repr=False)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -149,7 +168,7 @@ class DuckLakeCatalogConnectionConfig:
     port: int
     database: str
     username: str | None
-    password: str | None
+    password: str | None = field(repr=False)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -281,6 +300,20 @@ class DuckLakeCompiledQuery:
     values: dict[str, Any]
     hogql: str
     s3_secrets: tuple[DuckLakeS3Secret, ...] = ()
+
+
+@frozen
+class TrinoCompiledQuery:
+    """A HogQL query compiled to Trino SQL with named parameter bindings."""
+
+    sql: str
+    values: dict[str, Any]
+    hogql: str | None = None
+
+
+class TrinoExpansionMode(StrEnum):
+    PURE = "pure"
+    DJANGO = "django"
 
 
 @dataclass

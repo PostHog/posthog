@@ -43,9 +43,7 @@ export interface BillingOverviewResponseApi {
     startup_program_label?: string | null
     /** @nullable */
     startup_program_label_previous?: string | null
-    /** @nullable */
     stripe_portal_url?: string | null
-    /** @nullable */
     external_billing_provider_invoices_url?: string | null
     /** Subscribed and available products/addons with pricing, plan, limit, usage, and entitlement metadata. */
     products?: BillingOverviewResponseApiProductsItem[]
@@ -61,16 +59,16 @@ export interface BillingOverviewResponseApi {
     never_drop_data?: boolean
 }
 
-export interface PatchedBillingApi {
-    /** @maxLength 100 */
-    plan?: string
-    billing_limit?: number
-}
-
 export interface BillingApi {
     /** @maxLength 100 */
     plan: string
     billing_limit: number
+}
+
+export interface PatchedBillingApi {
+    /** @maxLength 100 */
+    plan?: string
+    billing_limit?: number
 }
 
 export interface BillingPeriodResponseApi {
@@ -87,12 +85,50 @@ export interface BillingPeriodResponseApi {
 }
 
 /**
+ * * `type` - type
+ * * `team` - team
+ * * `multiple` - multiple
+ */
+export type BreakdownTypeEnumApi = (typeof BreakdownTypeEnumApi)[keyof typeof BreakdownTypeEnumApi]
+
+export const BreakdownTypeEnumApi = {
+    Type: 'type',
+    Team: 'team',
+    Multiple: 'multiple',
+} as const
+
+export interface BillingTimeSeriesPointApi {
+    id?: number
+    label?: string
+    data?: number[]
+    dates?: string[]
+    breakdown_type?: BreakdownTypeEnumApi | null
+    breakdown_value?: unknown
+}
+
+export interface BillingTimeSeriesResponseApi {
+    status?: string
+    type?: string
+    customer_id?: number
+    results: BillingTimeSeriesPointApi[]
+    team_id_options?: number[]
+    next?: string
+    total_count?: number
+}
+
+export interface BillingTeamOptionsResponseApi {
+    /** Project ids that appear in the organization's usage reports. */
+    team_id_options: number[]
+}
+
+/**
  * * `spend` - Spend
  * * `projected_spend` - Projected spend
  */
-export type BillingAlertMetricEnumApi = (typeof BillingAlertMetricEnumApi)[keyof typeof BillingAlertMetricEnumApi]
+export type BillingAlertConfigurationMetricEnumApi =
+    (typeof BillingAlertConfigurationMetricEnumApi)[keyof typeof BillingAlertConfigurationMetricEnumApi]
 
-export const BillingAlertMetricEnumApi = {
+export const BillingAlertConfigurationMetricEnumApi = {
     Spend: 'spend',
     ProjectedSpend: 'projected_spend',
 } as const
@@ -111,9 +147,10 @@ export const CurrencyEnumApi = {
  * * `absolute_value` - Absolute value
  * * `absolute_increase` - Absolute increase
  */
-export type ThresholdTypeEnumApi = (typeof ThresholdTypeEnumApi)[keyof typeof ThresholdTypeEnumApi]
+export type BillingAlertConfigurationThresholdTypeEnumApi =
+    (typeof BillingAlertConfigurationThresholdTypeEnumApi)[keyof typeof BillingAlertConfigurationThresholdTypeEnumApi]
 
-export const ThresholdTypeEnumApi = {
+export const BillingAlertConfigurationThresholdTypeEnumApi = {
     RelativeIncrease: 'relative_increase',
     AbsoluteValue: 'absolute_value',
     AbsoluteIncrease: 'absolute_increase',
@@ -126,9 +163,10 @@ export const ThresholdTypeEnumApi = {
  * * `snoozed` - Snoozed
  * * `broken` - Broken
  */
-export type BillingAlertStateEnumApi = (typeof BillingAlertStateEnumApi)[keyof typeof BillingAlertStateEnumApi]
+export type BillingAlertConfigurationStateEnumApi =
+    (typeof BillingAlertConfigurationStateEnumApi)[keyof typeof BillingAlertConfigurationStateEnumApi]
 
-export const BillingAlertStateEnumApi = {
+export const BillingAlertConfigurationStateEnumApi = {
     NotFiring: 'not_firing',
     Firing: 'firing',
     Errored: 'errored',
@@ -174,8 +212,8 @@ export interface BillingAlertDestinationCreateDataApi {
 
 export interface BillingAlertDestinationChangesApi {
     /**
-     * @items.minItems 4
-     * @items.maxItems 4
+     * @items.minItems 1
+     * @items.maxItems 100
      */
     delete?: string[][]
     create?: BillingAlertDestinationCreateDataApi[]
@@ -214,7 +252,7 @@ export interface BillingAlertConfigurationApi {
      *
      * * `spend` - Spend
      * * `projected_spend` - Projected spend */
-    metric?: BillingAlertMetricEnumApi
+    metric?: BillingAlertConfigurationMetricEnumApi
     /** Server-controlled currency for spend values.
      *
      * * `USD` - USD */
@@ -226,7 +264,7 @@ export interface BillingAlertConfigurationApi {
      * * `relative_increase` - Relative increase
      * * `absolute_value` - Absolute value
      * * `absolute_increase` - Absolute increase */
-    threshold_type?: ThresholdTypeEnumApi
+    threshold_type?: BillingAlertConfigurationThresholdTypeEnumApi
     /**
      * Reserved for future increase-over-baseline rules. Not used by absolute value alerts.
      * @nullable
@@ -263,7 +301,7 @@ export interface BillingAlertConfigurationApi {
      * * `errored` - Errored
      * * `snoozed` - Snoozed
      * * `broken` - Broken */
-    readonly state: BillingAlertStateEnumApi
+    readonly state: BillingAlertConfigurationStateEnumApi
     /**
      * Minimum hours between repeated firing notifications.
      * @minimum 0
@@ -347,7 +385,7 @@ export interface PatchedBillingAlertConfigurationApi {
      *
      * * `spend` - Spend
      * * `projected_spend` - Projected spend */
-    metric?: BillingAlertMetricEnumApi
+    metric?: BillingAlertConfigurationMetricEnumApi
     /** Server-controlled currency for spend values.
      *
      * * `USD` - USD */
@@ -359,7 +397,7 @@ export interface PatchedBillingAlertConfigurationApi {
      * * `relative_increase` - Relative increase
      * * `absolute_value` - Absolute value
      * * `absolute_increase` - Absolute increase */
-    threshold_type?: ThresholdTypeEnumApi
+    threshold_type?: BillingAlertConfigurationThresholdTypeEnumApi
     /**
      * Reserved for future increase-over-baseline rules. Not used by absolute value alerts.
      * @nullable
@@ -396,7 +434,7 @@ export interface PatchedBillingAlertConfigurationApi {
      * * `errored` - Errored
      * * `snoozed` - Snoozed
      * * `broken` - Broken */
-    readonly state?: BillingAlertStateEnumApi
+    readonly state?: BillingAlertConfigurationStateEnumApi
     /**
      * Minimum hours between repeated firing notifications.
      * @minimum 0
@@ -509,7 +547,7 @@ export interface BillingAlertEventApi {
      *
      * * `spend` - Spend
      * * `projected_spend` - Projected spend */
-    readonly metric: BillingAlertMetricEnumApi
+    readonly metric: BillingAlertConfigurationMetricEnumApi
     /**
      * Metric value for the evaluated billing date.
      * @nullable
@@ -543,7 +581,7 @@ export interface BillingAlertEventApi {
      * * `errored` - Errored
      * * `snoozed` - Snoozed
      * * `broken` - Broken */
-    readonly state_before: BillingAlertStateEnumApi | null
+    readonly state_before: BillingAlertConfigurationStateEnumApi | null
     /** Alert state after this event was applied.
      *
      * * `not_firing` - Not firing
@@ -551,7 +589,7 @@ export interface BillingAlertEventApi {
      * * `errored` - Errored
      * * `snoozed` - Snoozed
      * * `broken` - Broken */
-    readonly state_after: BillingAlertStateEnumApi | null
+    readonly state_after: BillingAlertConfigurationStateEnumApi | null
     /**
      * When notifications for this event were delivered.
      * @nullable
@@ -601,8 +639,8 @@ export interface BillingAlertDestinationResponseApi {
 export interface BillingAlertDeleteDestinationApi {
     /**
      * HogFunction IDs to delete as one atomic destination group.
-     * @minItems 4
-     * @maxItems 4
+     * @minItems 1
+     * @maxItems 100
      */
     hog_function_ids: string[]
 }
@@ -614,6 +652,206 @@ export interface PaginatedBillingAlertEventListApi {
     /** @nullable */
     previous?: string | null
     results: BillingAlertEventApi[]
+}
+
+export type BillingSpendRetrieveParams = {
+    /**
+     * The `next` cursor from the previous page. Opaque. Ignored without page_size.
+     * @maxLength 512
+     * @nullable
+     */
+    after?: string | null
+    /**
+     * JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", for example ["type","team"]. Omit for a single aggregate series.
+     * @nullable
+     */
+    breakdowns?: string | null
+    /**
+     * @nullable
+     */
+    end_date?: string | null
+    /**
+     * @nullable
+     */
+    interval?: string | null
+    /**
+     * Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown.
+     * @minimum 1
+     * @maximum 1000
+     * @nullable
+     */
+    page_size?: number | null
+    /**
+     * @nullable
+     */
+    start_date?: string | null
+    /**
+     * JSON-encoded array of numeric team/project IDs to filter on, for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read all organization projects; member read-only callers are limited to visible projects and any project scope on their token.
+     * @nullable
+     */
+    team_ids?: string | null
+    /**
+     * With a project breakdown, return only this many highest-usage projects and fold the rest into a single 'all other projects' series, so the totals still reconcile. Omit it to get every project.
+     * @minimum 1
+     * @maximum 200
+     * @nullable
+     */
+    top_projects?: number | null
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null
+}
+
+export type BillingSpendExportRetrieveParams = {
+    /**
+     * The `next` cursor from the previous page. Opaque. Ignored without page_size.
+     * @maxLength 512
+     * @nullable
+     */
+    after?: string | null
+    /**
+     * JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", for example ["type","team"]. Omit for a single aggregate series.
+     * @nullable
+     */
+    breakdowns?: string | null
+    /**
+     * @nullable
+     */
+    end_date?: string | null
+    /**
+     * @nullable
+     */
+    interval?: string | null
+    /**
+     * Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown.
+     * @minimum 1
+     * @maximum 1000
+     * @nullable
+     */
+    page_size?: number | null
+    /**
+     * @nullable
+     */
+    start_date?: string | null
+    /**
+     * JSON-encoded array of numeric team/project IDs to filter on, for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read all organization projects; member read-only callers are limited to visible projects and any project scope on their token.
+     * @nullable
+     */
+    team_ids?: string | null
+    /**
+     * With a project breakdown, return only this many highest-usage projects and fold the rest into a single 'all other projects' series, so the totals still reconcile. Omit it to get every project.
+     * @minimum 1
+     * @maximum 200
+     * @nullable
+     */
+    top_projects?: number | null
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null
+}
+
+export type BillingUsageRetrieveParams = {
+    /**
+     * The `next` cursor from the previous page. Opaque. Ignored without page_size.
+     * @maxLength 512
+     * @nullable
+     */
+    after?: string | null
+    /**
+     * JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", for example ["type","team"]. Omit for a single aggregate series.
+     * @nullable
+     */
+    breakdowns?: string | null
+    /**
+     * @nullable
+     */
+    end_date?: string | null
+    /**
+     * @nullable
+     */
+    interval?: string | null
+    /**
+     * Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown.
+     * @minimum 1
+     * @maximum 1000
+     * @nullable
+     */
+    page_size?: number | null
+    /**
+     * @nullable
+     */
+    start_date?: string | null
+    /**
+     * JSON-encoded array of numeric team/project IDs to filter on, for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read all organization projects; member read-only callers are limited to visible projects and any project scope on their token.
+     * @nullable
+     */
+    team_ids?: string | null
+    /**
+     * With a project breakdown, return only this many highest-usage projects and fold the rest into a single 'all other projects' series, so the totals still reconcile. Omit it to get every project.
+     * @minimum 1
+     * @maximum 200
+     * @nullable
+     */
+    top_projects?: number | null
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null
+}
+
+export type BillingUsageExportRetrieveParams = {
+    /**
+     * The `next` cursor from the previous page. Opaque. Ignored without page_size.
+     * @maxLength 512
+     * @nullable
+     */
+    after?: string | null
+    /**
+     * JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", for example ["type","team"]. Omit for a single aggregate series.
+     * @nullable
+     */
+    breakdowns?: string | null
+    /**
+     * @nullable
+     */
+    end_date?: string | null
+    /**
+     * @nullable
+     */
+    interval?: string | null
+    /**
+     * Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown.
+     * @minimum 1
+     * @maximum 1000
+     * @nullable
+     */
+    page_size?: number | null
+    /**
+     * @nullable
+     */
+    start_date?: string | null
+    /**
+     * JSON-encoded array of numeric team/project IDs to filter on, for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read all organization projects; member read-only callers are limited to visible projects and any project scope on their token.
+     * @nullable
+     */
+    team_ids?: string | null
+    /**
+     * With a project breakdown, return only this many highest-usage projects and fold the rest into a single 'all other projects' series, so the totals still reconcile. Omit it to get every project.
+     * @minimum 1
+     * @maximum 200
+     * @nullable
+     */
+    top_projects?: number | null
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null
 }
 
 export type BillingAlertsListParams = {

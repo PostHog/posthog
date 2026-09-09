@@ -63,7 +63,7 @@ describe('ClientWarningsPipeline', () => {
     const runPipeline = async (messages: Message[]): Promise<void> => {
         const pipeline = createClientWarningsPipeline<{ message: Message }, { message: Message }>(config)
         const batch = messages.map((message) => createOkContext({ message }, { message }))
-        await pipeline.feed(batch)
+        await pipeline.feed(batch, {})
         let result = await pipeline.next()
         while (result !== null) {
             // The pipeline handles its own side effects; none may leak to drivers.

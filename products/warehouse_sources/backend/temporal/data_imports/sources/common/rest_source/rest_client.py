@@ -310,6 +310,7 @@ class RESTClient:
         allowed_hosts: Optional[list[str]] = None,
         allow_redirects: bool = True,
         request_timeout: Optional[float | tuple[float, float]] = None,
+        capture: bool = True,
     ) -> None:
         self.base_url = base_url or ""
         self.headers = headers or {}
@@ -355,7 +356,14 @@ class RESTClient:
         # `RESTClient` participates in HTTP logging, metrics, and sample
         # capture. Callers can pass a pre-built `Session` for tests or
         # specialized auth (it should still be a tracked one in prod).
-        self.session = session or make_tracked_session(redact_values=self._redact_values)
+        #
+        # `capture` is only forwarded when it opts out of the default, so the call keeps
+        # matching the exact `assert_called_once_with(redact_values=...)` many sources'
+        # existing tests already make against `make_tracked_session`.
+        session_kwargs: dict[str, Any] = {"redact_values": self._redact_values}
+        if not capture:
+            session_kwargs["capture"] = capture
+        self.session = session or make_tracked_session(**session_kwargs)
         if self.headers:
             self.session.headers.update(self.headers)
 

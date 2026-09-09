@@ -1,6 +1,6 @@
 import structlog
 
-from posthog.dags.common.owners import JobOwners
+from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.models.ingestion_warnings.sql_v2 import DISTRIBUTED_TABLE_NAME
 from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY

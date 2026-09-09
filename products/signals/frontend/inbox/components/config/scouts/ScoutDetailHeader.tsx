@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
+import { captureScoutAction } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutCadenceLabel } from '../../../utils/scoutGroups'
 import { prettifyScoutSkillName, SCOUT_RUNS_PER_SCOUT, ScoutRollup } from '../../../utils/scoutRunsWindow'
@@ -16,6 +17,7 @@ import { ScoutStatusTag } from './ScoutBadges'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
 import { LeaveScoutNoteButton } from './ScoutNotesPanel'
+import { ScoutOwners } from './ScoutOwners'
 import { ScoutSettingsButton } from './ScoutSettingsModal'
 
 function Metric({ value, label }: { value: React.ReactNode; label: string }): JSX.Element {
@@ -104,6 +106,7 @@ export function ScoutDetailHeader({
                     {config.scout_origin === 'canonical' ? 'Canonical' : 'Custom'}
                 </LemonTag>
                 <ScoutStatusTag config={config} />
+                <ScoutOwners config={config} />
                 <span className="flex-1" />
                 <Tooltip title="Dispatch a run now, outside the schedule. Counts against the project's daily run budget.">
                     <LemonButton
@@ -118,15 +121,29 @@ export function ScoutDetailHeader({
                     </LemonButton>
                 </Tooltip>
                 <ScoutSettingsButton config={config} surface="scout_detail" showLabel />
-                <Tooltip title="Open the skill that defines what this scout does">
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconExternal />}
-                        to={urls.skill(config.skill_name)}
-                        aria-label={`Open the ${config.skill_name} skill`}
-                    />
-                </Tooltip>
+                {/* Captured on the way down: Link swallows Cmd/Ctrl-clicks before its onClick runs, and
+                    those opens count too. */}
+                <span
+                    className="contents"
+                    onClickCapture={() =>
+                        captureScoutAction({
+                            actionType: 'open_skill_in_posthog',
+                            surface: 'scout_detail',
+                            skillName: config.skill_name,
+                        })
+                    }
+                >
+                    <Tooltip title="A scout is defined by its skill: editable instructions for what it watches and reports.">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconExternal />}
+                            to={urls.skill(config.skill_name)}
+                        >
+                            View skill
+                        </LemonButton>
+                    </Tooltip>
+                </span>
                 <ScoutEnabledSwitch config={config} onUpdate={updateScoutConfig} updating={updating} />
             </div>
 

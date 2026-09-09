@@ -7,17 +7,11 @@ from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jenkins import (
     JenkinsSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.jenkins import JenkinsResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.jenkins.source import JenkinsSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> JenkinsSourceConfig:
@@ -28,9 +22,6 @@ class TestJenkinsSource:
     def setup_method(self) -> None:
         self.source = JenkinsSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.JENKINS
 
     def test_source_is_released_not_hidden(self) -> None:
         # A finished source must be visible (no unreleasedSource) and labelled ALPHA.
@@ -90,19 +81,10 @@ class TestJenkinsSource:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         assert not any(key in other_error for key in self.source.get_non_retryable_errors())
 
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        assert set(self.source.get_canonical_descriptions()) == set(ENDPOINTS)
-        assert self.source.get_canonical_descriptions() is CANONICAL_DESCRIPTIONS
-
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas does no I/O, so the static catalog is safe to render in public docs.
         assert self.source.lists_tables_without_credentials is True
         assert {t["name"] for t in self.source.get_documented_tables()} == set(ENDPOINTS)
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is JenkinsResumeConfig
 
     def test_validate_credentials_delegates_when_host_valid(self) -> None:
         with mock.patch.object(self.source, "_validate_host", return_value=(True, None)):

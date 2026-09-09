@@ -163,11 +163,21 @@ from products.business_knowledge.backend.temporal import (
     ACTIVITIES as BUSINESS_KNOWLEDGE_ACTIVITIES,
     WORKFLOWS as BUSINESS_KNOWLEDGE_WORKFLOWS,
 )
+from products.canvas.backend.temporal.registry import (
+    ACTIVITIES as CANVAS_BUILD_ACTIVITIES,
+    WORKFLOWS as CANVAS_BUILD_WORKFLOWS,
+)
+from products.context_layer.backend.temporal import (
+    ACTIVITIES as CONTEXT_LAYER_ACTIVITIES,
+    WORKFLOWS as CONTEXT_LAYER_WORKFLOWS,
+)
 from products.conversations.backend.temporal import (
     ACTIVITIES as CONVERSATIONS_ACTIVITIES,
     WORKFLOWS as CONVERSATIONS_WORKFLOWS,
 )
 from products.customer_analytics.backend.facade.temporal import (
+    ACCOUNT_PROPERTY_SYNC_ACTIVITIES,
+    ACCOUNT_PROPERTY_SYNC_WORKFLOWS,
     ACTIVITIES as CUSTOMER_ANALYTICS_ACTIVITIES,
     WORKFLOWS as CUSTOMER_ANALYTICS_WORKFLOWS,
 )
@@ -191,6 +201,8 @@ from products.experiments.backend.temporal import (
     ACTIVITIES as EXPERIMENTS_RECALCULATION_ACTIVITIES,
     EXPERIMENT_CANARY_ACTIVITIES,
     EXPERIMENT_CANARY_WORKFLOWS,
+    EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES,
+    EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS,
     WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
 )
 from products.exports.backend.temporal.subscriptions import (
@@ -263,6 +275,10 @@ from products.web_analytics.backend.temporal import (
     ACTIVITIES as WA_DIGEST_ACTIVITIES,
     WORKFLOWS as WA_DIGEST_WORKFLOWS,
 )
+from products.wizard.backend.facade.temporal import (
+    ACTIVITIES as WIZARD_ACTIVITIES,
+    WORKFLOWS as WIZARD_WORKFLOWS,
+)
 
 # When adding modules to a queue, also update the corresponding CI trigger
 # in .github/workflows/container-images-cd.yml (check_changes_*_temporal_worker)
@@ -292,11 +308,13 @@ _task_queue_specs = [
         DATA_WAREHOUSE_METADATA_WORKFLOWS
         + SEMANTIC_ENRICHMENT_WORKFLOWS
         + PERSON_PROPERTY_SYNC_WORKFLOWS
-        + PERSON_PROPERTY_BACKFILL_WORKFLOWS,
+        + PERSON_PROPERTY_BACKFILL_WORKFLOWS
+        + ACCOUNT_PROPERTY_SYNC_WORKFLOWS,
         DATA_WAREHOUSE_METADATA_ACTIVITIES
         + SEMANTIC_ENRICHMENT_ACTIVITIES
         + PERSON_PROPERTY_SYNC_ACTIVITIES
-        + PERSON_PROPERTY_BACKFILL_ACTIVITIES,
+        + PERSON_PROPERTY_BACKFILL_ACTIVITIES
+        + ACCOUNT_PROPERTY_SYNC_ACTIVITIES,
     ),
     (
         settings.DATA_MODELING_TASK_QUEUE,
@@ -315,6 +333,7 @@ _task_queue_specs = [
         + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
         + EXPERIMENTS_WORKFLOWS
         + EXPERIMENT_CANARY_WORKFLOWS
+        + EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS
         + CLEANUP_PROPDEFS_WORKFLOWS
         + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
         + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
@@ -324,7 +343,8 @@ _task_queue_specs = [
         + CI_SIGNALS_WORKFLOWS
         + NOTEBOOKS_WORKFLOWS
         + GROWTH_WORKFLOWS
-        + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS,
+        + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
+        + CONTEXT_LAYER_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -336,12 +356,14 @@ _task_queue_specs = [
         + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES
         + EXPERIMENTS_ACTIVITIES
         + EXPERIMENT_CANARY_ACTIVITIES
+        + EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES
         + CLEANUP_PROPDEFS_ACTIVITIES
         + BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES
         + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES
         + SYNC_EVENTS_RETENTION_ACTIVITIES
         + JOB_LOGS_ACTIVITIES
+        + CONTEXT_LAYER_ACTIVITIES
         + CI_SIGNALS_ACTIVITIES
         + NOTEBOOKS_ACTIVITIES
         + GROWTH_ACTIVITIES
@@ -354,6 +376,13 @@ _task_queue_specs = [
         settings.SIGNUP_ENRICHMENT_TASK_QUEUE,
         GROWTH_WORKFLOWS,
         GROWTH_ACTIVITIES,
+    ),
+    # Canvas builds. CANVAS_BUILD_TASK_QUEUE defaults to the general-purpose queue name (so it merges
+    # into that fleet until a dedicated worker exists).
+    (
+        settings.CANVAS_BUILD_TASK_QUEUE,
+        CANVAS_BUILD_WORKFLOWS,
+        CANVAS_BUILD_ACTIVITIES,
     ),
     (
         settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
@@ -388,6 +417,11 @@ _task_queue_specs = [
         # products/slack_app to settings.TASKS_TASK_QUEUE.
         TASKS_WORKFLOWS + POSTHOG_CODE_SLACK_WORKFLOWS,
         TASKS_ACTIVITIES + POSTHOG_CODE_SLACK_ACTIVITIES,
+    ),
+    (
+        settings.WIZARD_TASK_QUEUE,
+        WIZARD_WORKFLOWS,
+        WIZARD_ACTIVITIES,
     ),
     (
         settings.MAX_AI_TASK_QUEUE,

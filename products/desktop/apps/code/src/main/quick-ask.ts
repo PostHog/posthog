@@ -48,7 +48,6 @@ import {
   setupQuickAskCapture,
   teardownQuickAskCapture,
 } from "./quick-ask-capture";
-import { isDevBuild } from "./utils/env";
 import { logger } from "./utils/logger";
 import { quickAskStore } from "./utils/store";
 import { attachWindowToTrpc, focusMainWindow } from "./window";
@@ -230,6 +229,7 @@ const QUICK_ASK_TRPC_ROUTES = new Set([
   "auth.getValidAccessToken",
   "auth.refreshAccessToken",
   "os.openExternal",
+  "customCloud.get",
 ]);
 
 function createQuickAskWindow(): BrowserWindow {
@@ -272,14 +272,18 @@ function createQuickAskWindow(): BrowserWindow {
   // it gets the same navigation boundary as the main window: links open in
   // the external browser and the window itself never leaves its own page —
   // an in-place navigation would carry the bridges into a foreign origin.
-  const quickAskHome = QUICK_ASK_VITE_DEV_SERVER_URL
-    ? new URL(`${QUICK_ASK_VITE_DEV_SERVER_URL}/quick-ask.html`)
-    : pathToFileURL(
-        path.join(
-          __dirname,
-          `../renderer/${QUICK_ASK_VITE_NAME}/quick-ask.html`,
-        ),
-      );
+  const quickAskUrl = QUICK_ASK_VITE_DEV_SERVER_URL
+    ? `${QUICK_ASK_VITE_DEV_SERVER_URL}/quick-ask.html`
+    : null;
+  const quickAskHome =
+    quickAskUrl && URL.canParse(quickAskUrl)
+      ? new URL(quickAskUrl)
+      : pathToFileURL(
+          path.join(
+            __dirname,
+            `../renderer/${QUICK_ASK_VITE_NAME}/quick-ask.html`,
+          ),
+        );
   setupExternalLinkHandlers(window, quickAskHome);
 
   window.setAlwaysOnTop(true, "screen-saver");
@@ -441,7 +445,7 @@ async function streamAnswer(
   }
 }
 
-export function toggleQuickAsk(): void {
+function toggleQuickAsk(): void {
   if (
     quickAskWindow &&
     !quickAskWindow.isDestroyed() &&
@@ -507,10 +511,6 @@ function fromPanel(event: Electron.IpcMainEvent): boolean {
 }
 
 export function setupQuickAsk(): void {
-  // Prototype: dev builds only, or explicit opt-in.
-  if (!isDevBuild() && process.env.POSTHOG_QUICK_ASK !== "1") {
-    return;
-  }
   quickAskEnabled = true;
 
   ipcMain.on(QUICK_ASK_HIDE_CHANNEL, (event) => {

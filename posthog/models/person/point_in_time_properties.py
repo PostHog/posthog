@@ -100,6 +100,81 @@ def get_distinct_ids_for_person_identifier(
     return distinct_ids
 
 
+def _validate_build_inputs(team_id: int, timestamp: datetime, distinct_ids: list[str], row_limit: int) -> None:
+    if not isinstance(team_id, int) or team_id <= 0:
+        raise ValueError("team_id must be a positive integer")
+
+    if not isinstance(timestamp, datetime):
+        raise ValueError("timestamp must be a datetime object")
+
+    if not isinstance(distinct_ids, list) or not distinct_ids:
+        raise ValueError("distinct_ids must be a non-empty list")
+
+    if not all(isinstance(did, str) and did for did in distinct_ids):
+        raise ValueError("All distinct_ids must be non-empty strings")
+
+    if not isinstance(row_limit, int) or row_limit <= 0:
+        raise ValueError("row_limit must be a positive integer")
+
+
+def _build_property_query(include_set_once: bool, row_limit: int) -> str:
+    if include_set_once:
+        event_filter = "event IN ('$set', '$set_once') OR JSONHas(properties, '$set')"
+    else:
+        event_filter = "event = '$set' OR JSONHas(properties, '$set')"
+
+    # Pulls every property-update event in the window. Existence is established
+    # upstream by get_person_and_distinct_ids_for_identifier (Postgres row);
+    # ``existed`` here means "had property activity in the scan window", which
+    # the property row count answers directly. We extract $set / $set_once raw
+    # JSON instead of shipping the full properties blob, and the timestamp
+    # window + LIMIT keeps ClickHouse from walking dead partitions.
+    return f"""
+    SELECT
+        JSONExtractRaw(properties, '$set') AS set_json,
+        JSONExtractRaw(properties, '$set_once') AS set_once_json,
+        event AS event_name
+    FROM events
+    WHERE team_id = %(team_id)s
+        AND distinct_id IN %(distinct_ids)s
+        AND timestamp >= %(lower_bound)s
+        AND timestamp <= %(upper_bound)s
+        AND ({event_filter})
+    ORDER BY timestamp ASC
+    LIMIT {int(row_limit)}
+    """
+
+
+def _parse_property_json(raw: Any) -> Optional[dict]:
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _reconstruct_properties(rows: list, include_set_once: bool) -> dict[str, Any]:
+    person_properties: dict[str, Any] = {}
+
+    for row in rows:
+        set_json, set_once_json, event_name = row
+
+        if set_json:
+            set_properties = _parse_property_json(set_json)
+            if set_properties is not None:
+                person_properties.update(set_properties)
+
+        # $set_once semantics only apply to dedicated $set_once events.
+        if include_set_once and event_name == "$set_once" and set_once_json:
+            set_once_properties = _parse_property_json(set_once_json)
+            if set_once_properties is not None:
+                for key, value in set_once_properties.items():
+                    if key not in person_properties:
+                        person_properties[key] = value
+
+    return person_properties
+
+
 def build_person_properties_at_time(
     team_id: int,
     timestamp: datetime,
@@ -128,47 +203,9 @@ def build_person_properties_at_time(
         ValueError: If parameters are invalid
         Exception: If ClickHouse query fails
     """
-    # Validation
-    if not isinstance(team_id, int) or team_id <= 0:
-        raise ValueError("team_id must be a positive integer")
+    _validate_build_inputs(team_id, timestamp, distinct_ids, row_limit)
 
-    if not isinstance(timestamp, datetime):
-        raise ValueError("timestamp must be a datetime object")
-
-    if not isinstance(distinct_ids, list) or not distinct_ids:
-        raise ValueError("distinct_ids must be a non-empty list")
-
-    if not all(isinstance(did, str) and did for did in distinct_ids):
-        raise ValueError("All distinct_ids must be non-empty strings")
-
-    if not isinstance(row_limit, int) or row_limit <= 0:
-        raise ValueError("row_limit must be a positive integer")
-
-    if include_set_once:
-        event_filter = "event IN ('$set', '$set_once') OR JSONHas(properties, '$set')"
-    else:
-        event_filter = "event = '$set' OR JSONHas(properties, '$set')"
-
-    # Pulls every property-update event in the window. Existence is established
-    # upstream by get_person_and_distinct_ids_for_identifier (Postgres row);
-    # ``existed`` here means "had property activity in the scan window", which
-    # the property row count answers directly. We extract $set / $set_once raw
-    # JSON instead of shipping the full properties blob, and the timestamp
-    # window + LIMIT keeps ClickHouse from walking dead partitions.
-    query = f"""
-    SELECT
-        JSONExtractRaw(properties, '$set') AS set_json,
-        JSONExtractRaw(properties, '$set_once') AS set_once_json,
-        event AS event_name
-    FROM events
-    WHERE team_id = %(team_id)s
-        AND distinct_id IN %(distinct_ids)s
-        AND timestamp >= %(lower_bound)s
-        AND timestamp <= %(upper_bound)s
-        AND ({event_filter})
-    ORDER BY timestamp ASC
-    LIMIT {int(row_limit)}
-    """
+    query = _build_property_query(include_set_once, row_limit)
 
     # Use provided lower_bound or default to timestamp - 2 years
     effective_lower_bound = lower_bound if lower_bound is not None else timestamp - _HISTORY_SCAN_FLOOR
@@ -185,30 +222,4 @@ def build_person_properties_at_time(
     except Exception as e:
         raise Exception(f"Failed to query ClickHouse events: {str(e)}") from e
 
-    person_properties: dict[str, Any] = {}
-
-    for row in rows:
-        set_json, set_once_json, event_name = row
-
-        if set_json:
-            try:
-                set_properties = json.loads(set_json)
-            except (json.JSONDecodeError, TypeError):
-                set_properties = None
-
-            if isinstance(set_properties, dict):
-                person_properties.update(set_properties)
-
-        # $set_once semantics only apply to dedicated $set_once events.
-        if include_set_once and event_name == "$set_once" and set_once_json:
-            try:
-                set_once_properties = json.loads(set_once_json)
-            except (json.JSONDecodeError, TypeError):
-                set_once_properties = None
-
-            if isinstance(set_once_properties, dict):
-                for key, value in set_once_properties.items():
-                    if key not in person_properties:
-                        person_properties[key] = value
-
-    return person_properties
+    return _reconstruct_properties(rows, include_set_once)

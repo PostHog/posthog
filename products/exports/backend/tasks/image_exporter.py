@@ -24,16 +24,17 @@ from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.api.services.query import process_query_dict
 from posthog.caching.calculate_results import calculate_for_query_based_insight
+from posthog.caching.insight_result import InsightResult
 from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
-from posthog.schema_migrations.upgrade_manager import upgrade_query
-from posthog.security.url_validation import is_url_allowed
+from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.exporter import EXPORT_TIMER
 from posthog.utils import absolute_uri
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.exports.backend.facade.api import export_limit_context
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token, save_content
 from products.exports.backend.tasks.exporter_utils import log_error_if_site_url_not_reachable
 from products.exports.backend.tasks.failure_handler import (
@@ -41,8 +42,8 @@ from products.exports.backend.tasks.failure_handler import (
     InvalidExportContext,
     classify_failure_type,
 )
-from products.product_analytics.backend.facade.api import map_stale_to_latest
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.exports.backend.url_security import is_heatmap_url_allowed
+from products.product_analytics.backend.facade.api import insight_variables_for_team, map_stale_to_latest
 
 logger = structlog.get_logger(__name__)
 
@@ -256,7 +257,7 @@ def _export_to_png(
             )
         elif exported_asset.export_context and exported_asset.export_context.get("heatmap_url"):
             heatmap_url = exported_asset.export_context["heatmap_url"]
-            ok, err = is_url_allowed(heatmap_url)
+            ok, err = is_heatmap_url_allowed(heatmap_url, exported_asset.export_context.get("heatmap_type"))
             if not ok:
                 raise Exception(f"heatmap_url blocked by SSRF protection: {err}")
 
@@ -547,7 +548,7 @@ def export_image(
                 tile_filters_override = None
                 if exported_asset.dashboard:
                     if exported_asset.dashboard.variables:
-                        variables = list(InsightVariable.objects.filter(team=exported_asset.team).all())
+                        variables = insight_variables_for_team(exported_asset.team_id)
                         dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
                     tile = DashboardTile.objects.filter(
                         dashboard=exported_asset.dashboard,
@@ -556,9 +557,10 @@ def export_image(
                     if tile:
                         tile_filters_override = tile.filters_overrides
 
+                result: InsightResult | None = None
                 if query_override:
                     # query_override is upgraded inside calculate_for_query_based_insight,
-                    # so we skip upgrade_query (which only upgrades insight.query we won't use).
+                    # so we skip upgrade_insight (which only upgrades insight.query we won't use).
                     # variables_override is None because query_override already encodes the
                     # user's full current state — applying saved dashboard variables on top
                     # would clobber unsaved variable selections.
@@ -574,8 +576,17 @@ def export_image(
                         query_override=query_override,
                         analytics_props=export_analytics_props,
                     )
+                elif exported_asset.insight.query is None:
+                    # Nothing to warm: the insight stores only legacy filters, which the render
+                    # converts in the browser. Failing here would lose an export the browser can
+                    # still produce, so the render just starts without a warm cache. The dashboard
+                    # branch below skips such a tile for the same reason.
+                    logger.info(
+                        "export_image.skip_warming_insight_without_query",
+                        insight_id=exported_asset.insight.id,
+                    )
                 else:
-                    with upgrade_query(exported_asset.insight):
+                    with upgrade_insight(exported_asset.insight):
                         result = calculate_for_query_based_insight(
                             exported_asset.insight,
                             team=exported_asset.team,
@@ -587,7 +598,7 @@ def export_image(
                             tile_filters_override=tile_filters_override,
                             analytics_props=export_analytics_props,
                         )
-                if result.cache_key:
+                if result is not None and result.cache_key:
                     insight_cache_keys[exported_asset.insight.id] = result.cache_key
             elif exported_asset.dashboard:
                 logger.info(
@@ -599,7 +610,7 @@ def export_image(
                 export_context = exported_asset.export_context or {}
                 dashboard_variables = export_context.get("variables_override")
                 if not dashboard_variables and exported_asset.dashboard.variables:
-                    variables = list(InsightVariable.objects.filter(team=exported_asset.team).all())
+                    variables = insight_variables_for_team(exported_asset.team_id)
                     dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
 
                 tiles = (
@@ -612,7 +623,7 @@ def export_image(
                     if not insight or not insight.query:
                         continue
 
-                    with upgrade_query(insight):
+                    with upgrade_insight(insight):
                         result = calculate_for_query_based_insight(
                             insight,
                             team=exported_asset.team,
@@ -635,6 +646,7 @@ def export_image(
                     exported_asset.team,
                     exported_asset.export_context["source"],
                     execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                    limit_context=export_limit_context(exported_asset.export_context),
                     # Background render (no request user); attribute the read to the export owner.
                     user=exported_asset.created_by,
                 )

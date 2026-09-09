@@ -2,7 +2,7 @@ import random
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Protocol
 
 from django.db import close_old_connections, transaction
 from django.db.models import Count, F, Min, Q
@@ -14,6 +14,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.tasks.backend.metrics import (
     WORKFLOW_DISPATCH_CLAIMED,
     WORKFLOW_DISPATCH_CREATED_TOTAL,
+    WORKFLOW_DISPATCH_DEAD_TOTAL,
     WORKFLOW_DISPATCH_LEASE_EXPIRED_TOTAL,
     WORKFLOW_DISPATCH_OLDEST_READY_AGE_SECONDS,
     WORKFLOW_DISPATCH_READY,
@@ -52,6 +53,10 @@ class WorkflowDispatchFlags:
     async_enabled: bool
 
 
+class SlackThreadContextLike(Protocol):
+    def to_dict(self) -> dict[str, Any]: ...
+
+
 def build_create_payload(options: WorkflowDispatchOptions) -> dict[str, Any]:
     return {
         "version": DISPATCH_PAYLOAD_VERSION,
@@ -60,6 +65,7 @@ def build_create_payload(options: WorkflowDispatchOptions) -> dict[str, Any]:
         "posthog_mcp_scopes": options.posthog_mcp_scopes,
         "slack_thread_context": options.slack_thread_context,
         "prewarmed": options.prewarmed,
+        "skip_user_check": options.skip_user_check,
         "initial_message": asdict(options.initial_message) if options.initial_message else None,
     }
 
@@ -74,6 +80,7 @@ def parse_create_payload(payload: dict[str, Any]) -> WorkflowDispatchOptions:
         posthog_mcp_scopes=payload["posthog_mcp_scopes"],
         slack_thread_context=payload.get("slack_thread_context"),
         prewarmed=payload.get("prewarmed", False),
+        skip_user_check=payload.get("skip_user_check", False),
         initial_message=PendingFollowup(**initial_message) if initial_message else None,
     )
 
@@ -97,12 +104,12 @@ def create_dispatch(task_run: TaskRun, kind: str, payload: dict[str, Any], workf
         "payload": payload,
         "status": TaskWorkflowDispatch.Status.PENDING,
         "attempt_count": 0,
-        "enqueued_at": django_timezone.now(),
         "next_attempt_at": django_timezone.now(),
         "claimed_by": "",
         "lease_expires_at": None,
         "accepted_at": None,
         "last_error": "",
+        "enqueued_at": django_timezone.now(),
     }
     queryset = TaskWorkflowDispatch.objects.for_team(task_run.team_id)
     if kind == TaskWorkflowDispatch.Kind.RESTART:
@@ -144,15 +151,28 @@ def claim_dispatches(instance_id: str, batch_size: int, lease: timedelta) -> lis
 
 def sample_dispatch_metrics() -> None:
     now = django_timezone.now()
-    values = TaskWorkflowDispatch.objects.unscoped().aggregate(
-        ready=Count("id", filter=Q(status=TaskWorkflowDispatch.Status.PENDING, next_attempt_at__lte=now)),
-        claimed=Count("id", filter=Q(status=TaskWorkflowDispatch.Status.CLAIMED)),
-        oldest_ready=Min("created_at", filter=Q(status=TaskWorkflowDispatch.Status.PENDING, next_attempt_at__lte=now)),
+    values = (
+        TaskWorkflowDispatch.objects.unscoped()
+        .filter(status__in=[TaskWorkflowDispatch.Status.PENDING, TaskWorkflowDispatch.Status.CLAIMED])
+        .aggregate(
+            ready=Count("id", filter=Q(status=TaskWorkflowDispatch.Status.PENDING, next_attempt_at__lte=now)),
+            claimed=Count("id", filter=Q(status=TaskWorkflowDispatch.Status.CLAIMED)),
+            oldest_ready=Min(
+                "enqueued_at", filter=Q(status=TaskWorkflowDispatch.Status.PENDING, next_attempt_at__lte=now)
+            ),
+        )
     )
     WORKFLOW_DISPATCH_READY.set(values["ready"] or 0)
     WORKFLOW_DISPATCH_CLAIMED.set(values["claimed"] or 0)
     oldest = values["oldest_ready"]
     WORKFLOW_DISPATCH_OLDEST_READY_AGE_SECONDS.set(max(0.0, (now - oldest).total_seconds()) if oldest else 0)
+
+
+def dispatch_exceeded_max_age(
+    dispatch: TaskWorkflowDispatch, max_age_seconds: int, *, now: datetime | None = None
+) -> bool:
+    current_time = now or django_timezone.now()
+    return current_time - dispatch.enqueued_at > timedelta(seconds=max_age_seconds)
 
 
 def renew_leases(instance_id: str, dispatch_ids: list[Any], lease: timedelta) -> int:
@@ -200,7 +220,7 @@ def release_claims(instance_id: str) -> int:
     )
 
 
-def mark_dead(dispatch_id: Any, instance_id: str, error: str) -> int:
+def mark_dead(dispatch_id: Any, instance_id: str, error: str, reason: str = "payload") -> int:
     with transaction.atomic():
         dispatch = (
             TaskWorkflowDispatch.objects.unscoped().select_for_update().select_related("task_run").get(id=dispatch_id)
@@ -212,9 +232,16 @@ def mark_dead(dispatch_id: Any, instance_id: str, error: str) -> int:
         dispatch.claimed_by = ""
         dispatch.lease_expires_at = None
         dispatch.save(update_fields=["status", "last_error", "claimed_by", "lease_expires_at", "updated_at"])
+        WORKFLOW_DISPATCH_DEAD_TOTAL.labels(kind=dispatch.dispatch_kind, reason=reason).inc()
         run = dispatch.task_run
         if dispatch.dispatch_kind == TaskWorkflowDispatch.Kind.RESTART:
-            _, snapshot = parse_restart_payload(dispatch.payload)
+            try:
+                _, snapshot = parse_restart_payload(dispatch.payload)
+            except (KeyError, TypeError, ValueError):
+                from products.tasks.backend.temporal.client import _terminalize_unstarted_task_run  # noqa: PLC0415
+
+                transaction.on_commit(lambda: _terminalize_unstarted_task_run(str(run.id), error[:2000]))
+                return 1
             run.status = snapshot.status
             run.environment = snapshot.environment
             run.completed_at = datetime.fromisoformat(snapshot.completed_at) if snapshot.completed_at else None
@@ -226,7 +253,17 @@ def mark_dead(dispatch_id: Any, instance_id: str, error: str) -> int:
 
             execute_after_commit(lambda: _terminalize_unstarted_task_run(str(run.id), error[:2000]))
             return 1
-        run.save()
+        run.save(
+            update_fields=[
+                "status",
+                "environment",
+                "completed_at",
+                "queued_at",
+                "state",
+                "error_message",
+                "updated_at",
+            ]
+        )
         execute_after_commit(run.publish_stream_state_event)
         return 1
 
@@ -282,6 +319,7 @@ def enqueue_or_start_workflow(
     if options.workflow_id_prefix:
         TaskRun.update_state_atomic(task_run.id, updates={"workflow_id": workflow_id})
         task_run.state = {**(task_run.state or {}), "workflow_id": workflow_id}
+    dispatch_written = False
     if flags.shadow_enabled or flags.async_enabled:
         if transaction.get_connection().in_atomic_block:
             create_dispatch(task_run, TaskWorkflowDispatch.Kind.CREATE, build_create_payload(options), workflow_id)
@@ -293,6 +331,7 @@ def enqueue_or_start_workflow(
                 create_dispatch(
                     locked_run, TaskWorkflowDispatch.Kind.CREATE, build_create_payload(options), workflow_id
                 )
+        dispatch_written = True
     if flags.async_enabled:
         return
 
@@ -317,6 +356,8 @@ def enqueue_or_start_workflow(
             workflow_kwargs["initial_message"] = options.initial_message
         if options.skip_user_check:
             workflow_kwargs["skip_user_check"] = True
+        if dispatch_written:
+            workflow_kwargs["durable_dispatch"] = True
         start_workflow(**workflow_kwargs)
 
     execute_after_commit(start_synchronously)
@@ -326,3 +367,33 @@ async def aenqueue_or_start_workflow(task_run: TaskRun, *, options: WorkflowDisp
     from asgiref.sync import sync_to_async
 
     await sync_to_async(enqueue_or_start_workflow)(task_run, options=options)
+
+
+def dispatch_task_processing_workflow(
+    task_id: str,
+    run_id: str,
+    team_id: int,
+    user_id: int | None = None,
+    create_pr: bool = True,
+    slack_thread_context: "SlackThreadContextLike | dict[str, Any] | None" = None,
+    skip_user_check: bool = False,
+    posthog_mcp_scopes: PosthogMcpScopes = "read_only",
+) -> None:
+    """Outbox-aware drop-in for ``execute_task_processing_workflow`` when the caller did not create the run itself."""
+    if slack_thread_context is None or isinstance(slack_thread_context, dict):
+        normalized_context = slack_thread_context
+    else:
+        normalized_context = slack_thread_context.to_dict()
+    task_run = TaskRun.objects.select_related("task", "task__team", "task__created_by").get(
+        id=run_id, task_id=task_id, team_id=team_id
+    )
+    enqueue_or_start_workflow(
+        task_run,
+        options=WorkflowDispatchOptions(
+            user_id=user_id,
+            create_pr=create_pr,
+            slack_thread_context=normalized_context,
+            posthog_mcp_scopes=posthog_mcp_scopes,
+            skip_user_check=skip_user_check,
+        ),
+    )

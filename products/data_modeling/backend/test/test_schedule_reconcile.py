@@ -427,22 +427,11 @@ class TestMaybeReconcileDag(BaseTest):
         temporal.list_schedules = fake_list_schedules
         return temporal
 
-    def test_flag_off_never_touches_temporal(self):
-        dag = self._dag_with_target()
-        with (
-            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=False),
-            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock()) as connect,
-        ):
-            with self.captureOnCommitCallbacks(execute=True):
-                maybe_reconcile_dag(dag)
-        connect.assert_not_called()
-
     def test_untiered_dag_is_left_alone(self):
-        # a legacy single-schedule DAG converts only via the conversion command; a mutation
-        # trigger must neither unschedule it nor create tiers next to live v1 schedules
+        # a legacy single-schedule DAG converts only via the conversion command: tiering the
+        # seeded nodes here would delete the whole-DAG schedule the unseeded ones still ride
         dag = self._dag_with_target()
         with (
-            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=True),
             mock.patch(
                 f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([str(dag.id)]))
             ),
@@ -456,11 +445,23 @@ class TestMaybeReconcileDag(BaseTest):
         update.assert_not_called()
         delete.assert_not_called()
 
+    def test_dag_with_no_schedule_regains_a_tier(self):
+        dag = self._dag_with_target()
+        with (
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([]))),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                maybe_reconcile_dag(dag)
+        create.assert_called_once()
+        self.assertEqual(create.call_args.kwargs["id"], tier_schedule_id(str(dag.id), M15))
+        delete.assert_not_called()
+
     def test_tiered_dag_reconciles_after_commit(self):
         dag = self._dag_with_target()
         tier_id = tier_schedule_id(str(dag.id), M15)
         with (
-            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=True),
             mock.patch(
                 f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([tier_id]))
             ),
@@ -475,7 +476,6 @@ class TestMaybeReconcileDag(BaseTest):
     def test_reconcile_failure_never_raises_past_commit(self):
         dag = self._dag_with_target()
         with (
-            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=True),
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(side_effect=RuntimeError("temporal down"))),
             mock.patch(f"{RECONCILE}.capture_exception") as capture,
         ):
