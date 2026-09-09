@@ -460,6 +460,12 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
             .join('\n')
         return `Tool "query-run" was removed. Pick the typed query tool that matches your intent, or use "execute-sql" for arbitrary HogQL. Available query-* tools:\n${queryTools}`
     },
+    // Folded into "inbox-reports-list", which already served the same endpoint.
+    // Spell out the filter renames: the replacement declares no required
+    // parameters, so an old array filter sent to it is silently dropped and the
+    // caller gets an unfiltered list instead of an error.
+    'self-driving-inbox-get': () =>
+        'Tool "self-driving-inbox-get" was removed. Use "inbox-reports-list", which lists the same reports. For the old default, pass { "view": "actionable", "use_priority_preference": true, "sort": "priority", "limit": 10 }. The array filters became comma-separated strings: `priorities` is now `priority`, `source_products` is now `source_product`, and `scouts` is now `scout`. `view`, `scope`, `teammate_uuid`, `search`, and `offset` keep their names.',
 }
 
 /**
