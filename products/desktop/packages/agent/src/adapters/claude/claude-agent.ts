@@ -3642,7 +3642,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   }
 
   private async broadcastUserMessage(params: PromptRequest): Promise<void> {
-    for (const chunk of params.prompt) {
+    for (const chunk of visiblePromptBlocks(params.prompt)) {
       const notification = {
         sessionId: params.sessionId,
         update: {
