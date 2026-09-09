@@ -158,6 +158,8 @@ pub struct CohortTree {
 
 /// Receives the indexable side effects of a parse.
 pub trait LeafSink {
+    /// Record one kept, state-keyed leaf. `bytecode` is the leaf's stored array, already accepted
+    /// by `ConditionProgram::has_valid_stored_header`, so loading it cannot fail.
     fn record_state_keyed(
         &mut self,
         cohort_id: CohortId,
@@ -209,11 +211,10 @@ fn parse_node(cohort_id: CohortId, node: &Value, sink: &mut dyn LeafSink) -> Opt
     }
 
     match classify_leaf(node) {
-        LeafClass::Keep(leaf) => {
-            if let (Some(hash), Some(lsk)) = (leaf.condition_hash(), leaf.leaf_state_key()) {
-                let bytecode = node["bytecode"]
-                    .as_array()
-                    .expect("a kept state-keyed leaf has validated bytecode");
+        LeafClass::Keep(leaf, bytecode) => {
+            if let (Some(hash), Some(lsk), Some(bytecode)) =
+                (leaf.condition_hash(), leaf.leaf_state_key(), bytecode)
+            {
                 sink.record_state_keyed(cohort_id, hash, lsk, bytecode);
             }
             Some(FilterNode::Leaf(leaf))

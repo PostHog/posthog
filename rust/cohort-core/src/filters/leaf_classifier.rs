@@ -46,13 +46,16 @@ impl LeafDropReason {
     }
 }
 
-pub enum LeafClass {
-    Keep(CohortLeaf),
+pub enum LeafClass<'a> {
+    /// A kept leaf, carrying the stored bytecode array this classifier accepted for it (`None` for
+    /// a kept kind that has none). The pairing is what lets a sink load the program without a
+    /// validity check of its own.
+    Keep(CohortLeaf, Option<&'a [Value]>),
     Drop(LeafDropReason),
     CohortRef(CohortRefLeafConfig),
 }
 
-pub fn classify_leaf(node: &Value) -> LeafClass {
+pub fn classify_leaf(node: &Value) -> LeafClass<'_> {
     match node.get("type").and_then(Value::as_str) {
         Some("behavioral") => classify_behavioral(node),
         Some("cohort") => classify_cohort_ref(node),
@@ -61,7 +64,7 @@ pub fn classify_leaf(node: &Value) -> LeafClass {
     }
 }
 
-fn classify_behavioral(node: &Value) -> LeafClass {
+fn classify_behavioral(node: &Value) -> LeafClass<'_> {
     let value = match node
         .get("value")
         .and_then(Value::as_str)
@@ -80,9 +83,10 @@ fn classify_behavioral(node: &Value) -> LeafClass {
         return LeafClass::Drop(LeafDropReason::MissingConditionHash);
     };
 
-    if let Err(reason) = validate_bytecode(node.get("bytecode")) {
-        return LeafClass::Drop(reason);
-    }
+    let bytecode = match validate_bytecode(node.get("bytecode")) {
+        Ok(bytecode) => bytecode,
+        Err(reason) => return LeafClass::Drop(reason),
+    };
 
     let Some(event_key) = node
         .get("key")
@@ -109,14 +113,15 @@ fn classify_behavioral(node: &Value) -> LeafClass {
     .with_state_key();
 
     match pick_state_variant(&leaf) {
-        Ok((variant, _window)) => {
-            LeafClass::Keep(CohortLeaf::Behavioral(leaf.with_state_variant(variant)))
-        }
+        Ok((variant, _window)) => LeafClass::Keep(
+            CohortLeaf::Behavioral(leaf.with_state_variant(variant)),
+            Some(bytecode),
+        ),
         Err(_) => LeafClass::Drop(LeafDropReason::UnsupportedStateVariant),
     }
 }
 
-fn classify_cohort_ref(node: &Value) -> LeafClass {
+fn classify_cohort_ref(node: &Value) -> LeafClass<'_> {
     match cohort_id_from_value(node.get("value")) {
         Some(id) => LeafClass::CohortRef(CohortRefLeafConfig {
             referenced_cohort_id: CohortId(id),
@@ -140,18 +145,22 @@ fn cohort_ref_negation(node: &Value) -> bool {
     explicit_negation(node) || node.get("operator").and_then(Value::as_str) == Some("not_in")
 }
 
-fn classify_person(node: &Value) -> LeafClass {
+fn classify_person(node: &Value) -> LeafClass<'_> {
     let Some(condition_hash) = condition_hash_bytes(node.get("conditionHash")) else {
         return LeafClass::Drop(LeafDropReason::MissingConditionHash);
     };
-    if let Err(reason) = validate_bytecode(node.get("bytecode")) {
-        return LeafClass::Drop(reason);
-    }
-    LeafClass::Keep(CohortLeaf::PersonProperty(PersonLeafConfig {
-        condition_hash,
-        leaf_state_key: LeafStateKey::for_person_property(&condition_hash),
-        negated: explicit_negation(node),
-    }))
+    let bytecode = match validate_bytecode(node.get("bytecode")) {
+        Ok(bytecode) => bytecode,
+        Err(reason) => return LeafClass::Drop(reason),
+    };
+    LeafClass::Keep(
+        CohortLeaf::PersonProperty(PersonLeafConfig {
+            condition_hash,
+            leaf_state_key: LeafStateKey::for_person_property(&condition_hash),
+            negated: explicit_negation(node),
+        }),
+        Some(bytecode),
+    )
 }
 
 /// The 16 ASCII bytes of the hex `conditionHash` string, or `None` if not exactly 16 bytes.
@@ -168,12 +177,13 @@ fn condition_hash_bytes(value: Option<&Value>) -> Option<[u8; 16]> {
 }
 
 /// Validate every leaf before hash deduplication so a healthy duplicate cannot hide a corrupt one.
-fn validate_bytecode(value: Option<&Value>) -> Result<(), LeafDropReason> {
+/// Returns the accepted array, so a kept leaf carries the bytecode that was checked for it.
+fn validate_bytecode(value: Option<&Value>) -> Result<&[Value], LeafDropReason> {
     let array = value
         .and_then(Value::as_array)
         .ok_or(LeafDropReason::MissingBytecode)?;
     if ConditionProgram::has_valid_stored_header(array) {
-        Ok(())
+        Ok(array)
     } else {
         Err(LeafDropReason::MalformedBytecode)
     }
@@ -225,7 +235,7 @@ mod tests {
             "conditionHash": HASH,
             "bytecode": bytecode(),
         });
-        let LeafClass::Keep(CohortLeaf::Behavioral(leaf)) = classify_leaf(&node) else {
+        let LeafClass::Keep(CohortLeaf::Behavioral(leaf), _) = classify_leaf(&node) else {
             panic!("expected a kept behavioral leaf");
         };
         assert_eq!(leaf.condition_hash, hash_bytes());
@@ -252,7 +262,7 @@ mod tests {
             "conditionHash": HASH,
             "bytecode": bytecode(),
         });
-        let LeafClass::Keep(CohortLeaf::Behavioral(leaf)) = classify_leaf(&node) else {
+        let LeafClass::Keep(CohortLeaf::Behavioral(leaf), _) = classify_leaf(&node) else {
             panic!("a daily-window multiple is now kept");
         };
         assert_eq!(leaf.value, BehavioralValue::PerformedEventMultiple);
@@ -309,7 +319,7 @@ mod tests {
                 "conditionHash": HASH,
                 "bytecode": bytecode(),
             });
-            let LeafClass::Keep(CohortLeaf::Behavioral(leaf)) = classify_leaf(&node) else {
+            let LeafClass::Keep(CohortLeaf::Behavioral(leaf), _) = classify_leaf(&node) else {
                 panic!("a >180-day multiple is kept as compressed: {why}");
             };
             assert_eq!(
@@ -347,7 +357,7 @@ mod tests {
                 "conditionHash": HASH,
                 "bytecode": bytecode(),
             });
-            let LeafClass::Keep(CohortLeaf::Behavioral(leaf)) = classify_leaf(&node) else {
+            let LeafClass::Keep(CohortLeaf::Behavioral(leaf), _) = classify_leaf(&node) else {
                 panic!("an explicit relative-lower multiple is kept: {why}");
             };
             assert_eq!(leaf.value, BehavioralValue::PerformedEventMultiple);
@@ -468,7 +478,7 @@ mod tests {
             "conditionHash": HASH,
             "bytecode": bytecode(),
         });
-        let LeafClass::Keep(CohortLeaf::PersonProperty(leaf)) = classify_leaf(&node) else {
+        let LeafClass::Keep(CohortLeaf::PersonProperty(leaf), _) = classify_leaf(&node) else {
             panic!("expected a kept person leaf");
         };
         assert_eq!(leaf.condition_hash, hash_bytes());
@@ -660,7 +670,7 @@ mod tests {
             "bytecode": bytecode(),
             "negation": true,
         });
-        let LeafClass::Keep(CohortLeaf::Behavioral(leaf)) = classify_leaf(&node) else {
+        let LeafClass::Keep(CohortLeaf::Behavioral(leaf), _) = classify_leaf(&node) else {
             panic!("expected a kept behavioral leaf");
         };
         assert!(leaf.negated);
@@ -677,7 +687,7 @@ mod tests {
             "conditionHash": HASH,
             "bytecode": bytecode(),
         });
-        let LeafClass::Keep(CohortLeaf::Behavioral(leaf)) = classify_leaf(&node) else {
+        let LeafClass::Keep(CohortLeaf::Behavioral(leaf), _) = classify_leaf(&node) else {
             panic!("expected a kept behavioral leaf");
         };
         assert!(!leaf.negated);
@@ -693,7 +703,7 @@ mod tests {
             "bytecode": bytecode(),
             "negation": true,
         });
-        let LeafClass::Keep(CohortLeaf::PersonProperty(leaf)) = classify_leaf(&node) else {
+        let LeafClass::Keep(CohortLeaf::PersonProperty(leaf), _) = classify_leaf(&node) else {
             panic!("expected a kept person leaf");
         };
         assert!(leaf.negated);
@@ -708,7 +718,7 @@ mod tests {
             "conditionHash": HASH,
             "bytecode": bytecode(),
         });
-        let LeafClass::Keep(CohortLeaf::PersonProperty(leaf)) = classify_leaf(&node) else {
+        let LeafClass::Keep(CohortLeaf::PersonProperty(leaf), _) = classify_leaf(&node) else {
             panic!("expected a kept person leaf");
         };
         assert!(!leaf.negated);
@@ -726,7 +736,7 @@ mod tests {
             "bytecode": bytecode(),
             "negation": false,
         });
-        let LeafClass::Keep(CohortLeaf::Behavioral(leaf)) = classify_leaf(&node) else {
+        let LeafClass::Keep(CohortLeaf::Behavioral(leaf), _) = classify_leaf(&node) else {
             panic!("expected a kept behavioral leaf");
         };
         assert!(!leaf.negated);

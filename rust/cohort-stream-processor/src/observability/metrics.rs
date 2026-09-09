@@ -27,9 +27,9 @@ pub const FILTER_CATALOG_LAST_SUCCESS_TIMESTAMP_SECONDS: &str =
 /// gives the failure rate; the `success` series proves the loop is still ticking at all.
 pub const FILTER_CATALOG_REFRESH_TOTAL: &str = "filter_catalog_refresh_total";
 /// Wall time of one catalog build — parsing every cohort's filters JSON and loading every leaf's
-/// bytecode (histogram, seconds). The build runs synchronously on a tokio worker, so a build that
-/// grew into the seconds would stall whatever partition workers share that thread; this is the
-/// signal that says whether it has.
+/// bytecode (histogram, seconds). The build runs on the blocking pool, so it cannot stall a
+/// partition worker; a build that grew into the seconds instead shows up as catalog staleness.
+/// Measured inside the offloaded closure, so it excludes blocking-pool queue delay.
 pub const FILTER_CATALOG_BUILD_DURATION_SECONDS: &str = "filter_catalog_build_duration_seconds";
 /// Cascade depths reached, from the `depth` field on cascade messages (histogram). Cohort ids are
 /// logged, not labelled, to keep cardinality bounded.

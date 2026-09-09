@@ -256,6 +256,9 @@ def _loads_as_hog_program(bytecode: list[Any]) -> bool:
 
     The loader appends a trailing RETURN before loading, so an empty stored program presents that
     opcode as its marker and is rejected; a bare `["_H"]` takes the appended opcode as its version.
+
+    Not `common/hogvm/python/execute.py`: that loader accepts `_h` too and never reads the version,
+    so it would keep programs the Rust catalog drops.
     """
     marker = bytecode[0] if bytecode else _OP_RETURN
     if marker != "_H":

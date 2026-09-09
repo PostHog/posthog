@@ -195,10 +195,14 @@ fn malformed_leaves_warn_once_per_cohort_per_build() {
     }
 
     let output = output.lock().unwrap();
+    // Narrowed to the warning under test: the same builds emit a cohort-parse warning carrying a
+    // `cohort_id` but no count, and a timezone warning carrying neither, so a fixture that grew one
+    // would panic inside the closure instead of failing an assertion.
     let mut warnings: Vec<(i64, u64)> = String::from_utf8_lossy(&output)
         .lines()
-        .map(|line| {
-            let event: Value = serde_json::from_str(line).unwrap();
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|event| event["fields"]["malformed_leaves"].is_u64())
+        .map(|event| {
             assert_eq!(event["level"], "WARN");
             (
                 event["fields"]["cohort_id"].as_i64().unwrap(),

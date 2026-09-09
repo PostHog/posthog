@@ -12,6 +12,9 @@ use crate::leaf_state::key::LeafStateKey;
 pub struct CohortParseFlags {
     /// Number of kept, state-keyed leaves in the parsed tree.
     pub state_keyed_leaf_count: u32,
+    /// Number of leaves dropped because the HogVM could not load their bytecode. Reported at
+    /// freeze; [`classify`] reads `has_dropped_leaf` instead, which any drop reason sets.
+    pub malformed_leaf_count: u32,
     /// The cohort has ≥1 cohort-reference leaf.
     pub has_cohort_ref: bool,
     /// The cohort lost ≥1 leaf during parse.

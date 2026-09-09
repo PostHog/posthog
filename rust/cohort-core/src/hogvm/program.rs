@@ -2,13 +2,8 @@
 
 use std::fmt;
 
-use hogvm::{Program, VmError};
+use hogvm::{Operation, Program, VmError};
 use serde_json::Value;
-
-/// HogVM `RETURN` opcode, appended to each stored program at load. Python-compiled cohort bytecode
-/// ends at its root comparison with no `RETURN`, which the Rust VM would hit as `EndOfProgram`. A
-/// program already ending in `RETURN` stops at the first, so the appended one is inert.
-const OP_RETURN: i64 = 38;
 
 /// A cohort condition's bytecode in the form the evaluator runs: the stored program with the
 /// loader's trailing `RETURN`, header-validated and token-decoded once at catalog build. Wraps
@@ -37,7 +32,10 @@ impl ConditionProgram {
     pub fn from_stored(stored: &[Value]) -> Result<Self, VmError> {
         let mut bytecode = Vec::with_capacity(stored.len() + 1);
         bytecode.extend_from_slice(stored);
-        bytecode.push(Value::from(OP_RETURN));
+        // Python-compiled cohort bytecode ends at its root comparison with no `RETURN`, which the
+        // Rust VM would hit as `EndOfProgram`. A program already ending in `RETURN` stops at the
+        // first, so the appended one is inert.
+        bytecode.push(Value::from(Operation::Return));
         Program::new(bytecode).map(Self)
     }
 
@@ -71,6 +69,7 @@ mod tests {
     use serde_json::json;
 
     const OP_TRUE: i64 = 29;
+    const OP_RETURN: i64 = Operation::Return as i64;
 
     #[test]
     fn from_stored_appends_the_terminating_return() {

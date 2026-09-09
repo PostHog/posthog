@@ -144,8 +144,7 @@ mod tests {
         };
         let flags = CohortParseFlags {
             state_keyed_leaf_count: state_keyed_leaf_count(root),
-            has_cohort_ref: false,
-            has_dropped_leaf: false,
+            ..CohortParseFlags::default()
         };
         matches!(
             classify(&tree, &flags),

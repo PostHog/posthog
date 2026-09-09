@@ -125,7 +125,6 @@ pub struct TeamFiltersBuilder {
     cohorts: HashMap<CohortId, CohortTree>,
     /// Per-cohort eligibility signals captured during parse.
     flags: HashMap<CohortId, CohortParseFlags>,
-    malformed_leaves: HashMap<CohortId, u64>,
     behavioral_shape_hashes: HashMap<CohortId, BehavioralShapeHash>,
     person_shape_hashes: HashMap<CohortId, PersonShapeHash>,
 }
@@ -164,10 +163,11 @@ impl LeafSink for TeamFiltersBuilder {
 
     fn record_dropped(&mut self, cohort_id: CohortId, reason: LeafDropReason) {
         counter!(FILTER_CATALOG_SKIPPED_LEAVES, "reason" => reason.as_str()).increment(1);
+        let flags = self.flags.entry(cohort_id).or_default();
+        flags.has_dropped_leaf = true;
         if reason == LeafDropReason::MalformedBytecode {
-            *self.malformed_leaves.entry(cohort_id).or_default() += 1;
+            flags.malformed_leaf_count += 1;
         }
-        self.flags.entry(cohort_id).or_default().has_dropped_leaf = true;
     }
 }
 
@@ -204,11 +204,14 @@ impl TeamFiltersBuilder {
     /// emit-map by their own leaves; otherwise they stay `Excluded(HasCohortRef)`.
     pub fn freeze_with(self, timezone: Tz, cascade_enabled: bool) -> TeamFilters {
         // Aggregate corrupt leaves per cohort so one large filter tree cannot flood each refresh.
-        for (cohort_id, malformed_leaves) in &self.malformed_leaves {
-            warn!(
-                cohort_id = cohort_id.0,
-                malformed_leaves, "cohort has bytecode the HogVM cannot load; excluding the cohort",
-            );
+        for (cohort_id, flags) in &self.flags {
+            if flags.malformed_leaf_count > 0 {
+                warn!(
+                    cohort_id = cohort_id.0,
+                    malformed_leaves = flags.malformed_leaf_count,
+                    "cohort has bytecode the HogVM cannot load; excluding the cohort",
+                );
+            }
         }
         let mut by_lsk = HashMap::new();
         let mut behavioral_conditions = HashSet::new();
@@ -582,21 +585,15 @@ mod tests {
 
     #[test]
     fn identical_leaves_dedupe_to_single_entries() {
-        for (mut leaf, hash) in [
+        for (leaf, hash) in [
             (behavioral_performed_event(7), HASH),
             (person_leaf(), PERSON_HASH),
         ] {
-            let mut bytecode = vec![json!("_H"), json!(1)];
-            for i in 0..8000 {
-                bytecode.extend([json!(32), json!(format!("value-{i}"))]);
-            }
-            leaf["bytecode"] = json!(bytecode);
             let filters = wrap(vec![leaf.clone(), leaf]);
             let mut builder = TeamFiltersBuilder::default();
             builder
                 .add_cohort(CohortId(1), TeamId(7), &filters)
                 .unwrap();
-            let first_program = builder.by_condition_to_program[&hash].clone();
             builder
                 .add_cohort(CohortId(2), TeamId(7), &filters)
                 .unwrap();
@@ -609,18 +606,45 @@ mod tests {
             );
             assert_eq!(frozen.unique_condition_hashes.len(), 1);
             assert_eq!(frozen.by_condition_to_program.len(), 1);
-            assert!(std::ptr::eq(
-                first_program.program().body_tokens(),
-                frozen.by_condition_to_program[&hash]
-                    .program()
-                    .body_tokens(),
-            ));
             for tree in frozen.cohorts.values() {
                 let FilterNode::Group { children, .. } = &tree.root else {
                     panic!("expected a group");
                 };
                 assert_eq!(children.len(), 2);
             }
+        }
+    }
+
+    /// Decoding is the cost this catalog pays once, so a repeat occurrence must reuse the decoded
+    /// tokens rather than produce an equal copy of them. With `Program`'s fields private, slice
+    /// identity is the only public probe.
+    #[test]
+    fn a_repeated_condition_hash_reuses_the_first_decoded_program() {
+        for (leaf, hash) in [
+            (behavioral_performed_event(7), HASH),
+            (person_leaf(), PERSON_HASH),
+        ] {
+            let filters = wrap(vec![leaf.clone(), leaf]);
+            let mut builder = TeamFiltersBuilder::default();
+            builder
+                .add_cohort(CohortId(1), TeamId(7), &filters)
+                .unwrap();
+            let first_program = builder.by_condition_to_program[&hash].clone();
+            builder
+                .add_cohort(CohortId(2), TeamId(7), &filters)
+                .unwrap();
+            let frozen = builder.freeze(UTC);
+
+            let retained = frozen.by_condition_to_program[&hash]
+                .program()
+                .body_tokens();
+            // Two empty slices can compare pointer-equal, so prove the comparison has something to
+            // bite on.
+            assert!(!retained.is_empty());
+            assert!(std::ptr::eq(
+                first_program.program().body_tokens(),
+                retained,
+            ));
         }
     }
 
