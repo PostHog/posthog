@@ -1,5 +1,16 @@
 """One HogQL query shape serves both the pre-start estimate and the paged dispatch, so the number
-a user approves and the units the workflow evaluates come from the same predicate."""
+a user approves and the units the workflow evaluates come from the same predicate.
+
+Units are discovered on `events` rather than on `ai_events`. Both tables hold every AI event, but
+their sort keys decide what a time range costs: `events` is ordered by `(team_id, toDate(timestamp),
+event, ...)` and partitioned by month, so a team's `$ai_generation` rows over a range of days prune
+to almost exactly the rows asked for, while `ai_events` is ordered by `(team_id, trace_id,
+timestamp)`, where a range with no trace id prunes nothing and reads the team's whole history.
+
+`ai_events` is still the only table carrying the heavy properties an evaluation can filter on, so a
+condition set that reads one of those is settled by a second query against the trace ids the first
+one found, which is a sort-key lookup rather than a scan.
+"""
 
 from datetime import datetime, timedelta
 from typing import Any
@@ -7,11 +18,13 @@ from typing import Any
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.ai_table_resolver import AIEventsExpiredError, AIEventsNotFoundError, query_ai_events
+from posthog.hogql_queries.ai.utils import HEAVY_PROPERTY_NAMES
 from posthog.models.team import Team
 
 from products.ai_observability.backend.evaluation_conditions import build_condition_filter
@@ -25,6 +38,14 @@ MAX_EXECUTION_TIME_SECONDS = 30
 # horizon. A verdict that lands later than this is one the dedupe cannot see.
 VERDICT_LAG_MARGIN = timedelta(days=1)
 
+# How far below its cursor a page reads. A unit is ordered by its first event, so the query has to
+# see that event to place it, but a unit's events sit in one burst: a generation is a single row and
+# a trace or session closes within its settle horizon. Reading only that far below the cursor keeps
+# every page the same width instead of growing back to the start of the window. A unit whose events
+# outlast the lookback surfaces twice, once truncated and once at its true position, which costs
+# nothing: both dispatches share a workflow id, so the second is a no-op counted as skipped.
+MIN_SCAN_LOOKBACK = timedelta(days=1)
+
 # A trace or session id is a plain event property, so capture takes one as large as the event it
 # rides on, while a Temporal activity payload stops near 2 MiB. Bounding every id a candidate
 # carries keeps a full batch far under that, and the bound sits in the query because the cursor is
@@ -33,6 +54,7 @@ MAX_CANDIDATE_ID_BYTES = 256
 
 CANDIDATE_QUERY_TYPE = "EvaluationBackfillCandidates"
 COUNT_QUERY_TYPE = "EvaluationBackfillCount"
+HEAVY_MATCH_QUERY_TYPE = "EvaluationBackfillHeavyConditions"
 
 _TARGET_TYPES: dict[str, str] = {
     EvaluationTarget.GENERATION.value: "generation_uuid",
@@ -46,17 +68,30 @@ SELECT
     min(timestamp) AS unit_timestamp,
     argMin(distinct_id, timestamp) AS distinct_id,
     argMin(properties.$session_id, timestamp) AS web_session_id,
-    argMin(ai_events.trace_id, timestamp) AS unit_trace_id
-FROM posthog.ai_events AS ai_events
+    argMin(properties.$ai_trace_id, timestamp) AS unit_trace_id
+FROM events
 WHERE event = '$ai_generation'
   AND isNotNull({unit_key})
   AND {unit_key} != ''
   AND length({unit_key}) <= {max_id_bytes}
-  AND timestamp >= {window_start}
+  AND timestamp >= {scan_start}
   AND timestamp < {window_end}
   AND {condition_filter}
   AND {not_already_evaluated}
 GROUP BY unit_id
+"""
+
+# Settles the condition sets that read a heavy property, over the traces the units query already
+# found. `trace_id` leads the ai_events sort key after the team, so this reads those traces rather
+# than the window.
+_HEAVY_MATCH_SQL = """
+SELECT DISTINCT {unit_key} AS unit_id
+FROM posthog.ai_events AS ai_events
+WHERE event = '$ai_generation'
+  AND trace_id IN {trace_ids}
+  AND timestamp >= {scan_start}
+  AND timestamp < {window_end}
+  AND {condition_filter}
 """
 
 # Reads the shared events table rather than ai_events: the verdict rows must stay visible past the
@@ -90,13 +125,25 @@ class CandidatePage:
 
 
 def _unit_key(target: str) -> ast.Expr:
+    """The unit id as `events` carries it. Only the generation uuid is a column there."""
+    if target == EvaluationTarget.TRACE.value:
+        return ast.Field(chain=["properties", "$ai_trace_id"])
+    if target == EvaluationTarget.SESSION.value:
+        return ast.Field(chain=["properties", "$ai_session_id"])
+    if target == EvaluationTarget.GENERATION.value:
+        # A ClickHouse UUID needs a String cast to compare against the cursor and against the
+        # dedupe subquery's target ids.
+        return ast.Call(name="toString", args=[ast.Field(chain=["uuid"])])
+    raise ValueError(f"Unsupported evaluation target: {target}")
+
+
+def _ai_events_unit_key(target: str) -> ast.Expr:
+    """The same unit id as `ai_events` carries it, where trace and session are native columns."""
     if target == EvaluationTarget.TRACE.value:
         return ast.Field(chain=["trace_id"])
     if target == EvaluationTarget.SESSION.value:
         return ast.Field(chain=["session_id"])
     if target == EvaluationTarget.GENERATION.value:
-        # ai_events.uuid is a ClickHouse UUID, so it needs a String cast to compare against the
-        # cursor and the dedupe subquery's target ids.
         return ast.Call(name="toString", args=[ast.Field(chain=["uuid"])])
     raise ValueError(f"Unsupported evaluation target: {target}")
 
@@ -113,6 +160,32 @@ def _target_type_filter(target: str) -> ast.Expr:
     # Verdicts emitted before $ai_target_type existed are generation verdicts, so a null value
     # belongs to the generation id space. Same rule as eval_reports/targets.py:target_event_predicate.
     return ast.Or(exprs=[matches, ast.Call(name="isNull", args=[target_type])])
+
+
+def reads_heavy_properties(conditions: list[dict[str, Any]]) -> bool:
+    """Whether any condition set filters on a property `events` does not carry."""
+    return any(
+        str(prop.get("key")) in HEAVY_PROPERTY_NAMES
+        for condition in conditions
+        for prop in (condition.get("properties") or [])
+    )
+
+
+def _without_heavy_properties(conditions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The same condition sets with the heavy filters dropped, so they match a superset.
+
+    What survives runs on `events` to find the units worth asking about; the full sets then settle
+    which of those actually match.
+    """
+    return [
+        {
+            **condition,
+            "properties": [
+                prop for prop in (condition.get("properties") or []) if str(prop.get("key")) not in HEAVY_PROPERTY_NAMES
+            ],
+        }
+        for condition in conditions
+    ]
 
 
 def _not_already_evaluated(
@@ -148,38 +221,36 @@ def _units_query(
     target: str,
     settle_horizon: timedelta,
     conditions: list[dict[str, Any]],
+    scan_start: datetime,
     window_start: datetime,
     window_end: datetime,
     rerun_existing: bool,
-) -> tuple[ast.SelectQuery, dict[str, ast.Expr]]:
-    """The candidate query plus the placeholders `query_ai_events` must resolve.
-
-    Only what reaches `query_ai_events` through `placeholders` is rewritten onto the native
-    ai_events columns, so a condition filter baked into the parsed query here would read a
-    `properties.$ai_input` style property that ai_events does not carry, and match nothing.
-    """
+) -> ast.SelectQuery:
+    """Units in `[scan_start, window_end)` that the evaluation has not judged yet."""
     unit_key = _unit_key(target)
-    condition_filter = build_condition_filter(conditions, team, unit_key)
-    query = parse_select(_UNITS_SQL)
+    condition_filter = build_condition_filter(_without_heavy_properties(conditions), team, unit_key)
+    query = parse_select(
+        _UNITS_SQL,
+        placeholders={
+            "unit_key": unit_key,
+            "max_id_bytes": ast.Constant(value=MAX_CANDIDATE_ID_BYTES),
+            "scan_start": ast.Constant(value=scan_start),
+            "window_end": ast.Constant(value=window_end),
+            "condition_filter": condition_filter if condition_filter is not None else ast.Constant(value=True),
+            "not_already_evaluated": ast.Constant(value=True)
+            if rerun_existing
+            else _not_already_evaluated(
+                unit_key=unit_key,
+                evaluation_id=evaluation_id,
+                target=target,
+                window_start=window_start,
+                window_end=window_end,
+                settle_horizon=settle_horizon,
+            ),
+        },
+    )
     assert isinstance(query, ast.SelectQuery)
-    placeholders: dict[str, ast.Expr] = {
-        "unit_key": unit_key,
-        "max_id_bytes": ast.Constant(value=MAX_CANDIDATE_ID_BYTES),
-        "window_start": ast.Constant(value=window_start),
-        "window_end": ast.Constant(value=window_end),
-        "condition_filter": condition_filter if condition_filter is not None else ast.Constant(value=True),
-        "not_already_evaluated": ast.Constant(value=True)
-        if rerun_existing
-        else _not_already_evaluated(
-            unit_key=unit_key,
-            evaluation_id=evaluation_id,
-            target=target,
-            window_start=window_start,
-            window_end=window_end,
-            settle_horizon=settle_horizon,
-        ),
-    }
-    return query, placeholders
+    return query
 
 
 def _cursor_predicate(cursor_timestamp: datetime, cursor_unit_id: str) -> ast.Expr:
@@ -214,24 +285,64 @@ def _bounded_id(value: Any) -> str | None:
     return text if len(text.encode()) <= MAX_CANDIDATE_ID_BYTES else None
 
 
-def _run(
-    query: ast.SelectQuery, placeholders: dict[str, ast.Expr], *, team: Team, query_type: str
-) -> list[tuple[Any, ...]]:
+def _scan_start(*, window_start: datetime, cursor_timestamp: datetime | None, settle_horizon: timedelta) -> datetime:
+    if cursor_timestamp is None:
+        return window_start
+    return max(window_start, cursor_timestamp - max(settle_horizon, MIN_SCAN_LOOKBACK))
+
+
+def _run(query: ast.SelectQuery, *, team: Team, query_type: str) -> list[tuple[Any, ...]]:
     # Tagged here so both callers (the API estimate and the Temporal walk) attribute the same way.
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.BACKFILL, team_id=team.pk):
+        response = execute_hogql_query(
+            query=query,
+            team=team,
+            query_type=query_type,
+            workload=Workload.OFFLINE,
+            settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME_SECONDS),
+        )
+    return list(response.results or [])
+
+
+def _heavy_matches(
+    *,
+    team: Team,
+    target: str,
+    conditions: list[dict[str, Any]],
+    trace_ids: list[str],
+    scan_start: datetime,
+    window_end: datetime,
+) -> set[str]:
+    """Unit ids among these traces that match the condition sets in full, heavy filters included."""
+    if not trace_ids:
+        return set()
+    unit_key = _ai_events_unit_key(target)
+    condition_filter = build_condition_filter(conditions, team, unit_key)
+    query = parse_select(_HEAVY_MATCH_SQL)
+    assert isinstance(query, ast.SelectQuery)
+    placeholders: dict[str, ast.Expr] = {
+        "unit_key": unit_key,
+        "trace_ids": ast.Constant(value=trace_ids),
+        "scan_start": ast.Constant(value=scan_start),
+        "window_end": ast.Constant(value=window_end),
+        "condition_filter": condition_filter if condition_filter is not None else ast.Constant(value=True),
+    }
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.BACKFILL, team_id=team.pk):
         try:
+            # Through the ai_events resolver, which is what rewrites a heavy property read onto the
+            # native column holding it.
             response = query_ai_events(
                 query=query,
                 placeholders=placeholders,
                 team=team,
-                query_type=query_type,
+                query_type=HEAVY_MATCH_QUERY_TYPE,
                 fall_back_to_events=False,
                 workload=Workload.OFFLINE,
                 settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME_SECONDS),
             )
         except (AIEventsNotFoundError, AIEventsExpiredError):
-            return []
-    return list(response.results or [])
+            return set()
+    return {str(row[0]) for row in (response.results or [])}
 
 
 def count_backfill_candidates(
@@ -245,22 +356,35 @@ def count_backfill_candidates(
     window_end: datetime,
     rerun_existing: bool,
 ) -> int:
-    units, placeholders = _units_query(
+    units = _units_query(
         team=team,
         evaluation_id=evaluation_id,
         target=target,
         settle_horizon=settle_horizon,
         conditions=conditions,
+        scan_start=window_start,
         window_start=window_start,
         window_end=window_end,
         rerun_existing=rerun_existing,
     )
-    query = ast.SelectQuery(
-        select=[ast.Call(name="count", args=[])],
-        select_from=ast.JoinExpr(table=units),
+    if not reads_heavy_properties(conditions):
+        query = ast.SelectQuery(select=[ast.Call(name="count", args=[])], select_from=ast.JoinExpr(table=units))
+        rows = _run(query, team=team, query_type=COUNT_QUERY_TYPE)
+        return int(rows[0][0]) if rows else 0
+
+    # A heavy filter cannot be counted from `events`, and settling it needs the traces to ask
+    # about, so the count walks the whole window's units through the same second query the pages
+    # use. Rare, and the alternative is a number that overstates what the run will grade.
+    rows = _run(units, team=team, query_type=COUNT_QUERY_TYPE)
+    matched = _heavy_matches(
+        team=team,
+        target=target,
+        conditions=conditions,
+        trace_ids=[str(row[4]) for row in rows if row[4]],
+        scan_start=window_start,
+        window_end=window_end,
     )
-    rows = _run(query, placeholders, team=team, query_type=COUNT_QUERY_TYPE)
-    return int(rows[0][0]) if rows else 0
+    return sum(1 for row in rows if str(row[0]) in matched)
 
 
 def fetch_backfill_candidates(
@@ -277,12 +401,16 @@ def fetch_backfill_candidates(
     cursor_unit_id: str,
     limit: int,
 ) -> CandidatePage:
-    query, placeholders = _units_query(
+    scan_start = _scan_start(
+        window_start=window_start, cursor_timestamp=cursor_timestamp, settle_horizon=settle_horizon
+    )
+    query = _units_query(
         team=team,
         evaluation_id=evaluation_id,
         target=target,
         settle_horizon=settle_horizon,
         conditions=conditions,
+        scan_start=scan_start,
         window_start=window_start,
         window_end=window_end,
         rerun_existing=rerun_existing,
@@ -304,7 +432,7 @@ def fetch_backfill_candidates(
     ]
     query.limit = ast.Constant(value=limit)
 
-    rows = _run(query, placeholders, team=team, query_type=CANDIDATE_QUERY_TYPE)
+    rows = _run(query, team=team, query_type=CANDIDATE_QUERY_TYPE)
     candidates = [
         BackfillCandidate(
             unit_id=str(row[0]),
@@ -315,10 +443,39 @@ def fetch_backfill_candidates(
         )
         for row in rows
     ]
-    last = candidates[-1] if candidates else None
+    # The cursor tracks what the page examined, not what survived, so a unit the heavy filter
+    # rejects is passed over once rather than met again on the next tick.
+    examined = candidates[-1] if candidates else None
+    if reads_heavy_properties(conditions):
+        matched = _heavy_matches(
+            team=team,
+            target=target,
+            conditions=conditions,
+            trace_ids=[candidate.trace_id for candidate in candidates if candidate.trace_id],
+            scan_start=scan_start,
+            window_end=window_end,
+        )
+        candidates = [candidate for candidate in candidates if candidate.unit_id in matched]
+
+    if len(rows) == limit and examined is not None:
+        return CandidatePage(
+            candidates=candidates,
+            next_cursor_timestamp=examined.unit_timestamp,
+            next_cursor_unit_id=examined.unit_id,
+            exhausted=False,
+        )
+    # A short page means this slice is spent, not the window: the walk drops to the slice's own
+    # floor and carries on until that floor is the start of the window.
+    if scan_start > window_start:
+        return CandidatePage(
+            candidates=candidates,
+            next_cursor_timestamp=scan_start,
+            next_cursor_unit_id="",
+            exhausted=False,
+        )
     return CandidatePage(
         candidates=candidates,
-        next_cursor_timestamp=last.unit_timestamp if last else None,
-        next_cursor_unit_id=last.unit_id if last else "",
-        exhausted=len(rows) < limit,
+        next_cursor_timestamp=examined.unit_timestamp if examined else None,
+        next_cursor_unit_id=examined.unit_id if examined else "",
+        exhausted=True,
     )

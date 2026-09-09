@@ -29,6 +29,25 @@ def _generation_uuid(index: int) -> str:
     return str(uuid.UUID(int=index))
 
 
+def _write_generations(payloads: list[dict[str, Any]]) -> None:
+    """Write generations the way ingestion does, to `events` and to `ai_events` alike.
+
+    Units are discovered on `events` and heavy properties are read from `ai_events`, so a fixture
+    that lands in only one table exercises neither path as production runs it.
+    """
+    bulk_create_ai_events(payloads)
+    for payload in payloads:
+        _create_event(
+            team=payload["team"],
+            event=payload["event"],
+            distinct_id=payload["distinct_id"],
+            timestamp=payload["timestamp"],
+            event_uuid=payload["event_uuid"],
+            properties=payload["properties"],
+        )
+    flush_persons_and_events()
+
+
 class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -50,7 +69,7 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
             ("g4", "t3", timedelta(hours=2), "gpt-4o"),
         ]
         self.uuids = {label: _generation_uuid(index + 1) for index, (label, _, _, _) in enumerate(self.fixture)}
-        bulk_create_ai_events(
+        _write_generations(
             [
                 {
                     "event": "$ai_generation",
@@ -71,7 +90,7 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
         )
 
     def _create_generations(self, *specs: tuple[int, str, timedelta]) -> None:
-        bulk_create_ai_events(
+        _write_generations(
             [
                 {
                     "event": "$ai_generation",
@@ -286,7 +305,7 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
         # Capture takes a trace id as large as the event carrying it, and a Temporal payload stops
         # near 2 MiB, so a unit this wide can never be dispatched.
         oversized = "t" * (MAX_CANDIDATE_ID_BYTES + 1)
-        bulk_create_ai_events(
+        _write_generations(
             [
                 {
                     "event": "$ai_generation",
@@ -308,7 +327,7 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
         # The trace id only narrows the child's scan and the session id only tags the verdict, so
         # a candidate keeps its place without them.
         oversized = "s" * (MAX_CANDIDATE_ID_BYTES + 1)
-        bulk_create_ai_events(
+        _write_generations(
             [
                 {
                     "event": "$ai_generation",
@@ -366,6 +385,36 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
             ("t6", BASE + timedelta(minutes=30)),
             ("t1", BASE),
         ]
+
+    def test_the_walk_crosses_a_quiet_stretch_wider_than_its_lookback(self) -> None:
+        # Each page reads only as far below its cursor as a unit's events can reach, so a gap
+        # wider than that returns nothing. The walk has to step down to the slice floor and carry
+        # on, or a backfill would report itself complete at the first quiet day.
+        far_start = BASE - timedelta(days=5)
+        self._create_generations((20, "t-old", far_start - BASE))
+
+        walked = [candidate.unit_id for candidate in self._walk(target="trace", limit=2, window_start=far_start)]
+
+        assert "t-old" in walked
+        assert walked[-1] == "t-old"
+
+    def test_a_heavy_filter_settles_on_ai_events_and_drops_what_does_not_match(self) -> None:
+        # `events` carries no $ai_input, so the units query cannot judge this filter. It finds the
+        # traces and the second query decides, which must not leave the whole page in.
+        conditions = [
+            {
+                "properties": [{"key": "$ai_input", "value": "hello", "operator": "icontains", "type": "event"}],
+                "rollout_percentage": 100,
+            }
+        ]
+        self._create_generations((21, "t-silent", timedelta(hours=4)))
+
+        page = self._fetch(target="trace", conditions=conditions, limit=10)
+
+        unit_ids = [candidate.unit_id for candidate in page.candidates]
+        # Every fixture generation carries "hello there"; the one added here carries no input.
+        assert "t-silent" not in unit_ids
+        assert "t1" in unit_ids
 
     def test_empty_window_returns_no_candidates_and_a_zero_count(self) -> None:
         far_start = BASE + timedelta(days=30)
