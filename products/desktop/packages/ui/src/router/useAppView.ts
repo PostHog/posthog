@@ -14,6 +14,8 @@ export type AppViewType =
   | "activity"
   | "home"
   | "inbox"
+  // The Agents page moved into Settings, so no route yields this view any
+  // more. It stays for tabs that were opened on the old page.
   | "agents"
   | "loops"
   | "archived"
@@ -67,8 +69,6 @@ function deriveFromMatches(matches: Match[]): AppView {
       return { type: "home" };
     case "/inbox":
       return { type: "inbox" };
-    case "/agents":
-      return { type: "agents" };
     case "/loops":
       return { type: "loops" };
     case "/archived":
@@ -88,12 +88,6 @@ function deriveFromMatches(matches: Match[]): AppView {
     default:
       if (last.fullPath.startsWith("/inbox")) {
         return { type: "inbox" };
-      }
-      // /agents is an Outlet layout; the view lives at the index child and
-      // scout detail routes nest deeper, so match the whole subtree rather
-      // than only the bare layout route.
-      if (last.fullPath.startsWith("/agents")) {
-        return { type: "agents" };
       }
       // /loops covers the list, create form, and the per-loop detail / edit
       // subtree ($loopId is an Outlet layout), so match the prefix.

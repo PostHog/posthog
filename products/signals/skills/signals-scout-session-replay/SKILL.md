@@ -295,7 +295,7 @@ Direct calls (read-only):
 - `query-session-recordings-list` — resolve `$session_id`s to watchable recordings (pass `session_ids` + a matching `date_from`); order by `console_error_count` or `activity_score` when shortlisting.
 - `session-recording-get` — one recording's metadata for a finding's example links.
 - `session-recording-summaries-list` / `session-recording-summary-get` — stored AI summaries (list filters: `session_ids`, `has_exceptions`, `outcome`; get returns segment-level detail). A 404 just means no summary exists — never trigger generation.
-- `heatmaps-list` / `heatmaps-events` — spatial corroboration for a cluster. Feature-gated: skip silently if absent.
+- `heatmaps-list` / `heatmaps-events` — spatial corroboration for a cluster.
 - `vision-scanners-list` / `vision-scanners-observations-list` / `vision-observations-list` / `vision-quota-retrieve` — scanner config, observation health, and quota. Feature-gated and often absent even where replay vision is in use — lead with `$recording_observed` SQL; these are the optional mechanism-confirmation layer.
 - `advanced-activity-logs-list` (`scopes: ["Team"]` + `start_date`/`end_date`) — dating recording-config changes against capture cliffs.
 - `read-data-schema` — confirm `$rageclick` / `$dead_click` / replay SDK properties exist before aggregating. Inbox & reviewer routing (mechanics in `authoring-scouts` → `references/report-contract.md`):

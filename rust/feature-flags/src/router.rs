@@ -1,3 +1,4 @@
+use crate::api::api_key_usage::ApiKeyKind;
 use std::{
     future::ready,
     panic::{catch_unwind, AssertUnwindSafe},
@@ -135,6 +136,22 @@ pub struct State {
 }
 
 impl State {
+    /// The Redis cluster the flags namespace lives in: the dedicated flags cluster when its
+    /// client exists, and the shared cluster when it does not. `server.rs` repeats this
+    /// derivation inline for the flags.json, team_metadata, and remote-config readers and for
+    /// the auth token cache, because those are built before `State` exists.
+    ///
+    /// The client is absent for two different reasons. `FLAGS_REDIS_URL` can be unset, and the
+    /// dedicated cluster can be unreachable at process start (`create_dedicated_readwrite_client`
+    /// in `server.rs`, which logs that failure at error level). Only the first reason keeps this
+    /// process and Django on one cluster. The second sends every caller here to the shared
+    /// cluster for the life of the process, while Django keeps using the dedicated one.
+    pub(crate) fn flags_namespace_redis_client(&self) -> Arc<dyn RedisClient + Send + Sync> {
+        self.dedicated_redis_client
+            .clone()
+            .unwrap_or_else(|| self.redis_client.clone())
+    }
+
     /// Builds a `FlagService` from shared state. Centralized so every endpoint gets the
     /// same caching/fallback config instead of copying the constructor per handler.
     pub(crate) fn flag_service(&self) -> FlagService {
@@ -149,19 +166,31 @@ impl State {
         )
     }
 
-    /// Records personal-API-key usage (`last_used_at`), gated on `skip_writes`. Centralized so the
-    /// personal-key auth paths (`flag_definitions`, `remote_config`) share one set of gating and
+    /// Records API key usage (`last_used_at`), gated on `skip_writes`. Centralized so the
+    /// API key auth paths (`flag_definitions`, `remote_config`) share one set of gating and
     /// client choices instead of copying them per handler. Advisory: uses the shared Redis client
     /// (not the flags cache) and the non-persons writer, and the DB write only fires when the
     /// Redis debounce key is newly set.
-    pub(crate) async fn record_pak_last_used(&self, pak_id: String) {
+    pub(crate) async fn record_api_key_last_used(&self, kind: ApiKeyKind, key_id: String) {
         if *self.config.skip_writes {
             return;
         }
         let redis = self.redis_client.clone();
         let pg_writer: Arc<dyn common_database::Client + Send + Sync> =
             self.database_pools.non_persons_writer.clone();
-        drop(crate::api::pak_usage::record_pak_last_used(redis, pg_writer, pak_id).await);
+        drop(
+            crate::api::api_key_usage::record_api_key_last_used(redis, pg_writer, kind, key_id)
+                .await,
+        );
+    }
+
+    /// Stamps a project secret API key when the `phs_` token resolved to one. A team-level secret
+    /// token carries no key id, so it records nothing.
+    pub(crate) async fn record_project_secret_key_usage(&self, key_id: Option<String>) {
+        if let Some(key_id) = key_id {
+            self.record_api_key_last_used(ApiKeyKind::ProjectSecret, key_id)
+                .await;
+        }
     }
 }
 

@@ -3200,6 +3200,29 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
                 status=DataWarehouseSavedQuery.Status.COMPLETED,
             )
 
+        # A view materialized on the current backend leaves status and last_run_at unwritten.
+        for i in range(3):
+            table = DataWarehouseTable.objects.create(
+                team_id=3,
+                size_in_s3_mib=1,
+            )
+            DataWarehouseSavedQuery.objects.create(
+                team_id=3,
+                name=f"{i}_unstamped_view",
+                table=table,
+                deleted=False,
+                status=None,
+                last_run_at=None,
+            )
+
+        # A soft-deleted view whose backing table has not been cleaned up yet must not count.
+        DataWarehouseSavedQuery.objects.create(
+            team_id=3,
+            name="half_deleted_view",
+            table=DataWarehouseTable.objects.create(team_id=3, size_in_s3_mib=1),
+            deleted=True,
+        )
+
         period = get_previous_day(at=now() + relativedelta(days=1))
         all_reports = _get_all_org_reports(period=period)
 
@@ -3214,10 +3237,10 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
         )
 
         assert org_1_report["organization_name"] == "Org 1"
-        assert org_1_report["dwh_mat_views_storage_in_s3_in_mib"] == 5.0
+        assert org_1_report["dwh_mat_views_storage_in_s3_in_mib"] == 8.0
 
-        assert org_1_report["teams"]["3"]["dwh_mat_views_storage_in_s3_in_mib"] == 5.0
-        assert org_1_report["teams"]["3"]["dwh_total_storage_in_s3_in_mib"] == 5.0
+        assert org_1_report["teams"]["3"]["dwh_mat_views_storage_in_s3_in_mib"] == 8.0
+        assert org_1_report["teams"]["3"]["dwh_total_storage_in_s3_in_mib"] == 9.0
         assert org_1_report["teams"]["4"]["dwh_mat_views_storage_in_s3_in_mib"] == 0
         assert org_1_report["teams"]["4"]["dwh_total_storage_in_s3_in_mib"] == 0
 
@@ -3627,6 +3650,47 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         )
 
         # Only org_1_team_1 has logs or traces usage, so the org-level rollup equals that team's values.
+        team_1_report = org_1_report["teams"][str(self.org_1_team_1.id)]
+        for field, value in expected.items():
+            assert org_1_report[field] == value, field
+            assert team_1_report[field] == value, field
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_metrics_usage_metrics(
+        self,
+        billing_task_mock: MagicMock,
+        posthog_capture_mock: MagicMock,
+    ) -> None:
+        self._setup_teams()
+
+        for metric_name, count in {"bytes_ingested": 3_500_000, "records_ingested": 120}.items():
+            create_app_metric2(
+                team_id=self.org_1_team_1.id,
+                app_source="metrics",
+                metric_name=metric_name,
+                count=count,
+            )
+        # Same metric names under the logs app_source must not leak into the metrics counters.
+        create_app_metric2(
+            team_id=self.org_1_team_1.id,
+            app_source="logs",
+            metric_name="records_ingested",
+            count=999,
+        )
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        all_reports = _get_all_org_reports(period=period)
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        expected = {
+            "metrics_records_in_period": 120,
+            "metrics_mb_in_period": 3,
+        }
+        # Only org_1_team_1 has metrics usage, so the org-level rollup equals that team's values.
         team_1_report = org_1_report["teams"][str(self.org_1_team_1.id)]
         for field, value in expected.items():
             assert org_1_report[field] == value, field
