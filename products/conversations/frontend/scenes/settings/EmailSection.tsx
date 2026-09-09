@@ -1,12 +1,29 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { type ChangeEvent, useState } from 'react'
 
 import { IconPlus, IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonCollapse, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import {
+    Accordion,
+    AccordionContent,
+    AccordionItem,
+    AccordionTrigger,
+    AlertDialog,
+    AlertDialogClose,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+    Badge,
+    Button,
+    Card,
+    CardContent,
+    Input,
+} from 'lib/ui/quill'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
@@ -43,13 +60,9 @@ function DnsRecordsTable({ records }: { records: DnsRecord[] }): JSX.Element | n
                             <td className="px-2 py-1 font-mono break-all max-w-[300px]">{record.value}</td>
                             <td className="px-2 py-1">
                                 {record.valid === 'valid' ? (
-                                    <LemonTag type="success" size="small">
-                                        Valid
-                                    </LemonTag>
+                                    <Badge variant="success">Valid</Badge>
                                 ) : (
-                                    <LemonTag type="warning" size="small">
-                                        Pending
-                                    </LemonTag>
+                                    <Badge variant="warning">Pending</Badge>
                                 )}
                             </td>
                         </tr>
@@ -74,6 +87,13 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
     const isTesting = emailTestingConfigId === config.id
     const isSettingDefault = settingDefaultEmailConfigId === config.id
     const isSettingAnyDefault = settingDefaultEmailConfigId !== null
+    const primaryDisabledReason =
+        adminRestrictionReason ??
+        (config.is_default
+            ? 'This is already the primary email address'
+            : isSettingAnyDefault
+              ? 'Updating the primary address…'
+              : undefined)
 
     return (
         <div className="flex flex-col gap-3 p-3">
@@ -87,79 +107,83 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
                 {sendingRecords && sendingRecords.length > 0 && <DnsRecordsTable records={sendingRecords} />}
 
                 {!config.domain_verified && (
-                    <LemonBanner type="info" className="mt-2">
+                    <div className="rounded border border-primary bg-surface-secondary p-2 text-sm mt-2">
                         Add the DNS records above, then click "Verify domain". If you already have an SPF record (e.g.{' '}
                         <code className="text-xs">v=spf1 include:someservice.com ~all</code>), don't create a second one
                         — merge them into a single record:{' '}
                         <code className="text-xs">v=spf1 include:someservice.com include:mailgun.org ~all</code>
-                    </LemonBanner>
+                    </div>
                 )}
 
                 <div className="flex gap-2 mt-2">
-                    <LemonButton
-                        type={config.domain_verified ? 'secondary' : 'primary'}
-                        size="small"
+                    <Button
+                        variant={config.domain_verified ? 'outline' : 'primary'}
+                        size="sm"
                         onClick={() => verifyEmailDomain(config.id)}
                         loading={isVerifying}
-                        disabledReason={adminRestrictionReason}
-                        icon={<IconRefresh />}
+                        disabled={!!adminRestrictionReason}
+                        title={adminRestrictionReason ?? undefined}
                     >
+                        <IconRefresh />
                         {config.domain_verified ? 'Re-verify' : 'Verify domain'}
-                    </LemonButton>
+                    </Button>
 
                     {config.domain_verified && (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
+                        <Button
+                            variant="outline"
+                            size="sm"
                             onClick={() => sendTestEmail(config.id)}
                             loading={isTesting}
                         >
                             Send test email
-                        </LemonButton>
+                        </Button>
                     )}
                 </div>
             </div>
 
             {/* Default + disconnect */}
             <div className="flex justify-between items-center border-t pt-2">
-                <LemonButton
-                    type="secondary"
-                    size="small"
+                <Button
+                    variant="outline"
+                    size="sm"
                     loading={isSettingDefault}
-                    disabledReason={
-                        adminRestrictionReason ??
-                        (config.is_default
-                            ? 'This is already the primary email address'
-                            : isSettingAnyDefault
-                              ? 'Updating the primary address…'
-                              : undefined)
-                    }
-                    tooltip="Tickets opened from the widget are sent from the primary address"
+                    disabled={!!primaryDisabledReason}
+                    title={primaryDisabledReason ?? 'Tickets opened from the widget are sent from the primary address'}
                     onClick={() => setDefaultEmail(config.id)}
                 >
                     {config.is_default ? 'Primary address' : 'Set as primary'}
-                </LemonButton>
-                <LemonButton
-                    type="secondary"
-                    status="danger"
-                    size="small"
-                    disabledReason={adminRestrictionReason}
-                    onClick={() => {
-                        LemonDialog.open({
-                            title: `Disconnect ${config.from_email}?`,
-                            description:
-                                'This will stop creating tickets from this email and may remove the sending domain. Existing tickets will not be affected.',
-                            primaryButton: {
-                                status: 'danger',
-                                children: 'Disconnect',
-                                onClick: () => disconnectEmail(config.id),
-                            },
-                            secondaryButton: { children: 'Cancel' },
-                        })
-                    }}
-                >
-                    Disconnect
-                </LemonButton>
+                </Button>
+                <AlertDialog>
+                    <AlertDialogTrigger
+                        render={
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={!!adminRestrictionReason}
+                                title={adminRestrictionReason ?? undefined}
+                            />
+                        }
+                    >
+                        Disconnect
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Disconnect {config.from_email}?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                This will stop creating tickets from this email and may remove the sending domain.
+                                Existing tickets will not be affected.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+                            <AlertDialogClose
+                                render={<Button variant="destructive" onClick={() => disconnectEmail(config.id)} />}
+                            >
+                                Disconnect
+                            </AlertDialogClose>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
             </div>
         </div>
     )
@@ -174,60 +198,64 @@ function AddEmailForm(): JSX.Element {
         scope: RestrictionScope.Organization,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
+    const connectDisabledReason =
+        adminRestrictionReason ??
+        (!newEmailFromEmail || !newEmailFromName ? 'Enter email address and display name' : undefined)
 
     if (!addEmailFormVisible) {
         return (
             <div>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconPlus />}
+                <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => setAddEmailFormVisible(true)}
-                    disabledReason={adminRestrictionReason}
+                    disabled={!!adminRestrictionReason}
+                    title={adminRestrictionReason ?? undefined}
                 >
+                    <IconPlus />
                     Add email address
-                </LemonButton>
+                </Button>
             </div>
         )
     }
 
     return (
-        <LemonCard hoverEffect={false} className="flex flex-col gap-2 px-4 py-3">
-            <label className="font-medium">Connect new email</label>
-            <p className="text-xs text-muted-alt">
-                Enter the email address customers will contact you at (e.g. support@company.com). We'll give you a
-                forwarding address to set up in your email provider and register your domain for outbound sending.
-            </p>
-            <LemonInput
-                value={newEmailFromEmail}
-                onChange={(value) => setNewEmailFromEmail(value)}
-                placeholder="support@company.com"
-                fullWidth
-            />
-            <LemonInput
-                value={newEmailFromName}
-                onChange={(value) => setNewEmailFromName(value)}
-                placeholder="Display name (e.g. Acme Support)"
-                fullWidth
-            />
-            <div className="flex gap-2">
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    onClick={connectEmail}
-                    loading={emailConnecting}
-                    disabledReason={
-                        adminRestrictionReason ??
-                        (!newEmailFromEmail || !newEmailFromName ? 'Enter email address and display name' : undefined)
-                    }
-                >
-                    Connect email
-                </LemonButton>
-                <LemonButton type="secondary" size="small" onClick={() => setAddEmailFormVisible(false)}>
-                    Cancel
-                </LemonButton>
-            </div>
-        </LemonCard>
+        <Card size="sm">
+            <CardContent className="flex flex-col gap-2">
+                <label className="font-medium">Connect new email</label>
+                <p className="text-xs text-muted-alt">
+                    Enter the email address customers will contact you at (e.g. support@company.com). We'll give you a
+                    forwarding address to set up in your email provider and register your domain for outbound sending.
+                </p>
+                <Input
+                    className="w-full"
+                    value={newEmailFromEmail}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setNewEmailFromEmail(e.target.value)}
+                    placeholder="support@company.com"
+                />
+                <Input
+                    className="w-full"
+                    value={newEmailFromName}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setNewEmailFromName(e.target.value)}
+                    placeholder="Display name (e.g. Acme Support)"
+                />
+                <div className="flex gap-2">
+                    <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={connectEmail}
+                        loading={emailConnecting}
+                        disabled={!!connectDisabledReason}
+                        title={connectDisabledReason}
+                    >
+                        Connect email
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => setAddEmailFormVisible(false)}>
+                        Cancel
+                    </Button>
+                </div>
+            </CardContent>
+        </Card>
     )
 }
 
@@ -237,18 +265,18 @@ function configHeader(config: EmailConfigStatus): JSX.Element {
             <span className="font-medium truncate">{config.from_email}</span>
             {config.from_name && <span className="text-xs text-muted truncate">({config.from_name})</span>}
             {config.is_default && (
-                <LemonTag type="primary" size="small" className="shrink-0">
+                <Badge variant="info" className="shrink-0">
                     Primary
-                </LemonTag>
+                </Badge>
             )}
             {config.domain_verified ? (
-                <LemonTag type="success" size="small" className="shrink-0">
+                <Badge variant="success" className="shrink-0">
                     Verified
-                </LemonTag>
+                </Badge>
             ) : (
-                <LemonTag type="warning" size="small" className="shrink-0">
+                <Badge variant="warning" className="shrink-0">
                     Unverified
-                </LemonTag>
+                </Badge>
             )}
         </div>
     )
@@ -265,17 +293,21 @@ export function EmailSection(): JSX.Element {
         >
             <div className="flex flex-col gap-3 max-w-[800px]">
                 {emailConfigs.length > 0 && (
-                    <LemonCollapse
-                        className="bg-surface-primary"
+                    <Accordion
                         multiple
-                        activeKeys={expandedKeys}
-                        onChange={setExpandedKeys}
-                        panels={emailConfigs.map((config: EmailConfigStatus) => ({
-                            key: config.id,
-                            header: configHeader(config),
-                            content: <EmailConfigContent config={config} />,
-                        }))}
-                    />
+                        className="bg-surface-primary"
+                        value={expandedKeys}
+                        onValueChange={(keys) => setExpandedKeys(keys as string[])}
+                    >
+                        {emailConfigs.map((config: EmailConfigStatus) => (
+                            <AccordionItem key={config.id} value={config.id}>
+                                <AccordionTrigger>{configHeader(config)}</AccordionTrigger>
+                                <AccordionContent>
+                                    <EmailConfigContent config={config} />
+                                </AccordionContent>
+                            </AccordionItem>
+                        ))}
+                    </Accordion>
                 )}
                 <AddEmailForm />
             </div>

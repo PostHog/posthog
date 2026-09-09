@@ -3,9 +3,10 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useEffect, useMemo, useRef } from 'react'
 
-import { LemonButton, LemonCheckbox, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
+import { Button } from 'lib/ui/quill'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -124,9 +125,9 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         searchQuery && hasActiveFilters ? (
             <div className="flex flex-col items-center gap-2 py-2">
                 <span>No tickets match your search with the current filters applied.</span>
-                <LemonButton type="secondary" size="small" onClick={() => clearFiltersKeepingSearch()}>
+                <Button variant="outline" size="sm" onClick={() => clearFiltersKeepingSearch()}>
                     Search again without filters
-                </LemonButton>
+                </Button>
             </div>
         ) : (
             'No tickets'

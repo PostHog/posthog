@@ -1,10 +1,22 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonBanner, LemonCard, LemonCheckbox, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
-
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import {
+    Card,
+    CardContent,
+    Checkbox,
+    Label,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+    Spinner,
+    Switch,
+} from 'lib/ui/quill'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
 import { urls } from 'scenes/urls'
 
@@ -80,30 +92,35 @@ export function AISection(): JSX.Element {
                 className="my-8"
                 description="When enabled, the AI agent automatically generates reply suggestions as private notes when new tickets arrive. Replies are grounded in your business knowledge sources."
             >
-                <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
-                    <div className="flex items-center gap-4 justify-between">
-                        <div>
-                            <label className="font-medium">Enable AI agent</label>
-                            <p className="text-xs text-muted-alt mb-0">
-                                Requires AI data processing consent at the organization level and at least one ready
-                                business knowledge source.
-                            </p>
+                <Card size="sm" className="max-w-[800px]">
+                    <CardContent>
+                        <div className="flex items-center gap-4 justify-between">
+                            <div>
+                                <label className="font-medium">Enable AI agent</label>
+                                <p className="text-xs text-muted-alt mb-0">
+                                    Requires AI data processing consent at the organization level and at least one ready
+                                    business knowledge source.
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {aiSuggestionsLoading ? <Spinner /> : null}
+                                <Switch
+                                    checked={aiSuggestionsEnabled}
+                                    disabled={aiSuggestionsLoading}
+                                    onCheckedChange={(checked) => setAiSuggestionsEnabled(checked)}
+                                />
+                            </div>
                         </div>
-                        <LemonSwitch
-                            checked={aiSuggestionsEnabled}
-                            onChange={(checked) => setAiSuggestionsEnabled(checked)}
-                            loading={aiSuggestionsLoading}
-                        />
-                    </div>
-                </LemonCard>
+                    </CardContent>
+                </Card>
                 {aiSuggestionsEnabled && businessKnowledgeEnabled && (
-                    <LemonBanner type="info" className="max-w-[800px] mt-3">
+                    <div className="rounded border border-primary bg-surface-secondary p-2 text-sm max-w-[800px] mt-3">
                         Add your documents, links, and general context to{' '}
                         <Link to={urls.businessKnowledge()} target="_blank">
                             Business knowledge
                         </Link>{' '}
                         so the AI can ground its replies in your company's information.
-                    </LemonBanner>
+                    </div>
                 )}
             </SceneSection>
 
@@ -114,22 +131,27 @@ export function AISection(): JSX.Element {
                     className="my-8"
                     description="When enabled, tickets that report something broken let the agent query your project's data — events, error tracking, session recordings, and logs — to investigate the issue instead of relying on documentation alone. The agent has read-only access scoped to your project."
                 >
-                    <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
-                        <div className="flex items-center gap-4 justify-between">
-                            <div>
-                                <label className="font-medium">Allow the agent to investigate ticket data</label>
-                                <p className="text-xs text-muted-alt mb-0">
-                                    Leave this off to keep the agent grounded only in documentation and your business
-                                    knowledge.
-                                </p>
+                    <Card size="sm" className="max-w-[800px]">
+                        <CardContent>
+                            <div className="flex items-center gap-4 justify-between">
+                                <div>
+                                    <label className="font-medium">Allow the agent to investigate ticket data</label>
+                                    <p className="text-xs text-muted-alt mb-0">
+                                        Leave this off to keep the agent grounded only in documentation and your
+                                        business knowledge.
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {aiDiagnosticsLoading ? <Spinner /> : null}
+                                    <Switch
+                                        checked={aiDiagnosticsEnabled}
+                                        disabled={aiDiagnosticsLoading}
+                                        onCheckedChange={(checked) => setAiDiagnosticsEnabled(checked)}
+                                    />
+                                </div>
                             </div>
-                            <LemonSwitch
-                                checked={aiDiagnosticsEnabled}
-                                onChange={(checked) => setAiDiagnosticsEnabled(checked)}
-                                loading={aiDiagnosticsLoading}
-                            />
-                        </div>
-                    </LemonCard>
+                        </CardContent>
+                    </Card>
                 </SceneSection>
             )}
 
@@ -140,45 +162,52 @@ export function AISection(): JSX.Element {
                     className="my-8"
                     description="Choose which channels the AI agent runs on. Inactive channels must be enabled under Channels first."
                 >
-                    <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
-                        {aiAllChannels.map((channel) => {
-                            const active = isChannelActive(channel)
-                            return (
-                                <LemonCheckbox
-                                    key={channel}
-                                    checked={active && aiResolutionChannels.includes(channel)}
-                                    disabledReason={
-                                        active ? undefined : 'Enable this channel in Channels settings first'
-                                    }
-                                    onChange={(checked) => {
-                                        const next = checked
-                                            ? [...aiResolutionChannels, channel]
-                                            : aiResolutionChannels.filter((c) => c !== channel)
-                                        setAiResolutionChannels(next)
-                                    }}
-                                    label={
-                                        <span className="inline-flex flex-wrap items-center gap-x-1">
-                                            {CHANNEL_LABELS[channel]}
-                                            {!active && (
-                                                <>
-                                                    <span className="text-muted-alt">·</span>
-                                                    <Link
-                                                        onClick={(e) => {
-                                                            e.preventDefault()
-                                                            openChannelSettings(channel)
-                                                        }}
-                                                        to={urls.supportSettings()}
-                                                    >
-                                                        Enable in Channels first
-                                                    </Link>
-                                                </>
-                                            )}
-                                        </span>
-                                    }
-                                />
-                            )
-                        })}
-                    </LemonCard>
+                    <Card size="sm" className="max-w-[800px]">
+                        <CardContent className="flex flex-col gap-y-2">
+                            {aiAllChannels.map((channel) => {
+                                const active = isChannelActive(channel)
+                                const checkboxId = `ai-channel-${channel}`
+                                const disabledReason = active
+                                    ? undefined
+                                    : 'Enable this channel in Channels settings first'
+                                return (
+                                    <div key={channel} className="flex items-start gap-2">
+                                        <Checkbox
+                                            id={checkboxId}
+                                            checked={active && aiResolutionChannels.includes(channel)}
+                                            disabled={!active}
+                                            title={disabledReason}
+                                            onCheckedChange={(checked) => {
+                                                const next = checked
+                                                    ? [...aiResolutionChannels, channel]
+                                                    : aiResolutionChannels.filter((c) => c !== channel)
+                                                setAiResolutionChannels(next)
+                                            }}
+                                        />
+                                        <Label htmlFor={checkboxId} className="font-normal">
+                                            <span className="inline-flex flex-wrap items-center gap-x-1">
+                                                {CHANNEL_LABELS[channel]}
+                                                {!active && (
+                                                    <>
+                                                        <span className="text-muted-alt">·</span>
+                                                        <Link
+                                                            onClick={(e) => {
+                                                                e.preventDefault()
+                                                                openChannelSettings(channel)
+                                                            }}
+                                                            to={urls.supportSettings()}
+                                                        >
+                                                            Enable in Channels first
+                                                        </Link>
+                                                    </>
+                                                )}
+                                            </span>
+                                        </Label>
+                                    </div>
+                                )
+                            })}
+                        </CardContent>
+                    </Card>
                 </SceneSection>
             )}
 
@@ -197,47 +226,69 @@ export function AISection(): JSX.Element {
                         </>
                     }
                 >
-                    <LemonCard hoverEffect={false} className="max-w-[800px] px-4 py-3">
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-xs">
-                                <thead>
-                                    <tr>
-                                        <th className="text-left py-1 pr-3 font-medium text-muted-alt">Channel</th>
-                                        {TICKET_TYPES.map((tt) => (
-                                            <th key={tt} className="text-left py-1 px-2 font-medium text-muted-alt">
-                                                {aiTriageTicketTypeLabel[tt]}
-                                            </th>
-                                        ))}
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {aiResolutionChannels.map((channel) => (
-                                        <tr key={channel} className="border-t border-border">
-                                            <td className="py-2 pr-3 font-medium">
-                                                {CHANNEL_LABELS[channel] ?? channel}
-                                            </td>
-                                            {TICKET_TYPES.map((tt) =>
-                                                PUBLISHABLE_TICKET_TYPES.has(tt) ? (
-                                                    <td key={tt} className="py-2 px-2">
-                                                        <LemonSelect
-                                                            size="xsmall"
-                                                            options={REPLY_MODE_OPTIONS}
-                                                            value={aiReplyModes[channel]?.[tt] ?? 'private_note'}
-                                                            onChange={(value) => setAiReplyMode(channel, tt, value)}
-                                                        />
-                                                    </td>
-                                                ) : (
-                                                    <td key={tt} className="py-2 px-2 text-muted-alt">
-                                                        Private note
-                                                    </td>
-                                                )
-                                            )}
+                    <Card size="sm" className="max-w-[800px]">
+                        <CardContent>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-xs">
+                                    <thead>
+                                        <tr>
+                                            <th className="text-left py-1 pr-3 font-medium text-muted-alt">Channel</th>
+                                            {TICKET_TYPES.map((tt) => (
+                                                <th key={tt} className="text-left py-1 px-2 font-medium text-muted-alt">
+                                                    {aiTriageTicketTypeLabel[tt]}
+                                                </th>
+                                            ))}
                                         </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </LemonCard>
+                                    </thead>
+                                    <tbody>
+                                        {aiResolutionChannels.map((channel) => (
+                                            <tr key={channel} className="border-t border-border">
+                                                <td className="py-2 pr-3 font-medium">
+                                                    {CHANNEL_LABELS[channel] ?? channel}
+                                                </td>
+                                                {TICKET_TYPES.map((tt) =>
+                                                    PUBLISHABLE_TICKET_TYPES.has(tt) ? (
+                                                        <td key={tt} className="py-2 px-2">
+                                                            <Select
+                                                                value={aiReplyModes[channel]?.[tt] ?? 'private_note'}
+                                                                onValueChange={(value) => {
+                                                                    if (
+                                                                        value !== 'private_note' &&
+                                                                        value !== 'bot_reply'
+                                                                    ) {
+                                                                        return
+                                                                    }
+                                                                    setAiReplyMode(channel, tt, value)
+                                                                }}
+                                                            >
+                                                                <SelectTrigger size="sm">
+                                                                    <SelectValue />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    {REPLY_MODE_OPTIONS.map((option) => (
+                                                                        <SelectItem
+                                                                            key={option.value}
+                                                                            value={option.value}
+                                                                        >
+                                                                            {option.label}
+                                                                        </SelectItem>
+                                                                    ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </td>
+                                                    ) : (
+                                                        <td key={tt} className="py-2 px-2 text-muted-alt">
+                                                            Private note
+                                                        </td>
+                                                    )
+                                                )}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </CardContent>
+                    </Card>
                 </SceneSection>
             )}
         </>

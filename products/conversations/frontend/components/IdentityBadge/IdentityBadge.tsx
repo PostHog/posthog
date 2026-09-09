@@ -1,5 +1,7 @@
 import { IconShield, IconShieldEmpty, IconShieldExclamation } from '@posthog/icons'
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+
+import { Link } from 'lib/lemon-ui/Link'
+import { Badge, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 
 const DOCS_URL = 'https://posthog.com/docs/support/widget#identity-verification'
 
@@ -17,28 +19,57 @@ interface IdentityBadgeProps {
     iconOnly?: boolean
 }
 
+function IdentityTooltipContent({ text }: { text: string }): JSX.Element {
+    return (
+        <>
+            {text}
+            <p className="mb-0 mt-1">
+                <Link
+                    to={DOCS_URL}
+                    target="_blank"
+                    className="text-xs"
+                    data-ph-capture-attribute-autocapture-event-name="clicked tooltip doc link"
+                    data-ph-capture-attribute-doclink={DOCS_URL}
+                >
+                    Read the docs
+                </Link>
+            </p>
+        </>
+    )
+}
+
 export function IdentityBadge({ verified, iconOnly = false }: IdentityBadgeProps): JSX.Element {
     const tooltip = verified ? VERIFIED_TEXT : verified === false ? UNVERIFIED_TEXT : UNKNOWN_TEXT
     // verified → shield+tick, unverified → shield+exclamation, unknown → empty shield
     const icon = verified ? <IconShield /> : verified === false ? <IconShieldExclamation /> : <IconShieldEmpty />
     // verified → green, unverified → amber, unknown → muted grayscale
     const iconColor = verified ? 'text-success' : verified === false ? 'text-warning' : 'text-muted-alt'
-    const tagType = verified ? 'success' : verified === false ? 'warning' : 'muted'
+    const badgeVariant = verified ? 'success' : verified === false ? 'warning' : 'default'
 
     if (iconOnly) {
         return (
-            <Tooltip title={tooltip} docLink={DOCS_URL}>
-                <span className={iconColor}>{icon}</span>
+            <Tooltip>
+                <TooltipTrigger render={<span className={iconColor} />}>{icon}</TooltipTrigger>
+                <TooltipContent>
+                    <IdentityTooltipContent text={tooltip} />
+                </TooltipContent>
             </Tooltip>
         )
     }
 
     return (
-        <Tooltip title={tooltip} docLink={DOCS_URL}>
-            <LemonTag type={tagType}>
-                <span className="mr-1">{icon}</span>
-                {verified ? 'Verified' : verified === false ? 'Unverified' : 'Unknown'}
-            </LemonTag>
+        <Tooltip>
+            <TooltipTrigger
+                render={
+                    <Badge variant={badgeVariant}>
+                        {icon}
+                        {verified ? 'Verified' : verified === false ? 'Unverified' : 'Unknown'}
+                    </Badge>
+                }
+            />
+            <TooltipContent>
+                <IdentityTooltipContent text={tooltip} />
+            </TooltipContent>
         </Tooltip>
     )
 }

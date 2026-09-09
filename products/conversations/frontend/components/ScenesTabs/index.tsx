@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTabs } from '@posthog/lemon-ui'
+import { Tabs, TabsList, TabsTrigger } from 'lib/ui/quill'
 
 import type { SceneTabKey } from '../../types'
 import { type SceneTabConfig, scenesTabsLogic } from './scenesTabsLogic'
@@ -10,16 +10,14 @@ export function ScenesTabs(): JSX.Element {
     const { setTab } = useActions(scenesTabsLogic)
 
     return (
-        <>
-            <LemonTabs
-                activeKey={activeTab}
-                tabs={tabs.map((tab: SceneTabConfig) => ({
-                    key: tab.key,
-                    label: tab.label,
-                }))}
-                onChange={(key) => setTab(key as SceneTabKey)}
-                sceneInset
-            />
-        </>
+        <Tabs value={activeTab} onValueChange={(key) => setTab(key as SceneTabKey)}>
+            <TabsList variant="line">
+                {tabs.map((tab: SceneTabConfig) => (
+                    <TabsTrigger key={tab.key} value={tab.key}>
+                        {tab.label}
+                    </TabsTrigger>
+                ))}
+            </TabsList>
+        </Tabs>
     )
 }

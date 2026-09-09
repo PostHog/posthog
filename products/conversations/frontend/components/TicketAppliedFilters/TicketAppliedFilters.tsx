@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { LemonButton, LemonSnack } from '@posthog/lemon-ui'
+import { Button, Chip, ChipClose } from 'lib/ui/quill'
 
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
 import { AssigneeLabelDisplay, AssigneeResolver } from '../Assignee/AssigneeDisplay'
@@ -61,18 +61,21 @@ export function TicketAppliedFilters(): JSX.Element | null {
     return (
         <div className="flex flex-wrap items-center gap-1">
             {chips.map((chip) => (
-                <LemonSnack
+                <Chip
                     key={chip.key}
-                    onClose={() => onRemove(chip)}
                     data-attr="ticket-applied-filter"
                     title={chip.kind === 'assignee' ? undefined : chip.label}
                 >
                     {chip.kind === 'assignee' ? <AssigneeFilterChipLabel entry={chip.entry} /> : chip.label}
-                </LemonSnack>
+                    <ChipClose
+                        aria-label={`Remove ${chip.kind === 'assignee' ? 'assignee filter' : chip.label}`}
+                        onClick={() => onRemove(chip)}
+                    />
+                </Chip>
             ))}
-            <LemonButton type="tertiary" size="small" onClick={resetFilters} data-attr="clear-ticket-filters">
+            <Button variant="default" size="sm" onClick={resetFilters} data-attr="clear-ticket-filters">
                 Clear all filters
-            </LemonButton>
+            </Button>
         </div>
     )
 }

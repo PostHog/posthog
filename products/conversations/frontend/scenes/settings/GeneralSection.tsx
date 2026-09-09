@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Button, Card, CardContent, Separator, Spinner, Switch } from 'lib/ui/quill'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -36,64 +37,70 @@ export function GeneralSection(): JSX.Element {
                         : 'Triage, assign, and automate support across in-app widget, email, Slack, Microsoft Teams, and direct API.'
                 }
             >
-                <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
-                    {!isEnabled && (
-                        <>
-                            <ul className="text-sm flex flex-col gap-1.5 mb-0 pl-5 list-disc">
-                                <li>
-                                    <strong>In-app widget</strong> — embed a chat bubble on your site for logged-in or
-                                    anonymous visitors.
-                                </li>
-                                <li>
-                                    <strong>Email</strong> — forward customer emails to PostHog and reply directly from
-                                    the inbox.
-                                </li>
-                                <li>
-                                    <strong>Slack</strong> — turn Slack messages and reactions into tickets.
-                                </li>
-                                {teamsEnabled && (
+                <Card size="sm" className="max-w-[800px]">
+                    <CardContent className="flex flex-col gap-y-3">
+                        {!isEnabled && (
+                            <>
+                                <ul className="text-sm flex flex-col gap-1.5 mb-0 pl-5 list-disc">
                                     <li>
-                                        <strong>Microsoft Teams</strong> — same workflow as Slack for Teams workspaces.
+                                        <strong>In-app widget</strong> — embed a chat bubble on your site for logged-in
+                                        or anonymous visitors.
                                     </li>
-                                )}
-                                <li>
-                                    <strong>Direct API</strong> — bring your own UI on top of the conversations API.
-                                </li>
-                            </ul>
-                            <LemonDivider />
-                        </>
-                    )}
-                    <div className="flex items-center gap-4 justify-between">
-                        <div>
-                            <label className="w-40 shrink-0 font-medium">
-                                {isEnabled
-                                    ? 'Turn off to stop accepting new tickets.'
-                                    : 'Turn on to start accepting tickets.'}
-                            </label>
-                            <p className="text-xs text-muted-alt mb-0">
-                                {isEnabled
-                                    ? 'Existing tickets stay accessible.'
-                                    : 'Configure notifications after enabling.'}
-                            </p>
+                                    <li>
+                                        <strong>Email</strong> — forward customer emails to PostHog and reply directly
+                                        from the inbox.
+                                    </li>
+                                    <li>
+                                        <strong>Slack</strong> — turn Slack messages and reactions into tickets.
+                                    </li>
+                                    {teamsEnabled && (
+                                        <li>
+                                            <strong>Microsoft Teams</strong> — same workflow as Slack for Teams
+                                            workspaces.
+                                        </li>
+                                    )}
+                                    <li>
+                                        <strong>Direct API</strong> — bring your own UI on top of the conversations API.
+                                    </li>
+                                </ul>
+                                <Separator />
+                            </>
+                        )}
+                        <div className="flex items-center gap-4 justify-between">
+                            <div>
+                                <label className="w-40 shrink-0 font-medium">
+                                    {isEnabled
+                                        ? 'Turn off to stop accepting new tickets.'
+                                        : 'Turn on to start accepting tickets.'}
+                                </label>
+                                <p className="text-xs text-muted-alt mb-0">
+                                    {isEnabled
+                                        ? 'Existing tickets stay accessible.'
+                                        : 'Configure notifications after enabling.'}
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {conversationsEnabledLoading ? <Spinner /> : null}
+                                <Switch
+                                    checked={isEnabled}
+                                    disabled={conversationsEnabledLoading}
+                                    onCheckedChange={(checked) => {
+                                        setConversationsEnabledLoading(true)
+                                        updateCurrentTeam({
+                                            conversations_enabled: checked,
+                                            conversations_settings: {
+                                                ...currentTeam?.conversations_settings,
+                                                widget_enabled: checked
+                                                    ? currentTeam?.conversations_settings?.widget_enabled
+                                                    : false,
+                                            },
+                                        })
+                                    }}
+                                />
+                            </div>
                         </div>
-                        <LemonSwitch
-                            checked={isEnabled}
-                            onChange={(checked) => {
-                                setConversationsEnabledLoading(true)
-                                updateCurrentTeam({
-                                    conversations_enabled: checked,
-                                    conversations_settings: {
-                                        ...currentTeam?.conversations_settings,
-                                        widget_enabled: checked
-                                            ? currentTeam?.conversations_settings?.widget_enabled
-                                            : false,
-                                    },
-                                })
-                            }}
-                            loading={conversationsEnabledLoading}
-                        />
-                    </div>
-                </LemonCard>
+                    </CardContent>
+                </Card>
             </SceneSection>
             {isEnabled && (
                 <>
@@ -120,20 +127,22 @@ export function GeneralSection(): JSX.Element {
                             </>
                         }
                     >
-                        <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
-                            <AuthorizedDomains />
-                            {!isAddingDomain && editingDomainIndex === null && (
-                                <LemonButton
-                                    onClick={() => setIsAddingDomain(true)}
-                                    type="secondary"
-                                    icon={<IconPlus />}
-                                    size="small"
-                                    className="mt-2 self-start"
-                                >
-                                    Add domain
-                                </LemonButton>
-                            )}
-                        </LemonCard>
+                        <Card size="sm" className="max-w-[800px]">
+                            <CardContent className="flex flex-col gap-y-2">
+                                <AuthorizedDomains />
+                                {!isAddingDomain && editingDomainIndex === null && (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="mt-2 self-start"
+                                        onClick={() => setIsAddingDomain(true)}
+                                    >
+                                        <IconPlus />
+                                        Add domain
+                                    </Button>
+                                )}
+                            </CardContent>
+                        </Card>
                     </SceneSection>
                     <SceneSection
                         title="Identity verification"
@@ -153,22 +162,24 @@ export function GeneralSection(): JSX.Element {
                             </>
                         }
                     >
-                        <LemonCard hoverEffect={false} className="max-w-[800px] px-4 py-3">
-                            <p className="mb-2">
-                                Compute an HMAC-SHA256 of the user's <code>distinct_id</code> using the secret API key
-                                below (server-side) and pass both values to <code>posthog.init()</code>:
-                            </p>
-                            <pre className="bg-surface-secondary rounded p-3 text-xs overflow-x-auto mb-2">
-                                {`posthog.init('<ph_project_api_key>', {
+                        <Card size="sm" className="max-w-[800px]">
+                            <CardContent>
+                                <p className="mb-2">
+                                    Compute an HMAC-SHA256 of the user's <code>distinct_id</code> using the secret API
+                                    key below (server-side) and pass both values to <code>posthog.init()</code>:
+                                </p>
+                                <pre className="bg-surface-secondary rounded p-3 text-xs overflow-x-auto mb-2">
+                                    {`posthog.init('<ph_project_api_key>', {
     identity_distinct_id: 'user_123',
     identity_hash: 'a1b2c3d4e5f6...',
 })`}
-                            </pre>
-                            <p className="mb-0 text-xs text-muted-alt">
-                                Without identity verification, tickets are scoped to a browser session and users must
-                                recover them by email when switching devices.
-                            </p>
-                        </LemonCard>
+                                </pre>
+                                <p className="mb-0 text-xs text-muted-alt">
+                                    Without identity verification, tickets are scoped to a browser session and users
+                                    must recover them by email when switching devices.
+                                </p>
+                            </CardContent>
+                        </Card>
                     </SceneSection>
                     <SecretApiKeySection />
                     <DraftModeSection />

@@ -110,7 +110,7 @@ describe('MessageInput', () => {
         )
 
         // Draft mode has no effect on private notes, so its switch is disabled in private note mode
-        expect(screen.getByRole('switch')).toHaveProperty('disabled', isPrivate)
+        expect(screen.getByRole('switch').getAttribute('aria-disabled')).toBe(isPrivate ? 'true' : null)
 
         await userEvent.click(screen.getByLabelText(`${verb} and set ticket status`))
         expect(await screen.findByText(`${verb} and set pending`)).toBeInTheDocument()
@@ -222,6 +222,6 @@ describe('MessageInput editing mode', () => {
         expect(screen.queryByLabelText(/and set ticket status/)).not.toBeInTheDocument()
 
         const checkbox = screen.getByRole('checkbox')
-        expect(checkbox).toBeDisabled()
+        expect(checkbox).toHaveAttribute('aria-disabled', 'true')
     })
 })

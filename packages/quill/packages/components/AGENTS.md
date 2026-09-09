@@ -89,6 +89,7 @@ import { DatePicker } from '@posthog/quill-components'
 Rules:
 
 - `value`/`onApply` are a single `Date`, not `{ start, end, range }`. Use this for the single-date PostHog callers (currently `LemonCalendarSelect`); reach for `DateTimePicker` only when you need a start→end range.
+- `extraActions` is the `LemonCalendarSelect` `applyActions` equivalent: extra Apply variants in a menu next to Apply. Each `onClick` gets the staged date; it does not also fire `onApply`.
 - `showTime` seeds whether time is included; `showTimeToggle` (defaults to `showTime`) decides whether the "Include time" toggle renders. Set `showTimeToggle={false}` with `showTime` for a fixed time precision (no opt-out); pass `showTimeToggle` alone to start date-only but let the user add time. `onIncludeTimeChange` reports toggle changes so a wrapper can mirror the state (e.g. to update a trigger label).
 - Without time included the applied value is floored to start-of-day; with it, the value keeps its hour/minute.
 - Shares the calendar grid and `minDate`/`maxDate` day-granular bounds with `DateTimePicker` (both render `Calendar` from `calendar-grid.tsx`).

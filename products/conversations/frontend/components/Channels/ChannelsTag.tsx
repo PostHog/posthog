@@ -1,7 +1,8 @@
 import { IconComment, IconExternal, IconGithub, IconLetter } from '@posthog/icons'
-import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { IconMicrosoftTeams, IconSlack } from 'lib/lemon-ui/icons'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { Badge, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 
 import type { Ticket, TicketChannel, TicketChannelDetail } from '../../types'
 
@@ -65,27 +66,40 @@ interface ChannelsTagProps {
 export function ChannelsTag({ channel, detail, to, emailTo }: ChannelsTagProps): JSX.Element {
     const detailText = detail ? channelDetailLabel[detail] : (emailTo ?? undefined)
     const tag = (
-        <div className="flex items-center gap-1 text-muted-alt text-xs">
-            <LemonTag type="muted">
-                <span className="mr-1">{channelIcon[channel]}</span>
-                {channel}
-                {detailText ? <span className="text-muted-alt ml-0.5">· {detailText}</span> : null}
-                {to ? <IconExternal className="ml-1" /> : null}
-            </LemonTag>
-        </div>
+        <Badge
+            variant="default"
+            render={
+                to ? (
+                    // Stop propagation so clicking the tag opens Slack without triggering a row/parent click.
+                    <LinkPrimitive to={to} target="_blank" onClick={(e) => e.stopPropagation()} />
+                ) : undefined
+            }
+        >
+            {channelIcon[channel]}
+            {channel}
+            {detailText ? <span className="text-muted-alt">· {detailText}</span> : null}
+            {to ? <IconExternal /> : null}
+        </Badge>
     )
 
     if (to) {
         const tooltip = channelOpenLabel[channel] ?? `${channel}${detailText ? ` · ${detailText}` : ''}`
         return (
-            <Tooltip title={tooltip}>
-                {/* Stop propagation so clicking the tag opens Slack without triggering a row/parent click. */}
-                <Link to={to} target="_blank" onClick={(e) => e.stopPropagation()}>
-                    {tag}
-                </Link>
+            <Tooltip>
+                <TooltipTrigger render={tag} />
+                <TooltipContent>{tooltip}</TooltipContent>
             </Tooltip>
         )
     }
 
-    return detailText ? <Tooltip title={`${channel} · ${detailText}`}>{tag}</Tooltip> : tag
+    return detailText ? (
+        <Tooltip>
+            <TooltipTrigger render={tag} />
+            <TooltipContent>
+                {channel} · {detailText}
+            </TooltipContent>
+        </Tooltip>
+    ) : (
+        tag
+    )
 }

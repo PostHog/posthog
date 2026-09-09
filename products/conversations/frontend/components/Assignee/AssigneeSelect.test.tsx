@@ -2,26 +2,11 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useActions } from 'kea'
-import type { ReactElement, ReactNode } from 'react'
+import type { ReactElement } from 'react'
 
 import { AssigneeSelect } from './AssigneeSelect'
 
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useActions: jest.fn() }))
-jest.mock('@posthog/lemon-ui', () => ({
-    ...jest.requireActual('@posthog/lemon-ui'),
-    LemonDropdown: ({
-        children,
-        onVisibilityChange,
-    }: {
-        children: ReactNode
-        onVisibilityChange?: (visible: boolean) => void
-    }): JSX.Element => (
-        <div>
-            <button onClick={() => onVisibilityChange?.(true)}>Open assignee dropdown</button>
-            {children}
-        </div>
-    ),
-}))
 jest.mock('./AssigneeDisplay', () => ({
     AssigneeResolver: ({ children }: { children: (props: { assignee: null }) => ReactElement }): ReactElement =>
         children({ assignee: null }),
@@ -41,7 +26,7 @@ describe('AssigneeSelect', () => {
     function renderAssigneeSelect(loadOnOpen = false): void {
         render(
             <AssigneeSelect assignee={null} onChange={jest.fn()} loadOnOpen={loadOnOpen}>
-                {() => <button>Assignee</button>}
+                {() => <button type="button">Assignee</button>}
             </AssigneeSelect>
         )
     }
@@ -60,7 +45,7 @@ describe('AssigneeSelect', () => {
         renderAssigneeSelect(true)
 
         expect(ensureAssigneeTypesLoaded).not.toHaveBeenCalled()
-        fireEvent.click(screen.getByText('Open assignee dropdown'))
+        fireEvent.click(screen.getByRole('button', { name: 'Assignee' }))
         expect(ensureAssigneeTypesLoaded).toHaveBeenCalledTimes(1)
     })
 })

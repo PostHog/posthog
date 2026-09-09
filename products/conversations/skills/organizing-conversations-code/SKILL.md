@@ -45,7 +45,7 @@ Do not:
 - Add an `index.ts` barrel so callers can import the folder
 
 A helper that returns props or data — not markup — is not a component. Keep it next to the
-feature or at `products/conversations/frontend/<name>.ts(x)` (see `clearFilterButtonProps.tsx`).
+feature or at `products/conversations/frontend/<name>.ts(x)`.
 
 When you move a component, `git mv`, point every consumer at the new path, and delete the old
 one. No re-export shim.

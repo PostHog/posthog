@@ -1,5 +1,6 @@
 import { IconLock } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+
+import { Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 
 /**
  * Marks a thread entry as team-only. Shared because the thread's whole purpose is sending things to
@@ -21,11 +22,18 @@ const TONE_CLASSES: Record<TeamOnlyTone, string> = {
 
 export function TeamOnlyBadge({ label, tone = 'teammate' }: { label: string; tone?: TeamOnlyTone }): JSX.Element {
     return (
-        <Tooltip title="Only visible to your team">
-            <span className={`inline-flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded ${TONE_CLASSES[tone]}`}>
+        <Tooltip>
+            <TooltipTrigger
+                render={
+                    <span
+                        className={`inline-flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded ${TONE_CLASSES[tone]}`}
+                    />
+                }
+            >
                 <IconLock className="text-xs" />
                 {label}
-            </span>
+            </TooltipTrigger>
+            <TooltipContent>Only visible to your team</TooltipContent>
         </Tooltip>
     )
 }

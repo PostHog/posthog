@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCard, LemonDivider, Link } from '@posthog/lemon-ui'
-
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
+import { Link, LinkPrimitive } from 'lib/lemon-ui/Link'
+import { Button, Card, CardContent, Separator } from 'lib/ui/quill'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -61,23 +61,25 @@ export function NotificationsSection(): JSX.Element {
 
     return (
         <>
-            <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
-                <div className="flex items-center gap-4 justify-between">
-                    <div>
-                        <label className="w-40 shrink-0 font-medium">Email notifications</label>
-                        <p className="text-xs text-muted-alt">
-                            Team members who will receive email notifications when new tickets are created.
-                        </p>
+            <Card size="sm" className="max-w-[800px]">
+                <CardContent className="flex flex-col gap-y-2">
+                    <div className="flex items-center gap-4 justify-between">
+                        <div>
+                            <label className="w-40 shrink-0 font-medium">Email notifications</label>
+                            <p className="text-xs text-muted-alt">
+                                Team members who will receive email notifications when new tickets are created.
+                            </p>
+                        </div>
+                        <MemberSelectMultiple
+                            idKey="id"
+                            value={notificationRecipients}
+                            onChange={setNotificationRecipients}
+                        />
                     </div>
-                    <MemberSelectMultiple
-                        idKey="id"
-                        value={notificationRecipients}
-                        onChange={setNotificationRecipients}
-                    />
-                </div>
-                <LemonDivider />
-                <BrowserNotificationsSection />
-            </LemonCard>
+                    <Separator />
+                    <BrowserNotificationsSection />
+                </CardContent>
+            </Card>
 
             <SceneSection
                 title="Workflow templates"
@@ -94,16 +96,22 @@ export function NotificationsSection(): JSX.Element {
             >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-[800px]">
                     {WORKFLOW_TEMPLATES.map((template) => (
-                        <LemonCard key={template.title} hoverEffect={false} className="flex flex-col gap-2 px-4 py-3">
-                            <h4 className="font-semibold mb-0">{template.title}</h4>
-                            <p className="text-xs text-muted-alt mb-1 flex-1">{template.description}</p>
-                            <div className="flex items-center justify-between gap-2 mt-1">
-                                <code className="text-xs text-muted-alt truncate">{template.trigger}</code>
-                                <LemonButton type="secondary" size="small" to={urls.workflowNew()}>
-                                    Create workflow
-                                </LemonButton>
-                            </div>
-                        </LemonCard>
+                        <Card key={template.title} size="sm">
+                            <CardContent className="flex flex-col gap-2">
+                                <h4 className="font-semibold mb-0">{template.title}</h4>
+                                <p className="text-xs text-muted-alt mb-1 flex-1">{template.description}</p>
+                                <div className="flex items-center justify-between gap-2 mt-1">
+                                    <code className="text-xs text-muted-alt truncate">{template.trigger}</code>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        render={<LinkPrimitive to={urls.workflowNew()} />}
+                                    >
+                                        Create workflow
+                                    </Button>
+                                </div>
+                            </CardContent>
+                        </Card>
                     ))}
                 </div>
             </SceneSection>

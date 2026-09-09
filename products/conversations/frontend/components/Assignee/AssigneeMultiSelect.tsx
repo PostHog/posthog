@@ -1,12 +1,29 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconPerson, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
+import { IconPerson, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import {
+    Button,
+    ButtonGroup,
+    ItemCheckbox,
+    ItemContent,
+    ItemTitle,
+    InputGroup,
+    InputGroupAddon,
+    InputGroupInput,
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+    SelectTriggerIcon,
+    Text,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from 'lib/ui/quill'
 import { urls } from 'scenes/urls'
 
-import { clearFilterButtonProps } from '../../clearFilterButtonProps'
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from './AssigneeDisplay'
 import { assigneeSelectLogic } from './assigneeSelectLogic'
 import {
@@ -29,7 +46,7 @@ export function AssigneeMultiSelect({
     const { search, filteredRoles, filteredMembers, currentUserMember, rolesLoading, membersLoading } =
         useValues(assigneeSelectLogic)
     const { setSearch, ensureAssigneeTypesLoaded } = useActions(assigneeSelectLogic)
-    const [showPopover, setShowPopover] = useState(false)
+    const [open, setOpen] = useState(false)
 
     useEffect(() => {
         ensureAssigneeTypesLoaded()
@@ -48,114 +65,131 @@ export function AssigneeMultiSelect({
             : undefined
 
     return (
-        <LemonDropdown
-            closeOnClickInside={false}
-            visible={showPopover}
-            matchWidth={false}
-            onVisibilityChange={(visible) => {
-                setShowPopover(visible)
-                if (!visible) {
-                    setSearch('')
-                }
-            }}
-            overlay={
-                <div className="max-w-100 deprecated-space-y-2">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search"
-                        autoFocus
-                        value={search}
-                        onChange={setSearch}
-                        fullWidth
-                    />
-                    <ul className="deprecated-space-y-2">
-                        {currentUserMember && (
-                            <li>
-                                {/* Dynamic "me" entry — resolves to whoever is signed in, so a
-                                    saved view scoped to it stays each viewer's own tickets. */}
-                                <LemonButton
-                                    fullWidth
-                                    role="menuitem"
-                                    size="small"
-                                    icon={<LemonCheckbox checked={isSelected('me')} className="pointer-events-none" />}
-                                    disabledReason={isSelected('me') ? undefined : selectionCapReason}
+        <ButtonGroup className="w-full">
+            <Popover
+                open={open}
+                onOpenChange={(nextOpen) => {
+                    setOpen(nextOpen)
+                    if (!nextOpen) {
+                        setSearch('')
+                    }
+                }}
+            >
+                <PopoverTrigger render={<Button variant="outline" size="sm" className="min-w-0 flex-1" left />}>
+                    <TriggerLabel value={value} emptyLabel={emptyLabel} />
+                    {value.length === 0 ? <SelectTriggerIcon /> : null}
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-72 p-1">
+                    <div className="flex flex-col gap-2">
+                        <InputGroup>
+                            <InputGroupAddon>
+                                <IconSearch />
+                            </InputGroupAddon>
+                            <InputGroupInput
+                                type="search"
+                                placeholder="Search"
+                                autoFocus
+                                value={search}
+                                onChange={(event) => setSearch(event.target.value)}
+                            />
+                        </InputGroup>
+                        <div className="flex flex-col gap-px">
+                            {currentUserMember ? (
+                                <ItemCheckbox
+                                    size="xs"
+                                    aria-checked={isSelected('me')}
+                                    disabled={!isSelected('me') && !!selectionCapReason}
+                                    title={isSelected('me') ? undefined : selectionCapReason}
                                     onClick={() => toggleEntry('me')}
                                 >
-                                    <span className="flex items-center gap-1">
-                                        <MeIcon />
-                                        Me
-                                        <span className="text-secondary">(current user)</span>
-                                    </span>
-                                </LemonButton>
-                            </li>
-                        )}
-                        <li>
-                            <LemonButton
-                                fullWidth
-                                role="menuitem"
-                                size="small"
-                                icon={
-                                    <LemonCheckbox checked={isSelected('unassigned')} className="pointer-events-none" />
-                                }
-                                disabledReason={isSelected('unassigned') ? undefined : selectionCapReason}
+                                    <ItemContent variant="menuItem">
+                                        <ItemTitle className="flex items-center gap-1">
+                                            <MeIcon />
+                                            Me
+                                            <Text size="xs" variant="muted" render={<span />}>
+                                                (current user)
+                                            </Text>
+                                        </ItemTitle>
+                                    </ItemContent>
+                                </ItemCheckbox>
+                            ) : null}
+                            <ItemCheckbox
+                                size="xs"
+                                aria-checked={isSelected('unassigned')}
+                                disabled={!isSelected('unassigned') && !!selectionCapReason}
+                                title={isSelected('unassigned') ? undefined : selectionCapReason}
                                 onClick={() => toggleEntry('unassigned')}
                             >
-                                <span className="flex items-center gap-1">
-                                    <AssigneeIconDisplay assignee={null} size="small" />
-                                    Unassigned
-                                </span>
-                            </LemonButton>
-                        </li>
-                        <Section
-                            title="Roles"
-                            loading={rolesLoading}
-                            search={!!search}
-                            items={filteredRoles.map((role) => ({ id: role.id, type: 'role' as const, role }))}
-                            isSelected={isSelected}
-                            onToggle={toggleEntry}
-                            selectionCapReason={selectionCapReason}
-                            emptyState={
-                                <LemonButton
-                                    fullWidth
-                                    size="small"
-                                    icon={<IconPlusSmall />}
-                                    to={urls.settings('organization-roles')}
-                                >
-                                    <div className="text-secondary">Create role</div>
-                                </LemonButton>
-                            }
-                        />
-                        {(!!search || membersLoading || filteredMembers.length > 0) && (
+                                <ItemContent variant="menuItem">
+                                    <ItemTitle className="flex items-center gap-1">
+                                        <AssigneeIconDisplay assignee={null} size="small" />
+                                        Unassigned
+                                    </ItemTitle>
+                                </ItemContent>
+                            </ItemCheckbox>
                             <Section
-                                title="Users"
-                                loading={membersLoading}
+                                title="Roles"
+                                loading={rolesLoading}
                                 search={!!search}
-                                // Include the current user here too (as their concrete
-                                // user:<id>), so they can filter to their own UUID
-                                // specifically — distinct from the dynamic "Me" row above.
-                                items={filteredMembers.map((member) => ({
-                                    id: member.user.id,
-                                    type: 'user' as const,
-                                    user: member.user,
-                                }))}
+                                items={filteredRoles.map((role) => ({ id: role.id, type: 'role' as const, role }))}
                                 isSelected={isSelected}
                                 onToggle={toggleEntry}
                                 selectionCapReason={selectionCapReason}
+                                emptyState={
+                                    <Button
+                                        variant="default"
+                                        size="sm"
+                                        left
+                                        className="w-full"
+                                        render={<LinkPrimitive to={urls.settings('organization-roles')} />}
+                                    >
+                                        <IconPlusSmall />
+                                        <Text size="sm" variant="muted" render={<span />}>
+                                            Create role
+                                        </Text>
+                                    </Button>
+                                }
                             />
-                        )}
-                    </ul>
-                </div>
-            }
-        >
-            <LemonButton
-                size="small"
-                type="secondary"
-                active={showPopover}
-                {...clearFilterButtonProps(value.length > 0 ? () => onChange([]) : null, 'Clear assignee filter')}
-            >
-                <TriggerLabel value={value} emptyLabel={emptyLabel} />
-            </LemonButton>
-        </LemonDropdown>
+                            {!!search || membersLoading || filteredMembers.length > 0 ? (
+                                <Section
+                                    title="Users"
+                                    loading={membersLoading}
+                                    search={!!search}
+                                    // Include the current user here too (as their concrete
+                                    // user:<id>), so they can filter to their own UUID
+                                    // specifically — distinct from the dynamic "Me" row above.
+                                    items={filteredMembers.map((member) => ({
+                                        id: member.user.id,
+                                        type: 'user' as const,
+                                        user: member.user,
+                                    }))}
+                                    isSelected={isSelected}
+                                    onToggle={toggleEntry}
+                                    selectionCapReason={selectionCapReason}
+                                />
+                            ) : null}
+                        </div>
+                    </div>
+                </PopoverContent>
+            </Popover>
+            {value.length > 0 ? (
+                <Tooltip>
+                    <TooltipTrigger
+                        render={
+                            <Button
+                                variant="outline"
+                                size="icon-sm"
+                                aria-label="Clear assignee filter"
+                                onClick={() => onChange([])}
+                            />
+                        }
+                    >
+                        <IconX />
+                    </TooltipTrigger>
+                    <TooltipContent>Clear assignee filter</TooltipContent>
+                </Tooltip>
+            ) : null}
+        </ButtonGroup>
     )
 }
 
@@ -206,29 +240,28 @@ const AssigneeFilterItem = ({
     isSelected,
     onToggle,
     selectionCapReason,
-    labelSuffix,
 }: {
     item: NonNullable<Assignee>
     isSelected: (entry: AssigneeFilterEntry) => boolean
     onToggle: (entry: AssigneeFilterEntry) => void
     selectionCapReason?: string
-    labelSuffix?: JSX.Element
 }): JSX.Element => {
+    const checked = isSelected(item)
     return (
-        <LemonButton
-            fullWidth
-            role="menuitem"
-            size="small"
-            icon={<LemonCheckbox checked={isSelected(item)} className="pointer-events-none" />}
-            disabledReason={isSelected(item) ? undefined : selectionCapReason}
+        <ItemCheckbox
+            size="xs"
+            aria-checked={checked}
+            disabled={!checked && !!selectionCapReason}
+            title={checked ? undefined : selectionCapReason}
             onClick={() => onToggle(toTicketAssignee(item))}
         >
-            <span className="flex items-center gap-1">
-                <AssigneeIconDisplay assignee={item} size="small" />
-                <AssigneeLabelDisplay assignee={item} />
-                {labelSuffix}
-            </span>
-        </LemonButton>
+            <ItemContent variant="menuItem">
+                <ItemTitle className="flex items-center gap-1">
+                    <AssigneeIconDisplay assignee={item} size="small" />
+                    <AssigneeLabelDisplay assignee={item} />
+                </ItemTitle>
+            </ItemContent>
+        </ItemCheckbox>
     )
 }
 
@@ -252,32 +285,32 @@ const Section = ({
     emptyState?: JSX.Element
 }): JSX.Element => {
     return (
-        <li>
-            <section className="deprecated-space-y-px">
-                <h5 className="mx-2 my-0.5">{title}</h5>
-                {items.map((item) => (
-                    <li key={item.id}>
-                        <AssigneeFilterItem
-                            item={item}
-                            isSelected={isSelected}
-                            onToggle={onToggle}
-                            selectionCapReason={selectionCapReason}
-                        />
-                    </li>
-                ))}
-
-                {loading ? (
-                    <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
-                ) : items.length === 0 ? (
-                    search ? (
-                        <div className="p-2 text-secondary italic truncate border-t">
-                            <span>No matches</span>
-                        </div>
-                    ) : (
-                        <div className="border-t pt-1">{emptyState}</div>
-                    )
-                ) : null}
-            </section>
-        </li>
+        <div className="flex flex-col gap-px">
+            <Text size="xs" variant="muted" className="px-2 py-0.5">
+                {title}
+            </Text>
+            {items.map((item) => (
+                <AssigneeFilterItem
+                    key={item.id}
+                    item={item}
+                    isSelected={isSelected}
+                    onToggle={onToggle}
+                    selectionCapReason={selectionCapReason}
+                />
+            ))}
+            {loading ? (
+                <Text size="sm" variant="muted" className="italic px-2 py-2 border-t">
+                    Loading...
+                </Text>
+            ) : items.length === 0 ? (
+                search ? (
+                    <Text size="sm" variant="muted" className="italic px-2 py-2 border-t">
+                        No matches
+                    </Text>
+                ) : (
+                    <div className="border-t pt-1">{emptyState}</div>
+                )
+            ) : null}
+        </div>
     )
 }

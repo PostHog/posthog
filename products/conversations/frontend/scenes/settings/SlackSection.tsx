@@ -1,21 +1,39 @@
 import { useActions, useValues } from 'kea'
-
-import {
-    LemonBanner,
-    LemonButton,
-    LemonCard,
-    LemonCheckbox,
-    LemonDivider,
-    LemonInput,
-    LemonTag,
-    Link,
-} from '@posthog/lemon-ui'
+import type { ChangeEvent } from 'react'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import {
+    AlertDialog,
+    AlertDialogClose,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+    Badge,
+    Button,
+    Card,
+    CardContent,
+    Checkbox,
+    Combobox,
+    ComboboxChip,
+    ComboboxChips,
+    ComboboxChipsInput,
+    ComboboxContent,
+    ComboboxEmpty,
+    ComboboxInput,
+    ComboboxItem,
+    ComboboxList,
+    ComboboxValue,
+    Input,
+    Label,
+    Separator,
+    useComboboxAnchor,
+} from 'lib/ui/quill'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
@@ -35,9 +53,11 @@ export function SlackSection(): JSX.Element {
                 </>
             }
         >
-            <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
-                <SlackChannelSection />
-            </LemonCard>
+            <Card size="sm" className="max-w-[800px]">
+                <CardContent>
+                    <SlackChannelSection />
+                </CardContent>
+            </Card>
         </SceneSection>
     )
 }
@@ -83,6 +103,13 @@ function SlackChannelSection(): JSX.Element {
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
 
+    const channelOptions = slackChannels.map((c) => ({ id: c.id, label: `#${c.name ?? c.id}` }))
+    const refreshDisabledReason = slackChannelsLoading ? 'Loading channels...' : undefined
+    const emojiDisabledReason = !slackTicketEmojiValue ? 'Enter an emoji name' : undefined
+    const botSettingsDisabledReason =
+        slackBotDisplayNameValue === null && slackBotIconUrlValue === null ? 'No changes to save' : undefined
+    const alertsDisabled = currentTeamLoading || (!slackNotifyOnJoin && !slackNotifyOnLeave)
+
     return (
         <div className="flex flex-col gap-y-2">
             <div>
@@ -92,34 +119,40 @@ function SlackChannelSection(): JSX.Element {
                     mentions, and emoji reactions. This is separate from the main PostHog Slack integration.
                 </p>
                 {!slackConnected && (
-                    <LemonButton
+                    <Button
                         className="mt-2"
-                        type="primary"
-                        size="small"
-                        disabledReason={adminRestrictionReason}
+                        variant="primary"
+                        size="sm"
+                        disabled={!!adminRestrictionReason}
+                        title={adminRestrictionReason ?? undefined}
                         onClick={() => connectSlack(window.location.pathname)}
                     >
                         Add SupportHog to Slack
-                    </LemonButton>
+                    </Button>
                 )}
                 {slackNeedsReconnect && (
-                    <LemonBanner
-                        type="warning"
-                        className="mt-2"
-                        action={{
-                            children: 'Reconnect',
-                            disabledReason: adminRestrictionReason,
-                            onClick: () => connectSlack(window.location.pathname),
-                        }}
-                    >
-                        Files sent in Slack won't appear on tickets, and images you send from PostHog arrive as links
-                        instead of attachments. Reconnect SupportHog to give it access to files.
-                    </LemonBanner>
+                    <div className="rounded border border-warning bg-warning-highlight p-2 text-sm mt-2 flex flex-col gap-2">
+                        <span>
+                            Files sent in Slack won't appear on tickets, and images you send from PostHog arrive as
+                            links instead of attachments. Reconnect SupportHog to give it access to files.
+                        </span>
+                        <div>
+                            <Button
+                                variant="primary"
+                                size="sm"
+                                disabled={!!adminRestrictionReason}
+                                title={adminRestrictionReason ?? undefined}
+                                onClick={() => connectSlack(window.location.pathname)}
+                            >
+                                Reconnect
+                            </Button>
+                        </div>
+                    </div>
                 )}
             </div>
             {slackConnected && (
                 <>
-                    <LemonDivider />
+                    <Separator />
                     <div className="gap-4">
                         <div>
                             <label className="font-medium">Support channels</label>
@@ -130,28 +163,27 @@ function SlackChannelSection(): JSX.Element {
                             </p>
                         </div>
                         <div className="flex gap-2 items-center">
-                            <LemonInputSelect
-                                mode="multiple"
-                                value={slackChannelIds}
-                                options={slackChannels.map((c) => ({
-                                    key: c.id,
-                                    label: `#${c.name ?? c.id}`,
-                                }))}
-                                onChange={(newValue: string[]) => setSlackChannels(newValue)}
-                                loading={slackChannelsLoading}
-                                placeholder="Select channels"
-                            />
-                            <LemonButton
-                                type="secondary"
-                                size="small"
+                            <div className="min-w-0 flex-1">
+                                <LabeledIdsCombobox
+                                    options={channelOptions}
+                                    value={slackChannelIds}
+                                    onChange={setSlackChannels}
+                                    placeholder="Select channels"
+                                    disabled={slackChannelsLoading}
+                                />
+                            </div>
+                            <Button
+                                variant="outline"
+                                size="sm"
                                 onClick={loadSlackChannelsWithToken}
-                                disabledReason={slackChannelsLoading ? 'Loading channels...' : undefined}
+                                disabled={!!refreshDisabledReason}
+                                title={refreshDisabledReason}
                             >
                                 Refresh
-                            </LemonButton>
+                            </Button>
                         </div>
                     </div>
-                    <LemonDivider />
+                    <Separator />
                     <div className="flex flex-col gap-2">
                         <div>
                             <label className="font-medium">Ticket nudges</label>
@@ -162,16 +194,21 @@ function SlackChannelSection(): JSX.Element {
                                 sent.
                             </p>
                         </div>
-                        <LemonCheckbox
-                            checked={slackNudgeEnabled}
-                            onChange={setSlackNudgeEnabled}
-                            disabled={currentTeamLoading}
-                            label="Nudge users to open tickets"
-                        />
+                        <div className="flex items-center gap-2">
+                            <Checkbox
+                                id="slack-nudge"
+                                checked={slackNudgeEnabled}
+                                onCheckedChange={(checked) => setSlackNudgeEnabled(!!checked)}
+                                disabled={currentTeamLoading}
+                            />
+                            <Label htmlFor="slack-nudge" className="font-normal">
+                                Nudge users to open tickets
+                            </Label>
+                        </div>
                     </div>
                     {memberAlertsEnabled && (
                         <>
-                            <LemonDivider />
+                            <Separator />
                             <div className="flex flex-col gap-2">
                                 <div>
                                     <label className="font-medium">Channel membership alerts</label>
@@ -180,44 +217,52 @@ function SlackChannelSection(): JSX.Element {
                                         in.
                                     </p>
                                 </div>
-                                <LemonCheckbox
-                                    checked={slackNotifyOnJoin}
-                                    onChange={setSlackNotifyOnJoin}
-                                    disabled={currentTeamLoading}
-                                    label="Alert when someone joins a channel"
-                                />
-                                <LemonCheckbox
-                                    checked={slackNotifyOnLeave}
-                                    onChange={setSlackNotifyOnLeave}
-                                    disabled={currentTeamLoading}
-                                    label="Alert when someone leaves a channel"
-                                />
-                                <div className="flex gap-2 items-center">
-                                    <LemonInputSelect
-                                        mode="single"
-                                        value={slackAlertChannelId ? [slackAlertChannelId] : []}
-                                        options={slackChannels.map((c) => ({
-                                            key: c.id,
-                                            label: `#${c.name ?? c.id}`,
-                                        }))}
-                                        onChange={(newValue: string[]) => setSlackAlertChannel(newValue[0] ?? null)}
-                                        loading={slackChannelsLoading}
-                                        disabled={currentTeamLoading || (!slackNotifyOnJoin && !slackNotifyOnLeave)}
-                                        placeholder="Select alerts channel"
+                                <div className="flex items-center gap-2">
+                                    <Checkbox
+                                        id="slack-notify-join"
+                                        checked={slackNotifyOnJoin}
+                                        onCheckedChange={(checked) => setSlackNotifyOnJoin(!!checked)}
+                                        disabled={currentTeamLoading}
                                     />
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
+                                    <Label htmlFor="slack-notify-join" className="font-normal">
+                                        Alert when someone joins a channel
+                                    </Label>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Checkbox
+                                        id="slack-notify-leave"
+                                        checked={slackNotifyOnLeave}
+                                        onCheckedChange={(checked) => setSlackNotifyOnLeave(!!checked)}
+                                        disabled={currentTeamLoading}
+                                    />
+                                    <Label htmlFor="slack-notify-leave" className="font-normal">
+                                        Alert when someone leaves a channel
+                                    </Label>
+                                </div>
+                                <div className="flex gap-2 items-center">
+                                    <div className="min-w-0 flex-1">
+                                        <LabeledIdCombobox
+                                            options={channelOptions}
+                                            value={slackAlertChannelId}
+                                            onChange={setSlackAlertChannel}
+                                            placeholder="Select alerts channel"
+                                            disabled={alertsDisabled || slackChannelsLoading}
+                                        />
+                                    </div>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
                                         onClick={loadSlackChannelsWithToken}
-                                        disabledReason={slackChannelsLoading ? 'Loading channels...' : undefined}
+                                        disabled={!!refreshDisabledReason}
+                                        title={refreshDisabledReason}
                                     >
                                         Refresh
-                                    </LemonButton>
+                                    </Button>
                                 </div>
                             </div>
                         </>
                     )}
-                    <LemonDivider />
+                    <Separator />
                     <div className="flex items-center gap-4 justify-between">
                         <div>
                             <label className="font-medium">Ticket emoji trigger</label>
@@ -226,23 +271,26 @@ function SlackChannelSection(): JSX.Element {
                             </p>
                         </div>
                         <div className="flex gap-2 items-center">
-                            <LemonInput
+                            <Input
                                 value={slackTicketEmojiValue ?? slackTicketEmoji}
-                                onChange={setSlackTicketEmojiValue}
+                                onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                                    setSlackTicketEmojiValue(e.target.value)
+                                }
                                 placeholder="ticket"
                                 className="max-w-[200px]"
                             />
-                            <LemonButton
-                                type="primary"
-                                size="small"
+                            <Button
+                                variant="primary"
+                                size="sm"
                                 onClick={saveSlackTicketEmoji}
-                                disabledReason={!slackTicketEmojiValue ? 'Enter an emoji name' : undefined}
+                                disabled={!!emojiDisabledReason}
+                                title={emojiDisabledReason}
                             >
                                 Save
-                            </LemonButton>
+                            </Button>
                         </div>
                     </div>
-                    <LemonDivider />
+                    <Separator />
                     <div className="flex flex-col gap-2">
                         <div>
                             <label className="font-medium">Bot appearance</label>
@@ -252,38 +300,31 @@ function SlackChannelSection(): JSX.Element {
                                 was available.
                             </p>
                         </div>
-                        <div className="flex items-center gap-2">
-                            <LemonInput
-                                value={slackBotDisplayNameValue ?? slackBotDisplayName ?? ''}
-                                onChange={setSlackBotDisplayNameValue}
-                                placeholder="Display name (e.g. SupportHog)"
-                                className="flex-1"
-                            />
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <LemonInput
-                                value={slackBotIconUrlValue ?? slackBotIconUrl ?? ''}
-                                onChange={setSlackBotIconUrlValue}
-                                placeholder="Icon URL (e.g. https://example.com/icon.png)"
-                                className="flex-1"
-                            />
-                        </div>
+                        <Input
+                            value={slackBotDisplayNameValue ?? slackBotDisplayName ?? ''}
+                            onChange={(e: ChangeEvent<HTMLInputElement>) => setSlackBotDisplayNameValue(e.target.value)}
+                            placeholder="Display name (e.g. SupportHog)"
+                            className="flex-1"
+                        />
+                        <Input
+                            value={slackBotIconUrlValue ?? slackBotIconUrl ?? ''}
+                            onChange={(e: ChangeEvent<HTMLInputElement>) => setSlackBotIconUrlValue(e.target.value)}
+                            placeholder="Icon URL (e.g. https://example.com/icon.png)"
+                            className="flex-1"
+                        />
                         <div>
-                            <LemonButton
-                                type="primary"
-                                size="small"
+                            <Button
+                                variant="primary"
+                                size="sm"
                                 onClick={saveSlackBotSettings}
-                                disabledReason={
-                                    slackBotDisplayNameValue === null && slackBotIconUrlValue === null
-                                        ? 'No changes to save'
-                                        : undefined
-                                }
+                                disabled={!!botSettingsDisabledReason}
+                                title={botSettingsDisabledReason}
                             >
                                 Save
-                            </LemonButton>
+                            </Button>
                         </div>
                     </div>
-                    <LemonDivider />
+                    <Separator />
                     <div className="flex items-center gap-4 justify-between">
                         <div>
                             <label className="font-medium">Bot mention</label>
@@ -291,34 +332,138 @@ function SlackChannelSection(): JSX.Element {
                                 Users can @mention the bot in any channel to create a support ticket.
                             </p>
                         </div>
-                        <LemonTag type="success">Active</LemonTag>
+                        <Badge variant="success">Active</Badge>
                     </div>
-                    <LemonDivider />
+                    <Separator />
                     <div className="flex justify-end">
-                        <LemonButton
-                            type="secondary"
-                            status="danger"
-                            size="small"
-                            disabledReason={adminRestrictionReason}
-                            onClick={() => {
-                                LemonDialog.open({
-                                    title: 'Remove SupportHog bot?',
-                                    description:
-                                        'This will stop creating tickets from Slack messages. Existing tickets will not be affected.',
-                                    primaryButton: {
-                                        status: 'danger',
-                                        children: 'Remove',
-                                        onClick: disconnectSlack,
-                                    },
-                                    secondaryButton: { children: 'Cancel' },
-                                })
-                            }}
-                        >
-                            Remove SupportHog bot
-                        </LemonButton>
+                        <AlertDialog>
+                            <AlertDialogTrigger
+                                render={
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        disabled={!!adminRestrictionReason}
+                                        title={adminRestrictionReason ?? undefined}
+                                    />
+                                }
+                            >
+                                Remove SupportHog bot
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Remove SupportHog bot?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        This will stop creating tickets from Slack messages. Existing tickets will not
+                                        be affected.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+                                    <AlertDialogClose
+                                        render={<Button variant="destructive" onClick={disconnectSlack} />}
+                                    >
+                                        Remove
+                                    </AlertDialogClose>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
                     </div>
                 </>
             )}
         </div>
+    )
+}
+
+function LabeledIdsCombobox({
+    options,
+    value,
+    onChange,
+    placeholder,
+    disabled,
+}: {
+    options: { id: string; label: string }[]
+    value: string[]
+    onChange: (next: string[]) => void
+    placeholder: string
+    disabled?: boolean
+}): JSX.Element {
+    const labels = Object.fromEntries(options.map((option) => [option.id, option.label]))
+    const items = options.map((option) => option.id)
+    return (
+        <Combobox multiple items={items} value={value} onValueChange={onChange}>
+            <LabeledIdsComboboxBody labels={labels} placeholder={placeholder} disabled={disabled} />
+        </Combobox>
+    )
+}
+
+function LabeledIdsComboboxBody({
+    labels,
+    placeholder,
+    disabled,
+}: {
+    labels: Record<string, string>
+    placeholder: string
+    disabled?: boolean
+}): JSX.Element {
+    const anchor = useComboboxAnchor()
+    return (
+        <>
+            <ComboboxChips ref={anchor} className="w-full">
+                <ComboboxValue>
+                    {(values) => (
+                        <>
+                            {(values as string[]).map((id) => (
+                                <ComboboxChip key={id} title={labels[id] ?? id}>
+                                    {labels[id] ?? id}
+                                </ComboboxChip>
+                            ))}
+                            <ComboboxChipsInput placeholder={placeholder} disabled={disabled} />
+                        </>
+                    )}
+                </ComboboxValue>
+            </ComboboxChips>
+            <ComboboxContent anchor={anchor}>
+                <ComboboxEmpty>No matching channels</ComboboxEmpty>
+                <ComboboxList>
+                    {(item: string) => (
+                        <ComboboxItem key={item} value={item}>
+                            {labels[item] ?? item}
+                        </ComboboxItem>
+                    )}
+                </ComboboxList>
+            </ComboboxContent>
+        </>
+    )
+}
+
+function LabeledIdCombobox({
+    options,
+    value,
+    onChange,
+    placeholder,
+    disabled,
+}: {
+    options: { id: string; label: string }[]
+    value: string | null
+    onChange: (next: string | null) => void
+    placeholder: string
+    disabled?: boolean
+}): JSX.Element {
+    const labels = Object.fromEntries(options.map((option) => [option.id, option.label]))
+    const items = options.map((option) => option.id)
+    return (
+        <Combobox items={items} value={value} onValueChange={(next: string | null) => onChange(next ?? null)}>
+            <ComboboxInput placeholder={placeholder} disabled={disabled} showClear={!!value} className="w-full" />
+            <ComboboxContent>
+                <ComboboxEmpty>No matching channels</ComboboxEmpty>
+                <ComboboxList>
+                    {(item: string) => (
+                        <ComboboxItem key={item} value={item}>
+                            {labels[item] ?? item}
+                        </ComboboxItem>
+                    )}
+                </ComboboxList>
+            </ComboboxContent>
+        </Combobox>
     )
 }

@@ -1,8 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCheckbox, LemonDivider, LemonDropdown } from '@posthog/lemon-ui'
-
 import { IconTuning } from 'lib/lemon-ui/icons'
+import {
+    Button,
+    DropdownMenu,
+    DropdownMenuCheckboxItem,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from 'lib/ui/quill'
 
 import { isTicketColumnMandatory, offerableTicketColumns, ticketColumnLabel } from './ticketColumns'
 import { ticketColumnsLogic } from './ticketColumnsLogic'
@@ -19,53 +26,48 @@ export function TicketColumnsDropdown({ aiEnabled, embedded = false }: TicketCol
     const offerable = offerableTicketColumns({ aiEnabled, embedded })
     const shownCount = offerable.filter((key) => visibleColumns.includes(key) || isTicketColumnMandatory(key)).length
     const allShown = shownCount === offerable.length
+    const tooltip = allShown ? 'Show all columns' : `Show ${shownCount} of ${offerable.length} columns`
 
     return (
-        <LemonDropdown
-            closeOnClickInside={false}
-            overlay={
-                <div className="space-y-px p-1 min-w-48">
-                    {offerable.map((key) => {
-                        const mandatory = isTicketColumnMandatory(key)
-                        return (
-                            <LemonButton
-                                key={key}
-                                type="tertiary"
-                                size="small"
-                                fullWidth
-                                icon={
-                                    <LemonCheckbox
-                                        checked={mandatory || visibleColumns.includes(key)}
-                                        className="pointer-events-none"
-                                    />
-                                }
-                                disabledReason={mandatory ? 'This column identifies the ticket' : undefined}
-                                onClick={() => toggleColumn(key)}
-                            >
-                                {ticketColumnLabel(key)}
-                            </LemonButton>
-                        )
-                    })}
-                    <LemonDivider className="my-1" />
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        fullWidth
-                        disabledReason={allShown ? 'Every column is already shown' : undefined}
-                        onClick={() => setVisibleColumns(offerable)}
+        <DropdownMenu>
+            <DropdownMenuTrigger
+                render={
+                    <Button
+                        variant="default"
+                        size="icon-sm"
+                        data-attr="support-tickets-column-selector"
+                        aria-label={tooltip}
+                        title={tooltip}
                     >
-                        Show all columns
-                    </LemonButton>
-                </div>
-            }
-        >
-            <LemonButton
-                type="tertiary"
-                size="small"
-                icon={<IconTuning />}
-                data-attr="support-tickets-column-selector"
-                tooltip={allShown ? 'Show all columns' : `Show ${shownCount} of ${offerable.length} columns`}
+                        <IconTuning />
+                    </Button>
+                }
             />
-        </LemonDropdown>
+            <DropdownMenuContent align="end" className="min-w-48">
+                {offerable.map((key) => {
+                    const mandatory = isTicketColumnMandatory(key)
+                    return (
+                        <DropdownMenuCheckboxItem
+                            key={key}
+                            checked={mandatory || visibleColumns.includes(key)}
+                            disabled={mandatory}
+                            closeOnClick={false}
+                            title={mandatory ? 'This column identifies the ticket' : undefined}
+                            onCheckedChange={() => toggleColumn(key)}
+                        >
+                            {ticketColumnLabel(key)}
+                        </DropdownMenuCheckboxItem>
+                    )
+                })}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                    disabled={allShown}
+                    title={allShown ? 'Every column is already shown' : undefined}
+                    onClick={() => setVisibleColumns(offerable)}
+                >
+                    Show all columns
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
     )
 }

@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { LemonDropdown } from '@posthog/lemon-ui'
+import { Popover, PopoverContent, PopoverTrigger } from 'lib/ui/quill'
 
 import { AssigneeResolver } from './AssigneeDisplay'
 import { AssigneeDropdown } from './AssigneeDropdown'
@@ -36,34 +36,31 @@ export const AssigneeSelect = ({
         }
     }, [ensureAssigneeTypesLoaded, loadOnOpen])
 
-    if (disabledReason) {
-        return (
-            <div>
-                <AssigneeResolver assignee={assignee}>
-                    {({ assignee: resolvedAssignee }) => children(resolvedAssignee, false)}
-                </AssigneeResolver>
-            </div>
-        )
-    }
-
     return (
-        <LemonDropdown
-            closeOnClickInside={false}
-            visible={showPopover}
-            matchWidth={false}
-            onVisibilityChange={(visible) => {
-                setShowPopover(visible)
-                if (visible && loadOnOpen) {
-                    ensureAssigneeTypesLoaded()
-                }
-            }}
-            overlay={<AssigneeDropdown assignee={assignee} onChange={_onChange} />}
-        >
-            <div>
-                <AssigneeResolver assignee={assignee}>
-                    {({ assignee: resolvedAssignee }) => children(resolvedAssignee, showPopover)}
-                </AssigneeResolver>
-            </div>
-        </LemonDropdown>
+        <AssigneeResolver assignee={assignee}>
+            {({ assignee: resolvedAssignee }) =>
+                disabledReason ? (
+                    children(resolvedAssignee, false)
+                ) : (
+                    <Popover
+                        open={showPopover}
+                        onOpenChange={(visible) => {
+                            setShowPopover(visible)
+                            if (visible && loadOnOpen) {
+                                ensureAssigneeTypesLoaded()
+                            }
+                            if (!visible) {
+                                setSearch('')
+                            }
+                        }}
+                    >
+                        <PopoverTrigger render={children(resolvedAssignee, showPopover)} />
+                        <PopoverContent align="end" className="w-auto p-1">
+                            <AssigneeDropdown assignee={assignee} onChange={_onChange} />
+                        </PopoverContent>
+                    </Popover>
+                )
+            }
+        </AssigneeResolver>
     )
 }

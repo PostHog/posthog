@@ -1,17 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
-
 import type { CustomInputRendererProps } from 'lib/components/CyclotronJob/customInputRenderers'
+import { Button, Popover, PopoverContent, PopoverTrigger, SelectTriggerIcon } from 'lib/ui/quill'
 
-import { AssigneeDropdown, AssigneeIconDisplay, AssigneeLabelDisplay, assigneeSelectLogic, TicketAssignee } from '.'
+import { AssigneeIconDisplay, AssigneeLabelDisplay } from './AssigneeDisplay'
+import { AssigneeDropdown } from './AssigneeDropdown'
+import { assigneeSelectLogic } from './assigneeSelectLogic'
+import type { TicketAssignee } from './types'
 
 export default function CyclotronJobInputAssignee({ value, onChange }: CustomInputRendererProps): JSX.Element {
     const { ensureAssigneeTypesLoaded, setSearch } = useActions(assigneeSelectLogic)
     const { resolveAssignee } = useValues(assigneeSelectLogic)
-    const [showPopover, setShowPopover] = useState(false)
+    const [open, setOpen] = useState(false)
 
     useEffect(() => {
         ensureAssigneeTypesLoaded()
@@ -19,26 +20,32 @@ export default function CyclotronJobInputAssignee({ value, onChange }: CustomInp
 
     const handleChange = (newValue: TicketAssignee): void => {
         setSearch('')
-        setShowPopover(false)
+        setOpen(false)
         onChange(newValue)
     }
 
     const resolvedAssignee = resolveAssignee(value)
 
     return (
-        <LemonDropdown
-            closeOnClickInside={false}
-            visible={showPopover}
-            matchWidth={false}
-            onVisibilityChange={(visible) => setShowPopover(visible)}
-            overlay={<AssigneeDropdown assignee={value} onChange={handleChange} />}
+        <Popover
+            open={open}
+            onOpenChange={(nextOpen) => {
+                setOpen(nextOpen)
+                if (!nextOpen) {
+                    setSearch('')
+                }
+            }}
         >
-            <LemonButton type="secondary" sideIcon={<IconChevronDown />} fullWidth>
-                <span className="flex items-center gap-1">
+            <PopoverTrigger render={<Button variant="outline" className="w-full" />}>
+                <span className="flex min-w-0 items-center gap-1">
                     <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
                     <AssigneeLabelDisplay assignee={resolvedAssignee} size="small" />
                 </span>
-            </LemonButton>
-        </LemonDropdown>
+                <SelectTriggerIcon />
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-auto p-1">
+                <AssigneeDropdown assignee={value} onChange={handleChange} />
+            </PopoverContent>
+        </Popover>
     )
 }

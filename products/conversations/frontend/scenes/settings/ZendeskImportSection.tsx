@@ -1,38 +1,41 @@
 import { useActions, useValues } from 'kea'
-
-import { LemonBanner, LemonButton, LemonCard, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import type { ChangeEvent } from 'react'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import {
+    Badge,
+    Button,
+    Card,
+    CardContent,
+    Field,
+    FieldDescription,
+    FieldLabel,
+    Input,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from 'lib/ui/quill'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { zendeskImportLogic, ZendeskImportJobStatus } from './zendeskImportLogic'
+
+const NO_DEFAULT_INBOX = '__none__'
 
 function statusTag(status: ZendeskImportJobStatus | undefined): JSX.Element | null {
     if (!status) {
         return null
     }
     if (status === 'running' || status === 'pending') {
-        return (
-            <LemonTag type="warning" size="small">
-                Syncing
-            </LemonTag>
-        )
+        return <Badge variant="warning">Syncing</Badge>
     }
     if (status === 'completed') {
-        return (
-            <LemonTag type="success" size="small">
-                Done
-            </LemonTag>
-        )
+        return <Badge variant="success">Done</Badge>
     }
-    return (
-        <LemonTag type="danger" size="small">
-            Failed
-        </LemonTag>
-    )
+    return <Badge variant="destructive">Failed</Badge>
 }
 
 export function ZendeskImportSection(): JSX.Element {
@@ -41,9 +44,11 @@ export function ZendeskImportSection(): JSX.Element {
             title="Zendesk import"
             description="Import historical Zendesk Support tickets and message threads into Support. Already-synced tickets are skipped on re-run."
         >
-            <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
-                <ZendeskImportForm />
-            </LemonCard>
+            <Card size="sm" className="max-w-[800px]">
+                <CardContent>
+                    <ZendeskImportForm />
+                </CardContent>
+            </Card>
         </SceneSection>
     )
 }
@@ -68,6 +73,9 @@ function ZendeskImportForm(): JSX.Element {
     })
 
     const canSubmit = !!subdomain.trim() && !!emailAddress.trim() && !!apiToken.trim()
+    const submitDisabledReason =
+        adminRestrictionReason ||
+        (isImportRunning ? 'Import already running' : !canSubmit ? 'Fill in all fields' : undefined)
 
     return (
         <div className="flex flex-col gap-y-3">
@@ -97,69 +105,80 @@ function ZendeskImportForm(): JSX.Element {
                 <p className="text-xs text-danger m-0">{importJob.latest_error}</p>
             ) : null}
 
-            <LemonInput
+            <Input
                 type="text"
+                className="w-full"
                 placeholder="Zendesk subdomain"
                 value={subdomain}
-                onChange={setSubdomain}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setSubdomain(e.target.value)}
                 disabled={isImportRunning}
             />
-            <LemonInput
+            <Input
                 type="email"
+                className="w-full"
                 placeholder={
                     importJob?.has_credentials
                         ? 'Zendesk agent email (configured — re-enter to start a new import)'
                         : 'Zendesk agent email'
                 }
                 value={emailAddress}
-                onChange={setEmailAddress}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setEmailAddress(e.target.value)}
                 disabled={isImportRunning}
             />
-            <LemonInput
+            <Input
                 type="password"
+                className="w-full"
                 placeholder={
                     importJob?.has_credentials
                         ? 'Zendesk API token (configured — re-enter to start a new import)'
                         : 'Zendesk API token'
                 }
                 value={apiToken}
-                onChange={setApiToken}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setApiToken(e.target.value)}
                 disabled={isImportRunning}
             />
-            <LemonField.Pure
-                label="Default inbox"
-                info="Fallback email channel for tickets whose original Zendesk recipient doesn't match one of your configured support addresses (e.g. a *.zendesk.com address, or a non-email ticket). Tickets that do match are assigned to the matching channel regardless of this setting."
-            >
-                <LemonSelect<string | null>
-                    value={defaultEmailChannelId}
-                    onChange={setDefaultEmailChannelId}
+            <Field>
+                <FieldLabel>Default inbox</FieldLabel>
+                <FieldDescription>
+                    Fallback email channel for tickets whose original Zendesk recipient doesn't match one of your
+                    configured support addresses (e.g. a *.zendesk.com address, or a non-email ticket). Tickets that do
+                    match are assigned to the matching channel regardless of this setting.
+                </FieldDescription>
+                <Select
+                    value={defaultEmailChannelId ?? NO_DEFAULT_INBOX}
+                    onValueChange={(value) => setDefaultEmailChannelId(value === NO_DEFAULT_INBOX ? null : value)}
                     disabled={isImportRunning}
-                    placeholder="No default (leave unmatched tickets without an inbox)"
-                    options={[
-                        { label: 'No default', value: null },
-                        ...emailConfigs.map((config) => ({ label: config.from_email, value: config.id })),
-                    ]}
-                />
-            </LemonField.Pure>
+                >
+                    <SelectTrigger>
+                        <SelectValue placeholder="No default (leave unmatched tickets without an inbox)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value={NO_DEFAULT_INBOX}>No default</SelectItem>
+                        {emailConfigs.map((config) => (
+                            <SelectItem key={config.id} value={config.id}>
+                                {config.from_email}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            </Field>
             {defaultEmailChannelId === null && !isImportRunning && (
-                <LemonBanner type="warning">
+                <div className="rounded border border-warning bg-warning-highlight p-2 text-sm">
                     Without a default inbox, tickets whose Zendesk address doesn't match one of your connected support
                     addresses are imported without an email channel. Agents won't be able to reply to those customers by
                     email, and the reply box on those tickets will be disabled.
-                </LemonBanner>
+                </div>
             )}
             <div>
-                <LemonButton
-                    type="primary"
+                <Button
+                    variant="primary"
                     onClick={submitImport}
                     loading={importJobLoading}
-                    disabledReason={
-                        adminRestrictionReason ||
-                        (isImportRunning ? 'Import already running' : !canSubmit ? 'Fill in all fields' : undefined)
-                    }
+                    disabled={!!submitDisabledReason}
+                    title={submitDisabledReason ?? undefined}
                 >
                     Start import
-                </LemonButton>
+                </Button>
             </div>
         </div>
     )
