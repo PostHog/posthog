@@ -350,7 +350,9 @@ rebuild anything.
 
 **2. Compare the two clusters for one affected team.** Django writes the dedicated instance
 and mirrors to the shared one, and the reader serves from the shared copy, so the two can
-disagree. Take a team id from the `etag_key` field of a reader log line:
+disagree. Take a team id from a reader `Cache hit for flag definitions` record with
+`source="s3"`. It logs at info, carries `team_id`, and names a team the alert is counting.
+The absent-ETag record carries the key but logs at debug, so production does not keep it.
 
 ```bash
 # Shared cluster, which the reader serves from
