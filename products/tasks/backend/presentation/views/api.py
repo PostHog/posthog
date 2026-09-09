@@ -76,7 +76,7 @@ from products.tasks.backend.facade.access import (
     usage_limit_response,
 )
 from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, get_task_usage
-from products.tasks.backend.facade.client_provenance import get_task_client_provenance
+from products.tasks.backend.facade.client_provenance import get_task_client_provenance, is_sandbox_oauth_request
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
 from products.tasks.backend.facade.contracts import TaskAnalysisError
 from products.tasks.backend.facade.metrics import (
@@ -779,6 +779,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(request=TaskWriteSerializer, responses={200: TaskSerializer})
     def partial_update(self, request, pk=None, **kwargs):
+        authenticator = request.successful_authenticator
+        if (
+            "channel" in request.data
+            and isinstance(authenticator, OAuthAccessTokenAuthentication)
+            and authenticator.access_token.sandbox_task_id is not None
+        ):
+            raise PermissionDenied("Task agents cannot move tasks between channels.")
         serializer = self._write_serializer(request.data, partial=True)
         task = tasks_facade.update_task(
             pk, self.team_id, self._user_id(), validated_data=dict(serializer.validated_data)
@@ -1417,15 +1424,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-@extend_schema(tags=["task-runs", "tasks"])
-def is_sandbox_oauth_request(request) -> bool:
-    authenticator = request.successful_authenticator
-    if not isinstance(authenticator, OAuthAccessTokenAuthentication):
-        return False
-    application = authenticator.access_token.application
-    return application is not None and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS
-
-
 def _sandbox_bound_task_id(request) -> UUID | None:
     if not is_sandbox_oauth_request(request):
         return None
@@ -1441,6 +1439,7 @@ def is_sandbox_agent_request(request, task_id: str) -> bool:
 _HUMAN_STEERING_COMMAND_METHODS = frozenset({"user_message", "side_question"})
 
 
+@extend_schema(tags=["task-runs", "tasks"])
 class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     API for managing task runs. Each run represents an execution of a task.
@@ -1539,6 +1538,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if run is None:
             raise NotFound()
         return run
+
+    def _ensure_subscription_owner(self, task_id: str, run_id: str) -> None:
+        run = tasks_facade.get_task_run_detail(run_id, task_id, self.team_id)
+        if run is None:
+            raise NotFound()
+        if (
+            run.state.get("claude_model_access") == "own-subscription"
+            and run.state.get("claude_subscription_user_id") != self._user_id()
+        ):
+            raise PermissionDenied("Only the user who started this run can use its Claude plan.")
 
     @validated_request(
         responses={
@@ -2710,6 +2719,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def connection_token(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        self._ensure_subscription_owner(task_id, pk)
         if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
             access_response := code_access_required_response(request, self.organization, task_id=task_id)
         ):
@@ -2779,7 +2789,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             404: OpenApiResponse(description="Task run not found"),
             409: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="Task run workflow has ended",
+                description="Task run workflow has ended; permission_target_ended for an ended approval target",
             ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
@@ -2788,13 +2798,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             502: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Agent server unreachable"),
             503: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="PostHog Desktop access could not be verified",
+                description="agent_session_not_ready: approval rejected before execution while the agent starts; "
+                "or PostHog Desktop access could not be verified",
             ),
         },
         summary="Send command to task run",
         description="Queue user_message JSON-RPC commands through the task workflow and forward sandbox control "
         "commands to the agent server. Supports user_message, cancel, close, permission_response, "
-        "set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations.",
+        "set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations. "
+        "Permission responses return 503 agent_session_not_ready only when rejected before execution; "
+        "clients may retry that code within a bounded startup wait. HTTP 200 preserves JSON-RPC errors; "
+        "permission acceptance requires result.resolved=true.",
         strict_request_validation=True,
     )
     @action(
@@ -2806,6 +2820,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def command(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
         method = request.validated_data["method"]
+        if method not in {"cancel", "close", "credential_response"}:
+            self._ensure_subscription_owner(task_id, pk)
+        if method == "credential_response":
+            run = tasks_facade.get_task_run_detail(pk, task_id, self.team_id)
+            if (
+                run is None
+                or is_sandbox_oauth_request(request)
+                or run.state.get("claude_subscription_user_id") != self._user_id()
+            ):
+                raise PermissionDenied("Only the user who started this run can send a Claude token.")
         # Steering an analysis run spends model tokens on a task whose generations are excluded
         # from the customer's rollup, so these are the reuse path the one-shot rule closes. Cancel
         # and the agent's own operations stay open.
@@ -2950,6 +2974,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if connection is None:
             raise NotFound()
 
+        if method == "permission_response":
+            try:
+                tasks_facade.validate_permission_response_target(pk, task_id, self.team_id)
+            except tasks_facade.PermissionResponseUnavailable as error:
+                return Response(
+                    TaskRunErrorResponseSerializer({"code": error.code, "error": str(error)}).data,
+                    status=error.status_code,
+                )
+
         if not connection.sandbox_url:
             return Response(
                 TaskRunErrorResponseSerializer(
@@ -2989,17 +3022,25 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 sandbox_token_param=connection.sandbox_token_param,
             )
 
+            try:
+                response_data = agent_response.json()
+            except ValueError:
+                if agent_response.ok:
+                    raise
+                response_data = {}
+            success = agent_response.ok
+            if method == "permission_response":
+                success = tasks_facade.classify_permission_response(
+                    pk, task_id, self.team_id, status_code=agent_response.status_code, data=response_data
+                )
             tasks_facade.capture_relay_command_telemetry(
-                pk, task_id, self.team_id, method=method, params=params, success=agent_response.ok
+                pk, task_id, self.team_id, method=method, params=params, success=success
             )
             if agent_response.ok:
                 tasks_facade.signal_task_run_client_activity(pk, task_id, self.team_id)
-                return Response(agent_response.json())
+                return Response(response_data)
 
-            try:
-                error_body = agent_response.json()
-            except Exception:
-                error_body = {}
+            error_body = response_data if isinstance(response_data, dict) else {}
 
             if agent_response.status_code == 401:
                 error_msg = error_body.get("error", "Agent server authentication failed")
@@ -3015,6 +3056,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
+        except tasks_facade.PermissionResponseUnavailable as error:
+            tasks_facade.capture_relay_command_telemetry(
+                pk, task_id, self.team_id, method=method, params=params, success=False
+            )
+            return Response(
+                TaskRunErrorResponseSerializer({"code": error.code, "error": str(error)}).data,
+                status=error.status_code,
+            )
         except http_requests.ConnectionError:
             logger.warning(f"Agent server unreachable for task run {pk}")
             tasks_facade.capture_relay_command_telemetry(
@@ -3105,7 +3154,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             json=payload,
             headers=headers,
             params=params,
-            timeout=600,
+            timeout=5 if payload.get("method") == "credential_response" else 600,
+            allow_redirects=payload.get("method") != "credential_response",
         )
 
     @validated_request(

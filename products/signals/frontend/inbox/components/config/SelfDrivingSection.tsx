@@ -297,6 +297,36 @@ function DailyReportLimit(): JSX.Element {
 }
 
 /**
+ * Per-user opt-in to being added as a GitHub assignee on the implementation PR for reports that
+ * suggest this user as reviewer. Off by default, because being assigned is visible to everybody on
+ * the pull request. Renders regardless of the auto-start toggle: a PR opened by hand from the inbox
+ * assigns reviewers too.
+ */
+function GitHubAssignmentRow(): JSX.Element {
+    const { autonomyConfig, autonomyConfigLoading, githubAssignUpdating } = useValues(userAutonomyLogic)
+    const { setGithubAssignOnPullRequest } = useActions(userAutonomyLogic)
+
+    return (
+        <div className="flex items-start justify-between gap-2 px-2.5 py-1.5">
+            <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                <span className="text-xs text-secondary">Assign me on GitHub</span>
+                <p className="text-[11px] text-tertiary leading-snug mb-0">
+                    Add you as an assignee on PRs for reports that suggest you as reviewer, across all your projects.
+                </p>
+            </div>
+            <LemonSwitch
+                checked={autonomyConfig?.github_assign_on_pull_request ?? false}
+                loading={githubAssignUpdating}
+                disabledReason={autonomyConfigLoading && autonomyConfig === null ? 'Loading settings' : undefined}
+                onChange={setGithubAssignOnPullRequest}
+                aria-label="Assign me on GitHub pull requests"
+                data-attr="signals-github-assign-on-pull-request"
+            />
+        </div>
+    )
+}
+
+/**
  * Team-wide PR-generation control, backed by `autostart_enabled` and `default_autostart_priority`
  * on `signalTeamConfigLogic`. The inline switch is the master opt-out for autonomous inbox PRs;
  * reports keep generating and notifying either way. The threshold is the team default; a teammate's
@@ -400,6 +430,9 @@ export function SelfDrivingSection(): JSX.Element {
                         Reports still arrive and notify your team.
                     </p>
                 )}
+                <div className="border-t border-primary">
+                    <GitHubAssignmentRow />
+                </div>
                 <div className="border-t border-primary">
                     <DailyReportLimit />
                 </div>

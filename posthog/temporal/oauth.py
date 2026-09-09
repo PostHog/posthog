@@ -157,6 +157,7 @@ SCOUT_REPORT_SCOPES: list[str] = [
 ]
 
 LOOP_CONTEXT_INTERNAL_SCOPE = "loop_context_internal:write"
+CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 
 
 # A deliberately narrow set of user-facing WRITE scopes granted to the Signals scout
@@ -205,7 +206,9 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          An update can also move an organization annotation to the scout's team.
 #   alert:write            Every insight alert in the scout's project. Delete is PERMANENT: the
 #                          viewset has no soft-delete, so it removes the alert and its check
-#                          history for good.
+#                          history for good. It also attaches and removes the alert's Slack
+#                          destinations, bounded to workspaces the project already connected, so a
+#                          scout still reaches no URL of its own choosing.
 #   llm_skill:write        Every shared skill on the scout's project: body, description, and
 #                          bundled files. Custom scouts are skills in that same store, so this
 #                          reaches a sibling scout's prompt and the scout's own. Archive marks
@@ -422,6 +425,8 @@ def resolve_scopes(
             resolved = [*MCP_READ_SCOPES, *internal]
     else:
         resolved = [*scopes, *internal]
+    if include_internal_scopes and "organization:write" in resolved:
+        resolved.append(CONTEXT_LAYER_INTERNAL_SCOPE)
     return list(dict.fromkeys(resolved))
 
 

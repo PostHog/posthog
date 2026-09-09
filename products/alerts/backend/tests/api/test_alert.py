@@ -14,13 +14,21 @@ from rest_framework import status
 from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
 from posthog.api.tagged_item import set_tags_on_object
+from posthog.cdp.templates.fixtures import template_slack
+from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import AvailableFeature
 from posthog.models import User
+from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.alerts.backend.destinations import AlertDelivery
+from products.alerts.backend.destinations import AlertDelivery, count_active_alert_destinations
+from products.alerts.backend.insight_alert_destinations import (
+    INSIGHT_ALERT_EVENT_IDS,
+    MAX_DESTINATIONS_PER_ALERT,
+    SLACK_TEMPLATE_ID,
+)
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.product_analytics.backend.facade.models import Insight
@@ -2242,6 +2250,13 @@ class TestAlertAPIKeyAccess(APIBaseTest):
                 status.HTTP_403_FORBIDDEN,
                 "alert:write",
             ),
+            (
+                ["alert:read"],
+                "post",
+                "/{alert_id}/destinations/",
+                status.HTTP_403_FORBIDDEN,
+                "alert:write",
+            ),
         ]
     )
     def test_alert_api_key_access(self, scopes, http_method, endpoint_suffix, expected_status, error_scope):
@@ -2484,3 +2499,125 @@ class TestAlertRealTimeInterval(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "limit of 1 real-time alerts" in str(response.json())
+
+
+class TestAlertDestinations(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # Destination creation looks the template up by id through the HogFunction serializer.
+        sync_template_to_db(template_slack)
+        # No query on the insight, so this module does not drive another product's query runner.
+        self.insight = Insight.objects.create(team=self.team, name="Signups", created_by=self.user)
+        self.alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            name="Signups dropped",
+            created_by=self.user,
+        )
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"authed_user": {"id": "u"}},
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+        self.url = f"/api/projects/{self.team.id}/alerts/{self.alert.id}/destinations/"
+
+    def _slack_payload(self, **overrides: Any) -> dict[str, Any]:
+        return {
+            "type": "slack",
+            "slack_workspace_id": self.integration.id,
+            "slack_channel_id": "C123",
+            "slack_channel_name": "product-alerts",
+            **overrides,
+        }
+
+    def _active_destination_count(self) -> int:
+        return count_active_alert_destinations(
+            team_id=self.team.id, alert_id=str(self.alert.id), allowed_event_ids=INSIGHT_ALERT_EVENT_IDS
+        )
+
+    def test_alert_write_key_alone_attaches_a_slack_destination(self) -> None:
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Scout key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["alert:write"],
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            self.url, self._slack_payload(), format="json", HTTP_AUTHORIZATION=f"Bearer {key_value}"
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        hog_function_ids = response.json()["hog_function_ids"]
+        assert len(hog_function_ids) == 1
+        assert self._active_destination_count() == 1
+
+        hog_function = HogFunction.objects.get(id=hog_function_ids[0])
+        assert hog_function.template_id == SLACK_TEMPLATE_ID
+        assert hog_function.name == "Signups dropped: Slack #product-alerts"
+        assert (hog_function.inputs or {})["channel"]["value"] == "C123"
+        assert (hog_function.inputs or {})["slack_workspace"]["value"] == self.integration.id
+        assert (hog_function.filters or {})["events"] == [{"id": "$insight_alert_firing", "type": "events"}]
+        assert (hog_function.filters or {})["properties"] == [
+            {"key": "alert_id", "value": str(self.alert.id), "operator": "exact", "type": "event"}
+        ]
+        # The Slack snooze handler finds its alert through these two ids.
+        actions = next(block for block in (hog_function.inputs or {})["blocks"]["value"] if _is_actions_block(block))
+        assert actions["block_id"] == "insight_alert_snooze:{event.properties.alert_id}"
+        assert any(element.get("action_id") == "insight_alert_snooze" for element in actions["elements"])
+
+    @parameterized.expand(
+        [
+            ("webhook_url_instead_of_slack", {"type": "webhook", "webhook_url": "https://example.com/hook"}, "type"),
+            ("channel_missing", {"slack_channel_id": ""}, "slack_channel_id"),
+            ("workspace_not_connected", {"slack_workspace_id": 987654}, "slack_workspace_id"),
+        ]
+    )
+    def test_destination_request_is_refused(self, _name: str, overrides: dict, field: str) -> None:
+        response = self.client.post(self.url, self._slack_payload(**overrides), format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == field
+        assert self._active_destination_count() == 0
+
+    def test_another_teams_slack_workspace_is_refused(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_integration = Integration.objects.create(
+            team=other_team, kind="slack", integration_id="T999", config={}, sensitive_config={}
+        )
+
+        response = self.client.post(
+            self.url, self._slack_payload(slack_workspace_id=other_integration.id), format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert self._active_destination_count() == 0
+
+    def test_destination_is_removed_again(self) -> None:
+        created = self.client.post(self.url, self._slack_payload(), format="json")
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+
+        response = self.client.post(
+            f"{self.url}delete/", {"hog_function_ids": created.json()["hog_function_ids"]}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        assert self._active_destination_count() == 0
+
+    def test_an_alert_stops_taking_destinations_at_the_cap(self) -> None:
+        for index in range(MAX_DESTINATIONS_PER_ALERT):
+            response = self.client.post(self.url, self._slack_payload(slack_channel_id=f"C{index}"), format="json")
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        response = self.client.post(self.url, self._slack_payload(slack_channel_id="C-one-too-many"), format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert self._active_destination_count() == MAX_DESTINATIONS_PER_ALERT
+
+
+def _is_actions_block(block: Any) -> bool:
+    return isinstance(block, dict) and block.get("type") == "actions"
