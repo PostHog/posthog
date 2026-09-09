@@ -43,6 +43,7 @@ from ee.hogai.chat_agent.taxonomy.format import (
     format_properties_yaml,
     format_property_values,
 )
+from ee.hogai.chat_agent.taxonomy.session_properties import session_property_types, typed_session_properties
 from ee.hogai.chat_agent.taxonomy.virtual_properties import (
     PropertyDefinitionOrVirtual,
     VirtualPropertyGroup,
@@ -272,15 +273,10 @@ class TaxonomyAgentToolkit:
             sample_values = cast(list[str | int | float], DEFAULT_CHANNEL_TYPES.copy())
             sample_count = len(sample_values)
             is_str = True
-        elif (
-            property_name in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"]
-            and "examples" in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]
-        ):
+        elif "examples" in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]:
             sample_values = CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]["examples"]
             sample_count = None
-            is_str = (
-                CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]["type"] == PropertyType.String
-            )
+            is_str = session_property_types().get(property_name) == PropertyType.String
         else:
             return TaxonomyErrorMessages.property_values_not_found(property_name, "session")
 
@@ -683,11 +679,7 @@ class TaxonomyAgentToolkit:
                 status=status,
             )
         elif entity == "session":
-            props = [
-                (prop_name, prop["type"])
-                for prop_name, prop in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"].items()
-                if prop.get("type") is not None
-            ]
+            props = typed_session_properties()
 
             if props:
                 result = self._format_properties(self._enrich_props_with_descriptions("session", props))

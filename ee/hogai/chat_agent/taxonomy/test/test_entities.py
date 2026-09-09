@@ -139,7 +139,7 @@ class TestEntities(ClickhouseTestMixin, NonAtomicBaseTest):
         property_vals = await self.toolkit.retrieve_entity_property_values(
             {
                 "person": ["property_no_values"],
-                "session": ["$session_duration", "$channel_type", "nonexistent_property"],
+                "session": ["$session_duration", "$channel_type", "$entry_utm_source", "nonexistent_property"],
             }
         )
 
@@ -154,6 +154,9 @@ class TestEntities(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("session", property_vals)
         self.assertIn("$session_duration", "\n".join(property_vals.get("session", [])))
         self.assertIn("$channel_type", "\n".join(property_vals.get("session", [])))
+        # An acquisition column has examples but no type of its own, which used to raise a KeyError.
+        self.assertIn("$entry_utm_source", "\n".join(property_vals.get("session", [])))
+        self.assertTrue(any("Google" in str(val) for val in property_vals.get("session", [])))
         self.assertIn("nonexistent_property", "\n".join(property_vals.get("session", [])))
         self.assertTrue(
             any(

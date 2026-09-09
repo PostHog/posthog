@@ -187,11 +187,64 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("$virt_initial_channel_type", result)
         self.assertIn("$virt_revenue", result)
 
+    @parameterized.expand(
+        [
+            ["plural table name", "sessions", "$session_duration"],
+            ["mixed case", "Session", "$session_duration"],
+            ["plural person", "persons", "$virt_initial_channel_type"],
+        ]
+    )
+    def test_retrieve_entity_properties_accepts_the_name_a_query_uses(
+        self, _name: str, entity: str, expected_property: str
+    ):
+        result = DummyToolkit(self.team, self.user).retrieve_entity_properties(entity)
+
+        self.assertIn(f"- {expected_property}", result)
+
+    def test_retrieve_entity_properties_names_the_entities_it_has(self):
+        result = DummyToolkit(self.team, self.user).retrieve_entity_properties("sesion")
+
+        self.assertEqual(
+            result,
+            "The entity sesion does not exist in the taxonomy. You must use one of the following: person, session.",
+        )
+
+    def test_retrieve_entity_properties_lists_the_session_fields_web_analytics_breaks_down_by(self):
+        # A session property is reported only when it has a type, and the acquisition columns
+        # take theirs from the sessions table because their taxonomy definition has none.
+        breakdown_fields = (
+            "$entry_pathname",
+            "$entry_hostname",
+            "$end_pathname",
+            "$end_hostname",
+            "$entry_referring_domain",
+            "$entry_utm_source",
+            "$entry_utm_medium",
+            "$entry_utm_campaign",
+            "$entry_utm_term",
+            "$entry_utm_content",
+            "$channel_type",
+            "$last_external_click_url",
+        )
+
+        result = DummyToolkit(self.team, self.user).retrieve_entity_properties("session")
+
+        self.assertEqual([name for name in breakdown_fields if f"- {name} " not in result], [])
+
     def test_retrieve_entity_property_values(self):
         toolkit = DummyToolkit(self.team, self.user)
         self.assertEqual(
             toolkit.retrieve_entity_property_values("session", "$session_duration"),
             "30, 146, 2 and many more distinct values.",
+        )
+        self.assertEqual(
+            toolkit.retrieve_entity_property_values("sessions", "$session_duration"),
+            "30, 146, 2 and many more distinct values.",
+        )
+        # An acquisition column has examples but no type of its own, which used to raise a KeyError.
+        self.assertEqual(
+            toolkit.retrieve_entity_property_values("session", "$entry_utm_source"),
+            '"Google", "Bing", "Twitter", "Facebook" and many more distinct values.',
         )
         self.assertEqual(
             toolkit.retrieve_entity_property_values("session", "nonsense"),

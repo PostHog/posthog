@@ -116,12 +116,13 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
             [], self.team, self.user, limit=500, offset=0, event_source=EventSource.POSTHOG_AI
         )
 
+    @parameterized.expand([("singular", "person"), ("plural", "persons")])
     @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
-    def test_person_entity_properties_include_dynamic_hint(self, mock_toolkit_class):
+    def test_person_entity_properties_include_dynamic_hint(self, _name, entity, mock_toolkit_class):
         mock_toolkit = mock_toolkit_class.return_value
         mock_toolkit.retrieve_entity_properties.return_value = "- email\n- name"
 
-        result = execute_taxonomy_query(ReadEntityProperties(entity="person"), mock_toolkit, self.team, self.user)
+        result = execute_taxonomy_query(ReadEntityProperties(entity=entity), mock_toolkit, self.team, self.user)
 
         self.assertIn(DYNAMIC_PERSON_PROPERTIES_HINT, result)
         self.assertIn("$survey_dismissed", result)

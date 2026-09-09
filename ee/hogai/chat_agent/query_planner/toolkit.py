@@ -31,7 +31,9 @@ from products.event_definitions.backend.models.property_definition import (
     effective_project_id_expr,
 )
 
+from ee.hogai.chat_agent.taxonomy.entities import resolve_entity_name
 from ee.hogai.chat_agent.taxonomy.format import enrich_props_with_descriptions
+from ee.hogai.chat_agent.taxonomy.session_properties import session_property_types, typed_session_properties
 from ee.hogai.chat_agent.taxonomy.tools import (
     ask_user_for_help,
     retrieve_action_properties,
@@ -140,6 +142,9 @@ class TaxonomyAgentToolkit:
         ]
         return entities
 
+    def _entity_not_found_message(self, entity: str) -> str:
+        return f"The entity {entity} does not exist in the taxonomy. You must use one of the following: {', '.join(self._entity_names)}."
+
     def _generate_properties_output(self, props: list[tuple[str, str | None, str | None]]) -> str:
         """
         Generate the output format for properties. Can be overridden by subclasses.
@@ -214,8 +219,10 @@ class TaxonomyAgentToolkit:
         Retrieve properties for an entitiy like person, session, or one of the groups.
         """
 
-        if entity not in ("person", "session", *[g["group_type"] for g in self._groups]):
-            return f"Entity {entity} does not exist in the taxonomy."
+        resolved = resolve_entity_name(entity, self._entity_names)
+        if resolved is None:
+            return self._entity_not_found_message(entity)
+        entity = resolved
 
         truncated = False
         if entity == "person":
@@ -232,14 +239,7 @@ class TaxonomyAgentToolkit:
             props = self._enrich_props_with_descriptions("person", stored_props, stored_descriptions)
         elif entity == "session":
             # Session properties are not in the DB.
-            props = self._enrich_props_with_descriptions(
-                "session",
-                [
-                    (prop_name, prop["type"])
-                    for prop_name, prop in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"].items()
-                    if prop.get("type") is not None
-                ],
-            )
+            props = self._enrich_props_with_descriptions("session", typed_session_properties())
 
         else:
             group_type_index = next((g["group_type_index"] for g in self._groups if g["group_type"] == entity), None)
@@ -466,23 +466,20 @@ class TaxonomyAgentToolkit:
             sample_values = cast(list[str | int | float], DEFAULT_CHANNEL_TYPES.copy())
             sample_count = len(sample_values)
             is_str = True
-        elif (
-            property_name in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"]
-            and "examples" in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]
-        ):
+        elif "examples" in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]:
             sample_values = CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]["examples"]
             sample_count = None
-            is_str = (
-                CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"][property_name]["type"] == PropertyType.String
-            )
+            is_str = session_property_types().get(property_name) == PropertyType.String
         else:
             return f"Property values for {property_name} do not exist in the taxonomy for the session entity."
 
         return self._format_property_values(sample_values, sample_count, format_as_string=is_str)
 
     def retrieve_entity_property_values(self, entity: str, property_name: str) -> str:
-        if entity not in self._entity_names:
-            return f"The entity {entity} does not exist in the taxonomy. You must use one of the following: {', '.join(self._entity_names)}."
+        resolved = resolve_entity_name(entity, self._entity_names)
+        if resolved is None:
+            return self._entity_not_found_message(entity)
+        entity = resolved
 
         if entity == "session":
             return self._retrieve_session_properties(property_name)
