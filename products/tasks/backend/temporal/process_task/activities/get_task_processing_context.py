@@ -20,7 +20,6 @@ from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
     CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
-    CONTINUE_AS_NEW_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     DEV_STACK_IMAGE_NAME,
     DEV_STACK_PREVIEW_FEATURE_FLAG,
@@ -1055,36 +1054,6 @@ def _is_sandbox_rotation_enabled(
     return enabled
 
 
-def _is_continue_as_new_enabled(
-    *,
-    distinct_id: str,
-    organization_id: str,
-    run_id: str,
-) -> bool:
-    # The env setting force-enables (local E2E / emergency on); otherwise the org-level flag
-    # decides, so it can be toggled without a deploy. Captured at workflow start, so the
-    # continue_as_new trigger stays deterministic across replay. Fails closed.
-    if settings.TASKS_CONTINUE_AS_NEW_ENABLED:
-        return True
-    try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                CONTINUE_AS_NEW_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        log_with_activity_context("continue_as_new_flag_check_failed", run_id=run_id, error=str(e))
-        return False
-
-    log_with_activity_context("continue_as_new_flag_checked", run_id=run_id, continue_as_new_enabled=enabled)
-    return enabled
-
-
 @activity.defn
 @asyncify
 @close_db_connections
@@ -1550,11 +1519,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         rtk_enabled=rtk_enabled,
         benjamin_enabled=benjamin_enabled,
         claude_model_access=claude_model_access,
-        continue_as_new_enabled=_is_continue_as_new_enabled(
-            distinct_id=distinct_id,
-            organization_id=organization_id,
-            run_id=run_id,
-        ),
+        continue_as_new_enabled=settings.TASKS_CONTINUE_AS_NEW_ENABLED,
         continue_as_new_history_threshold=settings.TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD,
         interactive_max_run_duration_seconds=interactive_max_run_duration_seconds,
         sandbox_backend=sandbox_backend,
