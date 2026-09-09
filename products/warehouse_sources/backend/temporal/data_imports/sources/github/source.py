@@ -958,10 +958,6 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             inputs.s3_folder_name if isinstance(inputs.s3_folder_name, str) and inputs.s3_folder_name else None
         )
         response_name = NamingConvention.normalize_identifier(storage_key or inputs.schema_name)
-        incremental_last_value = inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
-        if endpoint == "deployment_statuses" and incremental_last_value is None:
-            incremental_last_value = inputs.last_synced_at
-
         return github_source(
             personal_access_token=access_token,
             repository=repository,
@@ -969,8 +965,11 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
-            db_incremental_field_last_value=incremental_last_value,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
             incremental_field=inputs.incremental_field,
+            reconcile_since=inputs.last_synced_at,
             webhook_source_manager=webhook_source_manager,
             egress_identity=egress_identity,
             response_name=response_name,

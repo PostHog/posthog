@@ -1489,6 +1489,7 @@ def github_source(
     egress_identity: GithubEgressIdentity | None = None,
     response_name: str | None = None,
     api_version: str = GITHUB_DEFAULT_API_VERSION,
+    reconcile_since: datetime | None = None,
 ) -> SourceResponse:
     endpoint_config = GITHUB_ENDPOINTS[endpoint]
 
@@ -1566,8 +1567,8 @@ def github_source(
             # webhook drain would miss rollback/auto_inactive transitions; chase the drain with a
             # bounded fan-out over recent parents so those rows still arrive from the list API.
             # should_use_incremental_field is forced on so the fan-out applies the parent recency
-            # skip against the previous successful sync's start time. This schema has no configured
-            # incremental field, so source_for_pipeline supplies that bounded reconciliation cursor.
+            # skip. A webhook schema configures no incremental field, so the previous successful
+            # sync's start (reconcile_since) stands in as the watermark.
             return _chain_webhook_items_with_reconciliation(
                 webhook_items,
                 lambda: get_rows(
@@ -1577,13 +1578,13 @@ def github_source(
                     logger=logger,
                     resumable_source_manager=resumable_source_manager,
                     should_use_incremental_field=True,
-                    db_incremental_field_last_value=db_incremental_field_last_value,
+                    db_incremental_field_last_value=db_incremental_field_last_value or reconcile_since,
                     incremental_field=incremental_field,
                     egress_identity=egress_identity,
                     api_version=api_version,
                     parent_cutoff_override=_now_utc() - timedelta(days=reconcile_days),
-                    # The recency skip bounds a steady-state run on its own. The cap stays on for the
-                    # first run after a long gap, when the skip admits the whole window.
+                    # Stays on with a watermark so the first run after a long gap stays bounded. A parent
+                    # past the cap loses its inactive transition until GitHub updates it again.
                     max_parents=endpoint_config.max_fan_out_parents,
                 ),
             )

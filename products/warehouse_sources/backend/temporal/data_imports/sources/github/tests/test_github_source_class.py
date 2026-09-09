@@ -712,6 +712,7 @@ class TestGithubSource:
         inputs.schema_metadata = None
         inputs.s3_folder_name = "issues"
         inputs.should_use_incremental_field = False
+        inputs.last_synced_at = datetime.datetime(2026, 9, 8, tzinfo=datetime.UTC)
 
         self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
 
@@ -719,22 +720,7 @@ class TestGithubSource:
         assert kwargs["repository"] == "legacy/repo"
         assert kwargs["endpoint"] == "issues"
         assert kwargs["response_name"] == "issues"
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.github.source.github_source")
-    def test_deployment_statuses_reconcile_from_last_successful_sync(self, mock_github_source):
-        config = _pat_config(repository="legacy/repo")
-        last_synced_at = datetime.datetime(2026, 9, 8, tzinfo=datetime.UTC)
-        inputs = mock.MagicMock()
-        inputs.team_id = self.team_id
-        inputs.schema_name = "deployment_statuses"
-        inputs.schema_metadata = None
-        inputs.s3_folder_name = "deployment_statuses"
-        inputs.should_use_incremental_field = False
-        inputs.last_synced_at = last_synced_at
-
-        self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
-
-        assert mock_github_source.call_args.kwargs["db_incremental_field_last_value"] == last_synced_at
+        assert kwargs["reconcile_since"] == inputs.last_synced_at
 
     @pytest.mark.parametrize(
         "pin,expected",

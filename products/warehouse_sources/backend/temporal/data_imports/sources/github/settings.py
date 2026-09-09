@@ -370,7 +370,7 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # rollbacks and auto_inactive transitions, leaving a superseded deployment looking current.
         # Each sync therefore chases the webhook drain with a bounded reconciliation fan-out over
         # deployments created in the last 30 days; the updated_at recency skip keeps that to
-        # parents that actually gained a status since the child watermark.
+        # parents that actually gained a status since the previous successful sync started.
         initial_lookback_days=0,
         webhook_reconcile_lookback_days=30,
         # Statuses stop arriving within hours of the deployment, and 500 spans over a day even on a

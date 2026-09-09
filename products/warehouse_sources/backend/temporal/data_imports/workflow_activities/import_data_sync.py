@@ -441,7 +441,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         if delta_rebuild_pending:
             await logger.adebug("Ignoring the incremental cursor: a corrupt-delta revive rebuilds the table this run")
 
-        if reset_pipeline is not True and not delta_rebuild_pending:
+        use_stored_cursors = reset_pipeline is not True and not delta_rebuild_pending
+        if use_stored_cursors:
             processed_incremental_last_value = process_incremental_value(
                 schema.sync_type_config.get("incremental_field_last_value"),
                 schema.sync_type_config.get("incremental_field_type"),
@@ -520,7 +521,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 else None,
                 db_incremental_field_last_value_before_lookback=incremental_last_value_before_lookback,
                 history_start=history_start,
-                last_synced_at=schema.last_synced_at,
+                last_synced_at=schema.last_synced_at if use_stored_cursors else None,
                 logger=logger,
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,

@@ -137,18 +137,16 @@ def test_webhook_enabled_deployment_statuses_reconciles_inactive_statuses() -> N
 
 
 @pytest.mark.parametrize(
-    "watermark_offset,cap,settled_ids,expected_parents",
+    "reconcile_since_offset",
     [
         # First sync: no watermark, so the cap is the only bound and keeps the newest parents.
-        (None, 2, [], ["1", "2"]),
-        # Watermark set but every parent updated since: the cap still bounds the run.
-        (timedelta(days=3), 2, [], ["1", "2"]),
-        # Parents whose updated_at predates the watermark hold no unseen status and are skipped.
-        (timedelta(days=3), 10, [3, 4], ["1", "2"]),
+        None,
+        # Every parent updated since the last sync: the cap still bounds the run.
+        timedelta(days=3),
     ],
 )
-def test_webhook_enabled_deployment_statuses_reconciliation_bounds_the_parent_fan_out(
-    watermark_offset: timedelta | None, cap: int, settled_ids: list[int], expected_parents: list[str]
+def test_webhook_enabled_deployment_statuses_reconciliation_caps_the_parent_fan_out(
+    reconcile_since_offset: timedelta | None,
 ) -> None:
     now = datetime(2026, 7, 24, 12, 0, 0, tzinfo=UTC)
 
@@ -158,12 +156,12 @@ def test_webhook_enabled_deployment_statuses_reconciliation_bounds_the_parent_fa
     webhook_source_manager = _webhook_manager(enabled=True, items=webhook_items())
 
     # Newest first, the order GitHub returns deployments in and the order the cap relies on.
-    # All four sit inside the reconcile window; settled ones were last updated before the watermark.
+    # All four sit inside the reconcile window and above any watermark below.
     deployments_page = [
         {
             "id": index,
             "created_at": _iso(now - timedelta(hours=index)),
-            "updated_at": _iso(now - (timedelta(days=5) if index in settled_ids else timedelta(hours=index))),
+            "updated_at": _iso(now - timedelta(hours=index)),
         }
         for index in range(1, 5)
     ]
@@ -180,7 +178,7 @@ def test_webhook_enabled_deployment_statuses_reconciliation_bounds_the_parent_fa
         return response
 
     with (
-        mock.patch.object(github.GITHUB_ENDPOINTS["deployment_statuses"], "max_fan_out_parents", cap),
+        mock.patch.object(github.GITHUB_ENDPOINTS["deployment_statuses"], "max_fan_out_parents", 2),
         mock.patch.object(github, "_fetch_page", side_effect=fetch_page) as fetch_mock,
         mock.patch.object(github, "_now_utc", return_value=now),
     ):
@@ -190,16 +188,15 @@ def test_webhook_enabled_deployment_statuses_reconciliation_bounds_the_parent_fa
             endpoint="deployment_statuses",
             logger=mock.Mock(),
             resumable_source_manager=_no_resume(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None if watermark_offset is None else now - watermark_offset,
             webhook_source_manager=webhook_source_manager,
+            reconcile_since=None if reconcile_since_offset is None else now - reconcile_since_offset,
         )
         result = response.items()
         assert isinstance(result, AsyncIterator)
         asyncio.run(_collect(result))
 
     status_fetches = [url for url in fetch_mock.call_args_list if "/statuses" in url.args[0]]
-    assert [url.args[0].split("/deployments/")[1].split("/")[0] for url in status_fetches] == expected_parents
+    assert [url.args[0].split("/deployments/")[1].split("/")[0] for url in status_fetches] == ["1", "2"]
 
 
 def test_poll_mode_workflow_runs_still_polls() -> None:
