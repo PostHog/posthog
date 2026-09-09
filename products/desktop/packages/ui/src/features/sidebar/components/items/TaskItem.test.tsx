@@ -54,7 +54,7 @@ describe("TaskItem", () => {
 
     const row = screen.getByText("Archive me").closest("button");
     expect(row).toHaveAttribute("aria-busy", "true");
-    expect(row).toBeDisabled();
+    expect(row).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByText("Archiving")).toHaveClass("sr-only");
     expect(container.querySelector("[aria-hidden='true']")).not.toBeNull();
     expect(screen.queryByRole("textbox")).toBeNull();
